@@ -8,7 +8,7 @@ export type ConnectorTier = "free" | "forms" | "email" | "browser_agent" | "huma
 /**
  * Provenance / trust origin of a captured artifact (PI-1). Mirrors
  * `@bridge/core`'s `TrustOrigin` union verbatim — duplicated here (not imported)
- * because @bridge/sourcing is intentionally dependency-free (a leaf package).
+ * because @bridge/sourcing is intentionally dependency-free (a leaf module).
  * The two unions are structurally identical so values cross the boundary freely.
  * Anything fetched from outside the user/kernel is `untrusted_external`.
  */

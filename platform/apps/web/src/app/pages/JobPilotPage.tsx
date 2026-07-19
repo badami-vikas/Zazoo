@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Briefcase, MoreHorizontal } from "lucide-react";
 import { Link } from "react-router";
 import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
@@ -74,8 +74,8 @@ export function JobPilotPage() {
 
   useEffect(() => {
     Promise.all([
-      trpc.jobpilot.list.query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 }),
-      trpc.jobpilot.definition.query({ workspaceId: PILOT_WORKSPACE }),
+      trpc.jobpilot.list.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 }),
+      trpc.jobpilot.definition.query({ organizationId: PILOT_ORGANIZATION }),
     ])
       .then(([nextPage, nextDefinition]) => {
         setPage(nextPage);

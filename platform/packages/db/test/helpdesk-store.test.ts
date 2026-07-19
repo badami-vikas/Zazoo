@@ -4,7 +4,7 @@
  * only on possession of the opaque `accessToken` (createTicket → getTicketByToken
  * → replyByToken, with unknown tokens returning null indistinguishably), and the
  * AUTHENTICATED agent path (listTickets / getTicket / replyAsAgent) which is
- * workspace-scoped. Ticket status transitions: replyByToken reopens, replyAsAgent
+ * organization-scoped. Ticket status transitions: replyByToken reopens, replyAsAgent
  * can set a status.
  */
 import assert from "node:assert/strict";
@@ -18,9 +18,9 @@ test("helpdesk: public token flow + authenticated agent flow", async () => {
   const { db, close } = await createLocalDb();
   try {
     const [ws] = await db
-      .insert(schema.workspaces)
+      .insert(schema.organizations)
       .values({ name: "test_fixture_ws_helpdesk" })
-      .returning({ id: schema.workspaces.id });
+      .returning({ id: schema.organizations.id });
     assert.ok(ws);
     const [agent] = await db
       .insert(schema.users)
@@ -30,7 +30,7 @@ test("helpdesk: public token flow + authenticated agent flow", async () => {
     const store = new DrizzleHelpdeskStore(db);
 
     const createInput = {
-      workspaceId: ws.id,
+      organizationId: ws.id,
       subject: "Cannot log in",
       submitterEmail: "user@example.com",
       submitterName: "Sam",
@@ -115,16 +115,16 @@ test("helpdesk: legacy plaintext tokens migrate on first use without making hash
   const { db, close } = await createLocalDb();
   try {
     const [ws] = await db
-      .insert(schema.workspaces)
+      .insert(schema.organizations)
       .values({ name: "test_fixture_ws_helpdesk_legacy" })
-      .returning({ id: schema.workspaces.id });
+      .returning({ id: schema.organizations.id });
     assert.ok(ws);
 
     const ticketId = "00000000-0000-4000-8000-0000000000aa";
     const legacyToken = "legacy-plaintext-submit-token";
     await db.insert(schema.helpdeskTickets).values({
       id: ticketId,
-      workspaceId: ws.id,
+      organizationId: ws.id,
       subject: "Legacy ticket",
       submitterEmail: "legacy@example.com",
       accessToken: legacyToken,

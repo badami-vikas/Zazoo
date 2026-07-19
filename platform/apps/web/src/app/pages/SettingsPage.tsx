@@ -4,11 +4,11 @@
  * legacy route and tRPC identifiers remain time-boxed under VOCAB2.
  *
  * Ten sections (requests.md R-017..R-020). Real data where endpoints exist:
- *   Organization        → workspace.list (name/id; onboarding owns rename UX)
- *   Team & Permissions  → workspace.listMembers + workspace.inviteMember
+ *   Organization        → organization.list (name/id; onboarding owns rename UX)
+ *   Team & Permissions  → organization.listMembers + organization.inviteMember
  *   Knowledge           → google.list + integration.list (connected sources)
  *                         + progressive-disclosure link to /knowledge-base
- *   Capabilities        → packages.list (installed Modules)
+ *   Capabilities        → modules.list (installed Modules)
  *                         + links to manifest-driven Module Detail
  *   Governance          → action.listPending (approvals) + ExecutionLedger
  * Notifications / Billing & Plan / Security / API Keys have NO backend yet —
@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { ExecutionLedger } from "../components/ExecutionLedger";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { MODULE_ROUTES } from "../lib/moduleRoutes";
 
 const navItems = [
@@ -50,20 +50,20 @@ function LearningSection() {
 
   function refresh() {
     trpc.onboarding.learningState
-      .query({ workspaceId: PILOT_WORKSPACE })
+      .query({ organizationId: PILOT_ORGANIZATION })
       .then(setState)
       .catch((error) => setMessage(String(error)));
   }
   function refreshFlags() {
     trpc.redFlag.listAll
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 20 })
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 20 })
       .then(setFlagState)
       .catch((error) => setMessage(String(error)));
   }
   function loadMoreFlags() {
     if (!flagState?.nextCursor) return;
     trpc.redFlag.listAll
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 20, cursor: flagState.nextCursor })
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 20, cursor: flagState.nextCursor })
       .then((next) => setFlagState((prev) => (prev ? { flags: [...prev.flags, ...next.flags], nextCursor: next.nextCursor } : next)))
       .catch((error) => setMessage(String(error)));
   }
@@ -80,7 +80,7 @@ function LearningSection() {
     const next = window.prompt("What should Bridge remember instead?", preference.value.admiredFor);
     if (!next?.trim()) return;
     await trpc.onboarding.correctMemory.mutate({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       memoryId: preference.row.id,
       content: next.trim(),
     });
@@ -91,7 +91,7 @@ function LearningSection() {
   async function forget() {
     if (!preference || !window.confirm("Delete this learned preference from Bridge?")) return;
     await trpc.onboarding.forgetMemory.mutate({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       memoryId: preference.row.id,
     });
     setMessage("Preference deleted.");
@@ -101,7 +101,7 @@ function LearningSection() {
   async function forgetTrustCapture(memoryId: string) {
     if (!window.confirm("Delete this one-time observation from Bridge?")) return;
     await trpc.onboarding.forgetMemory.mutate({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       memoryId,
     });
     setMessage("One-time observation deleted.");
@@ -111,7 +111,7 @@ function LearningSection() {
   async function updateReflection(action: "snooze" | "pause" | "resume" | "skip") {
     if (!reflection) return;
     await trpc.onboarding.setReflection.mutate({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       memoryId: reflection.row.id,
       action,
     });
@@ -120,20 +120,20 @@ function LearningSection() {
   }
 
   async function clearFlag(flagId: string) {
-    await trpc.redFlag.clear.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
+    await trpc.redFlag.clear.mutate({ organizationId: PILOT_ORGANIZATION, flagId });
     setMessage("Flag cleared.");
     refreshFlags();
   }
 
   async function reopenFlag(flagId: string) {
-    await trpc.redFlag.reopen.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
+    await trpc.redFlag.reopen.mutate({ organizationId: PILOT_ORGANIZATION, flagId });
     setMessage("Flag reopened.");
     refreshFlags();
   }
 
   async function forgetFlag(flagId: string) {
     if (!window.confirm("Permanently delete this flag's history? Clearing (reversible) is usually the better choice.")) return;
-    await trpc.redFlag.forget.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
+    await trpc.redFlag.forget.mutate({ organizationId: PILOT_ORGANIZATION, flagId });
     setMessage("Flag permanently deleted.");
     refreshFlags();
   }
@@ -289,9 +289,9 @@ function OrganizationSection() {
   const [org, setOrg] = useState<{ id: string; name: string; createdAt: string } | null | undefined>(undefined);
 
   useEffect(() => {
-    trpc.workspace.list
+    trpc.organization.list
       .query()
-      .then((rows) => setOrg(rows.find((w) => w.id === PILOT_WORKSPACE) ?? null))
+      .then((rows) => setOrg(rows.find((w) => w.id === PILOT_ORGANIZATION) ?? null))
       .catch(() => setOrg(null));
   }, []);
 
@@ -308,7 +308,7 @@ function OrganizationSection() {
           </div>
           <div>
             <div className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wider mb-1">Organization ID</div>
-            <code className="text-xs bg-[var(--color-surface)] px-2 py-1 rounded text-[var(--color-navy-mid)]">{PILOT_WORKSPACE}</code>
+            <code className="text-xs bg-[var(--color-surface)] px-2 py-1 rounded text-[var(--color-navy-mid)]">{PILOT_ORGANIZATION}</code>
           </div>
           {org !== undefined && (
             <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
@@ -329,8 +329,8 @@ function TeamSection() {
   const [inviteNote, setInviteNote] = useState<string | null>(null);
 
   function refresh() {
-    trpc.workspace.listMembers
-      .query({ workspaceId: PILOT_WORKSPACE })
+    trpc.organization.listMembers
+      .query({ organizationId: PILOT_ORGANIZATION })
       .then(setMembers)
       .catch((e) => setError(String(e)));
   }
@@ -341,7 +341,7 @@ function TeamSection() {
     setInviting(true);
     setInviteNote(null);
     try {
-      const res = await trpc.workspace.inviteMember.mutate({ workspaceId: PILOT_WORKSPACE, email: inviteEmail.trim() });
+      const res = await trpc.organization.inviteMember.mutate({ organizationId: PILOT_ORGANIZATION, email: inviteEmail.trim() });
       setInviteNote(`Invited ${res.email}.`);
       setInviteEmail("");
       refresh();
@@ -418,7 +418,7 @@ function KnowledgeSection() {
 
   useEffect(() => {
     trpc.google.list.query().then(setGoogle).catch(() => {});
-    trpc.integration.list.query({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 }).then(setConnected).catch(() => {});
+    trpc.integration.list.query({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 }).then(setConnected).catch(() => {});
   }, []);
 
   const sources: { name: string; status: string; to?: string }[] = [
@@ -469,15 +469,15 @@ function KnowledgeSection() {
   );
 }
 
-type PackagesResult = Awaited<ReturnType<typeof trpc.packages.list.query>>;
+type ModulesResult = Awaited<ReturnType<typeof trpc.modules.list.query>>;
 
 function IntelligenceSection() {
-  const [result, setResult] = useState<PackagesResult | null>(null);
+  const [result, setResult] = useState<ModulesResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    trpc.packages.list
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
+    trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
       .then(setResult)
       .catch((e) => setError(String(e)));
   }, []);
@@ -511,12 +511,12 @@ function IntelligenceSection() {
               <div key={row.id} className="flex items-center justify-between gap-3 px-6 py-3.5">
                 <div>
                   <Link
-                    to={`/module/${encodeURIComponent(row.packageName)}`}
+                    to={`/module/${encodeURIComponent(row.moduleName)}`}
                     className="text-sm font-medium text-[var(--color-navy)] no-underline hover:text-[var(--color-steel)] hover:underline"
                   >
-                    {MODULE_ROUTES[row.packageName]?.label ?? row.packageName}
+                    {MODULE_ROUTES[row.moduleName]?.label ?? row.moduleName}
                   </Link>
-                  <span className="text-xs text-[var(--color-warm-gray)]"> · v{row.packageVersion}</span>
+                  <span className="text-xs text-[var(--color-warm-gray)]"> · v{row.moduleVersion}</span>
                 </div>
                 <span className="text-xs border border-[var(--color-border)] rounded px-1.5 py-0.5 text-[var(--color-navy-mid)]">{row.state}</span>
               </div>
@@ -534,7 +534,7 @@ function GovernanceSection() {
   const [pending, setPending] = useState<PendingResult | null>(null);
 
   useEffect(() => {
-    trpc.action.listPending.query({ workspaceId: PILOT_WORKSPACE, limit: 5, offset: 0 }).then(setPending).catch(() => {});
+    trpc.action.listPending.query({ organizationId: PILOT_ORGANIZATION, limit: 5, offset: 0 }).then(setPending).catch(() => {});
   }, []);
 
   return (

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { BCG_APPLICATION } from './bcg-application.ts';
 
-test('BCG application workspace contains the complete governed artifact set', () => {
+test('BCG application organization contains the complete governed artifact set', () => {
   assert.equal(BCG_APPLICATION.company, 'Boston Consulting Group');
   assert.equal(BCG_APPLICATION.role, 'Consultant — MBA');
   assert.equal(BCG_APPLICATION.submission.requiresHumanApproval, true);

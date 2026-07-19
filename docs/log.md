@@ -1289,7 +1289,7 @@ blueprint client-side and renders real graph.* data, honest empty states where u
 `pnpm --filter @bridge/web build` passes. ADR-017 in decisions-log.
 
 ## 2026-07-06 — Capability package format (docs-only, ADR-018)
-New `docs/raw/capability-package-format.md`: the shipping unit ABOVE one `capability_manifests`
+New `docs/raw/capability-module-format.md`: the shipping unit ABOVE one `capability_manifests`
 row (ADR-012 trust model = kernel this builds on, unchanged, no code touched this pass). Package
 manifest (`package.yaml`) bundles MULTIPLE capability manifests + a dir following agentskills.io
 progressive disclosure (L1 `package.yaml`/`README.md` · L2 `capabilities/` · L3 `scripts/`/

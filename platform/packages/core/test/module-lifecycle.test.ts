@@ -1,0 +1,212 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  advanceModuleState,
+  InvalidModuleTransitionError,
+  promoteToAvailable,
+  rollbackFromHistory,
+  InMemoryModuleStore,
+  type ModuleInstallationRow,
+} from "../src/index.js";
+
+function row(overrides: Partial<ModuleInstallationRow> = {}): ModuleInstallationRow {
+  return {
+    id: "test_fixture_row_1",
+    organizationId: "test_fixture_ws",
+    moduleName: "dummy-module",
+    moduleVersion: "1.0.0",
+    manifest: {
+      name: "dummy-module",
+      version: "1.0.0",
+      kind: "organization_definition",
+      summary: "s",
+      description: "d",
+      lineageManifestId: null,
+      dependencies: [],
+      capabilities: [],
+      contextProviders: [],
+      organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+    },
+    computedRisk: "informational",
+    state: "private",
+    status: "pending_review",
+    lineageManifestId: null,
+    createdAt: new Date(0).toISOString(),
+    ...overrides,
+  };
+}
+
+test("advanceModuleState: walks the forward chain", () => {
+  assert.equal(advanceModuleState("private"), "promoted");
+  assert.equal(advanceModuleState("promoted"), "available");
+  assert.equal(advanceModuleState("available"), "legacy");
+  assert.equal(advanceModuleState("legacy"), "deprecating");
+  assert.equal(advanceModuleState("deprecating"), "deprecated");
+});
+
+test("advanceModuleState: deprecated is terminal", () => {
+  assert.throws(() => advanceModuleState("deprecated"), InvalidModuleTransitionError);
+});
+
+test("promoteToAvailable: first-ever promotion has no demoted version", () => {
+  const target = row({ id: "v1", state: "promoted" });
+  const result = promoteToAvailable(target, null);
+  assert.equal(result.promoted.installationId, "v1");
+  assert.equal(result.promoted.nextState, "available");
+  assert.equal(result.demoted, undefined);
+});
+
+test("promoteToAvailable: auto-demotes the prior available version, never two live at once", () => {
+  const prior = row({ id: "v1", state: "available" });
+  const target = row({ id: "v2", state: "promoted" });
+  const result = promoteToAvailable(target, prior);
+  assert.equal(result.promoted.installationId, "v2");
+  assert.equal(result.promoted.nextState, "available");
+  assert.equal(result.demoted?.installationId, "v1");
+  assert.equal(result.demoted?.nextState, "legacy");
+});
+
+test("promoteToAvailable: rejects a target not in the promoted state", () => {
+  const target = row({ id: "v1", state: "private" });
+  assert.throws(() => promoteToAvailable(target, null), InvalidModuleTransitionError);
+});
+
+test("promoteToAvailable: rejects mismatched organization/module for the currently-available row", () => {
+  const prior = row({ id: "v1", state: "available", moduleName: "other-module" });
+  const target = row({ id: "v2", state: "promoted" });
+  assert.throws(() => promoteToAvailable(target, prior), /same organization\+module/);
+});
+
+test("rollbackFromHistory: forks a NEW draft row, never mutating the historical one", () => {
+  const current = row({ id: "current", moduleVersion: "1.2.0", state: "available" });
+  const historical = row({ id: "hist", moduleVersion: "1.1.0", state: "legacy" });
+  const forked = rollbackFromHistory({ currentAvailable: current, rollbackTarget: historical });
+
+  assert.equal(forked.moduleVersion, "1.2.0-rollback-from-1.1.0");
+  assert.equal(forked.state, "private");
+  assert.equal(forked.status, "pending_review");
+  assert.equal(forked.lineageManifestId, "hist");
+  // historical row itself is untouched (this function returns a NEW row, doesn't take a store).
+  assert.equal(historical.state, "legacy");
+});
+
+test("rollbackFromHistory: rejects local forks of content-hash-pinned Commons artifacts", () => {
+  const moduleAttachment = {
+    source: "commons" as const,
+    ownerModuleName: "job-pilot",
+    agentId: "application-agent",
+    needId: "calendar",
+    contentHash: `sha256:${"1".repeat(64)}`,
+  };
+  const current = row({ id: "current", moduleVersion: "1.2.0", state: "available", moduleAttachment });
+  const historical = row({ id: "hist", moduleVersion: "1.1.0", state: "legacy", moduleAttachment });
+
+  assert.throws(
+    () => rollbackFromHistory({ currentAvailable: current, rollbackTarget: historical }),
+    /exact signed version/,
+  );
+});
+
+test("rollbackFromHistory: rejects a cross-module rollback target", () => {
+  const current = row({ id: "current", moduleName: "module-a" });
+  const historical = row({ id: "hist", moduleName: "module-b" });
+  assert.throws(() => rollbackFromHistory({ currentAvailable: current, rollbackTarget: historical }), /same module name/);
+});
+
+test("InMemoryModuleStore: create/get/list round trip", async () => {
+  const store = new InMemoryModuleStore();
+  const created = await store.create({
+    organizationId: "test_fixture_ws",
+    moduleName: "dummy-module",
+    moduleVersion: "1.0.0",
+    manifest: row().manifest,
+    computedRisk: "informational",
+    state: "private",
+    status: "pending_review",
+    lineageManifestId: null,
+  });
+
+  test("InMemoryModuleStore: attachment retries require identical signed content but allow rerisking", async () => {
+    const store = new InMemoryModuleStore();
+    const attachment = {
+      source: "commons" as const,
+      ownerModuleName: "job-pilot",
+      agentId: "application-agent",
+      needId: "calendar",
+      contentHash: `sha256:${"1".repeat(64)}`,
+    };
+    const base = {
+      organizationId: "test_fixture_ws",
+      moduleName: "dummy-module",
+      moduleVersion: "1.0.0",
+      manifest: row().manifest,
+      computedRisk: "informational" as const,
+      state: "private" as const,
+      status: "pending_review" as const,
+      lineageManifestId: null,
+      moduleAttachment: attachment,
+    };
+    const created = await store.create(base);
+    const reriskedRetry = await store.create({ ...base, computedRisk: "external" });
+    assert.equal(reriskedRetry.id, created.id);
+    await assert.rejects(
+      () =>
+        store.create({
+          ...base,
+          moduleAttachment: { ...attachment, contentHash: `sha256:${"2".repeat(64)}` },
+        }),
+      /conflicting immutable content/,
+    );
+  });
+  assert.ok(created.id);
+  const fetched = await store.get(created.id);
+  assert.equal(fetched?.moduleName, "dummy-module");
+  const { items, total } = await store.list("test_fixture_ws", { limit: 10, offset: 0 });
+  assert.equal(total, 1);
+  assert.equal(items[0]?.id, created.id);
+});
+
+test("InMemoryModuleStore: getAvailable returns the one available version", async () => {
+  const store = new InMemoryModuleStore();
+  const v1 = await store.create({
+    organizationId: "test_fixture_ws",
+    moduleName: "dummy-module",
+    moduleVersion: "1.0.0",
+    manifest: row().manifest,
+    computedRisk: "informational",
+    state: "available",
+    status: "installed",
+    lineageManifestId: null,
+  });
+  await store.create({
+    organizationId: "test_fixture_ws",
+    moduleName: "dummy-module",
+    moduleVersion: "0.9.0",
+    manifest: row().manifest,
+    computedRisk: "informational",
+    state: "legacy",
+    status: "installed",
+    lineageManifestId: null,
+  });
+  const available = await store.getAvailable("test_fixture_ws", "dummy-module");
+  assert.equal(available?.id, v1.id);
+});
+
+test("InMemoryModuleStore: setState/setStatus mutate a single row", async () => {
+  const store = new InMemoryModuleStore();
+  const created = await store.create({
+    organizationId: "test_fixture_ws",
+    moduleName: "dummy-module",
+    moduleVersion: "1.0.0",
+    manifest: row().manifest,
+    computedRisk: "informational",
+    state: "private",
+    status: "pending_review",
+    lineageManifestId: null,
+  });
+  const promoted = await store.setState(created.id, "promoted");
+  assert.equal(promoted.state, "promoted");
+  const installed = await store.setStatus(created.id, "installed");
+  assert.equal(installed.status, "installed");
+});

@@ -6,13 +6,13 @@ import {
   DEALPILOT_SOURCE_AUTOMATION_ID,
   DEALPILOT_SOURCE_AUTOMATION_KEY,
   DEALPILOT_SOURCING_AGENT_ID,
-} from "../src/built-in-packages.js";
+} from "../src/built-in-modules.js";
 import {
   DRAFT_OUTREACH_TASK_TYPE,
   RELATIONSHIP_OUTREACH_GOAL_TYPE,
   buildWiring,
   PILOT_USER,
-  PILOT_WORKSPACE,
+  PILOT_ORGANIZATION,
   type Wiring,
 } from "../src/wiring.js";
 
@@ -34,12 +34,12 @@ function makeCaller(wiring: Wiring) {
 
 async function seedOutreachGoalTask(caller: ReturnType<typeof makeCaller>, agentId: string) {
   const goal = await caller.agentOrchestration.goal.create({
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     type: RELATIONSHIP_OUTREACH_GOAL_TYPE,
     title: "Ownership test goal",
   });
   const task = await caller.agentOrchestration.task.create({
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     goalId: goal.id,
     type: DRAFT_OUTREACH_TASK_TYPE,
     assignedAgentId: agentId,
@@ -52,13 +52,13 @@ test("automation.runById derives its actor from the stored owning Agent", async 
   try {
     const caller = makeCaller(wiring);
     const agent = await caller.agent.create({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "Ownership test Agent",
       roleTemplateId: "outreach",
     });
     const { goal, task } = await seedOutreachGoalTask(caller, agent.agentId);
     const created = await caller.automation.create({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "Ownership test Automation",
       agentId: agent.agentId,
       steps: [{
@@ -73,7 +73,7 @@ test("automation.runById derives its actor from the stored owning Agent", async 
     if (!created.ok) return;
 
     const result = await caller.automation.runById({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       automationId: created.automationId,
     });
     assert.equal(result.proposals[0]?.request.actor.type, "agent");
@@ -102,14 +102,14 @@ test("automation.create rejects an inactive or unknown owning Agent", async () =
   try {
     const caller = makeCaller(wiring);
     const agent = await caller.agent.create({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "Inactive ownership test Agent",
       roleTemplateId: "outreach",
     });
     assert.ok(wiring.memory);
     wiring.memory.agents.statuses.set(agent.agentId, "paused");
     const input = {
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "Invalid owner Automation",
       steps: [{
         skill: "outreach.stageDraft",
@@ -139,7 +139,7 @@ test("manifest-declared DealPilot Automation registers its cloud owning Agent", 
   const wiring = await buildWiring();
   try {
     const definition = await wiring.automationRegistry.load(
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       DEALPILOT_SOURCE_AUTOMATION_ID,
     );
     assert.equal(definition?.agentId, DEALPILOT_SOURCING_AGENT_ID);
@@ -150,8 +150,8 @@ test("manifest-declared DealPilot Automation registers its cloud owning Agent", 
     assert.ok(definition?.steps[0]?.goalTaskRef);
     const goalTaskRef = definition.steps[0]!.goalTaskRef!;
     const [goal, task] = await Promise.all([
-      wiring.goalTasks.getGoal(PILOT_WORKSPACE, goalTaskRef.goalId),
-      wiring.goalTasks.getTask(PILOT_WORKSPACE, goalTaskRef.taskId),
+      wiring.goalTasks.getGoal(PILOT_ORGANIZATION, goalTaskRef.goalId),
+      wiring.goalTasks.getTask(PILOT_ORGANIZATION, goalTaskRef.taskId),
     ]);
     assert.ok(goal);
     assert.equal(task?.assignedAgentId, DEALPILOT_SOURCING_AGENT_ID);
@@ -165,27 +165,27 @@ test("manifest Automation keys resolve only through their installed owning Modul
   const wiring = await buildWiring();
   try {
     const caller = makeCaller(wiring);
-    const packages = await caller.packages.list({
-      workspaceId: PILOT_WORKSPACE,
+    const modules = await caller.modules.list({
+      organizationId: PILOT_ORGANIZATION,
       limit: 100,
       offset: 0,
     });
-    const dealPilot = packages.items.find((item) => item.packageName === "deal-pilot");
+    const dealPilot = modules.items.find((item) => item.moduleName === "deal-pilot");
     assert.ok(dealPilot?.runtimeAutomationIds.length);
 
     await assert.rejects(
       () =>
         caller.automation.runById({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           automationId: DEALPILOT_SOURCE_AUTOMATION_KEY,
-          modulePackageName: "job-pilot",
+          moduleName: "job-pilot",
         }),
       /no verified runtime binding/,
     );
     await assert.rejects(
       () =>
         caller.automation.runById({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           automationId: DEALPILOT_SOURCE_AUTOMATION_ID,
         }),
       /manifest key and Module binding/,
@@ -211,16 +211,16 @@ test("automation routes reject authenticated nonmembers before loading definitio
     await assert.rejects(
       () =>
         outsider.automation.runById({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           automationId: DEALPILOT_SOURCE_AUTOMATION_KEY,
-          modulePackageName: "deal-pilot",
+          moduleName: "deal-pilot",
         }),
-      /not a member of workspace/,
+      /not a member of organization/,
     );
     await assert.rejects(
       () =>
         outsider.automation.create({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           name: "Unauthorized Automation",
           agentId: DEALPILOT_SOURCING_AGENT_ID,
           steps: [{
@@ -230,7 +230,7 @@ test("automation routes reject authenticated nonmembers before loading definitio
             inputs: {},
           }],
         }),
-      /not a member of workspace/,
+      /not a member of organization/,
     );
   } finally {
     await wiring.close();

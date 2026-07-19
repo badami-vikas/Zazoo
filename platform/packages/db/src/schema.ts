@@ -3,7 +3,7 @@
  *
  * Conventions (from the SQL header):
  *   - uuid PKs (gen_random_uuid)
- *   - tenant-scoped tables carry workspace_id (RLS deny-by-default, applied in Supabase)
+ *   - tenant-scoped tables carry organization_id (RLS deny-by-default, applied in Supabase)
  *   - soft-delete via archived_at (NEVER hard delete)
  *   - append-only tables (events, ledger, timeline, signal_actions) revoke UPDATE/DELETE
  *   - TWO TIERS: canonical (platform/global/public) vs relationship (per-user/private)
@@ -76,32 +76,32 @@ export const users = pgTable("users", {
   createdAt: now(),
 });
 
-export const workspaces = pgTable("workspaces", {
+export const organizations = pgTable("organizations", {
   id: uuidPk(),
   name: text("name").notNull(),
   createdAt: now(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
 });
 
-export const workspaceSettings = pgTable("workspace_settings", {
-  workspaceId: uuid("workspace_id").primaryKey().references(() => workspaces.id),
+export const organizationSettings = pgTable("organization_settings", {
+  organizationId: uuid("organization_id").primaryKey().references(() => organizations.id),
   defaultVisibility: text("default_visibility").notNull().default("private"),
   settings: jsonb("settings").notNull().default({}),
 });
 
-export const workspaceMembers = pgTable(
-  "workspace_members",
+export const organizationMembers = pgTable(
+  "organization_members",
   {
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     userId: uuid("user_id").notNull().references(() => users.id),
     roleId: uuid("role_id"),
   },
-  (t) => [primaryKey({ columns: [t.workspaceId, t.userId] })],
+  (t) => [primaryKey({ columns: [t.organizationId, t.userId] })],
 );
 
 export const teams = pgTable("teams", {
   id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   name: text("name").notNull(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
 });
@@ -203,7 +203,7 @@ export const communitiesCanonical = pgTable(
 
 export const communities = pgTable("communities", {
   id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   userId: uuid("user_id").notNull().references(() => users.id),
   visibility: text("visibility").notNull().default("private"),
   canonicalCommunityId: uuid("canonical_community_id").references(() => communitiesCanonical.id),
@@ -222,7 +222,7 @@ export const people = pgTable(
   "people",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     userId: uuid("user_id").notNull().references(() => users.id),
     visibility: text("visibility").notNull().default("private"),
     canonicalPersonId: uuid("canonical_person_id").references(() => peopleCanonical.id),
@@ -246,7 +246,7 @@ export const people = pgTable(
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
   (t) => [
-    index("people_ws_user_idx").on(t.workspaceId, t.userId),
+    index("people_org_user_idx").on(t.organizationId, t.userId),
     index("people_canonical_idx").on(t.canonicalPersonId),
   ],
 );
@@ -278,7 +278,7 @@ export const edges = pgTable(
   "edges",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     srcType: text("src_type").notNull(),
     srcId: uuid("src_id").notNull(),
     dstType: text("dst_type").notNull(),
@@ -307,11 +307,11 @@ export const edges = pgTable(
     }).notNull().defaultNow(),
   },
   (t) => [
-    index("edges_src_idx").on(t.workspaceId, t.srcType, t.srcId),
-    index("edges_dst_idx").on(t.workspaceId, t.dstType, t.dstId),
-    index("edges_relation_page_idx").on(t.workspaceId, t.observedAt, t.createdAt, t.id),
+    index("edges_src_idx").on(t.organizationId, t.srcType, t.srcId),
+    index("edges_dst_idx").on(t.organizationId, t.dstType, t.dstId),
+    index("edges_relation_page_idx").on(t.organizationId, t.observedAt, t.createdAt, t.id),
     uniqueIndex("edges_semantic_uq").on(
-      t.workspaceId,
+      t.organizationId,
       t.srcType,
       t.srcId,
       t.dstType,
@@ -325,7 +325,7 @@ export const edges = pgTable(
       "edges_valid_range_check",
       sql`${t.validTo} IS NULL OR ${t.validFrom} IS NULL OR ${t.validTo} >= ${t.validFrom}`,
     ),
-    check("edges_visibility_check", sql`${t.visibility} IN ('private', 'workspace', 'public')`),
+    check("edges_visibility_check", sql`${t.visibility} IN ('private', 'organization', 'public')`),
     check("edges_source_module_check", sql`length(trim(${t.sourceModule})) > 0`),
     check(
       "edges_decision_provenance_check",
@@ -337,9 +337,9 @@ export const edges = pgTable(
 // =====================================================================
 // LAYER 3 — OPERATIONAL PLANE
 // =====================================================================
-export const initiatives = pgTable("initiatives", {
+export const records = pgTable("records", {
   id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   title: text("title").notNull(),
   goal: text("goal"),
   description: text("description"),
@@ -351,31 +351,31 @@ export const initiatives = pgTable("initiatives", {
   archivedAt: timestamp("archived_at", { withTimezone: true }),
 });
 
-export const initiativeParticipants = pgTable(
-  "initiative_participants",
+export const recordParticipants = pgTable(
+  "record_participants",
   {
-    initiativeId: uuid("initiative_id").notNull().references(() => initiatives.id),
+    recordId: uuid("record_id").notNull().references(() => records.id),
     personId: uuid("person_id").notNull().references(() => people.id),
     role: text("role"),
   },
-  (t) => [primaryKey({ columns: [t.initiativeId, t.personId] })],
+  (t) => [primaryKey({ columns: [t.recordId, t.personId] })],
 );
 
-export const initiativeCommunities = pgTable(
-  "initiative_communities",
+export const recordCommunities = pgTable(
+  "record_communities",
   {
-    initiativeId: uuid("initiative_id").notNull().references(() => initiatives.id),
+    recordId: uuid("record_id").notNull().references(() => records.id),
     communityId: uuid("community_id").notNull().references(() => communities.id),
   },
-  (t) => [primaryKey({ columns: [t.initiativeId, t.communityId] })],
+  (t) => [primaryKey({ columns: [t.recordId, t.communityId] })],
 );
 
 export const touchpoints = pgTable(
   "touchpoints",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
-    initiativeId: uuid("initiative_id").references(() => initiatives.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    recordId: uuid("record_id").references(() => records.id),
     parentTouchpointId: uuid("parent_touchpoint_id"),
     sortOrder: integer("sort_order").notNull().default(0),
     depth: integer("depth").notNull().default(0),
@@ -388,21 +388,21 @@ export const touchpoints = pgTable(
     status: text("status").notNull().default("open"),
     createdAt: now(),
   },
-  (t) => [index("touchpoints_tree_idx").on(t.initiativeId, t.parentTouchpointId)],
+  (t) => [index("touchpoints_tree_idx").on(t.recordId, t.parentTouchpointId)],
 );
 
 export const timelineEntries = pgTable(
   "timeline_entries",
   {
     id: uuidPkV7(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     type: text("type").notNull(),
     content: text("content"),
     createdBy: text("created_by").notNull(),
     createdAt: now(),
   },
-  (t) => [index("timeline_entries_ws_occurred_idx").on(t.workspaceId, t.occurredAt)],
+  (t) => [index("timeline_entries_org_occurred_idx").on(t.organizationId, t.occurredAt)],
 );
 
 export const timelineEntryRefs = pgTable(
@@ -432,13 +432,13 @@ export const memories = pgTable(
   "memories",
   {
     id: uuidPkV7(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     /** episodic | semantic | procedural | preference */
     type: text("type").notNull(),
-    /** The element (Person/Community/Initiative…) this fact is about, if any.
+    /** The element (Person/Community/Record…) this fact is about, if any.
      * No FK — it can reference any node type across the graph. */
-    subjectElementId: uuid("subject_element_id"),
-    /** Classification: public | workspace | team | private | restricted. */
+    subjectRecordId: uuid("subject_record_id"),
+    /** Classification: public | organization | team | private | restricted. */
     scope: text("scope").notNull(),
     content: text("content").notNull(),
     /** What this Memory was derived from: timeline_entry | ledger | feedback. */
@@ -459,7 +459,7 @@ export const memories = pgTable(
     /** TASK-010 review round-5/6/7 — durable, DB-backed per-lineage ordering.
      * Allocated ATOMICALLY inside `casSupersede`'s own SERIALIZABLE
      * transaction (`(current?.lineageRevision ?? 0) + 1` scoped to
-     * `(workspace_id, owner_user_id, subject_element_id)`, the SAME triple
+     * `(organization_id, owner_user_id, subject_record_id)`, the SAME triple
      * `currentForLineage`/`casSupersede` already key a lineage on) —
      * correct across ANY number of server processes/restarts, unlike the
      * process-local monotonic timestamp counter (`monotonicRedFlagNowISO`
@@ -475,13 +475,13 @@ export const memories = pgTable(
     lineageRevision: bigint("lineage_revision", { mode: "number" }),
     createdAt: now(),
   },
-  (t) => [index("memories_ws_subject_idx").on(t.workspaceId, t.subjectElementId)],
+  (t) => [index("memories_org_subject_idx").on(t.organizationId, t.subjectRecordId)],
 );
 
 
 export const files = pgTable("files", {
   id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   source: text("source").notNull(),
   storageRef: text("storage_ref"),
   contentText: text("content_text"),
@@ -542,7 +542,7 @@ export const skills = pgTable(
   "skills",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").references(() => workspaces.id),
+    organizationId: uuid("organization_id").references(() => organizations.id),
     name: text("name").notNull(),
     version: text("version").notNull().default("1.0.0"),
     inputSchema: jsonb("input_schema"),
@@ -550,14 +550,14 @@ export const skills = pgTable(
     implRef: text("impl_ref"),
     status: text("status").notNull().default("active"),
   },
-  (t) => [unique("skills_uq").on(t.workspaceId, t.name, t.version)],
+  (t) => [unique("skills_uq").on(t.organizationId, t.name, t.version)],
 );
 
 export const agents = pgTable(
   "agents",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     name: text("name").notNull(),
     identityType: text("identity_type").notNull().default("service_principal"),
     ownerUserId: uuid("owner_user_id").references(() => users.id),
@@ -567,14 +567,14 @@ export const agents = pgTable(
     capabilityScope: jsonb("capability_scope").notNull().default({}),
     status: text("status").notNull().default("active"),
   },
-  (t) => [unique("agents_workspace_id_id_uq").on(t.workspaceId, t.id)],
+  (t) => [unique("agents_organization_id_id_uq").on(t.organizationId, t.id)],
 );
 
 export const automations = pgTable(
   "automations",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     name: text("name").notNull(),
     trigger: jsonb("trigger").notNull(),
     cadence: text("cadence"),
@@ -583,22 +583,22 @@ export const automations = pgTable(
     skillPipeline: jsonb("skill_pipeline").notNull().default([]),
     policyScopeId: uuid("policy_scope_id"),
     outputSurface: text("output_surface"),
-    supportsInitiative: uuid("supports_initiative").references(() => initiatives.id),
+    supportsRecord: uuid("supports_record").references(() => records.id),
     isTemplate: boolean("is_template").notNull().default(false),
     status: text("status").notNull().default("active"),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
   (t) => [
-    unique("automations_workspace_id_id_uq").on(t.workspaceId, t.id),
-    unique("automations_workspace_id_agent_id_uq").on(
-      t.workspaceId,
+    unique("automations_organization_id_id_uq").on(t.organizationId, t.id),
+    unique("automations_organization_id_agent_id_uq").on(
+      t.organizationId,
       t.id,
       t.agentId,
     ),
     foreignKey({
-      columns: [t.workspaceId, t.agentId],
-      foreignColumns: [agents.workspaceId, agents.id],
-      name: "automations_workspace_agent_fk",
+      columns: [t.organizationId, t.agentId],
+      foreignColumns: [agents.organizationId, agents.id],
+      name: "automations_organization_agent_fk",
     }),
     check("automations_agent_plane_check", sql`${t.agentPlane} IN ('local', 'cloud')`),
   ],
@@ -608,7 +608,7 @@ export const automationRuns = pgTable(
   "automation_runs",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     automationId: uuid("automation_id").notNull(),
     agentId: uuid("agent_id").notNull(),
     runId: text("run_id"),
@@ -620,16 +620,16 @@ export const automationRuns = pgTable(
   },
   (t) => [
     foreignKey({
-      columns: [t.workspaceId, t.automationId, t.agentId],
-      foreignColumns: [automations.workspaceId, automations.id, automations.agentId],
-      name: "automation_runs_workspace_automation_owner_fk",
+      columns: [t.organizationId, t.automationId, t.agentId],
+      foreignColumns: [automations.organizationId, automations.id, automations.agentId],
+      name: "automation_runs_organization_automation_owner_fk",
     }),
   ],
 );
 
 export const integrations = pgTable("integrations", {
   id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   provider: text("provider").notNull(),
   authRef: text("auth_ref"),
   scopes: text("scopes").array(),
@@ -651,14 +651,14 @@ export const externalRecords = pgTable(
   "external_records",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     source: text("source").notNull(),
     sourceRecordId: text("source_record_id").notNull(),
     entityType: text("entity_type").notNull(),
     entityId: uuid("entity_id").notNull(),
     createdAt: now(),
   },
-  (t) => [unique("external_records_uq").on(t.workspaceId, t.source, t.sourceRecordId)],
+  (t) => [unique("external_records_uq").on(t.organizationId, t.source, t.sourceRecordId)],
 );
 
 // =====================================================================
@@ -666,7 +666,7 @@ export const externalRecords = pgTable(
 // =====================================================================
 export const roles = pgTable("roles", {
   id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   name: text("name").notNull(),
   kind: text("kind").notNull().default("human"), // human | agent
   description: text("description"),
@@ -703,7 +703,7 @@ export const permissions = pgTable(
   "permissions",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     actorType: text("actor_type").notNull(),
     actorId: uuid("actor_id").notNull(),
     resourceType: text("resource_type").notNull(),
@@ -715,14 +715,14 @@ export const permissions = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: now(),
   },
-  (t) => [index("permissions_actor_idx").on(t.workspaceId, t.actorType, t.actorId, t.resourceType)],
+  (t) => [index("permissions_actor_idx").on(t.organizationId, t.actorType, t.actorId, t.resourceType)],
 );
 
 export const ephemeralGrants = pgTable(
   "ephemeral_grants",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     actorType: text("actor_type").notNull(),
     actorId: uuid("actor_id").notNull(),
     contextType: text("context_type").notNull(),
@@ -735,12 +735,12 @@ export const ephemeralGrants = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
   },
-  (t) => [index("ephemeral_grants_active_idx").on(t.workspaceId, t.actorType, t.actorId)],
+  (t) => [index("ephemeral_grants_active_idx").on(t.organizationId, t.actorType, t.actorId)],
 );
 
 export const delegations = pgTable("delegations", {
   id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   principalType: text("principal_type").notNull(),
   principalId: uuid("principal_id").notNull(),
   delegateAgentId: uuid("delegate_agent_id").notNull().references(() => agents.id),
@@ -753,7 +753,7 @@ export const delegations = pgTable("delegations", {
 
 export const policies = pgTable("policies", {
   id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   scopeType: text("scope_type").notNull(),
   scopeId: uuid("scope_id"),
   name: text("name").notNull(),
@@ -768,13 +768,13 @@ export const policyParams = pgTable(
   "policy_params",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     policyId: uuid("policy_id").references(() => policies.id),
     paramKey: text("param_key").notNull(),
     value: jsonb("value").notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("policy_params_uq").on(t.workspaceId, t.policyId, t.paramKey)],
+  (t) => [unique("policy_params_uq").on(t.organizationId, t.policyId, t.paramKey)],
 );
 
 export const ledger = pgTable("ledger", {
@@ -784,7 +784,7 @@ export const ledger = pgTable("ledger", {
   appendSequence: bigint("append_sequence", { mode: "number" }).default(
     sql`nextval('ledger_append_sequence_seq'::regclass)`,
   ).notNull(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   actorType: text("actor_type").notNull(),
   actorId: uuid("actor_id").notNull(),
   onBehalfOfType: text("on_behalf_of_type"),
@@ -808,7 +808,7 @@ export const ledger = pgTable("ledger", {
   seed: text("seed"),
   /** Data tier this action touched (the access dropdown) — audit completeness. */
   dataScope: text("data_scope"),
-  /** Original Run context (Initiative/Community/Automation + runId) — audit completeness;
+  /** Original Run context (Record/Community/Automation + runId) — audit completeness;
    * lets a replayed decide() thread the SAME context instead of a synthetic one. */
   context: jsonb("context"),
   /** Provenance / trust origin of the input that drove this action (PI-1):
@@ -822,7 +822,7 @@ export const relationMaterializationEffects = pgTable(
   "relation_materialization_effects",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
     proposalLedgerId: uuid("proposal_ledger_id").notNull(),
     decisionLedgerId: uuid("decision_ledger_id").notNull(),
@@ -846,22 +846,22 @@ export const relationMaterializationEffects = pgTable(
   },
   (t) => [
     unique("relation_materialization_effects_proposal_uq").on(
-      t.workspaceId,
+      t.organizationId,
       t.proposalLedgerId,
     ),
     unique("relation_materialization_effects_decision_uq").on(
-      t.workspaceId,
+      t.organizationId,
       t.decisionLedgerId,
     ),
     index("relation_materialization_effects_retry_idx").on(
-      t.workspaceId,
+      t.organizationId,
       t.ownerUserId,
       t.status,
       t.nextRetryAt,
       t.leaseExpiresAt,
     ),
     index("relation_materialization_effects_outstanding_idx").on(
-      t.workspaceId,
+      t.organizationId,
       t.ownerUserId,
       t.id,
     ).where(sql`${t.status} IN ('pending', 'failed')`),
@@ -906,19 +906,19 @@ export const events = pgTable(
     // Append-only, high-write table — UUIDv7 keeps new rows physically adjacent
     // (see uuidPkV7's doc comment; migrations/0004_schema_hardening.sql item 2).
     id: uuidPkV7(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     type: text("type").notNull(),
     entityType: text("entity_type").notNull(),
     entityId: uuid("entity_id").notNull(),
     payload: jsonb("payload").notNull().default({}),
     createdAt: now(),
   },
-  (t) => [index("events_ws_created_idx").on(t.workspaceId, t.createdAt)],
+  (t) => [index("events_org_created_idx").on(t.organizationId, t.createdAt)],
 );
 
 export const signals = pgTable("signals", {
   id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   type: text("type").notNull(),
   subjectType: text("subject_type").notNull(),
   subjectId: uuid("subject_id").notNull(),
@@ -930,7 +930,7 @@ export const signals = pgTable("signals", {
 
 export const signalActions = pgTable("signal_actions", {
   id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
   signalId: uuid("signal_id").notNull().references(() => signals.id),
   userId: uuid("user_id").notNull().references(() => users.id),
   verb: text("verb").notNull(), // act | dismiss | save
@@ -941,7 +941,7 @@ export const signalActions = pgTable("signal_actions", {
 // LAYER 7 — TOOL BACKENDS (frontend-migration-scoping.md Phase 4)
 // =====================================================================
 
-/** JobPilot's own persistence — the `@bridge/jobpilot` package (scoring, table
+/** JobPilot's own persistence — the `@bridge/jobpilot` module (scoring, table
  * spec, state machine) is pure logic with no store of its own; these two tables
  * are that missing store, shaped to match `jobsTableSpec`'s columns 1:1 so the
  * @bridge/tables card-feed/kanban views can bind directly. */
@@ -949,7 +949,7 @@ export const jobpilotJobs = pgTable(
   "jobpilot_jobs",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     title: text("title").notNull(),
     company: text("company").notNull(),
     location: text("location"),
@@ -959,7 +959,7 @@ export const jobpilotJobs = pgTable(
     createdAt: now(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
-  (t) => [index("jobpilot_jobs_ws_idx").on(t.workspaceId, t.createdAt)],
+  (t) => [index("jobpilot_jobs_org_idx").on(t.organizationId, t.createdAt)],
 );
 
 /** One row per job the candidate is tracking; `stage` mirrors
@@ -968,7 +968,7 @@ export const jobpilotApplications = pgTable(
   "jobpilot_applications",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     jobId: uuid("job_id").notNull().references(() => jobpilotJobs.id),
     stage: text("stage").notNull().default("queued"),
     // pursue | review | pass (AP-023 — no green/yellow feedback semantics).
@@ -985,12 +985,12 @@ export const jobpilotApplications = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index("jobpilot_applications_ws_idx").on(t.workspaceId, t.stage),
+    index("jobpilot_applications_org_idx").on(t.organizationId, t.stage),
     check("jobpilot_applications_flag_valid_ck", sql`${t.flag} IS NULL OR ${t.flag} IN ('pursue', 'review', 'pass')`),
   ],
 );
 
-/** Helpdesk — the one workspace-scoped tool with a public/unauthenticated
+/** Helpdesk — the one organization-scoped tool with a public/unauthenticated
  * submitter side. `accessToken` (opaque, unguessable) is the submitter's ONLY
  * credential: knowing it proves ownership of the ticket, the same trust model as
  * a password-reset link. No new Actor type / identity-resolution change was
@@ -1000,7 +1000,7 @@ export const helpdeskTickets = pgTable(
   "helpdesk_tickets",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     subject: text("subject").notNull(),
     status: text("status").notNull().default("open"), // open | pending | resolved | closed
     submitterEmail: text("submitter_email").notNull(),
@@ -1009,14 +1009,14 @@ export const helpdeskTickets = pgTable(
     createdAt: now(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("helpdesk_tickets_ws_idx").on(t.workspaceId, t.createdAt)],
+  (t) => [index("helpdesk_tickets_org_idx").on(t.organizationId, t.createdAt)],
 );
 
 export const helpdeskMessages = pgTable(
   "helpdesk_messages",
   {
     id: uuidPkV7(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     ticketId: uuid("ticket_id").notNull().references(() => helpdeskTickets.id),
     authorType: text("author_type").notNull(), // submitter | agent
     authorUserId: uuid("author_user_id").references(() => users.id),
@@ -1027,14 +1027,14 @@ export const helpdeskMessages = pgTable(
 );
 
 /** Resources — replaces the prototype's Supabase-direct `resources_canonical`
- * read with a governed, workspace-scoped table (frontend-migration-scoping.md
+ * read with a governed, organization-scoped table (frontend-migration-scoping.md
  * gap #4). Simple catalog shape; `tags` is jsonb (a string array) rather than a
  * separate join table since resources have no other relational structure yet. */
 export const resources = pgTable(
   "resources",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     title: text("title").notNull(),
     kind: text("kind").notNull(), // book | podcast | vlog | article | other
     url: text("url"),
@@ -1043,7 +1043,7 @@ export const resources = pgTable(
     createdAt: now(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
-  (t) => [index("resources_ws_idx").on(t.workspaceId, t.createdAt)],
+  (t) => [index("resources_org_idx").on(t.organizationId, t.createdAt)],
 );
 
 // =====================================================================
@@ -1057,16 +1057,16 @@ export const resources = pgTable(
  * never self-declared by the generator — `computedRisk` here is the cached
  * result of that computation, recomputed whenever the manifest or its
  * dependency closure changes. `lineageManifestId` self-references this table
- * (a Fork/copy points back at its origin — see vision.md "Workspaces =
+ * (a Fork/copy points back at its origin — see vision.md "Organizations =
  * projections", the Fork verb); nullable because most manifests have no
- * lineage. Unique (workspace_id, name, version) — the same version-pinning
+ * lineage. Unique (organization_id, name, version) — the same version-pinning
  * discipline `skills_uq` already uses.
  */
 export const capabilityManifests = pgTable(
   "capability_manifests",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     capabilityType: text("capability_type").notNull(), // skill | automation | agent | integration | view | dashboard
     /** REG-1 Component Registry discriminator (undefined-elements §2) — reuse
      * this table as the registry rather than forking a second source of truth.
@@ -1091,8 +1091,8 @@ export const capabilityManifests = pgTable(
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
   (t) => [
-    unique("capability_manifests_uq").on(t.workspaceId, t.name, t.version),
-    index("capability_manifests_ws_idx").on(t.workspaceId, t.capabilityType),
+    unique("capability_manifests_uq").on(t.organizationId, t.name, t.version),
+    index("capability_manifests_org_idx").on(t.organizationId, t.capabilityType),
   ],
 );
 
@@ -1113,7 +1113,7 @@ export const capabilityStates = pgTable(
   {
     id: uuidPk(),
     manifestId: uuid("manifest_id").notNull().references(() => capabilityManifests.id),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     state: text("state").notNull().default("draft"),
     trustedUntil: timestamp("trusted_until", { withTimezone: true }),
     suspended: boolean("suspended").notNull().default(false),
@@ -1127,7 +1127,7 @@ export const capabilityStates = pgTable(
 );
 
 /**
- * A workspace/user-scoped trust grant for a capability CLASS (not a single
+ * A organization/user-scoped trust grant for a capability CLASS (not a single
  * manifest instance) — e.g. "auto-activate any 'advisory'-risk skill this user
  * authored". `scope` narrows who/where it applies; `autoActivate` decides
  * whether matching capabilities skip the approval gate (still subject to the
@@ -1137,71 +1137,71 @@ export const trustGrants = pgTable(
   "trust_grants",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     capabilityClass: text("capability_class").notNull(),
-    scope: jsonb("scope").notNull().default({}), // { workspaceId?, userId? }
+    scope: jsonb("scope").notNull().default({}), // { organizationId?, userId? }
     grantedBy: uuid("granted_by").references(() => users.id),
     riskBand: text("risk_band").notNull(), // informational | advisory | transformational | operational | external
     autoActivate: boolean("auto_activate").notNull().default(false),
     createdAt: now(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
-  (t) => [index("trust_grants_ws_class_idx").on(t.workspaceId, t.capabilityClass)],
+  (t) => [index("trust_grants_org_class_idx").on(t.organizationId, t.capabilityClass)],
 );
 
 /**
- * A generated workspace blueprint (vocabulary, node types used, views,
+ * A generated organization blueprint (vocabulary, node types used, views,
  * capabilities) — P1 onboarding writes these; the table is created now so the
- * shape exists ahead of that work (see CLAUDE.md status: "workspace_definitions"
+ * shape exists ahead of that work (see CLAUDE.md status: "organization_definitions"
  * punch-list item). `version` increments on republish (Publish Blueprint verb,
- * vision.md "Workspaces = projections"); `status` tracks draft/active/archived
+ * vision.md "Organizations = projections"); `status` tracks draft/active/archived
  * the same way other registries do.
  */
-export const workspaceDefinitions = pgTable(
-  "workspace_definitions",
+export const organizationDefinitions = pgTable(
+  "organization_definitions",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     blueprint: jsonb("blueprint").notNull().default({}),
     version: integer("version").notNull().default(1),
     status: text("status").notNull().default("draft"), // draft | active | archived
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: now(),
   },
-  (t) => [index("workspace_definitions_ws_idx").on(t.workspaceId, t.version)],
+  (t) => [index("organization_definitions_org_idx").on(t.organizationId, t.version)],
 );
 
 /**
- * One row per (workspace, package name, version) install — the persistent
- * binding for @bridge/core's `PackageStore` port (packages/core/src/package/
- * ports.ts's `PackageInstallationRow`). Mirrors `capabilityManifests`'
+ * One row per (organization, module name, version) install — the persistent
+ * binding for @bridge/core's `ModuleStore` port (packages/core/src/module/
+ * ports.ts's `ModuleInstallationRow`). Mirrors `capabilityManifests`'
  * shape one level up (ADR-018's format doc, ADR-021's P2 slice 1, ADR-023's
- * Drizzle-backing pass): a package BUNDLES one or more capability manifests,
+ * Drizzle-backing pass): a module BUNDLES one or more capability manifests,
  * and this table is the shipping-unit row those bundles get installed as.
- * `manifest` jsonb round-trips the FULL parsed `PackageManifest` (name/
- * version/kind/capabilities[]/dependencies/etc — package/types.ts), validated
+ * `manifest` jsonb round-trips the FULL parsed `ModuleManifest` (name/
+ * version/kind/capabilities[]/dependencies/etc — module/types.ts), validated
  * at the read/write boundary the same way capability-store.ts validates
  * `dependencies`/`evidence` — @bridge/core stays zero-runtime-deps, so the
- * zod schema for this jsonb lives in package-store.ts, not here.
+ * zod schema for this jsonb lives in module-store.ts, not here.
  * `lineageManifestId` self-references this table (a rollback fork points
  * back at the historical row it forked from — lifecycle.ts's
- * `rollbackFromHistory`), nullable for a v1 package. Installation identity
- * is unique per workspace/package/version/Module-Agent-need attachment.
- * Re-registering identical content reuses that row; the same signed package
+ * `rollbackFromHistory`), nullable for a v1 module. Installation identity
+ * is unique per organization/module/version/Module-Agent-need attachment.
+ * Re-registering identical content reuses that row; the same signed module
  * may still attach to a different declared Module Agent need.
  */
-export const packageInstallations = pgTable(
-  "package_installations",
+export const moduleInstallations = pgTable(
+  "module_installations",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
-    packageName: text("package_name").notNull(),
-    packageVersion: text("package_version").notNull(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    moduleName: text("module_name").notNull(),
+    moduleVersion: text("module_version").notNull(),
     manifest: jsonb("manifest").notNull().default({}),
     /** Computed (never self-declared, mirrors capability_manifests.computed_risk):
      * informational | advisory | transformational | operational | external. */
     computedRisk: text("computed_risk").notNull().default("informational"),
-    /** Single-live-version lifecycle state (package/lifecycle.ts):
+    /** Single-live-version lifecycle state (module/lifecycle.ts):
      * private | promoted | available | legacy | deprecating | deprecated. */
     state: text("state").notNull().default("private"),
     /** pending_review | installed | rejected — registration/install outcome,
@@ -1214,13 +1214,13 @@ export const packageInstallations = pgTable(
     createdAt: now(),
   },
   (t) => [
-    index("package_installations_ws_name_idx").on(t.workspaceId, t.packageName),
-    index("package_installations_ws_state_idx").on(t.workspaceId, t.packageName, t.state),
-    uniqueIndex("package_installations_attachment_uq").on(
-      t.workspaceId,
-      t.packageName,
-      t.packageVersion,
-      sql`coalesce(${t.moduleAttachment}->>'modulePackageName', '')`,
+    index("module_installations_org_name_idx").on(t.organizationId, t.moduleName),
+    index("module_installations_org_state_idx").on(t.organizationId, t.moduleName, t.state),
+    uniqueIndex("module_installations_attachment_uq").on(
+      t.organizationId,
+      t.moduleName,
+      t.moduleVersion,
+      sql`coalesce(${t.moduleAttachment}->>'ownerModuleName', '')`,
       sql`coalesce(${t.moduleAttachment}->>'agentId', '')`,
       sql`coalesce(${t.moduleAttachment}->>'needId', '')`,
     ),
@@ -1241,14 +1241,14 @@ export const goals = pgTable(
   "goals",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     type: text("type").notNull(),
     title: text("title").notNull(),
     createdAt: now(),
   },
   (t) => [
-    index("goals_ws_type_idx").on(t.workspaceId, t.type),
-    unique("goals_workspace_id_id_uq").on(t.workspaceId, t.id),
+    index("goals_org_type_idx").on(t.organizationId, t.type),
+    unique("goals_organization_id_id_uq").on(t.organizationId, t.id),
   ],
 );
 
@@ -1256,7 +1256,7 @@ export const tasks = pgTable(
   "tasks",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     goalId: uuid("goal_id").notNull(),
     type: text("type").notNull(),
     /** The ONLY thing that authorizes an eligible Agent to invoke a matching
@@ -1269,35 +1269,35 @@ export const tasks = pgTable(
   (t) => [
     index("tasks_goal_idx").on(t.goalId),
     index("tasks_assigned_agent_idx").on(t.assignedAgentId),
-    unique("tasks_workspace_id_id_uq").on(t.workspaceId, t.id),
+    unique("tasks_organization_id_id_uq").on(t.organizationId, t.id),
     foreignKey({
-      columns: [t.workspaceId, t.goalId],
-      foreignColumns: [goals.workspaceId, goals.id],
-      name: "tasks_workspace_goal_fk",
+      columns: [t.organizationId, t.goalId],
+      foreignColumns: [goals.organizationId, goals.id],
+      name: "tasks_organization_goal_fk",
     }),
     foreignKey({
-      columns: [t.workspaceId, t.assignedAgentId],
-      foreignColumns: [agents.workspaceId, agents.id],
-      name: "tasks_workspace_agent_fk",
+      columns: [t.organizationId, t.assignedAgentId],
+      foreignColumns: [agents.organizationId, agents.id],
+      name: "tasks_organization_agent_fk",
     }),
   ],
 );
 
 /**
  * The governed Skill contract catalog (@bridge/core's skill-manifest.ts
- * `SkillManifest`). `workspaceId` nullable mirrors `skills.workspaceId` —
+ * `SkillManifest`). `organizationId` nullable mirrors `skills.organizationId` —
  * null = a global/platform-wide manifest (the normal case: manifests are
  * declared once in code at wiring.ts and seeded here idempotently on boot,
  * the same "code declares, DB durably records" pattern as
  * `ensureFoundationalAgentGovernance`'s role/permission seed), non-null only
- * for a future workspace-scoped override. Unique on (skill_id, version) so
+ * for a future organization-scoped override. Unique on (skill_id, version) so
  * the boot-time seed upsert is idempotent across restarts.
  */
 export const skillManifests = pgTable(
   "skill_manifests",
   {
     id: uuidPk(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     skillId: text("skill_id").notNull(),
     version: text("version").notNull().default("1.0.0"),
     goalTypes: jsonb("goal_types").notNull().default([]),
@@ -1315,7 +1315,7 @@ export const skillManifests = pgTable(
     childRunPolicy: text("child_run_policy"), // forbidden | allowed
     createdAt: now(),
   },
-  (t) => [unique("skill_manifests_uq").on(t.workspaceId, t.skillId, t.version)],
+  (t) => [unique("skill_manifests_uq").on(t.organizationId, t.skillId, t.version)],
 );
 
 /**
@@ -1334,7 +1334,7 @@ export const childAgentRuns = pgTable(
     id: uuidPk(),
     parentRunId: uuid("parent_run_id").notNull(),
     parentAgentId: uuid("parent_agent_id").notNull(),
-    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     goalId: uuid("goal_id").notNull(),
     taskId: uuid("task_id").notNull(),
     depth: integer("depth").notNull(),
@@ -1354,21 +1354,21 @@ export const childAgentRuns = pgTable(
     createdAt: now(),
   },
   (t) => [
-    index("child_agent_runs_parent_run_idx").on(t.workspaceId, t.parentRunId),
+    index("child_agent_runs_parent_run_idx").on(t.organizationId, t.parentRunId),
     foreignKey({
-      columns: [t.workspaceId, t.parentAgentId],
-      foreignColumns: [agents.workspaceId, agents.id],
-      name: "child_agent_runs_workspace_agent_fk",
+      columns: [t.organizationId, t.parentAgentId],
+      foreignColumns: [agents.organizationId, agents.id],
+      name: "child_agent_runs_organization_agent_fk",
     }),
     foreignKey({
-      columns: [t.workspaceId, t.goalId],
-      foreignColumns: [goals.workspaceId, goals.id],
-      name: "child_agent_runs_workspace_goal_fk",
+      columns: [t.organizationId, t.goalId],
+      foreignColumns: [goals.organizationId, goals.id],
+      name: "child_agent_runs_organization_goal_fk",
     }),
     foreignKey({
-      columns: [t.workspaceId, t.taskId],
-      foreignColumns: [tasks.workspaceId, tasks.id],
-      name: "child_agent_runs_workspace_task_fk",
+      columns: [t.organizationId, t.taskId],
+      foreignColumns: [tasks.organizationId, tasks.id],
+      name: "child_agent_runs_organization_task_fk",
     }),
   ],
 );

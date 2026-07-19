@@ -60,18 +60,18 @@ test("local plane renames the legacy text external-record table before Drizzle m
   try {
     await seed.exec(`
       CREATE TABLE external_records (
-        workspace_id text NOT NULL,
+        organization_id text NOT NULL,
         source text NOT NULL,
         source_record_id text NOT NULL,
         entity_type text NOT NULL,
         entity_id text NOT NULL,
         created_at text NOT NULL,
-        PRIMARY KEY (workspace_id, source, source_record_id)
+        PRIMARY KEY (organization_id, source, source_record_id)
       );
       INSERT INTO external_records
-        (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+        (organization_id, source, source_record_id, entity_type, entity_id, created_at)
       VALUES
-        ('workspace-a', 'gmail', 'message-a', 'touchpoint', 'entity-a', '2026-07-18T00:00:00.000Z');
+        ('organization-a', 'gmail', 'message-a', 'touchpoint', 'entity-a', '2026-07-18T00:00:00.000Z');
     `);
   } finally {
     await seed.close();
@@ -92,7 +92,7 @@ test("local plane renames the legacy text external-record table before Drizzle m
         canonical.rows.map((row) => [row.column_name, row.data_type]),
       );
       assert.equal(columns.get("id"), "uuid");
-      assert.equal(columns.get("workspace_id"), "uuid");
+      assert.equal(columns.get("organization_id"), "uuid");
       const backup = await local.client.query<{ count: string | number }>(
         `SELECT count(*) AS count FROM local_external_records_legacy`,
       );
@@ -111,19 +111,19 @@ test("local plane preserves an unsupported legacy external-record table", async 
   try {
     await seed.exec(`
       CREATE TABLE external_records (
-        workspace_id text NOT NULL,
+        organization_id text NOT NULL,
         source text NOT NULL,
         source_record_id text NOT NULL,
         entity_type text NOT NULL,
         entity_id text NOT NULL,
         created_at text NOT NULL,
         unrecognized_payload text NOT NULL,
-        PRIMARY KEY (workspace_id, source, source_record_id)
+        PRIMARY KEY (organization_id, source, source_record_id)
       );
       INSERT INTO external_records
-        (workspace_id, source, source_record_id, entity_type, entity_id, created_at, unrecognized_payload)
+        (organization_id, source, source_record_id, entity_type, entity_id, created_at, unrecognized_payload)
       VALUES
-        ('workspace-a', 'gmail', 'message-a', 'event', 'entity-a',
+        ('organization-a', 'gmail', 'message-a', 'event', 'entity-a',
          '2026-07-18T00:00:00.000Z', 'must remain');
     `);
   } finally {
@@ -151,7 +151,7 @@ test("local plane preserves an unsupported legacy external-record table", async 
 });
 
 test("persistent governance provisions and verifies the attributable Learning Agent Signal grant", async () => {
-  const workspaceId = "b0000000-0000-4000-a000-000000000001";
+  const organizationId = "b0000000-0000-4000-a000-000000000001";
   const userId = "e0f0053b-fc44-476e-be27-1371e179e958";
   const agentId = "b0000000-0000-4000-a000-0000000000d2";
   const roleId = "b0000000-0000-4000-a000-0000000000f2";
@@ -159,9 +159,9 @@ test("persistent governance provisions and verifies the attributable Learning Ag
   const { db, close } = await createLocalDb();
   try {
     await db.insert(schema.users).values({ id: userId, email: "learning-governance@test.invalid" });
-    await db.insert(schema.workspaces).values({ id: workspaceId, name: "Learning governance test" });
+    await db.insert(schema.organizations).values({ id: organizationId, name: "Learning governance test" });
 
-    const config = { workspaceId, userId, agentId, roleId, permissionId };
+    const config = { organizationId, userId, agentId, roleId, permissionId };
     await Promise.all(
       Array.from({ length: 10 }, () => ensureLearningAgentGovernance(db, config)),
     );
@@ -188,7 +188,7 @@ test("persistent governance provisions and verifies the attributable Learning Ag
       ),
     );
     assert.ok(
-      (await ports.roles.directGrants(workspaceId, { type: "user", id: userId })).some(
+      (await ports.roles.directGrants(organizationId, { type: "user", id: userId })).some(
         (grant) =>
           grant.resourceType === "signal" &&
           grant.action === "write" &&
@@ -199,7 +199,7 @@ test("persistent governance provisions and verifies the attributable Learning Ag
     assert.equal(
       principalRows.filter(
         (row) =>
-          row.workspaceId === workspaceId &&
+          row.organizationId === organizationId &&
           row.actorType === "user" &&
           row.actorId === userId &&
           row.resourceType === "signal" &&
@@ -215,7 +215,7 @@ test("persistent governance provisions and verifies the attributable Learning Ag
 });
 
 test("persistent governance idempotently provisions Human Relation read/write authority", async () => {
-  const workspaceId = "b0000000-0000-4000-a000-000000000021";
+  const organizationId = "b0000000-0000-4000-a000-000000000021";
   const userId = "e0f0053b-fc44-476e-be27-1371e179e921";
   const { db, close } = await createLocalDb();
   let roleAssumed = false;
@@ -224,11 +224,11 @@ test("persistent governance idempotently provisions Human Relation read/write au
       id: userId,
       email: "test_fixture_relation_governance@example.com",
     });
-    await db.insert(schema.workspaces).values({
-      id: workspaceId,
+    await db.insert(schema.organizations).values({
+      id: organizationId,
       name: "Relation governance test",
     });
-    const config = { workspaceId, userId };
+    const config = { organizationId, userId };
     await db.execute(sql.raw("CREATE ROLE test_fixture_relation_governance_app"));
     await db.execute(
       sql.raw(
@@ -250,7 +250,7 @@ test("persistent governance idempotently provisions Human Relation read/write au
     roleAssumed = false;
 
     const grants = await createDrizzlePorts(db).roles.directGrants(
-      workspaceId,
+      organizationId,
       { type: "user", id: userId },
     );
     assert.deepEqual(
@@ -262,7 +262,7 @@ test("persistent governance idempotently provisions Human Relation read/write au
     );
     const rows = (await db.select().from(schema.permissions)).filter(
       (row) =>
-        row.workspaceId === workspaceId &&
+        row.organizationId === organizationId &&
         row.actorType === "user" &&
         row.actorId === userId &&
         row.resourceType === "relation",
@@ -275,7 +275,7 @@ test("persistent governance idempotently provisions Human Relation read/write au
 });
 
 test("persistent governance provisions the server-owned Outreach Agent Event grant", async () => {
-  const workspaceId = "b0000000-0000-4000-a000-000000000001";
+  const organizationId = "b0000000-0000-4000-a000-000000000001";
   const userId = "e0f0053b-fc44-476e-be27-1371e179e958";
   const agentId = "b0000000-0000-4000-a000-0000000000d1";
   const roleId = "b0000000-0000-4000-a000-0000000000f1";
@@ -283,9 +283,9 @@ test("persistent governance provisions the server-owned Outreach Agent Event gra
   const { db, close } = await createLocalDb();
   try {
     await db.insert(schema.users).values({ id: userId, email: "outreach-governance@test.invalid" });
-    await db.insert(schema.workspaces).values({ id: workspaceId, name: "Outreach governance test" });
+    await db.insert(schema.organizations).values({ id: organizationId, name: "Outreach governance test" });
 
-    const config = { workspaceId, userId, agentId, roleId, permissionId };
+    const config = { organizationId, userId, agentId, roleId, permissionId };
     await Promise.all(
       Array.from({ length: 10 }, () => ensureOutreachAgentGovernance(db, config)),
     );
@@ -303,7 +303,7 @@ test("persistent governance provisions the server-owned Outreach Agent Event gra
       ),
     );
     assert.ok(
-      (await ports.roles.directGrants(workspaceId, { type: "user", id: userId })).some(
+      (await ports.roles.directGrants(organizationId, { type: "user", id: userId })).some(
         (grant) =>
           grant.resourceType === "event" &&
           grant.action === "write" &&
@@ -313,7 +313,7 @@ test("persistent governance provisions the server-owned Outreach Agent Event gra
     assert.equal(
       (await db.select().from(schema.permissions)).filter(
         (row) =>
-          row.workspaceId === workspaceId &&
+          row.organizationId === organizationId &&
           row.actorType === "user" &&
           row.actorId === userId &&
           row.resourceType === "event" &&
@@ -329,16 +329,16 @@ test("persistent governance provisions the server-owned Outreach Agent Event gra
 });
 
 test("persistent governance aligns Egress and Intake authority with their governed Skill manifests", async () => {
-  const workspaceId = "b0000000-0000-4000-a000-000000000011";
+  const organizationId = "b0000000-0000-4000-a000-000000000011";
   const userId = "e0f0053b-fc44-476e-be27-1371e179e911";
   const egressAgentId = "b0000000-0000-4000-a000-0000000000e1";
   const intakeAgentId = "b0000000-0000-4000-a000-0000000000e2";
   const { db, close } = await createLocalDb();
   try {
     await db.insert(schema.users).values({ id: userId, email: "runtime-governance@test.invalid" });
-    await db.insert(schema.workspaces).values({ id: workspaceId, name: "Runtime governance test" });
+    await db.insert(schema.organizations).values({ id: organizationId, name: "Runtime governance test" });
     await ensureEgressAgentGovernance(db, {
-      workspaceId,
+      organizationId,
       userId,
       agentId: egressAgentId,
       roleId: "b0000000-0000-4000-a000-0000000000f1",
@@ -346,21 +346,21 @@ test("persistent governance aligns Egress and Intake authority with their govern
     });
 
     test("persistent governance provisions DealPilot's Human Module permissions without widening Agent roles", async () => {
-      const workspaceId = "b0000000-0000-4000-a000-000000000012";
+      const organizationId = "b0000000-0000-4000-a000-000000000012";
       const userId = "e0f0053b-fc44-476e-be27-1371e179e912";
       const { db, close } = await createLocalDb();
       try {
         await db.insert(schema.users).values({ id: userId, email: "dealpilot-governance@test.invalid" });
-        await db.insert(schema.workspaces).values({ id: workspaceId, name: "DealPilot governance test" });
+        await db.insert(schema.organizations).values({ id: organizationId, name: "DealPilot governance test" });
 
         await Promise.all(
           Array.from({ length: 5 }, () =>
-            ensureDealPilotPrincipalGovernance(db, { workspaceId, userId })),
+            ensureDealPilotPrincipalGovernance(db, { organizationId, userId })),
         );
-        await ensureDealPilotPrincipalGovernance(db, { workspaceId, userId });
+        await ensureDealPilotPrincipalGovernance(db, { organizationId, userId });
 
         const direct = await createDrizzlePorts(db).roles.directGrants(
-          workspaceId,
+          organizationId,
           { type: "user", id: userId },
         );
         assert.equal(
@@ -379,7 +379,7 @@ test("persistent governance aligns Egress and Intake authority with their govern
       }
     });
     await ensureIntakeAgentGovernance(db, {
-      workspaceId,
+      organizationId,
       userId,
       agentId: intakeAgentId,
       roleId: "b0000000-0000-4000-a000-0000000000f6",
@@ -399,7 +399,7 @@ test("persistent governance aligns Egress and Intake authority with their govern
       "person:write",
     ]);
     assert.deepEqual(await ports.agents.allowedSkills(intakeAgentId), ["google.stage"]);
-    assert.equal(await ports.agents.workspaceId(intakeAgentId), workspaceId);
+    assert.equal(await ports.agents.organizationId(intakeAgentId), organizationId);
     assert.equal(await ports.agents.isActive(intakeAgentId), true);
   } finally {
     await close();

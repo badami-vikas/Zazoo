@@ -8,16 +8,16 @@ import { DataViews } from "../dataviews/DataViews";
 import { viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow } from "../dataviews/types";
 import {
-  createInitiative,
-  updateInitiative,
-  useInitiatives,
-  type Initiative,
-} from "../data/initiatives";
+  createRecord,
+  updateRecord,
+  useRecords,
+  type Record,
+} from "../data/records";
 
-const INITIATIVE_SPEC: TableSpec = {
-  id: "initiatives",
+const RECORD_SPEC: TableSpec = {
+  id: "records",
   columns: [
-    { id: "name", label: "Initiative", kind: "text", editable: true, required: true },
+    { id: "name", label: "Record", kind: "text", editable: true, required: true },
     {
       id: "status",
       label: "Status",
@@ -43,14 +43,14 @@ const INITIATIVE_SPEC: TableSpec = {
       label: "Visibility",
       kind: "select",
       editable: true,
-      options: ["private", "team", "workspace"],
-      defaultValue: "workspace",
+      options: ["private", "team", "organization"],
+      defaultValue: "organization",
     },
   ],
 };
 
-function initiativePatch(draft: Partial<DataRow>): Partial<Initiative> {
-  const patch: Partial<Initiative> = {};
+function recordPatch(draft: Partial<DataRow>): Partial<Record> {
+  const patch: Partial<Record> = {};
   if (typeof draft["name"] === "string") patch.name = draft["name"].trim();
   if (
     draft["status"] === "Planning" ||
@@ -70,7 +70,7 @@ function initiativePatch(draft: Partial<DataRow>): Partial<Initiative> {
   if (
     draft["visibility"] === "private" ||
     draft["visibility"] === "team" ||
-    draft["visibility"] === "workspace"
+    draft["visibility"] === "organization"
   ) {
     patch.visibility = draft["visibility"];
   }
@@ -78,15 +78,15 @@ function initiativePatch(draft: Partial<DataRow>): Partial<Initiative> {
 }
 
 export function WorkPage() {
-  const initiatives = useInitiatives();
+  const records = useRecords();
   const navigate = useNavigate();
   const [view, setView] = useState<ViewConfig>(
-    viewConfigForKind(INITIATIVE_SPEC, "gallery", { id: "initiatives:gallery" }),
+    viewConfigForKind(RECORD_SPEC, "gallery", { id: "records:gallery" }),
   );
   const [formRecord, setFormRecord] = useState<DataRow | null>(null);
-  const rows: DataRow[] = initiatives.map((initiative) => ({
-    ...initiative,
-    deadline: initiative.deadline === "—" ? null : initiative.deadline,
+  const rows: DataRow[] = records.map((record) => ({
+    ...record,
+    deadline: record.deadline === "—" ? null : record.deadline,
   }));
 
   function changeView(next: ViewConfig, preserveFormRecord = false) {
@@ -97,48 +97,48 @@ export function WorkPage() {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white">
       <Header
-        tabs={[{ id: "Initiatives", icon: Target }]}
-        activeTab="Initiatives"
+        tabs={[{ id: "Records", icon: Target }]}
+        activeTab="Records"
         onTabChange={() => {}}
       />
       <CollapsibleInsights
         expanded
         metrics={[
-          { id: "total", label: "Initiatives", value: String(initiatives.length) },
+          { id: "total", label: "Records", value: String(records.length) },
           {
             id: "active",
             label: "Active",
-            value: String(initiatives.filter((initiative) => initiative.status === "Active").length),
+            value: String(records.filter((record) => record.status === "Active").length),
           },
           {
             id: "completed",
             label: "Completed",
-            value: String(initiatives.filter((initiative) => initiative.status === "Completed").length),
+            value: String(records.filter((record) => record.status === "Completed").length),
           },
         ]}
       />
       <div className="flex-1 overflow-auto p-4">
         <DataViews
-          spec={INITIATIVE_SPEC}
+          spec={RECORD_SPEC}
           view={view}
           data={rows}
           onViewChange={changeView}
           formRecord={formRecord}
           onInsert={async (draft) => {
-            const patch = initiativePatch(draft);
-            if (!patch.name) throw new Error("Initiative is required.");
-            createInitiative(patch);
+            const patch = recordPatch(draft);
+            if (!patch.name) throw new Error("Record is required.");
+            createRecord(patch);
           }}
           onUpdate={async (id, draft) => {
-            updateInitiative(id, initiativePatch(draft));
+            updateRecord(id, recordPatch(draft));
           }}
           onOpenRecord={(row) => {
             const id = row["id"];
-            if (typeof id === "string") navigate(`/initiative/${encodeURIComponent(id)}`);
+            if (typeof id === "string") navigate(`/record/${encodeURIComponent(id)}`);
           }}
           onEditRecord={(row) => {
             setFormRecord(row);
-            changeView(viewConfigForKind(INITIATIVE_SPEC, "form", view), true);
+            changeView(viewConfigForKind(RECORD_SPEC, "form", view), true);
           }}
         />
       </div>

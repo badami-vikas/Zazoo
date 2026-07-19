@@ -17,7 +17,7 @@ import {
 export const API_ENABLED = API_TRANSPORT_CONFIGURED;
 const TRPC = `${API_URL}/trpc`;
 
-const PILOT_WORKSPACE = 'b0000000-0000-4000-a000-000000000001';
+const PILOT_ORGANIZATION = 'b0000000-0000-4000-a000-000000000001';
 
 async function requestHeaders(): Promise<Record<string, string>> {
   return {
@@ -64,7 +64,7 @@ export interface ApiScopeGrant {
 /** Active (non-revoked) standing grants held by an integration. */
 export async function apiListScopes(integrationId: string): Promise<ApiScopeGrant[] | null> {
   if (!API_ENABLED) return null;
-  return query<ApiScopeGrant[]>('integration.listScopes', { workspaceId: PILOT_WORKSPACE, integrationId });
+  return query<ApiScopeGrant[]>('integration.listScopes', { organizationId: PILOT_ORGANIZATION, integrationId });
 }
 
 /** Grant a standing Bridge capability. The server refuses agent-floor DENY scopes (FORBIDDEN). */
@@ -74,13 +74,13 @@ export async function apiGrantScope(a: {
   action: string;
 }): Promise<ApiScopeGrant | null> {
   if (!API_ENABLED) return null;
-  return mutate<ApiScopeGrant>('integration.grantScope', { workspaceId: PILOT_WORKSPACE, ...a });
+  return mutate<ApiScopeGrant>('integration.grantScope', { organizationId: PILOT_ORGANIZATION, ...a });
 }
 
 /** Narrow access: revoke a single standing grant (append-only — sets revoked_at server-side). */
 export async function apiRevokeScope(permissionId: string): Promise<boolean> {
   if (!API_ENABLED) return false;
-  await mutate('integration.revokeScope', { workspaceId: PILOT_WORKSPACE, permissionId });
+  await mutate('integration.revokeScope', { organizationId: PILOT_ORGANIZATION, permissionId });
   return true;
 }
 
@@ -253,7 +253,7 @@ export interface AutomationRecord {
 /** Create an agent with its layered authority. null when API disabled (caller keeps local state). */
 export async function apiCreateAgent(input: AgentPermissionInput): Promise<AgentRecord | null> {
   if (!API_ENABLED) return null;
-  return mutate<AgentRecord>('agent.create', { workspaceId: PILOT_WORKSPACE, ...input });
+  return mutate<AgentRecord>('agent.create', { organizationId: PILOT_ORGANIZATION, ...input });
 }
 
 /** Update an existing agent's layered authority. null when API disabled. */
@@ -272,7 +272,7 @@ export async function apiCreateAutomation(input: {
   steps: AutomationStepInput[];
 }): Promise<AutomationRecord | null> {
   if (!API_ENABLED) return null;
-  return mutate<AutomationRecord>('automation.create', { workspaceId: PILOT_WORKSPACE, ...input });
+  return mutate<AutomationRecord>('automation.create', { organizationId: PILOT_ORGANIZATION, ...input });
 }
 
 // ── DealPilot (the first tool on the generic manifest intake seam) ─────────────
@@ -311,7 +311,7 @@ export async function apiDealPilotSource(): Promise<DealPilotSourceResult | null
     id: string;
     status: 'pending_review' | 'applied' | 'rejected';
     output?: { proposedOutput?: { count?: number; captureIds?: string[]; sample?: DealPilotCapturePreview[] } };
-  }>('dealpilot.source', { workspaceId: PILOT_WORKSPACE });
+  }>('dealpilot.source', { organizationId: PILOT_ORGANIZATION });
   return {
     proposalId: r.id,
     status: r.status,
@@ -341,23 +341,23 @@ export async function apiDealPilotList(): Promise<DealPilotCandidateDTO[] | null
   return page?.items ?? null;
 }
 
-// ── Workspace + Team (real backend, authenticated CRUD — not a governed pipeline action) ───────
-export interface WorkspaceDTO { id: string; name: string; createdAt: string }
-export interface WorkspaceMemberDTO { userId: string; email: string; name: string | null }
+// ── Organization + Team (real backend, authenticated CRUD — not a governed pipeline action) ───────
+export interface OrganizationDTO { id: string; name: string; createdAt: string }
+export interface OrganizationMemberDTO { userId: string; email: string; name: string | null }
 
-export async function apiListWorkspaces(): Promise<WorkspaceDTO[] | null> {
+export async function apiListOrganizations(): Promise<OrganizationDTO[] | null> {
   if (!API_ENABLED) return null;
-  return query<WorkspaceDTO[]>('workspace.list');
+  return query<OrganizationDTO[]>('organization.list');
 }
-export async function apiCreateWorkspace(name: string): Promise<WorkspaceDTO | null> {
+export async function apiCreateOrganization(name: string): Promise<OrganizationDTO | null> {
   if (!API_ENABLED) return null;
-  return mutate<WorkspaceDTO>('workspace.create', { name });
+  return mutate<OrganizationDTO>('organization.create', { name });
 }
-export async function apiListMembers(workspaceId: string): Promise<WorkspaceMemberDTO[] | null> {
+export async function apiListMembers(organizationId: string): Promise<OrganizationMemberDTO[] | null> {
   if (!API_ENABLED) return null;
-  return query<WorkspaceMemberDTO[]>('workspace.listMembers', { workspaceId });
+  return query<OrganizationMemberDTO[]>('organization.listMembers', { organizationId });
 }
-export async function apiInviteMember(workspaceId: string, email: string): Promise<WorkspaceMemberDTO | null> {
+export async function apiInviteMember(organizationId: string, email: string): Promise<OrganizationMemberDTO | null> {
   if (!API_ENABLED) return null;
-  return mutate<WorkspaceMemberDTO>('workspace.inviteMember', { workspaceId, email });
+  return mutate<OrganizationMemberDTO>('organization.inviteMember', { organizationId, email });
 }

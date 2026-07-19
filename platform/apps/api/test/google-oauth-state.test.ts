@@ -8,7 +8,7 @@ import { registerGoogleOAuthRoutes } from "../src/google-oauth-routes.js";
 import {
   buildWiring,
   PILOT_USER,
-  PILOT_WORKSPACE,
+  PILOT_ORGANIZATION,
 } from "../src/wiring.js";
 import { SeededRng, SystemClock, UuidGen } from "@bridge/core";
 
@@ -16,12 +16,12 @@ class TestStatePort {
   readonly rows = new Map<string, unknown>();
 
   async update<T>(
-    workspaceId: string,
+    organizationId: string,
     namespace: string,
     initialState: unknown,
     reduce: (current: unknown) => { state: unknown; result: T },
   ): Promise<T> {
-    const key = JSON.stringify([workspaceId, namespace]);
+    const key = JSON.stringify([organizationId, namespace]);
     const current = structuredClone(this.rows.get(key) ?? initialState);
     const mutation = reduce(current);
     this.rows.set(key, structuredClone(mutation.state));
@@ -34,8 +34,8 @@ test("OAuth states are hashed at rest, single-use, bound, and expiring", async (
   const statePort = new TestStatePort();
   const states = new GoogleOAuthStateStore(statePort, () => now, 1_000);
   const issued = await states.issue(
-    PILOT_WORKSPACE,
-    `${PILOT_WORKSPACE}:google`,
+    PILOT_ORGANIZATION,
+    `${PILOT_ORGANIZATION}:google`,
     PILOT_USER,
   );
   const raw = issued.state;
@@ -43,8 +43,8 @@ test("OAuth states are hashed at rest, single-use, bound, and expiring", async (
   assert.match(raw, /^oauth_[0-9a-f]{64}$/);
   assert.match(issued.codeChallenge, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(JSON.stringify([...statePort.rows.values()]).includes(raw), false);
-  const consumed = await states.consume(PILOT_WORKSPACE, raw);
-  assert.equal(consumed?.integrationId, `${PILOT_WORKSPACE}:google`);
+  const consumed = await states.consume(PILOT_ORGANIZATION, raw);
+  assert.equal(consumed?.integrationId, `${PILOT_ORGANIZATION}:google`);
   assert.equal(consumed?.actorId, PILOT_USER);
   assert.equal(consumed?.expiresAt, "2026-07-18T00:00:01.000Z");
   assert.match(consumed?.codeVerifier ?? "", /^[0-9a-f]{64}$/);
@@ -54,15 +54,15 @@ test("OAuth states are hashed at rest, single-use, bound, and expiring", async (
       .digest("base64url"),
     issued.codeChallenge,
   );
-  assert.equal(await states.consume(PILOT_WORKSPACE, raw), null);
+  assert.equal(await states.consume(PILOT_ORGANIZATION, raw), null);
 
   const expired = await states.issue(
-    PILOT_WORKSPACE,
-    `${PILOT_WORKSPACE}:google`,
+    PILOT_ORGANIZATION,
+    `${PILOT_ORGANIZATION}:google`,
     PILOT_USER,
   );
   now += 1_001;
-  assert.equal(await states.consume(PILOT_WORKSPACE, expired.state), null);
+  assert.equal(await states.consume(PILOT_ORGANIZATION, expired.state), null);
 });
 
 test("Google connect issues an unpredictable state and callback rejects legacy predictable state", async () => {
@@ -150,7 +150,7 @@ test("desktop OAuth callbacks render a local completion page instead of redirect
   }
 });
 
-test("OAuth callback rejects an actor whose workspace membership was revoked after issuance", async () => {
+test("OAuth callback rejects an actor whose organization membership was revoked after issuance", async () => {
   const priorId = process.env.GOOGLE_CLIENT_ID;
   const priorSecret = process.env.GOOGLE_CLIENT_SECRET;
   process.env.GOOGLE_CLIENT_ID = "test_fixture_google_client";
@@ -160,11 +160,11 @@ test("OAuth callback rejects an actor whose workspace membership was revoked aft
   try {
     await registerGoogleOAuthRoutes(app, wiring);
     const { state } = await wiring.googleOAuthStates.issue(
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       wiring.google.integrationId,
       PILOT_USER,
     );
-    wiring.workspaceStore.isMember = async () => false;
+    wiring.organizationStore.isMember = async () => false;
 
     const response = await app.inject({
       method: "GET",
@@ -177,7 +177,7 @@ test("OAuth callback rejects an actor whose workspace membership was revoked aft
       /error=oauth_actor_not_authorized/,
     );
     assert.equal(
-      await wiring.googleOAuthStates.consume(PILOT_WORKSPACE, state),
+      await wiring.googleOAuthStates.consume(PILOT_ORGANIZATION, state),
       null,
     );
   } finally {
@@ -216,11 +216,11 @@ test("OAuth callback rechecks membership after code exchange and before token st
       };
     });
     const { state } = await wiring.googleOAuthStates.issue(
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       wiring.google.integrationId,
       PILOT_USER,
     );
-    wiring.workspaceStore.isMember = async () => {
+    wiring.organizationStore.isMember = async () => {
       membershipChecks += 1;
       return membershipChecks === 1;
     };
@@ -259,7 +259,7 @@ test("OAuth callback restores the exact prior token when membership is revoked d
   const integrationId = wiring.google.integrationId;
   const priorToken = {
     integrationId,
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     provider: "google",
     accessToken: "test_fixture_prior_access",
     refreshToken: "test_fixture_prior_refresh",
@@ -278,7 +278,7 @@ test("OAuth callback restores the exact prior token when membership is revoked d
   });
   try {
     await wiring.localPlane.secrets.putToken(priorToken);
-    wiring.workspaceStore.isMember = async () => {
+    wiring.organizationStore.isMember = async () => {
       membershipChecks += 1;
       if (membershipChecks === 3) {
         markPostWriteReached();
@@ -294,7 +294,7 @@ test("OAuth callback restores the exact prior token when membership is revoked d
       tokenType: "Bearer",
     }));
     const { state } = await wiring.googleOAuthStates.issue(
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       integrationId,
       PILOT_USER,
     );
@@ -354,7 +354,7 @@ test("concurrent OAuth callbacks serialize provisional token finalization", asyn
   let activeFinalizationChecks = 0;
   let maxActiveFinalizationChecks = 0;
   try {
-    wiring.workspaceStore.isMember = async () => {
+    wiring.organizationStore.isMember = async () => {
       if (exchanges < 2) return member;
       activeFinalizationChecks += 1;
       maxActiveFinalizationChecks = Math.max(
@@ -387,12 +387,12 @@ test("concurrent OAuth callbacks serialize provisional token finalization", asyn
     });
     const [issuedA, issuedB] = await Promise.all([
       wiring.googleOAuthStates.issue(
-        PILOT_WORKSPACE,
+        PILOT_ORGANIZATION,
         integrationId,
         PILOT_USER,
       ),
       wiring.googleOAuthStates.issue(
-        PILOT_WORKSPACE,
+        PILOT_ORGANIZATION,
         integrationId,
         PILOT_USER,
       ),

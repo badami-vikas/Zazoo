@@ -97,7 +97,7 @@ test("uses semantic tier for inconclusive structural matches when embeddings exi
       id: "manifest-community-map-view",
       name: "Community Map View",
       capabilityType: "view",
-      manifest: { purpose: "Render Community membership as a workspace view." },
+      manifest: { purpose: "Render Community membership as a organization view." },
     }),
   ];
   const model = embeddingModel((texts) =>
@@ -148,7 +148,7 @@ test("degrades gracefully when semantic comparison is inconclusive but embedding
 
 test("returns an empty list when there are no existing manifests", async () => {
   const matches = await findOverlaps({
-    name: "Initiative Brief Writer",
+    name: "Record Brief Writer",
     kind: "prompt",
     capabilityType: "skill",
   }, []);
@@ -213,7 +213,7 @@ function row(overrides: {
 }): CapabilityManifestRow {
   return {
     id: overrides.id,
-    workspaceId: "workspace-test-fixture",
+    organizationId: "organization-test-fixture",
     capabilityType: overrides.capabilityType,
     ...(overrides.kind !== undefined ? { kind: overrides.kind } : {}),
     name: overrides.name,

@@ -14,7 +14,7 @@ test("InMemoryGoalTaskStore: creates a Goal and a Task assigned to a non-default
   const store = new InMemoryGoalTaskStore();
   const s = seam();
   const goal = await store.createGoal(
-    { workspaceId: "ws-1", type: "relationship.learning", title: "Improve follow-up quality" },
+    { organizationId: "ws-1", type: "relationship.learning", title: "Improve follow-up quality" },
     s,
   );
   assert.ok(goal.id);
@@ -22,7 +22,7 @@ test("InMemoryGoalTaskStore: creates a Goal and a Task assigned to a non-default
 
   const task = await store.createTask(
     {
-      workspaceId: "ws-1",
+      organizationId: "ws-1",
       goalId: goal.id,
       type: "synthesize_recommendation",
       assignedAgentId: "internal_strategist",
@@ -43,9 +43,9 @@ test("InMemoryGoalTaskStore: creates a Goal and a Task assigned to a non-default
 test("InMemoryGoalTaskStore: reassignTask changes the assigned Agent, nothing else", async () => {
   const store = new InMemoryGoalTaskStore();
   const s = seam();
-  const goal = await store.createGoal({ workspaceId: "ws-1", type: "g", title: "t" }, s);
+  const goal = await store.createGoal({ organizationId: "ws-1", type: "g", title: "t" }, s);
   const task = await store.createTask(
-    { workspaceId: "ws-1", goalId: goal.id, type: "tt", assignedAgentId: "learning" },
+    { organizationId: "ws-1", goalId: goal.id, type: "tt", assignedAgentId: "learning" },
     s,
   );
   const reassigned = await store.reassignTask("ws-1", task.id, "internal_strategist");
@@ -57,9 +57,9 @@ test("InMemoryGoalTaskStore: reassignTask changes the assigned Agent, nothing el
 test("InMemoryGoalTaskStore: updateTaskStatus transitions status", async () => {
   const store = new InMemoryGoalTaskStore();
   const s = seam();
-  const goal = await store.createGoal({ workspaceId: "ws-1", type: "g", title: "t" }, s);
+  const goal = await store.createGoal({ organizationId: "ws-1", type: "g", title: "t" }, s);
   const task = await store.createTask(
-    { workspaceId: "ws-1", goalId: goal.id, type: "tt", assignedAgentId: "learning" },
+    { organizationId: "ws-1", goalId: goal.id, type: "tt", assignedAgentId: "learning" },
     s,
   );
   const updated = await store.updateTaskStatus("ws-1", task.id, "done");

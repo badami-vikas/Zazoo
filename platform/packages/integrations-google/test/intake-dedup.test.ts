@@ -177,7 +177,7 @@ async function build(): Promise<{
       materializer: new IntakeMaterializer({ graph: localPlane.graph }),
       egress: undefined as never, // unused by this test (no external:send exercised)
       secrets: localPlane.secrets,
-      identities: { workspaceId: WS, egressAgentId: EGRESS_AGENT, intakeAgentId: INTAKE_AGENT, userId: USER },
+      identities: { organizationId: WS, egressAgentId: EGRESS_AGENT, intakeAgentId: INTAKE_AGENT, userId: USER },
       selfEmails: ["test_fixture_self@example.com"],
     });
   };

@@ -66,8 +66,8 @@ export class DrizzleIntegrationStore {
     this.#db = db;
   }
 
-  /** Connected integrations for a workspace. */
-  async list(workspaceId: string): Promise<IntegrationRow[]> {
+  /** Connected integrations for a organization. */
+  async list(organizationId: string): Promise<IntegrationRow[]> {
     const rows = await this.#db
       .select({
         id: integrations.id,
@@ -76,31 +76,31 @@ export class DrizzleIntegrationStore {
         status: integrations.status,
       })
       .from(integrations)
-      .where(eq(integrations.workspaceId, workspaceId));
+      .where(eq(integrations.organizationId, organizationId));
     return rows.map((r) => ({ id: r.id, provider: r.provider, scopes: r.scopes ?? [], status: r.status }));
   }
 
   /** Record a connected integration (OAuth scopes are the platform-declared list). */
-  async connect(workspaceId: string, provider: string, oauthScopes: string[] = []): Promise<IntegrationRow> {
+  async connect(organizationId: string, provider: string, oauthScopes: string[] = []): Promise<IntegrationRow> {
     // Ids are generated here rather than via .returning(): the Database union
     // (postgres-js | pglite) has divergent .returning() typings, so we avoid it.
     const id = randomUUID();
-    await this.#db.insert(integrations).values({ id, workspaceId, provider, scopes: oauthScopes, status: "active" });
+    await this.#db.insert(integrations).values({ id, organizationId, provider, scopes: oauthScopes, status: "active" });
     return { id, provider, scopes: oauthScopes, status: "active" };
   }
 
   /** Mark an integration revoked and revoke every standing grant it held. */
-  async disconnect(workspaceId: string, integrationId: string, at: Date = new Date()): Promise<void> {
+  async disconnect(organizationId: string, integrationId: string, at: Date = new Date()): Promise<void> {
     await this.#db
       .update(integrations)
       .set({ status: "revoked" })
-      .where(and(eq(integrations.workspaceId, workspaceId), eq(integrations.id, integrationId)));
+      .where(and(eq(integrations.organizationId, organizationId), eq(integrations.id, integrationId)));
     await this.#db
       .update(permissions)
       .set({ revokedAt: at })
       .where(
         and(
-          eq(permissions.workspaceId, workspaceId),
+          eq(permissions.organizationId, organizationId),
           eq(permissions.actorType, INTEGRATION_ACTOR_TYPE),
           eq(permissions.actorId, integrationId),
           isNull(permissions.revokedAt),
@@ -109,7 +109,7 @@ export class DrizzleIntegrationStore {
   }
 
   /** Active (non-revoked) Bridge capability grants held by an integration. */
-  async listScopes(workspaceId: string, integrationId: string): Promise<ScopeGrant[]> {
+  async listScopes(organizationId: string, integrationId: string): Promise<ScopeGrant[]> {
     const rows = await this.#db
       .select({
         id: permissions.id,
@@ -121,7 +121,7 @@ export class DrizzleIntegrationStore {
       .from(permissions)
       .where(
         and(
-          eq(permissions.workspaceId, workspaceId),
+          eq(permissions.organizationId, organizationId),
           eq(permissions.actorType, INTEGRATION_ACTOR_TYPE),
           eq(permissions.actorId, integrationId),
           isNull(permissions.revokedAt),
@@ -142,7 +142,7 @@ export class DrizzleIntegrationStore {
    * standing allow.
    */
   async grantScope(args: {
-    workspaceId: string;
+    organizationId: string;
     integrationId: string;
     resourceType: string;
     action: string;
@@ -155,7 +155,7 @@ export class DrizzleIntegrationStore {
     const id = randomUUID();
     await this.#db.insert(permissions).values({
       id,
-      workspaceId: args.workspaceId,
+      organizationId: args.organizationId,
       actorType: INTEGRATION_ACTOR_TYPE,
       actorId: args.integrationId,
       resourceType: args.resourceType,
@@ -174,10 +174,10 @@ export class DrizzleIntegrationStore {
   }
 
   /** Revoke a single standing grant (narrowing). Append-only: sets revoked_at. */
-  async revokeScope(workspaceId: string, permissionId: string, at: Date = new Date()): Promise<void> {
+  async revokeScope(organizationId: string, permissionId: string, at: Date = new Date()): Promise<void> {
     await this.#db
       .update(permissions)
       .set({ revokedAt: at })
-      .where(and(eq(permissions.workspaceId, workspaceId), eq(permissions.id, permissionId)));
+      .where(and(eq(permissions.organizationId, organizationId), eq(permissions.id, permissionId)));
   }
 }

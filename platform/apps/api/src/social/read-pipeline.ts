@@ -27,11 +27,11 @@ export async function sourceToProposals(args: {
   gate: GovernedGate;
   provider: SocialProvider;
   quarantine: QuarantineStore;
-  workspaceId: string;
+  organizationId: string;
   actor: Actor;
   run: RunCtx;
 }): Promise<SourceResult[]> {
-  const { gate, provider, quarantine, workspaceId, actor, run } = args;
+  const { gate, provider, quarantine, organizationId, actor, run } = args;
   const items = await provider.sourceItems();
   const out: SourceResult[] = [];
   for (const item of items) {
@@ -40,7 +40,7 @@ export async function sourceToProposals(args: {
     // 2) Propose a Touchpoint. Note: the raw body is NOT in inputs (residency) —
     //    only metadata + the local pointer travel with the proposal.
     const request: ActionRequest = {
-      workspaceId,
+      organizationId,
       actor,
       action: "write",
       resourceType: "touchpoint",

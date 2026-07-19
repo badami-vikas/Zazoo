@@ -17,7 +17,7 @@ import { decodeJwt } from "jose";
 import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import { buildWiring, PILOT_USER, PILOT_ORGANIZATION, type Wiring } from "../src/wiring.js";
 import { loggerOptions } from "../src/server.js";
 import { makeContextFactory, verifiedReauthenticationAt } from "../src/context.js";
 
@@ -77,7 +77,7 @@ test("sidecar capability authenticates the server-owned pilot without granting r
     await assert.rejects(
       appRouter
         .createCaller(verifierContext)
-        .dealpilot.module({ workspaceId: PILOT_WORKSPACE }),
+        .dealpilot.module({ organizationId: PILOT_ORGANIZATION }),
       /authentication required for DealPilot/,
     );
   } finally {
@@ -96,7 +96,7 @@ test("onboarding.saveProfile: a client-asserted verificationMethod:'linkedin' is
     await assert.rejects(
       () =>
         caller.onboarding.saveProfile({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           avatarStyle: "otter",
           // Deliberately spoof a trust signal the server can't actually prove.
           verificationMethod: "linkedin" as unknown as "phone",
@@ -113,7 +113,7 @@ test("onboarding.saveProfile: the one-version Avatar payload reader returns only
   try {
     const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
     const result = await caller.onboarding.saveProfile({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       animal: "owl",
       answers: { spirit_animal: "owl", role: "operator" },
       verificationMethod: null,
@@ -133,7 +133,7 @@ test("onboarding.saveProfile: the honest paths (null / phone) are still accepted
   try {
     const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
     const viaNull = await caller.onboarding.saveProfile({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       avatarStyle: "otter",
       verificationMethod: null,
     });
@@ -141,7 +141,7 @@ test("onboarding.saveProfile: the honest paths (null / phone) are still accepted
     assert.equal(viaNull.profile.verificationMethod, null);
 
     const viaPhone = await caller.onboarding.saveProfile({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       avatarStyle: "otter",
       verificationMethod: "phone",
     });
@@ -177,14 +177,14 @@ test("onboarding role-model learning is cited, approval-gated, controllable, and
       try {
         const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
         await caller.onboarding.saveProfile({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           avatarStyle: "owl",
           answers: { role_model: "Test Fixture Leader", role_model_why: "clear preparation" },
           verificationMethod: null,
           connectedSourceIds: [],
         });
         const result = await caller.onboarding.recommendFromRoleModel({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           figure: "Test Fixture Leader",
           admiredFor: "clear preparation",
         });
@@ -200,65 +200,65 @@ test("onboarding role-model learning is cited, approval-gated, controllable, and
         });
         assert.equal(approved.status, "applied");
 
-        let state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        let state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         const preference = state.memories.find((item) => item.value.kind === "onboarding_preference");
         const reflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
         assert.ok(preference);
         assert.ok(reflection);
 
         await caller.onboarding.correctMemory({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: preference.row.id,
           content: "careful preparation",
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         const corrected = state.memories.find((item) => item.value.kind === "onboarding_preference");
         assert.ok(corrected?.value.kind === "onboarding_preference");
         assert.equal(corrected.value.admiredFor, "careful preparation");
 
         await caller.onboarding.setReflection({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: reflection.row.id,
           action: "pause",
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         assert.ok(state.memories.some((item) => item.value.kind === "reflection_schedule" && item.value.status === "paused"));
 
         const pausedReflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
         assert.ok(pausedReflection);
         await caller.onboarding.setReflection({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: pausedReflection.row.id,
           action: "resume",
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         const resumedReflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
         assert.ok(resumedReflection?.value.kind === "reflection_schedule");
         assert.equal(resumedReflection.value.status, "scheduled");
 
         await caller.onboarding.setReflection({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: resumedReflection.row.id,
           action: "snooze",
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         const snoozedReflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
         assert.ok(snoozedReflection?.value.kind === "reflection_schedule");
         assert.equal(snoozedReflection.value.status, "snoozed");
 
         await caller.onboarding.setReflection({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: snoozedReflection.row.id,
           action: "skip",
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         assert.ok(state.memories.some((item) => item.value.kind === "reflection_schedule" && item.value.status === "skipped"));
 
         await caller.onboarding.forgetMemory({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: corrected.row.id,
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         assert.equal(state.memories.some((item) => item.value.kind === "onboarding_preference"), false);
       } finally {
         globalThis.fetch = originalFetch;
@@ -271,7 +271,7 @@ test("onboarding trust check persists one inspectable, tainted Local Plane Memor
   try {
     const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
     const result = await caller.onboarding.recordTrustCapture({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       appName: "Test Fixture Editor",
       bundleId: "com.example.test-fixture-editor",
       capturedAt: "2026-07-16T10:00:00.000Z",
@@ -281,16 +281,16 @@ test("onboarding trust check persists one inspectable, tainted Local Plane Memor
     assert.equal(result.memory.plane, "local");
     assert.equal(result.memory.trustOrigin, "untrusted_external");
 
-    const state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+    const state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
     const capture = state.memories.find((item) => item.value.kind === "trust_capture");
     assert.ok(capture?.value.kind === "trust_capture");
     assert.equal(capture.value.appName, "Test Fixture Editor");
 
     await caller.onboarding.forgetMemory({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       memoryId: capture.row.id,
     });
-    const afterDelete = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+    const afterDelete = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
     assert.equal(afterDelete.memories.some((item) => item.value.kind === "trust_capture"), false);
   } finally {
     await wiring.close();
@@ -301,16 +301,16 @@ test("onboarding.learningState / onboarding.forgetMemory (review round-5 item 1)
   const wiring = await buildWiring();
   try {
     const unauth = appRouter.createCaller({ wiring, run: makeRun(), identity: { type: "user", id: PILOT_USER }, authenticated: false, verifying: true });
-    await assert.rejects(() => unauth.onboarding.learningState({ workspaceId: PILOT_WORKSPACE }));
-    await assert.rejects(() => unauth.onboarding.forgetMemory({ workspaceId: PILOT_WORKSPACE, memoryId: "00000000-0000-4000-8000-000000000001" }));
+    await assert.rejects(() => unauth.onboarding.learningState({ organizationId: PILOT_ORGANIZATION }));
+    await assert.rejects(() => unauth.onboarding.forgetMemory({ organizationId: PILOT_ORGANIZATION, memoryId: "00000000-0000-4000-8000-000000000001" }));
 
     const nonMember = makeCaller(wiring, { type: "user", id: "22222222-2222-4222-8222-222222222222" });
     await assert.rejects(
-      () => nonMember.onboarding.learningState({ workspaceId: PILOT_WORKSPACE }),
+      () => nonMember.onboarding.learningState({ organizationId: PILOT_ORGANIZATION }),
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );
     await assert.rejects(
-      () => nonMember.onboarding.forgetMemory({ workspaceId: PILOT_WORKSPACE, memoryId: "00000000-0000-4000-8000-000000000001" }),
+      () => nonMember.onboarding.forgetMemory({ organizationId: PILOT_ORGANIZATION, memoryId: "00000000-0000-4000-8000-000000000001" }),
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );
   } finally {
@@ -324,7 +324,7 @@ test("onboarding.learningState (review round-5 item 1): never returns red_flag/p
     const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
     await wiring.memoryStore.write({
       id: "33333333-0000-4000-8000-000000000001",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       type: "semantic",
       scope: "private",
       content: JSON.stringify({ kind: "red_flag", anchor: { kind: "cell", moduleId: "jobpilot", databaseId: "jobpilot.jobs", recordId: "44444444-0000-4000-8000-000000000001", fieldId: "x" }, renderedValue: "v", status: "open", learningStatus: "none" }),
@@ -336,7 +336,7 @@ test("onboarding.learningState (review round-5 item 1): never returns red_flag/p
     });
     await wiring.memoryStore.write({
       id: "33333333-0000-4000-8000-000000000002",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       type: "preference",
       scope: "private",
       content: JSON.stringify({ kind: "preference_adjustment", scope: "test", target: "test", proposedChange: "test", rationale: "test", flagMemoryId: "33333333-0000-4000-8000-000000000001", applied: false }),
@@ -346,7 +346,7 @@ test("onboarding.learningState (review round-5 item 1): never returns red_flag/p
       createdBy: PILOT_USER,
       ownerUserId: PILOT_USER,
     });
-    const state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+    const state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
     assert.equal(state.memories.some((item) => (item.value as { kind: string }).kind === "red_flag"), false, "learningState must never surface a red_flag Memory");
     assert.equal(state.memories.some((item) => (item.value as { kind: string }).kind === "preference_adjustment"), false, "learningState must never surface a preference_adjustment Memory");
   } finally {
@@ -360,7 +360,7 @@ test("onboarding.forgetMemory (review round-5 item 1): rejects red_flag/preferen
     const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
     const redFlagMemory = await wiring.memoryStore.write({
       id: "55555555-0000-4000-8000-000000000001",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       type: "semantic",
       scope: "private",
       content: JSON.stringify({ kind: "red_flag", anchor: { kind: "cell", moduleId: "jobpilot", databaseId: "jobpilot.jobs", recordId: "66666666-0000-4000-8000-000000000001", fieldId: "x" }, renderedValue: "v", status: "open", learningStatus: "none" }),
@@ -371,15 +371,15 @@ test("onboarding.forgetMemory (review round-5 item 1): rejects red_flag/preferen
       ownerUserId: PILOT_USER,
     });
     await assert.rejects(
-      () => caller.onboarding.forgetMemory({ workspaceId: PILOT_WORKSPACE, memoryId: redFlagMemory.id }),
+      () => caller.onboarding.forgetMemory({ organizationId: PILOT_ORGANIZATION, memoryId: redFlagMemory.id }),
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );
-    const stillThere = await wiring.memoryStore.get(redFlagMemory.id, { workspaceId: PILOT_WORKSPACE, userId: PILOT_USER });
+    const stillThere = await wiring.memoryStore.get(redFlagMemory.id, { organizationId: PILOT_ORGANIZATION, userId: PILOT_USER });
     assert.ok(stillThere, "onboarding.forgetMemory must never delete a red_flag Memory");
 
     const adjustmentMemory = await wiring.memoryStore.write({
       id: "55555555-0000-4000-8000-000000000002",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       type: "preference",
       scope: "private",
       content: JSON.stringify({ kind: "preference_adjustment", scope: "test", target: "test", proposedChange: "test", rationale: "test", flagMemoryId: redFlagMemory.id, applied: false }),
@@ -390,7 +390,7 @@ test("onboarding.forgetMemory (review round-5 item 1): rejects red_flag/preferen
       ownerUserId: PILOT_USER,
     });
     await assert.rejects(
-      () => caller.onboarding.forgetMemory({ workspaceId: PILOT_WORKSPACE, memoryId: adjustmentMemory.id }),
+      () => caller.onboarding.forgetMemory({ organizationId: PILOT_ORGANIZATION, memoryId: adjustmentMemory.id }),
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );
   } finally {

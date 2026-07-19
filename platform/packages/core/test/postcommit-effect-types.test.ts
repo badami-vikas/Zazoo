@@ -93,7 +93,7 @@ function freshCtx(startISO = "2026-06-01T00:00:00.000Z", seed = 42): RunCtx {
 
 function req(partial: Partial<ActionRequest>): ActionRequest {
   return {
-    workspaceId: "ws-1",
+    organizationId: "ws-1",
     actor: { type: "user", id: "u1" },
     action: "write",
     resourceType: "person",

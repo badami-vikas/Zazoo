@@ -23,7 +23,7 @@ import countries from "world-atlas/countries-110m.json";
 import { feature } from "topojson-client";
 import type { GeoJsonObject } from "geojson";
 import type { Topology } from "topojson-specification";
-import { PILOT_WORKSPACE, trpc } from "../../lib/trpc.js";
+import { PILOT_ORGANIZATION, trpc } from "../../lib/trpc.js";
 import { Button } from "../../components/ui/button.js";
 import type { DataRow, DataViewProps } from "../types.js";
 
@@ -395,7 +395,7 @@ export function MapView({
       error: null,
     }));
     void trpc.view.geocoderStatus
-      .query({ workspaceId: PILOT_WORKSPACE })
+      .query({ organizationId: PILOT_ORGANIZATION })
       .then((status) => {
         if (!active) return;
         setGeocoderStatus({
@@ -581,7 +581,7 @@ export function MapView({
         labels: unresolvedLabels,
         resolveBatch: async (labels) => {
           const result = await trpc.view.resolveLocations.mutate({
-            workspaceId: PILOT_WORKSPACE,
+            organizationId: PILOT_ORGANIZATION,
             labels,
             confirmedLocalProvider: true,
           });

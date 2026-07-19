@@ -17,12 +17,12 @@ import { isMemoryIdUniqueViolation, isSerializationFailure } from "../src/memory
 const OWNER = "aaaaaaaa-0000-4000-8000-000000000001";
 const LINEAGE_KEY = "cccccccc-0000-4000-8000-000000000009";
 
-function draft(id: string, workspaceId: string, overrides: Partial<MemoryWrite> = {}): MemoryWrite {
+function draft(id: string, organizationId: string, overrides: Partial<MemoryWrite> = {}): MemoryWrite {
   return {
     id,
-    workspaceId,
+    organizationId,
     type: "semantic",
-    subjectElementId: LINEAGE_KEY,
+    subjectRecordId: LINEAGE_KEY,
     scope: "private",
     content: "test_fixture_content",
     confidence: 1,
@@ -34,8 +34,8 @@ function draft(id: string, workspaceId: string, overrides: Partial<MemoryWrite> 
   };
 }
 
-async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"]): Promise<string> {
-  const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_cas" }).returning({ id: schema.workspaces.id });
+async function seedOrganization(db: Awaited<ReturnType<typeof createLocalDb>>["db"]): Promise<string> {
+  const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_cas" }).returning({ id: schema.organizations.id });
   assert.ok(ws);
   return ws.id;
 }
@@ -43,14 +43,14 @@ async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"]
 test("DrizzleMemoryStore.casSupersede: first create succeeds; currentForLineage reflects it", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
     const created = await store.casSupersede({
-      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
-      next: draft("00000000-0000-4000-8000-000000000001", workspaceId),
+      organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
+      next: draft("00000000-0000-4000-8000-000000000001", organizationId),
     });
     assert.ok(created);
-    const current = await store.currentForLineage(workspaceId, OWNER, LINEAGE_KEY);
+    const current = await store.currentForLineage(organizationId, OWNER, LINEAGE_KEY);
     assert.equal(current?.id, created!.id);
   } finally {
     await close();
@@ -60,23 +60,23 @@ test("DrizzleMemoryStore.casSupersede: first create succeeds; currentForLineage 
 test("DrizzleMemoryStore.casSupersede: a stale expectedCurrentId is rejected, never forking the lineage", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
     const v1 = await store.casSupersede({
-      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
-      next: draft("00000000-0000-4000-8000-000000000001", workspaceId),
+      organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
+      next: draft("00000000-0000-4000-8000-000000000001", organizationId),
     });
     const v2 = await store.casSupersede({
-      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
-      next: draft("00000000-0000-4000-8000-000000000002", workspaceId),
+      organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+      next: draft("00000000-0000-4000-8000-000000000002", organizationId),
     });
     assert.ok(v2);
     const staleAttempt = await store.casSupersede({
-      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
-      next: draft("00000000-0000-4000-8000-000000000003", workspaceId),
+      organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+      next: draft("00000000-0000-4000-8000-000000000003", organizationId),
     });
     assert.equal(staleAttempt, null);
-    const current = await store.currentForLineage(workspaceId, OWNER, LINEAGE_KEY);
+    const current = await store.currentForLineage(organizationId, OWNER, LINEAGE_KEY);
     assert.equal(current?.id, v2!.id);
   } finally {
     await close();
@@ -86,44 +86,44 @@ test("DrizzleMemoryStore.casSupersede: a stale expectedCurrentId is rejected, ne
 test("DrizzleMemoryStore.casSupersede: two REAL concurrent transactions racing the same expected-current id — exactly one wins", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
     const v1 = await store.casSupersede({
-      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
-      next: draft("00000000-0000-4000-8000-000000000001", workspaceId),
+      organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
+      next: draft("00000000-0000-4000-8000-000000000001", organizationId),
     });
     const results = await Promise.all([
       store.casSupersede({
-        workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
-        next: draft("00000000-0000-4000-8000-0000000000a1", workspaceId),
+        organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+        next: draft("00000000-0000-4000-8000-0000000000a1", organizationId),
       }),
       store.casSupersede({
-        workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
-        next: draft("00000000-0000-4000-8000-0000000000b1", workspaceId),
+        organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+        next: draft("00000000-0000-4000-8000-0000000000b1", organizationId),
       }),
     ]);
     const winners = results.filter((r) => r !== null);
     assert.equal(winners.length, 1, "exactly one of the two real concurrent transactions must win");
-    const current = await store.currentForLineage(workspaceId, OWNER, LINEAGE_KEY);
+    const current = await store.currentForLineage(organizationId, OWNER, LINEAGE_KEY);
     assert.equal(current?.id, winners[0]!.id);
   } finally {
     await close();
   }
 });
 
-test("currentForLineage scopes strictly by workspaceId + ownerUserId + subjectElementId — no cross-tenant/owner bleed", async () => {
+test("currentForLineage scopes strictly by organizationId + ownerUserId + subjectRecordId — no cross-tenant/owner bleed", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
-    const otherWorkspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
+    const otherOrganizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
     await store.casSupersede({
-      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
-      next: draft("00000000-0000-4000-8000-000000000001", workspaceId),
+      organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
+      next: draft("00000000-0000-4000-8000-000000000001", organizationId),
     });
-    const otherWorkspace = await store.currentForLineage(otherWorkspaceId, OWNER, LINEAGE_KEY);
-    const otherOwner = await store.currentForLineage(workspaceId, "bbbbbbbb-0000-4000-8000-000000000002", LINEAGE_KEY);
-    assert.equal(otherWorkspace, null);
+    const otherOrganization = await store.currentForLineage(otherOrganizationId, OWNER, LINEAGE_KEY);
+    const otherOwner = await store.currentForLineage(organizationId, "bbbbbbbb-0000-4000-8000-000000000002", LINEAGE_KEY);
+    assert.equal(otherOrganization, null);
     assert.equal(otherOwner, null);
   } finally {
     await close();
@@ -163,7 +163,7 @@ test("isSerializationFailure recognizes a real DrizzleQueryError-wrapped 40001, 
 test("casSupersede returns null (never re-throws) when the transaction rejects with a real wrapped 40001", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
     const rawPgError = Object.assign(new Error("could not serialize access due to concurrent update"), { code: "40001" });
     const wrapped = new DrizzleQueryError("select ...", [], rawPgError);
@@ -174,8 +174,8 @@ test("casSupersede returns null (never re-throws) when the transaction rejects w
     (db as unknown as { transaction: typeof db.transaction }).transaction = (() => Promise.reject(wrapped)) as typeof db.transaction;
     try {
       const result = await store.casSupersede({
-        workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
-        next: draft("00000000-0000-4000-8000-000000000099", workspaceId),
+        organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
+        next: draft("00000000-0000-4000-8000-000000000099", organizationId),
       });
       assert.equal(result, null, "a genuine serialization failure must surface as a CAS-failure null, never an unhandled throw");
     } finally {
@@ -221,16 +221,16 @@ test("isMemoryIdUniqueViolation recognizes a real DrizzleQueryError-wrapped 2350
 test("casSupersede: two REAL concurrent transactions inserting the IDENTICAL deterministic id both pass the 'no current row' compare — the loser's genuine 23505 surfaces as CAS-failure null, never an unhandled throw", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
     const sameId = "dddddddd-0000-4000-8000-000000000001";
     const results = await Promise.all([
-      store.casSupersede({ workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null, next: draft(sameId, workspaceId) }),
-      store.casSupersede({ workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null, next: draft(sameId, workspaceId) }),
+      store.casSupersede({ organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null, next: draft(sameId, organizationId) }),
+      store.casSupersede({ organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null, next: draft(sameId, organizationId) }),
     ]);
     const winners = results.filter((r) => r !== null);
     assert.equal(winners.length, 1, "exactly one of the two concurrent identical-id inserts must win — the other must resolve to null, never throw");
-    const current = await store.currentForLineage(workspaceId, OWNER, LINEAGE_KEY);
+    const current = await store.currentForLineage(organizationId, OWNER, LINEAGE_KEY);
     assert.equal(current?.id, sameId);
   } finally {
     await close();
@@ -248,25 +248,25 @@ test("casSupersede: two REAL concurrent transactions inserting the IDENTICAL det
 test("casSupersede persists lineage_revision 1, 2, 3... across real DB transactions, and history-style retrieve() orders a legacy (null-revision) row oldest via a real SQL keyset", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
     // A legacy row: written directly (not via casSupersede), so its
     // lineage_revision is NULL — mirrors a pre-0016 row.
-    const legacy = await store.write(draft("00000000-0000-4000-8000-000000000000", workspaceId));
+    const legacy = await store.write(draft("00000000-0000-4000-8000-000000000000", organizationId));
     const v1 = await store.casSupersede({
-      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: legacy.id,
-      next: draft("00000000-0000-4000-8000-000000000001", workspaceId),
+      organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: legacy.id,
+      next: draft("00000000-0000-4000-8000-000000000001", organizationId),
     });
     const v2 = await store.casSupersede({
-      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
-      next: draft("00000000-0000-4000-8000-000000000002", workspaceId),
+      organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+      next: draft("00000000-0000-4000-8000-000000000002", organizationId),
     });
     assert.equal(v1!.lineageRevision, 1);
     assert.equal(v2!.lineageRevision, 2);
 
-    const auth = { workspaceId, userId: OWNER };
+    const auth = { organizationId, userId: OWNER };
     const all = await store.retrieve(
-      { subjectElementId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision" },
+      { subjectRecordId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision" },
       auth,
     );
     assert.deepEqual(all.map((e) => e.id), [legacy.id, v1!.id, v2!.id], "the NULL-revision legacy row must sort oldest, via real SQL NULLS FIRST ordering");
@@ -275,13 +275,13 @@ test("casSupersede persists lineage_revision 1, 2, 3... across real DB transacti
     // the exact three-valued-logic trap a bare tuple comparison against a
     // nullable column would hit (never returns the non-null page).
     const page1 = await store.retrieve(
-      { subjectElementId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision", limit: 1 },
+      { subjectRecordId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision", limit: 1 },
       auth,
     );
     assert.deepEqual(page1.map((e) => e.id), [legacy.id]);
     const page2 = await store.retrieve(
       {
-        subjectElementId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision", limit: 2,
+        subjectRecordId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision", limit: 2,
         cursor: { createdAt: page1[0]!.createdAt, id: page1[0]!.id, lineageRevision: page1[0]!.lineageRevision ?? null },
       },
       auth,
@@ -295,21 +295,21 @@ test("casSupersede persists lineage_revision 1, 2, 3... across real DB transacti
 test("casSupersede: two REAL concurrent transactions racing the SAME lineage never allocate the SAME lineage_revision — the loser's serialization failure is a CAS null, never a duplicate revision", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
     const v1 = await store.casSupersede({
-      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
-      next: draft("00000000-0000-4000-8000-000000000001", workspaceId),
+      organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
+      next: draft("00000000-0000-4000-8000-000000000001", organizationId),
     });
     assert.equal(v1!.lineageRevision, 1);
     const [a, b] = await Promise.all([
       store.casSupersede({
-        workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
-        next: draft("00000000-0000-4000-8000-0000000000a1", workspaceId),
+        organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+        next: draft("00000000-0000-4000-8000-0000000000a1", organizationId),
       }),
       store.casSupersede({
-        workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
-        next: draft("00000000-0000-4000-8000-0000000000b1", workspaceId),
+        organizationId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+        next: draft("00000000-0000-4000-8000-0000000000b1", organizationId),
       }),
     ]);
     const winner = a ?? b;

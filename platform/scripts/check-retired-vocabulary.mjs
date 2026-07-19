@@ -12,8 +12,10 @@ const SOURCE_EXTENSIONS = new Set([...TYPESCRIPT_EXTENSIONS, ".rs", ".sql"]);
 const COMPATIBILITY_ADAPTERS = new Set([
   "apps/api/src/avatar-profile-v1-compat.ts",
   "apps/web/src/app/avatar/avatar-v1-compat.ts",
+  "apps/web/src/app/data/helpdesk-vocab3-compat.ts",
   "packages/core/src/capability/mcp-adapter.ts",
   "packages/db/src/media-vocab2-compat.ts",
+  "packages/local/src/stores/vocab3-organization-compat.ts",
 ]);
 
 const FAMILIES = {
@@ -28,7 +30,10 @@ const FAMILIES = {
   package: { tokens: ["package", "packages"] },
   project: { tokens: ["project", "projects"] },
   initiative: { tokens: ["initiative", "initiatives"] },
-  element: { tokens: ["element", "elements", "elementtype"] },
+  element: {
+    tokens: ["element", "elements", "elementtype"],
+    allowPhrases: ["jsonb array elements"],
+  },
   touchpoint: { tokens: ["touchpoint", "touchpoints"] },
   incident: { tokens: ["incident", "incidents"] },
   artifact: { tokens: ["artifact", "artifacts"] },

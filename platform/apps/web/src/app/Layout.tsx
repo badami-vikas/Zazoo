@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Network, Home, Package, Plus, Settings, Check, ListChecks, MessageSquare, X } from "lucide-react";
-import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
+import { Network, Home, Boxes, Plus, Settings, Check, ListChecks, MessageSquare, X } from "lucide-react";
+import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
 import { hasStoredPrefs, loadAvatarPrefs, saveAvatarPrefs, type AvatarPrefs } from "./avatar/avatar-store";
@@ -12,8 +12,8 @@ import { DesktopWindowChrome } from "./components/shared/DesktopWindowChrome";
 
 /**
  * Shell IA v3 — TASK-001 / VOCAB6 (2026-07-16): installed Modules are
- * first-class left-nav items, sourced from packages.list (not hardcoded).
- * Each Module links to /module/:packageName (manifest-driven Module Detail).
+ * first-class left-nav items, sourced from modules.list (not hardcoded).
+ * Each Module links to /module/:moduleName (manifest-driven Module Detail).
  * Deprecated surfaces (Knowledge, Intelligence, standalone Tools,
  * Projects) are removed from primary nav. Settings moves to its own section.
  *
@@ -28,8 +28,8 @@ export default function Layout() {
   const [newOpen, setNewOpen] = useState(false);
   const [avatarPrefs, setAvatarPrefs] = useState<AvatarPrefs | null>(null);
   const [organizationConfirmed, setOrganizationConfirmed] = useState<boolean | null>(null);
-  const [workspaceName, setWorkspaceName] = useState<string | undefined>(undefined);
-  const [workspaces, setWorkspaces] = useState<{ id: string; name: string }[]>([]);
+  const [organizationName, setOrganizationName] = useState<string | undefined>(undefined);
+  const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
   const [mobileModulesOpen, setMobileModulesOpen] = useState(false);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
@@ -55,19 +55,19 @@ export default function Layout() {
     rail.setCollapsedPersisted(!next);
   }
 
-  // TASK-001 VOCAB6: installed modules from packages.list (real API, not
+  // TASK-001 VOCAB6: installed modules from modules.list (real API, not
   // hardcoded). Only `available` state modules appear in the nav.
   const [installedModules, setInstalledModules] = useState<
-    { packageName: string; displayName: string }[] | null
+    { moduleName: string; displayName: string }[] | null
   >(null);
 
   const [moduleLoadError, setModuleLoadError] = useState<string | null>(null);
 
-  // TASK-001 VOCAB6: load installed modules from packages.list for the nav.
-  // Only `available` state packages appear. Fetched once per mount.
+  // TASK-001 VOCAB6: load installed modules from modules.list for the nav.
+  // Only `available` state modules appear. Fetched once per mount.
   useEffect(() => {
-    trpc.packages.list
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
+    trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
       .then((res) => {
         const available = res.items
           .filter(
@@ -78,8 +78,8 @@ export default function Layout() {
               p.moduleAttachment === undefined,
           )
           .map((p) => ({
-            packageName: p.packageName,
-            displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.packageName,
+            moduleName: p.moduleName,
+            displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
           }));
         setInstalledModules(available);
       })
@@ -96,10 +96,10 @@ export default function Layout() {
   }, []);
 
   useEffect(() => {
-    trpc.workspace.blueprint.get
-      .query({ workspaceId: PILOT_WORKSPACE })
+    trpc.organization.blueprint.get
+      .query({ organizationId: PILOT_ORGANIZATION })
       .then((res) => {
-        // Existing users (a workspace already has an active blueprint) never
+        // Existing users (a organization already has an active blueprint) never
         // see onboarding forced back open; the avatar just defaults to a
         // neutral ready Avatar if this browser never saved prefs (spec section
         // 4, item 4 — "no forced re-onboarding").
@@ -138,12 +138,12 @@ export default function Layout() {
   }, [desktopAvatarSessionReady, avatarPrefs?.style, avatarPrefs?.avatarName]);
 
   useEffect(() => {
-    trpc.workspace.list
+    trpc.organization.list
       .query()
       .then((rows) => {
-        const mine = rows.find((w) => w.id === PILOT_WORKSPACE);
-        if (mine?.name) setWorkspaceName(mine.name);
-        setWorkspaces(rows.map((w) => ({ id: w.id, name: w.name || "Unnamed organization" })));
+        const mine = rows.find((w) => w.id === PILOT_ORGANIZATION);
+        if (mine?.name) setOrganizationName(mine.name);
+        setOrganizations(rows.map((w) => ({ id: w.id, name: w.name || "Unnamed organization" })));
       })
       .catch(() => {
         // Honest no-op — the avatar popover falls back to "Unnamed organization".
@@ -231,20 +231,20 @@ export default function Layout() {
             onClick={() => setOrgMenuOpen((v) => !v)}
             aria-haspopup="menu"
             aria-expanded={orgMenuOpen}
-            aria-label={`Organization: ${workspaceName || "Bridge"}`}
+            aria-label={`Organization: ${organizationName || "Bridge"}`}
             className={`flex rounded-lg hover:bg-[var(--color-surface)] transition-colors ${
               railExpanded ? "flex-row items-center gap-2.5 py-1.5 px-1.5 w-full" : "flex-col items-center gap-0.5 py-1.5 px-1"
             }`}
-            title={workspaceName || "Bridge"}
+            title={organizationName || "Bridge"}
           >
             <div
               className="w-8 h-8 rounded-lg text-white flex items-center justify-center text-sm font-bold shadow-sm shrink-0"
               style={{ backgroundColor: "var(--color-steel)" }}
             >
-              {(workspaceName || "B").charAt(0).toUpperCase()}
+              {(organizationName || "B").charAt(0).toUpperCase()}
             </div>
             <span className={navLabelClass(railExpanded ? "text-left" : "")} style={{ color: "var(--color-navy-mid)", maxWidth: railExpanded ? undefined : 64 }}>
-              {workspaceName || "Bridge"}
+              {organizationName || "Bridge"}
             </span>
           </button>
 
@@ -267,8 +267,8 @@ export default function Layout() {
                 style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}
               >
                 <div className="p-1.5 flex flex-col">
-                  {(workspaces.length ? workspaces : [{ id: PILOT_WORKSPACE, name: workspaceName || "Bridge" }]).map((w, i) => {
-                    const active = w.id === PILOT_WORKSPACE;
+                  {(organizations.length ? organizations : [{ id: PILOT_ORGANIZATION, name: organizationName || "Bridge" }]).map((w, i) => {
+                    const active = w.id === PILOT_ORGANIZATION;
                     return (
                       <button
                         key={w.id}
@@ -299,8 +299,8 @@ export default function Layout() {
         </div>
 
         {/* Top nav — Home + installed Modules (VOCAB6) + "+New", icon+label stacked.
-            Modules are sourced from packages.list (not hardcoded). Each links to
-            /module/:packageName (manifest-driven Module Detail, §4b). */}
+            Modules are sourced from modules.list (not hardcoded). Each links to
+            /module/:moduleName (manifest-driven Module Detail, §4b). */}
         <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
           {!railExpanded && (
             <div className="flex justify-center pb-1">
@@ -317,7 +317,7 @@ export default function Layout() {
             <span className={navLabelClass()}>Home</span>
           </Link>
 
-          {/* Installed Modules — from packages.list (real API, §5c). */}
+          {/* Installed Modules — from modules.list (real API, §5c). */}
           {installedModules === null ? (
             // Loading state: show a subtle indicator rather than a spinner in the nav.
             <div
@@ -334,18 +334,18 @@ export default function Layout() {
             </div>
           ) : (
             installedModules.map((mod) => {
-              const to = `/module/${mod.packageName}`;
+              const to = `/module/${mod.moduleName}`;
               const active = isActive(to);
               return (
                 <Link
-                  key={mod.packageName}
+                  key={mod.moduleName}
                   to={to}
                   className={navItemClass(active)}
                   title={mod.displayName}
                   aria-current={active ? "page" : undefined}
                 >
                   {active && <ActiveBar />}
-                  <Package className="w-5 h-5 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+                  <Boxes className="w-5 h-5 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
                   <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>{mod.displayName}</span>
                 </Link>
               );
@@ -425,13 +425,13 @@ export default function Layout() {
             <div className="space-y-1">
               {installedModules?.map((module) => (
                 <Link
-                  key={module.packageName}
-                  to={`/module/${module.packageName}`}
+                  key={module.moduleName}
+                  to={`/module/${module.moduleName}`}
                   onClick={() => setMobileModulesOpen(false)}
                   className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
                   style={{ color: "var(--color-navy)" }}
                 >
-                  <Package className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+                  <Boxes className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
                   {module.displayName}
                 </Link>
               ))}
@@ -507,7 +507,7 @@ export default function Layout() {
           aria-expanded={mobileModulesOpen}
           aria-controls="mobile-module-menu"
         >
-          <Package className="w-4 h-4" style={{ color: mobileModulesOpen ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+          <Boxes className="w-4 h-4" style={{ color: mobileModulesOpen ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
           Modules
         </button>
         <button
@@ -539,8 +539,8 @@ export default function Layout() {
           // docs/BUGS.md cosmetic-auto-close fix) — only marks that onboarding
           // no longer needs to auto-open on a future mount.
           onProposed={(organization) => {
-            setWorkspaceName(organization.name);
-            setWorkspaces((current) =>
+            setOrganizationName(organization.name);
+            setOrganizations((current) =>
               current.some((item) => item.id === organization.id)
                 ? current.map((item) => (item.id === organization.id ? organization : item))
                 : [...current, organization],
@@ -567,7 +567,7 @@ export default function Layout() {
         <AvatarOverlay
           style={avatarPrefs.style}
           {...(avatarPrefs.avatarName ? { avatarName: avatarPrefs.avatarName } : {})}
-          {...(workspaceName ? { workspaceName } : {})}
+          {...(organizationName ? { organizationName } : {})}
         />
       )}
     </div>

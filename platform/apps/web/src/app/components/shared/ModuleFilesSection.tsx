@@ -1,8 +1,8 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import { FolderOpen, Upload } from "lucide-react";
-import { trpc, PILOT_WORKSPACE } from "../../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../../lib/trpc";
 
-type FileInventory = Awaited<ReturnType<typeof trpc.packages.files.query>>;
+type FileInventory = Awaited<ReturnType<typeof trpc.modules.files.query>>;
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -39,8 +39,8 @@ export function ModuleFilesSection({
     let active = true;
     setLoading(true);
     setError(null);
-    void trpc.packages.files.query({
-      workspaceId: PILOT_WORKSPACE,
+    void trpc.modules.files.query({
+      organizationId: PILOT_ORGANIZATION,
       moduleName,
     }).then((next) => {
       if (active) setInventory(next);
@@ -65,8 +65,8 @@ export function ModuleFilesSection({
         if (file.size > MAX_FILE_BYTES) {
           throw new Error(`${file.name} exceeds the 10 MB local File limit.`);
         }
-        await trpc.packages.addFile.mutate({
-          workspaceId: PILOT_WORKSPACE,
+        await trpc.modules.addFile.mutate({
+          organizationId: PILOT_ORGANIZATION,
           moduleName,
           fileName: file.name,
           contentBase64: await fileBase64(file),

@@ -1,7 +1,7 @@
 /**
  * DrizzleGoalTaskStore — binds the core `GoalTaskStore` port (@bridge/core's
  * goal-task.ts) to `goals`/`tasks` (schema.ts's LAYER 8). Mirrors
- * DrizzleWorkspaceDefinitionStore's shape: a single class, `#db` private
+ * DrizzleOrganizationDefinitionStore's shape: a single class, `#db` private
  * field, an `unpack` helper per table.
  *
  * TASK-007 closure requirement: the in-memory `InMemoryGoalTaskStore` stays
@@ -19,7 +19,7 @@ import { goals, tasks } from "./schema.js";
 function unpackGoal(row: typeof goals.$inferSelect): Goal {
   return {
     id: row.id,
-    workspaceId: row.workspaceId,
+    organizationId: row.organizationId,
     type: row.type,
     title: row.title,
     createdAt: row.createdAt.toISOString(),
@@ -29,7 +29,7 @@ function unpackGoal(row: typeof goals.$inferSelect): Goal {
 function unpackTask(row: typeof tasks.$inferSelect): Task {
   return {
     id: row.id,
-    workspaceId: row.workspaceId,
+    organizationId: row.organizationId,
     goalId: row.goalId,
     type: row.type,
     assignedAgentId: row.assignedAgentId,
@@ -49,7 +49,7 @@ export class DrizzleGoalTaskStore implements GoalTaskStore {
       .insert(goals)
       .values({
         id: input.id ?? seam.nextId(),
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         type: input.type,
         title: input.title,
       })
@@ -58,18 +58,18 @@ export class DrizzleGoalTaskStore implements GoalTaskStore {
     return unpackGoal(inserted);
   }
 
-  async getGoal(workspaceId: string, id: string): Promise<Goal | null> {
+  async getGoal(organizationId: string, id: string): Promise<Goal | null> {
     const rows = await this.#db
       .select()
       .from(goals)
-      .where(and(eq(goals.workspaceId, workspaceId), eq(goals.id, id)))
+      .where(and(eq(goals.organizationId, organizationId), eq(goals.id, id)))
       .limit(1);
     const row = rows[0];
     return row ? unpackGoal(row) : null;
   }
 
-  async listGoals(workspaceId: string): Promise<Goal[]> {
-    const rows = await this.#db.select().from(goals).where(eq(goals.workspaceId, workspaceId));
+  async listGoals(organizationId: string): Promise<Goal[]> {
+    const rows = await this.#db.select().from(goals).where(eq(goals.organizationId, organizationId));
     return rows.map(unpackGoal);
   }
 
@@ -78,7 +78,7 @@ export class DrizzleGoalTaskStore implements GoalTaskStore {
       .insert(tasks)
       .values({
         id: input.id ?? seam.nextId(),
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         goalId: input.goalId,
         type: input.type,
         assignedAgentId: input.assignedAgentId,
@@ -89,39 +89,39 @@ export class DrizzleGoalTaskStore implements GoalTaskStore {
     return unpackTask(inserted);
   }
 
-  async getTask(workspaceId: string, id: string): Promise<Task | null> {
+  async getTask(organizationId: string, id: string): Promise<Task | null> {
     const rows = await this.#db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+      .where(and(eq(tasks.organizationId, organizationId), eq(tasks.id, id)))
       .limit(1);
     const row = rows[0];
     return row ? unpackTask(row) : null;
   }
 
-  async listTasksByGoal(workspaceId: string, goalId: string): Promise<Task[]> {
+  async listTasksByGoal(organizationId: string, goalId: string): Promise<Task[]> {
     const rows = await this.#db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.goalId, goalId)));
+      .where(and(eq(tasks.organizationId, organizationId), eq(tasks.goalId, goalId)));
     return rows.map(unpackTask);
   }
 
-  async reassignTask(workspaceId: string, id: string, assignedAgentId: string): Promise<Task> {
+  async reassignTask(organizationId: string, id: string, assignedAgentId: string): Promise<Task> {
     const [updated] = await this.#db
       .update(tasks)
       .set({ assignedAgentId })
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+      .where(and(eq(tasks.organizationId, organizationId), eq(tasks.id, id)))
       .returning();
     if (!updated) throw new Error(`tasks: unknown task ${id}`);
     return unpackTask(updated);
   }
 
-  async updateTaskStatus(workspaceId: string, id: string, status: TaskStatus): Promise<Task> {
+  async updateTaskStatus(organizationId: string, id: string, status: TaskStatus): Promise<Task> {
     const [updated] = await this.#db
       .update(tasks)
       .set({ status })
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+      .where(and(eq(tasks.organizationId, organizationId), eq(tasks.id, id)))
       .returning();
     if (!updated) throw new Error(`tasks: unknown task ${id}`);
     return unpackTask(updated);

@@ -57,10 +57,10 @@ test("every onboarding question declares separate why and consequence copy", asy
     assert.match(question, /\n\s+why:\s+"/);
     assert.match(question, /\n\s+consequence:\s+"/);
   }
-  assert.doesNotMatch(source, /helpText: "Bridge calls this an Initiative/);
-  assert.doesNotMatch(source, /label: "(?:Initiative|Touchpoint)"/);
-  assert.match(source, /sales_deals: \{ nodeType: "initiative", label: "Deal" \}/);
-  assert.match(source, /job_search: \{ nodeType: "initiative", label: "Application" \}/);
+  assert.doesNotMatch(source, /helpText: "Bridge calls this an Record/);
+  assert.doesNotMatch(source, /label: "(?:Record|Touchpoint)"/);
+  assert.match(source, /sales_deals: \{ nodeType: "record", label: "Deal" \}/);
+  assert.match(source, /job_search: \{ nodeType: "record", label: "Application" \}/);
   assert.match(source, /support: \{ nodeType: "touchpoint", label: "Ticket" \}/);
 });
 
@@ -100,7 +100,7 @@ test("signal onboarding choice declares every entity referenced by its views", a
     domain: "relationships",
     watch_first: ["surface_signals"],
     view_style: "table",
-    workspace_name: "Signal workspace",
+    organization_name: "Signal organization",
   });
   const declaredNodeTypes = new Set(blueprint.entities.map((entity) => entity.nodeType));
 
@@ -116,7 +116,7 @@ test("onboarding does not offer deprecated setup-lifecycle vocabulary", async ()
     readFile(dialogUrl, "utf8"),
     readFile(avatarProgressUrl, "utf8"),
   ]);
-  assert.doesNotMatch(questions, /log_touchpoints|as touchpoints|'s Workspace/);
+  assert.doesNotMatch(questions, /log_touchpoints|as touchpoints|'s Organization/);
   assert.doesNotMatch(questions, /spirit[_ -]animal/i);
   assert.doesNotMatch(dialog, /hatch|egg/i);
   assert.doesNotMatch(avatarProgress, /hatch|egg|creature|matur/i);
@@ -284,20 +284,20 @@ test("onboarding persists the chosen Organization name and refreshes the shell",
     readFile(layoutUrl, "utf8"),
     readFile(settingsUrl, "utf8"),
   ]);
-  assert.match(dialog, /answers\.workspace_name/);
-  assert.match(dialog, /trpc\.workspace\.rename\.mutate/);
-  assert.match(dialog, /maxLength=\{question\.id === "workspace_name" \? 120 : undefined\}/);
+  assert.match(dialog, /answers\.organization_name/);
+  assert.match(dialog, /trpc\.organization\.rename\.mutate/);
+  assert.match(dialog, /maxLength=\{question\.id === "organization_name" \? 120 : undefined\}/);
   assert.ok(
-    dialog.indexOf("trpc.workspace.rename.mutate") < dialog.indexOf("trpc.workspace.blueprint.propose.mutate"),
+    dialog.indexOf("trpc.organization.rename.mutate") < dialog.indexOf("trpc.organization.blueprint.propose.mutate"),
     "Organization rename must succeed before blueprint proposal and activation",
   );
   assert.ok(
-    dialog.indexOf("trpc.workspace.blueprint.propose.mutate") < dialog.indexOf("trpc.workspace.blueprint.activate.mutate"),
+    dialog.indexOf("trpc.organization.blueprint.propose.mutate") < dialog.indexOf("trpc.organization.blueprint.activate.mutate"),
   );
   assert.match(dialog, /onProposed\?\.\(organization\)/);
   assert.match(layout, /onProposed=\{\(organization\) => \{/);
-  assert.match(layout, /setWorkspaceName\(organization\.name\)/);
-  assert.match(layout, /setWorkspaces\(\(current\) =>/);
+  assert.match(layout, /setOrganizationName\(organization\.name\)/);
+  assert.match(layout, /setOrganizations\(\(current\) =>/);
   assert.match(settings, /open Learning and re-enter Onboarding/);
   assert.match(settings, /row\.manifest\.module !== undefined/);
   assert.match(settings, /row\.moduleAttachment === undefined/);
@@ -311,9 +311,9 @@ test("the exact demo surfaces keep retired vocabulary out of visible copy", asyn
     readFile(settingsUrl, "utf8"),
     readFile(commonsPanelUrl, "utf8"),
   ]);
-  assert.doesNotMatch(home, /relationships, initiatives/);
-  assert.doesNotMatch(layout, /Switching workspaces/);
+  assert.doesNotMatch(home, /relationships, records/);
+  assert.doesNotMatch(layout, /Switching organizations/);
   assert.doesNotMatch(settings, /Open Intelligence|Shared Assistants|and Workflows|to="\/intelligence"/);
-  assert.match(settings, /to=\{`\/module\/\$\{encodeURIComponent\(row\.packageName\)\}`\}/);
-  assert.doesNotMatch(commonsPanel, /Commons package/);
+  assert.match(settings, /to=\{`\/module\/\$\{encodeURIComponent\(row\.moduleName\)\}`\}/);
+  assert.doesNotMatch(commonsPanel, /Commons module/);
 });

@@ -4,7 +4,7 @@ type: raw
 doc_kind: design
 status: proposed
 companions:
-  - capability-package-format.md
+  - capability-module-format.md
   - roadmap-v2-universal-commons.md
 related_wiki: ../wiki/roadmap.md
 updated: 2026-07-06

@@ -3,7 +3,7 @@
  *
  * Asserts the platform INVARIANTS from docs/wiki/architecture.md as a labeled,
  * runnable set. Each test maps to one stated invariant. This is the guardrail
- * that fails loudly if a refactor weakens the spine. (The home-workspace
+ * that fails loudly if a refactor weakens the spine. (The home-organization
  * invariant requires the live DB and is covered by the live-DB conformance run.)
  */
 import { test } from "node:test";
@@ -59,7 +59,7 @@ function grantWrite(roles: InMemoryRoleStore, actorKey: string) {
   roles.direct.set(actorKey, [{ resourceType: "person", resourceId: null, action: "write", effect: "allow" }]);
 }
 const baseReq = {
-  workspaceId: WS,
+  organizationId: WS,
   actor: { type: "user" as const, id: "u1" },
   action: "write" as const,
   resourceType: "person" as const,
@@ -222,7 +222,7 @@ test("INVARIANT every Automation step is governed (a denied step halts the Run)"
   const registry = new InMemoryAutomationRegistry().register({
     id: "automation-1",
     name: "Governed Automation",
-    workspaceId: WS,
+    organizationId: WS,
     agentId: "a1",
     agentPlane: "local",
     steps: [{ skill: "echo", action: "write", resourceType: "community", inputs: {} }],
@@ -230,7 +230,7 @@ test("INVARIANT every Automation step is governed (a denied step halts the Run)"
   const exec = new InProcessAutomationExecutor(h.pipeline, { registry });
   const res = await exec.runById(
     {
-      workspaceId: WS,
+      organizationId: WS,
       automationId: "automation-1",
     },
     ctx(),

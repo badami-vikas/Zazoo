@@ -8,7 +8,7 @@
  * ticket creation — the same trust model as a password-reset link. The public
  * methods below (`createTicket`, `getTicketByToken`, `replyByToken`) never
  * consult a caller identity at all; the internal/agent methods
- * (`listTickets`/`getTicket`/`replyAsAgent`) are workspace-authenticated like
+ * (`listTickets`/`getTicket`/`replyAsAgent`) are organization-authenticated like
  * every other CRUD store here.
  */
 import { createHash, randomUUID } from "node:crypto";
@@ -43,7 +43,7 @@ function hashAccessToken(accessToken: string): string {
 
 const internalTicketColumns = {
   id: helpdeskTickets.id,
-  workspaceId: helpdeskTickets.workspaceId,
+  organizationId: helpdeskTickets.organizationId,
   subject: helpdeskTickets.subject,
   status: helpdeskTickets.status,
   submitterEmail: helpdeskTickets.submitterEmail,
@@ -92,11 +92,11 @@ export class DrizzleHelpdeskStore {
     return legacyTicket;
   }
 
-  /** Public: anyone with the workspace's helpdesk link may open a ticket. Returns
+  /** Public: anyone with the organization's helpdesk link may open a ticket. Returns
    * the access token ONCE — the caller (frontend) is responsible for showing it
    * to the submitter, the same as a one-time signup confirmation link. */
   async createTicket(input: {
-    workspaceId: string;
+    organizationId: string;
     subject: string;
     submitterEmail: string;
     submitterName?: string;
@@ -104,7 +104,7 @@ export class DrizzleHelpdeskStore {
     operationId: string;
     accessToken: string;
   }): Promise<{ ticket: InternalTicketRow & { accessToken: string }; message: MessageRow }> {
-    const ticketId = stableUuid(`helpdesk:ticket:${input.workspaceId}:${input.operationId}`);
+    const ticketId = stableUuid(`helpdesk:ticket:${input.organizationId}:${input.operationId}`);
     const messageId = stableUuid(`helpdesk:message:initial:${ticketId}`);
     const accessTokenHash = hashAccessToken(input.accessToken);
     const { storedTicket, message } = await this.#db.transaction(async (tx) => {
@@ -112,7 +112,7 @@ export class DrizzleHelpdeskStore {
         .insert(helpdeskTickets)
         .values({
           id: ticketId,
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           subject: input.subject,
           submitterEmail: input.submitterEmail,
           ...(input.submitterName ? { submitterName: input.submitterName } : {}),
@@ -125,7 +125,7 @@ export class DrizzleHelpdeskStore {
           .insert(helpdeskMessages)
           .values({
             id: messageId,
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             ticketId,
             authorType: "submitter",
             body: input.body,
@@ -182,7 +182,7 @@ export class DrizzleHelpdeskStore {
     return this.#db.transaction(async (tx) => {
       const [inserted] = await tx
         .insert(helpdeskMessages)
-        .values({ id: messageId, workspaceId: ticket.workspaceId, ticketId: ticket.id, authorType: "submitter", body })
+        .values({ id: messageId, organizationId: ticket.organizationId, ticketId: ticket.id, authorType: "submitter", body })
         .onConflictDoNothing()
         .returning();
       if (!inserted) {
@@ -204,9 +204,9 @@ export class DrizzleHelpdeskStore {
     });
   }
 
-  /** Authenticated (workspace member) — the support-agent inbox view. */
-  async listTickets(workspaceId: string, opts: PageOpts): Promise<HelpdeskPage<InternalTicketRow>> {
-    const where = eq(helpdeskTickets.workspaceId, workspaceId);
+  /** Authenticated (organization member) — the support-agent inbox view. */
+  async listTickets(organizationId: string, opts: PageOpts): Promise<HelpdeskPage<InternalTicketRow>> {
+    const where = eq(helpdeskTickets.organizationId, organizationId);
     const [rows, totalRows] = await Promise.all([
       this.#db
         .select(internalTicketColumns)
@@ -220,11 +220,11 @@ export class DrizzleHelpdeskStore {
     return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
   }
 
-  async getTicket(workspaceId: string, ticketId: string): Promise<{ ticket: InternalTicketRow; messages: MessageRow[] } | null> {
+  async getTicket(organizationId: string, ticketId: string): Promise<{ ticket: InternalTicketRow; messages: MessageRow[] } | null> {
     const rows = await this.#db
       .select(internalTicketColumns)
       .from(helpdeskTickets)
-      .where(and(eq(helpdeskTickets.id, ticketId), eq(helpdeskTickets.workspaceId, workspaceId)))
+      .where(and(eq(helpdeskTickets.id, ticketId), eq(helpdeskTickets.organizationId, organizationId)))
       .limit(1);
     const ticket = rows[0];
     if (!ticket) return null;
@@ -236,12 +236,12 @@ export class DrizzleHelpdeskStore {
     return { ticket, messages };
   }
 
-  async replyAsAgent(workspaceId: string, ticketId: string, authorUserId: string, body: string, status?: string): Promise<MessageRow | null> {
-    const ticket = await this.getTicket(workspaceId, ticketId);
+  async replyAsAgent(organizationId: string, ticketId: string, authorUserId: string, body: string, status?: string): Promise<MessageRow | null> {
+    const ticket = await this.getTicket(organizationId, ticketId);
     if (!ticket) return null;
     const [message] = await this.#db
       .insert(helpdeskMessages)
-      .values({ id: randomUUID(), workspaceId, ticketId, authorType: "agent", authorUserId, body })
+      .values({ id: randomUUID(), organizationId, ticketId, authorType: "agent", authorUserId, body })
       .returning();
     await this.#db
       .update(helpdeskTickets)

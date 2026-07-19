@@ -5,10 +5,10 @@ import { assertRlsPosture, createLocalDb, schema } from "../src/index.js";
 
 async function setRlsContext(
   db: Awaited<ReturnType<typeof createLocalDb>>["db"],
-  workspaceId: string,
+  organizationId: string,
   userId?: string,
 ) {
-  await db.execute(sql`select set_config('app.workspace_id', ${workspaceId}, false)`);
+  await db.execute(sql`select set_config('app.organization_id', ${organizationId}, false)`);
   if (userId) await db.execute(sql`select set_config('app.user_id', ${userId}, false)`);
 }
 
@@ -20,36 +20,36 @@ async function useRlsAppRole(db: Awaited<ReturnType<typeof createLocalDb>>["db"]
   await db.execute(sql`set role bridge_rls_member`);
 }
 
-test("RLS: workspace-scoped reads are isolated by app.workspace_id", async () => {
+test("RLS: organization-scoped reads are isolated by app.organization_id", async () => {
   const { db, close } = await createLocalDb();
   try {
     await useRlsAppRole(db);
-    const [tenantA] = await db.insert(schema.workspaces).values({ name: "test_fixture_rls_tenant_a" }).returning({ id: schema.workspaces.id });
-    const [tenantB] = await db.insert(schema.workspaces).values({ name: "test_fixture_rls_tenant_b" }).returning({ id: schema.workspaces.id });
+    const [tenantA] = await db.insert(schema.organizations).values({ name: "test_fixture_rls_tenant_a" }).returning({ id: schema.organizations.id });
+    const [tenantB] = await db.insert(schema.organizations).values({ name: "test_fixture_rls_tenant_b" }).returning({ id: schema.organizations.id });
     assert.ok(tenantA);
     assert.ok(tenantB);
 
     await setRlsContext(db, tenantA.id);
     const [resourceA] = await db
       .insert(schema.resources)
-      .values({ workspaceId: tenantA.id, title: "test_fixture_tenant_a_resource", kind: "article" })
+      .values({ organizationId: tenantA.id, title: "test_fixture_tenant_a_resource", kind: "article" })
       .returning({ id: schema.resources.id });
     assert.ok(resourceA);
     const [goalA] = await db
       .insert(schema.goals)
-      .values({ workspaceId: tenantA.id, type: "test.goal", title: "Tenant A goal" })
+      .values({ organizationId: tenantA.id, type: "test.goal", title: "Tenant A goal" })
       .returning({ id: schema.goals.id });
     assert.ok(goalA);
 
     await setRlsContext(db, tenantB.id);
     const [resourceB] = await db
       .insert(schema.resources)
-      .values({ workspaceId: tenantB.id, title: "test_fixture_tenant_b_resource", kind: "article" })
+      .values({ organizationId: tenantB.id, title: "test_fixture_tenant_b_resource", kind: "article" })
       .returning({ id: schema.resources.id });
     assert.ok(resourceB);
     const [goalB] = await db
       .insert(schema.goals)
-      .values({ workspaceId: tenantB.id, type: "test.goal", title: "Tenant B goal" })
+      .values({ organizationId: tenantB.id, type: "test.goal", title: "Tenant B goal" })
       .returning({ id: schema.goals.id });
     assert.ok(goalB);
 
@@ -65,32 +65,32 @@ test("RLS: workspace-scoped reads are isolated by app.workspace_id", async () =>
   }
 });
 
-test("RLS: relationship visibility honors workspace/public and private owner scope", async () => {
+test("RLS: relationship visibility honors organization/public and private owner scope", async () => {
   const { db, close } = await createLocalDb();
   try {
     await useRlsAppRole(db);
-    const [workspace] = await db.insert(schema.workspaces).values({ name: "test_fixture_rls_visibility" }).returning({ id: schema.workspaces.id });
+    const [organization] = await db.insert(schema.organizations).values({ name: "test_fixture_rls_visibility" }).returning({ id: schema.organizations.id });
     const [owner] = await db.insert(schema.users).values({ email: "test_fixture_rls_owner@example.com" }).returning({ id: schema.users.id });
     const [other] = await db.insert(schema.users).values({ email: "test_fixture_rls_other@example.com" }).returning({ id: schema.users.id });
-    assert.ok(workspace);
+    assert.ok(organization);
     assert.ok(owner);
     assert.ok(other);
 
-    await setRlsContext(db, workspace.id, owner.id);
+    await setRlsContext(db, organization.id, owner.id);
     const [privatePerson] = await db
       .insert(schema.people)
-      .values({ workspaceId: workspace.id, userId: owner.id, visibility: "private", fullNameOverride: "test_fixture_private_person" })
+      .values({ organizationId: organization.id, userId: owner.id, visibility: "private", fullNameOverride: "test_fixture_private_person" })
       .returning({ id: schema.people.id });
-    const [workspacePerson] = await db
+    const [organizationPerson] = await db
       .insert(schema.people)
-      .values({ workspaceId: workspace.id, userId: owner.id, visibility: "workspace", fullNameOverride: "test_fixture_workspace_person" })
+      .values({ organizationId: organization.id, userId: owner.id, visibility: "organization", fullNameOverride: "test_fixture_organization_person" })
       .returning({ id: schema.people.id });
     assert.ok(privatePerson);
-    assert.ok(workspacePerson);
+    assert.ok(organizationPerson);
 
-    await setRlsContext(db, workspace.id, other.id);
+    await setRlsContext(db, organization.id, other.id);
     const visibleToOther = await db.select({ id: schema.people.id }).from(schema.people);
-    assert.deepEqual(visibleToOther.map((row) => row.id), [workspacePerson.id]);
+    assert.deepEqual(visibleToOther.map((row) => row.id), [organizationPerson.id]);
   } finally {
     await close();
   }
@@ -100,10 +100,10 @@ test("RLS: Relations isolate private owners and bind writes to the current user"
   const { db, close } = await createLocalDb();
   try {
     await useRlsAppRole(db);
-    const [workspace] = await db
-      .insert(schema.workspaces)
+    const [organization] = await db
+      .insert(schema.organizations)
       .values({ name: "test_fixture_rls_relations" })
-      .returning({ id: schema.workspaces.id });
+      .returning({ id: schema.organizations.id });
     const [owner] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_rls_relation_owner@example.com" })
@@ -112,20 +112,20 @@ test("RLS: Relations isolate private owners and bind writes to the current user"
       .insert(schema.users)
       .values({ email: "test_fixture_rls_relation_other@example.com" })
       .returning({ id: schema.users.id });
-    assert.ok(workspace);
+    assert.ok(organization);
     assert.ok(owner);
     assert.ok(other);
     const eventId = "10000000-0000-4000-8000-000000000001";
     const privateTargetId = "20000000-0000-4000-8000-000000000001";
-    const workspaceTargetId = "20000000-0000-4000-8000-000000000002";
+    const organizationTargetId = "20000000-0000-4000-8000-000000000002";
     const publicTargetId = "20000000-0000-4000-8000-000000000003";
 
-    await setRlsContext(db, workspace.id, owner.id);
+    await setRlsContext(db, organization.id, owner.id);
     const ownerRows = await db
       .insert(schema.edges)
       .values([
         {
-          workspaceId: workspace.id,
+          organizationId: organization.id,
           ownerUserId: owner.id,
           srcType: "event",
           srcId: eventId,
@@ -138,20 +138,20 @@ test("RLS: Relations isolate private owners and bind writes to the current user"
           sourceModule: "relationship",
         },
         {
-          workspaceId: workspace.id,
+          organizationId: organization.id,
           ownerUserId: owner.id,
           srcType: "event",
           srcId: eventId,
           dstType: "person",
-          dstId: workspaceTargetId,
-          edgeType: "workspace_relation",
+          dstId: organizationTargetId,
+          edgeType: "organization_relation",
           evidenceRefs: [{ entityType: "event", entityId: eventId }],
-          visibility: "workspace",
+          visibility: "organization",
           source: "test",
           sourceModule: "relationship",
         },
         {
-          workspaceId: workspace.id,
+          organizationId: organization.id,
           ownerUserId: owner.id,
           srcType: "event",
           srcId: eventId,
@@ -167,18 +167,18 @@ test("RLS: Relations isolate private owners and bind writes to the current user"
       .returning({ id: schema.edges.id, edgeType: schema.edges.edgeType });
     assert.equal(ownerRows.length, 3);
 
-    await setRlsContext(db, workspace.id, other.id);
+    await setRlsContext(db, organization.id, other.id);
     const visibleToOther = await db
       .select({ id: schema.edges.id, edgeType: schema.edges.edgeType })
       .from(schema.edges);
     assert.deepEqual(
       visibleToOther.map((row) => row.edgeType).sort(),
-      ["public_relation", "workspace_relation"],
+      ["organization_relation", "public_relation"],
     );
     await assert.rejects(
       () =>
         db.insert(schema.edges).values({
-          workspaceId: workspace.id,
+          organizationId: organization.id,
           ownerUserId: owner.id,
           srcType: "event",
           srcId: eventId,
@@ -208,7 +208,7 @@ test("RLS: Relations isolate private owners and bind writes to the current user"
     const [otherPrivate] = await db
       .insert(schema.edges)
       .values({
-        workspaceId: workspace.id,
+        organizationId: organization.id,
         ownerUserId: other.id,
         srcType: "event",
         srcId: eventId,
@@ -223,13 +223,13 @@ test("RLS: Relations isolate private owners and bind writes to the current user"
       .returning({ id: schema.edges.id });
     assert.ok(otherPrivate);
 
-    await setRlsContext(db, workspace.id, owner.id);
+    await setRlsContext(db, organization.id, owner.id);
     const visibleToOwner = await db
       .select({ id: schema.edges.id, edgeType: schema.edges.edgeType })
       .from(schema.edges);
     assert.deepEqual(
       visibleToOwner.map((row) => row.edgeType).sort(),
-      ["private_relation", "public_relation", "workspace_relation"],
+      ["private_relation", "public_relation", "organization_relation"],
     );
     assert.equal(visibleToOwner.some((row) => row.id === otherPrivate.id), false);
   } finally {
@@ -248,19 +248,19 @@ test("RLS: Relations isolate private owners and bind writes to the current user"
  * predicate), matching this file's existing per-table coverage
  * convention.
  */
-test("RLS: memories isolate private/team/restricted owners while public/workspace stay visible to any member, and UPDATE/DELETE respect the same policy", async () => {
+test("RLS: memories isolate private/team/restricted owners while public/organization stay visible to any member, and UPDATE/DELETE respect the same policy", async () => {
   const { db, close } = await createLocalDb();
   try {
     await useRlsAppRole(db);
-    const [workspace] = await db.insert(schema.workspaces).values({ name: "test_fixture_rls_memories" }).returning({ id: schema.workspaces.id });
+    const [organization] = await db.insert(schema.organizations).values({ name: "test_fixture_rls_memories" }).returning({ id: schema.organizations.id });
     const [owner] = await db.insert(schema.users).values({ email: "test_fixture_rls_memories_owner@example.com" }).returning({ id: schema.users.id });
     const [other] = await db.insert(schema.users).values({ email: "test_fixture_rls_memories_other@example.com" }).returning({ id: schema.users.id });
-    assert.ok(workspace);
+    assert.ok(organization);
     assert.ok(owner);
     assert.ok(other);
 
     const memoryBase = {
-      workspaceId: workspace.id,
+      organizationId: organization.id,
       type: "semantic" as const,
       content: "test_fixture_rls_memory_content",
       confidence: "1",
@@ -270,14 +270,14 @@ test("RLS: memories isolate private/team/restricted owners while public/workspac
       ownerUserId: owner.id,
     };
 
-    await setRlsContext(db, workspace.id, owner.id);
+    await setRlsContext(db, organization.id, owner.id);
     const [publicMemory] = await db.insert(schema.memories).values({ ...memoryBase, scope: "public" }).returning({ id: schema.memories.id });
-    const [workspaceMemory] = await db.insert(schema.memories).values({ ...memoryBase, scope: "workspace" }).returning({ id: schema.memories.id });
+    const [organizationMemory] = await db.insert(schema.memories).values({ ...memoryBase, scope: "organization" }).returning({ id: schema.memories.id });
     const [teamMemory] = await db.insert(schema.memories).values({ ...memoryBase, scope: "team" }).returning({ id: schema.memories.id });
     const [privateMemory] = await db.insert(schema.memories).values({ ...memoryBase, scope: "private" }).returning({ id: schema.memories.id });
     const [restrictedMemory] = await db.insert(schema.memories).values({ ...memoryBase, scope: "restricted" }).returning({ id: schema.memories.id });
     assert.ok(publicMemory);
-    assert.ok(workspaceMemory);
+    assert.ok(organizationMemory);
     assert.ok(teamMemory);
     assert.ok(privateMemory);
     assert.ok(restrictedMemory);
@@ -288,17 +288,17 @@ test("RLS: memories isolate private/team/restricted owners while public/workspac
     const visibleToOwner = await db.select({ id: schema.memories.id }).from(schema.memories);
     assert.deepEqual(
       visibleToOwner.map((row) => row.id).sort(),
-      [publicMemory.id, workspaceMemory.id, teamMemory.id, privateMemory.id, restrictedMemory.id].sort(),
+      [publicMemory.id, organizationMemory.id, teamMemory.id, privateMemory.id, restrictedMemory.id].sort(),
     );
 
-    // A DIFFERENT workspace member sees only public/workspace — team/
+    // A DIFFERENT organization member sees only public/organization — team/
     // private/restricted are all owner-narrowed, enforced by Postgres
     // itself under a real restricted role, not merely by app-side code.
-    await setRlsContext(db, workspace.id, other.id);
+    await setRlsContext(db, organization.id, other.id);
     const visibleToOther = await db.select({ id: schema.memories.id }).from(schema.memories);
     assert.deepEqual(
       visibleToOther.map((row) => row.id).sort(),
-      [publicMemory.id, workspaceMemory.id].sort(),
+      [publicMemory.id, organizationMemory.id].sort(),
     );
     for (const hiddenId of [teamMemory.id, privateMemory.id, restrictedMemory.id]) {
       assert.equal(visibleToOther.some((row) => row.id === hiddenId), false);
@@ -327,7 +327,7 @@ test("RLS: memories isolate private/team/restricted owners while public/workspac
       .returning({ id: schema.memories.id });
     assert.equal(otherDeleteResult.length, 0, "a non-owner's DELETE must match zero rows under RLS");
 
-    await setRlsContext(db, workspace.id, owner.id);
+    await setRlsContext(db, organization.id, owner.id);
     const stillThere = await db.select({ id: schema.memories.id }).from(schema.memories).where(sql`${schema.memories.id} = ${restrictedMemory.id}`);
     assert.equal(stillThere.length, 1, "the restricted memory must survive the non-owner's no-op DELETE attempt");
 

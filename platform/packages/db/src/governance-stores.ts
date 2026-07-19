@@ -26,7 +26,7 @@ import {
   policies,
   rolePermissions,
   roles,
-  workspaceMembers,
+  organizationMembers,
 } from "./schema.js";
 
 type Effect = "allow" | "deny";
@@ -47,7 +47,7 @@ function stableGovernanceId(value: string): string {
  *
  * Before adding this, searched for an existing zod schema for this shape
  * (`grep -rn "z.object" packages/core`, `grep -rn "capabilityScope"`) — none
- * exists; `@bridge/core` is a types-only package (no zod dependency; ports.ts
+ * exists; `@bridge/core` is a types-only module (no zod dependency; ports.ts
  * only declares the TS interface), so this schema is colocated here in
  * `@bridge/db`, the only place that validates the jsonb wire shape at
  * read/write boundaries. `AutomationStepDef`'s equivalent schema lives in
@@ -99,7 +99,7 @@ export function parseAllowedSkills(raw: unknown): string[] {
 }
 
 export interface LearningAgentGovernanceConfig {
-  workspaceId: string;
+  organizationId: string;
   userId: string;
   agentId: string;
   roleId: string;
@@ -111,7 +111,7 @@ export type FoundationalAgentGovernanceConfig = LearningAgentGovernanceConfig;
 export type InternalStrategistGovernanceConfig = FoundationalAgentGovernanceConfig;
 export type RuntimeAgentGovernanceConfig = FoundationalAgentGovernanceConfig;
 export interface PrincipalGovernanceConfig {
-  workspaceId: string;
+  organizationId: string;
   userId: string;
 }
 export type RelationshipUserGovernanceConfig = PrincipalGovernanceConfig;
@@ -150,7 +150,7 @@ async function ensurePersistentAgentGovernance(
     .insert(roles)
     .values({
       id: config.roleId,
-      workspaceId: config.workspaceId,
+      organizationId: config.organizationId,
       name: config.name,
       kind: "agent",
       description: config.description,
@@ -158,7 +158,7 @@ async function ensurePersistentAgentGovernance(
     .onConflictDoUpdate({
       target: roles.id,
       set: {
-        workspaceId: config.workspaceId,
+        organizationId: config.organizationId,
         name: config.name,
         kind: "agent",
         description: config.description,
@@ -169,7 +169,7 @@ async function ensurePersistentAgentGovernance(
     .insert(agents)
     .values({
       id: config.agentId,
-      workspaceId: config.workspaceId,
+      organizationId: config.organizationId,
       name: config.name,
       ownerUserId: config.userId,
       assumesRoleId: config.roleId,
@@ -181,7 +181,7 @@ async function ensurePersistentAgentGovernance(
     .onConflictDoUpdate({
       target: agents.id,
       set: {
-        workspaceId: config.workspaceId,
+        organizationId: config.organizationId,
         name: config.name,
         ownerUserId: config.userId,
         assumesRoleId: config.roleId,
@@ -227,7 +227,7 @@ async function ensurePersistentAgentGovernance(
       .from(permissions)
       .where(
         and(
-          eq(permissions.workspaceId, config.workspaceId),
+          eq(permissions.organizationId, config.organizationId),
           eq(permissions.actorType, "user"),
           eq(permissions.actorId, config.userId),
           eq(permissions.resourceType, grant.resourceType),
@@ -246,9 +246,9 @@ async function ensurePersistentAgentGovernance(
             index === 0
               ? config.permissionId
               : stableGovernanceId(
-                  `principal:${config.workspaceId}:${config.userId}:${grant.resourceType}:${grant.action}`,
+                  `principal:${config.organizationId}:${config.userId}:${grant.resourceType}:${grant.action}`,
                 ),
-          workspaceId: config.workspaceId,
+          organizationId: config.organizationId,
           actorType: "user",
           actorId: config.userId,
           resourceType: grant.resourceType,
@@ -267,7 +267,7 @@ async function ensurePersistentAgentGovernance(
     agentStore.assumedRole(config.agentId),
     agentStore.capabilityScope(config.agentId),
     roleStore.grantsForRole(config.roleId),
-    roleStore.directGrants(config.workspaceId, { type: "user", id: config.userId }),
+    roleStore.directGrants(config.organizationId, { type: "user", id: config.userId }),
   ]);
   const hasGrant = (actual: GrantRule, expected: (typeof grants)[number]) =>
     actual.resourceType === expected.resourceType &&
@@ -300,7 +300,7 @@ export async function ensureDealPilotPrincipalGovernance(
       .from(permissions)
       .where(
         and(
-          eq(permissions.workspaceId, config.workspaceId),
+          eq(permissions.organizationId, config.organizationId),
           eq(permissions.actorType, "user"),
           eq(permissions.actorId, config.userId),
           eq(permissions.resourceType, grant.resourceType),
@@ -313,13 +313,13 @@ export async function ensureDealPilotPrincipalGovernance(
       .limit(1);
     if (!existing[0]) {
       const id = stableGovernanceId(
-        `principal:${config.workspaceId}:${config.userId}:${grant.resourceType}:${grant.action}`,
+        `principal:${config.organizationId}:${config.userId}:${grant.resourceType}:${grant.action}`,
       );
       await db
         .insert(permissions)
         .values({
           id,
-          workspaceId: config.workspaceId,
+          organizationId: config.organizationId,
           actorType: "user",
           actorId: config.userId,
           resourceType: grant.resourceType,
@@ -331,7 +331,7 @@ export async function ensureDealPilotPrincipalGovernance(
         .onConflictDoUpdate({
           target: permissions.id,
           set: {
-            workspaceId: config.workspaceId,
+            organizationId: config.organizationId,
             actorType: "user",
             actorId: config.userId,
             resourceType: grant.resourceType,
@@ -346,7 +346,7 @@ export async function ensureDealPilotPrincipalGovernance(
   }
 
   const direct = await new DrizzleRoleStore(db).directGrants(
-    config.workspaceId,
+    config.organizationId,
     { type: "user", id: config.userId },
   );
   if (
@@ -384,7 +384,7 @@ export async function ensureRelationshipUserGovernance(
   await db.transaction(async (tx) => {
     await tx.execute(sql`
       SELECT
-        set_config('app.workspace_id', ${config.workspaceId}, true),
+        set_config('app.organization_id', ${config.organizationId}, true),
         set_config('app.user_id', ${config.userId}, true)
     `);
     for (const grant of grants) {
@@ -392,9 +392,9 @@ export async function ensureRelationshipUserGovernance(
         .insert(permissions)
         .values({
           id: stableGovernanceId(
-            `principal:${config.workspaceId}:${config.userId}:${grant.resourceType}:${grant.action}`,
+            `principal:${config.organizationId}:${config.userId}:${grant.resourceType}:${grant.action}`,
           ),
-          workspaceId: config.workspaceId,
+          organizationId: config.organizationId,
           actorType: "user",
           actorId: config.userId,
           resourceType: grant.resourceType,
@@ -406,7 +406,7 @@ export async function ensureRelationshipUserGovernance(
         .onConflictDoNothing();
     }
     const direct = await new DrizzleRoleStore(tx).directGrants(
-      config.workspaceId,
+      config.organizationId,
       { type: "user", id: config.userId },
     );
     for (const grant of grants) {
@@ -596,14 +596,14 @@ export class DrizzleRoleStore implements RoleQuery {
     this.#db = db;
   }
 
-  async rolesForPrincipal(workspaceId: string, actor: Actor): Promise<string[]> {
-    // Schema v2: a workspace member carries a single role_id. Team-level roles
+  async rolesForPrincipal(organizationId: string, actor: Actor): Promise<string[]> {
+    // Schema v2: a organization member carries a single role_id. Team-level roles
     // are resolved by the caller's delegation scope (not modeled as a row yet).
     if (actor.type !== "user") return [];
     const rows = await this.#db
-      .select({ roleId: workspaceMembers.roleId })
-      .from(workspaceMembers)
-      .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, actor.id)));
+      .select({ roleId: organizationMembers.roleId })
+      .from(organizationMembers)
+      .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, actor.id)));
     return rows.map((r) => r.roleId).filter((id): id is string => id !== null);
   }
 
@@ -620,7 +620,7 @@ export class DrizzleRoleStore implements RoleQuery {
     return rows.map(asGrant);
   }
 
-  async directGrants(workspaceId: string, actor: Actor): Promise<GrantRule[]> {
+  async directGrants(organizationId: string, actor: Actor): Promise<GrantRule[]> {
     // Active (not revoked) direct CBAC grants. Expiry is checked by the resolver's
     // injected clock at the ephemeral layer; here we honor revoked_at only.
     const rows = await this.#db
@@ -633,7 +633,7 @@ export class DrizzleRoleStore implements RoleQuery {
       .from(permissions)
       .where(
         and(
-          eq(permissions.workspaceId, workspaceId),
+          eq(permissions.organizationId, organizationId),
           eq(permissions.actorType, actor.type),
           eq(permissions.actorId, actor.id),
           isNull(permissions.revokedAt),
@@ -649,13 +649,13 @@ export class DrizzleAgentStore implements AgentQuery {
     this.#db = db;
   }
 
-  async workspaceId(agentId: string): Promise<string | null> {
+  async organizationId(agentId: string): Promise<string | null> {
     const rows = await this.#db
-      .select({ workspaceId: agents.workspaceId })
+      .select({ organizationId: agents.organizationId })
       .from(agents)
       .where(eq(agents.id, agentId))
       .limit(1);
-    return rows[0]?.workspaceId ?? null;
+    return rows[0]?.organizationId ?? null;
   }
 
   async isActive(agentId: string): Promise<boolean> {
@@ -736,7 +736,7 @@ export class DrizzleEphemeralStore implements EphemeralQuery {
   }
 
   async activeGrants(
-    workspaceId: string,
+    organizationId: string,
     actor: Actor,
     context: { id: string } | undefined,
     nowISO: string,
@@ -751,7 +751,7 @@ export class DrizzleEphemeralStore implements EphemeralQuery {
       .from(ephemeralGrants)
       .where(
         and(
-          eq(ephemeralGrants.workspaceId, workspaceId),
+          eq(ephemeralGrants.organizationId, organizationId),
           eq(ephemeralGrants.actorType, actor.type),
           eq(ephemeralGrants.actorId, actor.id),
           isNull(ephemeralGrants.consumedAt),
@@ -802,11 +802,11 @@ export class DrizzlePolicyStore implements PolicyStore {
       .from(policies)
       .where(
         and(
-          eq(policies.workspaceId, input.workspaceId),
+          eq(policies.organizationId, input.organizationId),
           eq(policies.active, true),
           eq(policies.evaluationPhase, input.phase),
-          // Scope: workspace-wide OR matches the resource being acted on.
-          or(eq(policies.scopeType, "workspace"), eq(policies.scopeType, input.resourceType)),
+          // Scope: organization-wide OR matches the resource being acted on.
+          or(eq(policies.scopeType, "organization"), eq(policies.scopeType, input.resourceType)),
         ),
       )
       .orderBy(policies.priority);

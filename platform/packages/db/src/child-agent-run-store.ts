@@ -1,7 +1,7 @@
 /**
  * DrizzleChildAgentRunStore — binds the core `ChildAgentRunStore` port
  * (@bridge/core's child-agent-run.ts) to `child_agent_runs` (schema.ts's
- * LAYER 8). Mirrors DrizzleWorkspaceDefinitionStore's shape: a single class,
+ * LAYER 8). Mirrors DrizzleOrganizationDefinitionStore's shape: a single class,
  * `#db` private field, an `unpack` helper, jsonb string-array columns
  * validated at the read boundary (same reasoning as skill-manifest-store.ts's
  * `parseStringArray`: a corrupted `authorityScope`/`eligibleSkills` must fail
@@ -44,7 +44,7 @@ function unpack(row: typeof childAgentRuns.$inferSelect): ChildAgentRun {
     id: row.id,
     parentRunId: row.parentRunId,
     parentAgentId: row.parentAgentId,
-    workspaceId: row.workspaceId,
+    organizationId: row.organizationId,
     goalId: row.goalId,
     taskId: row.taskId,
     depth: row.depth,
@@ -78,7 +78,7 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
         id: run.id,
         parentRunId: run.parentRunId,
         parentAgentId: run.parentAgentId,
-        workspaceId: run.workspaceId,
+        organizationId: run.organizationId,
         goalId: run.goalId,
         taskId: run.taskId,
         depth: run.depth,
@@ -101,23 +101,23 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
     return unpack(inserted);
   }
 
-  async get(workspaceId: string, id: string): Promise<ChildAgentRun | null> {
+  async get(organizationId: string, id: string): Promise<ChildAgentRun | null> {
     const rows = await this.#db
       .select()
       .from(childAgentRuns)
-      .where(and(eq(childAgentRuns.workspaceId, workspaceId), eq(childAgentRuns.id, id)))
+      .where(and(eq(childAgentRuns.organizationId, organizationId), eq(childAgentRuns.id, id)))
       .limit(1);
     const row = rows[0];
     return row ? unpack(row) : null;
   }
 
-  async listByParentRun(workspaceId: string, parentRunId: string): Promise<ChildAgentRun[]> {
+  async listByParentRun(organizationId: string, parentRunId: string): Promise<ChildAgentRun[]> {
     const rows = await this.#db
       .select()
       .from(childAgentRuns)
       .where(
         and(
-          eq(childAgentRuns.workspaceId, workspaceId),
+          eq(childAgentRuns.organizationId, organizationId),
           eq(childAgentRuns.parentRunId, parentRunId),
         ),
       );
@@ -125,7 +125,7 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
   }
 
   async updateStatus(
-    workspaceId: string,
+    organizationId: string,
     id: string,
     expectedStatus: ChildAgentRunStatus,
     status: ChildAgentRunStatus,
@@ -135,7 +135,7 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
       .set({ status })
       .where(
         and(
-          eq(childAgentRuns.workspaceId, workspaceId),
+          eq(childAgentRuns.organizationId, organizationId),
           eq(childAgentRuns.id, id),
           eq(childAgentRuns.status, expectedStatus),
         ),
@@ -154,7 +154,7 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
       const [current] = await this.#db
         .select()
         .from(childAgentRuns)
-        .where(and(eq(childAgentRuns.workspaceId, workspaceId), eq(childAgentRuns.id, id)));
+        .where(and(eq(childAgentRuns.organizationId, organizationId), eq(childAgentRuns.id, id)));
       if (!current) throw new Error(`child_agent_runs: unknown run ${id}`);
       throw new ChildRunAlreadyTerminalError(id, current.status as ChildAgentRunStatus);
     }
@@ -162,7 +162,7 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
   }
 
   async consumeBudget(
-    workspaceId: string,
+    organizationId: string,
     id: string,
     cost: number,
     nowISO: string,
@@ -178,7 +178,7 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
       })
       .where(
         and(
-          eq(childAgentRuns.workspaceId, workspaceId),
+          eq(childAgentRuns.organizationId, organizationId),
           eq(childAgentRuns.id, id),
           eq(childAgentRuns.status, "running"),
           gt(childAgentRuns.deadline, new Date(nowISO)),

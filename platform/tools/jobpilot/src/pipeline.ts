@@ -8,7 +8,7 @@ import type { CandidateProfile, FitResult, JobProfile } from "./types.js";
 import { scoreJobFit } from "./scoring.js";
 
 // Tier-1 sourcing -> JobFunnel-style dedup -> living profile -> card-feed scoring, composed from
-// shared packages per docs/raw/tool-standardization-plan.md section 7 — JobPilot supplies its OWN
+// shared modules per docs/raw/tool-standardization-plan.md section 7 — JobPilot supplies its OWN
 // connectors (the Greenhouse/Ashby/Lever-shaped ones) and its OWN job-posting keying (company +
 // title + location is the job business key, per architecture doc S2.1 `jobs.key_id`), but
 // delegates employer identity matching to company-sourcing's `matchCompany` (compose, don't copy)

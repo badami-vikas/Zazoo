@@ -17,7 +17,7 @@ import {
 
 function test_fixture_grant(overrides: Partial<BuilderPrimitiveGrant> = {}): BuilderPrimitiveGrant {
   return {
-    workspaceId: "test_fixture_workspace_1",
+    organizationId: "test_fixture_organization_1",
     token: "file:read",
     pathPatterns: ["src/**/*.ts"],
     expiresAtISO: "2099-01-01T00:00:00.000Z",
@@ -42,7 +42,7 @@ test("classifyBuilderPrimitiveRisk: shell:execute is operational AND sandbox-man
 test("checkGrantScope: denies an expired grant", () => {
   const grant = test_fixture_grant({ expiresAtISO: "2020-01-01T00:00:00.000Z" });
   const result = checkGrantScope(grant, {
-    workspaceId: "test_fixture_workspace_1",
+    organizationId: "test_fixture_organization_1",
     path: "src/index.ts",
     nowISO: "2026-07-06T00:00:00.000Z",
   });
@@ -50,21 +50,21 @@ test("checkGrantScope: denies an expired grant", () => {
   assert.equal(result.reason, "grant_expired");
 });
 
-test("checkGrantScope: denies a workspace mismatch", () => {
-  const grant = test_fixture_grant({ workspaceId: "test_fixture_workspace_A" });
+test("checkGrantScope: denies a organization mismatch", () => {
+  const grant = test_fixture_grant({ organizationId: "test_fixture_organization_A" });
   const result = checkGrantScope(grant, {
-    workspaceId: "test_fixture_workspace_B",
+    organizationId: "test_fixture_organization_B",
     path: "src/index.ts",
     nowISO: "2026-07-06T00:00:00.000Z",
   });
   assert.equal(result.allowed, false);
-  assert.equal(result.reason, "workspace_mismatch");
+  assert.equal(result.reason, "organization_mismatch");
 });
 
 test("checkGrantScope: an empty pathPatterns array matches nothing (deny-by-default)", () => {
   const grant = test_fixture_grant({ pathPatterns: [] });
   const result = checkGrantScope(grant, {
-    workspaceId: "test_fixture_workspace_1",
+    organizationId: "test_fixture_organization_1",
     path: "src/index.ts",
     nowISO: "2026-07-06T00:00:00.000Z",
   });
@@ -75,7 +75,7 @@ test("checkGrantScope: an empty pathPatterns array matches nothing (deny-by-defa
 test("checkGrantScope: denies a path outside the granted glob", () => {
   const grant = test_fixture_grant({ pathPatterns: ["src/**/*.ts"] });
   const result = checkGrantScope(grant, {
-    workspaceId: "test_fixture_workspace_1",
+    organizationId: "test_fixture_organization_1",
     path: "secrets/credentials.json",
     nowISO: "2026-07-06T00:00:00.000Z",
   });
@@ -86,7 +86,7 @@ test("checkGrantScope: denies a path outside the granted glob", () => {
 test("checkGrantScope: allows a path matching a double-star glob", () => {
   const grant = test_fixture_grant({ pathPatterns: ["src/**/*.ts"] });
   const result = checkGrantScope(grant, {
-    workspaceId: "test_fixture_workspace_1",
+    organizationId: "test_fixture_organization_1",
     path: "src/capability/nested/deep/file.ts",
     nowISO: "2026-07-06T00:00:00.000Z",
   });
@@ -96,14 +96,14 @@ test("checkGrantScope: allows a path matching a double-star glob", () => {
 test("checkGrantScope: allows a path matching a single-star glob within one segment", () => {
   const grant = test_fixture_grant({ pathPatterns: ["src/*.ts"] });
   const result = checkGrantScope(grant, {
-    workspaceId: "test_fixture_workspace_1",
+    organizationId: "test_fixture_organization_1",
     path: "src/index.ts",
     nowISO: "2026-07-06T00:00:00.000Z",
   });
   assert.equal(result.allowed, true);
 
   const nested = checkGrantScope(grant, {
-    workspaceId: "test_fixture_workspace_1",
+    organizationId: "test_fixture_organization_1",
     path: "src/nested/index.ts",
     nowISO: "2026-07-06T00:00:00.000Z",
   });
@@ -132,7 +132,7 @@ test("runShellExecute: shell:execute cannot be satisfied by the in-process-js sa
   const provider: SandboxProvider = new InProcessJsSandboxProvider();
   const req: Extract<BuilderPrimitiveRequest, { token: "shell:execute" }> = {
     token: "shell:execute",
-    workspaceId: "test_fixture_workspace_1",
+    organizationId: "test_fixture_organization_1",
     command: "echo",
     args: ["hi"],
     timeoutMs: 500,
@@ -148,7 +148,7 @@ test("runShellExecute: a not-implemented container provider surfaces as a denial
   const provider: SandboxProvider = new NotImplementedContainerSandboxProvider();
   const req: Extract<BuilderPrimitiveRequest, { token: "shell:execute" }> = {
     token: "shell:execute",
-    workspaceId: "test_fixture_workspace_1",
+    organizationId: "test_fixture_organization_1",
     command: "echo",
     timeoutMs: 500,
   };

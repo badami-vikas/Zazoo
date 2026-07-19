@@ -40,7 +40,7 @@ function parent(overrides: Partial<ParentRunEnvelope> = {}): ParentRunEnvelope {
   const base: ParentRunEnvelope = {
     runId: "run-parent-1",
     agentId: "internal_strategist",
-    workspaceId: "ws-1",
+    organizationId: "ws-1",
     authorityScope: ["signal:write", "person:read"],
     eligibleSkills: ["stageStrategicRecommendation"],
     dataScope: "all",
@@ -683,7 +683,7 @@ test("nested child Runs: depth increments and eventually hits the cap through re
     current = {
       runId: run.id,
       agentId: current.agentId,
-      workspaceId: current.workspaceId,
+      organizationId: current.organizationId,
       authorityScope: run.authorityScope,
       eligibleSkills: run.eligibleSkills,
       dataScope: run.dataScope,

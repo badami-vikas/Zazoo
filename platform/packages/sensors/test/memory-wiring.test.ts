@@ -17,7 +17,7 @@ function makeHub() {
     ledger,
     memories,
     events,
-    workspaceId: WS,
+    organizationId: WS,
     userId: USER,
     surface: "desktop",
     ids: () => `id-${++n}`,
@@ -49,13 +49,13 @@ test("capture ingest writes a private Memory candidate with untrusted provenance
 
   assert.equal(entry.trustOrigin, "untrusted_external");
 
-  const owned = await memories.retrieve({}, { workspaceId: WS, userId: USER });
+  const owned = await memories.retrieve({}, { organizationId: WS, userId: USER });
   assert.equal(owned.length, 1);
   assert.equal(owned[0]!.content, "derived summary from scr-1");
   assert.equal(owned[0]!.sourceRefType, "timeline_entry");
   assert.equal(owned[0]!.sourceRefId, entry.id);
   assert.equal(owned[0]!.trustOrigin, "untrusted_external");
 
-  const otherUser = await memories.retrieve({}, { workspaceId: WS, userId: "user-2" });
+  const otherUser = await memories.retrieve({}, { organizationId: WS, userId: "user-2" });
   assert.deepEqual(otherUser, []);
 });

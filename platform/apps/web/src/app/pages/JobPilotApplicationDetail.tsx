@@ -17,7 +17,7 @@ import {
 } from '../data/culture-research-client';
 import { EditableField } from '../components/shared/EditableField';
 import { useLocalEdits } from '../lib/useLocalEdits';
-import { trpc, PILOT_WORKSPACE } from '../lib/trpc';
+import { trpc, PILOT_ORGANIZATION } from '../lib/trpc';
 
 type TabId = 'overview' | 'artifacts' | 'interview' | 'evidence';
 
@@ -304,7 +304,7 @@ const CULTURE_GROUP_META: { key: 'facts' | 'themes' | 'opinions' | 'contradictio
 ];
 
 function CultureResearchSection() {
-  const workspaceId = PILOT_WORKSPACE;
+  const organizationId = PILOT_ORGANIZATION;
   const company = BCG_APPLICATION.company;
 
   const [disclosureOpen, setDisclosureOpen] = useState(false);
@@ -334,7 +334,7 @@ function CultureResearchSection() {
   const reconcileFromServer = useCallback(() => {
     let cancelled = false;
     trpc.jobpilot.cultureResearch.latestRun
-      .query({ workspaceId, company })
+      .query({ organizationId, company })
       .then((serverRun) => {
         if (cancelled) return;
         if (serverRun) {
@@ -344,35 +344,35 @@ function CultureResearchSection() {
             ...(serverRun.synthesisProposalId ? { synthesisProposalId: serverRun.synthesisProposalId } : {}),
           };
           setPointer(authoritative);
-          if (typeof window !== 'undefined') saveStoredCultureResearchState(window.localStorage, workspaceId, company, authoritative);
+          if (typeof window !== 'undefined') saveStoredCultureResearchState(window.localStorage, organizationId, company, authoritative);
         } else {
           // Server has no record for this company — any locally cached
           // pointer is stale/foreign; clear it rather than trusting it.
           setPointer(null);
-          if (typeof window !== 'undefined') clearStoredCultureResearchState(window.localStorage, workspaceId, company);
+          if (typeof window !== 'undefined') clearStoredCultureResearchState(window.localStorage, organizationId, company);
         }
       })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setHydrated(true); });
     return () => { cancelled = true; };
-    // Deliberately stable-identity: `workspaceId`/`company` are constant for
-    // this component instance (PILOT_WORKSPACE and BCG_APPLICATION.company
+    // Deliberately stable-identity: `organizationId`/`company` are constant for
+    // this component instance (PILOT_ORGANIZATION and BCG_APPLICATION.company
     // never change), so omitting them from the deps array is safe.
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     trpc.jobpilot.cultureResearch.sources
-      .query({ workspaceId, company })
+      .query({ organizationId, company })
       .then((s) => { if (!cancelled) setSources(s); })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
     if (typeof window !== 'undefined') {
-      setPointer(loadStoredCultureResearchState(window.localStorage, workspaceId, company));
+      setPointer(loadStoredCultureResearchState(window.localStorage, organizationId, company));
     }
     const cancelReconcile = reconcileFromServer();
     return () => { cancelled = true; cancelReconcile(); };
-    // Deliberately mount-only: `workspaceId`/`company` are constant for this
-    // component instance (PILOT_WORKSPACE and BCG_APPLICATION.company never
+    // Deliberately mount-only: `organizationId`/`company` are constant for this
+    // component instance (PILOT_ORGANIZATION and BCG_APPLICATION.company never
     // change), so omitting them from the deps array is safe.
   }, []);
 
@@ -400,7 +400,7 @@ function CultureResearchSection() {
       if (!pointer) { setResult(null); return; }
       if (pointer.synthesisProposalId) {
         try {
-          const r = await trpc.jobpilot.cultureResearch.synthesisResult.query({ workspaceId, company, parentRunId: pointer.parentRunId, proposalId: pointer.synthesisProposalId });
+          const r = await trpc.jobpilot.cultureResearch.synthesisResult.query({ organizationId, company, parentRunId: pointer.parentRunId, proposalId: pointer.synthesisProposalId });
           if (!cancelled) setResult(r);
         } catch (e) {
           if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -410,7 +410,7 @@ function CultureResearchSection() {
       await Promise.all(
         pointer.pending.map(async (p) => {
           try {
-            nextStatuses[p.proposalId] = await trpc.jobpilot.cultureResearch.status.query({ workspaceId, proposalId: p.proposalId, childRunId: p.childRunId });
+            nextStatuses[p.proposalId] = await trpc.jobpilot.cultureResearch.status.query({ organizationId, proposalId: p.proposalId, childRunId: p.childRunId });
           } catch {
             // Unknown/inaccessible — drop it from the live view rather than
             // showing a stale local guess.
@@ -425,7 +425,7 @@ function CultureResearchSection() {
 
   function persistPointer(next: StoredCultureResearchState) {
     setPointer(next);
-    if (typeof window !== 'undefined') saveStoredCultureResearchState(window.localStorage, workspaceId, company, next);
+    if (typeof window !== 'undefined') saveStoredCultureResearchState(window.localStorage, organizationId, company, next);
   }
 
   // TASK-011 remediation (2026-07-19 coordinator distributed-defects
@@ -450,7 +450,7 @@ function CultureResearchSection() {
     setBusy(true);
     setError(null);
     try {
-      const proposed = await trpc.jobpilot.cultureResearch.propose.mutate({ workspaceId, company, sourceIds: permittedIds });
+      const proposed = await trpc.jobpilot.cultureResearch.propose.mutate({ organizationId, company, sourceIds: permittedIds });
       persistPointer({ parentRunId: proposed.parentRunId, pending: proposed.pending });
       // TASK-011 remediation (2026-07-19 RE-review, issue 12) — refetch the
       // server-authoritative pointer after every mutation, not only the
@@ -473,7 +473,7 @@ function CultureResearchSection() {
         if (!isAlreadyResolvedConflict(e)) throw e;
         // Already approved (e.g. from another session) — reconcile via materialize below.
       }
-      const record = await trpc.jobpilot.cultureResearch.materialize.mutate({ workspaceId, proposalId: p.proposalId, childRunId: p.childRunId });
+      const record = await trpc.jobpilot.cultureResearch.materialize.mutate({ organizationId, proposalId: p.proposalId, childRunId: p.childRunId });
       setStatuses((prev) => ({ ...prev, [p.proposalId]: record }));
       reconcileFromServer();
     } catch (e) {
@@ -504,7 +504,7 @@ function CultureResearchSection() {
     setError(null);
     try {
       const claims = fetchedEntries.map(({ p, status }) => deriveBoundedArtifactFactClaim(`claim-${p.sourceId}`, p.sourceId, status.artifact!));
-      const synth = await trpc.jobpilot.cultureResearch.synthesize.mutate({ workspaceId, company, parentRunId: pointer.parentRunId, claims });
+      const synth = await trpc.jobpilot.cultureResearch.synthesize.mutate({ organizationId, company, parentRunId: pointer.parentRunId, claims });
       persistPointer({ ...pointer, synthesisProposalId: synth.proposalId });
       reconcileFromServer();
     } catch (e) {
@@ -525,7 +525,7 @@ function CultureResearchSection() {
         if (!isAlreadyResolvedConflict(e)) throw e;
         // Already approved — reconcile via synthesisResult below.
       }
-      const r = await trpc.jobpilot.cultureResearch.synthesisResult.query({ workspaceId, company, parentRunId: pointer.parentRunId, proposalId: pointer.synthesisProposalId });
+      const r = await trpc.jobpilot.cultureResearch.synthesisResult.query({ organizationId, company, parentRunId: pointer.parentRunId, proposalId: pointer.synthesisProposalId });
       setResult(r);
       reconcileFromServer();
     } catch (e) {

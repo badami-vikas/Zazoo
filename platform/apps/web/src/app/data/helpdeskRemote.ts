@@ -1,14 +1,18 @@
 // Supabase-backed public helpdesk surface.
 // The in-app (owner) experience stays localStorage-fast; THIS module is the cross-device
 // public layer so a shared `/help/:slug` link works for testers on other machines:
-//   • owner (authenticated) creates a workspace → INSERT helpdesk_workspaces (owner_id = auth.uid())
+//   • owner (authenticated) creates an organization backed by the deployed Supabase schema
 //   • anyone with the link (anon) reads public asks + posts asks/offers, gated by anon RLS.
 // Every call degrades gracefully: on any error it returns null/empty so callers can fall
 // back to the local store. No seed data lives here — this is the live wire.
 import { supabase } from '../lib/supabase';
 import { moderate, type ModerationStatus, type ContactVisibility } from './helpdesk';
+import {
+  HELP_DESK_ORGANIZATIONS_TABLE,
+  ORGANIZATION_ID_COLUMN,
+} from './helpdesk-vocab3-compat';
 
-export interface RemoteWorkspace {
+export interface RemoteOrganization {
   id: string; name: string; slug: string; description: string;
   visibility: 'public' | 'unlisted' | 'private'; brandColor?: string;
 }
@@ -26,38 +30,38 @@ function slugify(name: string, fallback?: string): string {
 async function currentUserId(): Promise<string | null> {
   try { const { data } = await supabase.auth.getUser(); return data.user?.id ?? null; } catch { return null; }
 }
-function wsRow(r: any): RemoteWorkspace {
+function organizationRow(r: any): RemoteOrganization {
   return { id: r.id, name: r.name, slug: r.slug, description: r.description ?? '', visibility: r.visibility, brandColor: r.brand_color ?? undefined };
 }
 
-// ── owner: create + manage a workspace (authenticated) ──────────────────────────
-export async function remoteCreateWorkspace(p: {
-  name: string; description?: string; visibility: RemoteWorkspace['visibility']; broadcastDefault?: boolean;
-}): Promise<RemoteWorkspace | null> {
+// ── owner: create + manage an organization (authenticated) ─────────────────────────
+export async function remoteCreateOrganization(p: {
+  name: string; description?: string; visibility: RemoteOrganization['visibility']; broadcastDefault?: boolean;
+}): Promise<RemoteOrganization | null> {
   const owner = await currentUserId();
-  if (!owner) return null; // not signed in → caller keeps the local-only workspace
+  if (!owner) return null; // not signed in → caller keeps the local-only organization
   const slug = slugify(p.name);
-  const { data, error } = await supabase.from('helpdesk_workspaces')
+  const { data, error } = await supabase.from(HELP_DESK_ORGANIZATIONS_TABLE)
     .insert({ owner_id: owner, name: p.name.trim() || 'Untitled Helpdesk', slug, description: p.description || '', visibility: p.visibility, broadcast_default: p.broadcastDefault ?? false })
     .select().single();
   if (error || !data) return null;
-  return wsRow(data);
+  return organizationRow(data);
 }
-export async function remoteSetWorkspaceVisibility(id: string, visibility: RemoteWorkspace['visibility']): Promise<boolean> {
-  const { error } = await supabase.from('helpdesk_workspaces').update({ visibility }).eq('id', id);
+export async function remoteSetOrganizationVisibility(id: string, visibility: RemoteOrganization['visibility']): Promise<boolean> {
+  const { error } = await supabase.from(HELP_DESK_ORGANIZATIONS_TABLE).update({ visibility }).eq('id', id);
   return !error;
 }
 
 // ── anyone with the link (anon-readable) ────────────────────────────────────────
-export async function remoteWorkspaceBySlug(slug: string): Promise<RemoteWorkspace | null> {
-  const { data, error } = await supabase.from('helpdesk_workspaces').select('*').eq('slug', slug).maybeSingle();
+export async function remoteOrganizationBySlug(slug: string): Promise<RemoteOrganization | null> {
+  const { data, error } = await supabase.from(HELP_DESK_ORGANIZATIONS_TABLE).select('*').eq('slug', slug).maybeSingle();
   if (error || !data) return null;
-  return wsRow(data);
+  return organizationRow(data);
 }
-export async function remotePublicRequests(workspaceId: string): Promise<RemotePublicRequest[]> {
+export async function remotePublicRequests(organizationId: string): Promise<RemotePublicRequest[]> {
   const { data, error } = await supabase.from('help_requests')
     .select('id,title,body,status,created_at,allow_direct_contact')
-    .eq('workspace_id', workspaceId).eq('is_public', true).eq('moderation_status', 'approved')
+    .eq(ORGANIZATION_ID_COLUMN, organizationId).eq('is_public', true).eq('moderation_status', 'approved')
     .order('created_at', { ascending: false });
   if (error || !data) return [];
   const ids = data.map((r: any) => r.id);
@@ -69,12 +73,12 @@ export async function remotePublicRequests(workspaceId: string): Promise<RemoteP
   return data.map((r: any) => ({ id: r.id, title: r.title, body: r.body ?? '', status: r.status, createdAt: r.created_at, allowDirectContact: !!r.allow_direct_contact, helperCount: counts[r.id] || 0 }));
 }
 export async function remoteSubmitPublicRequest(p: {
-  workspaceId: string; name: string; email: string; phone?: string;
+  organizationId: string; name: string; email: string; phone?: string;
   title: string; body: string; allowDirectContact: boolean; contactVisibility: ContactVisibility;
 }): Promise<{ ok: boolean; status: ModerationStatus; reason?: string } | null> {
   const mod = moderate(`${p.title} ${p.body}`);
   const { error } = await supabase.from('help_requests').insert({
-    workspace_id: p.workspaceId, requester_id: null,
+    [ORGANIZATION_ID_COLUMN]: p.organizationId, requester_id: null,
     title: p.title.trim(), body: p.body.trim(),
     requester_name: p.name.trim(), requester_email: p.email.trim().toLowerCase(), requester_phone: p.phone?.trim() || null,
     allow_direct_contact: p.allowDirectContact, contact_visibility: p.allowDirectContact ? p.contactVisibility : 'none',

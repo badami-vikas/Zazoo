@@ -120,7 +120,7 @@ test("EVAL-3: thresholds come from policy_params, not hard-coded (a relaxed gate
 
   assert.equal(compareRuns(baseline, candidate, GATES).verdict, "reject");
 
-  // … but a workspace that lowered qualityMin to .80 promotes the same candidate.
+  // … but a organization that lowered qualityMin to .80 promotes the same candidate.
   const relaxed = resolveGates(mergePolicyParams({ aqv: { gates: { qualityMin: 0.8 } } }));
   assert.equal(compareRuns(baseline, candidate, relaxed).verdict, "promote");
 });

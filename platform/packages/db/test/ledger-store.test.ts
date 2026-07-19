@@ -20,7 +20,7 @@ const NIL_ACTOR = "00000000-0000-0000-0000-00000000dead"; // test_fixture_ actor
 
 function decisionRow(overrides: Partial<LedgerEntry> & { id: string; refLedgerId: string }): LedgerEntry {
   return {
-    workspaceId: overrides.workspaceId!,
+    organizationId: overrides.organizationId!,
     actorType: "user",
     actorId: NIL_ACTOR,
     action: "approve",
@@ -37,17 +37,17 @@ test("ledger: partial unique index rejects a second resolving decision row for t
   const { db, close } = await createLocalDb();
   try {
     const [ws] = await db
-      .insert(schema.workspaces)
+      .insert(schema.organizations)
       .values({ name: "test_fixture_ws_ledger_toctou" })
-      .returning({ id: schema.workspaces.id });
-    assert.ok(ws, "workspace seeded");
+      .returning({ id: schema.organizations.id });
+    assert.ok(ws, "organization seeded");
 
     const store = new DrizzleLedgerStore(db);
 
     // Seed a pending proposal row (userDecision null) that both decisions reference.
     const proposal = await store.append({
       id: "10000000-0000-4000-8000-000000000001",
-      workspaceId: ws.id,
+      organizationId: ws.id,
       actorType: "agent",
       actorId: NIL_ACTOR,
       action: "write",
@@ -67,7 +67,7 @@ test("ledger: partial unique index rejects a second resolving decision row for t
       store.append(
         decisionRow({
           id: "20000000-0000-4000-8000-000000000002",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           refLedgerId: proposal.id,
           userDecision: "approve",
         }),
@@ -75,7 +75,7 @@ test("ledger: partial unique index rejects a second resolving decision row for t
       store.append(
         decisionRow({
           id: "20000000-0000-4000-8000-000000000003",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           refLedgerId: proposal.id,
           userDecision: "approve",
         }),
@@ -105,15 +105,15 @@ test("ledger: a floor-denied (rejected, userDecision null) audit row does NOT bl
   const { db, close } = await createLocalDb();
   try {
     const [ws] = await db
-      .insert(schema.workspaces)
+      .insert(schema.organizations)
       .values({ name: "test_fixture_ws_ledger_floor" })
-      .returning({ id: schema.workspaces.id });
+      .returning({ id: schema.organizations.id });
     assert.ok(ws);
 
     const store = new DrizzleLedgerStore(db);
     const proposal = await store.append({
       id: "30000000-0000-4000-8000-000000000001",
-      workspaceId: ws.id,
+      organizationId: ws.id,
       actorType: "agent",
       actorId: NIL_ACTOR,
       action: "write",
@@ -129,7 +129,7 @@ test("ledger: a floor-denied (rejected, userDecision null) audit row does NOT bl
     // collide with (or block) the eventual real resolution.
     await store.append({
       id: "30000000-0000-4000-8000-000000000002",
-      workspaceId: ws.id,
+      organizationId: ws.id,
       actorType: "agent",
       actorId: NIL_ACTOR,
       action: "approve",
@@ -145,7 +145,7 @@ test("ledger: a floor-denied (rejected, userDecision null) audit row does NOT bl
     assert.equal(await store.decisionFor(proposal.id), null, "no RESOLVING decision yet");
     await store.append({
       id: "30000000-0000-4000-8000-000000000004",
-      workspaceId: ws.id,
+      organizationId: ws.id,
       actorType: "agent",
       actorId: NIL_ACTOR,
       action: "write",
@@ -164,7 +164,7 @@ test("ledger: a floor-denied (rejected, userDecision null) audit row does NOT bl
     const resolved = await store.append(
       decisionRow({
         id: "30000000-0000-4000-8000-000000000003",
-        workspaceId: ws.id,
+        organizationId: ws.id,
         refLedgerId: proposal.id,
         userDecision: "approve",
       }),
@@ -185,16 +185,16 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
   const { db, close } = await createLocalDb();
   try {
     const [ws] = await db
-      .insert(schema.workspaces)
+      .insert(schema.organizations)
       .values({ name: "test_fixture_ws_ledger_audit" })
-      .returning({ id: schema.workspaces.id });
+      .returning({ id: schema.organizations.id });
     assert.ok(ws);
 
     const store = new DrizzleLedgerStore(db);
-    const context = { type: "initiative" as const, id: "test_fixture_init-1", runId: "test_fixture_run-1" };
+    const context = { type: "record" as const, id: "test_fixture_init-1", runId: "test_fixture_run-1" };
     const written = await store.append({
       id: "40000000-0000-4000-8000-000000000001",
-      workspaceId: ws.id,
+      organizationId: ws.id,
       actorType: "user",
       actorId: NIL_ACTOR,
       action: "write",
@@ -212,16 +212,16 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
       const { db, close } = await createLocalDb();
       try {
         const [ws] = await db
-          .insert(schema.workspaces)
+          .insert(schema.organizations)
           .values({ name: "test_fixture_relation_pending_owner_scope" })
-          .returning({ id: schema.workspaces.id });
+          .returning({ id: schema.organizations.id });
         assert.ok(ws);
         const ownerId = "50000000-0000-4000-8000-000000000001";
         const otherId = "50000000-0000-4000-8000-000000000002";
         const store = new DrizzleLedgerStore(db);
         await store.append({
           id: "51000000-0000-4000-8000-000000000001",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "user",
           actorId: ownerId,
           action: "write",
@@ -233,7 +233,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         });
         await store.append({
           id: "51000000-0000-4000-8000-000000000002",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "agent",
           actorId: NIL_ACTOR,
           onBehalfOfType: "user",
@@ -247,7 +247,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         });
         await store.append({
           id: "51000000-0000-4000-8000-000000000006",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "agent",
           actorId: NIL_ACTOR,
           onBehalfOfType: "user",
@@ -262,7 +262,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         });
         await store.append({
           id: "51000000-0000-4000-8000-000000000003",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "agent",
           actorId: NIL_ACTOR,
           action: "write",
@@ -274,7 +274,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         });
         await store.append({
           id: "51000000-0000-4000-8000-000000000004",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "user",
           actorId: ownerId,
           action: "write",
@@ -286,7 +286,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         });
         await store.append({
           id: "51000000-0000-4000-8000-000000000005",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "user",
           actorId: ownerId,
           action: "write",
@@ -299,7 +299,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         });
         const legacyLearning = await store.append({
           id: "51000000-0000-4000-8000-000000000007",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "agent",
           actorId: NIL_ACTOR,
           onBehalfOfType: "user",
@@ -313,7 +313,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         });
         await store.append({
           id: "51000000-0000-4000-8000-000000000008",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "agent",
           actorId: NIL_ACTOR,
           action: "approve",
@@ -366,9 +366,9 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
       const { db, close } = await createLocalDb();
       try {
         const [ws] = await db
-          .insert(schema.workspaces)
+          .insert(schema.organizations)
           .values({ name: "test_fixture_mixed_private_types" })
-          .returning({ id: schema.workspaces.id });
+          .returning({ id: schema.organizations.id });
         assert.ok(ws);
         const redFlagOwner = "52000000-0000-4000-8000-000000000001";
         const relationOwner = "52000000-0000-4000-8000-000000000002";
@@ -377,7 +377,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         // A red-flag correction proposal — TASK-010's own private marker, never "relation".
         await store.append({
           id: "53000000-0000-4000-8000-000000000001",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "agent",
           actorId: NIL_ACTOR,
           onBehalfOfType: "user",
@@ -392,7 +392,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         // A Relation proposal — RM4's own private marker, unrelated to inputs.visibility.
         await store.append({
           id: "53000000-0000-4000-8000-000000000002",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "user",
           actorId: relationOwner,
           action: "write",
@@ -405,7 +405,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         // A genuinely public/shared proposal — neither type, no visibility marker at all.
         await store.append({
           id: "53000000-0000-4000-8000-000000000003",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "agent",
           actorId: NIL_ACTOR,
           action: "write",
@@ -445,14 +445,14 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
       const { db, close } = await createLocalDb();
       try {
         const [ws] = await db
-          .insert(schema.workspaces)
+          .insert(schema.organizations)
           .values({ name: "test_fixture_ledger_reference_spoofing" })
-          .returning({ id: schema.workspaces.id });
+          .returning({ id: schema.organizations.id });
         assert.ok(ws);
         const store = new DrizzleLedgerStore(db);
         const victim = await store.append({
           id: "6a000000-0000-4000-8000-0000000000a1",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "user",
           actorId: "50000000-0000-4000-8000-000000000001",
           action: "write",
@@ -464,7 +464,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         });
         const attackerProposal = await store.append({
           id: "6b000000-0000-4000-8000-0000000000b2",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "user",
           actorId: "50000000-0000-4000-8000-000000000002",
           action: "write",
@@ -477,7 +477,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         const attackerDecision = await store.append(
           decisionRow({
             id: "62000000-0000-4000-8000-000000000001",
-            workspaceId: ws.id,
+            organizationId: ws.id,
             actorId: "50000000-0000-4000-8000-000000000002",
             refLedgerId: attackerProposal.id,
             resourceType: "relation",
@@ -501,7 +501,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           () =>
             store.append({
               id: "62000000-0000-4000-8000-000000000002",
-              workspaceId: ws.id,
+              organizationId: ws.id,
               actorType: "user",
               actorId: NIL_ACTOR,
               action: "approve",
@@ -522,14 +522,14 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
       const { db, close } = await createLocalDb();
       try {
         const [ws] = await db
-          .insert(schema.workspaces)
+          .insert(schema.organizations)
           .values({ name: "test_fixture_domain_proposal_id" })
-          .returning({ id: schema.workspaces.id });
+          .returning({ id: schema.organizations.id });
         assert.ok(ws);
         const store = new DrizzleLedgerStore(db);
         const root = await store.append({
           id: "64000000-0000-4000-8000-000000000001",
-          workspaceId: ws.id,
+          organizationId: ws.id,
           actorType: "user",
           actorId: NIL_ACTOR,
           action: "write",

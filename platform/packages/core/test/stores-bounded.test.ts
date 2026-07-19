@@ -13,7 +13,7 @@ import type { DomainEvent, GrantRule } from "../src/types.js";
 function dummyEvent(i: number): DomainEvent {
   return {
     id: `test_fixture_event_${i}`,
-    workspaceId: "test_fixture_ws_1",
+    organizationId: "test_fixture_ws_1",
     type: "dummy.test.event",
     entityType: "touchpoint",
     payload: { i },

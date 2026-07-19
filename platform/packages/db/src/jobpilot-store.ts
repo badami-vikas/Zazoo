@@ -1,10 +1,10 @@
 /**
  * DrizzleJobPilotStore — the persistence `@bridge/jobpilot` never had (that
- * package is pure scoring/pipeline/table-spec logic, see its manifest.ts
+ * module is pure scoring/pipeline/table-spec logic, see its manifest.ts
  * header). Shaped 1:1 with `jobsTableSpec` (jobpilot/src/table.ts) so the
  * `@bridge/tables` Gallery/Board views can bind to these rows directly.
- * Job/application creation is workspace-authenticated CRUD (same tier as
- * workspace membership, dealpilot captures) — not routed through the governed
+ * Job/application creation is organization-authenticated CRUD (same tier as
+ * organization membership, dealpilot captures) — not routed through the governed
  * pipeline, since tracking a job posting has no external effect requiring
  * approval. `fitScore` is computed by the router via `scoreJobFit` at read
  * time from the caller's thesis-equivalent inputs, not stored pre-computed,
@@ -29,7 +29,7 @@ export type JobRow = typeof jobpilotJobs.$inferSelect;
 export type ApplicationRow = typeof jobpilotApplications.$inferSelect;
 
 export interface CreateJobInput {
-  workspaceId: string;
+  organizationId: string;
   title: string;
   company: string;
   location?: string;
@@ -69,7 +69,7 @@ export class DrizzleJobPilotStore {
       .insert(jobpilotJobs)
       .values({
         id: jobId,
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         title: input.title,
         company: input.company,
         ...(input.location ? { location: input.location } : {}),
@@ -80,13 +80,13 @@ export class DrizzleJobPilotStore {
       .returning();
     const [application] = await this.#db
       .insert(jobpilotApplications)
-      .values({ id: randomUUID(), workspaceId: input.workspaceId, jobId })
+      .values({ id: randomUUID(), organizationId: input.organizationId, jobId })
       .returning();
     return { job: job!, application: normalizeApplicationRow(application!) };
   }
 
-  async listJobs(workspaceId: string, opts: PageOpts): Promise<Page<JobRow & { application: ApplicationRow | null }>> {
-    const where = eq(jobpilotJobs.workspaceId, workspaceId);
+  async listJobs(organizationId: string, opts: PageOpts): Promise<Page<JobRow & { application: ApplicationRow | null }>> {
+    const where = eq(jobpilotJobs.organizationId, organizationId);
     const [rows, totalRows] = await Promise.all([
       this.#db
         .select({ job: jobpilotJobs, application: jobpilotApplications })
@@ -124,11 +124,11 @@ export class DrizzleJobPilotStore {
     return row ? normalizeApplicationRow(row) : null;
   }
 
-  async getApplication(applicationId: string, workspaceId: string): Promise<ApplicationRow | null> {
+  async getApplication(applicationId: string, organizationId: string): Promise<ApplicationRow | null> {
     const rows = await this.#db
       .select()
       .from(jobpilotApplications)
-      .where(and(eq(jobpilotApplications.id, applicationId), eq(jobpilotApplications.workspaceId, workspaceId)))
+      .where(and(eq(jobpilotApplications.id, applicationId), eq(jobpilotApplications.organizationId, organizationId)))
       .limit(1);
     return rows[0] ? normalizeApplicationRow(rows[0]) : null;
   }

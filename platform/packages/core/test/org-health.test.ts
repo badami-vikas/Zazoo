@@ -31,7 +31,7 @@ test("classifyApprovalBand: maps approval bands and auto-approval stays minor-on
   assert.equal(canGovernanceAutoApprove("major"), false);
 });
 
-test("rollupOrgHealth: renders workspace health with odd approval median and rising trend", () => {
+test("rollupOrgHealth: renders organization health with odd approval median and rising trend", () => {
   const input: OrgHealthInput = {
     capabilities: [
       { manifestId: "active-low-success", state: "active", successRate: 0.7, trustExpiresInDays: 20 },

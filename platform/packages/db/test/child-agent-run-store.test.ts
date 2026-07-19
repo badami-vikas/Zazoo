@@ -11,30 +11,30 @@ import test from "node:test";
 import { createLocalDb, DrizzleChildAgentRunStore, schema } from "../src/index.js";
 import type { ChildAgentRun } from "@bridge/core";
 
-async function seedWorkspaceGoalTaskAgent(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
-  const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_child_run" }).returning({ id: schema.workspaces.id });
+async function seedOrganizationGoalTaskAgent(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
+  const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_child_run" }).returning({ id: schema.organizations.id });
   assert.ok(ws);
-  const [agent] = await db.insert(schema.agents).values({ workspaceId: ws!.id, name: "test_fixture_parent_agent" }).returning({ id: schema.agents.id });
+  const [agent] = await db.insert(schema.agents).values({ organizationId: ws!.id, name: "test_fixture_parent_agent" }).returning({ id: schema.agents.id });
   assert.ok(agent);
   const [goal] = await db
     .insert(schema.goals)
-    .values({ workspaceId: ws!.id, type: "relationship.learning", title: "test fixture goal" })
+    .values({ organizationId: ws!.id, type: "relationship.learning", title: "test fixture goal" })
     .returning({ id: schema.goals.id });
   assert.ok(goal);
   const [task] = await db
     .insert(schema.tasks)
-    .values({ workspaceId: ws!.id, goalId: goal!.id, type: "relationship.learning.recommend", assignedAgentId: agent!.id })
+    .values({ organizationId: ws!.id, goalId: goal!.id, type: "relationship.learning.recommend", assignedAgentId: agent!.id })
     .returning({ id: schema.tasks.id });
   assert.ok(task);
-  return { workspaceId: ws!.id, agentId: agent!.id, goalId: goal!.id, taskId: task!.id };
+  return { organizationId: ws!.id, agentId: agent!.id, goalId: goal!.id, taskId: task!.id };
 }
 
-function fixtureRun(overrides: Partial<ChildAgentRun>, ids: { workspaceId: string; agentId: string; goalId: string; taskId: string }): ChildAgentRun {
+function fixtureRun(overrides: Partial<ChildAgentRun>, ids: { organizationId: string; agentId: string; goalId: string; taskId: string }): ChildAgentRun {
   const base: ChildAgentRun = {
     id: crypto.randomUUID(),
     parentRunId: crypto.randomUUID(),
     parentAgentId: ids.agentId,
-    workspaceId: ids.workspaceId,
+    organizationId: ids.organizationId,
     goalId: ids.goalId,
     taskId: ids.taskId,
     depth: 1,
@@ -58,7 +58,7 @@ function fixtureRun(overrides: Partial<ChildAgentRun>, ids: { workspaceId: strin
 test("child agent run store: create + get round-trips every inherited ceiling", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const ids = await seedWorkspaceGoalTaskAgent(db);
+    const ids = await seedOrganizationGoalTaskAgent(db);
     const store = new DrizzleChildAgentRunStore(db);
 
     const created = await store.create(fixtureRun({ taint: "user_content", droppedScope: ["policy:write"] }, ids));
@@ -69,7 +69,7 @@ test("child agent run store: create + get round-trips every inherited ceiling", 
     assert.equal(created.budget.maxCalls, 10);
     assert.equal(created.taint, "user_content");
 
-    const fetched = await store.get(ids.workspaceId, created.id);
+    const fetched = await store.get(ids.organizationId, created.id);
     assert.ok(fetched);
     assert.deepEqual(fetched, created);
   } finally {
@@ -80,14 +80,14 @@ test("child agent run store: create + get round-trips every inherited ceiling", 
 test("child agent run store: listByParentRun scopes strictly to the parent run id", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const ids = await seedWorkspaceGoalTaskAgent(db);
+    const ids = await seedOrganizationGoalTaskAgent(db);
     const store = new DrizzleChildAgentRunStore(db);
     const parentRunId = crypto.randomUUID();
 
     const a = await store.create(fixtureRun({ parentRunId }, ids));
     await store.create(fixtureRun({ parentRunId: crypto.randomUUID() }, ids)); // different parent
 
-    const listed = await store.listByParentRun(ids.workspaceId, parentRunId);
+    const listed = await store.listByParentRun(ids.organizationId, parentRunId);
     assert.equal(listed.length, 1);
     assert.equal(listed[0]?.id, a.id);
   } finally {
@@ -98,14 +98,14 @@ test("child agent run store: listByParentRun scopes strictly to the parent run i
 test("child agent run store: updateStatus transitions running -> cancelled and persists", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const ids = await seedWorkspaceGoalTaskAgent(db);
+    const ids = await seedOrganizationGoalTaskAgent(db);
     const store = new DrizzleChildAgentRunStore(db);
 
     const created = await store.create(fixtureRun({}, ids));
-    const updated = await store.updateStatus(ids.workspaceId, created.id, "running", "cancelled");
+    const updated = await store.updateStatus(ids.organizationId, created.id, "running", "cancelled");
     assert.equal(updated.status, "cancelled");
 
-    const fetched = await store.get(ids.workspaceId, created.id);
+    const fetched = await store.get(ids.organizationId, created.id);
     assert.equal(fetched?.status, "cancelled");
   } finally {
     await close();
@@ -147,10 +147,10 @@ test("child agent run store: get on an unknown id returns null rather than throw
   }
 });
 
-test("child agent run store: workspace scope and atomic budget consumption fail closed", async () => {
+test("child agent run store: organization scope and atomic budget consumption fail closed", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const ids = await seedWorkspaceGoalTaskAgent(db);
+    const ids = await seedOrganizationGoalTaskAgent(db);
     const store = new DrizzleChildAgentRunStore(db);
     const created = await store.create(
       fixtureRun({ budget: { maxCalls: 1, maxCost: 0.25 } }, ids),
@@ -158,7 +158,7 @@ test("child agent run store: workspace scope and atomic budget consumption fail 
 
     assert.equal(await store.get(crypto.randomUUID(), created.id), null);
     const consumed = await store.consumeBudget(
-      ids.workspaceId,
+      ids.organizationId,
       created.id,
       0.25,
       "2026-07-01T00:00:00.000Z",
@@ -168,7 +168,7 @@ test("child agent run store: workspace scope and atomic budget consumption fail 
     await assert.rejects(
       () =>
         store.consumeBudget(
-          ids.workspaceId,
+          ids.organizationId,
           created.id,
           0,
           "2026-07-01T00:00:00.000Z",

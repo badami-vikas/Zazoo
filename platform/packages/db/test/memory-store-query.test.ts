@@ -12,10 +12,10 @@ import { createLocalDb, DrizzleMemoryStore, schema } from "../src/index.js";
 
 const OWNER = "aaaaaaaa-0000-4000-8000-000000000002";
 
-function draft(id: string, workspaceId: string, content: unknown, overrides: Partial<MemoryWrite> = {}): MemoryWrite {
+function draft(id: string, organizationId: string, content: unknown, overrides: Partial<MemoryWrite> = {}): MemoryWrite {
   return {
     id,
-    workspaceId,
+    organizationId,
     type: "semantic",
     scope: "private",
     content: JSON.stringify(content),
@@ -29,8 +29,8 @@ function draft(id: string, workspaceId: string, content: unknown, overrides: Par
   };
 }
 
-async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"]): Promise<string> {
-  const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_query" }).returning({ id: schema.workspaces.id });
+async function seedOrganization(db: Awaited<ReturnType<typeof createLocalDb>>["db"]): Promise<string> {
+  const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_query" }).returning({ id: schema.organizations.id });
   assert.ok(ws);
   return ws.id;
 }
@@ -38,18 +38,18 @@ async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"]
 test("retrieve: contentPathEquals pushes a dot-path JSON predicate into the SQL WHERE", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
-    await store.write(draft("00000000-0000-4000-8000-000000000101", workspaceId, { anchor: { moduleId: "initiative" }, kind: "red_flag" }));
-    await store.write(draft("00000000-0000-4000-8000-000000000102", workspaceId, { anchor: { moduleId: "touchpoint" }, kind: "red_flag" }));
-    await store.write(draft("00000000-0000-4000-8000-000000000103", workspaceId, { anchor: { moduleId: "initiative" }, kind: "red_flag" }));
+    await store.write(draft("00000000-0000-4000-8000-000000000101", organizationId, { anchor: { moduleId: "record" }, kind: "red_flag" }));
+    await store.write(draft("00000000-0000-4000-8000-000000000102", organizationId, { anchor: { moduleId: "touchpoint" }, kind: "red_flag" }));
+    await store.write(draft("00000000-0000-4000-8000-000000000103", organizationId, { anchor: { moduleId: "record" }, kind: "red_flag" }));
 
     const rows = await store.retrieve(
-      { sourceRefType: "feedback", contentPathEquals: [{ path: "anchor.moduleId", equals: "initiative" }] },
-      { workspaceId, userId: OWNER },
+      { sourceRefType: "feedback", contentPathEquals: [{ path: "anchor.moduleId", equals: "record" }] },
+      { organizationId, userId: OWNER },
     );
     assert.equal(rows.length, 2);
-    assert.ok(rows.every((r) => JSON.parse(r.content).anchor.moduleId === "initiative"));
+    assert.ok(rows.every((r) => JSON.parse(r.content).anchor.moduleId === "record"));
   } finally {
     await close();
   }
@@ -58,7 +58,7 @@ test("retrieve: contentPathEquals pushes a dot-path JSON predicate into the SQL 
 test("retrieve: contentPathEquals never throws on a non-JSON content row anywhere in the queried set (review round-5 item 8)", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
     // A large batch of non-JSON, sourceRefType:"feedback" content — plain
     // text, NOT JSON.stringify'd — simulating a hypothetical unrelated
@@ -70,16 +70,16 @@ test("retrieve: contentPathEquals never throws on a non-JSON content row anywher
     // cast before the sourceRefType filter narrowed anything.
     for (let i = 0; i < 60; i += 1) {
       await store.write(
-        draft(`00000000-0000-4000-8000-0000000002${String(i).padStart(2, "0")}`, workspaceId, null, {
+        draft(`00000000-0000-4000-8000-0000000002${String(i).padStart(2, "0")}`, organizationId, null, {
           content: `plain text, not JSON at all #${i} {{{`,
         }),
       );
     }
-    await store.write(draft("00000000-0000-4000-8000-000000000299", workspaceId, { kind: "red_flag", anchor: { moduleId: "initiative" } }));
+    await store.write(draft("00000000-0000-4000-8000-000000000299", organizationId, { kind: "red_flag", anchor: { moduleId: "record" } }));
 
     const rows = await store.retrieve(
       { sourceRefType: "feedback", contentPathEquals: [{ path: "kind", equals: "red_flag" }] },
-      { workspaceId, userId: OWNER },
+      { organizationId, userId: OWNER },
     );
     assert.equal(rows.length, 1);
     assert.equal(rows[0]!.id, "00000000-0000-4000-8000-000000000299");
@@ -91,20 +91,20 @@ test("retrieve: contentPathEquals never throws on a non-JSON content row anywher
 test("retrieve: contentPathEquals with multiple predicates ANDs them together", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
-    await store.write(draft("00000000-0000-4000-8000-000000000201", workspaceId, { anchor: { moduleId: "initiative", recordId: "r1" } }));
-    await store.write(draft("00000000-0000-4000-8000-000000000202", workspaceId, { anchor: { moduleId: "initiative", recordId: "r2" } }));
+    await store.write(draft("00000000-0000-4000-8000-000000000201", organizationId, { anchor: { moduleId: "record", recordId: "r1" } }));
+    await store.write(draft("00000000-0000-4000-8000-000000000202", organizationId, { anchor: { moduleId: "record", recordId: "r2" } }));
 
     const rows = await store.retrieve(
       {
         sourceRefType: "feedback",
         contentPathEquals: [
-          { path: "anchor.moduleId", equals: "initiative" },
+          { path: "anchor.moduleId", equals: "record" },
           { path: "anchor.recordId", equals: "r2" },
         ],
       },
-      { workspaceId, userId: OWNER },
+      { organizationId, userId: OWNER },
     );
     assert.equal(rows.length, 1);
     assert.equal(rows[0]!.id, "00000000-0000-4000-8000-000000000202");
@@ -116,17 +116,17 @@ test("retrieve: contentPathEquals with multiple predicates ANDs them together", 
 test("retrieve: order 'asc' + cursor keyset pagination returns every row exactly once, oldest first", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
     const ids = Array.from({ length: 5 }, (_, i) => `00000000-0000-4000-8000-00000000030${i}`);
     for (const id of ids) {
-      await store.write(draft(id, workspaceId, { seq: id }));
+      await store.write(draft(id, organizationId, { seq: id }));
     }
 
     const seen: string[] = [];
     let cursor: { createdAt: string; id: string } | undefined;
     for (let page = 0; page < 10; page += 1) {
-      const rows = await store.retrieve({ sourceRefType: "feedback", order: "asc", limit: 2, ...(cursor ? { cursor } : {}) }, { workspaceId, userId: OWNER });
+      const rows = await store.retrieve({ sourceRefType: "feedback", order: "asc", limit: 2, ...(cursor ? { cursor } : {}) }, { organizationId, userId: OWNER });
       if (rows.length === 0) break;
       seen.push(...rows.map((r) => r.id));
       const last = rows[rows.length - 1]!;
@@ -141,12 +141,12 @@ test("retrieve: order 'asc' + cursor keyset pagination returns every row exactly
 test("retrieve: a row inserted between keyset pages is never duplicated or omitted", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
-    await store.write(draft("00000000-0000-4000-8000-000000000401", workspaceId, { seq: 1 }));
-    await store.write(draft("00000000-0000-4000-8000-000000000402", workspaceId, { seq: 2 }));
+    await store.write(draft("00000000-0000-4000-8000-000000000401", organizationId, { seq: 1 }));
+    await store.write(draft("00000000-0000-4000-8000-000000000402", organizationId, { seq: 2 }));
 
-    const page1 = await store.retrieve({ sourceRefType: "feedback", order: "asc", limit: 1 }, { workspaceId, userId: OWNER });
+    const page1 = await store.retrieve({ sourceRefType: "feedback", order: "asc", limit: 1 }, { organizationId, userId: OWNER });
     assert.equal(page1.length, 1);
     assert.equal(page1[0]!.id, "00000000-0000-4000-8000-000000000401");
 
@@ -154,10 +154,10 @@ test("retrieve: a row inserted between keyset pages is never duplicated or omitt
     // with offset pagination this could shift page 2's results; keyset
     // pagination is immune since it anchors on the last-seen row's own
     // (createdAt, id), not a row count.
-    await store.write(draft("00000000-0000-4000-8000-000000000399", workspaceId, { seq: 0 }));
+    await store.write(draft("00000000-0000-4000-8000-000000000399", organizationId, { seq: 0 }));
 
     const cursor = { createdAt: page1[0]!.createdAt, id: page1[0]!.id };
-    const page2 = await store.retrieve({ sourceRefType: "feedback", order: "asc", limit: 10, cursor }, { workspaceId, userId: OWNER });
+    const page2 = await store.retrieve({ sourceRefType: "feedback", order: "asc", limit: 10, cursor }, { organizationId, userId: OWNER });
     const ids = page2.map((r) => r.id);
     assert.ok(!ids.includes("00000000-0000-4000-8000-000000000401"), "must not re-return a row already seen in page 1");
     assert.ok(ids.includes("00000000-0000-4000-8000-000000000402"), "must still return the row after the cursor");

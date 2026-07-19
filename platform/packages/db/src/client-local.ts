@@ -28,7 +28,7 @@ export interface LocalDbConfig {
   dataDir?: string;
   /**
    * Folder of generated SQL migrations to apply on open. Defaults to this
-   * package's `migrations/` dir, resolved for both source (vitest) and compiled
+   * module's `migrations/` dir, resolved for both source (vitest) and compiled
    * (dist) layouts.
    */
   migrationsFolder?: string;
@@ -49,7 +49,7 @@ export class LocalDbInitializationCleanupError extends AggregateError {
 const here = dirname(fileURLToPath(import.meta.url));
 const LEGACY_EXTERNAL_RECORDS = "local_external_records_legacy";
 const LEGACY_EXTERNAL_RECORD_COLUMNS = new Map([
-  ["workspace_id", "text"],
+  ["organization_id", "text"],
   ["source", "text"],
   ["source_record_id", "text"],
   ["entity_type", "text"],
@@ -89,7 +89,7 @@ async function inspectExternalRecordTable(
   if (
     tableName === "external_records" &&
     columns.get("id") === "uuid" &&
-    columns.get("workspace_id") === "uuid" &&
+    columns.get("organization_id") === "uuid" &&
     columns.get("source") === "text" &&
     columns.get("source_record_id") === "text" &&
     columns.get("entity_type") === "text" &&
@@ -129,10 +129,10 @@ export async function prepareLegacyLocalExternalRecords(
   if (backupShape === "legacy") {
     await client.exec(`
       INSERT INTO ${LEGACY_EXTERNAL_RECORDS}
-        (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
-      SELECT workspace_id, source, source_record_id, entity_type, entity_id, created_at
+        (organization_id, source, source_record_id, entity_type, entity_id, created_at)
+      SELECT organization_id, source, source_record_id, entity_type, entity_id, created_at
         FROM external_records
-      ON CONFLICT (workspace_id, source, source_record_id) DO UPDATE SET
+      ON CONFLICT (organization_id, source, source_record_id) DO UPDATE SET
         entity_type = EXCLUDED.entity_type,
         entity_id = EXCLUDED.entity_id,
         created_at = EXCLUDED.created_at;

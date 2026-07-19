@@ -24,7 +24,7 @@ import { Input } from "../components/ui/input";
 import { DataViews } from "../dataviews/DataViews";
 import { computeEligibleKinds, viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow, GraphData, GraphNode } from "../dataviews/types";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { SignalsPage } from "./SignalsPage";
 
 type RelationshipPageId = "signals" | "people" | "communities";
@@ -57,7 +57,7 @@ const PEOPLE_SPEC: TableSpec = {
       label: "Visibility",
       kind: "select",
       editable: true,
-      options: ["private", "workspace"],
+      options: ["private", "organization"],
       defaultValue: "private",
     },
     { id: "source", label: "Source", kind: "text", editable: false, hiddenInForm: true },
@@ -84,7 +84,7 @@ const COMMUNITIES_SPEC: TableSpec = {
       label: "Visibility",
       kind: "select",
       editable: true,
-      options: ["private", "workspace"],
+      options: ["private", "organization"],
       defaultValue: "private",
     },
     { id: "source", label: "Source", kind: "text", editable: false, hiddenInForm: true },
@@ -139,7 +139,7 @@ function IntakeReviewSection() {
     let active = true;
     setError(null);
     trpc.relationship.intakeReview.query({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       limit: 25,
       offset,
     }).then((next) => {
@@ -250,7 +250,7 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
     const request =
       kind === "person"
         ? trpc.relationship.listPeople.query({
-            workspaceId: PILOT_WORKSPACE,
+            organizationId: PILOT_ORGANIZATION,
             limit: 50,
             offset,
             ...(query ? { query } : {}),
@@ -268,7 +268,7 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
             })),
             }))
         : trpc.relationship.listCommunities.query({
-            workspaceId: PILOT_WORKSPACE,
+            organizationId: PILOT_ORGANIZATION,
             limit: 50,
             offset,
             ...(query ? { query } : {}),
@@ -308,7 +308,7 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
     setGraphLoading(true);
     setGraphError(null);
     void trpc.relationship.graph.query({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       limit: 500,
     }).then((data) => {
       if (active) setGraphData(data);
@@ -356,10 +356,10 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
     if (!displayName) throw new Error("Name is required.");
     const optionalText = (value: unknown) =>
       typeof value === "string" && value.trim() ? value.trim() : null;
-    const visibility = draft["visibility"] === "workspace" ? "workspace" : "private";
+    const visibility = draft["visibility"] === "organization" ? "organization" : "private";
     const result = kind === "person"
       ? await trpc.relationship.createPerson.mutate({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           values: {
             displayName,
             currentTitle: optionalText(draft["currentTitle"]),
@@ -368,7 +368,7 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
           },
         })
       : await trpc.relationship.createCommunity.mutate({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           values: {
             displayName,
             kind: optionalText(draft["kind"]),
@@ -392,8 +392,8 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
     const displayName = typeof draft["displayName"] === "string"
       ? draft["displayName"].trim()
       : undefined;
-    const visibility: "workspace" | "private" | undefined =
-      draft["visibility"] === "workspace" || draft["visibility"] === "private"
+    const visibility: "organization" | "private" | undefined =
+      draft["visibility"] === "organization" || draft["visibility"] === "private"
         ? draft["visibility"]
         : undefined;
     let appliedPatch: Partial<DataRow>;
@@ -410,7 +410,7 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
         ...(visibility ? { visibility } : {}),
       };
       const result = await trpc.relationship.updatePerson.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         id,
         values,
       });
@@ -429,7 +429,7 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
         ...(visibility ? { visibility } : {}),
       };
       const result = await trpc.relationship.updateCommunity.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         id,
         values,
       });
@@ -603,7 +603,7 @@ export function SignalDetailPage() {
     setProposalStatus(null);
     setBusy(false);
     trpc.graph.getSignalDetail
-      .query({ workspaceId: PILOT_WORKSPACE, signalId })
+      .query({ organizationId: PILOT_ORGANIZATION, signalId })
       .then((nextDetail) => {
         if (requestGeneration.current === generation) setDetail(nextDetail);
       })
@@ -623,7 +623,7 @@ export function SignalDetailPage() {
     setError(null);
     try {
       const proposal = await trpc.graph.proposeSignalAction.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         signalId: actionSignalId,
       });
       if (requestGeneration.current === generation) {
@@ -680,7 +680,7 @@ export function SignalSourceEventPage() {
 
   useEffect(() => {
     trpc.graph.getSignalDetail
-      .query({ workspaceId: PILOT_WORKSPACE, signalId })
+      .query({ organizationId: PILOT_ORGANIZATION, signalId })
       .then(setDetail)
       .catch((cause) => setError(String(cause)));
   }, [signalId]);
@@ -722,7 +722,7 @@ type RelationshipMemoryPage = Awaited<ReturnType<typeof trpc.relationship.memori
 type RelationshipCommitmentPage = Awaited<ReturnType<typeof trpc.relationship.commitments.query>>;
 type RelationshipIntroductionPage = Awaited<ReturnType<typeof trpc.relationship.introductions.query>>;
 type RelationshipMeetingPrep = Awaited<ReturnType<typeof trpc.relationship.meetingPrep.query>>;
-type RelationshipCommunityWorkspace = Awaited<ReturnType<typeof trpc.relationship.communityWorkspace.query>>;
+type RelationshipCommunityOrganization = Awaited<ReturnType<typeof trpc.relationship.communityOrganization.query>>;
 type RelationshipPathResult = Awaited<ReturnType<typeof trpc.relationship.findPaths.query>>;
 
 function RecordEditForm(props:
@@ -740,8 +740,8 @@ function RecordEditForm(props:
   const [emails, setEmails] = useState(
     props.kind === "person" ? props.record.emails.join(", ") : "",
   );
-  const [visibility, setVisibility] = useState<"private" | "workspace">(
-    props.record.visibility === "workspace" ? "workspace" : "private",
+  const [visibility, setVisibility] = useState<"private" | "organization">(
+    props.record.visibility === "organization" ? "organization" : "private",
   );
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -754,7 +754,7 @@ function RecordEditForm(props:
     try {
       const result = props.kind === "person"
         ? await trpc.relationship.updatePerson.mutate({
-            workspaceId: PILOT_WORKSPACE,
+            organizationId: PILOT_ORGANIZATION,
             id: props.record.id,
             values: {
               displayName,
@@ -766,7 +766,7 @@ function RecordEditForm(props:
             },
           })
         : await trpc.relationship.updateCommunity.mutate({
-            workspaceId: PILOT_WORKSPACE,
+            organizationId: PILOT_ORGANIZATION,
             id: props.record.id,
             values: {
               displayName,
@@ -802,9 +802,9 @@ function RecordEditForm(props:
         </label>
         <label className="text-sm font-medium" style={{ color: "var(--color-navy-mid)" }}>
           Visibility
-          <select value={visibility} onChange={(event) => setVisibility(event.target.value as "private" | "workspace")} className={fieldClassName()} style={{ borderColor: "var(--color-border)" }}>
+          <select value={visibility} onChange={(event) => setVisibility(event.target.value as "private" | "organization")} className={fieldClassName()} style={{ borderColor: "var(--color-border)" }}>
             <option value="private">Only me</option>
-            <option value="workspace">Workspace</option>
+            <option value="organization">Organization</option>
           </select>
         </label>
         <label className="text-sm font-medium sm:col-span-2" style={{ color: "var(--color-navy-mid)" }}>
@@ -851,7 +851,7 @@ function InteractionForm({
   const [summary, setSummary] = useState("");
   const [interactionKind, setInteractionKind] = useState("meeting");
   const [occurredAt, setOccurredAt] = useState(() => toDatetimeLocal(new Date()));
-  const [visibility, setVisibility] = useState<"private" | "workspace">("private");
+  const [visibility, setVisibility] = useState<"private" | "organization">("private");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -862,7 +862,7 @@ function InteractionForm({
     setError(null);
     try {
       const result = await trpc.relationship.createInteraction.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         values: {
           kind: interactionKind,
           occurredAt: new Date(occurredAt).toISOString(),
@@ -902,9 +902,9 @@ function InteractionForm({
         </label>
         <label className="text-sm font-medium" style={{ color: "var(--color-navy-mid)" }}>
           Visibility
-          <select value={visibility} onChange={(event) => setVisibility(event.target.value as "private" | "workspace")} className={fieldClassName()} style={{ borderColor: "var(--color-border)" }}>
+          <select value={visibility} onChange={(event) => setVisibility(event.target.value as "private" | "organization")} className={fieldClassName()} style={{ borderColor: "var(--color-border)" }}>
             <option value="private">Only me</option>
-            <option value="workspace">Workspace</option>
+            <option value="organization">Organization</option>
           </select>
         </label>
       </div>
@@ -934,10 +934,10 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
   const [commitmentSnapshotAt, setCommitmentSnapshotAt] = useState<string | null>(null);
   const [introductionSnapshotAt, setIntroductionSnapshotAt] = useState<string | null>(null);
   const [meetingPrep, setMeetingPrep] = useState<RelationshipMeetingPrep | null>(null);
-  const [communityWorkspace, setCommunityWorkspace] = useState<RelationshipCommunityWorkspace | null>(null);
+  const [communityOrganization, setCommunityOrganization] = useState<RelationshipCommunityOrganization | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState("");
-  const [memoryScope, setMemoryScope] = useState<"private" | "workspace">("private");
+  const [memoryScope, setMemoryScope] = useState<"private" | "organization">("private");
   const [commitmentDraft, setCommitmentDraft] = useState("");
   const [commitmentDueAt, setCommitmentDueAt] = useState("");
   const [contextBusy, setContextBusy] = useState(false);
@@ -960,12 +960,12 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setTimelineLoading(false);
     setError(null);
     const recordRequest = kind === "person"
-      ? trpc.relationship.getPerson.query({ workspaceId: PILOT_WORKSPACE, id: recordId })
-      : trpc.relationship.getCommunity.query({ workspaceId: PILOT_WORKSPACE, id: recordId });
+      ? trpc.relationship.getPerson.query({ organizationId: PILOT_ORGANIZATION, id: recordId })
+      : trpc.relationship.getCommunity.query({ organizationId: PILOT_ORGANIZATION, id: recordId });
     void Promise.all([
       recordRequest,
       trpc.relationship.timeline.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         recordType: kind,
         recordId,
         limit: 25,
@@ -985,17 +985,17 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
 
   useEffect(() => {
     if (kind !== "community") {
-      setCommunityWorkspace(null);
+      setCommunityOrganization(null);
       return;
     }
-    setCommunityWorkspace(null);
+    setCommunityOrganization(null);
     let active = true;
-    void trpc.relationship.communityWorkspace.query({
-      workspaceId: PILOT_WORKSPACE,
+    void trpc.relationship.communityOrganization.query({
+      organizationId: PILOT_ORGANIZATION,
       communityId: recordId,
       limit: 25,
-    }).then((workspace) => {
-      if (active) setCommunityWorkspace(workspace);
+    }).then((organization) => {
+      if (active) setCommunityOrganization(organization);
     }).catch((cause) => {
       if (active) setError(String(cause));
     });
@@ -1037,26 +1037,26 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setContextLoading(true);
     void Promise.all([
       trpc.relationship.memories.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         limit: CONTEXT_PAGE_SIZE,
         offset: 0,
       }),
       trpc.relationship.commitments.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         limit: CONTEXT_PAGE_SIZE,
         offset: 0,
         includeArchived: false,
       }),
       trpc.relationship.introductions.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         limit: CONTEXT_PAGE_SIZE,
         offset: 0,
       }),
       trpc.relationship.meetingPrep.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         limit: 10,
       }),
@@ -1090,7 +1090,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const page = await trpc.relationship.timeline.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         recordType: kind,
         recordId,
         limit: 25,
@@ -1114,7 +1114,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const page = await trpc.relationship.memories.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         limit: CONTEXT_PAGE_SIZE,
         offset,
@@ -1142,7 +1142,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const page = await trpc.relationship.commitments.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         limit: CONTEXT_PAGE_SIZE,
         offset,
@@ -1171,7 +1171,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const page = await trpc.relationship.introductions.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         limit: CONTEXT_PAGE_SIZE,
         offset,
@@ -1199,7 +1199,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = await trpc.relationship.addMemory.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         type: "semantic",
         content: memoryDraft,
@@ -1226,7 +1226,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = await trpc.relationship.correctMemory.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         memoryId: memory.id,
         content,
@@ -1248,7 +1248,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = await trpc.relationship.forgetMemory.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         memoryId,
       });
@@ -1270,7 +1270,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = await trpc.relationship.createCommitment.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         text: commitmentDraft,
         dueAt: commitmentDueAt ? new Date(commitmentDueAt).toISOString() : null,
@@ -1298,7 +1298,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = await trpc.relationship.updateCommitment.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         commitmentId: commitment.id,
         text: commitment.text,
@@ -1322,7 +1322,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = await trpc.relationship.archiveCommitment.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         commitmentId,
       });
@@ -1343,7 +1343,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = await trpc.relationship.createIntroduction.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourcePersonId: recordId,
         targetPersonId,
       });
@@ -1370,7 +1370,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = await trpc.relationship.recordIntroductionConsent.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         introductionId: introduction.id,
         party: "recipient",
@@ -1400,7 +1400,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = await trpc.relationship.transitionIntroduction.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: recordId,
         introductionId,
         transition,
@@ -1421,7 +1421,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = await trpc.relationship.createInteraction.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         values: {
           kind: "follow_up",
           occurredAt: new Date().toISOString(),
@@ -1450,7 +1450,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setPathResult(null);
     try {
       const page = await trpc.relationship.listPeople.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         query,
         limit: 10,
         offset: 0,
@@ -1481,7 +1481,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = await trpc.relationship.findPaths.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         start: { nodeType: kind, nodeId: recordId },
         end: { nodeType: "person", nodeId: targetId },
         maxDepth: 4,
@@ -1501,8 +1501,8 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     setError(null);
     try {
       const result = kind === "person"
-        ? await trpc.relationship.archivePerson.mutate({ workspaceId: PILOT_WORKSPACE, id: recordId })
-        : await trpc.relationship.archiveCommunity.mutate({ workspaceId: PILOT_WORKSPACE, id: recordId });
+        ? await trpc.relationship.archivePerson.mutate({ organizationId: PILOT_ORGANIZATION, id: recordId })
+        : await trpc.relationship.archiveCommunity.mutate({ organizationId: PILOT_ORGANIZATION, id: recordId });
       if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") {
@@ -1584,24 +1584,24 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
           )}
         </section>
         {community && (
-          <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="community-workspace-title">
-            <h2 id="community-workspace-title" className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--color-navy)" }}>
-              <Users className="w-4 h-4" /> Community workspace
+          <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="community-organization-title">
+            <h2 id="community-organization-title" className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--color-navy)" }}>
+              <Users className="w-4 h-4" /> Community organization
             </h2>
             <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
               People, surfaced Signals, shared Events, and local Files associated with this Community.
             </p>
-            {communityWorkspace === null ? (
+            {communityOrganization === null ? (
               <p className="mt-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>Loading bounded Community context…</p>
             ) : (
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
                   <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>People</h3>
-                  {communityWorkspace.people.length === 0 ? (
+                  {communityOrganization.people.length === 0 ? (
                     <p className="mt-2 text-xs" style={{ color: "var(--color-warm-gray)" }}>No accessible People are linked yet.</p>
                   ) : (
                     <ul className="mt-2 space-y-2">
-                      {communityWorkspace.people.map((member) => (
+                      {communityOrganization.people.map((member) => (
                         <li key={member.id}>
                           <Link to={`/module/relationship/people/${member.id}`} className="text-sm no-underline hover:underline" style={{ color: "var(--color-steel)" }}>
                             {member.displayName || "Unnamed Person"}
@@ -1613,12 +1613,12 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
                 </div>
                 <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
                   <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>Signals and Events</h3>
-                  <p className="mt-2 text-sm" style={{ color: "var(--color-navy)" }}>{communityWorkspace.events.length} accessible Events</p>
-                  {communityWorkspace.signals.length === 0 ? (
+                  <p className="mt-2 text-sm" style={{ color: "var(--color-navy)" }}>{communityOrganization.events.length} accessible Events</p>
+                  {communityOrganization.signals.length === 0 ? (
                     <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>No surfaced Signals for this Community.</p>
                   ) : (
                     <ul className="mt-2 space-y-2">
-                      {communityWorkspace.signals.map((signal) => (
+                      {communityOrganization.signals.map((signal) => (
                         <li key={signal.id}>
                           <Link to={`/module/relationship/signals/${signal.id}`} className="text-sm capitalize no-underline hover:underline" style={{ color: "var(--color-steel)" }}>
                             {signal.type.replace(/_/g, " ")}
@@ -1630,7 +1630,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
                 </div>
                 <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
                   <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>Files</h3>
-                  {communityWorkspace.files.length === 0 ? (
+                  {communityOrganization.files.length === 0 ? (
                     <>
                       <p className="mt-2 text-xs" style={{ color: "var(--color-warm-gray)" }}>No local Files are associated yet.</p>
                       <Link to="/settings" className="mt-2 inline-block text-xs font-semibold no-underline hover:underline" style={{ color: "var(--color-steel)" }}>Manage sources</Link>
@@ -1639,9 +1639,9 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
                 </div>
               </div>
             )}
-            {communityWorkspace && Object.values(communityWorkspace.bounds).some(Boolean) && (
+            {communityOrganization && Object.values(communityOrganization.bounds).some(Boolean) && (
               <p className="mt-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-                This workspace view reached a safety bound. Refine through a related Record for more context.
+                This organization view reached a safety bound. Refine through a related Record for more context.
               </p>
             )}
           </section>
@@ -1766,12 +1766,12 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
                     Classification
                     <select
                       value={memoryScope}
-                      onChange={(event) => setMemoryScope(event.target.value as "private" | "workspace")}
+                      onChange={(event) => setMemoryScope(event.target.value as "private" | "organization")}
                       className={fieldClassName()}
                       style={{ borderColor: "var(--color-border)" }}
                     >
                       <option value="private">Only me</option>
-                      <option value="workspace">Workspace</option>
+                      <option value="organization">Organization</option>
                     </select>
                   </label>
                   <Button type="submit" disabled={contextBusy || !memoryDraft.trim()}>Add Memory</Button>

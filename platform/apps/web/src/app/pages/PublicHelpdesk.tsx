@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Check, Copy, LifeBuoy, Send } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { Button } from "../components/ui/button";
-import { PILOT_WORKSPACE, trpc } from "../lib/trpc";
+import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
 type PublicThread = Awaited<ReturnType<typeof trpc.helpdesk.public.getThread.query>>;
 
@@ -194,7 +194,7 @@ export function PublicHelpdesk() {
           }
     try {
       const created = await trpc.helpdesk.public.createTicket.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         subject,
         submitterEmail,
         ...(normalizedDraft.submitterName ? { submitterName: normalizedDraft.submitterName } : {}),

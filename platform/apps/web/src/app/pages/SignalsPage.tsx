@@ -8,7 +8,7 @@ import { Link, useNavigate } from "react-router";
 import { MoreHorizontal, Radio } from "lucide-react";
 import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { collectAllPages } from "../lib/pagination";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
 import { type DashboardMetric } from "../components/shared/DashboardRow";
 import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
@@ -77,7 +77,7 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
   async function refresh(): Promise<void> {
     try {
       const items = await collectAllPages((offset, limit) =>
-        trpc.graph.listSignals.query({ workspaceId: PILOT_WORKSPACE, limit, offset }),
+        trpc.graph.listSignals.query({ organizationId: PILOT_ORGANIZATION, limit, offset }),
       );
       setPage({ items, total: items.length, hasMore: false });
       setLoadError(null);
@@ -99,7 +99,7 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
       return next;
     });
     try {
-      await trpc.graph.recordSignalAction.mutate({ workspaceId: PILOT_WORKSPACE, signalId, verb });
+      await trpc.graph.recordSignalAction.mutate({ organizationId: PILOT_ORGANIZATION, signalId, verb });
       await refresh();
     } catch (e) {
       setActionErrors((current) => ({ ...current, [signalId]: String(e) }));

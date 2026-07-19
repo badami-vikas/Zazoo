@@ -159,24 +159,24 @@ export type {
   ContextProvider,
 } from "./context-provider.js";
 
-// Capability packages (docs/raw/capability-package-format.md, ADR-018) — the
+// Capability modules (docs/raw/capability-module-format.md, ADR-018) — the
 // shipping unit ABOVE one capability_manifests row. Builds on capability/*
 // above; never redefines its trust-model types.
-export * from "./package/types.js";
-export { parsePackageManifest, PackageManifestValidationError } from "./package/manifest.js";
-export { computePackageRisk, packageHasLethalTrifecta, type PackageRiskResult } from "./package/risk.js";
+export * from "./module/types.js";
+export { parseModuleManifest, ModuleManifestValidationError } from "./module/manifest.js";
+export { computeModuleRisk, moduleHasLethalTrifecta, type ModuleRiskResult } from "./module/risk.js";
 export {
-  InvalidPackageTransitionError,
-  advancePackageState,
+  InvalidModuleTransitionError,
+  advanceModuleState,
   promoteToAvailable,
   rollbackFromHistory,
   type PromoteResult,
-} from "./package/lifecycle.js";
+} from "./module/lifecycle.js";
 export {
-  InMemoryPackageStore,
-  type PackageAttachmentTarget,
-  type PackageStore,
-} from "./package/ports.js";
+  InMemoryModuleStore,
+  type ModuleAttachmentTarget,
+  type ModuleStore,
+} from "./module/ports.js";
 // PKG-2 (Month-6) Commons supply-chain trust — pure signing/verification policy
 // + canonicalization + TLS-by-default (crypto itself is bound at the seam).
 export {
@@ -193,20 +193,20 @@ export {
   type ManifestVerificationFailure,
   type ManifestVerificationResult,
   type VerifyManifestOptions,
-} from "./package/signing.js";
+} from "./module/signing.js";
 export {
   canonicalizeCommonsContent,
   canonicalizeCommonsSignedPayload,
-  commonsPackageContent,
+  commonsModuleContent,
   computeCommonsContentHash,
   normalizeCommonsTags,
   verifyCommonsEntry,
   verifyCommonsEntryContent,
-  type CommonsPackageContent,
+  type CommonsModuleContent,
   type CommonsEntryVerificationFailure,
   type CommonsEntryVerificationResult,
   type ContentHasher,
-} from "./package/commons-trust.js";
+} from "./module/commons-trust.js";
 
 // PI-2 tainted-context egress gate + PI-3 dual-LLM quarantine / spotlighting (Month-3
 // prompt-injection defenses; ADR-066/067). The pipeline enforces the egress gate
@@ -260,9 +260,9 @@ export { contractMatchScorer, deterministicScorers, replayDeterminismScorer, rou
 export {
   CommonsPublishRejectedError,
   type CommonsRegistry,
-  type CommonsPackageEntry,
-  type CommonsPackageSummary,
-  type CommonsPackageDetail,
+  type CommonsModuleEntry,
+  type CommonsModuleSummary,
+  type CommonsModuleDetail,
   type CommonsListQuery,
   type CommonsListResult,
   type CommonsProvenance,
@@ -270,18 +270,18 @@ export {
   type CommonsDependencyPin,
   type CommonsSecurityScan,
   type CommonsContentHash,
-} from "./package/commons.js";
+} from "./module/commons.js";
 
 // Blueprint -> view grammar compiler (docs/wiki/vision.md "View grammar",
-// P1 "Workspace Generator") — pure, zero-deps, additive to the pipeline.
+// P1 "Organization Generator") — pure, zero-deps, additive to the pipeline.
 export {
   compileBlueprint,
   BlueprintCompileError,
   BLUEPRINT_SCHEMA_VERSION,
-  parseWorkspaceBlueprint,
+  parseOrganizationBlueprint,
   BlueprintValidationError,
-  workspaceBlueprintToPackageManifest,
-  workspaceBlueprintFromPackageManifest,
+  organizationBlueprintToModuleManifest,
+  organizationBlueprintFromModuleManifest,
   type BlueprintColumnKind,
   type BlueprintColumnSpec,
   type BlueprintTableSpec,
@@ -293,18 +293,18 @@ export {
   type BlueprintFieldSpec,
   type BlueprintEntitySpec,
   type BlueprintViewSpec,
-  type WorkspaceBlueprint,
-  type WorkspaceBlueprintPublishOptions,
+  type OrganizationBlueprint,
+  type OrganizationBlueprintPublishOptions,
   type NavigationEntry,
-  type CompiledWorkspace,
+  type CompiledOrganization,
   type CompiledViewConfig,
 } from "./blueprint.js";
 export {
-  InMemoryWorkspaceDefinitionStore,
-  type WorkspaceDefinitionStatus,
-  type WorkspaceDefinitionRow,
-  type WorkspaceDefinitionStore,
-} from "./workspace-definition.js";
+  InMemoryOrganizationDefinitionStore,
+  type OrganizationDefinitionStatus,
+  type OrganizationDefinitionRow,
+  type OrganizationDefinitionStore,
+} from "./organization-definition.js";
 
 // Chief of Staff v1 (docs/wiki/roadmap.md P1 "Chief of Staff v1") — pure intent
 // classification + star-topology routing types. No I/O; apps/api's

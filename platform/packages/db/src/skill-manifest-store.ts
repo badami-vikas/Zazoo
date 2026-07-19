@@ -59,7 +59,7 @@ function unpack(row: typeof skillManifests.$inferSelect): SkillManifest {
       : parseStringArray(row.requiredIntegrations, "required_integrations");
   const budget = parseBudget(row.budget);
   return {
-    workspaceId: row.workspaceId,
+    organizationId: row.organizationId,
     skillId: row.skillId,
     version: row.version,
     goalTypes: parseStringArray(row.goalTypes, "goal_types"),
@@ -97,7 +97,7 @@ export class DrizzleSkillManifestRegistry implements SkillManifestRegistry {
     const next = new Map<string, SkillManifest[]>();
     for (const row of rows) {
       const manifest = unpack(row);
-      const key = `${manifest.workspaceId}:${manifest.skillId}`;
+      const key = `${manifest.organizationId}:${manifest.skillId}`;
       const existing = next.get(key) ?? [];
       existing.push(manifest);
       next.set(key, existing);
@@ -112,14 +112,14 @@ export class DrizzleSkillManifestRegistry implements SkillManifestRegistry {
     }
   }
 
-  forSkill(workspaceId: string, skillId: string): readonly SkillManifest[] {
+  forSkill(organizationId: string, skillId: string): readonly SkillManifest[] {
     this.#requireLoaded();
-    return this.#cache.get(`${workspaceId}:${skillId}`) ?? [];
+    return this.#cache.get(`${organizationId}:${skillId}`) ?? [];
   }
 
-  all(workspaceId: string): readonly SkillManifest[] {
+  all(organizationId: string): readonly SkillManifest[] {
     this.#requireLoaded();
-    const prefix = `${workspaceId}:`;
+    const prefix = `${organizationId}:`;
     return [...this.#cache.entries()]
       .filter(([key]) => key.startsWith(prefix))
       .flatMap(([, manifests]) => manifests);
@@ -128,13 +128,13 @@ export class DrizzleSkillManifestRegistry implements SkillManifestRegistry {
 
 /**
  * Idempotently upsert the code-declared manifest catalog into `skill_manifests`
- * (unique on workspace_id+skill_id+version — re-running on every boot with the
+ * (unique on organization_id+skill_id+version — re-running on every boot with the
  * SAME declarations is a no-op update, not a growing duplicate list).
  */
 export async function seedSkillManifests(db: Database, catalog: readonly SkillManifest[]): Promise<void> {
   for (const manifest of catalog) {
     const values = {
-      workspaceId: manifest.workspaceId,
+      organizationId: manifest.organizationId,
       skillId: manifest.skillId,
       version: manifest.version,
       goalTypes: [...manifest.goalTypes],
@@ -157,7 +157,7 @@ export async function seedSkillManifests(db: Database, catalog: readonly SkillMa
       .values(values)
       .onConflictDoUpdate({
         target: [
-          skillManifests.workspaceId,
+          skillManifests.organizationId,
           skillManifests.skillId,
           skillManifests.version,
         ],

@@ -4,7 +4,7 @@ import { InMemoryLedger, type LedgerEntry } from "../src/index.js";
 
 function row(overrides: Partial<LedgerEntry> & { id: string }): LedgerEntry {
   return {
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     actorType: "agent",
     actorId: "test_fixture_actor",
     action: "write",
@@ -38,7 +38,7 @@ test("in-memory ledger lists only unresolved root proposals", async () => {
     }),
   );
 
-  assert.deepEqual(await ledger.listPending(proposal.workspaceId, { limit: 50, offset: 0 }), {
+  assert.deepEqual(await ledger.listPending(proposal.organizationId, { limit: 50, offset: 0 }), {
     items: [proposal],
     total: 1,
   });
@@ -52,7 +52,7 @@ test("in-memory ledger lists only unresolved root proposals", async () => {
       userDecision: "approve",
     }),
   );
-  assert.deepEqual(await ledger.listPending(proposal.workspaceId, { limit: 50, offset: 0 }), {
+  assert.deepEqual(await ledger.listPending(proposal.organizationId, { limit: 50, offset: 0 }), {
     items: [],
     total: 0,
   });
@@ -114,7 +114,7 @@ test("in-memory ledger owner-filters legacy Relationship rows and explicit priva
   assert.equal(ownTouchpoint.appendSequence, 43);
   assert.equal(sharedSignal.appendSequence, 45);
   assert.equal(ownPrivateSignal.appendSequence, 46);
-  const history = await ledger.listHistory("test_fixture_workspace", {
+  const history = await ledger.listHistory("test_fixture_organization", {
     limit: 10,
     offset: 0,
     privateOwnerUserId: "test_fixture_owner",
@@ -129,7 +129,7 @@ test("in-memory ledger owner-filters legacy Relationship rows and explicit priva
       "test_fixture_own_relation",
     ],
   );
-  const otherPending = await ledger.listPending("test_fixture_workspace", {
+  const otherPending = await ledger.listPending("test_fixture_organization", {
     limit: 10,
     offset: 0,
     privateOwnerUserId: "test_fixture_unrelated_owner",
@@ -159,7 +159,7 @@ test("in-memory ledger treats legacy Learning recommendations and linked rows as
   );
   await ledger.append(row({ id: "test_fixture_shared_after_legacy" }));
 
-  const otherHistory = await ledger.listHistory("test_fixture_workspace", {
+  const otherHistory = await ledger.listHistory("test_fixture_organization", {
     limit: 10,
     offset: 0,
     privateOwnerUserId: "test_fixture_other",
@@ -168,7 +168,7 @@ test("in-memory ledger treats legacy Learning recommendations and linked rows as
     otherHistory.items.map((entry) => entry.id),
     ["test_fixture_shared_after_legacy"],
   );
-  const ownerHistory = await ledger.listHistory("test_fixture_workspace", {
+  const ownerHistory = await ledger.listHistory("test_fixture_organization", {
     limit: 10,
     offset: 0,
     privateOwnerUserId: "test_fixture_owner",

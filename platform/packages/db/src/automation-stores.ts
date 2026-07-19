@@ -24,7 +24,7 @@ import { agents, automationRuns, automations } from "./schema.js";
  * Before adding this: searched for an existing zod schema for this shape
  * (`grep -rn "z.object" packages/core`, `grep -rn "AutomationStepDef"`) — none
  * exists. `@bridge/core` is declared "Zero runtime dependencies" (see its
- * package.json description), so a zod schema cannot live there; it is
+ * npm manifest description), so a zod schema cannot live there; it is
  * colocated here in `@bridge/db`, the only place that validates this jsonb at
  * the read/write boundary.
  */
@@ -33,7 +33,7 @@ const actionSchema = z.enum(["read", "write", "execute", "share", "archive", "ap
 const resourceTypeSchema = z.enum([
   "person",
   "community",
-  "initiative",
+  "record",
   "touchpoint",
   "automation",
   "module",
@@ -103,7 +103,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
     this.#db = db;
   }
 
-  async load(workspaceId: string, automationId: string): Promise<AutomationDefinition | null> {
+  async load(organizationId: string, automationId: string): Promise<AutomationDefinition | null> {
     const rows = await this.#db
       .select({
         id: automations.id,
@@ -115,7 +115,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
       .from(automations)
       .where(
         and(
-          eq(automations.workspaceId, workspaceId),
+          eq(automations.organizationId, organizationId),
           eq(automations.id, automationId),
           eq(automations.status, "active"),
         ),
@@ -132,7 +132,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
     return {
       id: row.id,
       name: row.name,
-      workspaceId,
+      organizationId,
       agentId: row.agentId,
       agentPlane: row.agentPlane,
       steps,
@@ -147,13 +147,13 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
       .where(
         and(
           eq(agents.id, agentId),
-          eq(agents.workspaceId, definition.workspaceId),
+          eq(agents.organizationId, definition.organizationId),
         ),
       )
       .limit(1);
     if (!owningAgent) {
       throw new Error(
-        "AutomationRegistry.save: owning Agent must belong to the Automation workspace",
+        "AutomationRegistry.save: owning Agent must belong to the Automation organization",
       );
     }
     const steps = parseAutomationSteps(definition.steps);
@@ -161,7 +161,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
       .insert(automations)
       .values({
         id: definition.id,
-        workspaceId: definition.workspaceId,
+        organizationId: definition.organizationId,
         name: definition.name,
         agentId,
         agentPlane,
@@ -181,13 +181,13 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
   }
 
   /** Write-time gate: validates the full pipeline and throws before anything is persisted. */
-  async saveSteps(workspaceId: string, automationId: string, steps: unknown): Promise<void> {
+  async saveSteps(organizationId: string, automationId: string, steps: unknown): Promise<void> {
     const validated = parseAutomationSteps(steps);
     await this.#db
       .update(automations)
       .set({ skillPipeline: validated })
       .where(
-        and(eq(automations.workspaceId, workspaceId), eq(automations.id, automationId)),
+        and(eq(automations.organizationId, organizationId), eq(automations.id, automationId)),
       );
   }
 }
@@ -199,12 +199,12 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
   }
 
   async start(
-    run: { runId: string; automationId: string; workspaceId: string; agentId: string },
+    run: { runId: string; automationId: string; organizationId: string; agentId: string },
     _ctx: RunCtx,
   ): Promise<void> {
     await this.#db.insert(automationRuns).values({
       id: run.runId,
-      workspaceId: run.workspaceId,
+      organizationId: run.organizationId,
       automationId: run.automationId,
       agentId: run.agentId,
       runId: run.runId,
@@ -213,7 +213,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
   }
 
   async finish(
-    run: { runId: string; workspaceId: string; status: "completed" | "halted"; output: unknown },
+    run: { runId: string; organizationId: string; status: "completed" | "halted"; output: unknown },
     _ctx: RunCtx,
   ): Promise<void> {
     const rows = await this.#db
@@ -222,13 +222,13 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
       .where(
         and(
           eq(automationRuns.id, run.runId),
-          eq(automationRuns.workspaceId, run.workspaceId),
+          eq(automationRuns.organizationId, run.organizationId),
         ),
       )
       .returning();
     if (rows.length !== 1) {
       throw new Error(
-        `AutomationRunRecorder.finish: Run ${run.runId} not found in organization ${run.workspaceId}`,
+        `AutomationRunRecorder.finish: Run ${run.runId} not found in organization ${run.organizationId}`,
       );
     }
   }

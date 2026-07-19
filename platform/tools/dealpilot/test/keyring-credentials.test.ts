@@ -27,7 +27,7 @@ test("OS keyring references and projections never disclose credential values", a
     service: "com.bridge.test",
     entryFactory: keyring.factory,
   });
-  const scope = { workspaceId: "workspace-a", sourceId: "source-a" };
+  const scope = { organizationId: "organization-a", sourceId: "source-a" };
   const reference = await vault.put(
     scope,
     {
@@ -50,25 +50,25 @@ test("OS keyring references and projections never disclose credential values", a
   assert.equal(await vault.metadata(scope, reference), null);
 });
 
-test("OS keyring scope creates distinct opaque entries per workspace and Source", async () => {
+test("OS keyring scope creates distinct opaque entries per organization and Source", async () => {
   const keyring = new FakeKeyring();
   const vault = new KeyringSourceCredentialVault({ entryFactory: keyring.factory });
   const first = await vault.put(
-    { workspaceId: "workspace-a", sourceId: "source-a" },
+    { organizationId: "organization-a", sourceId: "source-a" },
     { password: "secret-a" },
   );
   const second = await vault.put(
-    { workspaceId: "workspace-b", sourceId: "source-a" },
+    { organizationId: "organization-b", sourceId: "source-a" },
     { password: "secret-b" },
   );
 
   assert.notEqual(first, second);
   assert.equal(
-    await vault.read({ workspaceId: "workspace-a", sourceId: "source-a" }, first, "password"),
+    await vault.read({ organizationId: "organization-a", sourceId: "source-a" }, first, "password"),
     "secret-a",
   );
   assert.equal(
-    await vault.read({ workspaceId: "workspace-b", sourceId: "source-a" }, second, "password"),
+    await vault.read({ organizationId: "organization-b", sourceId: "source-a" }, second, "password"),
     "secret-b",
   );
 });
@@ -76,7 +76,7 @@ test("OS keyring scope creates distinct opaque entries per workspace and Source"
 test("concurrent writes for one Source own separate entries so compensation cannot delete the winner", async () => {
   const keyring = new FakeKeyring();
   const vault = new KeyringSourceCredentialVault({ entryFactory: keyring.factory });
-  const scope = { workspaceId: "workspace-a", sourceId: "source-a" };
+  const scope = { organizationId: "organization-a", sourceId: "source-a" };
   const losingReference = await vault.put(scope, { password: "losing-secret" });
   const winningReference = await vault.put(scope, { password: "winning-secret" });
 
@@ -93,7 +93,7 @@ test("OS keyring rejects foreign or malformed references and entries", async () 
   });
   await assert.rejects(
     vault.read(
-      { workspaceId: "workspace-a", sourceId: "source-a" },
+      { organizationId: "organization-a", sourceId: "source-a" },
       "https://com.bridge.test/account",
       "password",
     ),
@@ -105,7 +105,7 @@ test("OS keyring rejects foreign or malformed references and entries", async () 
   );
   await assert.rejects(
     vault.read(
-      { workspaceId: "workspace-a", sourceId: "source-a" },
+      { organizationId: "organization-a", sourceId: "source-a" },
       "keyring://foreign.service/account",
       "password",
     ),
@@ -113,7 +113,7 @@ test("OS keyring rejects foreign or malformed references and entries", async () 
   );
   await assert.rejects(
     vault.read(
-      { workspaceId: "workspace-a", sourceId: "source-a" },
+      { organizationId: "organization-a", sourceId: "source-a" },
       "keyring://com.bridge.test/not-a-bridge-account",
       "password",
     ),
@@ -121,13 +121,13 @@ test("OS keyring rejects foreign or malformed references and entries", async () 
   );
 
   const reference = await vault.put(
-    { workspaceId: "workspace-a", sourceId: "source-a" },
+    { organizationId: "organization-a", sourceId: "source-a" },
     { password: "secret-a" },
   );
   const onlyKey = [...keyring.values.keys()][0]!;
   keyring.values.set(onlyKey, "{\"version\":2,\"password\":\"secret-a\"}");
   await assert.rejects(
-    vault.metadata({ workspaceId: "workspace-a", sourceId: "source-a" }, reference),
+    vault.metadata({ organizationId: "organization-a", sourceId: "source-a" }, reference),
     /unsupported format/,
   );
 });
@@ -139,13 +139,13 @@ test("OS keyring rejects a reference outside the requested Organization or Sourc
     entryFactory: keyring.factory,
   });
   const reference = await vault.put(
-    { workspaceId: "workspace-a", sourceId: "source-a" },
+    { organizationId: "organization-a", sourceId: "source-a" },
     { password: "high-value-secret" },
   );
 
   await assert.rejects(
     vault.read(
-      { workspaceId: "workspace-b", sourceId: "source-a" },
+      { organizationId: "organization-b", sourceId: "source-a" },
       reference,
       "password",
     ),
@@ -175,7 +175,7 @@ test("OS keyring adapter propagates provider failures without an in-memory fallb
 
   await assert.rejects(
     vault.put(
-      { workspaceId: "workspace-a", sourceId: "source-a" },
+      { organizationId: "organization-a", sourceId: "source-a" },
       { password: "secret-a" },
     ),
     providerError,
@@ -197,7 +197,7 @@ test("OS keyring treats a provider NoEntry as an idempotent missing credential",
       },
     }),
   });
-  const scope = { workspaceId: "workspace-a", sourceId: "source-a" };
+  const scope = { organizationId: "organization-a", sourceId: "source-a" };
   const reference = await new KeyringSourceCredentialVault({
     service: "com.bridge.test",
     entryFactory: new FakeKeyring().factory,

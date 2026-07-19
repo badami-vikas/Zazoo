@@ -12,13 +12,13 @@
  * Kept deliberately minimal and store-agnostic (an in-memory port here, same
  * pattern as `AutomationRegistry`/`AgentQuery` in ports.ts) — a Drizzle-backed
  * store is a follow-up slice once this primitive has a settled shape, mirroring
- * how `WorkspaceDefinitionStore`/DealPilot's thesis store started in-memory in
+ * how `OrganizationDefinitionStore`/DealPilot's thesis store started in-memory in
  * `apps/api/wiring.ts` before any dedicated schema landed.
  */
 
 /** An open string identifier, e.g. "relationship.learning", "dealpilot.diligence".
  * Kept as a plain string (not a closed enum) because Goal/Task types are a
- * per-Module vocabulary that Modules and Commons packages extend over time —
+ * per-Module vocabulary that Modules and Commons modules extend over time —
  * mirrors `ResourceType`'s pattern of being closed at the kernel-governance
  * layer but Goal/Task types are intentionally open, like `Skill.name`. */
 export type GoalType = string;
@@ -28,7 +28,7 @@ export type TaskStatus = "open" | "in_progress" | "done" | "blocked" | "cancelle
 
 export interface Goal {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   type: GoalType;
   title: string;
   createdAt: string;
@@ -36,7 +36,7 @@ export interface Goal {
 
 export interface Task {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   goalId: string;
   type: TaskType;
   /**
@@ -55,14 +55,14 @@ export interface Task {
 
 export interface CreateGoalInput {
   id?: string;
-  workspaceId: string;
+  organizationId: string;
   type: GoalType;
   title: string;
 }
 
 export interface CreateTaskInput {
   id?: string;
-  workspaceId: string;
+  organizationId: string;
   goalId: string;
   type: TaskType;
   assignedAgentId: string;
@@ -79,15 +79,15 @@ export interface GoalTaskIdClock {
 
 export interface GoalTaskStore {
   createGoal(input: CreateGoalInput, seam: GoalTaskIdClock): Promise<Goal>;
-  getGoal(workspaceId: string, id: string): Promise<Goal | null>;
-  listGoals(workspaceId: string): Promise<Goal[]>;
+  getGoal(organizationId: string, id: string): Promise<Goal | null>;
+  listGoals(organizationId: string): Promise<Goal[]>;
   createTask(input: CreateTaskInput, seam: GoalTaskIdClock): Promise<Task>;
-  getTask(workspaceId: string, id: string): Promise<Task | null>;
-  listTasksByGoal(workspaceId: string, goalId: string): Promise<Task[]>;
+  getTask(organizationId: string, id: string): Promise<Task | null>;
+  listTasksByGoal(organizationId: string, goalId: string): Promise<Task[]>;
   /** Reassign a Task to a different Agent — the ONLY way eligibility for a
    * governed Skill changes for that Task; never mutated implicitly. */
-  reassignTask(workspaceId: string, id: string, assignedAgentId: string): Promise<Task>;
-  updateTaskStatus(workspaceId: string, id: string, status: TaskStatus): Promise<Task>;
+  reassignTask(organizationId: string, id: string, assignedAgentId: string): Promise<Task>;
+  updateTaskStatus(organizationId: string, id: string, status: TaskStatus): Promise<Task>;
 }
 
 /** In-memory implementation — dev/test default, same shape as every other
@@ -99,7 +99,7 @@ export class InMemoryGoalTaskStore implements GoalTaskStore {
   async createGoal(input: CreateGoalInput, seam: GoalTaskIdClock): Promise<Goal> {
     const goal: Goal = {
       id: input.id ?? seam.nextId(),
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       type: input.type,
       title: input.title,
       createdAt: seam.nowISO(),
@@ -108,23 +108,23 @@ export class InMemoryGoalTaskStore implements GoalTaskStore {
     return goal;
   }
 
-  async getGoal(workspaceId: string, id: string): Promise<Goal | null> {
+  async getGoal(organizationId: string, id: string): Promise<Goal | null> {
     const goal = this.goals.get(id);
-    return goal?.workspaceId === workspaceId ? goal : null;
+    return goal?.organizationId === organizationId ? goal : null;
   }
 
-  async listGoals(workspaceId: string): Promise<Goal[]> {
-    return [...this.goals.values()].filter((g) => g.workspaceId === workspaceId);
+  async listGoals(organizationId: string): Promise<Goal[]> {
+    return [...this.goals.values()].filter((g) => g.organizationId === organizationId);
   }
 
   async createTask(input: CreateTaskInput, seam: GoalTaskIdClock): Promise<Task> {
     const goal = this.goals.get(input.goalId);
-    if (!goal || goal.workspaceId !== input.workspaceId) {
-      throw new Error(`goal-task: goal ${input.goalId} does not belong to workspace ${input.workspaceId}`);
+    if (!goal || goal.organizationId !== input.organizationId) {
+      throw new Error(`goal-task: goal ${input.goalId} does not belong to organization ${input.organizationId}`);
     }
     const task: Task = {
       id: input.id ?? seam.nextId(),
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       goalId: input.goalId,
       type: input.type,
       assignedAgentId: input.assignedAgentId,
@@ -135,26 +135,26 @@ export class InMemoryGoalTaskStore implements GoalTaskStore {
     return task;
   }
 
-  async getTask(workspaceId: string, id: string): Promise<Task | null> {
+  async getTask(organizationId: string, id: string): Promise<Task | null> {
     const task = this.tasks.get(id);
-    return task?.workspaceId === workspaceId ? task : null;
+    return task?.organizationId === organizationId ? task : null;
   }
 
-  async listTasksByGoal(workspaceId: string, goalId: string): Promise<Task[]> {
-    return [...this.tasks.values()].filter((t) => t.workspaceId === workspaceId && t.goalId === goalId);
+  async listTasksByGoal(organizationId: string, goalId: string): Promise<Task[]> {
+    return [...this.tasks.values()].filter((t) => t.organizationId === organizationId && t.goalId === goalId);
   }
 
-  async reassignTask(workspaceId: string, id: string, assignedAgentId: string): Promise<Task> {
+  async reassignTask(organizationId: string, id: string, assignedAgentId: string): Promise<Task> {
     const existing = this.tasks.get(id);
-    if (!existing || existing.workspaceId !== workspaceId) throw new Error(`goal-task: unknown task ${id}`);
+    if (!existing || existing.organizationId !== organizationId) throw new Error(`goal-task: unknown task ${id}`);
     const updated: Task = { ...existing, assignedAgentId };
     this.tasks.set(id, updated);
     return updated;
   }
 
-  async updateTaskStatus(workspaceId: string, id: string, status: TaskStatus): Promise<Task> {
+  async updateTaskStatus(organizationId: string, id: string, status: TaskStatus): Promise<Task> {
     const existing = this.tasks.get(id);
-    if (!existing || existing.workspaceId !== workspaceId) throw new Error(`goal-task: unknown task ${id}`);
+    if (!existing || existing.organizationId !== organizationId) throw new Error(`goal-task: unknown task ${id}`);
     const updated: Task = { ...existing, status };
     this.tasks.set(id, updated);
     return updated;

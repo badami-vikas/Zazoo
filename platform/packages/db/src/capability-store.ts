@@ -8,7 +8,7 @@
  * `capability_manifests.manifest`/`dependencies` are jsonb — validated at the
  * read/write boundary with a colocated Zod schema, same reasoning as
  * governance-stores.ts's `agentCapabilityScopeSchema`: @bridge/core is a
- * zero-runtime-dependency package (no zod), so the jsonb wire-shape schema
+ * zero-runtime-dependency module (no zod), so the jsonb wire-shape schema
  * lives here, the only place that touches the raw column.
  */
 import { and, eq, count } from "drizzle-orm";
@@ -57,7 +57,7 @@ export function parseEvidence(raw: unknown): CapabilityStateRow["evidence"] {
 function unpackManifest(row: typeof capabilityManifests.$inferSelect): CapabilityManifestRow {
   return {
     id: row.id,
-    workspaceId: row.workspaceId,
+    organizationId: row.organizationId,
     capabilityType: row.capabilityType as CapabilityManifestRow["capabilityType"],
     kind: row.kind as ComponentKind | null,
     name: row.name,
@@ -78,7 +78,7 @@ function unpackState(row: typeof capabilityStates.$inferSelect): CapabilityState
   return {
     id: row.id,
     manifestId: row.manifestId,
-    workspaceId: row.workspaceId,
+    organizationId: row.organizationId,
     state: row.state as CapabilityStateRow["state"],
     trustedUntil: row.trustedUntil ? row.trustedUntil.toISOString() : null,
     suspended: row.suspended,
@@ -100,7 +100,7 @@ export class DrizzleCapabilityStore implements CapabilityStore {
       .insert(capabilityManifests)
       .values({
         id: row.id,
-        workspaceId: row.workspaceId,
+        organizationId: row.organizationId,
         capabilityType: row.capabilityType,
         ...(row.kind ? { kind: row.kind } : {}),
         name: row.name,
@@ -124,16 +124,16 @@ export class DrizzleCapabilityStore implements CapabilityStore {
     return row ? unpackManifest(row) : null;
   }
 
-  /** Idempotency lookup (ADR-023): the (workspace_id, name, version) natural
+  /** Idempotency lookup (ADR-023): the (organization_id, name, version) natural
    * key `capability_manifests_uq` enforces at the DB — lets a caller check
    * before insert instead of colliding with the unique constraint. */
-  async getManifestByNameVersion(workspaceId: string, name: string, version: string): Promise<CapabilityManifestRow | null> {
+  async getManifestByNameVersion(organizationId: string, name: string, version: string): Promise<CapabilityManifestRow | null> {
     const rows = await this.#db
       .select()
       .from(capabilityManifests)
       .where(
         and(
-          eq(capabilityManifests.workspaceId, workspaceId),
+          eq(capabilityManifests.organizationId, organizationId),
           eq(capabilityManifests.name, name),
           eq(capabilityManifests.version, version),
         ),
@@ -144,10 +144,10 @@ export class DrizzleCapabilityStore implements CapabilityStore {
   }
 
   async listManifests(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number },
   ): Promise<{ items: CapabilityManifestRow[]; total: number }> {
-    const where = eq(capabilityManifests.workspaceId, workspaceId);
+    const where = eq(capabilityManifests.organizationId, organizationId);
     const [rows, totalRows] = await Promise.all([
       this.#db
         .select()
@@ -190,7 +190,7 @@ export class DrizzleCapabilityStore implements CapabilityStore {
       .insert(capabilityStates)
       .values({
         manifestId: row.manifestId,
-        workspaceId: row.workspaceId,
+        organizationId: row.organizationId,
         state: row.state,
         trustedUntil: row.trustedUntil ? new Date(row.trustedUntil) : null,
         suspended: row.suspended,

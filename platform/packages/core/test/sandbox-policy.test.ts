@@ -4,13 +4,13 @@ import assert from "node:assert/strict";
 import {
   evaluateSandboxRequirement,
   sandboxTrifectaLegs,
-  packageHasLethalTrifecta,
-  computePackageRisk,
-  parsePackageManifest,
-  PackageManifestValidationError,
+  moduleHasLethalTrifecta,
+  computeModuleRisk,
+  parseModuleManifest,
+  ModuleManifestValidationError,
   type CapabilityManifest,
   type CapabilityExecutionSpec,
-  type PackageManifest,
+  type ModuleManifest,
 } from "../src/index.js";
 
 function cap(overrides: Partial<CapabilityManifest> = {}): CapabilityManifest {
@@ -83,25 +83,25 @@ test("sandboxTrifectaLegs: network -> egress+ingest; filesystem/env -> privateRe
   assert.deepEqual(sandboxTrifectaLegs(cap({ execution: exec({ env: ["OPENAI_API_KEY"] }) })).privateRead, true);
 });
 
-test("packageHasLethalTrifecta: a single executable whose SANDBOX grants network + filesystem assembles the trifecta", () => {
+test("moduleHasLethalTrifecta: a single executable whose SANDBOX grants network + filesystem assembles the trifecta", () => {
   // network => egress + untrusted-ingest; filesystem => private read. All three
   // legs from ONE executable capability's sandbox grants — no declared
   // permission needed. This is the sandbox-cap gate doing real work.
-  const executable = cap({ id: "runner", execution: exec({ network: true, filesystem: ["/workspace/**"] }, "container") });
-  assert.equal(packageHasLethalTrifecta([executable]), true);
+  const executable = cap({ id: "runner", execution: exec({ network: true, filesystem: ["/organization/**"] }, "container") });
+  assert.equal(moduleHasLethalTrifecta([executable]), true);
 });
 
-test("packageHasLethalTrifecta: sandbox network egress completes a trifecta whose other legs come from permissions", () => {
+test("moduleHasLethalTrifecta: sandbox network egress completes a trifecta whose other legs come from permissions", () => {
   // Capability A reads private data; Capability B is an executable whose sandbox
   // has network (egress + ingest). Union across the two = full trifecta.
   const a = cap({ id: "a", permissions: [{ resourceType: "person", action: "read", dataScope: "private", egress: false }] });
   const b = cap({ id: "b", execution: exec({ network: true }, "container") });
-  assert.equal(packageHasLethalTrifecta([a, b]), true);
+  assert.equal(moduleHasLethalTrifecta([a, b]), true);
 });
 
-test("computePackageRisk: a bundled executable whose sandbox forms the trifecta escalates the package to external", () => {
-  const p: PackageManifest = {
-    name: "runner-package",
+test("computeModuleRisk: a bundled executable whose sandbox forms the trifecta escalates the module to external", () => {
+  const p: ModuleManifest = {
+    name: "runner-module",
     version: "1.0.0",
     kind: "module",
     summary: "s",
@@ -110,17 +110,17 @@ test("computePackageRisk: a bundled executable whose sandbox forms the trifecta 
     dependencies: [],
     capabilities: [cap({ id: "runner", execution: exec({ network: true, env: ["SECRET"] }, "container") })],
     contextProviders: [],
-    workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+    organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
   };
-  const result = computePackageRisk(p, () => undefined, () => undefined);
+  const result = computeModuleRisk(p, () => undefined, () => undefined);
   assert.equal(result.trifectaEscalated, true);
   assert.equal(result.effectiveRisk, "external");
 });
 
-// --- Package manifest parsing of the execution spec ---
+// --- Module manifest parsing of the execution spec ---
 
-test("parsePackageManifest: parses a well-formed capability execution spec", () => {
-  const parsed = parsePackageManifest({
+test("parseModuleManifest: parses a well-formed capability execution spec", () => {
+  const parsed = parseModuleManifest({
     name: "exec-pkg",
     version: "1.0.0",
     kind: "module",
@@ -142,16 +142,16 @@ test("parsePackageManifest: parses a well-formed capability execution spec", () 
   assert.deepEqual(spec?.sandbox.env, []);
 });
 
-test("parsePackageManifest: a malformed execution spec fails loudly (never silently declarative)", () => {
+test("parseModuleManifest: a malformed execution spec fails loudly (never silently declarative)", () => {
   assert.throws(
     () =>
-      parsePackageManifest({
+      parseModuleManifest({
         name: "bad-exec-pkg",
         version: "1.0.0",
         kind: "module",
         summary: "s",
         capabilities: [{ id: "runner", capability_type: "skill", permissions: [], execution: { executable: true, isolation: "rocket" } }],
       }),
-    PackageManifestValidationError,
+    ModuleManifestValidationError,
   );
 });

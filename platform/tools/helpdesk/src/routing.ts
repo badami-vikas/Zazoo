@@ -1,9 +1,9 @@
 /**
  * Help Request routing — the `helpdesk.capability-routing` capability
- * (package.yaml at this package's root; format = docs/raw/
- * capability-package-format.md, ADR-018). Pure logic, no store: a help
- * request is routed over the workspace graph (the caller supplies candidate
- * responders — e.g. workspace members enriched with topic tags); scoring is
+ * (module.yaml at this module's root; format = docs/raw/
+ * capability-module-format.md, ADR-018). Pure logic, no store: a help
+ * request is routed over the organization graph (the caller supplies candidate
+ * responders — e.g. organization members enriched with topic tags); scoring is
  * deterministic keyword overlap, mirroring the deterministic-fallback
  * discipline of @bridge/core's classifyIntent (offline mode must still
  * answer; a model-backed ranker is a later, separate concern).
@@ -17,7 +17,7 @@ export interface HelpRequestInput {
   body: string;
 }
 
-/** A candidate responder node from the workspace graph — id + the topics
+/** A candidate responder node from the organization graph — id + the topics
  * they can help with (skills/interests as free-text tags). */
 export interface HelpResponderCandidate {
   personId: string;
@@ -86,7 +86,7 @@ export function routeHelpRequest(request: HelpRequestInput, candidates: HelpResp
  * Draft a Help Offer — the `helpdesk.offer-drafting` capability. Produces
  * the PROPOSAL INPUTS shape the caller stages through pipeline.propose
  * (draft-then-approve; this function never sends/commits anything itself —
- * advisory band by construction, matching the package.yaml declaration).
+ * advisory band by construction, matching the module.yaml declaration).
  */
 export interface HelpOfferDraft {
   kind: "help_offer";

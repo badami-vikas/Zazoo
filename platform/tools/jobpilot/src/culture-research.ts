@@ -1,11 +1,11 @@
 // JobPilot culture-research (JP3B, docs/raw/jobpilot-module-plan-2026-07.md; BRD JP-BRD-042).
-// Pure logic + types only — no fetch, no @bridge/core dependency (this package stays framework-
+// Pure logic + types only — no fetch, no @bridge/core dependency (this module stays framework-
 // agnostic; the actual governed Skill invocation, child Agent Runs, and network fetch live in
 // apps/api's wiring per the TASK-007 handoff — see
 // outputs/2026-07-16-task007-agent-skill-child-run-orchestration.md's "TASK-011 handoff" section).
 //
 // NAMING NOTE (read the handoff's item 1 before importing this alongside @bridge/core): this
-// package ALSO exports a `Skill` type (resume-schema.ts's JSON-Resume work-skill entry) —
+// module ALSO exports a `Skill` type (resume-schema.ts's JSON-Resume work-skill entry) —
 // completely unrelated to @bridge/core's governed `Skill` interface. Nothing in this file uses or
 // exports that name.
 
@@ -61,7 +61,7 @@ export const CULTURE_SOURCE_CATALOG: Readonly<Record<CultureSourceType, CultureS
     sourceType: "google_reviews",
     eligibility: "not_yet_integrated",
     reason:
-      "Google prohibits scraping Search/Maps reviews; the only lawful path is the billed Places API (capped at 5 relevance-selected reviews). No Places API key is provisioned for this workspace yet.",
+      "Google prohibits scraping Search/Maps reviews; the only lawful path is the billed Places API (capped at 5 relevance-selected reviews). No Places API key is provisioned for this organization yet.",
   },
   glassdoor: {
     sourceType: "glassdoor",

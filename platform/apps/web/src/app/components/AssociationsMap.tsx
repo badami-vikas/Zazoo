@@ -15,7 +15,7 @@ const ASSOCIATION_SPEC: TableSpec = {
       kind: "select",
       editable: false,
       hiddenInForm: true,
-      options: ["center", "person", "community", "initiative"],
+      options: ["center", "person", "community", "record"],
     },
     { id: "degree", label: "Degree", kind: "select", editable: false, hiddenInForm: true },
     {
@@ -32,7 +32,7 @@ const ASSOCIATION_SPEC: TableSpec = {
 interface AssociationRow extends DataRow {
   id: string;
   label: string;
-  kind: "center" | "person" | "community" | "initiative";
+  kind: "center" | "person" | "community" | "record";
   degree: string;
   relationship: string | null;
   recordPath?: string;
@@ -82,14 +82,14 @@ export function AssociationsMap({
       relationship: "center",
       recordPath: `/item/${encodeURIComponent(community)}`,
     }));
-    const initiatives = result.initiatives.map((initiative): AssociationRow => ({
-      id: initiative.id,
-      label: initiative.name,
-      kind: "initiative",
+    const records = result.records.map((record): AssociationRow => ({
+      id: record.id,
+      label: record.name,
+      kind: "record",
       degree: "Overlay",
       relationship: "center",
     }));
-    return [centerRow, ...people, ...communities, ...initiatives];
+    return [centerRow, ...people, ...communities, ...records];
   }, [result]);
 
   const graphData = useMemo<GraphData>(() => {
@@ -99,7 +99,7 @@ export function AssociationsMap({
       label: row.label,
       databaseId: row.kind,
       databaseLabel: row.kind === "center" ? "Center" : `${row.kind[0]?.toUpperCase()}${row.kind.slice(1)}`,
-      moduleId: row.kind === "initiative" ? "initiatives" : "relationship",
+      moduleId: row.kind === "record" ? "records" : "relationship",
       recordType: row.kind,
       subtitle: row.degree,
       ...(row.recordPath ? { recordPath: row.recordPath } : {}),
@@ -113,7 +113,7 @@ export function AssociationsMap({
         label: row.degree,
         relationType: "association",
         evidence: "Derived from the current association projection.",
-        sourceModule: row.kind === "initiative" ? "initiatives" : "relationship",
+        sourceModule: row.kind === "record" ? "records" : "relationship",
       }]),
       databases: [...new Map(nodes.map((node) => [node.databaseId, {
         id: node.databaseId,

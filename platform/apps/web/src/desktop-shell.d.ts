@@ -20,7 +20,7 @@ interface Window {
    * `plugin:event|listen` command's `handler: CallbackFn` (a bare u32,
    * confirmed against the vendored tauri crate source). Both are
    * core-injected by every Tauri v2 webview, not part of the optional npm
-   * package. */
+   * module. */
   __TAURI_INTERNALS__?: {
     invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
     transformCallback?: (callback: (data: unknown) => void, once?: boolean) => number;

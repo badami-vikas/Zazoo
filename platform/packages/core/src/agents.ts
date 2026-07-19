@@ -110,7 +110,7 @@ export const FOUNDATIONAL_AGENTS: readonly FoundationalAgent[] = [
     mentions: ["builder", "capability-builder", "capabilitybuilder"],
     mission: "Expand Bridge by creating and evolving capabilities, after approval.",
     responsibilities: [
-      "create Agents, Automations, Skills, Integrations, Modules, dashboards, UIs, templates, and reusable packages",
+      "create Agents, Automations, Skills, Integrations, Modules, dashboards, UIs, templates, and reusable modules",
       "evolve existing capabilities",
       "draft only — every output still goes through the governed pipeline (draft, propose, approve, execute), never shipped live from this agent directly",
     ],
@@ -151,13 +151,13 @@ export function findFoundationalAgent(id: FoundationalAgentId): FoundationalAgen
  * mechanically-checkable subset lives in `checkDesignConstraintViolations`
  * below (called by the caller after generation) and, once a capability
  * reaches a real manifest, in `capability/risk.ts`'s `computeRisk` +
- * `package/risk.ts`'s `packageHasLethalTrifecta` (both pre-existing, not
+ * `module/risk.ts`'s `moduleHasLethalTrifecta` (both pre-existing, not
  * duplicated here). Prompting alone is never treated as the governance
  * mechanism — Bridge's own doctrine is "governance in code, not prompts".
  */
 export const CAPABILITY_BUILDER_DESIGN_CONSTRAINTS: readonly string[] = [
   "Kernel boundary: default every new capability to Commons content (installed on demand), never Engine core. If a draft does not need shared actor, governance, execution, surface, Memory, registry, or provider infrastructure, identify it explicitly as Commons content.",
-  "Kernel vocabulary: if this capability touches kernel-scope code (packages/*, apps/api/*), use Bridge vocabulary only — Person / Relationship / Memory / Community / Initiative / Automation / Touchpoint / Signal, never CRM vocabulary like 'Deal' in that scope. Domain-specific extension code and generated Module UI may use their own vocabulary.",
+  "Kernel vocabulary: if this capability touches kernel-scope code (modules/*, apps/api/*), use Bridge vocabulary only — Person / Relationship / Memory / Community / Record / Automation / Touchpoint / Signal, never CRM vocabulary like 'Deal' in that scope. Domain-specific extension code and generated Module UI may use their own vocabulary.",
   "No dummy data: never invent placeholder/sample/dummy data for a runtime surface — show real, connected data or an honest empty state. If a dummy is genuinely unavoidable, name it explicitly, state what real element it stands in for, and its removal condition.",
   "Manifest completeness: state declared permissions (resourceType/action/dataScope/egress), connectors, and dependencies explicitly. Anything above 'informational' risk needs a stated rollback plan and evaluation approach — don't leave risk/rollback/eval implicit in a draft.",
   "Lethal-trifecta: if this capability combines a private-data read, an untrusted/external ingest, and any egress, say so explicitly — that combination always escalates to the External risk band and always requires a human approver, regardless of any lower per-permission score.",
@@ -292,7 +292,7 @@ export function checkDesignConstraintViolations(draftText: string): string[] {
     violations.push("draft mentions placeholder/dummy/sample/fake/mock data — per CLAUDE.md's no-dummy-data rule, this needs an explicit unavoidability justification + docs/dummy.md row, or it should be removed.");
   }
 
-  const CLAIMS_KERNEL_SCOPE = /\b(packages\/|apps\/api\/|kernel scope|kernel-scope)\b/i;
+  const CLAIMS_KERNEL_SCOPE = /\b(modules\/|apps\/api\/|kernel scope|kernel-scope)\b/i;
   if (CLAIMS_KERNEL_SCOPE.test(draftText)) {
     // Mirror no-crm-vocab.js's containsBannedDeal: a standalone "deal"/"deals"
     // token, not part of "dealpilot" (the allowlisted product name).
@@ -308,7 +308,7 @@ export function checkDesignConstraintViolations(draftText: string): string[] {
     });
     const mentionsDealPilot = /dealpilot/i.test(draftText);
     if (hasBannedKernelVocab && !mentionsDealPilot) {
-      violations.push("draft claims kernel scope and uses CRM vocabulary ('Deal') — kernel scope is Person/Relationship/Memory/Community/Initiative/Automation/Touchpoint/Signal only (see the no-crm-vocab ESLint rule).");
+      violations.push("draft claims kernel scope and uses CRM vocabulary ('Deal') — kernel scope is Person/Relationship/Memory/Community/Record/Automation/Touchpoint/Signal only (see the no-crm-vocab ESLint rule).");
     }
   }
 

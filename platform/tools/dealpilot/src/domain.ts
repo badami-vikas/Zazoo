@@ -9,7 +9,7 @@ export type SourceConnectionType = "url" | "email_alert" | "api" | "account";
 
 interface RecordBase {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -59,7 +59,7 @@ export type DealPilotRecord = DealRecord | SourceRecord | ThesisRecord;
 
 export interface DealPilotRelation {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   kind: RelationKind;
   fromId: string;
   toId: string;
@@ -217,7 +217,7 @@ export function dealPilotModuleManifest(bindings: DealPilotBindings): DealPilotM
 
 export interface CreateDealInput {
   id?: string;
-  workspaceId: string;
+  organizationId: string;
   company: string;
   stage?: DealStage;
   revenue?: number;
@@ -229,7 +229,7 @@ export interface CreateDealInput {
 
 export interface CreateSourceInput {
   id?: string;
-  workspaceId: string;
+  organizationId: string;
   name: string;
   link: string;
   connectionType: SourceConnectionType;
@@ -241,7 +241,7 @@ export interface CreateSourceInput {
 }
 
 export interface CreateThesisInput {
-  workspaceId: string;
+  organizationId: string;
   name: string;
   focus: string;
   targetCagr?: number;
@@ -251,7 +251,7 @@ export interface CreateThesisInput {
 }
 
 export interface CreateRelationInput {
-  workspaceId: string;
+  organizationId: string;
   kind: RelationKind;
   fromId: string;
   toId: string;
@@ -271,16 +271,16 @@ export interface DealPilotStore {
   createDeal(input: CreateDealInput): Promise<DealRecord>;
   createSource(input: CreateSourceInput): Promise<SourceRecord>;
   createThesis(input: CreateThesisInput): Promise<ThesisRecord>;
-  get(kind: DealPilotRecordKind, workspaceId: string, id: string): Promise<DealPilotRecord | null>;
-  list(page: DealPilotPageId, workspaceId: string, opts: { limit: number; offset: number }): Promise<DealPilotPage>;
-  updateDeal(id: string, workspaceId: string, patch: Partial<DealRecord>): Promise<DealRecord>;
-  updateSource(id: string, workspaceId: string, patch: Partial<SourceRecord>): Promise<SourceRecord>;
+  get(kind: DealPilotRecordKind, organizationId: string, id: string): Promise<DealPilotRecord | null>;
+  list(page: DealPilotPageId, organizationId: string, opts: { limit: number; offset: number }): Promise<DealPilotPage>;
+  updateDeal(id: string, organizationId: string, patch: Partial<DealRecord>): Promise<DealRecord>;
+  updateSource(id: string, organizationId: string, patch: Partial<SourceRecord>): Promise<SourceRecord>;
   link(input: CreateRelationInput): Promise<DealPilotRelation>;
   linkSourceThesisWithBackfill(input: CreateRelationInput & { kind: "source_thesis" }): Promise<DealPilotRelation[]>;
-  relations(workspaceId: string, recordId: string): Promise<DealPilotRelation[]>;
+  relations(organizationId: string, recordId: string): Promise<DealPilotRelation[]>;
   detail(
     kind: DealPilotRecordKind,
-    workspaceId: string,
+    organizationId: string,
     id: string,
     bindings: DealPilotBindings,
   ): Promise<DealPilotRecordDetail | null>;
@@ -288,7 +288,7 @@ export interface DealPilotStore {
 
 export class DealPilotStoreError extends Error {
   constructor(
-    readonly code: "not_found" | "invalid_relation" | "workspace_mismatch" | "conflict",
+    readonly code: "not_found" | "invalid_relation" | "organization_mismatch" | "conflict",
     message: string,
   ) {
     super(message);
@@ -331,7 +331,7 @@ export class InMemoryDealPilotStore implements DealPilotStore {
     const now = this.#now();
     const record: DealRecord = {
       id: input.id ?? this.#id("deal"),
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       kind: "deal",
       company: input.company,
       stage: input.stage ?? "sourced",
@@ -343,7 +343,7 @@ export class InMemoryDealPilotStore implements DealPilotStore {
       createdAt: now,
       updatedAt: now,
     };
-    this.deals.set(this.#recordKey(record.workspaceId, record.id), record);
+    this.deals.set(this.#recordKey(record.organizationId, record.id), record);
     return { ...record };
   }
 
@@ -352,7 +352,7 @@ export class InMemoryDealPilotStore implements DealPilotStore {
     const attested = input.rightsState === "attested";
     const record: SourceRecord = {
       id: input.id ?? this.#id("source"),
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       kind: "source",
       name: input.name,
       link: input.link,
@@ -368,7 +368,7 @@ export class InMemoryDealPilotStore implements DealPilotStore {
       createdAt: now,
       updatedAt: now,
     };
-    this.sources.set(this.#recordKey(record.workspaceId, record.id), record);
+    this.sources.set(this.#recordKey(record.organizationId, record.id), record);
     return { ...record };
   }
 
@@ -376,7 +376,7 @@ export class InMemoryDealPilotStore implements DealPilotStore {
     const now = this.#now();
     const record: ThesisRecord = {
       id: this.#id("thesis"),
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       kind: "thesis",
       name: input.name,
       focus: input.focus,
@@ -388,23 +388,23 @@ export class InMemoryDealPilotStore implements DealPilotStore {
       createdAt: now,
       updatedAt: now,
     };
-    this.theses.set(this.#recordKey(record.workspaceId, record.id), record);
+    this.theses.set(this.#recordKey(record.organizationId, record.id), record);
     return cloneRecord(record) as ThesisRecord;
   }
 
-  async get(kind: DealPilotRecordKind, workspaceId: string, id: string): Promise<DealPilotRecord | null> {
-    const record = this.#map(kind).get(this.#recordKey(workspaceId, id));
+  async get(kind: DealPilotRecordKind, organizationId: string, id: string): Promise<DealPilotRecord | null> {
+    const record = this.#map(kind).get(this.#recordKey(organizationId, id));
     return record ? cloneRecord(record) : null;
   }
 
   async list(
     page: DealPilotPageId,
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number },
   ): Promise<DealPilotPage> {
     const kind = recordKindForPage(page);
     const rows = [...this.#map(kind).values()]
-      .filter((record) => record.workspaceId === workspaceId)
+      .filter((record) => record.organizationId === organizationId)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     const items = rows.slice(opts.offset, opts.offset + opts.limit).map(cloneRecord);
     return { items, total: rows.length, hasMore: opts.offset + items.length < rows.length };
@@ -412,10 +412,10 @@ export class InMemoryDealPilotStore implements DealPilotStore {
 
   async updateSource(
     id: string,
-    workspaceId: string,
+    organizationId: string,
     patch: Partial<SourceRecord>,
   ): Promise<SourceRecord> {
-    const key = this.#recordKey(workspaceId, id);
+    const key = this.#recordKey(organizationId, id);
     const source = this.sources.get(key);
     if (!source) {
       throw new DealPilotStoreError("not_found", `Source "${id}" was not found`);
@@ -424,7 +424,7 @@ export class InMemoryDealPilotStore implements DealPilotStore {
       ...source,
       ...patch,
       id: source.id,
-      workspaceId: source.workspaceId,
+      organizationId: source.organizationId,
       kind: "source",
       updatedAt: this.#now(),
     };
@@ -434,10 +434,10 @@ export class InMemoryDealPilotStore implements DealPilotStore {
 
   async updateDeal(
     id: string,
-    workspaceId: string,
+    organizationId: string,
     patch: Partial<DealRecord>,
   ): Promise<DealRecord> {
-    const key = this.#recordKey(workspaceId, id);
+    const key = this.#recordKey(organizationId, id);
     const deal = this.deals.get(key);
     if (!deal) {
       throw new DealPilotStoreError("not_found", `Deal "${id}" was not found`);
@@ -446,7 +446,7 @@ export class InMemoryDealPilotStore implements DealPilotStore {
       ...deal,
       ...patch,
       id: deal.id,
-      workspaceId: deal.workspaceId,
+      organizationId: deal.organizationId,
       kind: "deal",
       updatedAt: this.#now(),
     };
@@ -457,8 +457,8 @@ export class InMemoryDealPilotStore implements DealPilotStore {
   async link(input: CreateRelationInput): Promise<DealPilotRelation> {
     const [fromKind, toKind] = relationKinds(input.kind);
     const [from, to] = await Promise.all([
-      this.get(fromKind, input.workspaceId, input.fromId),
-      this.get(toKind, input.workspaceId, input.toId),
+      this.get(fromKind, input.organizationId, input.fromId),
+      this.get(toKind, input.organizationId, input.toId),
     ]);
     if (!from || !to) {
       throw new DealPilotStoreError(
@@ -466,7 +466,7 @@ export class InMemoryDealPilotStore implements DealPilotStore {
         `${input.kind} requires existing ${fromKind} and ${toKind} Records in the same Organization`,
       );
     }
-    const key = JSON.stringify([input.workspaceId, input.kind, input.fromId, input.toId]);
+    const key = JSON.stringify([input.organizationId, input.kind, input.fromId, input.toId]);
     const existing = this.relationRows.get(key);
     if (existing) {
       const next = {
@@ -479,7 +479,7 @@ export class InMemoryDealPilotStore implements DealPilotStore {
     }
     const row: DealPilotRelation = {
       id: this.#id("relation"),
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       kind: input.kind,
       fromId: input.fromId,
       toId: input.toId,
@@ -492,9 +492,9 @@ export class InMemoryDealPilotStore implements DealPilotStore {
     return { ...row, evidenceRefs: [...row.evidenceRefs] };
   }
 
-  async relations(workspaceId: string, recordId: string): Promise<DealPilotRelation[]> {
+  async relations(organizationId: string, recordId: string): Promise<DealPilotRelation[]> {
     return [...this.relationRows.values()]
-      .filter((row) => row.workspaceId === workspaceId && (row.fromId === recordId || row.toId === recordId))
+      .filter((row) => row.organizationId === organizationId && (row.fromId === recordId || row.toId === recordId))
       .map((row) => ({ ...row, evidenceRefs: [...row.evidenceRefs] }));
   }
 
@@ -503,13 +503,13 @@ export class InMemoryDealPilotStore implements DealPilotStore {
   ): Promise<DealPilotRelation[]> {
     const sourceThesis = await this.link(input);
     const rows = [sourceThesis];
-    const sourceRelations = await this.relations(input.workspaceId, input.fromId);
+    const sourceRelations = await this.relations(input.organizationId, input.fromId);
     for (const dealSource of sourceRelations.filter(
       (row) => row.kind === "deal_source" && row.toId === input.fromId,
     )) {
       rows.push(
         await this.link({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           kind: "deal_thesis",
           fromId: dealSource.fromId,
           toId: input.toId,
@@ -524,19 +524,19 @@ export class InMemoryDealPilotStore implements DealPilotStore {
 
   async detail(
     kind: DealPilotRecordKind,
-    workspaceId: string,
+    organizationId: string,
     id: string,
     bindings: DealPilotBindings,
   ): Promise<DealPilotRecordDetail | null> {
-    const record = await this.get(kind, workspaceId, id);
+    const record = await this.get(kind, organizationId, id);
     if (!record) return null;
-    const relations = await this.relations(workspaceId, id);
+    const relations = await this.relations(organizationId, id);
     const relatedRecords: DealPilotRecord[] = [];
     for (const relation of relations) {
       const otherId = relation.fromId === id ? relation.toId : relation.fromId;
       const [fromKind, toKind] = relationKinds(relation.kind);
       const otherKind = relation.fromId === id ? toKind : fromKind;
-      const related = await this.get(otherKind, workspaceId, otherId);
+      const related = await this.get(otherKind, organizationId, otherId);
       if (related) relatedRecords.push(related);
     }
     return {
@@ -553,8 +553,8 @@ export class InMemoryDealPilotStore implements DealPilotStore {
     return this.theses as Map<string, DealPilotRecord>;
   }
 
-  #recordKey(workspaceId: string, id: string): string {
-    return JSON.stringify([workspaceId, id]);
+  #recordKey(organizationId: string, id: string): string {
+    return JSON.stringify([organizationId, id]);
   }
 }
 
@@ -591,7 +591,7 @@ export function assertSourceDiscoveryAllowed(source: SourceRecord, estimatedSpen
 
 export interface ThesisSourceDiscoveryProposal {
   kind: "thesis_source_discovery";
-  workspaceId: string;
+  organizationId: string;
   thesisId: string;
   relations: Array<{
     sourceId: string;
@@ -604,15 +604,15 @@ export interface ThesisSourceDiscoveryProposal {
 
 export async function proposeThesisSourceDiscovery(
   store: DealPilotStore,
-  workspaceId: string,
+  organizationId: string,
   thesisId: string,
 ): Promise<ThesisSourceDiscoveryProposal> {
-  const thesis = await store.get("thesis", workspaceId, thesisId);
+  const thesis = await store.get("thesis", organizationId, thesisId);
   if (!thesis) throw new DealPilotStoreError("not_found", `Thesis "${thesisId}" was not found`);
   const sourceRecords: SourceRecord[] = [];
   let offset = 0;
   do {
-    const page = await store.list("sources", workspaceId, { limit: 200, offset });
+    const page = await store.list("sources", organizationId, { limit: 200, offset });
     sourceRecords.push(
       ...page.items.filter((record): record is SourceRecord => record.kind === "source"),
     );
@@ -624,7 +624,7 @@ export async function proposeThesisSourceDiscovery(
   } while (true);
   return {
     kind: "thesis_source_discovery",
-    workspaceId,
+    organizationId,
     thesisId,
     relations: sourceRecords
       .filter((source) => source.rightsState === "attested")
@@ -645,7 +645,7 @@ export async function applyThesisSourceDiscovery(
   const rows: DealPilotRelation[] = [];
   for (const relation of proposal.relations) {
     const linked = await store.linkSourceThesisWithBackfill({
-      workspaceId: proposal.workspaceId,
+      organizationId: proposal.organizationId,
       kind: "source_thesis",
       fromId: relation.sourceId,
       toId: relation.thesisId,

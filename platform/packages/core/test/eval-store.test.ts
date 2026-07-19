@@ -15,7 +15,7 @@ import {
 test("routeMatchScorer: scores expected and unexpected routes", async () => {
   const evalCase = { id: "route_case", input: "sort this request", labels: { correct_route: "learning-agent" }, origin: "seed" as const };
   assert.deepEqual(await routeMatchScorer.score(evalCase, { route: "learning-agent" }, {}), { route_p: 1, route_r: 1 });
-  assert.deepEqual(await routeMatchScorer.score(evalCase, { route: "workspace-agent" }, {}), { route_p: 0, route_r: 0 });
+  assert.deepEqual(await routeMatchScorer.score(evalCase, { route: "organization-agent" }, {}), { route_p: 0, route_r: 0 });
 });
 
 test("contractMatchScorer: validates output shape against the reference contract", async () => {
@@ -68,7 +68,7 @@ test("runEvalDataset: deterministic scorers write an aggregate EvalRun to capabi
   await evalStore.createDataset(dataset);
   await capabilityStore.upsertState({
     manifestId: "capability_learning_agent",
-    workspaceId: "workspace_quality",
+    organizationId: "organization_quality",
     state: "active",
     suspended: false,
     evidence: { activeRunCount: 12, successRate: 0.7, violationCount: 0, ageDays: 20 },
@@ -88,7 +88,7 @@ test("runEvalDataset: deterministic scorers write an aggregate EvalRun to capabi
       },
       {
         caseId: "case_miss",
-        produced: [{ route: "workspace-agent" }, { route: "workspace-agent" }],
+        produced: [{ route: "organization-agent" }, { route: "organization-agent" }],
         snapshot: { terminalState: "completed" },
       },
     ],

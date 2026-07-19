@@ -6,9 +6,9 @@ import type { BodyStore, LocalEntityRecord, LocalGraphStore, LocalPerson, Stored
 import { IntakeMaterializer, IntakeService, type IntakeDirective, type IntakeServiceDeps } from "../src/intake.js";
 import { CALENDAR_SOURCE, GMAIL_SOURCE, type CalendarEvent, type GmailThread } from "../src/contracts.js";
 
-const test_fixture_workspace = "test_fixture_workspace";
+const test_fixture_organization = "test_fixture_organization";
 const test_fixture_identities = {
-  workspaceId: test_fixture_workspace,
+  organizationId: test_fixture_organization,
   egressAgentId: "test_fixture_agent_egress",
   intakeAgentId: "test_fixture_agent_intake",
   userId: "test_fixture_user",
@@ -56,7 +56,7 @@ class test_fixture_Pipeline {
     return {
       id: proposalId,
       status: "applied",
-      request: { workspaceId: test_fixture_workspace, actor: { type: "user", id: "test_fixture_user" }, action: "read", resourceType: "external:fetch", skill: "test_fixture", inputs: {} } as Proposal["request"],
+      request: { organizationId: test_fixture_organization, actor: { type: "user", id: "test_fixture_user" }, action: "read", resourceType: "external:fetch", skill: "test_fixture", inputs: {} } as Proposal["request"],
       authority: { allowed: true, reason: "test_fixture", basis: "role", dataScope: "public" },
       policyResults: [],
     } as Proposal;
@@ -67,21 +67,21 @@ class test_fixture_Bodies implements BodyStore {
   readonly bodies = new Map<string, StoredBody>();
   readonly gets: string[] = [];
 
-  key(workspaceId: string, source: string, sourceRecordId: string): string {
-    return `${workspaceId}:${source}:${sourceRecordId}`;
+  key(organizationId: string, source: string, sourceRecordId: string): string {
+    return `${organizationId}:${source}:${sourceRecordId}`;
   }
 
   async put(body: StoredBody): Promise<void> {
-    this.bodies.set(this.key(body.workspaceId, body.source, body.sourceRecordId), body);
+    this.bodies.set(this.key(body.organizationId, body.source, body.sourceRecordId), body);
   }
 
-  async get(workspaceId: string, source: string, sourceRecordId: string): Promise<StoredBody | null> {
-    this.gets.push(this.key(workspaceId, source, sourceRecordId));
-    return this.bodies.get(this.key(workspaceId, source, sourceRecordId)) ?? null;
+  async get(organizationId: string, source: string, sourceRecordId: string): Promise<StoredBody | null> {
+    this.gets.push(this.key(organizationId, source, sourceRecordId));
+    return this.bodies.get(this.key(organizationId, source, sourceRecordId)) ?? null;
   }
 
-  async list(workspaceId: string, source: string): Promise<StoredBody[]> {
-    return [...this.bodies.values()].filter((b) => b.workspaceId === workspaceId && b.source === source);
+  async list(organizationId: string, source: string): Promise<StoredBody[]> {
+    return [...this.bodies.values()].filter((b) => b.organizationId === organizationId && b.source === source);
   }
 }
 
@@ -90,29 +90,29 @@ class test_fixture_Graph implements LocalGraphStore {
   readonly peopleByEmail = new Map<string, LocalPerson[]>();
   readonly committed: LocalEntityRecord[] = [];
 
-  key(workspaceId: string, source: string, sourceRecordId: string): string {
-    return `${workspaceId}:${source}:${sourceRecordId}`;
+  key(organizationId: string, source: string, sourceRecordId: string): string {
+    return `${organizationId}:${source}:${sourceRecordId}`;
   }
 
-  async findPeopleByEmail(_workspaceId: string, email: string): Promise<LocalPerson[]> {
+  async findPeopleByEmail(_organizationId: string, email: string): Promise<LocalPerson[]> {
     return this.peopleByEmail.get(email.toLowerCase()) ?? [];
   }
 
   async upsertPerson(_person: LocalPerson): Promise<void> {}
-  async listPeople(_workspaceId: string): Promise<LocalPerson[]> {
+  async listPeople(_organizationId: string): Promise<LocalPerson[]> {
     return [];
   }
   async commitEntity(entry: LocalEntityRecord): Promise<void> {
     this.committed.push(entry);
   }
-  async listEntities(_workspaceId: string): Promise<LocalEntityRecord[]> {
+  async listEntities(_organizationId: string): Promise<LocalEntityRecord[]> {
     return this.committed;
   }
-  async recordExternal(row: { workspaceId: string; source: string; sourceRecordId: string }): Promise<void> {
-    this.external.add(this.key(row.workspaceId, row.source, row.sourceRecordId));
+  async recordExternal(row: { organizationId: string; source: string; sourceRecordId: string }): Promise<void> {
+    this.external.add(this.key(row.organizationId, row.source, row.sourceRecordId));
   }
-  async hasExternal(workspaceId: string, source: string, sourceRecordId: string): Promise<boolean> {
-    return this.external.has(this.key(workspaceId, source, sourceRecordId));
+  async hasExternal(organizationId: string, source: string, sourceRecordId: string): Promise<boolean> {
+    return this.external.has(this.key(organizationId, source, sourceRecordId));
   }
   async getSyncCursor(): Promise<string | null> {
     return null;
@@ -130,7 +130,7 @@ function build(): { intake: IntakeService; pipeline: test_fixture_Pipeline; bodi
 
 function stored(source: string, sourceRecordId: string, content: unknown): StoredBody {
   return {
-    workspaceId: test_fixture_workspace,
+    organizationId: test_fixture_organization,
     source,
     sourceRecordId,
     dataScope: "private",
@@ -148,10 +148,10 @@ test("syncCalendar approves pending source fetch, skips materialized/missing bod
       { eventId: "test_fixture_event_ambiguous" },
     ],
   };
-  graph.external.add(graph.key(test_fixture_workspace, CALENDAR_SOURCE, "test_fixture_event_existing"));
+  graph.external.add(graph.key(test_fixture_organization, CALENDAR_SOURCE, "test_fixture_event_existing"));
   graph.peopleByEmail.set("test_fixture_alex@example.com", [
-    { id: "test_fixture_person_1", workspaceId: test_fixture_workspace, fullName: "test_fixture_ Alex One", emails: ["test_fixture_alex@example.com"] },
-    { id: "test_fixture_person_2", workspaceId: test_fixture_workspace, fullName: "test_fixture_ Alex Two", emails: ["test_fixture_alex@example.com"] },
+    { id: "test_fixture_person_1", organizationId: test_fixture_organization, fullName: "test_fixture_ Alex One", emails: ["test_fixture_alex@example.com"] },
+    { id: "test_fixture_person_2", organizationId: test_fixture_organization, fullName: "test_fixture_ Alex Two", emails: ["test_fixture_alex@example.com"] },
   ]);
   const event: CalendarEvent = {
     eventId: "test_fixture_event_ambiguous",
@@ -219,7 +219,7 @@ test("syncGmail stages linked Event and Memory directives for an existing matche
   pipeline.sourceStatus = "applied";
   pipeline.sourceOutput = { threads: [{ threadId: "test_fixture_thread_linked" }] };
   graph.peopleByEmail.set("test_fixture_founder@example.com", [
-    { id: "test_fixture_person_founder", workspaceId: test_fixture_workspace, fullName: "test_fixture_ Founder", emails: ["test_fixture_founder@example.com"] },
+    { id: "test_fixture_person_founder", organizationId: test_fixture_organization, fullName: "test_fixture_ Founder", emails: ["test_fixture_founder@example.com"] },
   ]);
   const thread: GmailThread = {
     threadId: "test_fixture_thread_linked",
@@ -293,7 +293,7 @@ test("IntakeMaterializer ignores non-intake proposals with no directive", async 
   const proposal = {
     id: "test_fixture_non_intake",
     status: "applied",
-    request: { workspaceId: test_fixture_workspace, actor: { type: "agent", id: "test_fixture_agent", plane: "local" }, action: "write", resourceType: "event", skill: "test_fixture", inputs: {} },
+    request: { organizationId: test_fixture_organization, actor: { type: "agent", id: "test_fixture_agent", plane: "local" }, action: "write", resourceType: "event", skill: "test_fixture", inputs: {} },
     authority: { allowed: true, reason: "test_fixture", basis: "role", dataScope: "all" },
     policyResults: [],
   } as Proposal;

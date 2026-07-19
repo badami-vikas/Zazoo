@@ -21,7 +21,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { createLocalDb, schema } from "../src/index.js";
+import { createLocalDb } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -66,22 +66,31 @@ test("migration 0016 (upgrade path): backfills legacy JobPilot flag values and t
   const through0016Dir = migrationsThrough(16);
   const { db, close } = await createLocalDb({ migrationsFolder: preDir });
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_migration_0016_jobpilot" }).returning({ id: schema.workspaces.id });
+    const workspaceRows = await db.execute<{ id: string }>(sql`
+      INSERT INTO workspaces (name)
+      VALUES ('test_fixture_migration_0016_jobpilot')
+      RETURNING id
+    `);
+    const ws = workspaceRows.rows[0];
     assert.ok(ws);
-    const [job] = await db
-      .insert(schema.jobpilotJobs)
-      .values({ workspaceId: ws.id, title: "test_fixture_role", company: "test_fixture_co" })
-      .returning({ id: schema.jobpilotJobs.id });
+    const jobRows = await db.execute<{ id: string }>(sql`
+      INSERT INTO jobpilot_jobs (workspace_id, title, company)
+      VALUES (${ws.id}, 'test_fixture_role', 'test_fixture_co')
+      RETURNING id
+    `);
+    const job = jobRows.rows[0];
     assert.ok(job);
     // Three legacy-flag rows + one already-modern row — all writable pre-0016
     // since the CHECK constraint does not exist yet at this schema version.
     const legacyValues = ["green", "yellow", "red", "pursue"] as const;
     const appIdByValue = new Map<string, string>();
     for (const value of legacyValues) {
-      const [app] = await db
-        .insert(schema.jobpilotApplications)
-        .values({ workspaceId: ws.id, jobId: job.id, flag: value })
-        .returning({ id: schema.jobpilotApplications.id });
+      const appRows = await db.execute<{ id: string }>(sql`
+        INSERT INTO jobpilot_applications (workspace_id, job_id, flag)
+        VALUES (${ws.id}, ${job.id}, ${value})
+        RETURNING id
+      `);
+      const app = appRows.rows[0];
       assert.ok(app);
       appIdByValue.set(value, app.id);
     }
@@ -89,8 +98,11 @@ test("migration 0016 (upgrade path): backfills legacy JobPilot flag values and t
     // Apply ONLY 0016 (0000-0015 are already applied and tracked).
     await migrate(db, { migrationsFolder: through0016Dir });
 
-    const rows = await db.select({ id: schema.jobpilotApplications.id, flag: schema.jobpilotApplications.flag }).from(schema.jobpilotApplications);
-    const byId = new Map(rows.map((r) => [r.id, r.flag]));
+    const rows = await db.execute<{ id: string; flag: string | null }>(sql`
+      SELECT id, flag
+      FROM jobpilot_applications
+    `);
+    const byId = new Map(rows.rows.map((row) => [row.id, row.flag]));
     assert.equal(byId.get(appIdByValue.get("green")!), "pursue", "green must backfill to pursue");
     assert.equal(byId.get(appIdByValue.get("yellow")!), "review", "yellow must backfill to review");
     assert.equal(byId.get(appIdByValue.get("red")!), "pass", "red must backfill to pass");
@@ -98,12 +110,17 @@ test("migration 0016 (upgrade path): backfills legacy JobPilot flag values and t
 
     // The CHECK constraint is now real — a fresh legacy write must fail.
     await assert.rejects(
-      () => db.insert(schema.jobpilotApplications).values({ workspaceId: ws.id, jobId: job.id, flag: "green" }),
+      () => db.execute(sql`
+        INSERT INTO jobpilot_applications (workspace_id, job_id, flag)
+        VALUES (${ws.id}, ${job.id}, 'green')
+      `),
       (err: unknown) => String((err as { cause?: { message?: string } })?.cause?.message ?? err).includes("jobpilot_applications_flag_valid_ck"),
     );
     // A null flag and every modern value must still be writable.
-    await db.insert(schema.jobpilotApplications).values({ workspaceId: ws.id, jobId: job.id, flag: null });
-    await db.insert(schema.jobpilotApplications).values({ workspaceId: ws.id, jobId: job.id, flag: "review" });
+    await db.execute(sql`
+      INSERT INTO jobpilot_applications (workspace_id, job_id, flag)
+      VALUES (${ws.id}, ${job.id}, NULL), (${ws.id}, ${job.id}, 'review')
+    `);
   } finally {
     await close();
     rmSync(preDir, { recursive: true, force: true });
@@ -116,7 +133,12 @@ test("migration 0016 (upgrade path): adds memories.lineage_revision as a nullabl
   const through0016Dir = migrationsThrough(16);
   const { db, close } = await createLocalDb({ migrationsFolder: preDir });
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_migration_0016_memories" }).returning({ id: schema.workspaces.id });
+    const workspaceRows = await db.execute<{ id: string }>(sql`
+      INSERT INTO workspaces (name)
+      VALUES ('test_fixture_migration_0016_memories')
+      RETURNING id
+    `);
+    const ws = workspaceRows.rows[0];
     assert.ok(ws);
     const ownerUserId = "60000000-0000-4000-8000-000000000001";
     // Raw SQL (not the typed Drizzle insert builder): the CURRENT schema.ts
@@ -133,27 +155,44 @@ test("migration 0016 (upgrade path): adds memories.lineage_revision as a nullabl
 
     await migrate(db, { migrationsFolder: through0016Dir });
 
-    const [row] = await db.select({ lineageRevision: schema.memories.lineageRevision }).from(schema.memories).where(sql`${schema.memories.id} = ${existing.id}`);
-    assert.equal(row?.lineageRevision, null, "a pre-migration row must get NULL, never a fabricated revision number");
+    const migratedRows = await db.execute<{ lineage_revision: number | null }>(sql`
+      SELECT lineage_revision
+      FROM memories
+      WHERE id = ${existing.id}
+    `);
+    const row = migratedRows.rows[0];
+    assert.equal(row?.lineage_revision, null, "a pre-migration row must get NULL, never a fabricated revision number");
 
     // A NEW row written after the migration can set a real revision (proving
     // the column is genuinely writable, not merely present).
-    const [fresh] = await db
-      .insert(schema.memories)
-      .values({
-        workspaceId: ws.id,
-        type: "semantic",
-        scope: "private",
-        content: JSON.stringify({ kind: "red_flag" }),
-        confidence: "1",
-        trustOrigin: "user_content",
-        plane: "local",
-        createdBy: ownerUserId,
-        ownerUserId,
-        lineageRevision: 1,
-      })
-      .returning({ lineageRevision: schema.memories.lineageRevision });
-    assert.equal(fresh?.lineageRevision, 1);
+    const freshRows = await db.execute<{ lineage_revision: number }>(sql`
+      INSERT INTO memories (
+        workspace_id,
+        type,
+        scope,
+        content,
+        confidence,
+        trust_origin,
+        plane,
+        created_by,
+        owner_user_id,
+        lineage_revision
+      )
+      VALUES (
+        ${ws.id},
+        'semantic',
+        'private',
+        ${JSON.stringify({ kind: "red_flag" })},
+        '1',
+        'user_content',
+        'local',
+        ${ownerUserId},
+        ${ownerUserId},
+        1
+      )
+      RETURNING lineage_revision
+    `);
+    assert.equal(freshRows.rows[0]?.lineage_revision, 1);
   } finally {
     await close();
     rmSync(preDir, { recursive: true, force: true });

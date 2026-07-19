@@ -1306,7 +1306,7 @@ Package installs now use a stable forced-review Signal intent because `package_i
 The workspace graph carries no per-person topic/skill tags, so `helpdesk.route` matches only against `topicsByPerson` passed in the request; with none supplied every request routes to an honest empty list. Real topic data on Person nodes is the fix.
 
 ## OPEN — ADR-018 spec says `package.yaml`; shipped files are `bridge.package.yaml` (2026-07-06, ADR-021)
-pnpm treats `package.yaml` as an alternative project-manifest format — a package.yaml in a workspace package dir shadows package.json and breaks install (observed: tools/helpdesk lockfile importer collapsed to `{}`). docs/raw/capability-package-format.md §1 should be amended to the new filename.
+pnpm treats `package.yaml` as an alternative project-manifest format — a package.yaml in a workspace package dir shadows package.json and breaks install (observed: tools/helpdesk lockfile importer collapsed to `{}`). docs/raw/capability-module-format.md §1 should be amended to the new filename.
 
 ## RESOLVED 2026-07-06 — onboarding "Propose this workspace" leaves an orphaned draft, never reaches Approvals
 FIX: OnboardingDialog.submit now chains workspace.blueprint.propose -> workspace.blueprint.activate (activation is itself the governed pipeline proposal, so governance is not skipped); final step reports the real outcome (activated vs pending in Approvals). Live-verified: ETA persona run now ends with the Workspace page rendering the active "Deal" blueprint. The preview-discrepancy + kanban groupBy items from this row are being handled separately (Agent H).

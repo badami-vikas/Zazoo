@@ -2065,7 +2065,7 @@ and a dedicated `capability`/`workspace_definition` `ResourceType` remain open f
 
 ## ADR-018 — Capability package format: agentskills.io disclosure + Zapier lifecycle + computed-risk install (2026-07-06, docs-only)
 
-**Decision:** Documented (design-only, no code changed) `docs/raw/capability-package-format.md`
+**Decision:** Documented (design-only, no code changed) `docs/raw/capability-module-format.md`
 — the shipping-unit format ABOVE a single `capability_manifests` row (ADR-012's trust-model
 kernel, read-only here). A package = `package.yaml` (name/version/kind/summary+description/
 lineage_manifest_id/dependencies[exact-pinned]/capabilities[]/context_providers[]/
@@ -2147,7 +2147,7 @@ launch" in `decisions.md`).
   was chosen for capability versioning generally (roadmap.md P5), and per-package exceptions
   would fragment that story.
 
-**Consequences:** No code changed — `docs/raw/capability-package-format.md` (new),
+**Consequences:** No code changed — `docs/raw/capability-module-format.md` (new),
 `docs/wiki/packages.md` (new), `docs/wiki/index.md` (one new line) are the only artifacts. Six
 open questions are recorded rather than resolved: package-owned migrations vs. shared kernel
 schema; the vocab-alignment enforcement mechanism (lint vs. Learning-Agent rewrite vs. doc-only);

@@ -54,7 +54,7 @@ export function AskModal({ scope = 'all', onClose, onCreated }: { scope?: AskSco
       .filter(o => o.group === 'helpdesk')
       .map(o => ({ id: o.id, name: o.name, public: o.public, locked: o.locked }));
     const { request } = submitRequest({
-      workspaceId: null,
+      organizationId: null,
       title, body,
       routingMode: capRouting ? 'ai_assisted' : 'broadcast',
       autoFilter: true,

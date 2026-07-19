@@ -109,7 +109,7 @@ export function requiredApproval(
 }
 
 /** Auto-activation budgets — vision.md: "Auto-activation budgets (20 info /
- * 10 advisory per day)". One workspace's budget for one calendar day (UTC),
+ * 10 advisory per day)". One organization's budget for one calendar day (UTC),
  * shaped for later `policy_params` storage as constants, not scattered magic
  * numbers (mirrors PROMOTION_DEFAULTS's shape in lifecycle.ts). */
 export const AUTO_ACTIVATION_BUDGETS = {
@@ -125,51 +125,51 @@ export function isBudgetedBand(band: RiskBand): band is BudgetedRiskBand {
 
 /** A read/increment port for today's auto-activation counts — kept minimal
  * (count-only) so both an in-memory dev implementation and a future
- * Postgres-backed one (e.g. a rolling counter keyed by workspace+band+day)
+ * Postgres-backed one (e.g. a rolling counter keyed by organization+band+day)
  * satisfy it trivially. */
 export interface AutoActivationBudgetStore {
-  /** Count of auto-activations already recorded today for this workspace+band. */
-  countToday(workspaceId: string, band: BudgetedRiskBand, todayKey: string): Promise<number>;
+  /** Count of auto-activations already recorded today for this organization+band. */
+  countToday(organizationId: string, band: BudgetedRiskBand, todayKey: string): Promise<number>;
   /** Record one more auto-activation for today. */
-  recordAutoActivation(workspaceId: string, band: BudgetedRiskBand, todayKey: string): Promise<void>;
+  recordAutoActivation(organizationId: string, band: BudgetedRiskBand, todayKey: string): Promise<void>;
 }
 
 /** In-memory implementation — dev/test default, mirrors the in-memory-port
- * style in memory/stores.ts (a Map keyed by "workspaceId:band:day"). */
+ * style in memory/stores.ts (a Map keyed by "organizationId:band:day"). */
 export class InMemoryAutoActivationBudgetStore implements AutoActivationBudgetStore {
   readonly counts = new Map<string, number>();
 
-  #key(workspaceId: string, band: BudgetedRiskBand, todayKey: string): string {
-    return `${workspaceId}:${band}:${todayKey}`;
+  #key(organizationId: string, band: BudgetedRiskBand, todayKey: string): string {
+    return `${organizationId}:${band}:${todayKey}`;
   }
 
-  async countToday(workspaceId: string, band: BudgetedRiskBand, todayKey: string): Promise<number> {
-    return this.counts.get(this.#key(workspaceId, band, todayKey)) ?? 0;
+  async countToday(organizationId: string, band: BudgetedRiskBand, todayKey: string): Promise<number> {
+    return this.counts.get(this.#key(organizationId, band, todayKey)) ?? 0;
   }
 
-  async recordAutoActivation(workspaceId: string, band: BudgetedRiskBand, todayKey: string): Promise<void> {
-    const key = this.#key(workspaceId, band, todayKey);
+  async recordAutoActivation(organizationId: string, band: BudgetedRiskBand, todayKey: string): Promise<void> {
+    const key = this.#key(organizationId, band, todayKey);
     this.counts.set(key, (this.counts.get(key) ?? 0) + 1);
   }
 }
 
-/** The kill switch — a workspace-level flag (backed by `workspace_settings` in
+/** The kill switch — a organization-level flag (backed by `organization_settings` in
  * prod, or this in-memory port in dev/tests) that forces EVERY activation to
  * explicit approval regardless of risk band, audience, or trust grants. */
 export interface KillSwitchPort {
-  isEngaged(workspaceId: string): Promise<boolean>;
+  isEngaged(organizationId: string): Promise<boolean>;
 }
 
 export class InMemoryKillSwitch implements KillSwitchPort {
   readonly engaged = new Set<string>();
-  async isEngaged(workspaceId: string): Promise<boolean> {
-    return this.engaged.has(workspaceId);
+  async isEngaged(organizationId: string): Promise<boolean> {
+    return this.engaged.has(organizationId);
   }
-  engage(workspaceId: string): void {
-    this.engaged.add(workspaceId);
+  engage(organizationId: string): void {
+    this.engaged.add(organizationId);
   }
-  disengage(workspaceId: string): void {
-    this.engaged.delete(workspaceId);
+  disengage(organizationId: string): void {
+    this.engaged.delete(organizationId);
   }
 }
 
@@ -191,7 +191,7 @@ export interface ActivationDecision {
  * budget).
  */
 export async function resolveActivationApproval(args: {
-  workspaceId: string;
+  organizationId: string;
   riskBand: RiskBand;
   audience: Audience;
   trustGrants: TrustGrantView[];
@@ -202,7 +202,7 @@ export async function resolveActivationApproval(args: {
 }): Promise<ActivationDecision> {
   const base = requiredApproval(args.riskBand, args.audience, args.trustGrants);
 
-  if (await args.killSwitch.isEngaged(args.workspaceId)) {
+  if (await args.killSwitch.isEngaged(args.organizationId)) {
     return { requirement: "explicit_human", budgeted: false, reason: "kill switch engaged" };
   }
 
@@ -216,7 +216,7 @@ export async function resolveActivationApproval(args: {
     return { requirement: "auto", budgeted: false, reason: "auto (unbudgeted band)" };
   }
 
-  const used = await args.budgets.countToday(args.workspaceId, args.riskBand, args.todayKey);
+  const used = await args.budgets.countToday(args.organizationId, args.riskBand, args.todayKey);
   const limit = AUTO_ACTIVATION_BUDGETS[args.riskBand];
   if (used >= limit) {
     return {

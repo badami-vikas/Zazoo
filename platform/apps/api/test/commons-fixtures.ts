@@ -1,14 +1,14 @@
 import { createHash, createPrivateKey, sign as cryptoSign } from "node:crypto";
 import {
   canonicalizeCommonsSignedPayload,
-  commonsPackageContent,
+  commonsModuleContent,
   computeCommonsContentHash,
   normalizeCommonsTags,
-  type CommonsPackageEntry,
+  type CommonsModuleEntry,
   type CommonsProvenance,
   type CommonsSecurityScan,
   type ManifestSignature,
-  type PackageManifest,
+  type ModuleManifest,
 } from "@bridge/core";
 
 export const TEST_COMMONS_PROVENANCE: CommonsProvenance = {
@@ -33,10 +33,10 @@ export const TEST_COMMONS_SCAN: CommonsSecurityScan = {
 const sha256 = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
 
 export function makeUnsignedCommonsEntry(
-  manifest: PackageManifest,
+  manifest: ModuleManifest,
   tags: string[] = [],
   securityScan: CommonsSecurityScan = TEST_COMMONS_SCAN,
-): Omit<CommonsPackageEntry, "signature"> {
+): Omit<CommonsModuleEntry, "signature"> {
   const content = {
     name: manifest.name,
     version: manifest.version,
@@ -55,17 +55,17 @@ export function makeUnsignedCommonsEntry(
 }
 
 export function signCommonsEntryForTest(
-  manifest: PackageManifest,
+  manifest: ModuleManifest,
   keyPair: { privateKeyPem: string; publicKeyPem: string },
   tags: string[] = [],
   securityScan: CommonsSecurityScan = TEST_COMMONS_SCAN,
-): CommonsPackageEntry {
+): CommonsModuleEntry {
   const unsigned = makeUnsignedCommonsEntry(manifest, tags, securityScan);
   const signature: ManifestSignature = {
     signature: cryptoSign(
       null,
       Buffer.from(
-        canonicalizeCommonsSignedPayload(commonsPackageContent(unsigned), unsigned.integrity, unsigned.publishedAt),
+        canonicalizeCommonsSignedPayload(commonsModuleContent(unsigned), unsigned.integrity, unsigned.publishedAt),
         "utf8",
       ),
       createPrivateKey(keyPair.privateKeyPem),

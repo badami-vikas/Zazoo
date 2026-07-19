@@ -119,6 +119,14 @@ test("Second Brain remains allowed without suppressing another brain token", () 
   assert.equal(runtimeIdentifier.brain["packages/core/src/blocked.ts"].identifier, 1);
 });
 
+test("PostgreSQL jsonb array expansion is not classified as a product Element", () => {
+  const sql = inventoryForSource(
+    "packages/db/src/probe.sql",
+    `SELECT * FROM jsonb_array_elements(payload);`,
+  );
+  assert.equal(sql.element, undefined);
+});
+
 test("Rust and SQL scanners cover identifiers and strings without counting comments", () => {
   const rust = inventoryForSource(
     "apps/desktop/src-tauri/src/probe.rs",

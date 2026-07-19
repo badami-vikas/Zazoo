@@ -64,15 +64,15 @@ export {
 } from "./integration-store.js";
 export { PgliteMediaStore, createLocalMediaStore } from "./media-store.js";
 export {
-  DrizzleWorkspaceStore,
-  UnknownWorkspaceError,
-  WorkspaceRenameCoordinatorUnavailableError,
-  WorkspaceRenameRollbackError,
-  type WorkspaceRenameCoordinator,
-  type WorkspaceRenameLease,
-  type WorkspaceRow,
+  DrizzleOrganizationStore,
+  UnknownOrganizationError,
+  OrganizationRenameCoordinatorUnavailableError,
+  OrganizationRenameRollbackError,
+  type OrganizationRenameCoordinator,
+  type OrganizationRenameLease,
+  type OrganizationRow,
   type MemberRow,
-} from "./workspace-store.js";
+} from "./organization-store.js";
 export {
   DrizzleGraphStore,
   type ArchiveRelationshipRecordInput,
@@ -136,10 +136,10 @@ export {
   parseEvidence,
 } from "./capability-store.js";
 export {
-  DrizzleWorkspaceDefinitionStore,
+  DrizzleOrganizationDefinitionStore,
   parseBlueprint,
-} from "./workspace-definition-store.js";
-export { DrizzlePackageStore, parsePackageManifestRow } from "./package-store.js";
+} from "./organization-definition-store.js";
+export { DrizzleModuleStore, parseModuleManifestRow } from "./module-store.js";
 export { DrizzleMemoryStore } from "./memory-store.js";
 export { DrizzleGoalTaskStore } from "./goal-task-store.js";
 export { DrizzleSkillManifestRegistry, seedSkillManifests } from "./skill-manifest-store.js";
@@ -159,16 +159,16 @@ import {
   DrizzleAutomationRunRecorder,
 } from "./automation-stores.js";
 import {
-  DrizzleWorkspaceStore,
-  type WorkspaceRenameCoordinator,
-} from "./workspace-store.js";
+  DrizzleOrganizationStore,
+  type OrganizationRenameCoordinator,
+} from "./organization-store.js";
 
 /** All Drizzle-backed ports, ready to hand to the core pipeline + executor. */
 export function createDrizzlePorts(
   db: Db,
   options: {
-    defaultWorkspaceId?: string;
-    workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
+    defaultOrganizationId?: string;
+    organizationRenameCoordinator?: OrganizationRenameCoordinator;
   } = {},
 ) {
   return {
@@ -180,6 +180,6 @@ export function createDrizzlePorts(
     relationMaterializations: new DrizzleRelationMaterializationStore(db),
     automationRegistry: new DrizzleAutomationRegistry(db),
     automationRunRecorder: new DrizzleAutomationRunRecorder(db),
-    workspaceStore: new DrizzleWorkspaceStore(db, options.workspaceRenameCoordinator),
+    organizationStore: new DrizzleOrganizationStore(db, options.organizationRenameCoordinator),
   };
 }

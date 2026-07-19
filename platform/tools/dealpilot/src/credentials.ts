@@ -13,7 +13,7 @@ export interface CredentialMetadata {
 }
 
 export interface SourceCredentialScope {
-  workspaceId: string;
+  organizationId: string;
   sourceId: string;
 }
 
@@ -56,7 +56,7 @@ export class InMemorySourceCredentialVault implements SourceCredentialVault {
   readonly entries = new Map<string, SourceCredential>();
 
   reserve(scope: SourceCredentialScope): string {
-    return `memory-test://dealpilot/${encodeURIComponent(scope.workspaceId)}/${encodeURIComponent(scope.sourceId)}/${globalThis.crypto.randomUUID()}`;
+    return `memory-test://dealpilot/${encodeURIComponent(scope.organizationId)}/${encodeURIComponent(scope.sourceId)}/${globalThis.crypto.randomUUID()}`;
   }
 
   async write(
@@ -110,7 +110,7 @@ export class InMemorySourceCredentialVault implements SourceCredentialVault {
       parsed.protocol !== "memory-test:" ||
       parsed.hostname !== "dealpilot" ||
       parts.length !== 3 ||
-      parts[0] !== scope.workspaceId ||
+      parts[0] !== scope.organizationId ||
       parts[1] !== scope.sourceId
     ) {
       throw new Error(
@@ -121,7 +121,7 @@ export class InMemorySourceCredentialVault implements SourceCredentialVault {
 }
 
 export interface CredentialAuditEvent {
-  workspaceId: string;
+  organizationId: string;
   sourceId: string;
   actorId: string;
   action: CredentialAccessAction;
@@ -143,7 +143,7 @@ export class InMemoryCredentialAuditSink implements CredentialAuditSink {
 interface ReauthSession {
   token: string;
   actorId: string;
-  workspaceId: string;
+  organizationId: string;
   sourceId: string;
   expiresAt: string;
 }
@@ -176,7 +176,7 @@ export class HumanReauthentication {
   issue(input: {
     actorType: "user" | "team" | "agent";
     actorId: string;
-    workspaceId: string;
+    organizationId: string;
     sourceId: string;
     reauthenticatedAt?: number;
   }): { token: string; expiresAt: string } {
@@ -197,7 +197,7 @@ export class HumanReauthentication {
       if (
         Date.parse(session.expiresAt) <= this.#now() ||
         (session.actorId === input.actorId &&
-          session.workspaceId === input.workspaceId &&
+          session.organizationId === input.organizationId &&
           session.sourceId === input.sourceId)
       ) {
         this.sessions.delete(token);
@@ -210,19 +210,19 @@ export class HumanReauthentication {
     this.sessions.set(token, {
       token,
       actorId: input.actorId,
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       sourceId: input.sourceId,
       expiresAt,
     });
     return { token, expiresAt };
   }
 
-  assert(token: string, actorId: string, workspaceId: string, sourceId: string): void {
+  assert(token: string, actorId: string, organizationId: string, sourceId: string): void {
     const session = this.sessions.get(token);
     if (
       !session ||
       session.actorId !== actorId ||
-      session.workspaceId !== workspaceId ||
+      session.organizationId !== organizationId ||
       session.sourceId !== sourceId
     ) {
       throw new CredentialAccessError("reauthentication_required", "A matching re-authentication session is required");
@@ -233,12 +233,12 @@ export class HumanReauthentication {
     }
   }
 
-  consume(token: string, actorId: string, workspaceId: string, sourceId: string): void {
+  consume(token: string, actorId: string, organizationId: string, sourceId: string): void {
     const session = this.sessions.get(token);
     if (!session) return;
     if (
       session.actorId !== actorId ||
-      session.workspaceId !== workspaceId ||
+      session.organizationId !== organizationId ||
       session.sourceId !== sourceId
     ) {
       throw new CredentialAccessError(
@@ -258,7 +258,7 @@ export class SourceCredentialService {
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
-  async project(
+  async metadata(
     scope: SourceCredentialScope,
     reference: string | undefined,
   ): Promise<CredentialMetadata> {
@@ -276,7 +276,7 @@ export class SourceCredentialService {
   reauthenticate(input: {
     actorType: "user" | "team" | "agent";
     actorId: string;
-    workspaceId: string;
+    organizationId: string;
     sourceId: string;
     reauthenticatedAt?: number;
   }): { token: string; expiresAt: string } {
@@ -285,7 +285,7 @@ export class SourceCredentialService {
 
   async access(input: {
     reference: string | undefined;
-    workspaceId: string;
+    organizationId: string;
     sourceId: string;
     actorType: "user" | "team" | "agent";
     actorId: string;
@@ -299,14 +299,14 @@ export class SourceCredentialService {
     this.reauthentication.assert(
       input.token,
       input.actorId,
-      input.workspaceId,
+      input.organizationId,
       input.sourceId,
     );
     if (!input.reference) {
       throw new CredentialAccessError("credential_unavailable", "This Source has no credential reference");
     }
     const value = await this.vault.read(
-      { workspaceId: input.workspaceId, sourceId: input.sourceId },
+      { organizationId: input.organizationId, sourceId: input.sourceId },
       input.reference,
       input.field,
     );
@@ -314,7 +314,7 @@ export class SourceCredentialService {
       throw new CredentialAccessError("credential_locked", `The ${input.field} credential is unavailable or locked`);
     }
     await this.audit.append({
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       sourceId: input.sourceId,
       actorId: input.actorId,
       action: input.action,
@@ -326,7 +326,7 @@ export class SourceCredentialService {
 
   async revokeCredential(input: {
     reference: string | undefined;
-    workspaceId: string;
+    organizationId: string;
     sourceId: string;
     actorType: "user" | "team" | "agent";
     actorId: string;
@@ -341,7 +341,7 @@ export class SourceCredentialService {
     }
     const audit = this.authorizeCredentialRevocation(input);
     await this.vault.delete(
-      { workspaceId: input.workspaceId, sourceId: input.sourceId },
+      { organizationId: input.organizationId, sourceId: input.sourceId },
       reference,
     );
     return audit;
@@ -349,7 +349,7 @@ export class SourceCredentialService {
 
   authorizeCredentialRevocation(input: {
     reference: string | undefined;
-    workspaceId: string;
+    organizationId: string;
     sourceId: string;
     actorType: "user" | "team" | "agent";
     actorId: string;
@@ -364,7 +364,7 @@ export class SourceCredentialService {
     this.reauthentication.assert(
       input.token,
       input.actorId,
-      input.workspaceId,
+      input.organizationId,
       input.sourceId,
     );
     if (!input.reference) {
@@ -376,11 +376,11 @@ export class SourceCredentialService {
     this.reauthentication.consume(
       input.token,
       input.actorId,
-      input.workspaceId,
+      input.organizationId,
       input.sourceId,
     );
     return {
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       sourceId: input.sourceId,
       actorId: input.actorId,
       action: "revoke",

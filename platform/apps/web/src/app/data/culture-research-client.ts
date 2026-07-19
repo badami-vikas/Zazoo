@@ -34,15 +34,15 @@ export interface CultureSourcePendingRecord {
 }
 
 /** The client's own pointer to an in-progress or completed culture-research
- * run for one (workspaceId, company) pair — NOT the research result itself. */
+ * run for one (organizationId, company) pair — NOT the research result itself. */
 export interface StoredCultureResearchState {
   parentRunId: string;
   pending: CultureSourcePendingRecord[];
   synthesisProposalId?: string;
 }
 
-export function cultureResearchStorageKey(workspaceId: string, company: string): string {
-  return `bridge.jobpilot.cultureResearch.${workspaceId}.${company}`;
+export function cultureResearchStorageKey(organizationId: string, company: string): string {
+  return `bridge.jobpilot.cultureResearch.${organizationId}.${company}`;
 }
 
 function isCultureSourcePendingRecord(value: unknown): value is CultureSourcePendingRecord {
@@ -83,10 +83,10 @@ function isStoredCultureResearchState(value: unknown): value is StoredCultureRes
 
 export function loadStoredCultureResearchState(
   storage: KeyValueStorage,
-  workspaceId: string,
+  organizationId: string,
   company: string,
 ): StoredCultureResearchState | null {
-  const raw = storage.getItem(cultureResearchStorageKey(workspaceId, company));
+  const raw = storage.getItem(cultureResearchStorageKey(organizationId, company));
   if (!raw) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -98,15 +98,15 @@ export function loadStoredCultureResearchState(
 
 export function saveStoredCultureResearchState(
   storage: KeyValueStorage,
-  workspaceId: string,
+  organizationId: string,
   company: string,
   state: StoredCultureResearchState,
 ): void {
-  storage.setItem(cultureResearchStorageKey(workspaceId, company), JSON.stringify(state));
+  storage.setItem(cultureResearchStorageKey(organizationId, company), JSON.stringify(state));
 }
 
-export function clearStoredCultureResearchState(storage: KeyValueStorage, workspaceId: string, company: string): void {
-  storage.removeItem(cultureResearchStorageKey(workspaceId, company));
+export function clearStoredCultureResearchState(storage: KeyValueStorage, organizationId: string, company: string): void {
+  storage.removeItem(cultureResearchStorageKey(organizationId, company));
 }
 
 /** TASK-011 remediation (2026-07-19 coordinator distributed-defects

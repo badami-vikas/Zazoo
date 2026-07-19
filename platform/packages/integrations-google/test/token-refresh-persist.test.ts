@@ -32,7 +32,7 @@ class RejectingSecretStore implements SecretStore {
 function testFixtureToken(integrationId: string): OAuthTokenRecord {
   return {
     integrationId,
-    workspaceId: "test_fixture_ws_1",
+    organizationId: "test_fixture_ws_1",
     provider: "google",
     accessToken: "test_fixture_access_token",
     refreshToken: "test_fixture_refresh_token",

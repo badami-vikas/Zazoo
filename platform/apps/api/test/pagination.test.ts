@@ -14,12 +14,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import { buildWiring, PILOT_USER, PILOT_ORGANIZATION, type Wiring } from "../src/wiring.js";
 
-// `integration.list` now rejects any workspaceId that isn't PILOT_WORKSPACE (interim
+// `integration.list` now rejects any organizationId that isn't PILOT_ORGANIZATION (interim
 // single-tenant safety fix, All fixes.md Phase 3 item 11a — see router.ts's
-// `assertPilotWorkspace`), so these fixtures must be seeded under PILOT_WORKSPACE
-// itself rather than an arbitrary test_fixture_ workspace id.
+// `assertPilotOrganization`), so these fixtures must be seeded under PILOT_ORGANIZATION
+// itself rather than an arbitrary test_fixture_ organization id.
 const FIXTURE_COUNT = 75; // > default limit (50), so an unbounded default would leak the whole set
 
 function makeRun(): RunCtx {
@@ -42,7 +42,7 @@ async function seedDealPilotCandidates(wiring: Wiring, count: number): Promise<v
   for (let i = 0; i < count; i += 1) {
     await wiring.dealpilot.store.createDeal({
       id: `test_fixture_candidate_${i}`,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: `Test Candidate ${i}`,
     });
   }
@@ -54,7 +54,7 @@ async function seedDealPilotCaptures(
   count: number,
 ): Promise<void> {
   for (let i = 0; i < count; i += 1) {
-    await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, sourceId, {
+    await wiring.dealpilot.store.quarantineCapture(PILOT_ORGANIZATION, sourceId, {
       captureId: `test_fixture_capture_${i}`,
       moduleId: "dealpilot",
       sourceConnectorId: "test_fixture_connector",
@@ -62,7 +62,7 @@ async function seedDealPilotCaptures(
       tier: "email",
       query: {
         kind: "company",
-        hints: { workspaceId: PILOT_WORKSPACE, sourceId },
+        hints: { organizationId: PILOT_ORGANIZATION, sourceId },
       },
       payload: { name: `Test Capture ${i}` },
       confidence: 0.8,
@@ -115,7 +115,7 @@ test("dealpilot.captures: defaults to a bounded, Source-scoped page", async () =
   const wiring = await buildWiring();
   try {
     const source = await wiring.dealpilot.store.createSource({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "Test Source",
       link: "https://example.invalid/source",
       connectionType: "email_alert",
@@ -126,7 +126,7 @@ test("dealpilot.captures: defaults to a bounded, Source-scoped page", async () =
     const caller = await makeCaller(wiring);
 
     const first = await caller.dealpilot.captures({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourceId: source.id,
     });
     assert.equal(first.items.length, 50);
@@ -135,7 +135,7 @@ test("dealpilot.captures: defaults to a bounded, Source-scoped page", async () =
     assert.ok(first.items.every((capture) => capture.sourceId === source.id));
 
     const last = await caller.dealpilot.captures({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourceId: source.id,
       limit: 10,
       offset: 50,
@@ -149,22 +149,22 @@ test("dealpilot.captures: defaults to a bounded, Source-scoped page", async () =
 
 test("integration.list: honors an explicit limit and returns a bounded page", async () => {
   const wiring = await buildWiring();
-  const workspaceId = PILOT_WORKSPACE;
+  const organizationId = PILOT_ORGANIZATION;
   try {
     const store = wiring.integrationStore;
-    const before = (await store.list(workspaceId)).length;
+    const before = (await store.list(organizationId)).length;
     for (let i = 0; i < FIXTURE_COUNT; i += 1) {
-      await store.connect(workspaceId, "x", []);
+      await store.connect(organizationId, "x", []);
     }
     const caller = await makeCaller(wiring);
     const expectedTotal = before + FIXTURE_COUNT;
 
-    const page = await caller.integration.list({ workspaceId, limit: 10, offset: before });
+    const page = await caller.integration.list({ organizationId, limit: 10, offset: before });
     assert.equal(page.items.length, 10);
     assert.equal(page.total, expectedTotal);
     assert.equal(page.hasMore, true);
 
-    const lastPage = await caller.integration.list({ workspaceId, limit: 10, offset: before + 70 });
+    const lastPage = await caller.integration.list({ organizationId, limit: 10, offset: before + 70 });
     assert.equal(lastPage.items.length, 5);
     assert.equal(lastPage.hasMore, false);
   } finally {
@@ -174,17 +174,17 @@ test("integration.list: honors an explicit limit and returns a bounded page", as
 
 test("integration.list: default limit is not unbounded — no-limit call does not return everything", async () => {
   const wiring = await buildWiring();
-  const workspaceId = PILOT_WORKSPACE;
+  const organizationId = PILOT_ORGANIZATION;
   try {
     const store = wiring.integrationStore;
-    const before = (await store.list(workspaceId)).length;
+    const before = (await store.list(organizationId)).length;
     for (let i = 0; i < FIXTURE_COUNT; i += 1) {
-      await store.connect(workspaceId, "x", []);
+      await store.connect(organizationId, "x", []);
     }
     const caller = await makeCaller(wiring);
     const expectedTotal = before + FIXTURE_COUNT;
 
-    const page = await caller.integration.list({ workspaceId });
+    const page = await caller.integration.list({ organizationId });
     assert.equal(page.total, expectedTotal);
     assert.ok(
       page.items.length < expectedTotal,

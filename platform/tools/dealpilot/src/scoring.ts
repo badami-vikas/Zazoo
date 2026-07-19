@@ -3,7 +3,7 @@ import type { DealProfile, ThesisFitResult, ThesisProfile } from "./types.js";
 // ThesisFit v1 — deterministic + cheap rule score (docs/raw/dealpilot-architecture-requirement.md
 // S4: "rule score from the thesis profile ... small-model one-liner generated only for
 // above-threshold deals"). This function is the rule half; the one-liner narration is a later
-// llm-package concern, deliberately not built here — don't spend LLM cost narrating deals that
+// llm-module concern, deliberately not built here — don't spend LLM cost narrating deals that
 // fail the deterministic gate. v2 (learned re-ranking) is explicitly out of scope for Phase 3.
 export function scoreThesisFit(profile: DealProfile, thesis: ThesisProfile): ThesisFitResult {
   const reasons: string[] = [];

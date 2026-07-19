@@ -115,7 +115,7 @@ export interface GmailContinuation {
 }
 
 export interface GmailFetchReceipt {
-  workspaceId: string;
+  organizationId: string;
   sourceId: string;
   batchId: string;
   ownerId: string;
@@ -139,12 +139,12 @@ export interface GmailFetchState {
 }
 
 export interface GmailFetchStateStore {
-  load(workspaceId: string, sourceId: string): Promise<GmailFetchState>;
+  load(organizationId: string, sourceId: string): Promise<GmailFetchState>;
   stage(receipt: GmailFetchReceipt, seenMessageIds: string[], continuation: GmailContinuation | null): Promise<void>;
   acknowledge(receipt: GmailFetchReceipt): Promise<void>;
   discard(receipt: GmailFetchReceipt): Promise<void>;
   fail(input: {
-    workspaceId: string;
+    organizationId: string;
     sourceId: string;
     batchId: string;
     ownerId: string;
@@ -158,15 +158,15 @@ function emptyGmailFetchState(): GmailFetchState {
   return { seenMessageIds: [], lastFetchComplete: false };
 }
 
-function gmailStateKey(workspaceId: string, sourceId: string): string {
-  return JSON.stringify([workspaceId, sourceId]);
+function gmailStateKey(organizationId: string, sourceId: string): string {
+  return JSON.stringify([organizationId, sourceId]);
 }
 
 export class InMemoryGmailFetchStateStore implements GmailFetchStateStore {
   readonly rows = new Map<string, GmailFetchState>();
 
-  async load(workspaceId: string, sourceId: string): Promise<GmailFetchState> {
-    return structuredClone(this.rows.get(gmailStateKey(workspaceId, sourceId)) ?? emptyGmailFetchState());
+  async load(organizationId: string, sourceId: string): Promise<GmailFetchState> {
+    return structuredClone(this.rows.get(gmailStateKey(organizationId, sourceId)) ?? emptyGmailFetchState());
   }
 
   async stage(
@@ -174,7 +174,7 @@ export class InMemoryGmailFetchStateStore implements GmailFetchStateStore {
     seenMessageIds: string[],
     continuation: GmailContinuation | null,
   ): Promise<void> {
-    const key = gmailStateKey(receipt.workspaceId, receipt.sourceId);
+    const key = gmailStateKey(receipt.organizationId, receipt.sourceId);
     const current = this.rows.get(key) ?? emptyGmailFetchState();
     if (current.pending) {
       throw new Error(`Gmail fetch for Source "${receipt.sourceId}" must be acknowledged or discarded before retry`);
@@ -193,7 +193,7 @@ export class InMemoryGmailFetchStateStore implements GmailFetchStateStore {
   }
 
   async acknowledge(receipt: GmailFetchReceipt): Promise<void> {
-    const key = gmailStateKey(receipt.workspaceId, receipt.sourceId);
+    const key = gmailStateKey(receipt.organizationId, receipt.sourceId);
     const current = this.rows.get(key) ?? emptyGmailFetchState();
     const pending = current.pending;
     if (
@@ -217,7 +217,7 @@ export class InMemoryGmailFetchStateStore implements GmailFetchStateStore {
   }
 
   async discard(receipt: GmailFetchReceipt): Promise<void> {
-    const key = gmailStateKey(receipt.workspaceId, receipt.sourceId);
+    const key = gmailStateKey(receipt.organizationId, receipt.sourceId);
     const current = this.rows.get(key);
     if (!current?.pending) return;
     if (
@@ -233,13 +233,13 @@ export class InMemoryGmailFetchStateStore implements GmailFetchStateStore {
   }
 
   async fail(input: {
-    workspaceId: string;
+    organizationId: string;
     sourceId: string;
     batchId: string;
     ownerId: string;
     cursorKey: string;
   }): Promise<void> {
-    const key = gmailStateKey(input.workspaceId, input.sourceId);
+    const key = gmailStateKey(input.organizationId, input.sourceId);
     const current = this.rows.get(key) ?? emptyGmailFetchState();
     const { pending, continuation, ...rest } = current;
     this.rows.set(key, {
@@ -257,11 +257,11 @@ export class InMemoryGmailFetchStateStore implements GmailFetchStateStore {
 export type AlertMessageFetcher = ((
   sourceQuery: SourceQuery,
 ) => Promise<AlertMessage[]>) & {
-  lastFetchComplete?(sourceId: string, workspaceId?: string): boolean;
-  lastCheckpointAt?(sourceId: string, workspaceId?: string): string | undefined;
-  lastReceipt?(sourceId: string, workspaceId?: string): GmailFetchReceipt | undefined;
-  acknowledge?(sourceId: string, workspaceId?: string): Promise<void>;
-  discard?(sourceId: string, workspaceId?: string): Promise<void>;
+  lastFetchComplete?(sourceId: string, organizationId?: string): boolean;
+  lastCheckpointAt?(sourceId: string, organizationId?: string): string | undefined;
+  lastReceipt?(sourceId: string, organizationId?: string): GmailFetchReceipt | undefined;
+  acknowledge?(sourceId: string, organizationId?: string): Promise<void>;
+  discard?(sourceId: string, organizationId?: string): Promise<void>;
 };
 
 const BIZBUYSELL_ALERT_SENDERS = new Set([
@@ -290,22 +290,22 @@ export function createGmailFetchMessages(
   >();
   const fetcher: AlertMessageFetcher = async (sourceQuery) => {
     const sourceId = sourceQuery.hints.sourceId ?? "default";
-    const workspaceId = sourceQuery.hints.workspaceId ?? "default";
-    const receiptKey = gmailStateKey(workspaceId, sourceId);
-    let committed = await stateStore.load(workspaceId, sourceId);
+    const organizationId = sourceQuery.hints.organizationId ?? "default";
+    const receiptKey = gmailStateKey(organizationId, sourceId);
+    let committed = await stateStore.load(organizationId, sourceId);
     if (committed.pending?.ownerId === ownerId) {
       throw new Error(`Gmail fetch for Source "${sourceId}" must be acknowledged or discarded before retry`);
     }
     if (committed.pending) {
       await stateStore.discard({
-        workspaceId,
+        organizationId,
         sourceId,
         batchId: committed.pending.batchId,
         ownerId: committed.pending.ownerId,
         complete: committed.pending.complete,
         ...(committed.pending.checkpointAt ? { checkpointAt: committed.pending.checkpointAt } : {}),
       });
-      committed = await stateStore.load(workspaceId, sourceId);
+      committed = await stateStore.load(organizationId, sourceId);
     }
     const gateway = await gateways.forIntegration(integrationId);
     const requestedMax = Number(sourceQuery.hints.maxResults);
@@ -436,7 +436,7 @@ export function createGmailFetchMessages(
         };
       }
       const receipt: GmailFetchReceipt = {
-        workspaceId,
+        organizationId,
         sourceId,
         batchId,
         ownerId,
@@ -461,27 +461,27 @@ export function createGmailFetchMessages(
           ? { checkpointAt: priorSummary.checkpointAt }
           : {}),
       });
-      await stateStore.fail({ workspaceId, sourceId, batchId, ownerId, cursorKey });
+      await stateStore.fail({ organizationId, sourceId, batchId, ownerId, cursorKey });
       throw error;
     }
   };
-  const receiptKey = (sourceId: string, workspaceId = "default") =>
-    gmailStateKey(workspaceId, sourceId);
-  fetcher.lastFetchComplete = (sourceId, workspaceId) =>
-    summariesBySource.get(receiptKey(sourceId, workspaceId))?.complete ?? false;
-  fetcher.lastCheckpointAt = (sourceId, workspaceId) =>
-    summariesBySource.get(receiptKey(sourceId, workspaceId))?.checkpointAt;
-  fetcher.lastReceipt = (sourceId, workspaceId) =>
-    receiptsBySource.get(receiptKey(sourceId, workspaceId));
-  fetcher.acknowledge = async (sourceId, workspaceId) => {
-    const key = receiptKey(sourceId, workspaceId);
+  const receiptKey = (sourceId: string, organizationId = "default") =>
+    gmailStateKey(organizationId, sourceId);
+  fetcher.lastFetchComplete = (sourceId, organizationId) =>
+    summariesBySource.get(receiptKey(sourceId, organizationId))?.complete ?? false;
+  fetcher.lastCheckpointAt = (sourceId, organizationId) =>
+    summariesBySource.get(receiptKey(sourceId, organizationId))?.checkpointAt;
+  fetcher.lastReceipt = (sourceId, organizationId) =>
+    receiptsBySource.get(receiptKey(sourceId, organizationId));
+  fetcher.acknowledge = async (sourceId, organizationId) => {
+    const key = receiptKey(sourceId, organizationId);
     const receipt = receiptsBySource.get(key);
     if (!receipt) return;
     await stateStore.acknowledge(receipt);
     receiptsBySource.delete(key);
   };
-  fetcher.discard = async (sourceId, workspaceId) => {
-    const key = receiptKey(sourceId, workspaceId);
+  fetcher.discard = async (sourceId, organizationId) => {
+    const key = receiptKey(sourceId, organizationId);
     const receipt = receiptsBySource.get(key);
     if (!receipt) return;
     await stateStore.discard(receipt);
@@ -510,7 +510,7 @@ const LOW_PARSE_RATE_MIN_ATTEMPTS = 2;
  * explicitly (BizBuySell template drift) — matching this platform's existing convention of plain
  * `console.warn`/`console.error` calls prefixed with a `"<namespace>: ..."` label (see
  * @bridge/integrations-google's gateway-google.ts / intake.ts; there is no shared logger/metrics
- * package in this monorepo to plug into instead).
+ * module in this monorepo to plug into instead).
  */
 function warnIfLowParseRate(attempted: number, parsed: number): void {
   const parseRate = attempted === 0 ? 1 : parsed / attempted;
@@ -569,12 +569,12 @@ export function createBizBuySellAlertConnector(
 ): BizBuySellAlertConnector {
   const costPerMessage = 0.5;
   const sourceId = (query: SourceQuery) => query.hints.sourceId ?? "default";
-  const workspaceId = (query: SourceQuery) => query.hints.workspaceId ?? "default";
+  const organizationId = (query: SourceQuery) => query.hints.organizationId ?? "default";
   const acknowledge = async (query: SourceQuery) => {
-    await fetchMessages.acknowledge?.(sourceId(query), workspaceId(query));
+    await fetchMessages.acknowledge?.(sourceId(query), organizationId(query));
   };
   const discard = async (query: SourceQuery) => {
-    await fetchMessages.discard?.(sourceId(query), workspaceId(query));
+    await fetchMessages.discard?.(sourceId(query), organizationId(query));
   };
   const fetchWithSummary = async (query: SourceQuery) => {
     const batchTally = { attempted: 0, parsed: 0 };
@@ -596,12 +596,12 @@ export function createBizBuySellAlertConnector(
       await discard(query);
       throw error;
     }
-    const checkpointAt = fetchMessages.lastCheckpointAt?.(sourceId(query), workspaceId(query));
-    const receipt = fetchMessages.lastReceipt?.(sourceId(query), workspaceId(query));
+    const checkpointAt = fetchMessages.lastCheckpointAt?.(sourceId(query), organizationId(query));
+    const receipt = fetchMessages.lastReceipt?.(sourceId(query), organizationId(query));
     const summary = {
       ...batchTally,
       parseRate: batchTally.attempted === 0 ? 1 : batchTally.parsed / batchTally.attempted,
-      complete: fetchMessages.lastFetchComplete?.(sourceId(query), workspaceId(query)) ?? true,
+      complete: fetchMessages.lastFetchComplete?.(sourceId(query), organizationId(query)) ?? true,
       ...(checkpointAt ? { checkpointAt } : {}),
       ...(receipt ? { receipt } : {}),
     };

@@ -5,7 +5,7 @@ import { transition, InvalidTransitionError } from "./state-machine.js";
 // a numbered active-application list -> {bestMatchIndex(1-based), confidence, stageTarget,
 // isRelevant}; >=95 auto-advance, 50-94 review, <50 orphan"). The classification call itself is
 // injected (the `classify` parameter) exactly like connectors.ts injects a fetcher — no `llm`
-// package exists yet to bind a real cheap-tier model to, so this module owns only the ROUTING
+// module exists yet to bind a real cheap-tier model to, so this module owns only the ROUTING
 // policy (confidence bucketing + the transition-validity guard), never the classification.
 // Consumes Module/Skill composition: reuses `transition` from state-machine.ts rather
 // than re-validating the stage graph here.

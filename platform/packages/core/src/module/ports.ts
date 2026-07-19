@@ -1,0 +1,141 @@
+/**
+ * ModuleStore — the port a persistent (Drizzle) implementation binds
+ * against, mirroring capability/ports.ts's `CapabilityStore` shape 1:1 (same
+ * create/get/list + upsert-state pattern). In-memory implementation here lets
+ * @bridge/core run + be tested with no database.
+ */
+import type { ModuleAttachment, ModuleInstallationRow, ModuleVersionState } from "./types.js";
+import { canonicalizeManifest } from "./signing.js";
+
+export type ModuleAttachmentTarget = Pick<ModuleAttachment, "ownerModuleName" | "agentId" | "needId">;
+
+function matchesAttachmentTarget(
+  row: ModuleInstallationRow,
+  target: ModuleAttachmentTarget | undefined,
+): boolean {
+  if (!target) return row.moduleAttachment === undefined;
+  return Boolean(
+    row.moduleAttachment &&
+      row.moduleAttachment.ownerModuleName === target.ownerModuleName &&
+      row.moduleAttachment.agentId === target.agentId &&
+      row.moduleAttachment.needId === target.needId,
+  );
+}
+
+function sameAttachment(
+  left: ModuleInstallationRow["moduleAttachment"],
+  right: ModuleInstallationRow["moduleAttachment"],
+): boolean {
+  if (!left || !right) return left === right;
+  return (
+    left.source === right.source &&
+    left.ownerModuleName === right.ownerModuleName &&
+    left.agentId === right.agentId &&
+    left.needId === right.needId &&
+    left.contentHash === right.contentHash
+  );
+}
+
+function assertSameImmutableContent(
+  existing: ModuleInstallationRow,
+  incoming: Omit<ModuleInstallationRow, "id" | "createdAt">,
+): void {
+  if (
+    canonicalizeManifest(existing.manifest) !== canonicalizeManifest(incoming.manifest) ||
+    existing.lineageManifestId !== incoming.lineageManifestId ||
+    !sameAttachment(existing.moduleAttachment, incoming.moduleAttachment)
+  ) {
+    throw new Error("module_installations: conflicting immutable content for attachment identity");
+  }
+}
+
+export interface ModuleStore {
+  create(row: Omit<ModuleInstallationRow, "id" | "createdAt">): Promise<ModuleInstallationRow>;
+  get(id: string): Promise<ModuleInstallationRow | null>;
+  list(organizationId: string, opts: { limit: number; offset: number }): Promise<{ items: ModuleInstallationRow[]; total: number }>;
+  /** All installation rows for one (organizationId, moduleName) — the population
+   * promote/rollback reason over (to find the currently-`available` row). */
+  listVersions(organizationId: string, moduleName: string): Promise<ModuleInstallationRow[]>;
+  getAvailable(
+    organizationId: string,
+    moduleName: string,
+    attachmentTarget?: ModuleAttachmentTarget,
+  ): Promise<ModuleInstallationRow | null>;
+  setComputedRisk(id: string, risk: ModuleInstallationRow["computedRisk"]): Promise<ModuleInstallationRow>;
+  setState(id: string, state: ModuleVersionState): Promise<ModuleInstallationRow>;
+  setStatus(id: string, status: ModuleInstallationRow["status"]): Promise<ModuleInstallationRow>;
+}
+
+/** In-memory `ModuleStore` — dev/test default, mirrors InMemoryCapabilityStore's shape. */
+export class InMemoryModuleStore implements ModuleStore {
+  readonly rows = new Map<string, ModuleInstallationRow>();
+  #idCounter = 0;
+
+  async create(row: Omit<ModuleInstallationRow, "id" | "createdAt">): Promise<ModuleInstallationRow> {
+    const existing = [...this.rows.values()].find(
+      (candidate) =>
+        candidate.organizationId === row.organizationId &&
+        candidate.moduleName === row.moduleName &&
+        candidate.moduleVersion === row.moduleVersion &&
+        matchesAttachmentTarget(candidate, row.moduleAttachment),
+    );
+    if (existing) {
+      assertSameImmutableContent(existing, row);
+      return existing;
+    }
+    const id = `pkginst_${++this.#idCounter}`;
+    const full: ModuleInstallationRow = { ...row, id, createdAt: new Date().toISOString() };
+    this.rows.set(id, full);
+    return full;
+  }
+
+  async get(id: string): Promise<ModuleInstallationRow | null> {
+    return this.rows.get(id) ?? null;
+  }
+
+  async list(organizationId: string, opts: { limit: number; offset: number }): Promise<{ items: ModuleInstallationRow[]; total: number }> {
+    const all = [...this.rows.values()]
+      .filter((r) => r.organizationId === organizationId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { items: all.slice(opts.offset, opts.offset + opts.limit), total: all.length };
+  }
+
+  async listVersions(organizationId: string, moduleName: string): Promise<ModuleInstallationRow[]> {
+    return [...this.rows.values()]
+      .filter((r) => r.organizationId === organizationId && r.moduleName === moduleName)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async getAvailable(
+    organizationId: string,
+    moduleName: string,
+    attachmentTarget?: ModuleAttachmentTarget,
+  ): Promise<ModuleInstallationRow | null> {
+    const versions = await this.listVersions(organizationId, moduleName);
+    return versions.find((r) => r.state === "available" && matchesAttachmentTarget(r, attachmentTarget)) ?? null;
+  }
+
+  async setState(id: string, state: ModuleVersionState): Promise<ModuleInstallationRow> {
+    const existing = this.rows.get(id);
+    if (!existing) throw new Error(`module_installations: unknown id ${id}`);
+    const updated: ModuleInstallationRow = { ...existing, state };
+    this.rows.set(id, updated);
+    return updated;
+  }
+
+  async setComputedRisk(id: string, risk: ModuleInstallationRow["computedRisk"]): Promise<ModuleInstallationRow> {
+    const existing = this.rows.get(id);
+    if (!existing) throw new Error(`module_installations: unknown id ${id}`);
+    const updated: ModuleInstallationRow = { ...existing, computedRisk: risk };
+    this.rows.set(id, updated);
+    return updated;
+  }
+
+  async setStatus(id: string, status: ModuleInstallationRow["status"]): Promise<ModuleInstallationRow> {
+    const existing = this.rows.get(id);
+    if (!existing) throw new Error(`module_installations: unknown id ${id}`);
+    const updated: ModuleInstallationRow = { ...existing, status };
+    this.rows.set(id, updated);
+    return updated;
+  }
+}

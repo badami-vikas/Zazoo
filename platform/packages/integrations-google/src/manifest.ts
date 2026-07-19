@@ -11,7 +11,7 @@ export interface IntegrationCapability {
 }
 export interface IntegrationOutputMapping {
   from: string;
-  to: "Person" | "Memory" | "Event" | "Signal" | "Initiative";
+  to: "Person" | "Memory" | "Event" | "Signal" | "Record";
   note?: string;
 }
 export interface IntegrationManifest {

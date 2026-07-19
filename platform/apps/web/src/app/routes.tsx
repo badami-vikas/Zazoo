@@ -9,7 +9,7 @@ import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { JobPilotPage } from "./pages/JobPilotPage";
 import { ResourcesPage } from "./pages/ResourcesPage";
 import { PublicHelpdesk } from "./pages/PublicHelpdesk";
-import { WorkspacePage } from "./pages/WorkspacePage";
+import { OrganizationPage } from "./pages/OrganizationPage";
 import { ChiefOfStaffPage } from "./pages/ChiefOfStaffPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { PendingWorkPage } from "./pages/PendingWorkPage";
@@ -18,7 +18,7 @@ import { TaskManagerPage } from "./pages/TaskManagerPage";
 import { HomePage } from "./pages/HomePage";
 import { WorkPage } from "./pages/WorkPage";
 import { ItemDetail } from "./pages/ItemDetail";
-import { InitiativeDetail } from "./pages/InitiativeDetail";
+import { RecordDetail } from "./pages/RecordDetail";
 import { ControlPanelPage } from "./pages/ControlPanelPage";
 import { SecondBrainPage } from "./pages/SecondBrainPage";
 // TASK-001 / VOCAB6: manifest-driven Module Detail (§4b)
@@ -52,7 +52,7 @@ export const router = createBrowserRouter([
       {
         path: "dealpilot",
         element: (
-          <InstalledModuleBoundary packageName="deal-pilot">
+          <InstalledModuleBoundary moduleName="deal-pilot">
             <DealPilotPage />
           </InstalledModuleBoundary>
         ),
@@ -60,7 +60,7 @@ export const router = createBrowserRouter([
       {
         path: "dealpilot/:page",
         element: (
-          <InstalledModuleBoundary packageName="deal-pilot">
+          <InstalledModuleBoundary moduleName="deal-pilot">
             <DealPilotPage />
           </InstalledModuleBoundary>
         ),
@@ -68,14 +68,14 @@ export const router = createBrowserRouter([
       {
         path: "dealpilot/:page/:recordId",
         element: (
-          <InstalledModuleBoundary packageName="deal-pilot">
+          <InstalledModuleBoundary moduleName="deal-pilot">
             <DealPilotPage />
           </InstalledModuleBoundary>
         ),
       },
 
       // TASK-001 / VOCAB6: manifest-driven Module Detail surface (§4b).
-      // Route param = packageName (e.g. "deal-pilot", "job-pilot"). Every
+      // Route param = moduleName (e.g. "deal-pilot", "job-pilot"). Every
       // installed Module in the left nav links here.
       { path: "module/:moduleId", Component: ModuleDetailPage },
       { path: "module/relationship/signals/:signalId/event", Component: SignalSourceEventPage },
@@ -89,10 +89,10 @@ export const router = createBrowserRouter([
       { path: "second-brain", Component: SecondBrainPage },
       { path: "item/:id", Component: ItemDetail },
       { path: "work", Component: WorkPage },
-      { path: "initiative/:id", Component: InitiativeDetail },
-      // Per-Initiative admin (ADR-029): platform admin = /settings, initiative
+      { path: "record/:id", Component: RecordDetail },
+      // Per-Record admin (ADR-029): platform admin = /settings, record
       // admin = its Control Panel. Strictly scoped to the one :id.
-      { path: "initiative/:id/control-panel", Component: ControlPanelPage },
+      { path: "record/:id/control-panel", Component: ControlPanelPage },
       { path: "agent/create", Component: AgentCreate },
       { path: "agent/:id", Component: AgentDetail },
       { path: "integration/:id", Component: IntegrationDetail },
@@ -109,7 +109,7 @@ export const router = createBrowserRouter([
       {
         path: "jobpilot",
         element: (
-          <InstalledModuleBoundary packageName="job-pilot">
+          <InstalledModuleBoundary moduleName="job-pilot">
             <JobPilotPage />
           </InstalledModuleBoundary>
         ),
@@ -117,7 +117,7 @@ export const router = createBrowserRouter([
 
       { path: "resources", Component: ResourcesPage },
 
-      { path: "workspace", Component: WorkspacePage },
+      { path: "organization", Component: OrganizationPage },
 
       { path: "chief-of-staff", Component: ChiefOfStaffPage },
 

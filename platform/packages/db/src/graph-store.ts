@@ -5,8 +5,8 @@
  *
  * `signal_actions` (act/dismiss/save) is the one exception: it's the user's
  * reaction bookkeeping to a Signal, not a mutation of Person/Relationship data,
- * so it's a direct authenticated write here (same tier as workspace membership
- * CRUD — see workspace-store.ts's header comment) rather than routed through
+ * so it's a direct authenticated write here (same tier as organization membership
+ * CRUD — see organization-store.ts's header comment) rather than routed through
  * UniversalActionPipeline.propose(). See docs/raw/decisions-log.md.
  */
 import { randomUUID } from "node:crypto";
@@ -21,9 +21,9 @@ import {
   fileRefs,
   files,
   goals,
-  initiatives,
-  initiativeCommunities,
-  initiativeParticipants,
+  records,
+  recordCommunities,
+  recordParticipants,
   jobpilotApplications,
   jobpilotJobs,
   nodeTypes,
@@ -127,7 +127,7 @@ const FULL_GRAPH_NODE_TYPES = new Set([
   "community",
   "signal",
   "event",
-  "initiative",
+  "record",
   "touchpoint",
   "file",
   "job",
@@ -146,7 +146,7 @@ function normalizeFullGraphNodeType(value: string): string | null {
     jobpilot_jobs: "job",
     jobpilot_application: "application",
     jobpilot_applications: "application",
-    initiative_touchpoint: "touchpoint",
+    record_touchpoint: "touchpoint",
   };
   const nodeType = aliases[normalized] ?? normalized;
   return FULL_GRAPH_NODE_TYPES.has(nodeType) ? nodeType : null;
@@ -162,8 +162,8 @@ function fullGraphDatabase(nodeType: string): { id: string; label: string; modul
     community: { id: "communities", label: "Communities", moduleId: "relationship" },
     signal: { id: "signals", label: "Signals", moduleId: "relationship" },
     event: { id: "events", label: "Events", moduleId: "relationship" },
-    initiative: { id: "initiatives", label: "Initiatives", moduleId: "initiative" },
-    touchpoint: { id: "touchpoints", label: "Touchpoints", moduleId: "initiative" },
+    record: { id: "records", label: "Records", moduleId: "record" },
+    touchpoint: { id: "touchpoints", label: "Touchpoints", moduleId: "record" },
     file: { id: "files", label: "Files", moduleId: "files" },
     job: { id: "jobpilot.jobs", label: "Jobs", moduleId: "job-pilot" },
     application: { id: "jobpilot.applications", label: "Applications", moduleId: "job-pilot" },
@@ -185,7 +185,7 @@ function graphMetadataLabel(metadata: unknown): string | null {
 
 export interface PersonRecord {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   isOwner: boolean;
   visibility: string;
@@ -201,7 +201,7 @@ export interface PersonRecord {
 
 export interface CommunityRecord {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   isOwner: boolean;
   visibility: string;
@@ -227,7 +227,7 @@ export interface CommunityMemberRecord extends PersonRecord {
   confidence: number | null;
 }
 
-export type RelationshipRecordVisibility = "private" | "workspace";
+export type RelationshipRecordVisibility = "private" | "organization";
 
 export interface DecisionProvenance {
   decisionLedgerId: string;
@@ -237,7 +237,7 @@ export interface DecisionProvenance {
 
 export interface CreatePersonInput extends DecisionProvenance {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   displayName: string;
   currentTitle?: string | null;
@@ -250,7 +250,7 @@ export interface CreatePersonInput extends DecisionProvenance {
 
 export interface UpdatePersonInput extends DecisionProvenance {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   displayName?: string;
   currentTitle?: string | null;
@@ -262,7 +262,7 @@ export interface UpdatePersonInput extends DecisionProvenance {
 
 export interface CreateCommunityInput extends DecisionProvenance {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   displayName: string;
   description?: string | null;
@@ -274,7 +274,7 @@ export interface CreateCommunityInput extends DecisionProvenance {
 
 export interface UpdateCommunityInput extends DecisionProvenance {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   displayName?: string;
   description?: string | null;
@@ -285,7 +285,7 @@ export interface UpdateCommunityInput extends DecisionProvenance {
 
 export interface ArchiveRelationshipRecordInput extends DecisionProvenance {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
 }
 
@@ -298,7 +298,7 @@ export interface InteractionParticipantInput {
 
 export interface CreateInteractionInput extends DecisionProvenance {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   kind: string;
   occurredAt: Date;
@@ -375,7 +375,7 @@ export interface MaterializeCommitmentInput extends DecisionProvenance {
   operation: "create" | "update" | "archive";
   commitmentId: string;
   transitionEventId: string;
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   personId: string;
   text: string;
@@ -416,7 +416,7 @@ export interface MaterializeIntroductionInput extends DecisionProvenance {
   operation: "create" | "consent" | "cancel" | "complete";
   introductionId: string;
   transitionEventId: string;
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   sourcePersonId: string;
   targetPersonId: string;
@@ -450,11 +450,11 @@ export interface SignalEvidenceAnchor {
   sourceEvent: typeof events.$inferSelect;
 }
 
-export type RelationVisibility = "private" | "workspace" | "public";
+export type RelationVisibility = "private" | "organization" | "public";
 export type RelationRecord = typeof edges.$inferSelect;
 
 export interface UpsertRelationInput {
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   srcType: string;
   srcId: string;
@@ -484,7 +484,7 @@ export interface SignalParticipantRelationInput {
 }
 
 export interface MaterializeSignalEvidenceInput {
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   signalId: string;
   sourceEventId: string;
@@ -576,12 +576,12 @@ function relationEvidenceCandidates(relation: RelationRecord): RelationEvidenceR
 
 function assertRelationInput(input: UpsertRelationInput): void {
   if (
-    !UUID_PATTERN.test(input.workspaceId) ||
+    !UUID_PATTERN.test(input.organizationId) ||
     !UUID_PATTERN.test(input.ownerUserId) ||
     !UUID_PATTERN.test(input.srcId) ||
     !UUID_PATTERN.test(input.dstId)
   ) {
-    throw new Error("Relation workspace, owner, and endpoints must be UUIDs");
+    throw new Error("Relation organization, owner, and endpoints must be UUIDs");
   }
   if (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1) {
     throw new Error("Relation confidence must be between 0 and 1");
@@ -707,39 +707,39 @@ function signalReason(
 
 export class DrizzleGraphStore {
   #db: Database;
-  #rlsContext: { workspaceId: string; userId: string } | null;
+  #rlsContext: { organizationId: string; userId: string } | null;
 
   constructor(
     db: Database,
-    rlsContext: { workspaceId: string; userId: string } | null = null,
+    rlsContext: { organizationId: string; userId: string } | null = null,
   ) {
     this.#db = db;
     this.#rlsContext = rlsContext;
   }
 
-  #hasRlsContext(workspaceId: string, userId: string): boolean {
+  #hasRlsContext(organizationId: string, userId: string): boolean {
     return (
-      this.#rlsContext?.workspaceId === workspaceId.toLowerCase() &&
+      this.#rlsContext?.organizationId === organizationId.toLowerCase() &&
       this.#rlsContext.userId === userId.toLowerCase()
     );
   }
 
   async #withRlsContext<T>(
-    workspaceId: string,
+    organizationId: string,
     userId: string,
     operation: (store: DrizzleGraphStore) => Promise<T>,
   ): Promise<T> {
     const context = {
-      workspaceId: workspaceId.toLowerCase(),
+      organizationId: organizationId.toLowerCase(),
       userId: userId.toLowerCase(),
     };
-    if (!UUID_PATTERN.test(context.workspaceId) || !UUID_PATTERN.test(context.userId)) {
-      throw new Error("Graph request workspace and user must be UUIDs");
+    if (!UUID_PATTERN.test(context.organizationId) || !UUID_PATTERN.test(context.userId)) {
+      throw new Error("Graph request organization and user must be UUIDs");
     }
     return this.#db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
-          set_config('app.workspace_id', ${context.workspaceId}, true),
+          set_config('app.organization_id', ${context.organizationId}, true),
           set_config('app.user_id', ${context.userId}, true)
       `);
       return operation(new DrizzleGraphStore(tx, context));
@@ -785,53 +785,53 @@ export class DrizzleGraphStore {
   }
 
   async #getAccessibleSignal(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     signalId: string,
   ): Promise<typeof signals.$inferSelect | null> {
     const rows = await this.#db
       .select()
       .from(signals)
-      .where(and(eq(signals.workspaceId, workspaceId), eq(signals.id, signalId)))
+      .where(and(eq(signals.organizationId, organizationId), eq(signals.id, signalId)))
       .limit(1);
     const signal = rows[0];
     if (!signal) return null;
     const subject =
       signal.subjectType === "person"
-        ? await this.getPerson(workspaceId, viewerUserId, signal.subjectId)
+        ? await this.getPerson(organizationId, viewerUserId, signal.subjectId)
         : signal.subjectType === "community"
-          ? await this.getCommunity(workspaceId, viewerUserId, signal.subjectId)
+          ? await this.getCommunity(organizationId, viewerUserId, signal.subjectId)
           : null;
     return subject ? signal : null;
   }
 
   async getSignalEvidenceAnchor(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     signalId: string,
     sourceEventId?: string,
   ): Promise<SignalEvidenceAnchor | null> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.getSignalEvidenceAnchor(workspaceId, viewerUserId, signalId, sourceEventId),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.getSignalEvidenceAnchor(organizationId, viewerUserId, signalId, sourceEventId),
       );
     }
-    const signal = await this.#getAccessibleSignal(workspaceId, viewerUserId, signalId);
+    const signal = await this.#getAccessibleSignal(organizationId, viewerUserId, signalId);
     if (!signal) return null;
     if (sourceEventId) {
-      const sourceEvent = await this.getEvent(workspaceId, sourceEventId);
+      const sourceEvent = await this.getEvent(organizationId, sourceEventId);
       return sourceEvent?.entityType === "signal" && sourceEvent.entityId === signal.id
         ? { signal, sourceEvent }
         : null;
     }
     const approvedSourceEvent = await this.#getApprovedSourceEvent(
-      workspaceId,
+      organizationId,
       viewerUserId,
       signal.id,
     );
     if (approvedSourceEvent) return { signal, sourceEvent: approvedSourceEvent };
     const payloadEventId = sourceEventIdFromPayload(signal.payload);
-    const payloadEvent = payloadEventId ? await this.getEvent(workspaceId, payloadEventId) : null;
+    const payloadEvent = payloadEventId ? await this.getEvent(organizationId, payloadEventId) : null;
     if (payloadEvent?.entityType === "signal" && payloadEvent.entityId === signal.id) {
       return { signal, sourceEvent: payloadEvent };
     }
@@ -840,7 +840,7 @@ export class DrizzleGraphStore {
       .from(events)
       .where(
         and(
-          eq(events.workspaceId, workspaceId),
+          eq(events.organizationId, organizationId),
           eq(events.entityType, "signal"),
           eq(events.entityId, signal.id),
         ),
@@ -852,7 +852,7 @@ export class DrizzleGraphStore {
   }
 
   async #getApprovedSourceEvent(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     signalId: string,
   ): Promise<typeof events.$inferSelect | null> {
@@ -861,12 +861,12 @@ export class DrizzleGraphStore {
       .from(edges)
       .where(
         and(
-          eq(edges.workspaceId, workspaceId),
+          eq(edges.organizationId, organizationId),
           eq(edges.edgeType, "source_event"),
           isNotNull(edges.decisionSequence),
           or(
             eq(edges.ownerUserId, viewerUserId),
-            inArray(edges.visibility, ["workspace", "public"]),
+            inArray(edges.visibility, ["organization", "public"]),
           ),
           or(
             and(
@@ -876,7 +876,7 @@ export class DrizzleGraphStore {
               sql<boolean>`EXISTS (
                 SELECT 1
                 FROM "events" AS "approved_source_event"
-                WHERE "approved_source_event"."workspace_id" = ${workspaceId}
+                WHERE "approved_source_event"."organization_id" = ${organizationId}
                   AND "approved_source_event"."id" = ${edges.dstId}
                   AND "approved_source_event"."entity_type" = 'signal'
                   AND "approved_source_event"."entity_id" = ${signalId}
@@ -889,7 +889,7 @@ export class DrizzleGraphStore {
               sql<boolean>`EXISTS (
                 SELECT 1
                 FROM "events" AS "approved_source_event"
-                WHERE "approved_source_event"."workspace_id" = ${workspaceId}
+                WHERE "approved_source_event"."organization_id" = ${organizationId}
                   AND "approved_source_event"."id" = ${edges.srcId}
                   AND "approved_source_event"."entity_type" = 'signal'
                   AND "approved_source_event"."entity_id" = ${signalId}
@@ -903,33 +903,33 @@ export class DrizzleGraphStore {
     const relation = rows[0];
     if (!relation) return null;
     const eventId = relation.srcType === "event" ? relation.srcId : relation.dstId;
-    const sourceEvent = await this.getEvent(workspaceId, eventId);
+    const sourceEvent = await this.getEvent(organizationId, eventId);
     return sourceEvent?.entityType === "signal" && sourceEvent.entityId === signalId
       ? sourceEvent
       : null;
   }
 
   async #canReadNode(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     nodeType: string,
     nodeId: string,
   ): Promise<boolean> {
-    if (nodeType === "person") return (await this.getPerson(workspaceId, viewerUserId, nodeId)) !== null;
-    if (nodeType === "community") return (await this.getCommunity(workspaceId, viewerUserId, nodeId)) !== null;
-    if (nodeType === "signal") return (await this.#getAccessibleSignal(workspaceId, viewerUserId, nodeId)) !== null;
+    if (nodeType === "person") return (await this.getPerson(organizationId, viewerUserId, nodeId)) !== null;
+    if (nodeType === "community") return (await this.getCommunity(organizationId, viewerUserId, nodeId)) !== null;
+    if (nodeType === "signal") return (await this.#getAccessibleSignal(organizationId, viewerUserId, nodeId)) !== null;
     if (nodeType === "event") {
-      const event = await this.getEvent(workspaceId, nodeId);
+      const event = await this.getEvent(organizationId, nodeId);
       if (!event) return false;
       if (event.entityType === "interaction") {
         const payload = payloadRecord(event.payload);
         return (
           payloadString(payload, "ownerUserId") === viewerUserId ||
-          payloadString(payload, "visibility") === "workspace"
+          payloadString(payload, "visibility") === "organization"
         );
       }
       if (event.entityType !== "signal") return false;
-      return (await this.#getAccessibleSignal(workspaceId, viewerUserId, event.entityId)) !== null;
+      return (await this.#getAccessibleSignal(organizationId, viewerUserId, event.entityId)) !== null;
     }
     return false;
   }
@@ -937,18 +937,18 @@ export class DrizzleGraphStore {
   #accessibleNodeCondition(
     nodeType: typeof edges.srcType | typeof edges.dstType,
     nodeId: typeof edges.srcId | typeof edges.dstId,
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
   ) {
     return sql<boolean>`(
       (${nodeType} = 'person' AND EXISTS (
         SELECT 1
         FROM "people" AS "relation_person"
-        WHERE "relation_person"."workspace_id" = ${workspaceId}
+        WHERE "relation_person"."organization_id" = ${organizationId}
           AND "relation_person"."id" = ${nodeId}
           AND "relation_person"."archived_at" IS NULL
           AND (
-            "relation_person"."visibility" = 'workspace'
+            "relation_person"."visibility" = 'organization'
             OR (
               "relation_person"."visibility" IN ('private', 'team')
               AND "relation_person"."user_id" = ${viewerUserId}
@@ -958,11 +958,11 @@ export class DrizzleGraphStore {
       OR (${nodeType} = 'community' AND EXISTS (
         SELECT 1
         FROM "communities" AS "relation_community"
-        WHERE "relation_community"."workspace_id" = ${workspaceId}
+        WHERE "relation_community"."organization_id" = ${organizationId}
           AND "relation_community"."id" = ${nodeId}
           AND "relation_community"."archived_at" IS NULL
           AND (
-            "relation_community"."visibility" = 'workspace'
+            "relation_community"."visibility" = 'organization'
             OR (
               "relation_community"."visibility" IN ('private', 'team')
               AND "relation_community"."user_id" = ${viewerUserId}
@@ -972,17 +972,17 @@ export class DrizzleGraphStore {
       OR (${nodeType} = 'signal' AND EXISTS (
         SELECT 1
         FROM "signals" AS "relation_signal"
-        WHERE "relation_signal"."workspace_id" = ${workspaceId}
+        WHERE "relation_signal"."organization_id" = ${organizationId}
           AND "relation_signal"."id" = ${nodeId}
           AND (
             ("relation_signal"."subject_type" = 'person' AND EXISTS (
               SELECT 1
               FROM "people" AS "relation_signal_person"
-              WHERE "relation_signal_person"."workspace_id" = ${workspaceId}
+              WHERE "relation_signal_person"."organization_id" = ${organizationId}
                 AND "relation_signal_person"."id" = "relation_signal"."subject_id"
                 AND "relation_signal_person"."archived_at" IS NULL
                 AND (
-                  "relation_signal_person"."visibility" = 'workspace'
+                  "relation_signal_person"."visibility" = 'organization'
                   OR (
                     "relation_signal_person"."visibility" IN ('private', 'team')
                     AND "relation_signal_person"."user_id" = ${viewerUserId}
@@ -992,11 +992,11 @@ export class DrizzleGraphStore {
             OR ("relation_signal"."subject_type" = 'community' AND EXISTS (
               SELECT 1
               FROM "communities" AS "relation_signal_community"
-              WHERE "relation_signal_community"."workspace_id" = ${workspaceId}
+              WHERE "relation_signal_community"."organization_id" = ${organizationId}
                 AND "relation_signal_community"."id" = "relation_signal"."subject_id"
                 AND "relation_signal_community"."archived_at" IS NULL
                 AND (
-                  "relation_signal_community"."visibility" = 'workspace'
+                  "relation_signal_community"."visibility" = 'organization'
                   OR (
                     "relation_signal_community"."visibility" IN ('private', 'team')
                     AND "relation_signal_community"."user_id" = ${viewerUserId}
@@ -1009,16 +1009,16 @@ export class DrizzleGraphStore {
         SELECT 1
         FROM "events" AS "relation_event"
         LEFT JOIN "signals" AS "relation_event_signal"
-          ON "relation_event_signal"."workspace_id" = "relation_event"."workspace_id"
+          ON "relation_event_signal"."organization_id" = "relation_event"."organization_id"
          AND "relation_event_signal"."id" = "relation_event"."entity_id"
-        WHERE "relation_event"."workspace_id" = ${workspaceId}
+        WHERE "relation_event"."organization_id" = ${organizationId}
           AND "relation_event"."id" = ${nodeId}
           AND (
             (
               "relation_event"."entity_type" = 'interaction'
               AND (
                 "relation_event"."payload" ->> 'ownerUserId' = ${viewerUserId}
-                OR "relation_event"."payload" ->> 'visibility' = 'workspace'
+                OR "relation_event"."payload" ->> 'visibility' = 'organization'
               )
             )
             OR (
@@ -1027,11 +1027,11 @@ export class DrizzleGraphStore {
                 ("relation_event_signal"."subject_type" = 'person' AND EXISTS (
                   SELECT 1
                   FROM "people" AS "relation_event_person"
-                  WHERE "relation_event_person"."workspace_id" = ${workspaceId}
+                  WHERE "relation_event_person"."organization_id" = ${organizationId}
                     AND "relation_event_person"."id" = "relation_event_signal"."subject_id"
                     AND "relation_event_person"."archived_at" IS NULL
                     AND (
-                      "relation_event_person"."visibility" = 'workspace'
+                      "relation_event_person"."visibility" = 'organization'
                       OR (
                         "relation_event_person"."visibility" IN ('private', 'team')
                         AND "relation_event_person"."user_id" = ${viewerUserId}
@@ -1041,11 +1041,11 @@ export class DrizzleGraphStore {
                 OR ("relation_event_signal"."subject_type" = 'community' AND EXISTS (
                   SELECT 1
                   FROM "communities" AS "relation_event_community"
-                  WHERE "relation_event_community"."workspace_id" = ${workspaceId}
+                  WHERE "relation_event_community"."organization_id" = ${organizationId}
                     AND "relation_event_community"."id" = "relation_event_signal"."subject_id"
                     AND "relation_event_community"."archived_at" IS NULL
                     AND (
-                      "relation_event_community"."visibility" = 'workspace'
+                      "relation_event_community"."visibility" = 'organization'
                       OR (
                         "relation_event_community"."visibility" IN ('private', 'team')
                         AND "relation_event_community"."user_id" = ${viewerUserId}
@@ -1059,16 +1059,16 @@ export class DrizzleGraphStore {
     )`;
   }
 
-  #readableSignalSubjectCondition(workspaceId: string, viewerUserId: string) {
+  #readableSignalSubjectCondition(organizationId: string, viewerUserId: string) {
     return sql<boolean>`(
       (${signals.subjectType} = 'person' AND EXISTS (
         SELECT 1
         FROM "people" AS "signal_list_person"
-        WHERE "signal_list_person"."workspace_id" = ${workspaceId}
+        WHERE "signal_list_person"."organization_id" = ${organizationId}
           AND "signal_list_person"."id" = ${signals.subjectId}
           AND "signal_list_person"."archived_at" IS NULL
           AND (
-            "signal_list_person"."visibility" = 'workspace'
+            "signal_list_person"."visibility" = 'organization'
             OR (
               "signal_list_person"."visibility" IN ('private', 'team')
               AND "signal_list_person"."user_id" = ${viewerUserId}
@@ -1078,11 +1078,11 @@ export class DrizzleGraphStore {
       OR (${signals.subjectType} = 'community' AND EXISTS (
         SELECT 1
         FROM "communities" AS "signal_list_community"
-        WHERE "signal_list_community"."workspace_id" = ${workspaceId}
+        WHERE "signal_list_community"."organization_id" = ${organizationId}
           AND "signal_list_community"."id" = ${signals.subjectId}
           AND "signal_list_community"."archived_at" IS NULL
           AND (
-            "signal_list_community"."visibility" = 'workspace'
+            "signal_list_community"."visibility" = 'organization'
             OR (
               "signal_list_community"."visibility" IN ('private', 'team')
               AND "signal_list_community"."user_id" = ${viewerUserId}
@@ -1092,11 +1092,11 @@ export class DrizzleGraphStore {
     )`;
   }
 
-  #signalHasReadableDetailCondition(workspaceId: string, viewerUserId: string) {
+  #signalHasReadableDetailCondition(organizationId: string, viewerUserId: string) {
     return sql<boolean>`EXISTS (
       SELECT 1
       FROM "events" AS "signal_list_event"
-      WHERE "signal_list_event"."workspace_id" = ${workspaceId}
+      WHERE "signal_list_event"."organization_id" = ${organizationId}
         AND "signal_list_event"."entity_type" = 'signal'
         AND "signal_list_event"."entity_id" = ${signals.id}
         AND "signal_list_event"."id" = COALESCE(
@@ -1107,12 +1107,12 @@ export class DrizzleGraphStore {
               ELSE "signal_list_source_relation"."dst_id"
             END
             FROM "edges" AS "signal_list_source_relation"
-            WHERE "signal_list_source_relation"."workspace_id" = ${workspaceId}
+            WHERE "signal_list_source_relation"."organization_id" = ${organizationId}
               AND "signal_list_source_relation"."edge_type" = 'source_event'
               AND "signal_list_source_relation"."decision_sequence" IS NOT NULL
               AND (
                 "signal_list_source_relation"."owner_user_id" = ${viewerUserId}
-                OR "signal_list_source_relation"."visibility" IN ('workspace', 'public')
+                OR "signal_list_source_relation"."visibility" IN ('organization', 'public')
               )
               AND (
                 (
@@ -1122,7 +1122,7 @@ export class DrizzleGraphStore {
                   AND EXISTS (
                     SELECT 1
                     FROM "events" AS "signal_list_approved_event"
-                    WHERE "signal_list_approved_event"."workspace_id" = ${workspaceId}
+                    WHERE "signal_list_approved_event"."organization_id" = ${organizationId}
                       AND "signal_list_approved_event"."id" = "signal_list_source_relation"."dst_id"
                       AND "signal_list_approved_event"."entity_type" = 'signal'
                       AND "signal_list_approved_event"."entity_id" = ${signals.id}
@@ -1135,7 +1135,7 @@ export class DrizzleGraphStore {
                   AND EXISTS (
                     SELECT 1
                     FROM "events" AS "signal_list_approved_event"
-                    WHERE "signal_list_approved_event"."workspace_id" = ${workspaceId}
+                    WHERE "signal_list_approved_event"."organization_id" = ${organizationId}
                       AND "signal_list_approved_event"."id" = "signal_list_source_relation"."src_id"
                       AND "signal_list_approved_event"."entity_type" = 'signal'
                       AND "signal_list_approved_event"."entity_id" = ${signals.id}
@@ -1157,7 +1157,7 @@ export class DrizzleGraphStore {
           (
             SELECT "signal_list_payload_event"."id"
             FROM "events" AS "signal_list_payload_event"
-            WHERE "signal_list_payload_event"."workspace_id" = ${workspaceId}
+            WHERE "signal_list_payload_event"."organization_id" = ${organizationId}
               AND "signal_list_payload_event"."entity_type" = 'signal'
               AND "signal_list_payload_event"."entity_id" = ${signals.id}
               AND lower("signal_list_payload_event"."id"::text) = lower(
@@ -1171,7 +1171,7 @@ export class DrizzleGraphStore {
           (
             SELECT "signal_list_latest_event"."id"
             FROM "events" AS "signal_list_latest_event"
-            WHERE "signal_list_latest_event"."workspace_id" = ${workspaceId}
+            WHERE "signal_list_latest_event"."organization_id" = ${organizationId}
               AND "signal_list_latest_event"."entity_type" = 'signal'
               AND "signal_list_latest_event"."entity_id" = ${signals.id}
             ORDER BY "signal_list_latest_event"."created_at" DESC
@@ -1181,11 +1181,11 @@ export class DrizzleGraphStore {
         AND EXISTS (
           SELECT 1
           FROM "edges" AS "signal_list_participant"
-          WHERE "signal_list_participant"."workspace_id" = ${workspaceId}
+          WHERE "signal_list_participant"."organization_id" = ${organizationId}
             AND "signal_list_participant"."edge_type" = 'participant'
             AND (
               "signal_list_participant"."owner_user_id" = ${viewerUserId}
-              OR "signal_list_participant"."visibility" IN ('workspace', 'public')
+              OR "signal_list_participant"."visibility" IN ('organization', 'public')
             )
             AND (
               (
@@ -1205,11 +1205,11 @@ export class DrizzleGraphStore {
                     AND EXISTS (
                       SELECT 1
                       FROM "people" AS "signal_list_participant_person"
-                      WHERE "signal_list_participant_person"."workspace_id" = ${workspaceId}
+                      WHERE "signal_list_participant_person"."organization_id" = ${organizationId}
                         AND "signal_list_participant_person"."id" = "signal_list_participant"."dst_id"
                         AND "signal_list_participant_person"."archived_at" IS NULL
                         AND (
-                          "signal_list_participant_person"."visibility" = 'workspace'
+                          "signal_list_participant_person"."visibility" = 'organization'
                           OR (
                             "signal_list_participant_person"."visibility" IN ('private', 'team')
                             AND "signal_list_participant_person"."user_id" = ${viewerUserId}
@@ -1222,11 +1222,11 @@ export class DrizzleGraphStore {
                     AND EXISTS (
                       SELECT 1
                       FROM "communities" AS "signal_list_participant_community"
-                      WHERE "signal_list_participant_community"."workspace_id" = ${workspaceId}
+                      WHERE "signal_list_participant_community"."organization_id" = ${organizationId}
                         AND "signal_list_participant_community"."id" = "signal_list_participant"."dst_id"
                         AND "signal_list_participant_community"."archived_at" IS NULL
                         AND (
-                          "signal_list_participant_community"."visibility" = 'workspace'
+                          "signal_list_participant_community"."visibility" = 'organization'
                           OR (
                             "signal_list_participant_community"."visibility" IN ('private', 'team')
                             AND "signal_list_participant_community"."user_id" = ${viewerUserId}
@@ -1253,11 +1253,11 @@ export class DrizzleGraphStore {
                     AND EXISTS (
                       SELECT 1
                       FROM "people" AS "signal_list_participant_person"
-                      WHERE "signal_list_participant_person"."workspace_id" = ${workspaceId}
+                      WHERE "signal_list_participant_person"."organization_id" = ${organizationId}
                         AND "signal_list_participant_person"."id" = "signal_list_participant"."src_id"
                         AND "signal_list_participant_person"."archived_at" IS NULL
                         AND (
-                          "signal_list_participant_person"."visibility" = 'workspace'
+                          "signal_list_participant_person"."visibility" = 'organization'
                           OR (
                             "signal_list_participant_person"."visibility" IN ('private', 'team')
                             AND "signal_list_participant_person"."user_id" = ${viewerUserId}
@@ -1270,11 +1270,11 @@ export class DrizzleGraphStore {
                     AND EXISTS (
                       SELECT 1
                       FROM "communities" AS "signal_list_participant_community"
-                      WHERE "signal_list_participant_community"."workspace_id" = ${workspaceId}
+                      WHERE "signal_list_participant_community"."organization_id" = ${organizationId}
                         AND "signal_list_participant_community"."id" = "signal_list_participant"."src_id"
                         AND "signal_list_participant_community"."archived_at" IS NULL
                         AND (
-                          "signal_list_participant_community"."visibility" = 'workspace'
+                          "signal_list_participant_community"."visibility" = 'organization'
                           OR (
                             "signal_list_participant_community"."visibility" IN ('private', 'team')
                             AND "signal_list_participant_community"."user_id" = ${viewerUserId}
@@ -1290,7 +1290,7 @@ export class DrizzleGraphStore {
   }
 
   async #loadAccessibleNodes(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     references: Array<{ nodeType: string; nodeId: string }>,
     seed: { signalIds?: string[]; eventIds?: string[] } = {},
@@ -1331,7 +1331,7 @@ export class DrizzleGraphStore {
         : this.#db
             .select({
               id: people.id,
-              workspaceId: people.workspaceId,
+              organizationId: people.organizationId,
               ownerUserId: people.userId,
               isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
               visibility: people.visibility,
@@ -1357,10 +1357,10 @@ export class DrizzleGraphStore {
             )
             .where(
               and(
-                eq(people.workspaceId, workspaceId),
+                eq(people.organizationId, organizationId),
                 inArray(people.id, [...grouped.person]),
                 or(
-                  eq(people.visibility, "workspace"),
+                  eq(people.visibility, "organization"),
                   and(
                     inArray(people.visibility, ["private", "team"]),
                     eq(people.userId, viewerUserId),
@@ -1374,7 +1374,7 @@ export class DrizzleGraphStore {
         : this.#db
             .select({
               id: communities.id,
-              workspaceId: communities.workspaceId,
+              organizationId: communities.organizationId,
               ownerUserId: communities.userId,
               isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
               visibility: communities.visibility,
@@ -1398,10 +1398,10 @@ export class DrizzleGraphStore {
             )
             .where(
               and(
-                eq(communities.workspaceId, workspaceId),
+                eq(communities.organizationId, organizationId),
                 inArray(communities.id, [...grouped.community]),
                 or(
-                  eq(communities.visibility, "workspace"),
+                  eq(communities.visibility, "organization"),
                   and(
                     inArray(communities.visibility, ["private", "team"]),
                     eq(communities.userId, viewerUserId),
@@ -1417,10 +1417,10 @@ export class DrizzleGraphStore {
             .from(signals)
             .where(
               and(
-                eq(signals.workspaceId, workspaceId),
+                eq(signals.organizationId, organizationId),
                 inArray(signals.id, [...grouped.signal]),
                 this.#readableSignalSubjectCondition(
-                  workspaceId,
+                  organizationId,
                   viewerUserId,
                 ),
               ),
@@ -1433,26 +1433,26 @@ export class DrizzleGraphStore {
             .leftJoin(
               signals,
               and(
-                eq(signals.workspaceId, events.workspaceId),
+                eq(signals.organizationId, events.organizationId),
                 eq(signals.id, events.entityId),
               ),
             )
             .where(
               and(
-                eq(events.workspaceId, workspaceId),
+                eq(events.organizationId, organizationId),
                 inArray(events.id, [...grouped.event]),
                 or(
                   and(
                     eq(events.entityType, "interaction"),
                     sql<boolean>`(
                       ${events.payload} ->> 'ownerUserId' = ${viewerUserId}
-                      OR ${events.payload} ->> 'visibility' = 'workspace'
+                      OR ${events.payload} ->> 'visibility' = 'organization'
                     )`,
                   ),
                   and(
                     eq(events.entityType, "signal"),
                     this.#readableSignalSubjectCondition(
-                      workspaceId,
+                      organizationId,
                       viewerUserId,
                     ),
                   ),
@@ -1500,17 +1500,17 @@ export class DrizzleGraphStore {
   }
 
   async areRelationshipRecordsAccessible(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     references: Array<{
       recordType: "person" | "community";
       recordId: string;
     }>,
   ): Promise<boolean> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
         store.areRelationshipRecordsAccessible(
-          workspaceId,
+          organizationId,
           viewerUserId,
           references,
         ),
@@ -1528,7 +1528,7 @@ export class DrizzleGraphStore {
     );
     if (unique.size !== references.length) return false;
     const accessible = await this.#loadAccessibleNodes(
-      workspaceId,
+      organizationId,
       viewerUserId,
       [...unique.values()],
     );
@@ -1540,38 +1540,38 @@ export class DrizzleGraphStore {
   }
 
   async listRelations(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     anchor: { nodeType: string; nodeId: string },
     opts: { limit: number; cursor?: RelationCursor | null },
   ): Promise<RelationPage> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listRelations(workspaceId, viewerUserId, anchor, opts),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listRelations(organizationId, viewerUserId, anchor, opts),
       );
     }
 
-    if (!(await this.#canReadNode(workspaceId, viewerUserId, anchor.nodeType, anchor.nodeId))) {
+    if (!(await this.#canReadNode(organizationId, viewerUserId, anchor.nodeType, anchor.nodeId))) {
       return { items: [], total: 0, nextCursor: null };
     }
     const limit = Math.min(Math.max(opts.limit, 1), MAX_RELATION_PAGE_SIZE);
     const visibleRelation = or(
       eq(edges.ownerUserId, viewerUserId),
-      inArray(edges.visibility, ["workspace", "public"]),
+      inArray(edges.visibility, ["organization", "public"]),
     );
     const baseWhere = and(
-      eq(edges.workspaceId, workspaceId),
+      eq(edges.organizationId, organizationId),
       visibleRelation,
       or(
         and(
           eq(edges.srcType, anchor.nodeType),
           eq(edges.srcId, anchor.nodeId),
-          this.#accessibleNodeCondition(edges.dstType, edges.dstId, workspaceId, viewerUserId),
+          this.#accessibleNodeCondition(edges.dstType, edges.dstId, organizationId, viewerUserId),
         ),
         and(
           eq(edges.dstType, anchor.nodeType),
           eq(edges.dstId, anchor.nodeId),
-          this.#accessibleNodeCondition(edges.srcType, edges.srcId, workspaceId, viewerUserId),
+          this.#accessibleNodeCondition(edges.srcType, edges.srcId, organizationId, viewerUserId),
         ),
       ),
     );
@@ -1611,7 +1611,7 @@ export class DrizzleGraphStore {
       })),
     );
     const accessible = await this.#loadAccessibleNodes(
-      workspaceId,
+      organizationId,
       viewerUserId,
       evidenceReferences,
       {
@@ -1637,27 +1637,27 @@ export class DrizzleGraphStore {
   }
 
   async listGraphRelations(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     opts: { limit: number; nodeTypes?: string[] },
   ): Promise<GraphRelationPage> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listGraphRelations(workspaceId, viewerUserId, opts),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listGraphRelations(organizationId, viewerUserId, opts),
       );
     }
     const limit = clamp(opts.limit, 1, 500);
     const nodeTypes = [...new Set((opts.nodeTypes ?? []).map((value) => value.trim()).filter(Boolean))];
     const where = and(
-      eq(edges.workspaceId, workspaceId),
+      eq(edges.organizationId, organizationId),
       or(
         eq(edges.ownerUserId, viewerUserId),
-        inArray(edges.visibility, ["workspace", "public"]),
+        inArray(edges.visibility, ["organization", "public"]),
       ),
       nodeTypes.length > 0 ? inArray(edges.srcType, nodeTypes) : undefined,
       nodeTypes.length > 0 ? inArray(edges.dstType, nodeTypes) : undefined,
-      this.#accessibleNodeCondition(edges.srcType, edges.srcId, workspaceId, viewerUserId),
-      this.#accessibleNodeCondition(edges.dstType, edges.dstId, workspaceId, viewerUserId),
+      this.#accessibleNodeCondition(edges.srcType, edges.srcId, organizationId, viewerUserId),
+      this.#accessibleNodeCondition(edges.dstType, edges.dstId, organizationId, viewerUserId),
     );
     const [rows, totalRows] = await Promise.all([
       this.#db
@@ -1676,7 +1676,7 @@ export class DrizzleGraphStore {
       })),
     );
     const accessible = await this.#loadAccessibleNodes(
-      workspaceId,
+      organizationId,
       viewerUserId,
       evidenceReferences,
     );
@@ -1689,59 +1689,59 @@ export class DrizzleGraphStore {
   }
 
   async listFullGraph(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     opts: { limit: number },
   ): Promise<FullGraphPage> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listFullGraph(workspaceId, viewerUserId, opts),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listFullGraph(organizationId, viewerUserId, opts),
       );
     }
     const limit = clamp(opts.limit, 1, 200);
     const sourceLimit = Math.max(10, Math.ceil(limit / 8));
     const [
       relationPage,
-      initiativePersonRows,
-      initiativeCommunityRows,
+      recordPersonRows,
+      recordCommunityRows,
       touchpointRows,
       fileReferenceRows,
       applicationRows,
       taskRows,
       entityEventRows,
     ] = await Promise.all([
-      this.listGraphRelations(workspaceId, viewerUserId, { limit: sourceLimit }),
+      this.listGraphRelations(organizationId, viewerUserId, { limit: sourceLimit }),
       this.#db
         .select({
-          initiativeId: initiativeParticipants.initiativeId,
-          personId: initiativeParticipants.personId,
-          createdAt: initiatives.createdAt,
+          recordId: recordParticipants.recordId,
+          personId: recordParticipants.personId,
+          createdAt: records.createdAt,
         })
-        .from(initiativeParticipants)
-        .innerJoin(initiatives, eq(initiatives.id, initiativeParticipants.initiativeId))
-        .where(and(eq(initiatives.workspaceId, workspaceId), isNull(initiatives.archivedAt)))
-        .orderBy(desc(initiatives.createdAt))
+        .from(recordParticipants)
+        .innerJoin(records, eq(records.id, recordParticipants.recordId))
+        .where(and(eq(records.organizationId, organizationId), isNull(records.archivedAt)))
+        .orderBy(desc(records.createdAt))
         .limit(sourceLimit + 1),
       this.#db
         .select({
-          initiativeId: initiativeCommunities.initiativeId,
-          communityId: initiativeCommunities.communityId,
-          createdAt: initiatives.createdAt,
+          recordId: recordCommunities.recordId,
+          communityId: recordCommunities.communityId,
+          createdAt: records.createdAt,
         })
-        .from(initiativeCommunities)
-        .innerJoin(initiatives, eq(initiatives.id, initiativeCommunities.initiativeId))
-        .where(and(eq(initiatives.workspaceId, workspaceId), isNull(initiatives.archivedAt)))
-        .orderBy(desc(initiatives.createdAt))
+        .from(recordCommunities)
+        .innerJoin(records, eq(records.id, recordCommunities.recordId))
+        .where(and(eq(records.organizationId, organizationId), isNull(records.archivedAt)))
+        .orderBy(desc(records.createdAt))
         .limit(sourceLimit + 1),
       this.#db
         .select({
           id: touchpoints.id,
-          initiativeId: touchpoints.initiativeId,
+          recordId: touchpoints.recordId,
           parentTouchpointId: touchpoints.parentTouchpointId,
           createdAt: touchpoints.createdAt,
         })
         .from(touchpoints)
-        .where(eq(touchpoints.workspaceId, workspaceId))
+        .where(eq(touchpoints.organizationId, organizationId))
         .orderBy(desc(touchpoints.createdAt))
         .limit(sourceLimit + 1),
       this.#db
@@ -1753,7 +1753,7 @@ export class DrizzleGraphStore {
         })
         .from(fileRefs)
         .innerJoin(files, eq(files.id, fileRefs.fileId))
-        .where(and(eq(files.workspaceId, workspaceId), isNull(files.archivedAt)))
+        .where(and(eq(files.organizationId, organizationId), isNull(files.archivedAt)))
         .orderBy(desc(files.createdAt))
         .limit(sourceLimit + 1),
       this.#db
@@ -1763,7 +1763,7 @@ export class DrizzleGraphStore {
           updatedAt: jobpilotApplications.updatedAt,
         })
         .from(jobpilotApplications)
-        .where(eq(jobpilotApplications.workspaceId, workspaceId))
+        .where(eq(jobpilotApplications.organizationId, organizationId))
         .orderBy(desc(jobpilotApplications.updatedAt))
         .limit(sourceLimit + 1),
       this.#db
@@ -1773,7 +1773,7 @@ export class DrizzleGraphStore {
           createdAt: tasks.createdAt,
         })
         .from(tasks)
-        .where(eq(tasks.workspaceId, workspaceId))
+        .where(eq(tasks.organizationId, organizationId))
         .orderBy(desc(tasks.createdAt))
         .limit(sourceLimit + 1),
       this.#db
@@ -1785,7 +1785,7 @@ export class DrizzleGraphStore {
           createdAt: events.createdAt,
         })
         .from(events)
-        .where(eq(events.workspaceId, workspaceId))
+        .where(eq(events.organizationId, organizationId))
         .orderBy(desc(events.createdAt))
         .limit(sourceLimit + 1),
     ]);
@@ -1800,40 +1800,40 @@ export class DrizzleGraphStore {
       evidence: `${relation.evidenceRefs.length} permitted evidence ${relation.evidenceRefs.length === 1 ? "reference" : "references"} · source ${relation.sourceModule}`,
       sortAt: relation.observedAt,
     }));
-    for (const row of initiativePersonRows.slice(0, sourceLimit)) {
+    for (const row of recordPersonRows.slice(0, sourceLimit)) {
       candidates.push({
-        id: `initiative-person:${row.initiativeId}:${row.personId}`,
-        sourceId: fullGraphNodeId("initiative", row.initiativeId),
+        id: `record-person:${row.recordId}:${row.personId}`,
+        sourceId: fullGraphNodeId("record", row.recordId),
         targetId: fullGraphNodeId("person", row.personId),
         label: "participant",
         relationType: "participant",
-        sourceModule: "initiative",
-        evidence: "Initiative participant · source initiative",
+        sourceModule: "record",
+        evidence: "Record participant · source record",
         sortAt: row.createdAt,
       });
     }
-    for (const row of initiativeCommunityRows.slice(0, sourceLimit)) {
+    for (const row of recordCommunityRows.slice(0, sourceLimit)) {
       candidates.push({
-        id: `initiative-community:${row.initiativeId}:${row.communityId}`,
-        sourceId: fullGraphNodeId("initiative", row.initiativeId),
+        id: `record-community:${row.recordId}:${row.communityId}`,
+        sourceId: fullGraphNodeId("record", row.recordId),
         targetId: fullGraphNodeId("community", row.communityId),
         label: "community",
         relationType: "community",
-        sourceModule: "initiative",
-        evidence: "Initiative Community · source initiative",
+        sourceModule: "record",
+        evidence: "Record Community · source record",
         sortAt: row.createdAt,
       });
     }
     for (const row of touchpointRows.slice(0, sourceLimit)) {
-      if (row.initiativeId) {
+      if (row.recordId) {
         candidates.push({
-          id: `touchpoint-initiative:${row.id}:${row.initiativeId}`,
+          id: `touchpoint-record:${row.id}:${row.recordId}`,
           sourceId: fullGraphNodeId("touchpoint", row.id),
-          targetId: fullGraphNodeId("initiative", row.initiativeId),
+          targetId: fullGraphNodeId("record", row.recordId),
           label: "belongs to",
           relationType: "belongs_to",
-          sourceModule: "initiative",
-          evidence: "Touchpoint Initiative reference · source initiative",
+          sourceModule: "record",
+          evidence: "Touchpoint Record reference · source record",
           sortAt: row.createdAt,
         });
       }
@@ -1844,8 +1844,8 @@ export class DrizzleGraphStore {
           targetId: fullGraphNodeId("touchpoint", row.parentTouchpointId),
           label: "parent",
           relationType: "parent",
-          sourceModule: "initiative",
-          evidence: "Touchpoint parent reference · source initiative",
+          sourceModule: "record",
+          evidence: "Touchpoint parent reference · source record",
           sortAt: row.createdAt,
         });
       }
@@ -1910,7 +1910,7 @@ export class DrizzleGraphStore {
       basePeople,
       baseCommunities,
       baseSignals,
-      baseInitiatives,
+      baseRecords,
       baseTouchpoints,
       baseFiles,
       baseJobs,
@@ -1919,35 +1919,35 @@ export class DrizzleGraphStore {
       baseTasks,
       baseResources,
     ] = await Promise.all([
-      this.listPeople(workspaceId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
-      this.listCommunities(workspaceId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
-      this.listSignals(workspaceId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
-      this.#db.select({ id: initiatives.id }).from(initiatives).where(and(
-        eq(initiatives.workspaceId, workspaceId),
-        isNull(initiatives.archivedAt),
-      )).orderBy(desc(initiatives.createdAt)).limit(nodeSourceLimit + 1),
+      this.listPeople(organizationId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
+      this.listCommunities(organizationId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
+      this.listSignals(organizationId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
+      this.#db.select({ id: records.id }).from(records).where(and(
+        eq(records.organizationId, organizationId),
+        isNull(records.archivedAt),
+      )).orderBy(desc(records.createdAt)).limit(nodeSourceLimit + 1),
       this.#db.select({ id: touchpoints.id }).from(touchpoints).where(
-        eq(touchpoints.workspaceId, workspaceId),
+        eq(touchpoints.organizationId, organizationId),
       ).orderBy(desc(touchpoints.createdAt)).limit(nodeSourceLimit + 1),
       this.#db.select({ id: files.id }).from(files).where(and(
-        eq(files.workspaceId, workspaceId),
+        eq(files.organizationId, organizationId),
         isNull(files.archivedAt),
       )).orderBy(desc(files.createdAt)).limit(nodeSourceLimit + 1),
       this.#db.select({ id: jobpilotJobs.id }).from(jobpilotJobs).where(and(
-        eq(jobpilotJobs.workspaceId, workspaceId),
+        eq(jobpilotJobs.organizationId, organizationId),
         isNull(jobpilotJobs.archivedAt),
       )).orderBy(desc(jobpilotJobs.createdAt)).limit(nodeSourceLimit + 1),
       this.#db.select({ id: jobpilotApplications.id }).from(jobpilotApplications).where(
-        eq(jobpilotApplications.workspaceId, workspaceId),
+        eq(jobpilotApplications.organizationId, organizationId),
       ).orderBy(desc(jobpilotApplications.updatedAt)).limit(nodeSourceLimit + 1),
       this.#db.select({ id: goals.id }).from(goals).where(
-        eq(goals.workspaceId, workspaceId),
+        eq(goals.organizationId, organizationId),
       ).orderBy(desc(goals.createdAt)).limit(nodeSourceLimit + 1),
       this.#db.select({ id: tasks.id }).from(tasks).where(
-        eq(tasks.workspaceId, workspaceId),
+        eq(tasks.organizationId, organizationId),
       ).orderBy(desc(tasks.createdAt)).limit(nodeSourceLimit + 1),
       this.#db.select({ id: resources.id }).from(resources).where(and(
-        eq(resources.workspaceId, workspaceId),
+        eq(resources.organizationId, organizationId),
         isNull(resources.archivedAt),
       )).orderBy(desc(resources.createdAt)).limit(nodeSourceLimit + 1),
     ]);
@@ -1955,7 +1955,7 @@ export class DrizzleGraphStore {
       ...basePeople.items.map((row) => ({ nodeType: "person", nodeId: row.id })),
       ...baseCommunities.items.map((row) => ({ nodeType: "community", nodeId: row.id })),
       ...baseSignals.items.map((row) => ({ nodeType: "signal", nodeId: row.id })),
-      ...baseInitiatives.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "initiative", nodeId: row.id })),
+      ...baseRecords.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "record", nodeId: row.id })),
       ...baseTouchpoints.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "touchpoint", nodeId: row.id })),
       ...baseFiles.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "file", nodeId: row.id })),
       ...baseJobs.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "job", nodeId: row.id })),
@@ -1979,7 +1979,7 @@ export class DrizzleGraphStore {
     }
     const ids = (nodeType: string) => [...(idsByType.get(nodeType) ?? [])];
     const accessible = await this.#loadAccessibleNodes(
-      workspaceId,
+      organizationId,
       viewerUserId,
       references.filter((reference) =>
         reference.nodeType === "person" ||
@@ -1990,7 +1990,7 @@ export class DrizzleGraphStore {
     const [
       signalRows,
       eventRows,
-      initiativeRows,
+      recordRows,
       resolvedTouchpoints,
       fileRows,
       jobRows,
@@ -2002,64 +2002,64 @@ export class DrizzleGraphStore {
       accessible.signalIds.size === 0
         ? Promise.resolve<Array<typeof signals.$inferSelect>>([])
         : this.#db.select().from(signals).where(and(
-            eq(signals.workspaceId, workspaceId),
+            eq(signals.organizationId, organizationId),
             inArray(signals.id, [...accessible.signalIds]),
           )),
       ids("event").length === 0
         ? Promise.resolve<Array<typeof events.$inferSelect>>([])
         : this.#db.select().from(events).where(and(
-            eq(events.workspaceId, workspaceId),
+            eq(events.organizationId, organizationId),
             inArray(events.id, ids("event")),
           )),
-      ids("initiative").length === 0
-        ? Promise.resolve<Array<typeof initiatives.$inferSelect>>([])
-        : this.#db.select().from(initiatives).where(and(
-            eq(initiatives.workspaceId, workspaceId),
-            inArray(initiatives.id, ids("initiative")),
-            isNull(initiatives.archivedAt),
+      ids("record").length === 0
+        ? Promise.resolve<Array<typeof records.$inferSelect>>([])
+        : this.#db.select().from(records).where(and(
+            eq(records.organizationId, organizationId),
+            inArray(records.id, ids("record")),
+            isNull(records.archivedAt),
           )),
       ids("touchpoint").length === 0
         ? Promise.resolve<Array<typeof touchpoints.$inferSelect>>([])
         : this.#db.select().from(touchpoints).where(and(
-            eq(touchpoints.workspaceId, workspaceId),
+            eq(touchpoints.organizationId, organizationId),
             inArray(touchpoints.id, ids("touchpoint")),
           )),
       ids("file").length === 0
         ? Promise.resolve<Array<typeof files.$inferSelect>>([])
         : this.#db.select().from(files).where(and(
-            eq(files.workspaceId, workspaceId),
+            eq(files.organizationId, organizationId),
             inArray(files.id, ids("file")),
             isNull(files.archivedAt),
           )),
       ids("job").length === 0
         ? Promise.resolve<Array<typeof jobpilotJobs.$inferSelect>>([])
         : this.#db.select().from(jobpilotJobs).where(and(
-            eq(jobpilotJobs.workspaceId, workspaceId),
+            eq(jobpilotJobs.organizationId, organizationId),
             inArray(jobpilotJobs.id, ids("job")),
             isNull(jobpilotJobs.archivedAt),
           )),
       ids("application").length === 0
         ? Promise.resolve<Array<typeof jobpilotApplications.$inferSelect>>([])
         : this.#db.select().from(jobpilotApplications).where(and(
-            eq(jobpilotApplications.workspaceId, workspaceId),
+            eq(jobpilotApplications.organizationId, organizationId),
             inArray(jobpilotApplications.id, ids("application")),
           )),
       ids("goal").length === 0
         ? Promise.resolve<Array<typeof goals.$inferSelect>>([])
         : this.#db.select().from(goals).where(and(
-            eq(goals.workspaceId, workspaceId),
+            eq(goals.organizationId, organizationId),
             inArray(goals.id, ids("goal")),
           )),
       ids("task").length === 0
         ? Promise.resolve<Array<typeof tasks.$inferSelect>>([])
         : this.#db.select().from(tasks).where(and(
-            eq(tasks.workspaceId, workspaceId),
+            eq(tasks.organizationId, organizationId),
             inArray(tasks.id, ids("task")),
           )),
       ids("resource").length === 0
         ? Promise.resolve<Array<typeof resources.$inferSelect>>([])
         : this.#db.select().from(resources).where(and(
-            eq(resources.workspaceId, workspaceId),
+            eq(resources.organizationId, organizationId),
             inArray(resources.id, ids("resource")),
             isNull(resources.archivedAt),
           )),
@@ -2132,20 +2132,20 @@ export class DrizzleGraphStore {
         provenance: `Event · source ${targetDatabase.moduleId}`,
       });
     }
-    for (const initiative of initiativeRows) {
-      addNode("initiative", initiative.id, {
-        label: initiative.title,
-        subtitle: initiative.status ?? undefined,
-        recordPath: `/initiative/${initiative.id}`,
-        provenance: "Initiative · source initiative",
+    for (const record of recordRows) {
+      addNode("record", record.id, {
+        label: record.title,
+        subtitle: record.status ?? undefined,
+        recordPath: `/record/${record.id}`,
+        provenance: "Record · source record",
       });
     }
     for (const touchpoint of resolvedTouchpoints) {
       addNode("touchpoint", touchpoint.id, {
         label: touchpoint.context ?? touchpoint.touchpointKind ?? "Touchpoint",
         subtitle: touchpoint.status,
-        recordPath: "/workspace",
-        provenance: "Touchpoint · source initiative",
+        recordPath: "/organization",
+        provenance: "Touchpoint · source record",
       });
     }
     for (const file of fileRows) {
@@ -2211,8 +2211,8 @@ export class DrizzleGraphStore {
       { id: node.databaseId, label: node.databaseLabel, moduleId: node.moduleId },
     ])).values()];
     const sourceTruncated = [
-      initiativePersonRows,
-      initiativeCommunityRows,
+      recordPersonRows,
+      recordCommunityRows,
       touchpointRows,
       fileReferenceRows,
       applicationRows,
@@ -2224,7 +2224,7 @@ export class DrizzleGraphStore {
       baseCommunities.total > baseCommunities.items.length ||
       baseSignals.total > baseSignals.items.length ||
       [
-        baseInitiatives,
+        baseRecords,
         baseTouchpoints,
         baseFiles,
         baseJobs,
@@ -2242,7 +2242,7 @@ export class DrizzleGraphStore {
   }
 
   async findRelationshipPaths(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     start: RelationshipPathNode,
     end: RelationshipPathNode,
@@ -2253,9 +2253,9 @@ export class DrizzleGraphStore {
       maxEdgesPerNode?: number;
     },
   ): Promise<RelationshipPathResult> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.findRelationshipPaths(workspaceId, viewerUserId, start, end, opts),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.findRelationshipPaths(organizationId, viewerUserId, start, end, opts),
       );
     }
     const maxDepth = clamp(opts.maxDepth, 1, 6);
@@ -2264,13 +2264,13 @@ export class DrizzleGraphStore {
     const maxEdgesPerNode = clamp(opts.maxEdgesPerNode ?? 50, 1, 100);
     const [canReadStart, canReadEnd] = await Promise.all([
       this.#canReadNode(
-        workspaceId,
+        organizationId,
         viewerUserId,
         start.nodeType,
         start.nodeId,
       ),
       this.#canReadNode(
-        workspaceId,
+        organizationId,
         viewerUserId,
         end.nodeType,
         end.nodeId,
@@ -2318,7 +2318,7 @@ export class DrizzleGraphStore {
       }
       visited += 1;
       const page = await this.listRelations(
-        workspaceId,
+        organizationId,
         viewerUserId,
         {
           nodeType: current.node.nodeType,
@@ -2374,14 +2374,14 @@ export class DrizzleGraphStore {
   }
 
   async upsertRelation(input: UpsertRelationInput): Promise<RelationRecord> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.upsertRelation(input),
       );
     }
     const relationInput: UpsertRelationInput = {
       ...input,
-      workspaceId: input.workspaceId.toLowerCase(),
+      organizationId: input.organizationId.toLowerCase(),
       ownerUserId: input.ownerUserId.toLowerCase(),
       srcId: input.srcId.toLowerCase(),
       dstId: input.dstId.toLowerCase(),
@@ -2393,13 +2393,13 @@ export class DrizzleGraphStore {
     assertRelationInput(relationInput);
     const [canReadSource, canReadDestination, srcOwner, dstOwner] = await Promise.all([
       this.#canReadNode(
-        relationInput.workspaceId,
+        relationInput.organizationId,
         relationInput.ownerUserId,
         relationInput.srcType,
         relationInput.srcId,
       ),
       this.#canReadNode(
-        relationInput.workspaceId,
+        relationInput.organizationId,
         relationInput.ownerUserId,
         relationInput.dstType,
         relationInput.dstId,
@@ -2419,7 +2419,7 @@ export class DrizzleGraphStore {
     const rows = await this.#db
       .insert(edges)
       .values({
-        workspaceId: relationInput.workspaceId,
+        organizationId: relationInput.organizationId,
         ownerUserId: relationInput.ownerUserId,
         srcType: relationInput.srcType,
         srcId: relationInput.srcId,
@@ -2442,7 +2442,7 @@ export class DrizzleGraphStore {
       })
       .onConflictDoUpdate({
         target: [
-          edges.workspaceId,
+          edges.organizationId,
           edges.srcType,
           edges.srcId,
           edges.dstType,
@@ -2484,12 +2484,12 @@ export class DrizzleGraphStore {
   async materializeSignalEvidence(
     input: MaterializeSignalEvidenceInput,
   ): Promise<{ sourceEvent: RelationRecord; participants: RelationRecord[] }> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.materializeSignalEvidence(input),
       );
     }
-    const workspaceId = input.workspaceId.toLowerCase();
+    const organizationId = input.organizationId.toLowerCase();
     const ownerUserId = input.ownerUserId.toLowerCase();
     const signalId = input.signalId.toLowerCase();
     const sourceEventId = input.sourceEventId.toLowerCase();
@@ -2499,12 +2499,12 @@ export class DrizzleGraphStore {
       recordId: participant.recordId.toLowerCase(),
     }));
     if (
-      !UUID_PATTERN.test(workspaceId) ||
+      !UUID_PATTERN.test(organizationId) ||
       !UUID_PATTERN.test(ownerUserId) ||
       !UUID_PATTERN.test(signalId) ||
       !UUID_PATTERN.test(sourceEventId)
     ) {
-      throw new Error("Signal evidence workspace, owner, Signal, and Event must be UUIDs");
+      throw new Error("Signal evidence organization, owner, Signal, and Event must be UUIDs");
     }
     if (
       !UUID_PATTERN.test(decisionLedgerId) ||
@@ -2528,7 +2528,7 @@ export class DrizzleGraphStore {
 
     await this.#db.execute(
       sql`SELECT pg_advisory_xact_lock(
-        hashtextextended(${`${workspaceId}:${ownerUserId}:${signalId}`}, 0::bigint)
+        hashtextextended(${`${organizationId}:${ownerUserId}:${signalId}`}, 0::bigint)
       )`,
     );
     const watermarkRows = await this.#db
@@ -2536,7 +2536,7 @@ export class DrizzleGraphStore {
       .from(edges)
       .where(
         and(
-          eq(edges.workspaceId, workspaceId),
+          eq(edges.organizationId, organizationId),
           eq(edges.ownerUserId, ownerUserId),
           eq(edges.edgeType, "source_event"),
           isNotNull(edges.decisionSequence),
@@ -2567,7 +2567,7 @@ export class DrizzleGraphStore {
         .from(edges)
         .where(
           and(
-            eq(edges.workspaceId, workspaceId),
+            eq(edges.organizationId, organizationId),
             eq(edges.ownerUserId, ownerUserId),
             eq(edges.edgeType, "source_event"),
             eq(edges.sourceModule, "relationship"),
@@ -2598,7 +2598,7 @@ export class DrizzleGraphStore {
           .delete(edges)
           .where(
             and(
-              eq(edges.workspaceId, workspaceId),
+              eq(edges.organizationId, organizationId),
               eq(edges.ownerUserId, ownerUserId),
               eq(edges.edgeType, "participant"),
               eq(edges.sourceModule, "relationship"),
@@ -2621,7 +2621,7 @@ export class DrizzleGraphStore {
         .delete(edges)
         .where(
           and(
-            eq(edges.workspaceId, workspaceId),
+            eq(edges.organizationId, organizationId),
             eq(edges.ownerUserId, ownerUserId),
             eq(edges.edgeType, "source_event"),
             eq(edges.sourceModule, "relationship"),
@@ -2662,7 +2662,7 @@ export class DrizzleGraphStore {
         .from(edges)
         .where(
           and(
-            eq(edges.workspaceId, workspaceId),
+            eq(edges.organizationId, organizationId),
             eq(edges.ownerUserId, ownerUserId),
             eq(edges.edgeType, "participant"),
             eq(edges.sourceModule, "relationship"),
@@ -2687,12 +2687,12 @@ export class DrizzleGraphStore {
     }
 
     const signal = await this.#getAccessibleSignal(
-      workspaceId,
+      organizationId,
       ownerUserId,
       signalId,
     );
     if (!signal) throw new Error("Signal not found or not accessible");
-    const sourceEvent = await this.getEvent(workspaceId, sourceEventId);
+    const sourceEvent = await this.getEvent(organizationId, sourceEventId);
     if (
       !sourceEvent ||
       sourceEvent.entityType !== "signal" ||
@@ -2750,7 +2750,7 @@ export class DrizzleGraphStore {
     if (
       invalidParticipant ||
       !(await this.areRelationshipRecordsAccessible(
-        workspaceId,
+        organizationId,
         ownerUserId,
         participants,
       ))
@@ -2767,7 +2767,7 @@ export class DrizzleGraphStore {
     };
     const values: Array<typeof edges.$inferInsert> = [
       {
-        workspaceId,
+        organizationId,
         ownerUserId,
         srcType: "signal",
         srcId: signal.id,
@@ -2788,7 +2788,7 @@ export class DrizzleGraphStore {
       },
       ...participants.map(
         (participant): typeof edges.$inferInsert => ({
-          workspaceId,
+          organizationId,
           ownerUserId,
           srcType: "event",
           srcId: sourceEvent.id,
@@ -2822,7 +2822,7 @@ export class DrizzleGraphStore {
       .values(values)
       .onConflictDoUpdate({
         target: [
-          edges.workspaceId,
+          edges.organizationId,
           edges.srcType,
           edges.srcId,
           edges.dstType,
@@ -2858,42 +2858,42 @@ export class DrizzleGraphStore {
     };
   }
 
-  async listInitiatives(workspaceId: string, opts: PageOpts): Promise<Page<typeof initiatives.$inferSelect>> {
-    const where = eq(initiatives.workspaceId, workspaceId);
+  async listRecords(organizationId: string, opts: PageOpts): Promise<Page<typeof records.$inferSelect>> {
+    const where = eq(records.organizationId, organizationId);
     const [rows, totalRows] = await Promise.all([
-      this.#db.select().from(initiatives).where(where).orderBy(desc(initiatives.createdAt)).limit(opts.limit).offset(opts.offset),
-      this.#db.select({ value: count() }).from(initiatives).where(where),
+      this.#db.select().from(records).where(where).orderBy(desc(records.createdAt)).limit(opts.limit).offset(opts.offset),
+      this.#db.select({ value: count() }).from(records).where(where),
     ]);
     return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
   }
 
-  async getInitiative(id: string): Promise<typeof initiatives.$inferSelect | null> {
-    const rows = await this.#db.select().from(initiatives).where(eq(initiatives.id, id)).limit(1);
+  async getRecord(id: string): Promise<typeof records.$inferSelect | null> {
+    const rows = await this.#db.select().from(records).where(eq(records.id, id)).limit(1);
     return rows[0] ?? null;
   }
 
-  /** TASK-010 review round-4 item 6 — a single, workspace-scoped touchpoint
-   * lookup mirroring `getInitiative`'s shape. Used to validate a red-flag
+  /** TASK-010 review round-4 item 6 — a single, organization-scoped touchpoint
+   * lookup mirroring `getRecord`'s shape. Used to validate a red-flag
    * anchor's `recordId` server-side rather than trusting an unchecked
    * client-supplied string. Returns null for a nonexistent id OR one that
-   * belongs to a different workspace (never leaks cross-workspace existence). */
-  async getTouchpoint(workspaceId: string, id: string): Promise<typeof touchpoints.$inferSelect | null> {
+   * belongs to a different organization (never leaks cross-organization existence). */
+  async getTouchpoint(organizationId: string, id: string): Promise<typeof touchpoints.$inferSelect | null> {
     const rows = await this.#db
       .select()
       .from(touchpoints)
-      .where(and(eq(touchpoints.id, id), eq(touchpoints.workspaceId, workspaceId)))
+      .where(and(eq(touchpoints.id, id), eq(touchpoints.organizationId, organizationId)))
       .limit(1);
     return rows[0] ?? null;
   }
 
-  /** Optionally scoped to one initiative (the tree view) or left workspace-wide. */
+  /** Optionally scoped to one record (the tree view) or left organization-wide. */
   async listTouchpoints(
-    workspaceId: string,
-    opts: PageOpts & { initiativeId?: string },
+    organizationId: string,
+    opts: PageOpts & { recordId?: string },
   ): Promise<Page<typeof touchpoints.$inferSelect>> {
-    const where = opts.initiativeId
-      ? and(eq(touchpoints.workspaceId, workspaceId), eq(touchpoints.initiativeId, opts.initiativeId))
-      : eq(touchpoints.workspaceId, workspaceId);
+    const where = opts.recordId
+      ? and(eq(touchpoints.organizationId, organizationId), eq(touchpoints.recordId, opts.recordId))
+      : eq(touchpoints.organizationId, organizationId);
     const [rows, totalRows] = await Promise.all([
       this.#db.select().from(touchpoints).where(where).orderBy(touchpoints.sortOrder).limit(opts.limit).offset(opts.offset),
       this.#db.select({ value: count() }).from(touchpoints).where(where),
@@ -2902,26 +2902,26 @@ export class DrizzleGraphStore {
   }
 
   async listSignals(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     opts: PageOpts & {
       subjectType?: "person" | "community";
       subjectId?: string;
     },
   ): Promise<Page<typeof signals.$inferSelect>> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listSignals(workspaceId, viewerUserId, opts),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listSignals(organizationId, viewerUserId, opts),
       );
     }
     const limit = Math.min(Math.max(opts.limit, 1), MAX_RELATION_PAGE_SIZE);
     const offset = Math.max(opts.offset, 0);
     const where = and(
-      eq(signals.workspaceId, workspaceId),
+      eq(signals.organizationId, organizationId),
       opts.subjectType ? eq(signals.subjectType, opts.subjectType) : undefined,
       opts.subjectId ? eq(signals.subjectId, opts.subjectId) : undefined,
-      this.#readableSignalSubjectCondition(workspaceId, viewerUserId),
-      this.#signalHasReadableDetailCondition(workspaceId, viewerUserId),
+      this.#readableSignalSubjectCondition(organizationId, viewerUserId),
+      this.#signalHasReadableDetailCondition(organizationId, viewerUserId),
     );
     const [rows, totalRows] = await Promise.all([
       this.#db
@@ -2940,13 +2940,13 @@ export class DrizzleGraphStore {
   }
 
   async listPeople(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     opts: PageOpts & { query?: string },
   ): Promise<Page<PersonRecord>> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listPeople(workspaceId, viewerUserId, opts),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listPeople(organizationId, viewerUserId, opts),
       );
     }
     const limit = clamp(opts.limit, 1, 100);
@@ -2956,9 +2956,9 @@ export class DrizzleGraphStore {
       ? `%${query.replace(/[!%_]/g, (value) => `!${value}`)}%`
       : null;
     const readable = and(
-      eq(people.workspaceId, workspaceId),
+      eq(people.organizationId, organizationId),
       or(
-        eq(people.visibility, "workspace"),
+        eq(people.visibility, "organization"),
         and(
           or(eq(people.visibility, "private"), eq(people.visibility, "team")),
           eq(people.userId, viewerUserId),
@@ -2985,7 +2985,7 @@ export class DrizzleGraphStore {
       this.#db
         .select({
           id: people.id,
-          workspaceId: people.workspaceId,
+          organizationId: people.organizationId,
           ownerUserId: people.userId,
           isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
           visibility: people.visibility,
@@ -3023,19 +3023,19 @@ export class DrizzleGraphStore {
   }
 
   async getPerson(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     id: string,
   ): Promise<PersonDetail | null> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.getPerson(workspaceId, viewerUserId, id),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.getPerson(organizationId, viewerUserId, id),
       );
     }
     const rows = await this.#db
       .select({
         id: people.id,
-        workspaceId: people.workspaceId,
+        organizationId: people.organizationId,
         ownerUserId: people.userId,
         isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
         visibility: people.visibility,
@@ -3064,10 +3064,10 @@ export class DrizzleGraphStore {
       .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
       .where(
         and(
-          eq(people.workspaceId, workspaceId),
+          eq(people.organizationId, organizationId),
           eq(people.id, id),
           or(
-            eq(people.visibility, "workspace"),
+            eq(people.visibility, "organization"),
             and(
               or(eq(people.visibility, "private"), eq(people.visibility, "team")),
               eq(people.userId, viewerUserId),
@@ -3081,14 +3081,14 @@ export class DrizzleGraphStore {
   }
 
   async findPeopleByEmail(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     email: string,
     limit = 2,
   ): Promise<PersonDetail[]> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.findPeopleByEmail(workspaceId, viewerUserId, email, limit),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.findPeopleByEmail(organizationId, viewerUserId, email, limit),
       );
     }
     const normalizedEmail = email.trim().toLowerCase().slice(0, 320);
@@ -3096,7 +3096,7 @@ export class DrizzleGraphStore {
     return this.#db
       .select({
         id: people.id,
-        workspaceId: people.workspaceId,
+        organizationId: people.organizationId,
         ownerUserId: people.userId,
         isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
         visibility: people.visibility,
@@ -3120,9 +3120,9 @@ export class DrizzleGraphStore {
       .from(people)
       .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
       .where(and(
-        eq(people.workspaceId, workspaceId),
+        eq(people.organizationId, organizationId),
         or(
-          eq(people.visibility, "workspace"),
+          eq(people.visibility, "organization"),
           and(
             or(eq(people.visibility, "private"), eq(people.visibility, "team")),
             eq(people.userId, viewerUserId),
@@ -3144,13 +3144,13 @@ export class DrizzleGraphStore {
   }
 
   async listCommunities(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     opts: PageOpts & { query?: string },
   ): Promise<Page<CommunityRecord>> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listCommunities(workspaceId, viewerUserId, opts),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listCommunities(organizationId, viewerUserId, opts),
       );
     }
     const limit = clamp(opts.limit, 1, 100);
@@ -3160,9 +3160,9 @@ export class DrizzleGraphStore {
       ? `%${query.replace(/[!%_]/g, (value) => `!${value}`)}%`
       : null;
     const readable = and(
-      eq(communities.workspaceId, workspaceId),
+      eq(communities.organizationId, organizationId),
       or(
-        eq(communities.visibility, "workspace"),
+        eq(communities.visibility, "organization"),
         and(
           or(eq(communities.visibility, "private"), eq(communities.visibility, "team")),
           eq(communities.userId, viewerUserId),
@@ -3190,11 +3190,11 @@ export class DrizzleGraphStore {
       FROM "community_members" AS "visible_community_member"
       JOIN "people" AS "visible_community_person"
         ON "visible_community_person"."id" = "visible_community_member"."person_id"
-      WHERE "visible_community_person"."workspace_id" = ${workspaceId}
+      WHERE "visible_community_person"."organization_id" = ${organizationId}
         AND "visible_community_member"."community_id" = ${communities.id}
         AND "visible_community_person"."archived_at" IS NULL
         AND (
-          "visible_community_person"."visibility" = 'workspace'
+          "visible_community_person"."visibility" = 'organization'
           OR (
             "visible_community_person"."visibility" IN ('private', 'team')
             AND "visible_community_person"."user_id" = ${viewerUserId}
@@ -3205,7 +3205,7 @@ export class DrizzleGraphStore {
       this.#db
         .select({
           id: communities.id,
-          workspaceId: communities.workspaceId,
+          organizationId: communities.organizationId,
           ownerUserId: communities.userId,
           isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
           visibility: communities.visibility,
@@ -3245,19 +3245,19 @@ export class DrizzleGraphStore {
   }
 
   async getCommunity(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     id: string,
   ): Promise<CommunityDetail | null> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.getCommunity(workspaceId, viewerUserId, id),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.getCommunity(organizationId, viewerUserId, id),
       );
     }
     const rows = await this.#db
       .select({
         id: communities.id,
-        workspaceId: communities.workspaceId,
+        organizationId: communities.organizationId,
         ownerUserId: communities.userId,
         isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
         visibility: communities.visibility,
@@ -3281,11 +3281,11 @@ export class DrizzleGraphStore {
           FROM "community_members" AS "visible_community_member"
           JOIN "people" AS "visible_community_person"
             ON "visible_community_person"."id" = "visible_community_member"."person_id"
-          WHERE "visible_community_person"."workspace_id" = ${workspaceId}
+          WHERE "visible_community_person"."organization_id" = ${organizationId}
             AND "visible_community_member"."community_id" = ${communities.id}
             AND "visible_community_person"."archived_at" IS NULL
             AND (
-              "visible_community_person"."visibility" = 'workspace'
+              "visible_community_person"."visibility" = 'organization'
               OR (
                 "visible_community_person"."visibility" IN ('private', 'team')
                 AND "visible_community_person"."user_id" = ${viewerUserId}
@@ -3297,10 +3297,10 @@ export class DrizzleGraphStore {
       .leftJoin(communitiesCanonical, eq(communities.canonicalCommunityId, communitiesCanonical.id))
       .where(
         and(
-          eq(communities.workspaceId, workspaceId),
+          eq(communities.organizationId, organizationId),
           eq(communities.id, id),
           or(
-            eq(communities.visibility, "workspace"),
+            eq(communities.visibility, "organization"),
             and(
               or(eq(communities.visibility, "private"), eq(communities.visibility, "team")),
               eq(communities.userId, viewerUserId),
@@ -3314,31 +3314,31 @@ export class DrizzleGraphStore {
   }
 
   async listCommunityMembers(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     communityId: string,
     opts: PageOpts,
   ): Promise<Page<CommunityMemberRecord>> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
         store.listCommunityMembers(
-          workspaceId,
+          organizationId,
           viewerUserId,
           communityId,
           opts,
         ),
       );
     }
-    if (!await this.getCommunity(workspaceId, viewerUserId, communityId)) {
+    if (!await this.getCommunity(organizationId, viewerUserId, communityId)) {
       return { items: [], total: 0 };
     }
     const limit = clamp(opts.limit, 1, 100);
     const offset = clamp(opts.offset, 0, 10_000);
     const readable = and(
       eq(communityMembers.communityId, communityId),
-      eq(people.workspaceId, workspaceId),
+      eq(people.organizationId, organizationId),
       or(
-        eq(people.visibility, "workspace"),
+        eq(people.visibility, "organization"),
         and(
           or(eq(people.visibility, "private"), eq(people.visibility, "team")),
           eq(people.userId, viewerUserId),
@@ -3350,7 +3350,7 @@ export class DrizzleGraphStore {
       this.#db
         .select({
           id: people.id,
-          workspaceId: people.workspaceId,
+          organizationId: people.organizationId,
           ownerUserId: people.userId,
           isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
           visibility: people.visibility,
@@ -3402,8 +3402,8 @@ export class DrizzleGraphStore {
   }
 
   async createPerson(input: CreatePersonInput): Promise<PersonDetail> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.createPerson(input),
       );
     }
@@ -3412,7 +3412,7 @@ export class DrizzleGraphStore {
       .insert(people)
       .values({
         id: input.id,
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         userId: input.ownerUserId,
         canonicalPersonId: null,
         visibility: input.visibility,
@@ -3424,7 +3424,7 @@ export class DrizzleGraphStore {
         source: input.source.trim(),
       })
       .onConflictDoNothing();
-    const person = await this.getPerson(input.workspaceId, input.ownerUserId, input.id);
+    const person = await this.getPerson(input.organizationId, input.ownerUserId, input.id);
     if (!person || person.ownerUserId !== input.ownerUserId) {
       throw new Error("Person create did not materialize an owner-readable Record");
     }
@@ -3438,8 +3438,8 @@ export class DrizzleGraphStore {
   }
 
   async updatePerson(input: UpdatePersonInput): Promise<PersonDetail | null> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.updatePerson(input),
       );
     }
@@ -3457,7 +3457,7 @@ export class DrizzleGraphStore {
       .select({ id: people.id, archivedAt: people.archivedAt })
       .from(people)
       .where(and(
-        eq(people.workspaceId, input.workspaceId),
+        eq(people.organizationId, input.organizationId),
         eq(people.id, input.id),
         eq(people.userId, input.ownerUserId),
       ))
@@ -3475,7 +3475,7 @@ export class DrizzleGraphStore {
     }
     if (
       await this.#hasNewerRecordDecision(
-        input.workspaceId,
+        input.organizationId,
         input.ownerUserId,
         "person",
         input.id,
@@ -3488,34 +3488,34 @@ export class DrizzleGraphStore {
         operation: "update",
         reason: "superseded_by_newer_decision",
       });
-      return this.getPerson(input.workspaceId, input.ownerUserId, input.id);
+      return this.getPerson(input.organizationId, input.ownerUserId, input.id);
     }
     const rows = await this.#db
       .update(people)
       .set(values)
       .where(and(
-        eq(people.workspaceId, input.workspaceId),
+        eq(people.organizationId, input.organizationId),
         eq(people.id, input.id),
         eq(people.userId, input.ownerUserId),
         isNull(people.archivedAt),
       ))
       .returning();
     if (!rows[0]) return null;
-    const person = await this.getPerson(input.workspaceId, input.ownerUserId, input.id);
+    const person = await this.getPerson(input.organizationId, input.ownerUserId, input.id);
     if (!person) throw new Error("Updated Person became unreadable");
     await this.#recordLifecycleEvent({
       ...input,
       recordType: "person",
       operation: "updated",
       displayName: person.displayName,
-      visibility: person.visibility === "workspace" ? "workspace" : "private",
+      visibility: person.visibility === "organization" ? "organization" : "private",
     });
     return person;
   }
 
   async archivePerson(input: ArchiveRelationshipRecordInput): Promise<boolean> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.archivePerson(input),
       );
     }
@@ -3529,7 +3529,7 @@ export class DrizzleGraphStore {
       .from(people)
       .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
       .where(and(
-        eq(people.workspaceId, input.workspaceId),
+        eq(people.organizationId, input.organizationId),
         eq(people.id, input.id),
         eq(people.userId, input.ownerUserId),
       ))
@@ -3547,7 +3547,7 @@ export class DrizzleGraphStore {
     }
     if (
       await this.#hasNewerRecordDecision(
-        input.workspaceId,
+        input.organizationId,
         input.ownerUserId,
         "person",
         input.id,
@@ -3567,13 +3567,13 @@ export class DrizzleGraphStore {
       recordType: "person",
       operation: "archived",
       displayName: existing.displayName,
-      visibility: existing.visibility === "workspace" ? "workspace" : "private",
+      visibility: existing.visibility === "organization" ? "organization" : "private",
     });
     const rows = await this.#db
       .update(people)
       .set({ archivedAt: input.decisionAt })
       .where(and(
-        eq(people.workspaceId, input.workspaceId),
+        eq(people.organizationId, input.organizationId),
         eq(people.id, input.id),
         eq(people.userId, input.ownerUserId),
         isNull(people.archivedAt),
@@ -3583,8 +3583,8 @@ export class DrizzleGraphStore {
   }
 
   async createCommunity(input: CreateCommunityInput): Promise<CommunityDetail> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.createCommunity(input),
       );
     }
@@ -3592,7 +3592,7 @@ export class DrizzleGraphStore {
       .insert(communities)
       .values({
         id: input.id,
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         userId: input.ownerUserId,
         canonicalCommunityId: null,
         visibility: input.visibility,
@@ -3604,7 +3604,7 @@ export class DrizzleGraphStore {
         isUserConfirmed: true,
       })
       .onConflictDoNothing();
-    const community = await this.getCommunity(input.workspaceId, input.ownerUserId, input.id);
+    const community = await this.getCommunity(input.organizationId, input.ownerUserId, input.id);
     if (!community || community.ownerUserId !== input.ownerUserId) {
       throw new Error("Community create did not materialize an owner-readable Record");
     }
@@ -3618,8 +3618,8 @@ export class DrizzleGraphStore {
   }
 
   async updateCommunity(input: UpdateCommunityInput): Promise<CommunityDetail | null> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.updateCommunity(input),
       );
     }
@@ -3636,7 +3636,7 @@ export class DrizzleGraphStore {
       .select({ id: communities.id, archivedAt: communities.archivedAt })
       .from(communities)
       .where(and(
-        eq(communities.workspaceId, input.workspaceId),
+        eq(communities.organizationId, input.organizationId),
         eq(communities.id, input.id),
         eq(communities.userId, input.ownerUserId),
       ))
@@ -3654,7 +3654,7 @@ export class DrizzleGraphStore {
     }
     if (
       await this.#hasNewerRecordDecision(
-        input.workspaceId,
+        input.organizationId,
         input.ownerUserId,
         "community",
         input.id,
@@ -3667,34 +3667,34 @@ export class DrizzleGraphStore {
         operation: "update",
         reason: "superseded_by_newer_decision",
       });
-      return this.getCommunity(input.workspaceId, input.ownerUserId, input.id);
+      return this.getCommunity(input.organizationId, input.ownerUserId, input.id);
     }
     const rows = await this.#db
       .update(communities)
       .set(values)
       .where(and(
-        eq(communities.workspaceId, input.workspaceId),
+        eq(communities.organizationId, input.organizationId),
         eq(communities.id, input.id),
         eq(communities.userId, input.ownerUserId),
         isNull(communities.archivedAt),
       ))
       .returning();
     if (!rows[0]) return null;
-    const community = await this.getCommunity(input.workspaceId, input.ownerUserId, input.id);
+    const community = await this.getCommunity(input.organizationId, input.ownerUserId, input.id);
     if (!community) throw new Error("Updated Community became unreadable");
     await this.#recordLifecycleEvent({
       ...input,
       recordType: "community",
       operation: "updated",
       displayName: community.displayName,
-      visibility: community.visibility === "workspace" ? "workspace" : "private",
+      visibility: community.visibility === "organization" ? "organization" : "private",
     });
     return community;
   }
 
   async archiveCommunity(input: ArchiveRelationshipRecordInput): Promise<boolean> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.archiveCommunity(input),
       );
     }
@@ -3708,7 +3708,7 @@ export class DrizzleGraphStore {
       .from(communities)
       .leftJoin(communitiesCanonical, eq(communities.canonicalCommunityId, communitiesCanonical.id))
       .where(and(
-        eq(communities.workspaceId, input.workspaceId),
+        eq(communities.organizationId, input.organizationId),
         eq(communities.id, input.id),
         eq(communities.userId, input.ownerUserId),
       ))
@@ -3726,7 +3726,7 @@ export class DrizzleGraphStore {
     }
     if (
       await this.#hasNewerRecordDecision(
-        input.workspaceId,
+        input.organizationId,
         input.ownerUserId,
         "community",
         input.id,
@@ -3746,13 +3746,13 @@ export class DrizzleGraphStore {
       recordType: "community",
       operation: "archived",
       displayName: existing.displayName,
-      visibility: existing.visibility === "workspace" ? "workspace" : "private",
+      visibility: existing.visibility === "organization" ? "organization" : "private",
     });
     const rows = await this.#db
       .update(communities)
       .set({ archivedAt: input.decisionAt })
       .where(and(
-        eq(communities.workspaceId, input.workspaceId),
+        eq(communities.organizationId, input.organizationId),
         eq(communities.id, input.id),
         eq(communities.userId, input.ownerUserId),
         isNull(communities.archivedAt),
@@ -3762,7 +3762,7 @@ export class DrizzleGraphStore {
   }
 
   async #recordLifecycleEvent(input: DecisionProvenance & {
-    workspaceId: string;
+    organizationId: string;
     ownerUserId: string;
     recordType: "person" | "community";
     id: string;
@@ -3773,7 +3773,7 @@ export class DrizzleGraphStore {
     await this.#createInteractionInContext(
       {
         id: input.decisionLedgerId,
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         ownerUserId: input.ownerUserId,
         kind: `${input.recordType}_${input.operation}`,
         occurredAt: input.decisionAt,
@@ -3792,7 +3792,7 @@ export class DrizzleGraphStore {
   }
 
   async #recordSkippedMutationReceipt(input: DecisionProvenance & {
-    workspaceId: string;
+    organizationId: string;
     ownerUserId: string;
     recordType: "person" | "community";
     operation: "update" | "archive";
@@ -3802,7 +3802,7 @@ export class DrizzleGraphStore {
       .insert(events)
       .values({
         id: input.decisionLedgerId,
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         type: "relationship.materialization_skipped",
         entityType: "materialization_receipt",
         entityId: input.decisionLedgerId,
@@ -3820,7 +3820,7 @@ export class DrizzleGraphStore {
         },
       })
       .onConflictDoNothing();
-    const receipt = await this.getEvent(input.workspaceId, input.decisionLedgerId);
+    const receipt = await this.getEvent(input.organizationId, input.decisionLedgerId);
     const payload = payloadRecord(receipt?.payload);
     const expectedLifecycleKind =
       `${input.recordType}_${input.operation === "archive" ? "archived" : "updated"}`;
@@ -3839,7 +3839,7 @@ export class DrizzleGraphStore {
   }
 
   async #hasNewerRecordDecision(
-    workspaceId: string,
+    organizationId: string,
     ownerUserId: string,
     recordType: "person" | "community",
     recordId: string,
@@ -3849,7 +3849,7 @@ export class DrizzleGraphStore {
       .select({ id: events.id })
       .from(events)
       .where(and(
-        eq(events.workspaceId, workspaceId),
+        eq(events.organizationId, organizationId),
         eq(events.entityType, "interaction"),
         inArray(events.type, [
           `relationship.${recordType}_created`,
@@ -3863,7 +3863,7 @@ export class DrizzleGraphStore {
         sql<boolean>`EXISTS (
           SELECT 1
           FROM "edges" AS "record_decision_participant"
-          WHERE "record_decision_participant"."workspace_id" = ${workspaceId}
+          WHERE "record_decision_participant"."organization_id" = ${organizationId}
             AND "record_decision_participant"."owner_user_id" = ${ownerUserId}
             AND "record_decision_participant"."edge_type" = 'participant'
             AND "record_decision_participant"."src_type" = 'event'
@@ -3877,8 +3877,8 @@ export class DrizzleGraphStore {
   }
 
   async createInteraction(input: CreateInteractionInput): Promise<TimelineItem> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.createInteraction(input),
       );
     }
@@ -3891,7 +3891,7 @@ export class DrizzleGraphStore {
   ): Promise<TimelineItem> {
     if (
       !UUID_PATTERN.test(input.id) ||
-      !UUID_PATTERN.test(input.workspaceId) ||
+      !UUID_PATTERN.test(input.organizationId) ||
       !UUID_PATTERN.test(input.ownerUserId) ||
       !UUID_PATTERN.test(input.decisionLedgerId)
     ) {
@@ -3918,10 +3918,10 @@ export class DrizzleGraphStore {
       const key = `${participant.recordType}:${participant.recordId}`;
       if (participants.has(key)) continue;
       const record = participant.recordType === "person"
-        ? await this.getPerson(input.workspaceId, input.ownerUserId, participant.recordId)
-        : await this.getCommunity(input.workspaceId, input.ownerUserId, participant.recordId);
+        ? await this.getPerson(input.organizationId, input.ownerUserId, participant.recordId)
+        : await this.getCommunity(input.organizationId, input.ownerUserId, participant.recordId);
       if (!record) throw new Error("Interaction participant is not readable");
-      if (record.visibility !== "workspace") visibility = "private";
+      if (record.visibility !== "organization") visibility = "private";
       participants.set(key, participant);
       if (participant.recordType === "person") {
         participantNodes.people.set(participant.recordId, record as PersonRecord);
@@ -3962,14 +3962,14 @@ export class DrizzleGraphStore {
       .insert(events)
       .values({
         id: input.id,
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         type: `relationship.${input.kind.trim()}`,
         entityType: "interaction",
         entityId: input.id,
         payload: storedPayload,
       })
       .onConflictDoNothing();
-    const event = await this.getEvent(input.workspaceId, input.id);
+    const event = await this.getEvent(input.organizationId, input.id);
     const existingPayload = payloadRecord(event?.payload);
     if (
       !event ||
@@ -3984,7 +3984,7 @@ export class DrizzleGraphStore {
     const relations: RelationRecord[] = [];
     for (const participant of participants.values()) {
       const relation = await this.upsertRelation({
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         ownerUserId: input.ownerUserId,
         srcType: "event",
         srcId: input.id,
@@ -4021,7 +4021,7 @@ export class DrizzleGraphStore {
           .update(people)
           .set({ lastInteractionAt: input.occurredAt })
           .where(and(
-            eq(people.workspaceId, input.workspaceId),
+            eq(people.organizationId, input.organizationId),
             eq(people.userId, input.ownerUserId),
             inArray(people.id, ownedPersonIds),
             isNull(people.archivedAt),
@@ -4038,15 +4038,15 @@ export class DrizzleGraphStore {
   async materializeCommitment(
     input: MaterializeCommitmentInput,
   ): Promise<CommitmentRecord> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.materializeCommitment(input),
       );
     }
     const occurredAt = input.decisionAt;
     await this.#createInteractionInContext({
       id: input.transitionEventId,
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       ownerUserId: input.ownerUserId,
       kind: `commitment_${input.operation}`,
       occurredAt,
@@ -4088,7 +4088,7 @@ export class DrizzleGraphStore {
         : []),
     ];
     const relation = await this.upsertRelation({
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       ownerUserId: input.ownerUserId,
       srcType: "event",
       srcId: input.transitionEventId,
@@ -4134,7 +4134,7 @@ export class DrizzleGraphStore {
   }
 
   async listCommitments(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     personId: string,
     opts: PageOpts & {
@@ -4144,12 +4144,12 @@ export class DrizzleGraphStore {
       snapshotAt?: Date;
     },
   ): Promise<CommitmentPage> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listCommitments(workspaceId, viewerUserId, personId, opts),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listCommitments(organizationId, viewerUserId, personId, opts),
       );
     }
-    const person = await this.getPerson(workspaceId, viewerUserId, personId);
+    const person = await this.getPerson(organizationId, viewerUserId, personId);
     if (!person) return { items: [], total: 0 };
     const limit = clamp(opts.limit, 1, 100);
     const offset = clamp(opts.offset, 0, 10_000);
@@ -4191,14 +4191,14 @@ export class DrizzleGraphStore {
           commitment.evidence_refs AS evidence_refs
         FROM ${events} AS transition
         INNER JOIN ${edges} AS commitment
-          ON commitment.workspace_id = transition.workspace_id
+          ON commitment.organization_id = transition.organization_id
           AND commitment.src_type = 'event'
           AND commitment.src_id = transition.id
           AND commitment.dst_type = 'person'
           AND commitment.dst_id = ${personId}::uuid
           AND commitment.edge_type = 'commitment'
           AND commitment.owner_user_id = ${viewerUserId}::uuid
-        WHERE transition.workspace_id = ${workspaceId}::uuid
+        WHERE transition.organization_id = ${organizationId}::uuid
           AND transition.entity_type = 'interaction'
           ${opts.snapshotAt
             ? sql`AND transition.created_at <= ${opts.snapshotAt}`
@@ -4285,8 +4285,8 @@ export class DrizzleGraphStore {
   async materializeIntroduction(
     input: MaterializeIntroductionInput,
   ): Promise<IntroductionRecord> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.materializeIntroduction(input),
       );
     }
@@ -4296,13 +4296,13 @@ export class DrizzleGraphStore {
     await this.#db.execute(
       sql`SELECT pg_advisory_xact_lock(
         hashtextextended(
-          ${`${input.workspaceId}:${input.ownerUserId}:${input.introductionId}`},
+          ${`${input.organizationId}:${input.ownerUserId}:${input.introductionId}`},
           0::bigint
         )
       )`,
     );
     const currentPage = await this.listIntroductions(
-      input.workspaceId,
+      input.organizationId,
       input.ownerUserId,
       input.sourcePersonId,
       {
@@ -4342,7 +4342,7 @@ export class DrizzleGraphStore {
             .select({ properties: edges.properties })
             .from(edges)
             .where(and(
-              eq(edges.workspaceId, input.workspaceId),
+              eq(edges.organizationId, input.organizationId),
               eq(edges.ownerUserId, input.ownerUserId),
               eq(edges.srcType, "event"),
               eq(edges.srcId, input.transitionEventId),
@@ -4420,7 +4420,7 @@ export class DrizzleGraphStore {
     const statusLabel = input.status.replace(/_/g, " ");
     await this.#createInteractionInContext({
       id: input.transitionEventId,
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       ownerUserId: input.ownerUserId,
       kind: `introduction_${input.operation}`,
       occurredAt: input.decisionAt,
@@ -4458,7 +4458,7 @@ export class DrizzleGraphStore {
     const relations = await Promise.all(
       [input.sourcePersonId, input.targetPersonId].map((personId) =>
         this.upsertRelation({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           ownerUserId: input.ownerUserId,
           srcType: "event",
           srcId: input.transitionEventId,
@@ -4516,17 +4516,17 @@ export class DrizzleGraphStore {
   }
 
   async listIntroductions(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     personId: string,
     opts: PageOpts & { introductionId?: string; snapshotAt?: Date },
   ): Promise<IntroductionPage> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listIntroductions(workspaceId, viewerUserId, personId, opts),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listIntroductions(organizationId, viewerUserId, personId, opts),
       );
     }
-    const person = await this.getPerson(workspaceId, viewerUserId, personId);
+    const person = await this.getPerson(organizationId, viewerUserId, personId);
     if (!person) return { items: [], total: 0 };
     const limit = clamp(opts.limit, 1, 100);
     const offset = clamp(opts.offset, 0, 10_000);
@@ -4578,7 +4578,7 @@ export class DrizzleGraphStore {
           ARRAY(
             SELECT related.id::text
             FROM ${edges} AS related
-            WHERE related.workspace_id = transition.workspace_id
+            WHERE related.organization_id = transition.organization_id
               AND related.src_type = 'event'
               AND related.src_id = transition.id
               AND related.edge_type = 'introduction'
@@ -4588,14 +4588,14 @@ export class DrizzleGraphStore {
           anchor.evidence_refs AS evidence_refs
         FROM ${events} AS transition
         INNER JOIN ${edges} AS anchor
-          ON anchor.workspace_id = transition.workspace_id
+          ON anchor.organization_id = transition.organization_id
           AND anchor.src_type = 'event'
           AND anchor.src_id = transition.id
           AND anchor.dst_type = 'person'
           AND anchor.dst_id = ${personId}::uuid
           AND anchor.edge_type = 'introduction'
           AND anchor.owner_user_id = ${viewerUserId}::uuid
-        WHERE transition.workspace_id = ${workspaceId}::uuid
+        WHERE transition.organization_id = ${organizationId}::uuid
           AND transition.entity_type = 'interaction'
           ${opts.snapshotAt
             ? sql`AND transition.created_at <= ${opts.snapshotAt}`
@@ -4672,20 +4672,20 @@ export class DrizzleGraphStore {
   }
 
   async listTimeline(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     recordType: "person" | "community",
     recordId: string,
     opts: { limit: number; cursor?: TimelineCursor | null },
   ): Promise<TimelinePage> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listTimeline(workspaceId, viewerUserId, recordType, recordId, opts),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listTimeline(organizationId, viewerUserId, recordType, recordId, opts),
       );
     }
     const anchor = recordType === "person"
-      ? await this.getPerson(workspaceId, viewerUserId, recordId)
-      : await this.getCommunity(workspaceId, viewerUserId, recordId);
+      ? await this.getPerson(organizationId, viewerUserId, recordId)
+      : await this.getCommunity(organizationId, viewerUserId, recordId);
     if (!anchor) return { items: [], nextCursor: null };
     const limit = clamp(opts.limit, 1, MAX_TIMELINE_PAGE_SIZE);
     const occurredAt = sql<Date>`coalesce(
@@ -4702,20 +4702,20 @@ export class DrizzleGraphStore {
       .select()
       .from(events)
       .where(and(
-        eq(events.workspaceId, workspaceId),
+        eq(events.organizationId, organizationId),
         eq(events.entityType, "interaction"),
         sql<boolean>`(
           ${events.payload} ->> 'ownerUserId' = ${viewerUserId}
-          OR ${events.payload} ->> 'visibility' = 'workspace'
+          OR ${events.payload} ->> 'visibility' = 'organization'
         )`,
         sql<boolean>`EXISTS (
           SELECT 1
           FROM "edges" AS "timeline_anchor_relation"
-          WHERE "timeline_anchor_relation"."workspace_id" = ${workspaceId}
+          WHERE "timeline_anchor_relation"."organization_id" = ${organizationId}
             AND "timeline_anchor_relation"."edge_type" = 'participant'
             AND (
               "timeline_anchor_relation"."owner_user_id" = ${viewerUserId}
-              OR "timeline_anchor_relation"."visibility" IN ('workspace', 'public')
+              OR "timeline_anchor_relation"."visibility" IN ('organization', 'public')
             )
             AND (
               (
@@ -4743,7 +4743,7 @@ export class DrizzleGraphStore {
       .select()
       .from(edges)
       .where(and(
-        eq(edges.workspaceId, workspaceId),
+        eq(edges.organizationId, organizationId),
         eq(edges.edgeType, "participant"),
         or(
           and(eq(edges.srcType, "event"), inArray(edges.srcId, eventIds)),
@@ -4751,7 +4751,7 @@ export class DrizzleGraphStore {
         ),
         or(
           eq(edges.ownerUserId, viewerUserId),
-          inArray(edges.visibility, ["workspace", "public"]),
+          inArray(edges.visibility, ["organization", "public"]),
         ),
       ))
       .orderBy(edges.id)
@@ -4765,7 +4765,7 @@ export class DrizzleGraphStore {
       }
       return [];
     });
-    const nodeMap = await this.#loadAccessibleNodes(workspaceId, viewerUserId, nodeRefs);
+    const nodeMap = await this.#loadAccessibleNodes(organizationId, viewerUserId, nodeRefs);
     const relationsByEvent = new Map<string, RelationRecord[]>();
     for (const relation of relationRows) {
       const eventId = relation.srcType === "event" ? relation.srcId : relation.dstId;
@@ -4846,8 +4846,8 @@ export class DrizzleGraphStore {
     ];
     const visibility = relations.some((relation) => relation.visibility === "private")
       ? "private"
-      : relations.some((relation) => relation.visibility === "workspace")
-        ? "workspace"
+      : relations.some((relation) => relation.visibility === "organization")
+        ? "organization"
         : "public";
     return {
       id: event.id,
@@ -4872,22 +4872,22 @@ export class DrizzleGraphStore {
     };
   }
 
-  async getEvent(workspaceId: string, id: string): Promise<typeof events.$inferSelect | null> {
+  async getEvent(organizationId: string, id: string): Promise<typeof events.$inferSelect | null> {
     const rows = await this.#db
       .select()
       .from(events)
-      .where(and(eq(events.workspaceId, workspaceId), eq(events.id, id)))
+      .where(and(eq(events.organizationId, organizationId), eq(events.id, id)))
       .limit(1);
     return rows[0] ?? null;
   }
 
-  async getSignalDetail(workspaceId: string, viewerUserId: string, id: string): Promise<SignalDetail | null> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.getSignalDetail(workspaceId, viewerUserId, id),
+  async getSignalDetail(organizationId: string, viewerUserId: string, id: string): Promise<SignalDetail | null> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.getSignalDetail(organizationId, viewerUserId, id),
       );
     }
-    const anchor = await this.getSignalEvidenceAnchor(workspaceId, viewerUserId, id);
+    const anchor = await this.getSignalEvidenceAnchor(organizationId, viewerUserId, id);
     if (!anchor) return null;
     const { signal, sourceEvent } = anchor;
 
@@ -4896,24 +4896,24 @@ export class DrizzleGraphStore {
       .from(edges)
       .where(
         and(
-          eq(edges.workspaceId, workspaceId),
+          eq(edges.organizationId, organizationId),
           eq(edges.edgeType, "participant"),
           or(
             eq(edges.ownerUserId, viewerUserId),
-            inArray(edges.visibility, ["workspace", "public"]),
+            inArray(edges.visibility, ["organization", "public"]),
           ),
           or(
             and(
               eq(edges.srcType, "signal"),
               eq(edges.srcId, signal.id),
               inArray(edges.dstType, ["person", "community"]),
-              this.#accessibleNodeCondition(edges.dstType, edges.dstId, workspaceId, viewerUserId),
+              this.#accessibleNodeCondition(edges.dstType, edges.dstId, organizationId, viewerUserId),
             ),
             and(
               eq(edges.dstType, "signal"),
               eq(edges.dstId, signal.id),
               inArray(edges.srcType, ["person", "community"]),
-              this.#accessibleNodeCondition(edges.srcType, edges.srcId, workspaceId, viewerUserId),
+              this.#accessibleNodeCondition(edges.srcType, edges.srcId, organizationId, viewerUserId),
             ),
           ),
         ),
@@ -4926,11 +4926,11 @@ export class DrizzleGraphStore {
           .from(edges)
           .where(
             and(
-              eq(edges.workspaceId, workspaceId),
+              eq(edges.organizationId, organizationId),
               eq(edges.edgeType, "participant"),
               or(
                 eq(edges.ownerUserId, viewerUserId),
-                inArray(edges.visibility, ["workspace", "public"]),
+                inArray(edges.visibility, ["organization", "public"]),
               ),
               or(
                 and(
@@ -4940,7 +4940,7 @@ export class DrizzleGraphStore {
                   this.#accessibleNodeCondition(
                     edges.dstType,
                     edges.dstId,
-                    workspaceId,
+                    organizationId,
                     viewerUserId,
                   ),
                 ),
@@ -4951,7 +4951,7 @@ export class DrizzleGraphStore {
                   this.#accessibleNodeCondition(
                     edges.srcType,
                     edges.srcId,
-                    workspaceId,
+                    organizationId,
                     viewerUserId,
                   ),
                 ),
@@ -4982,7 +4982,7 @@ export class DrizzleGraphStore {
       })),
     );
     const accessible = await this.#loadAccessibleNodes(
-      workspaceId,
+      organizationId,
       viewerUserId,
       [...participantReferences, ...evidenceReferences],
       {
@@ -5046,15 +5046,15 @@ export class DrizzleGraphStore {
    * caller makes; this only logs which verb the user chose, for signal-status
    * bookkeeping (`signals.status` is left to a later pass to auto-derive from
    * this, not touched here — out of scope, see BUGS.md if that gap needs filing). */
-  async recordSignalAction(input: { workspaceId: string; signalId: string; userId: string; verb: "act" | "dismiss" | "save" }): Promise<void> {
-    if (!this.#hasRlsContext(input.workspaceId, input.userId)) {
-      return this.#withRlsContext(input.workspaceId, input.userId, (store) =>
+  async recordSignalAction(input: { organizationId: string; signalId: string; userId: string; verb: "act" | "dismiss" | "save" }): Promise<void> {
+    if (!this.#hasRlsContext(input.organizationId, input.userId)) {
+      return this.#withRlsContext(input.organizationId, input.userId, (store) =>
         store.recordSignalAction(input),
       );
     }
     await this.#db.insert(signalActions).values({
       id: randomUUID(),
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       signalId: input.signalId,
       userId: input.userId,
       verb: input.verb,

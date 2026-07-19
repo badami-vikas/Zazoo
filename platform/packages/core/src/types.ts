@@ -2,7 +2,7 @@
  * Core domain types for the Universal Action Pipeline.
  *
  * Vocabulary is the brand: Person / Community / Event / Signal. Never Lead /
- * Contact. Legacy Initiative/Touchpoint identifiers remain only while
+ * Contact. Legacy Record/Touchpoint identifiers remain only while
  * their approved vocabulary migrations are incomplete.
  */
 
@@ -26,7 +26,7 @@ export type ResourceType =
   | "community"
   | "relation"
   | "event"
-  | "initiative"
+  | "record"
   | "touchpoint"
   | "automation"
   | "module"
@@ -79,14 +79,14 @@ export interface GrantRule {
   dataScope?: import("./data-scope.js").DataScope;
 }
 
-/** Context for ephemeral grants — minted per Automation/Initiative run, expiring.
+/** Context for ephemeral grants — minted per Automation/Record run, expiring.
  * `child_agent_run` (AGS2) is a bounded delegated Run created by a parent
  * Agent — see child-agent-run.ts. It reuses this same context shape (id =
  * the child run id, runId = the parent run id) purely for ledger/audit
  * attribution; a child run's authority is bounded by construction
  * (`deriveChildAgentRun`'s intersection), not by an ephemeral-grant lookup. */
 export interface RunContext {
-  type: "initiative" | "community" | "automation" | "child_agent_run";
+  type: "record" | "community" | "automation" | "child_agent_run";
   id: string;
   runId?: string;
 }
@@ -97,7 +97,7 @@ export interface RunContext {
  * any agent run knows whether its context is tainted. This is the primitive every
  * other injection defense reads (PI-2 egress gating, PI-3 quarantine).
  *  - `operator`      — authored by the kernel/platform itself (fully trusted).
- *  - `user_content`  — authored by the workspace's own user (trusted).
+ *  - `user_content`  — authored by the organization's own user (trusted).
  *  - `untrusted_external` — anything from outside (email bodies, scraped pages,
  *    screen/AX/clipboard captures). Untrusted by default; this is the safe floor.
  * PI-1 only TAGS and PERSISTS — it does not gate behavior (that is PI-2). */
@@ -105,7 +105,7 @@ export type TrustOrigin = "operator" | "user_content" | "untrusted_external";
 
 /** A mutation request entering the pipeline. */
 export interface ActionRequest {
-  workspaceId: string;
+  organizationId: string;
   actor: Actor;
   onBehalfOf?: OnBehalfOf;
   action: Action;
@@ -225,7 +225,7 @@ export interface LedgerEntry {
   id: string;
   /** Store-assigned append order; database-generated for the persistent ledger. */
   appendSequence?: number;
-  workspaceId: string;
+  organizationId: string;
   actorType: ActorType;
   actorId: string;
   onBehalfOfType?: "user" | "team";
@@ -248,7 +248,7 @@ export interface LedgerEntry {
    * threaded through unchanged when decide() replays this entry as a Proposal's
    * request instead of being silently dropped. */
   dataScope?: import("./data-scope.js").DataScope;
-  /** Original run context (Initiative/Community/Automation + runId) this action ran
+  /** Original run context (Record/Community/Automation + runId) this action ran
    * under — audit completeness; threaded through unchanged on replay. */
   context?: RunContext;
   /** Provenance of the input that drove this action (PI-1) — threaded through
@@ -261,7 +261,7 @@ export interface LedgerEntry {
 /** Bus event emitted after a committed action (drives signals downstream). */
 export interface DomainEvent {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   type: string;
   entityType: ResourceType;
   entityId?: string;

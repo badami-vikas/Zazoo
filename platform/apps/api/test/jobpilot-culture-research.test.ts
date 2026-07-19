@@ -31,7 +31,7 @@ import {
   INTERNAL_STRATEGIST_AGENT,
   LEARNING_AGENT,
   PILOT_USER,
-  PILOT_WORKSPACE,
+  PILOT_ORGANIZATION,
   buildWiring,
   buildInMemoryPorts,
   cancelCultureSourceFetch,
@@ -123,7 +123,7 @@ function registerTestSource(
   const id = `test-fixture-source-${testSourceCounter}`;
   unsafeRegisterTestOnlyCultureSource({
     id,
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     company,
     sourceType,
     sourceLabel: `test_fixture source ${testSourceCounter}`,
@@ -140,7 +140,7 @@ test("cultureResearch.propose: an unknown source id is rejected with zero networ
   try {
     const caller = makeCaller(wiring);
     await assert.rejects(
-      () => caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: ["not-a-real-id"] }),
+      () => caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: ["not-a-real-id"] }),
       /unknown or unauthorized source id/,
     );
   } finally {
@@ -155,7 +155,7 @@ test("cultureResearch.propose: a real source id requested under the wrong compan
     await assert.rejects(
       () =>
         caller.jobpilot.cultureResearch.propose({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           company: "A Totally Different Company",
           sourceIds: ["bcg-careers-interview-process"],
         }),
@@ -172,7 +172,7 @@ test("cultureResearch.propose: requesting more than MAX_CULTURE_SOURCES_PER_RUN 
     const caller = makeCaller(wiring);
     const ids = Array.from({ length: MAX_CULTURE_SOURCES_PER_RUN + 1 }, (_, i) => registerTestSource(`http://127.0.0.1:1/${i}`));
     await assert.rejects(
-      () => caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: ids }),
+      () => caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: ids }),
       /at most \d+ sources/,
     );
   } finally {
@@ -186,7 +186,7 @@ test("cultureResearch.propose: duplicate ids are deduped and do not count twice 
     const caller = makeCaller(wiring);
     const id = registerTestSource("http://127.0.0.1:1/dup");
     const result = await caller.jobpilot.cultureResearch.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       sourceIds: [id, id, id],
     });
@@ -207,7 +207,7 @@ test("cultureResearch.propose: non-permitted source types are skipped and propos
     const googleId = registerTestSource("http://127.0.0.1:1/google", "google_reviews");
 
     const result = await caller.jobpilot.cultureResearch.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       sourceIds: [permittedId, glassdoorId, redditId, googleId],
     });
@@ -219,7 +219,7 @@ test("cultureResearch.propose: non-permitted source types are skipped and propos
 
     const pending = result.pending[0]!;
     const status = await caller.jobpilot.cultureResearch.status({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       proposalId: pending.proposalId,
       childRunId: pending.childRunId,
     });
@@ -235,10 +235,10 @@ test("cultureResearch.materialize: refuses to fetch an unapproved proposal", asy
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource("http://127.0.0.1:1/never-decided");
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await assert.rejects(
-      () => caller.jobpilot.cultureResearch.materialize({ workspaceId: PILOT_WORKSPACE, proposalId, childRunId }),
+      () => caller.jobpilot.cultureResearch.materialize({ organizationId: PILOT_ORGANIZATION, proposalId, childRunId }),
       /not in an approved state/,
     );
   } finally {
@@ -251,11 +251,11 @@ test("cultureResearch.materialize: refuses to fetch a vetoed proposal", async ()
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource("http://127.0.0.1:1/vetoed");
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "veto" });
     await assert.rejects(
-      () => caller.jobpilot.cultureResearch.materialize({ workspaceId: PILOT_WORKSPACE, proposalId, childRunId }),
+      () => caller.jobpilot.cultureResearch.materialize({ organizationId: PILOT_ORGANIZATION, proposalId, childRunId }),
       /not in an approved state/,
     );
   } finally {
@@ -268,11 +268,11 @@ test("cultureResearch.materialize via the router still hits the real SSRF guard"
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource("http://127.0.0.1:1/blocked-by-real-guard");
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
     await assert.rejects(
-      () => caller.jobpilot.cultureResearch.materialize({ workspaceId: PILOT_WORKSPACE, proposalId, childRunId }),
+      () => caller.jobpilot.cultureResearch.materialize({ organizationId: PILOT_ORGANIZATION, proposalId, childRunId }),
       /SSRF blocked/,
     );
   } finally {
@@ -291,22 +291,22 @@ test("materializeCultureSourceFetch: approved fetch succeeds exactly once and is
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
-    const record1 = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const record1 = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     assert.equal(record1.status, "fetched");
     assert.ok(record1.artifact?.content.includes("Culture, Values, And Inclusion"));
     assert.equal(typeof record1.artifact?.contentHash, "string");
     assert.equal(requestCount, 1);
 
-    const record2 = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const record2 = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     assert.equal(record2.status, "fetched");
     assert.equal(record2.artifact?.contentHash, record1.artifact?.contentHash);
     assert.equal(requestCount, 1, "a second materialize call must not refetch");
 
-    const childRun = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    const childRun = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId);
     assert.equal(childRun?.status, "completed");
   } finally {
     await server.close();
@@ -319,9 +319,9 @@ test("culture fetch intent records survive a fresh DurableCultureFetchStore wrap
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource("http://127.0.0.1:1/durable");
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
-    const original = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    const original = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.ok(original, "first store instance should persist the durable intent record");
 
     // A SECOND, independent `DurableCultureFetchStore` instance wrapping the
@@ -330,7 +330,7 @@ test("culture fetch intent records survive a fresh DurableCultureFetchStore wrap
     // durable `memoryStore` port itself, not in any in-process cache private
     // to the first store instance.
     const independentStore = new DurableCultureFetchStore(wiring.memoryStore);
-    const reloaded = await independentStore.get(PILOT_WORKSPACE, childRunId);
+    const reloaded = await independentStore.get(PILOT_ORGANIZATION, childRunId);
     assert.deepEqual(reloaded, original);
   } finally {
     await wiring.close();
@@ -344,7 +344,7 @@ test("materializeCultureSourceFetch fails closed on a syntactically valid but no
       () =>
         materializeCultureSourceFetch(
           cultureFetchDeps(wiring),
-          PILOT_WORKSPACE,
+          PILOT_ORGANIZATION,
           NONEXISTENT_PROPOSAL_ID,
           NONEXISTENT_CHILD_RUN_ID,
           makeRun(),
@@ -364,7 +364,7 @@ test("cancelCultureSourceFetch fails closed on a syntactically valid but nonexis
       () =>
         cancelCultureSourceFetch(
           cultureFetchDeps(wiring),
-          PILOT_WORKSPACE,
+          PILOT_ORGANIZATION,
           NONEXISTENT_PROPOSAL_ID,
           NONEXISTENT_CHILD_RUN_ID,
           { type: "user", id: PILOT_USER },
@@ -387,13 +387,13 @@ test("cancelCultureSourceFetch before any fetch guarantees materialize can never
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
     const cancelled = await cancelCultureSourceFetch(
       cultureFetchDeps(wiring),
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposalId,
       childRunId,
       { type: "user", id: PILOT_USER },
@@ -401,10 +401,10 @@ test("cancelCultureSourceFetch before any fetch guarantees materialize can never
     );
     assert.equal(cancelled.status, "cancelled");
 
-    const afterCancel = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const afterCancel = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     assert.equal(afterCancel.status, "cancelled");
     assert.equal(requestCount, 0);
-    const childRun = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    const childRun = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId);
     assert.equal(childRun?.status, "cancelled");
   } finally {
     await server.close();
@@ -425,16 +425,16 @@ test("cancelCultureSourceFetch aborts a real in-flight fetch and leaves the fina
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
-    const materializePromise = materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const materializePromise = materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     await new Promise((resolve) => setTimeout(resolve, 60));
 
     const cancelled = await cancelCultureSourceFetch(
       cultureFetchDeps(wiring),
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposalId,
       childRunId,
       { type: "user", id: PILOT_USER },
@@ -454,9 +454,9 @@ test("cancelCultureSourceFetch aborts a real in-flight fetch and leaves the fina
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(serverSawClose, true, "the server should observe the aborted connection actually close");
 
-    const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.equal(finalRecord?.status, "cancelled");
-    const childRun = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    const childRun = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId);
     assert.equal(childRun?.status, "cancelled");
   } finally {
     await server.close();
@@ -477,31 +477,31 @@ test("agentOrchestration.childRun.cancel (the GENERIC child-Run cancel endpoint)
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
-    const materializePromise = materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const materializePromise = materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     await new Promise((resolve) => setTimeout(resolve, 60));
 
     // The GENERIC endpoint — a Human/Governance actor cancelling via
     // `agentOrchestration.childRun.cancel` has no idea this child Run
-    // happens to be a culture-research fetch, and supplies only workspaceId
+    // happens to be a culture-research fetch, and supplies only organizationId
     // + childRunId (no proposalId at all, unlike `jobpilot.cultureResearch.
     // cancel`). This must still reach the SAME durable cancellation
     // mechanism (abort the real socket, set the durable `cancelRequested`
     // flag) rather than just flipping the child Run's own status.
-    const cancelResult = await caller.agentOrchestration.childRun.cancel({ workspaceId: PILOT_WORKSPACE, childRunId });
+    const cancelResult = await caller.agentOrchestration.childRun.cancel({ organizationId: PILOT_ORGANIZATION, childRunId });
 
     const materialized = await materializePromise;
     assert.equal(materialized.status, "cancelled", "the underlying fetch must actually be stopped, not left running while the child Run says cancelled");
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(serverSawClose, true, "the real in-flight socket must actually be aborted by the GENERIC cancel endpoint, not merely a status flip");
 
-    const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.equal(finalRecord?.status, "cancelled", "the culture-fetch intent record itself must converge to cancelled, never left 'fetching' behind a cancelled child Run");
     void cancelResult; // the immediate return only reflects the request-time snapshot (a live lease was held) — the AWAITED materializePromise above is what proves the real, final converged outcome.
-    const childRun = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    const childRun = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId);
     assert.equal(childRun?.status, "cancelled");
   } finally {
     await server.close();
@@ -522,13 +522,13 @@ test("distributed cancellation: a SECOND, independent instance (own DurableCultu
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
     // Instance A holds the live socket via ITS OWN deps/abortControllers map.
     const instanceADeps = cultureFetchDeps(wiring);
-    const materializePromise = materializeCultureSourceFetch(instanceADeps, PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const materializePromise = materializeCultureSourceFetch(instanceADeps, PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     await new Promise((resolve) => setTimeout(resolve, 60));
     assert.ok(instanceADeps.abortControllers.has(childRunId), "instance A should have registered a live AbortController for this childRunId");
 
@@ -538,7 +538,7 @@ test("distributed cancellation: a SECOND, independent instance (own DurableCultu
     // `cancelRequested` flag, which instance A's poll loop must notice.
     const instanceBDeps = otherInstanceDeps(wiring);
     assert.equal(instanceBDeps.abortControllers.has(childRunId), false, "instance B must start with genuinely no knowledge of this fetch");
-    const cancelled = await cancelCultureSourceFetch(instanceBDeps, PILOT_WORKSPACE, proposalId, childRunId, { type: "user", id: PILOT_USER }, makeRun());
+    const cancelled = await cancelCultureSourceFetch(instanceBDeps, PILOT_ORGANIZATION, proposalId, childRunId, { type: "user", id: PILOT_USER }, makeRun());
     assert.equal(cancelled.cancelRequested, true);
 
     const materialized = await materializePromise;
@@ -546,7 +546,7 @@ test("distributed cancellation: a SECOND, independent instance (own DurableCultu
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(serverSawClose, true, "instance A's poll loop must have aborted its own live socket in response to instance B's durable flag");
 
-    const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.equal(finalRecord?.status, "cancelled");
   } finally {
     await server.close();
@@ -559,21 +559,21 @@ test("lease/recovery: an orphaned 'fetching' lease (the process that acquired it
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource("http://127.0.0.1:1/lease-recovery");
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { childRunId } = proposed.pending[0]!;
 
     // Simulate instance A acquiring the lease and then crashing — it never
     // transitions the record to any terminal status, so `leaseOwner`/
     // `leaseExpiresAt` are left dangling exactly as a real crash would leave them.
     const nowA = new Date().toISOString();
-    const leased = await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "instance-a-worker", nowA);
+    const leased = await wiring.cultureFetchStore.acquireLease(PILOT_ORGANIZATION, childRunId, "instance-a-worker", nowA);
     assert.equal(leased.status, "fetching");
     assert.equal(leased.attempt, 1);
 
     // While the lease is still live (before its expiry), a second attempt
     // must be rejected — the fetch is legitimately in progress elsewhere.
     await assert.rejects(
-      () => wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "instance-b-worker", nowA),
+      () => wiring.cultureFetchStore.acquireLease(PILOT_ORGANIZATION, childRunId, "instance-b-worker", nowA),
       /held by a live lease/,
     );
 
@@ -583,14 +583,14 @@ test("lease/recovery: an orphaned 'fetching' lease (the process that acquired it
     // as a real clock advancing past a crashed worker's lease would.
     const independentStore = new DurableCultureFetchStore(wiring.memoryStore);
     const farFuture = new Date(Date.parse(nowA) + 10 * 60_000).toISOString();
-    const reclaimed = await independentStore.acquireLease(PILOT_WORKSPACE, childRunId, "instance-b-worker", farFuture);
+    const reclaimed = await independentStore.acquireLease(PILOT_ORGANIZATION, childRunId, "instance-b-worker", farFuture);
     assert.equal(reclaimed.status, "fetching");
     assert.equal(reclaimed.leaseOwner, "instance-b-worker");
     assert.equal(reclaimed.attempt, 2, "a reclaim increments attempt for audit/diagnostics");
 
     // The now-stale instance A can no longer act as if it still holds the lease.
     await assert.rejects(
-      () => wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "instance-a-worker", farFuture),
+      () => wiring.cultureFetchStore.acquireLease(PILOT_ORGANIZATION, childRunId, "instance-a-worker", farFuture),
       /held by a live lease/,
     );
   } finally {
@@ -603,11 +603,11 @@ test("lease/recovery: requestCancel on an ORPHANED (expired) lease transitions d
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource("http://127.0.0.1:1/lease-recovery-cancel");
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { childRunId } = proposed.pending[0]!;
 
     const nowA = new Date().toISOString();
-    await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "instance-a-worker", nowA);
+    await wiring.cultureFetchStore.acquireLease(PILOT_ORGANIZATION, childRunId, "instance-a-worker", nowA);
 
     // Cancel is requested well AFTER the lease's TTL has elapsed — exactly
     // the state a real clock reaches once the crashed worker's lease has
@@ -615,7 +615,7 @@ test("lease/recovery: requestCancel on an ORPHANED (expired) lease transitions d
     // live) and transition straight to "cancelled" rather than merely
     // setting `cancelRequested` and waiting on a worker that will never poll.
     const farFuture = new Date(Date.parse(nowA) + 10 * 60_000).toISOString();
-    const cancelled = await wiring.cultureFetchStore.requestCancel(PILOT_WORKSPACE, childRunId, farFuture);
+    const cancelled = await wiring.cultureFetchStore.requestCancel(PILOT_ORGANIZATION, childRunId, farFuture);
     assert.equal(cancelled.status, "cancelled");
     assert.equal(cancelled.cancelRequested, true);
   } finally {
@@ -628,16 +628,16 @@ test("lease-fenced terminal CAS: a STALE worker (its lease already reclaimed by 
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource("http://127.0.0.1:1/lease-fence");
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { childRunId } = proposed.pending[0]!;
 
     const t0 = new Date().toISOString();
-    const staleWorker = await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "worker-a-stale", t0);
+    const staleWorker = await wiring.cultureFetchStore.acquireLease(PILOT_ORGANIZATION, childRunId, "worker-a-stale", t0);
     assert.equal(staleWorker.attempt, 1);
 
     // Worker A's lease expires; a LATER, legitimate attempt reclaims it.
     const farFuture = new Date(Date.parse(t0) + 60_000).toISOString();
-    const reclaimingWorker = await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "worker-b-current", farFuture);
+    const reclaimingWorker = await wiring.cultureFetchStore.acquireLease(PILOT_ORGANIZATION, childRunId, "worker-b-current", farFuture);
     assert.equal(reclaimingWorker.attempt, 2);
     assert.equal(reclaimingWorker.leaseOwner, "worker-b-current");
 
@@ -650,7 +650,7 @@ test("lease-fenced terminal CAS: a STALE worker (its lease already reclaimed by 
     await assert.rejects(
       () =>
         wiring.cultureFetchStore.transition(
-          PILOT_WORKSPACE,
+          PILOT_ORGANIZATION,
           childRunId,
           ["fetching"],
           (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/lease-fence", content: "stale content", contentHash: "deadbeef", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
@@ -664,7 +664,7 @@ test("lease-fenced terminal CAS: a STALE worker (its lease already reclaimed by 
 
     // The record must be COMPLETELY untouched by worker A's refused write —
     // still "fetching", still owned by worker B.
-    const afterRefusal = await wiring.cultureFetchStore.get(PILOT_WORKSPACE, childRunId);
+    const afterRefusal = await wiring.cultureFetchStore.get(PILOT_ORGANIZATION, childRunId);
     assert.equal(afterRefusal?.status, "fetching");
     assert.equal(afterRefusal?.leaseOwner, "worker-b-current");
     assert.equal(afterRefusal?.attempt, 2);
@@ -672,7 +672,7 @@ test("lease-fenced terminal CAS: a STALE worker (its lease already reclaimed by 
     // Worker B — the legitimate current holder — CAN write the terminal
     // outcome using its OWN correct fence.
     const wonByB = await wiring.cultureFetchStore.transition(
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       childRunId,
       ["fetching"],
       (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/lease-fence", content: "real content", contentHash: "cafebabe", retrievedAt: farFuture, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
@@ -690,11 +690,11 @@ test("cancellation-fenced CAS: a durably-recorded cancelRequested refuses a 'fet
   try {
     const id = registerTestSource("http://127.0.0.1:1/cancel-race");
     const caller = makeCaller(wiring);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { childRunId } = proposed.pending[0]!;
 
     const t0 = new Date().toISOString();
-    const lease = await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "worker-x", t0);
+    const lease = await wiring.cultureFetchStore.acquireLease(PILOT_ORGANIZATION, childRunId, "worker-x", t0);
     assert.equal(lease.attempt, 1);
 
     // A cancel lands durably WHILE worker-x still legitimately holds the
@@ -703,7 +703,7 @@ test("cancellation-fenced CAS: a durably-recorded cancelRequested refuses a 'fet
     // fenced "fetched" write it is about to attempt. `requestCancel` on a
     // still-live lease only sets the flag (does not itself transition
     // status), matching the real distributed-cancellation code path.
-    const afterCancelRequest = await wiring.cultureFetchStore.requestCancel(PILOT_WORKSPACE, childRunId, t0);
+    const afterCancelRequest = await wiring.cultureFetchStore.requestCancel(PILOT_ORGANIZATION, childRunId, t0);
     assert.equal(afterCancelRequest.status, "fetching");
     assert.equal(afterCancelRequest.cancelRequested, true);
 
@@ -715,7 +715,7 @@ test("cancellation-fenced CAS: a durably-recorded cancelRequested refuses a 'fet
     await assert.rejects(
       () =>
         wiring.cultureFetchStore.transition(
-          PILOT_WORKSPACE,
+          PILOT_ORGANIZATION,
           childRunId,
           ["fetching"],
           (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/cancel-race", content: "raced content", contentHash: "deadbeef", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: t0 } }),
@@ -732,14 +732,14 @@ test("cancellation-fenced CAS: a durably-recorded cancelRequested refuses a 'fet
     // for worker-x (the only process that still legitimately owns this
     // lease) to resolve it to "cancelled" next, exactly as
     // `materializeCultureSourceFetch` does in the real self-resolve path.
-    const afterRefusal = await wiring.cultureFetchStore.get(PILOT_WORKSPACE, childRunId);
+    const afterRefusal = await wiring.cultureFetchStore.get(PILOT_ORGANIZATION, childRunId);
     assert.equal(afterRefusal?.status, "fetching");
     assert.equal(afterRefusal?.cancelRequested, true);
     assert.equal(afterRefusal?.leaseOwner, "worker-x");
 
     // worker-x can still legitimately resolve this to "cancelled" (no
     // cancellation-race guard needed on a write TO cancelled itself).
-    const resolved = await wiring.cultureFetchStore.transition(PILOT_WORKSPACE, childRunId, ["fetching"], (r) => ({ ...r, status: "cancelled" }), {
+    const resolved = await wiring.cultureFetchStore.transition(PILOT_ORGANIZATION, childRunId, ["fetching"], (r) => ({ ...r, status: "cancelled" }), {
       leaseOwner: lease.leaseOwner!,
       attempt: lease.attempt,
     });
@@ -758,7 +758,7 @@ test("tagged transition ownership: materializeCultureSourceFetch never mutates t
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
@@ -766,33 +766,33 @@ test("tagged transition ownership: materializeCultureSourceFetch never mutates t
     // legitimate attempt reclaims it (attempt 2) — the child Run itself is
     // still "running" throughout, owned by nobody's completed write yet.
     const t0 = new Date().toISOString();
-    const stale = await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "worker-stale", t0);
+    const stale = await wiring.cultureFetchStore.acquireLease(PILOT_ORGANIZATION, childRunId, "worker-stale", t0);
     assert.equal(stale.attempt, 1);
     const farFuture = new Date(Date.parse(t0) + 60_000).toISOString();
-    await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "worker-current", farFuture);
+    await wiring.cultureFetchStore.acquireLease(PILOT_ORGANIZATION, childRunId, "worker-current", farFuture);
 
-    const beforeRunStatus = (await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId))!.status;
+    const beforeRunStatus = (await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId))!.status;
     assert.equal(beforeRunStatus, "running");
 
     // The stale worker's own fenced write is refused (its lease was
     // reclaimed) — `attemptFencedTerminalTransition` must report
     // `committed: false` and the calling code (materialize's real
     // production logic, exercised directly here since the store method is
-    // package-private to the wiring module) must NEVER touch the child
+    // module-private to the wiring module) must NEVER touch the child
     // Run's lifecycle on a refusal. We assert the invariant at the level
     // this test can directly observe: the store-level refusal itself, and
     // that the child Run remains exactly as it was — untouched by anyone
     // claiming a win they did not actually get.
     await assert.rejects(() =>
       wiring.cultureFetchStore.transition(
-        PILOT_WORKSPACE,
+        PILOT_ORGANIZATION,
         childRunId,
         ["fetching"],
         (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: server.url, content: "stale worker's illegitimate win", contentHash: "badc0de", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
         { leaseOwner: stale.leaseOwner!, attempt: stale.attempt },
       ),
     );
-    const afterRefusal = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    const afterRefusal = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId);
     assert.equal(afterRefusal?.status, "running", "a refused fenced write must never be allowed to leak into the child Run's own lifecycle");
 
     await server.close();
@@ -813,13 +813,13 @@ test("action.decide: source proposal prebinding — a forged/out-of-band culture
     const forgedChildRunId = randomUUID();
     const forged = await wiring.ledger.append({
       id: randomUUID(),
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "agent",
       actorId: LEARNING_AGENT,
       action: "read",
       resourceType: "external:fetch",
       context: { type: "child_agent_run", id: forgedChildRunId },
-      inputs: { sourceId: "forged-source", workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY },
+      inputs: { sourceId: "forged-source", organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY },
       userDecision: null,
       policyResults: [],
       createdAt: new Date().toISOString(),
@@ -838,7 +838,7 @@ test("action.decide: source proposal prebinding — a forged/out-of-band culture
     // with NO matching synthesis-pointer binding — same fail-closed backstop.
     const forgedSynth = await wiring.ledger.append({
       id: randomUUID(),
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "agent",
       actorId: INTERNAL_STRATEGIST_AGENT,
       action: "write",
@@ -862,7 +862,7 @@ test("action.decide: source proposal prebinding — a forged/out-of-band culture
     // must still decide normally (the backstop does not false-positive on
     // legitimate proposals).
     const id = registerTestSource("http://127.0.0.1:1/prebinding-control");
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId } = proposed.pending[0]!;
     const decided = await caller.action.decide({ proposalId, decision: "approve" });
     assert.equal(decided.status, "applied");
@@ -880,7 +880,7 @@ test("idempotent budget reservation: a crash AFTER budget was reserved (but befo
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
@@ -890,17 +890,17 @@ test("idempotent budget reservation: a crash AFTER budget was reserved (but befo
     // maxCalls:1 budget), then the process dies before ever reaching a
     // terminal fetchStore transition.
     const t0 = new Date().toISOString();
-    await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "crashed-worker", t0);
+    await wiring.cultureFetchStore.acquireLease(PILOT_ORGANIZATION, childRunId, "crashed-worker", t0);
     const reserveViolation = await reserveChildRunAction(
       wiring.childAgentRuns,
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       childRunId,
       { action: "read", resourceType: "external:fetch", skill: "jobpilot.researchCultureSource", dataScope: "public" },
       1,
       t0,
     );
     assert.equal(reserveViolation, null, "the simulated crashed worker's own reservation must have succeeded");
-    const childRunAfterCrash = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    const childRunAfterCrash = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId);
     assert.equal(childRunAfterCrash?.callsUsed, 1, "budget was consumed by the crashed attempt");
 
     // A REAL recovery attempt now runs `materializeCultureSourceFetch` with
@@ -910,12 +910,12 @@ test("idempotent budget reservation: a crash AFTER budget was reserved (but befo
     // closes) and WITHOUT double-charging the budget.
     const farFutureClock = new FixedClock(new Date(Date.parse(t0) + 60_000).toISOString());
     const recoveredCtx: RunCtx = { clock: farFutureClock, rng: new SeededRng(2), ids: new UuidGen(farFutureClock, new SeededRng(2)) };
-    const recovered = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, recoveredCtx, allowLoopback);
+    const recovered = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, recoveredCtx, allowLoopback);
 
     assert.equal(recovered.status, "fetched", "the reclaiming attempt must complete the real fetch despite the crashed attempt's earlier reservation");
     assert.equal(recovered.artifact?.content, "Real content after crash recovery.");
 
-    const childRunAfterRecovery = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    const childRunAfterRecovery = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId);
     assert.equal(childRunAfterRecovery?.callsUsed, 1, "budget must NEVER be double-charged — still exactly 1 call used, not 2");
   } finally {
     await server.close();
@@ -934,46 +934,46 @@ test("intent/child terminal reconciliation: a fetched intent whose child Run is 
 
     // --- Case 1: fetched intent, child Run still "running" ---
     const id1 = registerTestSource(server.url);
-    const proposed1 = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id1] });
+    const proposed1 = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id1] });
     const { proposalId: proposalId1, childRunId: childRunId1 } = proposed1.pending[0]!;
     await caller.action.decide({ proposalId: proposalId1, decision: "approve" });
-    await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId1, childRunId1, makeRun(1), allowLoopback);
+    await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId1, childRunId1, makeRun(1), allowLoopback);
 
     // Simulate the crash window: the intent is durably "fetched" (already
     // proven above), but roll the child Run BACK to "running" directly —
     // exactly the shape of state a crash between the two separate writes
     // would leave (the fetch itself proves the intent write happened; the
     // child-Run write is what we're pretending never landed).
-    const childRun1 = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId1);
+    const childRun1 = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId1);
     assert.equal(childRun1?.status, "completed", "sanity: the normal happy path already completes the child Run");
     // Force it back to "running" by writing directly into the in-memory
     // store's backing map (test-only access) — the durable INTENT stays
     // "fetched" throughout, simulating the inconsistency this fix targets.
     (wiring.childAgentRuns as InMemoryChildAgentRunStore).runs.set(childRunId1, { ...childRun1!, status: "running" });
-    const beforeRepair = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId1);
+    const beforeRepair = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId1);
     assert.equal(beforeRepair?.status, "running", "sanity: the simulated inconsistency is in place");
 
     // The NEXT status read (the router's own polled query, exercised here
     // directly against the reconciliation helper it calls) must self-repair.
-    const intent1 = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId1, childRunId1);
-    await reconcileIntentChildConsistency(wiring, PILOT_WORKSPACE, intent1!, makeRun(2));
-    const repaired1 = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId1);
+    const intent1 = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId1, childRunId1);
+    await reconcileIntentChildConsistency(wiring, PILOT_ORGANIZATION, intent1!, makeRun(2));
+    const repaired1 = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId1);
     assert.equal(repaired1?.status, "completed", "a fetched intent must self-repair its child Run back to completed");
 
     // --- Case 2: failed intent, child Run left "running" ---
     const id2 = registerTestSource("http://127.0.0.1:1/reconcile-fail");
-    const proposed2 = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id2] });
+    const proposed2 = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id2] });
     const { proposalId: proposalId2, childRunId: childRunId2 } = proposed2.pending[0]!;
     await caller.action.decide({ proposalId: proposalId2, decision: "approve" });
-    await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId2, childRunId2, makeRun(3), allowLoopback).catch(() => {});
-    const intentAfterFail = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId2, childRunId2);
+    await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId2, childRunId2, makeRun(3), allowLoopback).catch(() => {});
+    const intentAfterFail = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId2, childRunId2);
     assert.equal(intentAfterFail?.status, "failed", "sanity: the unreachable-host fetch really fails");
-    const childRun2 = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId2);
+    const childRun2 = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId2);
     assert.equal(childRun2?.status, "failed", "sanity: the normal happy path already fails the child Run too");
     (wiring.childAgentRuns as InMemoryChildAgentRunStore).runs.set(childRunId2, { ...childRun2!, status: "running" });
 
-    await reconcileIntentChildConsistency(wiring, PILOT_WORKSPACE, intentAfterFail!, makeRun(4));
-    const repaired2 = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId2);
+    await reconcileIntentChildConsistency(wiring, PILOT_ORGANIZATION, intentAfterFail!, makeRun(4));
+    const repaired2 = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId2);
     assert.equal(repaired2?.status, "failed", "a failed intent must self-repair its child Run back to failed");
   } finally {
     await server.close();
@@ -990,10 +990,10 @@ test("artifact expiry: an EXPIRED artifact's raw content is purged (never served
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
-    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     assert.equal(fetched.status, "fetched");
     assert.notEqual(fetched.artifact?.content, "");
 
@@ -1001,26 +1001,26 @@ test("artifact expiry: an EXPIRED artifact's raw content is purged (never served
     // record's own `expiresAt` directly into the past — this is the exact
     // durable field `isArtifactExpired` reads; no other mechanism exists to
     // "wait" for expiry in a test without a real 24h delay.
-    const record = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    const record = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.ok(record?.artifact);
     const backdated = { ...record!, artifact: { ...record!.artifact!, expiresAt: new Date(Date.now() - 1000).toISOString() } };
     // Overwrite the durable record directly via the underlying memoryStore
     // (bypassing lease/status checks — those aren't the concern of THIS
     // test — to simulate "real elapsed time" without a real 24h wait).
-    const rows = await wiring.memoryStore.retrieve({ subjectElementId: childRunId, includeSuperseded: false, limit: 1 }, { workspaceId: PILOT_WORKSPACE });
+    const rows = await wiring.memoryStore.retrieve({ subjectRecordId: childRunId, includeSuperseded: false, limit: 1 }, { organizationId: PILOT_ORGANIZATION });
     const row = rows[0]!;
     await wiring.memoryStore.compareAndSupersede(row.id, { ...row, id: randomUUID(), content: JSON.stringify(backdated) });
 
-    const beforePurge = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    const beforePurge = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.notEqual(beforePurge?.artifact?.content, "", "sanity: content is still present before any purge-triggering read");
 
     // The router's own `status` query is what triggers the purge on read.
-    const polled = await caller.jobpilot.cultureResearch.status({ workspaceId: PILOT_WORKSPACE, proposalId, childRunId });
+    const polled = await caller.jobpilot.cultureResearch.status({ organizationId: PILOT_ORGANIZATION, proposalId, childRunId });
     assert.equal(polled.artifact?.content, "", "expired content must be purged — never served");
     assert.equal(polled.artifact?.contentHash, fetched.artifact!.contentHash, "citation metadata (hash) must be preserved even after content purge");
     assert.equal(polled.artifact?.sourceUrl, fetched.artifact!.sourceUrl, "citation metadata (URL) must be preserved even after content purge");
 
-    const afterPurge = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    const afterPurge = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.equal(afterPurge?.artifact?.content, "", "the purge must be DURABLE, not merely reflected in the one response");
   } finally {
     await server.close();
@@ -1038,18 +1038,18 @@ test("artifact expiry: synthesize treats an EXPIRED artifact as NOT fetched — 
     const caller = makeCaller(wiring);
     const expiringId = registerTestSource(server.url);
     const freshId = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [expiringId, freshId] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [expiringId, freshId] });
     const expiringPending = proposed.pending.find((p) => p.sourceId === expiringId)!;
     const freshPending = proposed.pending.find((p) => p.sourceId === freshId)!;
     await caller.action.decide({ proposalId: expiringPending.proposalId, decision: "approve" });
     await caller.action.decide({ proposalId: freshPending.proposalId, decision: "approve" });
-    const expiringFetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, expiringPending.proposalId, expiringPending.childRunId, makeRun(1), allowLoopback);
-    const freshFetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, freshPending.proposalId, freshPending.childRunId, makeRun(2), allowLoopback);
+    const expiringFetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, expiringPending.proposalId, expiringPending.childRunId, makeRun(1), allowLoopback);
+    const freshFetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, freshPending.proposalId, freshPending.childRunId, makeRun(2), allowLoopback);
     assert.equal(expiringFetched.status, "fetched");
     assert.equal(freshFetched.status, "fetched");
 
     // Backdate ONLY the first source's expiresAt into the past.
-    const rows = await wiring.memoryStore.retrieve({ subjectElementId: expiringPending.childRunId, includeSuperseded: false, limit: 1 }, { workspaceId: PILOT_WORKSPACE });
+    const rows = await wiring.memoryStore.retrieve({ subjectRecordId: expiringPending.childRunId, includeSuperseded: false, limit: 1 }, { organizationId: PILOT_ORGANIZATION });
     const row = rows[0]!;
     const record = JSON.parse(row.content) as typeof expiringFetched;
     const backdated = { ...record, artifact: { ...record.artifact!, expiresAt: new Date(Date.now() - 1000).toISOString() } };
@@ -1063,7 +1063,7 @@ test("artifact expiry: synthesize treats an EXPIRED artifact as NOT fetched — 
     await assert.rejects(
       () =>
         caller.jobpilot.cultureResearch.synthesize({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           company: TEST_COMPANY,
           parentRunId: proposed.parentRunId,
           claims: [
@@ -1077,7 +1077,7 @@ test("artifact expiry: synthesize treats an EXPIRED artifact as NOT fetched — 
     // Proof that the EXPIRED source specifically is what's excluded: a
     // batch citing ONLY the fresh source succeeds normally.
     const onlyFresh = await caller.jobpilot.cultureResearch.synthesize({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
       claims: [{ id: "claim-fresh-only", claimType: "fact", sourceId: freshId, quote: "also transparency", contentHash: freshFetched.artifact!.contentHash }],
@@ -1101,7 +1101,7 @@ test("cancel landing during the reservation window (before the AbortController i
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
@@ -1119,9 +1119,9 @@ test("cancel landing during the reservation window (before the AbortController i
     const delayedChildAgentRuns: typeof wiring.childAgentRuns = new Proxy(wiring.childAgentRuns, {
       get(target, prop, receiver) {
         if (prop === "get") {
-          return async (workspaceId: string, id: string) => {
+          return async (organizationId: string, id: string) => {
             await new Promise((resolve) => setTimeout(resolve, 80));
-            return target.get(workspaceId, id);
+            return target.get(organizationId, id);
           };
         }
         // Bind every other forwarded method to the REAL target — a Proxy's
@@ -1134,7 +1134,7 @@ test("cancel landing during the reservation window (before the AbortController i
 
     const materializePromise = materializeCultureSourceFetch(
       { childAgentRuns: delayedChildAgentRuns, ledger: wiring.ledger, fetchStore: wiring.cultureFetchStore, abortControllers: wiring.cultureFetchAbortControllers },
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposalId,
       childRunId,
       makeRun(),
@@ -1146,7 +1146,7 @@ test("cancel landing during the reservation window (before the AbortController i
     await new Promise((resolve) => setTimeout(resolve, 10));
     const cancelled = await cancelCultureSourceFetch(
       cultureFetchDeps(wiring),
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposalId,
       childRunId,
       { type: "user", id: PILOT_USER },
@@ -1164,7 +1164,7 @@ test("cancel landing during the reservation window (before the AbortController i
     await new Promise((resolve) => setTimeout(resolve, 150));
     assert.equal(serverGotFullRequest, false, "the real network fetch must never complete once cancel has landed, even during the reservation window");
 
-    const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.equal(finalRecord?.status, "cancelled");
   } finally {
     await server.close();
@@ -1183,7 +1183,7 @@ test("a cancel completing between materialize's reservation success and its pre-
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
@@ -1211,9 +1211,9 @@ test("a cancel completing between materialize's reservation success and its pre-
           // DIRECT `deps.fetchStore.get(...)` pre-flight check — `getByProposal`'s
           // internal `this.get(...)` call is bound to `target` and never
           // passes through this Proxy trap at all.
-          return async (workspaceId: string, id: string) => {
+          return async (organizationId: string, id: string) => {
             await new Promise((resolve) => setTimeout(resolve, 120));
-            return target.get(workspaceId, id);
+            return target.get(organizationId, id);
           };
         }
         const value = Reflect.get(target, prop, receiver);
@@ -1223,7 +1223,7 @@ test("a cancel completing between materialize's reservation success and its pre-
 
     const materializePromise = materializeCultureSourceFetch(
       { childAgentRuns: wiring.childAgentRuns, ledger: wiring.ledger, fetchStore: delayedFetchStore, abortControllers: wiring.cultureFetchAbortControllers },
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposalId,
       childRunId,
       makeRun(),
@@ -1237,7 +1237,7 @@ test("a cancel completing between materialize's reservation success and its pre-
     await new Promise((resolve) => setTimeout(resolve, 40));
     const cancelled = await cancelCultureSourceFetch(
       cultureFetchDeps(wiring),
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposalId,
       childRunId,
       { type: "user", id: PILOT_USER },
@@ -1270,15 +1270,15 @@ test("cancelCultureSourceFetch on an already fetched record is a no-op that pres
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
-    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     assert.equal(fetched.status, "fetched");
     const cancelled = await cancelCultureSourceFetch(
       cultureFetchDeps(wiring),
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposalId,
       childRunId,
       { type: "user", id: PILOT_USER },
@@ -1304,15 +1304,15 @@ test("materializeCultureSourceFetch rejects a mismatched proposalId/childRunId p
     const caller = makeCaller(wiring);
     const idA = registerTestSource(server.url);
     const idB = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [idA, idB] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [idA, idB] });
     const [a, b] = proposed.pending;
     await caller.action.decide({ proposalId: a!.proposalId, decision: "approve" });
 
     await assert.rejects(
-      () => materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, a!.proposalId, b!.childRunId, makeRun(), allowLoopback),
+      () => materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, a!.proposalId, b!.childRunId, makeRun(), allowLoopback),
       /unknown or mismatched culture-fetch intent/,
     );
-    const childRunB = await wiring.childAgentRuns.get(PILOT_WORKSPACE, b!.childRunId);
+    const childRunB = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, b!.childRunId);
     assert.equal(childRunB?.callsUsed, 0, "the mismatched child Run's budget must be untouched");
   } finally {
     await server.close();
@@ -1330,24 +1330,24 @@ test("materializeCultureSourceFetch: the record-level cancellation re-check inde
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
     await cancelCultureSourceFetch(
       cultureFetchDeps(wiring),
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposalId,
       childRunId,
       { type: "user", id: PILOT_USER },
       makeRun(),
     );
 
-    await wiring.childAgentRuns.updateStatus(PILOT_WORKSPACE, childRunId, "cancelled", "running");
-    assert.equal((await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId))?.status, "running");
-    assert.equal((await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId))?.status, "cancelled");
+    await wiring.childAgentRuns.updateStatus(PILOT_ORGANIZATION, childRunId, "cancelled", "running");
+    assert.equal((await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId))?.status, "running");
+    assert.equal((await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId))?.status, "cancelled");
 
-    const result = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const result = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     assert.equal(result.status, "cancelled");
     assert.equal(requestCount, 0, "no fetch should ever have been attempted");
   } finally {
@@ -1367,14 +1367,14 @@ test("cancelCultureSourceFetch rejects a mismatched proposalId/childRunId pair i
     const caller = makeCaller(wiring);
     const idA = registerTestSource(server.url);
     const idB = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [idA, idB] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [idA, idB] });
     const [a, b] = proposed.pending;
 
     await assert.rejects(
       () =>
         cancelCultureSourceFetch(
           cultureFetchDeps(wiring),
-          PILOT_WORKSPACE,
+          PILOT_ORGANIZATION,
           a!.proposalId,
           b!.childRunId,
           { type: "user", id: PILOT_USER },
@@ -1382,7 +1382,7 @@ test("cancelCultureSourceFetch rejects a mismatched proposalId/childRunId pair i
         ),
       /unknown or mismatched culture-fetch intent/,
     );
-    const childRunB = await wiring.childAgentRuns.get(PILOT_WORKSPACE, b!.childRunId);
+    const childRunB = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, b!.childRunId);
     assert.equal(childRunB?.status, "running", "the unrelated child Run must remain untouched");
     assert.equal(requestCount, 0);
   } finally {
@@ -1400,17 +1400,17 @@ test("materializeCultureSourceFetch rejects a non-text content-type response and
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
     await assert.rejects(
-      () => materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback),
+      () => materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback),
       /non-text content-type/,
     );
-    const childRun = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    const childRun = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId);
     assert.equal(childRun?.status, "failed");
-    const record = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    const record = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.equal(record?.status, "failed");
   } finally {
     await server.close();
@@ -1424,14 +1424,14 @@ test("cultureResearch.propose: extra client-supplied fields alongside a valid so
     const caller = makeCaller(wiring);
     const glassdoorId = registerTestSource("http://127.0.0.1:1/glassdoor-real", "glassdoor");
     const forged = {
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       sourceIds: [glassdoorId],
       url: "https://careers.bcg.com/official-looking-url",
       sourceType: "company_official_page",
       sourceLabel: "Definitely Not Glassdoor",
     };
-    const result = await caller.jobpilot.cultureResearch.propose(forged as unknown as { workspaceId: string; company: string; sourceIds: string[] });
+    const result = await caller.jobpilot.cultureResearch.propose(forged as unknown as { organizationId: string; company: string; sourceIds: string[] });
     assert.equal(result.pending.length, 0);
     assert.equal(result.skipped.length, 1);
     assert.equal(result.skipped[0]?.sourceType, "glassdoor");
@@ -1444,9 +1444,9 @@ test("action.propose: a Human directly invoking jobpilot.researchCultureSource f
   const wiring = await buildWiring();
   try {
     const caller = makeCaller(wiring);
-    const goal = await caller.agentOrchestration.goal.create({ workspaceId: PILOT_WORKSPACE, type: "jobpilot.culture_research", title: "test_fixture goal" });
+    const goal = await caller.agentOrchestration.goal.create({ organizationId: PILOT_ORGANIZATION, type: "jobpilot.culture_research", title: "test_fixture goal" });
     const task = await caller.agentOrchestration.task.create({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       goalId: goal.id,
       type: "research_culture_source",
       assignedAgentId: LEARNING_AGENT,
@@ -1454,11 +1454,11 @@ test("action.propose: a Human directly invoking jobpilot.researchCultureSource f
     await assert.rejects(
       () =>
         Reflect.apply(caller.action.propose, caller.action, [{
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           actor: { type: "user", id: PILOT_USER, plane: "cloud" },
           action: "read",
           resourceType: "external:fetch",
-          inputs: { sourceId: "bcg-careers-interview-process", workspaceId: PILOT_WORKSPACE, company: "Boston Consulting Group" },
+          inputs: { sourceId: "bcg-careers-interview-process", organizationId: PILOT_ORGANIZATION, company: "Boston Consulting Group" },
           skill: "jobpilot.researchCultureSource",
           goalTaskRef: { goalId: goal.id, taskId: task.id },
         }]),
@@ -1473,9 +1473,9 @@ test("action.propose: a Human directly invoking jobpilot.synthesizeCultureProfil
   const wiring = await buildWiring();
   try {
     const caller = makeCaller(wiring);
-    const goal = await caller.agentOrchestration.goal.create({ workspaceId: PILOT_WORKSPACE, type: "jobpilot.culture_research", title: "test_fixture goal" });
+    const goal = await caller.agentOrchestration.goal.create({ organizationId: PILOT_ORGANIZATION, type: "jobpilot.culture_research", title: "test_fixture goal" });
     const task = await caller.agentOrchestration.task.create({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       goalId: goal.id,
       type: "synthesize_culture_profile",
       assignedAgentId: INTERNAL_STRATEGIST_AGENT,
@@ -1483,7 +1483,7 @@ test("action.propose: a Human directly invoking jobpilot.synthesizeCultureProfil
     await assert.rejects(
       () =>
         Reflect.apply(caller.action.propose, caller.action, [{
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           actor: { type: "user", id: PILOT_USER },
           action: "write",
           resourceType: "signal",
@@ -1507,15 +1507,15 @@ test("cultureResearch.synthesize: a claim whose quote is absent from the fetched
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
-    const record = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const record = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
 
     await assert.rejects(
       () =>
         caller.jobpilot.cultureResearch.synthesize({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           company: TEST_COMPANY,
           parentRunId: proposed.parentRunId,
           claims: [{ id: "bad1", claimType: "fact", sourceId: id, quote: "we guarantee industry-leading pay", contentHash: record.artifact!.contentHash }],
@@ -1537,14 +1537,14 @@ test("cultureResearch.synthesize: a claim with a mutated content hash is rejecte
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
-    await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
 
     await assert.rejects(() =>
       caller.jobpilot.cultureResearch.synthesize({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         company: TEST_COMPANY,
         parentRunId: proposed.parentRunId,
         claims: [{ id: "bad2", claimType: "fact", sourceId: id, quote: "built on trust", contentHash: "stale-forged-hash" }],
@@ -1565,13 +1565,13 @@ test("cultureResearch.synthesize: a well-grounded claim succeeds and the approve
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
-    const record = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const record = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
 
     const synthesisProposal = await caller.jobpilot.cultureResearch.synthesize({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
       claims: [{ id: "good1", claimType: "fact", sourceId: id, quote: "built on trust and collaboration", contentHash: record.artifact!.contentHash }],
@@ -1579,7 +1579,7 @@ test("cultureResearch.synthesize: a well-grounded claim succeeds and the approve
     assert.equal(synthesisProposal.status, "pending_review");
 
     const beforeApproval = await caller.jobpilot.cultureResearch.synthesisResult({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
       proposalId: synthesisProposal.proposalId,
@@ -1590,7 +1590,7 @@ test("cultureResearch.synthesize: a well-grounded claim succeeds and the approve
     assert.equal(decided.status, "applied");
 
     const afterApproval = await caller.jobpilot.cultureResearch.synthesisResult({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
       proposalId: synthesisProposal.proposalId,
@@ -1625,14 +1625,14 @@ test("cultureResearch.synthesize: the persisted ledger row for the synthesis pro
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
-    const record = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const record = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     assert.ok(record.artifact!.content.includes(secretRawText), "sanity: the real fetched artifact DOES contain the sentinel");
 
     const synthesisProposal = await caller.jobpilot.cultureResearch.synthesize({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
       claims: [{ id: "good1", claimType: "fact", sourceId: id, quote: "values ownership", contentHash: record.artifact!.contentHash }],
@@ -1671,35 +1671,35 @@ test("cultureResearch.latestRun: server-authoritative resume — returns null fo
     const caller = makeCaller(wiring);
 
     // Nothing proposed yet — an honest null, never a fabricated/empty-shaped result.
-    const before = await caller.jobpilot.cultureResearch.latestRun({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY });
+    const before = await caller.jobpilot.cultureResearch.latestRun({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY });
     assert.equal(before, null);
 
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
 
     // A FRESH caller/query with NO local pointer discovers the pending source.
-    const afterPropose = await caller.jobpilot.cultureResearch.latestRun({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY });
+    const afterPropose = await caller.jobpilot.cultureResearch.latestRun({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY });
     assert.ok(afterPropose);
     assert.equal(afterPropose!.parentRunId, proposed.parentRunId);
     assert.deepEqual(afterPropose!.pending, [{ proposalId, childRunId, sourceId: id, sourceType: "company_official_page", sourceLabel: `test_fixture source ${testSourceCounter}` }]);
     assert.equal("synthesisProposalId" in afterPropose!, false);
 
     await caller.action.decide({ proposalId, decision: "approve" });
-    const record = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const record = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     const synthesisProposal = await caller.jobpilot.cultureResearch.synthesize({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
       claims: [{ id: "good1", claimType: "fact", sourceId: id, quote: "built on trust and collaboration", contentHash: record.artifact!.contentHash }],
     });
 
     // Once synthesize() has run, the pointer is discoverable server-side too.
-    const afterSynthesize = await caller.jobpilot.cultureResearch.latestRun({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY });
+    const afterSynthesize = await caller.jobpilot.cultureResearch.latestRun({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY });
     assert.equal(afterSynthesize?.synthesisProposalId, synthesisProposal.proposalId);
 
-    // A DIFFERENT company in the same workspace must never see this run.
-    const otherCompany = await caller.jobpilot.cultureResearch.latestRun({ workspaceId: PILOT_WORKSPACE, company: OTHER_COMPANY });
+    // A DIFFERENT company in the same organization must never see this run.
+    const otherCompany = await caller.jobpilot.cultureResearch.latestRun({ organizationId: PILOT_ORGANIZATION, company: OTHER_COMPANY });
     assert.equal(otherCompany, null);
   } finally {
     await server.close();
@@ -1716,13 +1716,13 @@ test("cultureResearch.latestRun: two research runs for the same company — the 
   try {
     const caller = makeCaller(wiring);
     const id1 = registerTestSource(server.url);
-    const first = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id1] });
+    const first = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id1] });
     // A brief real delay so the two runs get distinguishable createdAt timestamps.
     await new Promise((resolve) => setTimeout(resolve, 5));
     const id2 = registerTestSource(server.url);
-    const second = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id2] });
+    const second = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id2] });
 
-    const latest = await caller.jobpilot.cultureResearch.latestRun({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY });
+    const latest = await caller.jobpilot.cultureResearch.latestRun({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY });
     assert.equal(latest?.parentRunId, second.parentRunId);
     assert.notEqual(latest?.parentRunId, first.parentRunId);
   } finally {
@@ -1731,7 +1731,7 @@ test("cultureResearch.latestRun: two research runs for the same company — the 
   }
 });
 
-test("cultureResearch.latestRun: an O(1) durable pointer lookup — unrelated 'episodic' Memories (simulating Learning captures/Outreach drafts sharing the same Memory `type`) can NEVER hide the real latest run, at any scale, because the lookup no longer scans+limits the workspace's Memories at all (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 13)", async () => {
+test("cultureResearch.latestRun: an O(1) durable pointer lookup — unrelated 'episodic' Memories (simulating Learning captures/Outreach drafts sharing the same Memory `type`) can NEVER hide the real latest run, at any scale, because the lookup no longer scans+limits the organization's Memories at all (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 13)", async () => {
   const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("plain content");
@@ -1740,9 +1740,9 @@ test("cultureResearch.latestRun: an O(1) durable pointer lookup — unrelated 'e
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
 
-    // Flood the SAME workspace with many unrelated `type: "episodic"`
+    // Flood the SAME organization with many unrelated `type: "episodic"`
     // Memories, all created AFTER the real culture-research record — under
     // the OLD scan-then-limit-then-filter design, a small enough limit
     // would have let these crowd the real record out of the scan window
@@ -1751,9 +1751,9 @@ test("cultureResearch.latestRun: an O(1) durable pointer lookup — unrelated 'e
     for (let i = 0; i < 50; i++) {
       await wiring.memoryStore.write({
         id: `40000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         type: "episodic",
-        scope: "workspace",
+        scope: "organization",
         content: JSON.stringify({ kind: "unrelated_learning_capture", note: `noise-${i}` }),
         confidence: 1,
         trustOrigin: "operator",
@@ -1762,7 +1762,7 @@ test("cultureResearch.latestRun: an O(1) durable pointer lookup — unrelated 'e
       });
     }
 
-    const latest = await caller.jobpilot.cultureResearch.latestRun({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY });
+    const latest = await caller.jobpilot.cultureResearch.latestRun({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY });
     assert.ok(latest, "the real latest run must still be found despite 50 unrelated, more-recently-created Memories sharing the same type");
     assert.equal(latest!.parentRunId, proposed.parentRunId);
     assert.equal(latest!.pending.length, 1);
@@ -1779,7 +1779,7 @@ test("DurableCultureFetchStore.create: two CONCURRENT calls for the SAME childRu
     const baseInput = {
       childRunId,
       parentRunId: "30000000-0000-4000-8000-000000000002",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       sourceId: "test-fixture-race-source",
       sourceType: "company_official_page" as const,
@@ -1799,7 +1799,7 @@ test("DurableCultureFetchStore.create: two CONCURRENT calls for the SAME childRu
     ]);
     assert.equal(resultA.createdAt, resultB.createdAt, "both calls must agree on the SAME winning record");
 
-    const finalRecord = await wiring.cultureFetchStore.get(PILOT_WORKSPACE, childRunId);
+    const finalRecord = await wiring.cultureFetchStore.get(PILOT_ORGANIZATION, childRunId);
     assert.ok(finalRecord);
     assert.equal(finalRecord!.createdAt, resultA.createdAt);
   } finally {
@@ -1814,8 +1814,8 @@ test("DurableCultureSynthesisPointerStore.recordProposal: two CONCURRENT calls f
     const proposalIdA = "30000000-0000-4000-8000-0000000000a1";
     const proposalIdB = "30000000-0000-4000-8000-0000000000b1";
     const [resultA, resultB] = await Promise.allSettled([
-      wiring.cultureSynthesisPointerStore.recordProposal(PILOT_WORKSPACE, parentRunId, TEST_COMPANY, proposalIdA),
-      wiring.cultureSynthesisPointerStore.recordProposal(PILOT_WORKSPACE, parentRunId, TEST_COMPANY, proposalIdB),
+      wiring.cultureSynthesisPointerStore.recordProposal(PILOT_ORGANIZATION, parentRunId, TEST_COMPANY, proposalIdA),
+      wiring.cultureSynthesisPointerStore.recordProposal(PILOT_ORGANIZATION, parentRunId, TEST_COMPANY, proposalIdB),
     ]);
     const outcomes = [resultA, resultB];
     const fulfilled = outcomes.filter((r) => r.status === "fulfilled");
@@ -1824,7 +1824,7 @@ test("DurableCultureSynthesisPointerStore.recordProposal: two CONCURRENT calls f
     assert.equal(rejected.length, 1, "the loser must fail closed, never silently overwrite");
     assert.match((rejected[0] as PromiseRejectedResult).reason.message, /already pointed at a different synthesis proposal/);
 
-    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, parentRunId);
+    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_ORGANIZATION, parentRunId);
     assert.ok(pointer);
     assert.ok(pointer!.proposalId === proposalIdA || pointer!.proposalId === proposalIdB);
   } finally {
@@ -1847,22 +1847,22 @@ test("cultureResearch.synthesize: a parentRunId from another company is rejected
     const idA = registerTestSource(serverA.url, "company_official_page", TEST_COMPANY);
     const idB = registerTestSource(serverB.url, "company_official_page", OTHER_COMPANY);
 
-    const proposedA = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [idA] });
+    const proposedA = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [idA] });
     await caller.action.decide({ proposalId: proposedA.pending[0]!.proposalId, decision: "approve" });
     await materializeCultureSourceFetch(
       cultureFetchDeps(wiring),
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposedA.pending[0]!.proposalId,
       proposedA.pending[0]!.childRunId,
       makeRun(),
       allowLoopback,
     );
 
-    const proposedB = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: OTHER_COMPANY, sourceIds: [idB] });
+    const proposedB = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: OTHER_COMPANY, sourceIds: [idB] });
     await caller.action.decide({ proposalId: proposedB.pending[0]!.proposalId, decision: "approve" });
     await materializeCultureSourceFetch(
       cultureFetchDeps(wiring),
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposedB.pending[0]!.proposalId,
       proposedB.pending[0]!.childRunId,
       makeRun(),
@@ -1872,7 +1872,7 @@ test("cultureResearch.synthesize: a parentRunId from another company is rejected
     await assert.rejects(
       () =>
         caller.jobpilot.cultureResearch.synthesize({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           company: TEST_COMPANY,
           parentRunId: proposedB.parentRunId,
           claims: [{ id: "wrong-parent", claimType: "fact", sourceId: idB, quote: "speed and ownership", contentHash: "unused" }],
@@ -1901,22 +1901,22 @@ test("cultureResearch.synthesize: artifacts fetched for a different company are 
     const idA = registerTestSource(serverA.url, "company_official_page", TEST_COMPANY);
     const idB = registerTestSource(serverB.url, "company_official_page", OTHER_COMPANY);
 
-    const proposedA = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [idA] });
+    const proposedA = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [idA] });
     await caller.action.decide({ proposalId: proposedA.pending[0]!.proposalId, decision: "approve" });
     await materializeCultureSourceFetch(
       cultureFetchDeps(wiring),
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposedA.pending[0]!.proposalId,
       proposedA.pending[0]!.childRunId,
       makeRun(),
       allowLoopback,
     );
 
-    const proposedB = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: OTHER_COMPANY, sourceIds: [idB] });
+    const proposedB = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: OTHER_COMPANY, sourceIds: [idB] });
     await caller.action.decide({ proposalId: proposedB.pending[0]!.proposalId, decision: "approve" });
     const recordB = await materializeCultureSourceFetch(
       cultureFetchDeps(wiring),
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       proposedB.pending[0]!.proposalId,
       proposedB.pending[0]!.childRunId,
       makeRun(),
@@ -1926,7 +1926,7 @@ test("cultureResearch.synthesize: artifacts fetched for a different company are 
     await assert.rejects(
       () =>
         caller.jobpilot.cultureResearch.synthesize({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           company: TEST_COMPANY,
           parentRunId: proposedA.parentRunId,
           claims: [{ id: "cross-company", claimType: "fact", sourceId: idB, quote: "speed and ownership", contentHash: recordB.artifact!.contentHash }],
@@ -1949,21 +1949,21 @@ test("cultureResearch.synthesize: rejects an EMPTY claims batch before ever crea
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
-    await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
 
     await assert.rejects(
-      () => caller.jobpilot.cultureResearch.synthesize({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, parentRunId: proposed.parentRunId, claims: [] }),
+      () => caller.jobpilot.cultureResearch.synthesize({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, parentRunId: proposed.parentRunId, claims: [] }),
       /at least one claim/i,
     );
 
     // Prove the pointer was never poisoned: a REAL, well-grounded synthesis
     // for the SAME parentRunId still succeeds afterward.
-    const record = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    const record = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     const real = await caller.jobpilot.cultureResearch.synthesize({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
       claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "Real content", contentHash: record!.artifact!.contentHash }],
@@ -1980,12 +1980,12 @@ test("cultureResearch.synthesize: rejects when zero unexpired fetched artifacts 
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource("http://127.0.0.1:1/never-fetched");
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     // Deliberately never approve/materialize — zero fetched artifacts exist.
     await assert.rejects(
       () =>
         caller.jobpilot.cultureResearch.synthesize({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           company: TEST_COMPANY,
           parentRunId: proposed.parentRunId,
           claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "anything", contentHash: "deadbeef" }],
@@ -2012,7 +2012,7 @@ test("cultureResearch.synthesisResult: an approved proposal whose actor is NOT t
     };
     const proposal = await wiring.pipeline.propose(
       {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         actor: { type: "agent", id: LEARNING_AGENT }, // NOT Internal Strategist
         onBehalfOf: { type: "user", id: PILOT_USER },
         action: "write",
@@ -2030,7 +2030,7 @@ test("cultureResearch.synthesisResult: an approved proposal whose actor is NOT t
     // forged to this shape.
     await wiring.ledger.append({
       id: randomUUID(),
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "agent",
       actorId: LEARNING_AGENT,
       action: "write",
@@ -2043,7 +2043,7 @@ test("cultureResearch.synthesisResult: an approved proposal whose actor is NOT t
       createdAt: new Date().toISOString(),
     });
     const result = await caller.jobpilot.cultureResearch.synthesisResult({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       proposalId: proposal.id,
       parentRunId,
@@ -2063,10 +2063,10 @@ test("cultureResearch.synthesize: prebinding the synthesis pointer BEFORE pipeli
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
-    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
 
     // A claim whose quote is absent from the fetched artifact causes
     // `groundClaims` (invoked INSIDE the Skill, during `pipeline.propose`)
@@ -2076,7 +2076,7 @@ test("cultureResearch.synthesize: prebinding the synthesis pointer BEFORE pipeli
     // first-write-wins pointer to a proposalId that can never resolve.
     await assert.rejects(() =>
       caller.jobpilot.cultureResearch.synthesize({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         company: TEST_COMPANY,
         parentRunId: proposed.parentRunId,
         claims: [{ id: "claim-bad", claimType: "fact", sourceId: id, quote: "this text is not in the artifact at all", contentHash: fetched.artifact!.contentHash }],
@@ -2088,13 +2088,13 @@ test("cultureResearch.synthesize: prebinding the synthesis pointer BEFORE pipeli
     // parentRunId must succeed, not be rejected as "already pointed at a
     // different synthesis proposal".
     const legitimate = await caller.jobpilot.cultureResearch.synthesize({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
       claims: [{ id: "claim-good", claimType: "fact", sourceId: id, quote: "rewards long-term thinking", contentHash: fetched.artifact!.contentHash }],
     });
     assert.equal(legitimate.status, "pending_review");
-    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, proposed.parentRunId);
+    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_ORGANIZATION, proposed.parentRunId);
     assert.equal(pointer?.proposalId, legitimate.proposalId, "the pointer must resolve to the LEGITIMATE, successfully-proposed synthesis, not the failed attempt");
   } finally {
     await server.close();
@@ -2111,17 +2111,17 @@ test("cultureResearch.synthesize: self-heals a DEAD pointer left by a genuine cr
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
-    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
 
     // Simulate the crash DIRECTLY: bind a pointer to a proposalId that
     // genuinely has NO ledger row at all (as if the process died the
     // instant after `recordProposal` committed, before `pipeline.propose`
     // ever ran) — the observable end state a real crash there would leave.
     const deadProposalId = randomUUID();
-    await wiring.cultureSynthesisPointerStore.recordProposal(PILOT_WORKSPACE, proposed.parentRunId, TEST_COMPANY, deadProposalId);
+    await wiring.cultureSynthesisPointerStore.recordProposal(PILOT_ORGANIZATION, proposed.parentRunId, TEST_COMPANY, deadProposalId);
     assert.equal(await wiring.ledger.get(deadProposalId), null, "sanity: the dead proposalId truly has no ledger row");
 
     // Backdate the pointer's own `createdAt` well past the self-heal grace
@@ -2132,8 +2132,8 @@ test("cultureResearch.synthesize: self-heals a DEAD pointer left by a genuine cr
     // backdate is what makes THIS test genuinely simulate "a real crash a
     // long time ago", as opposed to "a request that is merely still running".
     const pointerRows = await wiring.memoryStore.retrieve(
-      { subjectElementId: proposed.parentRunId, includeSuperseded: false, limit: 5 },
-      { workspaceId: PILOT_WORKSPACE },
+      { subjectRecordId: proposed.parentRunId, includeSuperseded: false, limit: 5 },
+      { organizationId: PILOT_ORGANIZATION },
     );
     const pointerRow = pointerRows.find((r) => {
       try {
@@ -2147,14 +2147,14 @@ test("cultureResearch.synthesize: self-heals a DEAD pointer left by a genuine cr
     await wiring.memoryStore.compareAndSupersede(pointerRow!.id, { ...pointerRow!, id: randomUUID(), content: JSON.stringify(backdated) });
 
     const healed = await caller.jobpilot.cultureResearch.synthesize({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
       claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "values direct feedback", contentHash: fetched.artifact!.contentHash }],
     });
     assert.equal(healed.status, "pending_review");
     assert.notEqual(healed.proposalId, deadProposalId);
-    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, proposed.parentRunId);
+    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_ORGANIZATION, proposed.parentRunId);
     assert.equal(pointer?.proposalId, healed.proposalId, "the pointer must now resolve to the NEW, real synthesis proposal, not the dead one");
   } finally {
     await server.close();
@@ -2171,10 +2171,10 @@ test("cultureResearch.synthesize: a YOUNG pointer whose proposalId does not yet 
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
-    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
 
     // Simulate the "live, in-flight" moment DIRECTLY: bind a pointer whose
     // proposalId has no ledger row YET (mirroring the exact instant a real
@@ -2182,7 +2182,7 @@ test("cultureResearch.synthesize: a YOUNG pointer whose proposalId does not yet 
     // #appendLedger has run) — but do NOT backdate it. Its createdAt is
     // "now", well within the grace period.
     const inFlightProposalId = randomUUID();
-    await wiring.cultureSynthesisPointerStore.recordProposal(PILOT_WORKSPACE, proposed.parentRunId, TEST_COMPANY, inFlightProposalId);
+    await wiring.cultureSynthesisPointerStore.recordProposal(PILOT_ORGANIZATION, proposed.parentRunId, TEST_COMPANY, inFlightProposalId);
     assert.equal(await wiring.ledger.get(inFlightProposalId), null, "sanity: the in-flight proposalId has no ledger row yet, exactly like a real request mid-propose()");
 
     // A SECOND synthesize() call for the SAME parentRunId must NOT be able
@@ -2193,7 +2193,7 @@ test("cultureResearch.synthesize: a YOUNG pointer whose proposalId does not yet 
     await assert.rejects(
       () =>
         caller.jobpilot.cultureResearch.synthesize({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           company: TEST_COMPANY,
           parentRunId: proposed.parentRunId,
           claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "values direct feedback", contentHash: fetched.artifact!.contentHash }],
@@ -2207,7 +2207,7 @@ test("cultureResearch.synthesize: a YOUNG pointer whose proposalId does not yet 
 
     // The pointer must be COMPLETELY untouched — still pointing at the
     // "in-flight" proposalId, never released or rebound.
-    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, proposed.parentRunId);
+    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_ORGANIZATION, proposed.parentRunId);
     assert.equal(pointer?.proposalId, inFlightProposalId, "the young, not-yet-resolved pointer must survive a concurrent synthesize() attempt completely untouched");
   } finally {
     await server.close();
@@ -2259,30 +2259,30 @@ test("BRIDGE_LOCAL_DIR restart durability: Goal/Task bindings and child-Run stat
     const childAgentRuns = ports.childAgentRuns as DrizzleChildAgentRunStore;
     const c = makeRun();
 
-    // Seed the real workspace/user + governed LEARNING_AGENT row this
+    // Seed the real organization/user + governed LEARNING_AGENT row this
     // low-level test bypasses by calling `buildInMemoryPorts` directly
     // instead of the full `buildWiring()` boot sequence — mirrors exactly
     // what `buildWiring()` itself does before ever touching goalTasks/
     // childAgentRuns, proving the SAME FK-integrity path this fix relies on.
-    await ports.workspaceStore.bootstrapPilotIdentities({
-      workspaceId: PILOT_WORKSPACE,
+    await ports.organizationStore.bootstrapPilotIdentities({
+      organizationId: PILOT_ORGANIZATION,
       userId: PILOT_USER,
       userEmail: "test_fixture_pilot@example.com",
     });
     await ports.ensureLearningGovernance?.();
 
     const goal = await goalTasks.createGoal(
-      { workspaceId: PILOT_WORKSPACE, type: "culture_research", title: "test_fixture restart-durability goal" },
+      { organizationId: PILOT_ORGANIZATION, type: "culture_research", title: "test_fixture restart-durability goal" },
       { nextId: () => c.ids.next(), nowISO: () => c.clock.nowISO() },
     );
     const task = await goalTasks.createTask(
-      { workspaceId: PILOT_WORKSPACE, goalId: goal.id, type: "research_culture_source", assignedAgentId: LEARNING_AGENT },
+      { organizationId: PILOT_ORGANIZATION, goalId: goal.id, type: "research_culture_source", assignedAgentId: LEARNING_AGENT },
       { nextId: () => c.ids.next(), nowISO: () => c.clock.nowISO() },
     );
     const parentEnvelope = {
       runId: c.ids.next(),
       agentId: LEARNING_AGENT,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       authorityScope: ["external:fetch:read"],
       eligibleSkills: ["jobpilot.researchCultureSource"],
       dataScope: "public" as const,
@@ -2309,8 +2309,8 @@ test("BRIDGE_LOCAL_DIR restart durability: Goal/Task bindings and child-Run stat
       },
       c,
     );
-    await childAgentRuns.consumeBudget(PILOT_WORKSPACE, childRun.id, 1, c.clock.nowISO());
-    await completeChildAgentRun({ store: childAgentRuns, ledger: ports.ledger }, PILOT_WORKSPACE, childRun.id, { type: "agent", id: LEARNING_AGENT }, c);
+    await childAgentRuns.consumeBudget(PILOT_ORGANIZATION, childRun.id, 1, c.clock.nowISO());
+    await completeChildAgentRun({ store: childAgentRuns, ledger: ports.ledger }, PILOT_ORGANIZATION, childRun.id, { type: "agent", id: LEARNING_AGENT }, c);
 
     // Genuinely real SQL round-trips (not an in-process cache): every read
     // below goes through `DrizzleGoalTaskStore`/`DrizzleChildAgentRunStore`
@@ -2318,13 +2318,13 @@ test("BRIDGE_LOCAL_DIR restart durability: Goal/Task bindings and child-Run stat
     // on-disk pglite directory — the SAME real-SQL guarantee the existing
     // "culture fetch intent records survive a fresh DurableCultureFetchStore"
     // test already established for the culture-fetch intent record itself.
-    const resumedGoal = await goalTasks.getGoal(PILOT_WORKSPACE, goal.id);
+    const resumedGoal = await goalTasks.getGoal(PILOT_ORGANIZATION, goal.id);
     assert.ok(resumedGoal);
     assert.equal(resumedGoal!.title, "test_fixture restart-durability goal");
-    const resumedTask = await goalTasks.getTask(PILOT_WORKSPACE, task.id);
+    const resumedTask = await goalTasks.getTask(PILOT_ORGANIZATION, task.id);
     assert.ok(resumedTask);
     assert.equal(resumedTask!.assignedAgentId, LEARNING_AGENT);
-    const resumedChildRun = await childAgentRuns.get(PILOT_WORKSPACE, childRun.id);
+    const resumedChildRun = await childAgentRuns.get(PILOT_ORGANIZATION, childRun.id);
     assert.ok(resumedChildRun);
     assert.equal(resumedChildRun!.status, "completed");
     assert.equal(resumedChildRun!.callsUsed, 1);
@@ -2344,8 +2344,8 @@ test("BRIDGE_LOCAL_DIR genuine process restart: a PENDING research proposal and 
   try {
     first = await buildInMemoryPorts({ localDir: dir });
     assert.ok(first.ledger instanceof DrizzleLedgerStore, "sanity: ledger is genuinely Drizzle-backed under BRIDGE_LOCAL_DIR");
-    await first.workspaceStore.bootstrapPilotIdentities({
-      workspaceId: PILOT_WORKSPACE,
+    await first.organizationStore.bootstrapPilotIdentities({
+      organizationId: PILOT_ORGANIZATION,
       userId: PILOT_USER,
       userEmail: "test_fixture_pilot_restart@example.com",
     });
@@ -2354,22 +2354,22 @@ test("BRIDGE_LOCAL_DIR genuine process restart: a PENDING research proposal and 
 
     const idPending = registerTestSource(server.url);
     const idApproved = registerTestSource(server.url);
-    const sourcePending = resolveAuthorizedCultureSource(PILOT_WORKSPACE, TEST_COMPANY, idPending)!;
-    const sourceApproved = resolveAuthorizedCultureSource(PILOT_WORKSPACE, TEST_COMPANY, idApproved)!;
+    const sourcePending = resolveAuthorizedCultureSource(PILOT_ORGANIZATION, TEST_COMPANY, idPending)!;
+    const sourceApproved = resolveAuthorizedCultureSource(PILOT_ORGANIZATION, TEST_COMPANY, idApproved)!;
 
     const goal = await first.goalTasks.createGoal(
-      { workspaceId: PILOT_WORKSPACE, type: "culture_research", title: "test_fixture restart research goal" },
+      { organizationId: PILOT_ORGANIZATION, type: "culture_research", title: "test_fixture restart research goal" },
       { nextId: () => c.ids.next(), nowISO: () => c.clock.nowISO() },
     );
     const task = await first.goalTasks.createTask(
-      { workspaceId: PILOT_WORKSPACE, goalId: goal.id, type: "research_culture_source", assignedAgentId: LEARNING_AGENT },
+      { organizationId: PILOT_ORGANIZATION, goalId: goal.id, type: "research_culture_source", assignedAgentId: LEARNING_AGENT },
       { nextId: () => c.ids.next(), nowISO: () => c.clock.nowISO() },
     );
     const parentRunId = c.ids.next();
     const parentEnvelope = {
       runId: parentRunId,
       agentId: LEARNING_AGENT,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       authorityScope: ["external:fetch:read"],
       eligibleSkills: ["jobpilot.researchCultureSource"],
       dataScope: "public" as const,
@@ -2408,7 +2408,7 @@ test("BRIDGE_LOCAL_DIR genuine process restart: a PENDING research proposal and 
       await fetchStore.create({
         childRunId: childRun.id,
         parentRunId,
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         company: TEST_COMPANY,
         sourceId: source.id,
         sourceType: source.sourceType,
@@ -2423,15 +2423,15 @@ test("BRIDGE_LOCAL_DIR genuine process restart: a PENDING research proposal and 
         actorId: LEARNING_AGENT,
       });
       const proposalId = c.ids.next();
-      await fetchStore.attachProposal(PILOT_WORKSPACE, childRun.id, proposalId);
+      await fetchStore.attachProposal(PILOT_ORGANIZATION, childRun.id, proposalId);
       await first!.ledger.append({
         id: proposalId,
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         actorType: "agent",
         actorId: LEARNING_AGENT,
         action: "read",
         resourceType: "external:fetch",
-        inputs: { sourceId: source.id, workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY },
+        inputs: { sourceId: source.id, organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY },
         proposedOutput: { sourceId: source.id, sourceType: source.sourceType, sourceLabel: source.sourceLabel, url: source.url, plannedAt: c.clock.nowISO() },
         userDecision: null,
         policyResults: [],
@@ -2448,7 +2448,7 @@ test("BRIDGE_LOCAL_DIR genuine process restart: a PENDING research proposal and 
     // operates at) — leave the fetch itself UNMATERIALIZED.
     await first.ledger.append({
       id: c.ids.next(),
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "user",
       actorId: PILOT_USER,
       action: "read",
@@ -2464,7 +2464,7 @@ test("BRIDGE_LOCAL_DIR genuine process restart: a PENDING research proposal and 
     assert.equal(await first.ledger.decisionFor(pendingEntry.proposalId), null, "sanity: pending proposal has no decision yet");
     assert.equal((await first.ledger.decisionFor(approvedEntry.proposalId))?.userDecision, "approve", "sanity: approved proposal has a real decision row");
     const fetchStoreBefore = new DurableCultureFetchStore(first.memoryStore);
-    const approvedRecordBefore = await fetchStoreBefore.get(PILOT_WORKSPACE, approvedEntry.childRunId);
+    const approvedRecordBefore = await fetchStoreBefore.get(PILOT_ORGANIZATION, approvedEntry.childRunId);
     assert.equal(approvedRecordBefore?.status, "pending", "sanity: approved-but-unmaterialized — the fetch has NOT run yet");
 
     // THE RESTART: close every port this process holds and build a BRAND
@@ -2486,7 +2486,7 @@ test("BRIDGE_LOCAL_DIR genuine process restart: a PENDING research proposal and 
     const approvedDecisionAfter = await second.ledger.decisionFor(approvedEntry.proposalId);
     assert.equal(approvedDecisionAfter?.userDecision, "approve", "the approved decision must survive the restart");
     const fetchStoreAfter = new DurableCultureFetchStore(second.memoryStore);
-    const approvedRecordAfter = await fetchStoreAfter.get(PILOT_WORKSPACE, approvedEntry.childRunId);
+    const approvedRecordAfter = await fetchStoreAfter.get(PILOT_ORGANIZATION, approvedEntry.childRunId);
     assert.equal(approvedRecordAfter?.status, "pending", "the approved-but-unmaterialized fetch intent must survive the restart in its exact pre-restart state");
     assert.equal(approvedRecordAfter?.proposalId, approvedEntry.proposalId);
 
@@ -2498,7 +2498,7 @@ test("BRIDGE_LOCAL_DIR genuine process restart: a PENDING research proposal and 
     // intent record's own fields.
     const materialized = await materializeCultureSourceFetch(
       { childAgentRuns: second.childAgentRuns, ledger: second.ledger, fetchStore: fetchStoreAfter, abortControllers: new Map() },
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       approvedEntry.proposalId,
       approvedEntry.childRunId,
       c,
@@ -2513,7 +2513,7 @@ test("BRIDGE_LOCAL_DIR genuine process restart: a PENDING research proposal and 
     // still be appended against it).
     await second.ledger.append({
       id: c.ids.next(),
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "user",
       actorId: PILOT_USER,
       action: "read",
@@ -2543,13 +2543,13 @@ test("cultureResearch.synthesisResult: self-repairs a MISSING synthesis-pointer 
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource(server.url);
-    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
-    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
 
     const synthesisProposal = await caller.jobpilot.cultureResearch.synthesize({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
       claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "rewards ownership", contentHash: fetched.artifact!.contentHash }],
@@ -2561,8 +2561,8 @@ test("cultureResearch.synthesisResult: self-repairs a MISSING synthesis-pointer 
     // never ran" (the OBSERVABLE end state is identical either way: a
     // valid, approved synthesis result with no durable pointer to it).
     const pointerRows = await wiring.memoryStore.retrieve(
-      { subjectElementId: proposed.parentRunId, includeSuperseded: false, limit: 5 },
-      { workspaceId: PILOT_WORKSPACE },
+      { subjectRecordId: proposed.parentRunId, includeSuperseded: false, limit: 5 },
+      { organizationId: PILOT_ORGANIZATION },
     );
     const pointerRow = pointerRows.find((r) => {
       try {
@@ -2572,28 +2572,28 @@ test("cultureResearch.synthesisResult: self-repairs a MISSING synthesis-pointer 
       }
     });
     assert.ok(pointerRow, "sanity: synthesize() really did create a pointer row");
-    await wiring.memoryStore.forget(pointerRow!.id, { workspaceId: PILOT_WORKSPACE });
-    const destroyedPointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, proposed.parentRunId);
+    await wiring.memoryStore.forget(pointerRow!.id, { organizationId: PILOT_ORGANIZATION });
+    const destroyedPointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_ORGANIZATION, proposed.parentRunId);
     assert.equal(destroyedPointer, null, "sanity: the pointer is genuinely gone before the repair read");
 
-    const beforeRepair = await caller.jobpilot.cultureResearch.latestRun({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY });
+    const beforeRepair = await caller.jobpilot.cultureResearch.latestRun({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY });
     assert.equal(beforeRepair?.synthesisProposalId, undefined, "latestRun cannot discover a destroyed pointer before the repair read");
 
     // Reading the result directly (as `synthesisResult` does) must
     // self-repair the pointer if it's ever missing/stale.
     const result = await caller.jobpilot.cultureResearch.synthesisResult({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       proposalId: synthesisProposal.proposalId,
       parentRunId: proposed.parentRunId,
     });
     assert.equal(result.status, "available");
 
-    const afterRepairPointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, proposed.parentRunId);
+    const afterRepairPointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_ORGANIZATION, proposed.parentRunId);
     assert.ok(afterRepairPointer, "the pointer must exist after synthesisResult has read a valid, approved result");
     assert.equal(afterRepairPointer!.proposalId, synthesisProposal.proposalId);
 
-    const afterRepair = await caller.jobpilot.cultureResearch.latestRun({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY });
+    const afterRepair = await caller.jobpilot.cultureResearch.latestRun({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY });
     assert.equal(afterRepair?.synthesisProposalId, synthesisProposal.proposalId, "latestRun must now discover the repaired pointer");
   } finally {
     await server.close();

@@ -23,7 +23,7 @@ function resolvedProposal(directive: IntakeDirective): Proposal {
     id: "proposal-1",
     status: "applied",
     request: {
-      workspaceId: "ws-1",
+      organizationId: "ws-1",
       actor: { type: "agent", id: "agent-intake", plane: "local" },
       action: "write",
       resourceType: "event",

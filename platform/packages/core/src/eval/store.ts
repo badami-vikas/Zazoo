@@ -120,7 +120,7 @@ export async function writeEvalRunEvidence(store: CapabilityStore, manifestId: s
   const violationCount = run.aggregate.safety === 0 ? Math.max(existing.evidence.violationCount ?? 0, 1) : existing.evidence.violationCount;
   return store.upsertState({
     manifestId: existing.manifestId,
-    workspaceId: existing.workspaceId,
+    organizationId: existing.organizationId,
     state: existing.state,
     ...(existing.trustedUntil !== undefined ? { trustedUntil: existing.trustedUntil } : {}),
     suspended: existing.suspended,

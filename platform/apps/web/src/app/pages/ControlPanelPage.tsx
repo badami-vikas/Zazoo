@@ -1,15 +1,15 @@
 /**
- * Initiative Control Panel (/initiative/:id/control-panel) — per-Initiative
- * admin, strictly scoped to ONE Initiative. Answers "How is this Initiative
- * configured?"; changes here never affect other Initiatives. Platform-wide
+ * Record Control Panel (/record/:id/control-panel) — per-Record
+ * admin, strictly scoped to ONE Record. Answers "How is this Record
+ * configured?"; changes here never affect other Records. Platform-wide
  * admin lives in Settings (ADR-029 separation).
  *
  * One unified table: Category · Name · Status · Source Module · Version ·
  * Scope · Actions. Rows are REAL queryable resources only:
- *   - Modules      = `packages.list` (Drizzle-backed package installations)
+ *   - Modules      = `modules.list` (Drizzle-backed module installations)
  *   - Integrations = `integration.list` + `google.list` (connected sources)
- * The API has NO per-initiative resource binding yet (packages/integrations/
- * Automations are all workspace-scoped; no `automation.list` or `agent.list` read
+ * The API has NO per-record resource binding yet (packages/integrations/
+ * Automations are all organization-scoped; no `automation.list` or `agent.list` read
  * procedure exists) — so Scope honestly reads "Organization-wide", and
  * categories with no backing data render an honest note row instead of
  * fabricated rows. Gaps tracked in docs/BUGS.md.
@@ -17,8 +17,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { SlidersHorizontal, ExternalLink } from "lucide-react";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { getInitiatives } from "../data/initiatives";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
+import { getRecords } from "../data/records";
 import { MODULE_ROUTES } from "../lib/moduleRoutes";
 import { Header } from "../components/shared/Header";
 
@@ -38,41 +38,41 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export function ControlPanelPage() {
   const { id } = useParams();
   const iid = id ? decodeURIComponent(id) : "";
-  const [initiativeName, setInitiativeName] = useState<string | null>(null);
+  const [recordName, setRecordName] = useState<string | null>(null);
   const [rows, setRows] = useState<PanelRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Resolve the initiative name from whichever real store owns this id:
-    // kernel rows (uuid → graph.getInitiative) or the local Work-surface store.
-    const local = getInitiatives().find((i) => i.id === iid);
-    if (local) setInitiativeName(local.name);
+    // Resolve the record name from whichever real store owns this id:
+    // kernel rows (uuid → graph.getRecord) or the local Work-surface store.
+    const local = getRecords().find((i) => i.id === iid);
+    if (local) setRecordName(local.name);
     else if (UUID_RE.test(iid)) {
-      trpc.graph.getInitiative
+      trpc.graph.getRecord
         .query({ id: iid })
-        .then((row) => setInitiativeName(row?.title ?? iid))
-        .catch(() => setInitiativeName(iid));
-    } else setInitiativeName(iid);
+        .then((row) => setRecordName(row?.title ?? iid))
+        .catch(() => setRecordName(iid));
+    } else setRecordName(iid);
   }, [iid]);
 
   useEffect(() => {
     Promise.all([
-      trpc.packages.list.query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 }),
-      trpc.integration.list.query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 }),
+      trpc.modules.list.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 }),
+      trpc.integration.list.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 }),
       trpc.google.list.query().catch(() => null),
     ])
       .then(([pkgs, integrations, google]) => {
         const next: PanelRow[] = [];
 
         for (const p of pkgs.items) {
-          const route = MODULE_ROUTES[p.packageName];
+          const route = MODULE_ROUTES[p.moduleName];
           next.push({
             key: `module-${p.id}`,
             category: "Module",
-            name: route?.label ?? p.packageName,
+            name: route?.label ?? p.moduleName,
             status: p.state,
-            sourceModule: route?.label ?? p.packageName,
-            version: p.packageVersion,
+            sourceModule: route?.label ?? p.moduleName,
+            version: p.moduleVersion,
             scope: "Organization-wide",
             ...(route && p.state === "available" ? { action: { to: route.to, label: "Open" } } : {}),
           });
@@ -117,12 +117,12 @@ export function ControlPanelPage() {
         <div className="max-w-4xl mx-auto space-y-4">
           <div>
             <h1 className="text-lg font-medium">
-              {initiativeName ?? "…"}
+              {recordName ?? "…"}
             </h1>
             <p className="text-sm text-muted-foreground">
-              How is this Initiative configured? Changes here never affect other Initiatives.{" "}
-              <Link to={`/initiative/${encodeURIComponent(iid)}`} className="underline">
-                Back to the Initiative
+              How is this Record configured? Changes here never affect other Records.{" "}
+              <Link to={`/record/${encodeURIComponent(iid)}`} className="underline">
+                Back to the Record
               </Link>
             </p>
           </div>
@@ -167,7 +167,7 @@ export function ControlPanelPage() {
                   {rows.length === 0 && (
                     <tr>
                       <td colSpan={7} className="px-3 py-6 text-center text-sm text-muted-foreground">
-                        Nothing configured for this Initiative yet.
+                        Nothing configured for this Record yet.
                       </td>
                     </tr>
                   )}
@@ -191,8 +191,8 @@ export function ControlPanelPage() {
 
           {rows !== null && (
             <p className="text-xs text-muted-foreground">
-              Resources are not yet bound to individual Initiatives — everything above is currently shared
-              Organization-wide. Per-Initiative scoping will appear here once it exists.
+              Resources are not yet bound to individual Records — everything above is currently shared
+              Organization-wide. Per-Record scoping will appear here once it exists.
             </p>
           )}
         </div>

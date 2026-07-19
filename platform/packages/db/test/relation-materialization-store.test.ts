@@ -19,10 +19,10 @@ test("Relation materialization effects survive restart and remain owner-scoped",
   try {
     const first = await createLocalDb({ dataDir });
     close = first.close;
-    const [workspace] = await first.db
-      .insert(schema.workspaces)
-      .values({ name: "test_fixture_relation_effect_workspace" })
-      .returning({ id: schema.workspaces.id });
+    const [organization] = await first.db
+      .insert(schema.organizations)
+      .values({ name: "test_fixture_relation_effect_organization" })
+      .returning({ id: schema.organizations.id });
     const users = await first.db
       .insert(schema.users)
       .values([
@@ -30,12 +30,12 @@ test("Relation materialization effects survive restart and remain owner-scoped",
         { email: "test_fixture_relation_effect_other@example.com" },
       ])
       .returning({ id: schema.users.id });
-    assert.ok(workspace);
+    assert.ok(organization);
     assert.equal(users.length, 2);
     const ownerUserId = users[0]!.id;
     const otherUserId = users[1]!.id;
     const input = {
-      workspaceId: workspace.id,
+      organizationId: organization.id,
       ownerUserId,
       proposalLedgerId: "10000000-0000-4000-8000-000000000001",
       decisionLedgerId: "10000000-0000-4000-8000-000000000002",
@@ -61,14 +61,14 @@ test("Relation materialization effects survive restart and remain owner-scoped",
     close = reopened.close;
     const restartedStore = new DrizzleRelationMaterializationStore(reopened.db);
     const afterRestart = await restartedStore.getByProposal(
-      workspace.id,
+      organization.id,
       ownerUserId,
       input.proposalLedgerId,
     );
     assert.equal(afterRestart?.status, "pending");
     assert.equal(
       await restartedStore.getByProposal(
-        workspace.id,
+        organization.id,
         otherUserId,
         input.proposalLedgerId,
       ),
@@ -76,7 +76,7 @@ test("Relation materialization effects survive restart and remain owner-scoped",
     );
     assert.equal(
       (
-        await restartedStore.listOutstanding(workspace.id, ownerUserId, {
+        await restartedStore.listOutstanding(organization.id, ownerUserId, {
           limit: 10,
         })
       ).length,
@@ -85,7 +85,7 @@ test("Relation materialization effects survive restart and remain owner-scoped",
 
     const failed = await restartedStore.markFailed(
       afterRestart!.id,
-      workspace.id,
+      organization.id,
       ownerUserId,
       firstAttempt.effect.leaseToken!,
       "test_fixture_transient_failure",
@@ -95,7 +95,7 @@ test("Relation materialization effects survive restart and remain owner-scoped",
     assert.equal(failed.status, "failed");
     assert.equal(
       (
-        await restartedStore.listRetryable(workspace.id, ownerUserId, {
+        await restartedStore.listRetryable(organization.id, ownerUserId, {
           limit: 10,
           now: new Date("2026-07-16T10:01:30.000Z"),
         })
@@ -104,7 +104,7 @@ test("Relation materialization effects survive restart and remain owner-scoped",
     );
     assert.equal(
       (
-        await restartedStore.listRetryable(workspace.id, ownerUserId, {
+        await restartedStore.listRetryable(organization.id, ownerUserId, {
           limit: 10,
           now: new Date("2026-07-16T10:02:00.000Z"),
         })
@@ -120,7 +120,7 @@ test("Relation materialization effects survive restart and remain owner-scoped",
     assert.ok(retry.effect.leaseToken);
     const applied = await restartedStore.markApplied(
       retry.effect.id,
-      workspace.id,
+      organization.id,
       ownerUserId,
       retry.effect.leaseToken!,
       3,
@@ -129,7 +129,7 @@ test("Relation materialization effects survive restart and remain owner-scoped",
     assert.equal(applied.status, "applied");
     assert.equal(applied.relationCount, 3);
     assert.deepEqual(
-      await restartedStore.listOutstanding(workspace.id, ownerUserId, {
+      await restartedStore.listOutstanding(organization.id, ownerUserId, {
         limit: 10,
       }),
       [],
@@ -149,18 +149,18 @@ test("Relation materialization effects survive restart and remain owner-scoped",
 test("Relation materialization leases serialize callers and recover an interrupted final attempt", async () => {
   const local = await createLocalDb();
   try {
-    const [workspace] = await local.db
-      .insert(schema.workspaces)
-      .values({ name: "test_fixture_relation_effect_lease_workspace" })
-      .returning({ id: schema.workspaces.id });
+    const [organization] = await local.db
+      .insert(schema.organizations)
+      .values({ name: "test_fixture_relation_effect_lease_organization" })
+      .returning({ id: schema.organizations.id });
     const [owner] = await local.db
       .insert(schema.users)
       .values({ email: "test_fixture_relation_effect_lease_owner@example.com" })
       .returning({ id: schema.users.id });
-    assert.ok(workspace);
+    assert.ok(organization);
     assert.ok(owner);
     const input = {
-      workspaceId: workspace.id,
+      organizationId: organization.id,
       ownerUserId: owner.id,
       proposalLedgerId: "11000000-0000-4000-8000-000000000001",
       decisionLedgerId: "11000000-0000-4000-8000-000000000002",
@@ -182,7 +182,7 @@ test("Relation materialization leases serialize callers and recover an interrupt
       const failureAt = new Date(startedAt.getTime() + attempt * 1_000);
       await firstStore.markFailed(
         active.effect.id,
-        workspace.id,
+        organization.id,
         owner.id,
         active.effect.leaseToken,
         `test_fixture_interrupted_attempt_${attempt}`,
@@ -216,7 +216,7 @@ test("Relation materialization leases serialize callers and recover an interrupt
       () =>
         firstStore.markApplied(
           active!.effect.id,
-          workspace.id,
+          organization.id,
           owner.id,
           interruptedLeaseToken!,
           2,
@@ -246,7 +246,7 @@ test("Relation materialization leases serialize callers and recover an interrupt
         finalRecovery.effect.leaseExpiresAt!.getTime() + 1,
     );
     assert.deepEqual(
-        await firstStore.listRetryable(workspace.id, owner.id, {
+        await firstStore.listRetryable(organization.id, owner.id, {
           limit: 10,
           now: recoveryBudgetExhaustedAt,
         }),
@@ -272,7 +272,7 @@ test("Relation materialization leases serialize callers and recover an interrupt
     );
     await secondStore.markFailed(
         ownerRetry.effect.id,
-        workspace.id,
+        organization.id,
         owner.id,
         ownerRetry.effect.leaseToken,
         "test_fixture_owner_retry_failure",
@@ -295,7 +295,7 @@ test("Relation materialization leases serialize callers and recover an interrupt
     assert.ok(secondOwnerRetry.effect.leaseToken);
     const applied = await secondStore.markApplied(
         secondOwnerRetry.effect.id,
-        workspace.id,
+        organization.id,
         owner.id,
         secondOwnerRetry.effect.leaseToken,
         2,
@@ -310,15 +310,15 @@ test("Relation materialization leases serialize callers and recover an interrupt
 test("approved Relation discovery is oldest-first and outstanding retries paginate completely", async () => {
   const local = await createLocalDb();
   try {
-    const [workspace] = await local.db
-      .insert(schema.workspaces)
-      .values({ name: "test_fixture_relation_discovery_workspace" })
-      .returning({ id: schema.workspaces.id });
+    const [organization] = await local.db
+      .insert(schema.organizations)
+      .values({ name: "test_fixture_relation_discovery_organization" })
+      .returning({ id: schema.organizations.id });
     const [owner] = await local.db
       .insert(schema.users)
       .values({ email: "test_fixture_relation_discovery_owner@example.com" })
       .returning({ id: schema.users.id });
-    assert.ok(workspace);
+    assert.ok(organization);
     assert.ok(owner);
     const relationRows: (typeof schema.ledger.$inferInsert)[] = [];
     for (let index = 1; index <= 101; index += 1) {
@@ -330,7 +330,7 @@ test("approved Relation discovery is oldest-first and outstanding retries pagina
         {
           id: proposalId,
           appendSequence: index * 2 - 1,
-          workspaceId: workspace.id,
+          organizationId: organization.id,
           actorType: "user",
           actorId: owner.id,
           action: "write",
@@ -345,7 +345,7 @@ test("approved Relation discovery is oldest-first and outstanding retries pagina
         {
           id: decisionId,
           appendSequence: index * 2,
-          workspaceId: workspace.id,
+          organizationId: organization.id,
           actorType: "user",
           actorId: owner.id,
           action: "write",
@@ -367,7 +367,7 @@ test("approved Relation discovery is oldest-first and outstanding retries pagina
       (_, index) => ({
         id: `14000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
         appendSequence: 1_000 + index,
-        workspaceId: workspace.id,
+        organizationId: organization.id,
         actorType: "user",
         actorId: owner.id,
         action: "read",
@@ -383,12 +383,12 @@ test("approved Relation discovery is oldest-first and outstanding retries pagina
 
     const effectStore = new DrizzleRelationMaterializationStore(local.db);
     assert.equal(
-      await effectStore.discoverApproved(workspace.id, owner.id, { limit: 1 }),
+      await effectStore.discoverApproved(organization.id, owner.id, { limit: 1 }),
       1,
     );
     assert.equal(
       (
-        await effectStore.listOutstanding(workspace.id, owner.id, {
+        await effectStore.listOutstanding(organization.id, owner.id, {
           limit: 1,
         })
       )[0]?.proposalLedgerId,
@@ -397,7 +397,7 @@ test("approved Relation discovery is oldest-first and outstanding retries pagina
     );
     let discovered = 1;
     for (;;) {
-      const count = await effectStore.discoverApproved(workspace.id, owner.id, {
+      const count = await effectStore.discoverApproved(organization.id, owner.id, {
         limit: 20,
       });
       discovered += count;
@@ -405,14 +405,14 @@ test("approved Relation discovery is oldest-first and outstanding retries pagina
     }
     assert.equal(discovered, 101);
     const firstPage = await effectStore.listOutstandingPage(
-      workspace.id,
+      organization.id,
       owner.id,
       { limit: 100 },
     );
     assert.equal(firstPage.items.length, 100);
     assert.ok(firstPage.nextCursor);
     const secondPage = await effectStore.listOutstandingPage(
-      workspace.id,
+      organization.id,
       owner.id,
       { limit: 100, cursor: firstPage.nextCursor },
     );
@@ -429,13 +429,13 @@ test("approved Relation discovery is oldest-first and outstanding retries pagina
     );
 
     const ledgerStore = new DrizzleLedgerStore(local.db, {
-      defaultWorkspaceId: workspace.id,
+      defaultOrganizationId: organization.id,
     });
 
     assert.equal(
       (await ledgerStore.get("12000000-0000-4000-8000-000000000001"))
-        ?.workspaceId,
-      workspace.id,
+        ?.organizationId,
+      organization.id,
     );
   } finally {
     await local.close();
@@ -446,10 +446,10 @@ test("Drizzle ledger and Relation discovery establish tenant context under force
   const local = await createLocalDb();
   let roleActive = false;
   try {
-    const [workspace] = await local.db
-      .insert(schema.workspaces)
-      .values({ name: "test_fixture_relation_rls_workspace" })
-      .returning({ id: schema.workspaces.id });
+    const [organization] = await local.db
+      .insert(schema.organizations)
+      .values({ name: "test_fixture_relation_rls_organization" })
+      .returning({ id: schema.organizations.id });
     const owners = await local.db
       .insert(schema.users)
       .values([
@@ -457,7 +457,7 @@ test("Drizzle ledger and Relation discovery establish tenant context under force
         { email: "test_fixture_relation_rls_other_owner@example.com" },
       ])
       .returning({ id: schema.users.id });
-    assert.ok(workspace);
+    assert.ok(organization);
     assert.equal(owners.length, 2);
     const owner = owners[0]!;
     const otherOwner = owners[1]!;
@@ -479,11 +479,11 @@ test("Drizzle ledger and Relation discovery establish tenant context under force
     roleActive = true;
 
     const ledgerStore = new DrizzleLedgerStore(local.db, {
-      defaultWorkspaceId: workspace.id,
+      defaultOrganizationId: organization.id,
     });
     const proposal = await ledgerStore.append({
       id: "15000000-0000-4000-8000-000000000001",
-      workspaceId: workspace.id,
+      organizationId: organization.id,
       actorType: "user",
       actorId: owner.id,
       action: "write",
@@ -495,7 +495,7 @@ test("Drizzle ledger and Relation discovery establish tenant context under force
     });
     const decision = await ledgerStore.append({
       id: "15000000-0000-4000-8000-000000000002",
-      workspaceId: workspace.id,
+      organizationId: organization.id,
       actorType: "user",
       actorId: owner.id,
       action: proposal.action,
@@ -509,7 +509,7 @@ test("Drizzle ledger and Relation discovery establish tenant context under force
     });
     const otherProposal = await ledgerStore.append({
       id: "15000000-0000-4000-8000-000000000003",
-      workspaceId: workspace.id,
+      organizationId: organization.id,
       actorType: "user",
       actorId: otherOwner.id,
       action: "write",
@@ -521,7 +521,7 @@ test("Drizzle ledger and Relation discovery establish tenant context under force
     });
     await ledgerStore.append({
       id: "15000000-0000-4000-8000-000000000004",
-      workspaceId: workspace.id,
+      organizationId: organization.id,
       actorType: "user",
       actorId: otherOwner.id,
       action: otherProposal.action,
@@ -541,11 +541,11 @@ test("Drizzle ledger and Relation discovery establish tenant context under force
     assert.deepEqual(await local.db.select().from(schema.ledger), []);
 
     const effectStore = new DrizzleRelationMaterializationStore(local.db);
-    const firstOwnerPage = await effectStore.listApprovedOwners(workspace.id, {
+    const firstOwnerPage = await effectStore.listApprovedOwners(organization.id, {
       limit: 1,
     });
     assert.ok(firstOwnerPage.nextCursor);
-    const secondOwnerPage = await effectStore.listApprovedOwners(workspace.id, {
+    const secondOwnerPage = await effectStore.listApprovedOwners(organization.id, {
       limit: 1,
       afterOwnerUserId: firstOwnerPage.nextCursor,
     });
@@ -558,12 +558,12 @@ test("Drizzle ledger and Relation discovery establish tenant context under force
     );
     assert.equal(secondOwnerPage.nextCursor, null);
     assert.equal(
-      await effectStore.discoverApproved(workspace.id, owner.id, { limit: 10 }),
+      await effectStore.discoverApproved(organization.id, owner.id, { limit: 10 }),
       1,
     );
     assert.equal(
       (
-        await effectStore.listOutstanding(workspace.id, owner.id, {
+        await effectStore.listOutstanding(organization.id, owner.id, {
           limit: 10,
         })
       )[0]?.decisionLedgerId,

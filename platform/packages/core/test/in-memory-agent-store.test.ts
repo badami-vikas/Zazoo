@@ -27,7 +27,7 @@ test("isActive: an agent with assumedRole/capabilityScope/dataScope set but NO e
   agents.assumed.set(agentId, "role-something");
   agents.scope.set(agentId, ["signal:write"]);
   agents.tiers.set(agentId, "all");
-  agents.workspaces.set(agentId, "ws-1");
+  agents.organizations.set(agentId, "ws-1");
   // Deliberately NOT calling agents.statuses.set(...) — this is the exact
   // "weaker fallback" scenario the semantic choice below rejects.
   assert.equal(await agents.isActive(agentId), false);
@@ -51,17 +51,17 @@ test("isActive: an agent explicitly seeded \"active\" is active", async () => {
   assert.equal(await agents.isActive(agentId), true);
 });
 
-test("workspaceId: an unseeded agent resolves to null, never a guessed workspace", async () => {
+test("organizationId: an unseeded agent resolves to null, never a guessed organization", async () => {
   const agents = new InMemoryAgentStore();
-  assert.equal(await agents.workspaceId("never-seeded-agent"), null);
+  assert.equal(await agents.organizationId("never-seeded-agent"), null);
 });
 
-test("workspaceId + isActive together: this is the exact pair pipeline.ts's AGS1 gate and resolveAuthority check before permitting any governed Skill or mutation for an Agent actor — both must be explicitly seeded, or the Agent is authoritatively unusable", async () => {
+test("organizationId + isActive together: this is the exact pair pipeline.ts's AGS1 gate and resolveAuthority check before permitting any governed Skill or mutation for an Agent actor — both must be explicitly seeded, or the Agent is authoritatively unusable", async () => {
   const agents = new InMemoryAgentStore();
   const agentId = "partially-seeded-agent";
-  agents.workspaces.set(agentId, "ws-1");
-  // No status set — even though the agent IS known to a workspace, it must
+  agents.organizations.set(agentId, "ws-1");
+  // No status set — even though the agent IS known to a organization, it must
   // still be inactive without an explicit "active" status.
-  assert.equal(await agents.workspaceId(agentId), "ws-1");
+  assert.equal(await agents.organizationId(agentId), "ws-1");
   assert.equal(await agents.isActive(agentId), false);
 });

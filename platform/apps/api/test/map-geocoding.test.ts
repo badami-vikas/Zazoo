@@ -17,7 +17,7 @@ import {
 import {
   buildWiring,
   PILOT_USER,
-  PILOT_WORKSPACE,
+  PILOT_ORGANIZATION,
   type Wiring,
 } from "../src/wiring.js";
 
@@ -60,7 +60,7 @@ test("Map resolves labels only through an explicitly injected Local Plane provid
   try {
     const caller = makeCaller(wiring);
     const status = await caller.view.geocoderStatus({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
     });
     assert.deepEqual(status, {
       available: true,
@@ -73,7 +73,7 @@ test("Map resolves labels only through an explicitly injected Local Plane provid
     });
 
     const result = await caller.view.resolveLocations({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       labels: [
         "test_fixture_private_place",
         " TEST_FIXTURE_PRIVATE_PLACE ",
@@ -105,7 +105,7 @@ test("Map fails closed when no private geocoder is configured", async () => {
     const caller = makeCaller(wiring);
     await assert.rejects(
       caller.view.resolveLocations({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         labels: ["test_fixture_private_place"],
         confirmedLocalProvider: true,
       }),

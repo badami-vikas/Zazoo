@@ -65,7 +65,7 @@ function freshCtx(startISO = "2026-06-01T00:00:00.000Z", seed = 42): RunCtx {
 
 function req(partial: Partial<ActionRequest>): ActionRequest {
   return {
-    workspaceId: WS,
+    organizationId: WS,
     actor: { type: "user", id: "u1" },
     action: "write",
     resourceType: "person",
@@ -177,7 +177,7 @@ test("ephemeral grant authorizes an agent step, then drafts for review", async (
   const p = await h.pipeline.propose(
     req({
       actor: { type: "agent", id: "agent-1" },
-      context: { type: "initiative", id: "init-9" },
+      context: { type: "record", id: "init-9" },
     }),
     freshCtx(),
   );
@@ -197,7 +197,7 @@ test("expired ephemeral grant does not authorize", async () => {
     "init-9",
   );
   const p = await h.pipeline.propose(
-    req({ actor: { type: "agent", id: "agent-1" }, context: { type: "initiative", id: "init-9" } }),
+    req({ actor: { type: "agent", id: "agent-1" }, context: { type: "record", id: "init-9" } }),
     freshCtx(),
   );
   assert.equal(p.status, "rejected");
@@ -219,7 +219,7 @@ test("policy require_approval forces a human draft even on auto path", async () 
 test("policy block rejects before the skill runs", async () => {
   const blocker: PolicyFn = (i) =>
     i.phase === "pre"
-      ? { policyId: "pol-block", phase: "pre", effect: "block", reason: "frozen workspace" }
+      ? { policyId: "pol-block", phase: "pre", effect: "block", reason: "frozen organization" }
       : null;
   const h = harness({ policies: [blocker] });
   h.roles.direct.set("user:u1", [
@@ -381,7 +381,7 @@ test("decide() persists and replays the ORIGINAL dataScope + context, not '(repl
     { resourceType: "person", resourceId: null, action: "write", effect: "allow", dataScope: "all" },
   ]);
   const ctx = freshCtx();
-  const originalContext = { type: "initiative" as const, id: "test_fixture_init-9", runId: "test_fixture_run-1" };
+  const originalContext = { type: "record" as const, id: "test_fixture_init-9", runId: "test_fixture_run-1" };
   const p = await h.pipeline.propose(
     req({
       actor: { type: "agent", id: "agent-1" },
@@ -474,7 +474,7 @@ test("AutomationExecutor loads a definition, merges params, and records its attr
   const registry = new InMemoryAutomationRegistry().register({
     id: "reconnect",
     name: "Reconnect Advisor",
-    workspaceId: WS,
+    organizationId: WS,
     agentId: "agent-1",
     agentPlane: "local",
     steps: [
@@ -486,7 +486,7 @@ test("AutomationExecutor loads a definition, merges params, and records its attr
   const exec = new InProcessAutomationExecutor(h.pipeline, { registry, recorder });
 
   const result = await exec.runById(
-    { workspaceId: WS, automationId: "reconnect", params: { target: "p9" } },
+    { organizationId: WS, automationId: "reconnect", params: { target: "p9" } },
     freshCtx(),
   );
   assert.equal(result.status, "completed");
@@ -510,14 +510,14 @@ test("AutomationExecutor derives the actor exclusively from the stored owning Ag
   const registry = new InMemoryAutomationRegistry().register({
     id: "owned",
     name: "Owned",
-    workspaceId: WS,
+    organizationId: WS,
     agentId: "agent-owner",
     agentPlane: "local",
     steps: [{ skill: "echo", action: "read", resourceType: "person" }],
   });
   const exec = new InProcessAutomationExecutor(h.pipeline, { registry });
   const result = await exec.runById(
-    { workspaceId: WS, automationId: "owned" },
+    { organizationId: WS, automationId: "owned" },
     freshCtx(),
   );
   assert.equal(result.proposals[0]?.request.actor.type, "agent");
@@ -529,7 +529,7 @@ test("AutomationExecutor throws for an unknown Automation id", async () => {
   const h = harness();
   const exec = new InProcessAutomationExecutor(h.pipeline, { registry: new InMemoryAutomationRegistry() });
   await assert.rejects(
-    () => exec.runById({ workspaceId: WS, automationId: "nope" }, freshCtx()),
+    () => exec.runById({ organizationId: WS, automationId: "nope" }, freshCtx()),
     /not found/,
   );
 });
@@ -625,14 +625,14 @@ test("data-scope: an Automation step's dataScope flows into the decision", async
   const registry = new InMemoryAutomationRegistry().register({
     id: "scan",
     name: "Scan",
-    workspaceId: WS,
+    organizationId: WS,
     agentId: "agent-1",
     agentPlane: "local",
     steps: [{ skill: "echo", action: "read", resourceType: "person", dataScope: "public" }],
   });
   const exec = new InProcessAutomationExecutor(h.pipeline, { registry });
   const result = await exec.runById(
-    { workspaceId: WS, automationId: "scan" },
+    { organizationId: WS, automationId: "scan" },
     freshCtx(),
   );
   assert.equal(result.proposals[0]!.authority.dataScope, "public");
@@ -648,7 +648,7 @@ test("AutomationExecutor runs steps in order and halts on a rejected step", asyn
   const registry = new InMemoryAutomationRegistry().register({
       id: "automation-1",
       name: "Ordered Automation",
-      workspaceId: WS,
+      organizationId: WS,
       agentId: "agent-1",
       agentPlane: "local",
       steps: [
@@ -659,7 +659,7 @@ test("AutomationExecutor runs steps in order and halts on a rejected step", asyn
   });
   const exec = new InProcessAutomationExecutor(h.pipeline, { registry });
   const result = await exec.runById(
-    { workspaceId: WS, automationId: "automation-1" },
+    { organizationId: WS, automationId: "automation-1" },
     freshCtx(),
   );
   assert.equal(result.status, "halted");

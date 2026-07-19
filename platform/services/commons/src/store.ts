@@ -1,30 +1,30 @@
 /**
  * CommonsStore — the storage port behind the Commons HTTP surface, mirroring
- * @bridge/core's PackageStore/CapabilityStore port discipline: routes bind
+ * @bridge/core's ModuleStore/CapabilityStore port discipline: routes bind
  * against THIS interface, never a concrete store, so the Bridge Cloud
  * deployment swaps Postgres in without touching the contract.
  *
  * v1 implementation = local filesystem JSON (deliberately simple, zero new
  * DB dependency): one file per published (name, version) under
- * `<dataDir>/packages/<name>/<version>.json`. Names/versions are validated
- * upstream by parsePackageManifest (kebab-case / strict semver), which also
+ * `<dataDir>/modules/<name>/<version>.json`. Names/versions are validated
+ * upstream by parseModuleManifest (kebab-case / strict semver), which also
  * makes them path-safe; encodeURIComponent is belt-and-braces.
  */
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CommonsPackageEntry } from "@bridge/core";
+import type { CommonsModuleEntry } from "@bridge/core";
 
 export interface CommonsStore {
   /** Persist one published entry. Rejects on duplicate (name, version) —
-   * published versions are immutable (same rule the package lifecycle's
+   * published versions are immutable (same rule the module lifecycle's
    * single-live-version model assumes). */
-  put(entry: CommonsPackageEntry): Promise<void>;
+  put(entry: CommonsModuleEntry): Promise<void>;
   /** One exact version, or null. */
-  get(name: string, version: string): Promise<CommonsPackageEntry | null>;
-  /** All versions of one package, oldest-first by publishedAt. Empty when unknown. */
-  listVersions(name: string): Promise<CommonsPackageEntry[]>;
-  /** Every published entry (all packages, all versions). */
-  listAll(): Promise<CommonsPackageEntry[]>;
+  get(name: string, version: string): Promise<CommonsModuleEntry | null>;
+  /** All versions of one module, oldest-first by publishedAt. Empty when unknown. */
+  listVersions(name: string): Promise<CommonsModuleEntry[]>;
+  /** Every published entry (all modules, all versions). */
+  listAll(): Promise<CommonsModuleEntry[]>;
 }
 
 export class DuplicateVersionError extends Error {
@@ -43,14 +43,14 @@ export class FsCommonsStore implements CommonsStore {
   readonly #root: string;
 
   constructor(dataDir: string) {
-    this.#root = join(dataDir, "packages");
+    this.#root = join(dataDir, "modules");
   }
 
   #versionPath(name: string, version: string): string {
     return join(this.#root, safeSegment(name), `${safeSegment(version)}.json`);
   }
 
-  async put(entry: CommonsPackageEntry): Promise<void> {
+  async put(entry: CommonsModuleEntry): Promise<void> {
     const dir = join(this.#root, safeSegment(entry.name));
     await mkdir(dir, { recursive: true });
     try {
@@ -67,17 +67,17 @@ export class FsCommonsStore implements CommonsStore {
     }
   }
 
-  async get(name: string, version: string): Promise<CommonsPackageEntry | null> {
+  async get(name: string, version: string): Promise<CommonsModuleEntry | null> {
     try {
       const raw = await readFile(this.#versionPath(name, version), "utf8");
-      return JSON.parse(raw) as CommonsPackageEntry;
+      return JSON.parse(raw) as CommonsModuleEntry;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw err;
     }
   }
 
-  async listVersions(name: string): Promise<CommonsPackageEntry[]> {
+  async listVersions(name: string): Promise<CommonsModuleEntry[]> {
     let files: string[];
     try {
       files = await readdir(join(this.#root, safeSegment(name)));
@@ -85,7 +85,7 @@ export class FsCommonsStore implements CommonsStore {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw err;
     }
-    const entries: CommonsPackageEntry[] = [];
+    const entries: CommonsModuleEntry[] = [];
     for (const file of files) {
       if (!file.endsWith(".json")) continue;
       const version = decodeURIComponent(file.slice(0, -".json".length));
@@ -95,7 +95,7 @@ export class FsCommonsStore implements CommonsStore {
     return entries.sort((a, b) => a.publishedAt.localeCompare(b.publishedAt));
   }
 
-  async listAll(): Promise<CommonsPackageEntry[]> {
+  async listAll(): Promise<CommonsModuleEntry[]> {
     let dirs: string[];
     try {
       dirs = await readdir(this.#root);
@@ -103,7 +103,7 @@ export class FsCommonsStore implements CommonsStore {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw err;
     }
-    const all: CommonsPackageEntry[] = [];
+    const all: CommonsModuleEntry[] = [];
     for (const dir of dirs) {
       all.push(...(await this.listVersions(decodeURIComponent(dir))));
     }

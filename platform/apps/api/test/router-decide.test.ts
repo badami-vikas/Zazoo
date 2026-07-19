@@ -7,7 +7,7 @@ import {
   buildWiring,
   OUTREACH_AGENT,
   PILOT_USER,
-  PILOT_WORKSPACE,
+  PILOT_ORGANIZATION,
   type Wiring,
 } from "../src/wiring.js";
 
@@ -42,7 +42,7 @@ test("action.decide: a user can veto a pending share proposal through the router
     grantShareTouchpoint(wiring);
     const caller = makeCaller(wiring);
     const proposed = await caller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
       resourceType: "touchpoint",
@@ -84,7 +84,7 @@ test("action.decide: an agent identity is rejected with FORBIDDEN at the review 
     grantShareTouchpoint(wiring);
     const userCaller = makeCaller(wiring);
     const proposed = await userCaller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
       resourceType: "touchpoint",
@@ -107,13 +107,13 @@ test("action.decide: an agent identity is rejected with FORBIDDEN at the review 
   }
 });
 
-test("action approvals reject authenticated users outside the proposal workspace", async () => {
+test("action approvals reject authenticated users outside the proposal organization", async () => {
   const wiring = await buildWiring();
   try {
     grantShareTouchpoint(wiring);
     const memberCaller = makeCaller(wiring);
     const proposed = await memberCaller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
       resourceType: "touchpoint",
@@ -126,7 +126,7 @@ test("action approvals reject authenticated users outside the proposal workspace
     await assert.rejects(
       () =>
         nonMemberCaller.action.propose({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           actor: { type: "user", id: NON_MEMBER_USER_ID },
           action: "write",
           resourceType: "touchpoint",
@@ -136,11 +136,11 @@ test("action approvals reject authenticated users outside the proposal workspace
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );
     await assert.rejects(
-      () => nonMemberCaller.action.listPending({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 }),
+      () => nonMemberCaller.action.listPending({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 }),
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );
     await assert.rejects(
-      () => nonMemberCaller.action.listHistory({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 }),
+      () => nonMemberCaller.action.listHistory({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 }),
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );
     await assert.rejects(
@@ -163,7 +163,7 @@ test("action.propose rejects browser-selected Agent identities", async () => {
     await assert.rejects(
       () =>
         caller.action.propose({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           actor: { type: "agent", id: "b0000000-0000-4000-a000-0000000000d1" },
           action: "write",
           resourceType: "touchpoint",
@@ -182,7 +182,7 @@ test("rejection audit rows never enter Approvals or become approvable", async ()
   try {
     const caller = makeCaller(wiring);
     const rejected = await caller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "write",
       resourceType: "policy",
@@ -191,7 +191,7 @@ test("rejection audit rows never enter Approvals or become approvable", async ()
     });
     assert.equal(rejected.status, "rejected");
     assert.equal(
-      (await caller.action.listPending({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 })).total,
+      (await caller.action.listPending({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 })).total,
       0,
     );
     assert.deepEqual(await caller.action.resolution({ proposalId: rejected.id }), {
@@ -216,7 +216,7 @@ test("action.decide reports post-decision effect failures without losing the rec
     };
     const caller = makeCaller(wiring);
     const proposed = await caller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
       resourceType: "touchpoint",
@@ -247,7 +247,7 @@ test("action.proposeOutreachDraft binds the server-owned Agent to the authentica
   try {
     const caller = makeCaller(wiring);
     const input = {
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourceId: "test_fixture_signal_server_owned_agent",
       label: "Draft follow-up",
       resource: "Test Person",
@@ -266,7 +266,7 @@ test("action.proposeOutreachDraft binds the server-owned Agent to the authentica
     assert.equal(proposed.status, "pending_review");
     assert.equal(duplicate.id, proposed.id);
     assert.equal(
-      (await caller.action.listPending({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 })).total,
+      (await caller.action.listPending({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 })).total,
       1,
     );
 

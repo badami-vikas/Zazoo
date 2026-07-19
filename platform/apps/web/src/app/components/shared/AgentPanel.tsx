@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from "react";
 import { ChevronsLeft } from "lucide-react";
-import { trpc, PILOT_WORKSPACE } from "../../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../../lib/trpc";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Badge } from "../ui/badge";
@@ -92,7 +92,7 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
     setError(null);
     setTurns((prev) => [...prev, { role: "user", text: message }]);
     try {
-      const result = await trpc.chiefOfStaff.converse.mutate({ workspaceId: PILOT_WORKSPACE, message, chainDepth });
+      const result = await trpc.chiefOfStaff.converse.mutate({ organizationId: PILOT_ORGANIZATION, message, chainDepth });
       setTurns((prev) => [
         ...prev,
         { role: "assistant", text: result.reply, decision: result.decision, proposalId: result.proposal?.id, agent: result.agent },

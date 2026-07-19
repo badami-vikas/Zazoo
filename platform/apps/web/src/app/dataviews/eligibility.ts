@@ -93,11 +93,11 @@ export function isFlaggableValue(value: unknown): boolean {
  * control that can never actually work (AP-021: "interactive-looking UI
  * must open detail/edit/filter/explanation/governed Action" — one that
  * always errors violates this just as much as one that does nothing).
- * `WorkspacePage.tsx` currently also renders a `"signal"` node type through
+ * `OrganizationPage.tsx` currently also renders a `"signal"` node type through
  * `TableView` — Signals have no backing existence-check store yet, so
  * `"signal"` is deliberately NOT in this list until one exists.
  */
-const SUPPORTED_RED_FLAG_MODULES = new Set(["jobpilot", "job-pilot", "dealpilot", "initiative", "touchpoint", "person", "people", "community", "communities"]);
+const SUPPORTED_RED_FLAG_MODULES = new Set(["jobpilot", "job-pilot", "dealpilot", "record", "touchpoint", "person", "people", "community", "communities"]);
 export function isSupportedRedFlagModule(moduleId: string): boolean {
   return SUPPORTED_RED_FLAG_MODULES.has(moduleId);
 }

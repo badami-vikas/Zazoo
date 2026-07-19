@@ -59,6 +59,6 @@ export const trpc = createTRPCClient<AppRouter>({
 });
 
 // Real pilot identity — this app is single-tenant until Phase 5 (see decisions-log.md
-// 2026-07-05 "single-tenant safety net"). Every workspace-scoped call uses this id; the
+// 2026-07-05 "single-tenant safety net"). Every organization-scoped call uses this id; the
 // server rejects any other with FORBIDDEN.
-export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
+export const PILOT_ORGANIZATION = "b0000000-0000-4000-a000-000000000001";

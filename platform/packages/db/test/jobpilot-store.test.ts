@@ -1,6 +1,6 @@
 /**
  * DrizzleJobPilotStore against a real pglite-backed Postgres. Proves the
- * workspace-scoped JobPilot persistence: createJob also opens its tracking
+ * organization-scoped JobPilot persistence: createJob also opens its tracking
  * application (stage "queued"), listJobs left-joins the application + counts,
  * updateApplication patches stage/flag/fitScore (and clears a flag), and
  * getApplication is tenant-scoped. State-machine validity lives in
@@ -16,14 +16,14 @@ test("jobpilot: createJob + listJobs + updateApplication + getApplication", asyn
   const { db, close } = await createLocalDb();
   try {
     const [ws] = await db
-      .insert(schema.workspaces)
+      .insert(schema.organizations)
       .values({ name: "test_fixture_ws_jobpilot" })
-      .returning({ id: schema.workspaces.id });
+      .returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleJobPilotStore(db);
 
     const { job, application } = await store.createJob({
-      workspaceId: ws.id,
+      organizationId: ws.id,
       title: "Staff Engineer",
       company: "Acme",
       location: "Remote",
@@ -39,7 +39,7 @@ test("jobpilot: createJob + listJobs + updateApplication + getApplication", asyn
     assert.equal(application.stage, "queued");
 
     // Minimal job (optional fields omitted).
-    await store.createJob({ workspaceId: ws.id, title: "IC5 Backend", company: "Beta" });
+    await store.createJob({ organizationId: ws.id, title: "IC5 Backend", company: "Beta" });
 
     const page = await store.listJobs(ws.id, { limit: 10, offset: 0 });
     assert.equal(page.total, 2);
