@@ -1,0 +1,1000 @@
+.scene--night {
+  height: 340svh;
+  color: #fffaf0;
+  background: var(--night-deep);
+}
+
+.night-stage {
+  background:
+    radial-gradient(circle at 67% 22%, rgb(196 149 90 / 18%), transparent 26%),
+    linear-gradient(180deg, #2b4252 0%, #142c40 48%, #0c1b2b 100%);
+}
+
+.night-office,
+.cottage-path,
+.dream-world {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 650ms ease, transform 900ms ease;
+}
+
+.scene--night[data-act="office"] .night-office,
+.scene--night[data-act="cottage"] .cottage-path,
+.scene--night[data-act="dream"] .dream-world {
+  z-index: 5;
+  opacity: 1;
+  transform: scale(1);
+}
+
+.night-office {
+  background:
+    linear-gradient(180deg, rgb(196 149 90 / 12%), transparent 45%),
+    #2c4252;
+  transform: scale(1.03);
+}
+
+.night-office::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 32%;
+  background: #243746;
+  content: "";
+}
+
+.night-window {
+  position: absolute;
+  z-index: 1;
+  top: 8%;
+  right: 8%;
+  width: 33%;
+  height: 43%;
+  border: 16px solid #405565;
+  border-radius: 9px;
+  background:
+    radial-gradient(circle at 72% 22%, #d6c27c 0 3%, transparent 3.5%),
+    linear-gradient(#945f51, #31475c 65%, #172a3d);
+  box-shadow: inset 0 0 40px rgb(10 24 37 / 32%);
+}
+
+.night-window::after {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent 48%, #405565 48% 52%, transparent 52%),
+    linear-gradient(transparent 48%, #405565 48% 52%, transparent 52%);
+  content: "";
+}
+
+.night-desk {
+  position: absolute;
+  z-index: 3;
+  right: 15%;
+  bottom: 23%;
+  width: 34%;
+  height: 14%;
+  border: 10px solid #664b38;
+  border-top-width: 24px;
+  background: #8b684e;
+}
+
+.night-curtain {
+  position: absolute;
+  z-index: 8;
+  top: 10%;
+  width: 17%;
+  height: 57%;
+  border-radius: 45% 45% 6px 6px;
+  background: #596f69;
+  transition: transform 900ms ease;
+}
+
+.night-curtain--left {
+  right: 24%;
+  transform-origin: left;
+}
+
+.night-curtain--right {
+  right: 7%;
+  transform-origin: right;
+}
+
+.scene--night[data-act="office"][data-frame="1"] .night-curtain,
+.scene--night[data-act="office"][data-frame="2"] .night-curtain {
+  transform: scaleX(1.08);
+}
+
+.night-notebooks {
+  z-index: 9;
+  right: 21%;
+  bottom: 38%;
+  transform: rotate(5deg) scale(1.2);
+}
+
+.night-aeva--office {
+  position: absolute;
+  z-index: 10;
+  right: 46%;
+  bottom: 15%;
+  width: clamp(150px, 18vw, 260px);
+}
+
+.night-departure {
+  position: absolute;
+  z-index: 6;
+  bottom: 13%;
+  width: clamp(90px, 10vw, 145px);
+  animation: leave-office 7s ease-in-out both;
+  animation-delay: calc(var(--departure-index, 0) * 0.55s);
+  animation-play-state: paused;
+}
+
+.night-departure--1 { left: 5%; --departure-index: 0; }
+.night-departure--2 { left: 17%; --departure-index: 1; }
+.night-departure--3 { left: 29%; --departure-index: 2; }
+.night-departure--4 { left: 10%; --departure-index: 3; }
+.night-departure--5 { left: 23%; --departure-index: 4; }
+
+.scene--night[data-active="true"] .night-departure {
+  animation-play-state: running;
+}
+
+.office-light {
+  position: absolute;
+  z-index: 2;
+  top: 15%;
+  width: 18%;
+  height: 45%;
+  background: linear-gradient(rgb(229 180 104 / 30%), transparent);
+  clip-path: polygon(37% 0, 63% 0, 100% 100%, 0 100%);
+  animation: office-light-out 7s ease-in-out both;
+  animation-play-state: paused;
+}
+
+.office-light--one { left: 5%; animation-delay: 0.8s; }
+.office-light--two { left: 32%; animation-delay: 1.7s; }
+.office-light--three { right: 18%; animation-delay: 2.6s; }
+
+.scene--night[data-active="true"] .office-light {
+  animation-play-state: running;
+}
+
+.cottage-path {
+  background:
+    radial-gradient(circle at 78% 17%, #d6c88f 0 4%, rgb(214 200 143 / 15%) 4.5%, transparent 17%),
+    linear-gradient(#1c354b 0 62%, #263a40 62% 100%);
+  transform: translateX(3%);
+}
+
+.cottage-path::after {
+  position: absolute;
+  right: -10%;
+  bottom: -10%;
+  left: -10%;
+  height: 45%;
+  border-radius: 50% 50% 0 0;
+  background: #31483e;
+  content: "";
+}
+
+.moon {
+  position: absolute;
+  top: 10%;
+  right: 14%;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: #d8cb94;
+  box-shadow: 0 0 45px rgb(216 203 148 / 20%);
+}
+
+.path-stone {
+  position: absolute;
+  z-index: 4;
+  bottom: 17%;
+  width: 8%;
+  height: 3%;
+  border-radius: 50%;
+  background: #6f796e;
+  transform: rotate(-12deg);
+}
+
+.path-stone--one { left: 14%; }
+.path-stone--two { left: 33%; bottom: 24%; transform: rotate(8deg); }
+.path-stone--three { left: 52%; bottom: 30%; }
+
+.cottage {
+  position: absolute;
+  z-index: 5;
+  right: 8%;
+  bottom: 14%;
+  width: min(45vw, 570px);
+  height: 53%;
+  border-radius: 48% 48% 8px 8px;
+  background: #8a6c51;
+  box-shadow: inset 0 0 50px rgb(68 41 24 / 22%), 0 20px 50px rgb(7 17 27 / 25%);
+}
+
+.cottage__roof {
+  position: absolute;
+  z-index: 2;
+  top: -22%;
+  left: -8%;
+  width: 116%;
+  height: 45%;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: #4e5360;
+}
+
+.cottage__window {
+  position: absolute;
+  top: 20%;
+  right: 12%;
+  width: 30%;
+  height: 33%;
+  border: 9px solid #624b38;
+  border-radius: 7px;
+  background: #d9ad69;
+  box-shadow: 0 0 32px rgb(217 173 105 / 24%);
+}
+
+.cottage__door {
+  position: absolute;
+  bottom: 0;
+  left: 14%;
+  width: 22%;
+  height: 45%;
+  border-radius: 50% 50% 0 0;
+  background: #554536;
+}
+
+.cottage__shelf {
+  position: absolute;
+  top: 20%;
+  left: 12%;
+  width: 29%;
+  height: 5%;
+  background: #594330;
+  box-shadow: 0 25px 0 #594330, 0 50px 0 #594330;
+}
+
+.cottage__bed {
+  position: absolute;
+  right: 8%;
+  bottom: 8%;
+  width: 43%;
+  height: 24%;
+  border-radius: 18px 18px 5px 5px;
+  background: #c7b6a0;
+  box-shadow: inset 0 -18px 0 #71879a;
+}
+
+.cottage__portrait {
+  position: absolute;
+  top: 10%;
+  left: 48%;
+  width: 18%;
+  height: 20%;
+  border: 6px solid #654b34;
+  border-radius: 5px;
+  background:
+    radial-gradient(circle at 50% 35%, #b88669 0 12%, transparent 13%),
+    linear-gradient(#a7bbc4 0 55%, #6b7c65 55%);
+}
+
+.cottage__lamp {
+  position: absolute;
+  right: 5%;
+  bottom: 31%;
+  width: 34px;
+  height: 38px;
+  border-radius: 50% 50% 5px 5px;
+  background: #e5b768;
+  box-shadow: 0 0 28px rgb(229 183 104 / 35%);
+}
+
+.cottage__badge {
+  position: absolute;
+  bottom: 41%;
+  left: 24%;
+  width: 23px;
+  height: 31px;
+  border: 3px solid #c6ad78;
+  border-radius: 5px;
+}
+
+.night-aeva--path {
+  position: absolute;
+  z-index: 8;
+  bottom: 18%;
+  left: 8%;
+  width: clamp(140px, 17vw, 230px);
+  animation: cottage-walk 7s ease-in-out both;
+  animation-play-state: paused;
+}
+
+.night-aeva--sleeping {
+  position: absolute;
+  z-index: 9;
+  right: 8%;
+  bottom: 7%;
+  width: 34%;
+  opacity: 0;
+  transform: rotate(8deg) scale(0.7);
+  animation: settle-sleep 7s ease-in-out both;
+  animation-play-state: paused;
+}
+
+.scene--night[data-active="true"] .night-aeva--path,
+.scene--night[data-active="true"] .night-aeva--sleeping {
+  animation-play-state: running;
+}
+
+.dream-world {
+  background:
+    radial-gradient(circle at 54% 37%, rgb(245 204 114 / 14%), transparent 15%),
+    linear-gradient(#101f32, #223a50 62%, #192f40);
+  transform: scale(1.04);
+}
+
+.dream-sky {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 17% 22%, rgb(255 255 255 / 55%) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 73% 12%, rgb(255 255 255 / 40%) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 43% 30%, rgb(255 255 255 / 35%) 0 1px, transparent 1.5px);
+  background-size: 120px 120px, 170px 150px, 140px 180px;
+}
+
+.dream-mountain {
+  position: absolute;
+  right: -8%;
+  bottom: -10%;
+  left: -8%;
+  height: 90%;
+  clip-path: polygon(0 100%, 12% 75%, 23% 82%, 39% 46%, 48% 66%, 61% 19%, 71% 58%, 82% 39%, 100% 79%, 100% 100%);
+}
+
+.dream-mountain--back {
+  bottom: 7%;
+  background: #516c7d;
+  opacity: 0.55;
+  transform: scale(1.12);
+}
+
+.dream-mountain--front {
+  background: #334f60;
+}
+
+.dream-branch {
+  position: absolute;
+  z-index: 10;
+  right: 31%;
+  bottom: 38%;
+  width: 120px;
+  height: 13px;
+  border-radius: 999px;
+  background: #6e513a;
+  transform: rotate(-28deg);
+}
+
+.dream-stone {
+  position: absolute;
+  z-index: 9;
+  width: 42px;
+  height: 28px;
+  border-radius: 50%;
+  background: #72808a;
+}
+
+.dream-stone--one { right: 48%; bottom: 29%; }
+.dream-stone--two { right: 39%; bottom: 43%; transform: scale(0.7); }
+
+.dream-bridge {
+  position: absolute;
+  z-index: 8;
+  right: 16%;
+  bottom: 42%;
+  width: 22%;
+  height: 17px;
+  border-radius: 4px;
+  background: repeating-linear-gradient(90deg, #9a7954 0 12%, #6c5136 12% 14%);
+  transform: rotate(-9deg);
+}
+
+.dream-lantern {
+  right: 47%;
+  bottom: 47%;
+}
+
+.dream-owner {
+  z-index: 11;
+  right: 13%;
+  bottom: 51%;
+  transform: rotate(-8deg) scale(0.9);
+}
+
+.dream-aeva {
+  position: absolute;
+  z-index: 12;
+  right: 39%;
+  bottom: 31%;
+  width: clamp(135px, 16vw, 225px);
+  transform: rotate(-4deg);
+}
+
+.privacy-status {
+  position: absolute;
+  z-index: 30;
+  right: 3rem;
+  bottom: 3rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 999px;
+  color: #d8e0d4;
+  background: rgb(15 32 46 / 70%);
+  font-size: 1rem;
+  animation: status-in 300ms ease-out both;
+}
+
+.privacy-status::before {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 0.55rem;
+  border-radius: 50%;
+  background: var(--sage);
+  content: "";
+}
+
+.dream-line {
+  position: absolute;
+  z-index: 30;
+  bottom: 8vh;
+  left: 50%;
+  width: min(86vw, 880px);
+  color: #fff8e9;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(1.65rem, 3.4vw, 3.4rem);
+  font-weight: 500;
+  line-height: 1.12;
+  text-align: center;
+  text-shadow: 0 3px 20px rgb(5 13 22 / 60%);
+  transform: translateX(-50%);
+}
+
+.morning-light-transition {
+  position: absolute;
+  z-index: 40;
+  top: 5%;
+  left: 50%;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #f4ca75;
+  box-shadow: 0 0 90px 55px rgb(244 202 117 / 35%);
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 700ms ease, transform 700ms ease;
+}
+
+.scene--night[data-act="dream"] .morning-light-transition {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-20px);
+}
+
+.scene--morning {
+  height: 120svh;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.morning-stage {
+  background:
+    radial-gradient(circle at 50% 8%, rgb(244 202 117 / 38%), transparent 27%),
+    linear-gradient(180deg, #fbf4e5, var(--paper) 48%, #e8dfce 100%);
+}
+
+.morning-cottage {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.morning-bed {
+  position: absolute;
+  right: 8%;
+  bottom: 20%;
+  width: 33%;
+  height: 25%;
+  border-radius: 26px 26px 5px 5px;
+  background: #c9b9a2;
+  box-shadow: inset 0 -28px 0 #71879a;
+}
+
+.morning-badge {
+  position: absolute;
+  right: 40%;
+  bottom: 41%;
+  width: 26px;
+  height: 34px;
+  border: 3px solid var(--amber);
+  border-radius: 5px;
+}
+
+.morning-door {
+  position: absolute;
+  right: 3%;
+  bottom: 13%;
+  width: 18%;
+  height: 55%;
+  border: 12px solid #80654d;
+  border-bottom: 0;
+  border-radius: 50% 50% 0 0;
+  background: #d9c39e;
+}
+
+.morning-aeva {
+  position: absolute;
+  z-index: 10;
+}
+
+.morning-aeva--waking {
+  right: 14%;
+  bottom: 19%;
+  width: 220px;
+  transform: rotate(8deg);
+}
+
+.morning-aeva--walking {
+  right: 33%;
+  bottom: 12%;
+  width: 190px;
+}
+
+.morning-world {
+  position: absolute;
+  z-index: 6;
+  right: -3vw;
+  bottom: -18vh;
+  width: min(78vw, 1040px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, #fffdf8 0 16%, transparent 16.5%),
+    repeating-radial-gradient(circle at center, transparent 0 17%, rgb(77 126 168 / 12%) 17.3% 17.6%, transparent 18% 31%),
+    #ede7da;
+  box-shadow: 0 20px 80px rgb(26 43 60 / 12%);
+}
+
+.morning-orbit {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border: 1px solid rgb(77 126 168 / 18%);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.morning-orbit--outer { width: 82%; height: 82%; }
+.morning-orbit--inner { width: 44%; height: 44%; }
+
+.morning-calendar {
+  position: absolute;
+  top: 20%;
+  left: 46%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  width: 16%;
+  height: 12%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.morning-calendar i {
+  border-radius: 2px;
+  background: var(--parchment);
+}
+
+.morning-calendar i:first-child {
+  background: var(--steel-soft);
+}
+
+.morning-document {
+  top: 42%;
+  right: 12%;
+  transform: rotate(6deg);
+}
+
+.morning-plant {
+  right: 23%;
+  bottom: 20%;
+}
+
+.morning-note {
+  position: absolute;
+  bottom: 22%;
+  left: 27%;
+  width: 12%;
+  height: 10%;
+  border: 1px solid #dfc988;
+  border-radius: 4px;
+  background: #f5e5ad;
+  transform: rotate(-6deg);
+}
+
+.morning-aeva--working {
+  top: 28%;
+  left: 34%;
+  width: 24%;
+  transition: transform 450ms ease;
+}
+
+.morning-aeva--working.is-glancing {
+  transform: rotate(-4deg) translateY(-4px);
+}
+
+.final-invitation {
+  position: absolute;
+  z-index: 30;
+  top: 21vh;
+  left: clamp(1.5rem, 7vw, 8rem);
+  display: grid;
+  gap: 1rem;
+  max-width: min(42vw, 600px);
+}
+
+.final-invitation h2 {
+  max-width: 12ch;
+}
+
+.final-invitation p {
+  color: var(--body-ink);
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(1.35rem, 2.4vw, 2rem);
+}
+
+.final-invitation button {
+  justify-self: start;
+  min-height: 48px;
+  margin-top: 0.5rem;
+  padding: 0.75rem 1.2rem;
+  border: 1px solid rgb(77 126 168 / 45%);
+  border-radius: 8px;
+  color: rgb(46 64 87 / 58%);
+  background: rgb(240 238 232 / 70%);
+  font-weight: 600;
+  transition: border-color 250ms ease, color 250ms ease, transform 250ms ease;
+}
+
+.final-invitation button:hover,
+.final-invitation button:focus-visible {
+  border-color: var(--steel);
+  color: var(--body-ink);
+  transform: translateY(-2px);
+}
+
+.morning-stage footer {
+  position: absolute;
+  z-index: 35;
+  right: clamp(1rem, 3vw, 3rem);
+  bottom: clamp(1rem, 3vw, 2.5rem);
+}
+
+.scene--morning[data-active="true"] .morning-cottage {
+  animation: morning-cottage 10s ease-in-out both;
+}
+
+.scene--morning[data-active="true"] .morning-aeva--waking {
+  animation: morning-wake 10s ease-in-out both;
+}
+
+.scene--morning[data-active="true"] .morning-aeva--walking {
+  animation: morning-walk 10s ease-in-out both;
+}
+
+.scene--morning[data-active="true"] .morning-world {
+  animation: morning-world 10s ease-in-out both;
+}
+
+.scene--morning[data-active="true"] .final-invitation {
+  animation: invitation-in 10s ease-in-out both;
+}
+
+.scene--morning[data-active="true"] .morning-calendar,
+.scene--morning[data-active="true"] .morning-document,
+.scene--morning[data-active="true"] .morning-note {
+  animation: morning-prop 10s ease-in-out both;
+}
+
+.scene--morning[data-active="true"] .morning-plant {
+  animation: plant-turn 10s ease-in-out both;
+}
+
+@keyframes leave-office {
+  0%,
+  6% { opacity: 1; transform: translateX(0); }
+  60% { opacity: 1; transform: translateX(-14vw); }
+  75%,
+  100% { opacity: 0; transform: translateX(-24vw); }
+}
+
+@keyframes office-light-out {
+  0%,
+  45% { opacity: 1; }
+  70%,
+  100% { opacity: 0; }
+}
+
+@keyframes cottage-walk {
+  0% { left: 4%; opacity: 0; }
+  8% { opacity: 1; }
+  70% { left: 51%; opacity: 1; }
+  82%,
+  100% { left: 64%; opacity: 0; }
+}
+
+@keyframes settle-sleep {
+  0%,
+  65% { opacity: 0; transform: rotate(8deg) scale(0.55); }
+  80%,
+  100% { opacity: 1; transform: rotate(8deg) scale(0.7); }
+}
+
+@keyframes status-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes morning-cottage {
+  0%,
+  50% { opacity: 1; }
+  66%,
+  100% { opacity: 0; }
+}
+
+@keyframes morning-wake {
+  0% { transform: rotate(8deg) scaleY(0.95); }
+  15% { transform: rotate(0) scaleY(1.04); }
+  30%,
+  100% { transform: rotate(0) translateY(-8px); }
+}
+
+@keyframes morning-walk {
+  0%,
+  25% { right: 30%; opacity: 0; }
+  30% { opacity: 1; }
+  58% { right: 72%; opacity: 1; }
+  66%,
+  100% { right: 78%; opacity: 0; }
+}
+
+@keyframes morning-world {
+  0%,
+  45% { opacity: 0; transform: translateX(8%) scale(0.94); }
+  62%,
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes invitation-in {
+  0%,
+  72% { opacity: 0; transform: translateY(12px); }
+  86%,
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes morning-prop {
+  0%,
+  55% { opacity: 0; transform: translateY(8px); }
+  75%,
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes plant-turn {
+  0%,
+  55% { opacity: 0; transform: rotate(-9deg) scale(0.9); }
+  75%,
+  100% { opacity: 1; transform: rotate(5deg) scale(1); }
+}
+
+@media (max-width: 900px) {
+  .night-window {
+    width: 42%;
+  }
+
+  .cottage {
+    right: 2%;
+    width: 55vw;
+  }
+
+  .dream-owner {
+    transform: rotate(-8deg) scale(0.72);
+  }
+
+  .morning-world {
+    right: -15vw;
+    width: 88vw;
+  }
+
+  .final-invitation {
+    left: 2rem;
+    max-width: 45vw;
+  }
+}
+
+@media (max-width: 720px) {
+  .scene--night {
+    height: 390svh;
+  }
+
+  .night-window {
+    top: 7%;
+    right: 4%;
+    width: 58%;
+    height: 36%;
+  }
+
+  .night-desk {
+    right: 8%;
+    bottom: 27%;
+    width: 54%;
+  }
+
+  .night-curtain {
+    top: 8%;
+    height: 47%;
+  }
+
+  .night-curtain--left { right: 33%; width: 27%; }
+  .night-curtain--right { right: 5%; width: 28%; }
+
+  .night-aeva--office {
+    right: 45%;
+    bottom: 17%;
+    width: 145px;
+  }
+
+  .night-departure {
+    bottom: 11%;
+    width: 72px;
+  }
+
+  .night-departure--1 { left: 0; }
+  .night-departure--2 { left: 12%; }
+  .night-departure--3 { left: 24%; }
+  .night-departure--4 { left: 6%; }
+  .night-departure--5 { left: 18%; }
+
+  .privacy-status {
+    right: 1rem;
+    bottom: 1rem;
+  }
+
+  .cottage {
+    right: -17%;
+    bottom: 14%;
+    width: 97vw;
+    height: 47%;
+    transform: scale(0.83);
+    transform-origin: right bottom;
+  }
+
+  .night-aeva--path {
+    width: 118px;
+  }
+
+  .dream-mountain {
+    right: -35%;
+    left: -35%;
+  }
+
+  .dream-owner {
+    right: 2%;
+    transform: rotate(-8deg) scale(0.58);
+  }
+
+  .dream-aeva {
+    right: 33%;
+    width: 120px;
+  }
+
+  .dream-bridge {
+    right: 4%;
+    width: 34%;
+  }
+
+  .dream-line {
+    bottom: 7vh;
+    width: calc(100% - 2rem);
+    font-size: 1.65rem;
+  }
+
+  .scene--morning {
+    height: 115svh;
+  }
+
+  .morning-world {
+    right: -55vw;
+    bottom: -6vh;
+    width: 160vw;
+  }
+
+  .morning-aeva--waking {
+    width: 150px;
+  }
+
+  .morning-aeva--walking {
+    width: 120px;
+  }
+
+  .morning-aeva--working {
+    width: 20%;
+  }
+
+  .final-invitation {
+    top: 12vh;
+    left: 1rem;
+    max-width: calc(100% - 2rem);
+  }
+
+  .final-invitation h2 {
+    max-width: 11ch;
+  }
+
+  .final-invitation p {
+    font-size: 1.35rem;
+  }
+
+  .morning-stage footer {
+    bottom: 1rem;
+    left: 1rem;
+    right: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .night-office,
+  .cottage-path,
+  .dream-world {
+    transition: opacity 300ms ease !important;
+    transform: none !important;
+  }
+
+  .night-departure,
+  .office-light,
+  .night-aeva--path,
+  .night-aeva--sleeping,
+  .morning-cottage,
+  .morning-aeva,
+  .morning-world,
+  .final-invitation,
+  .morning-calendar,
+  .morning-document,
+  .morning-note,
+  .morning-plant {
+    animation: none !important;
+  }
+
+  .night-aeva--sleeping {
+    opacity: 1;
+  }
+
+  .morning-cottage {
+    opacity: 0;
+  }
+
+  .morning-world,
+  .final-invitation {
+    opacity: 1;
+    transform: none;
+  }
+}
