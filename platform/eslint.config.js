@@ -5,15 +5,20 @@ import bridgeRules from "./tools/eslint-rules/src/index.js";
 /**
  * Flat ESLint config for the Bridge AI platform monorepo.
  *
- * Enforces two CLAUDE.md conventions mechanically:
- *  1. Vocabulary rule (bridge/no-crm-vocab) — bans CRM/sales vocabulary ("Deal") in
+ * Enforces the scoped CLAUDE.md vocabulary rule mechanically:
+ *  - bridge/no-crm-vocab bans generic Engine "Deal" identifiers while allowing
+ *    Deal as Module Record vocabulary. The broader retired-identifier ratchet is
+ *    `pnpm check:vocabulary`.
+ *
+ * Historical note: the retired dummy-prefix rule is no longer configured.
+ * Unavoidable runtime or test fixtures are governed by docs/dummy.md, not by a
+ * naming-prefix convention.
+ *
+ * Vocabulary rule details:
+ *  1. bridge/no-crm-vocab — bans generic Engine vocabulary ("Deal") in
  *     identifiers. See tools/eslint-rules/src/no-crm-vocab.js's header for the full
  *     "Pipeline"/"Lead"/"Contact" scoping writeup and docs/raw/decisions-log.md's
  *     matching 2026-07-05 ADR entry.
- *  2. dummy_ prefix rule (bridge/dummy-prefix) — warns when a test/fixture/seed file
- *     uses a placeholder-looking string (test_/mock_/fake_/sample_/demo_) without the
- *     required dummy_ prefix. See tools/eslint-rules/src/dummy-prefix.js's header for
- *     what this can and cannot catch.
  */
 export default tseslint.config(
   {
@@ -39,23 +44,6 @@ export default tseslint.config(
     },
     rules: {
       "bridge/no-crm-vocab": "error",
-    },
-  },
-  {
-    // dummy_-prefix check: scoped to test files and anything under a fixtures/ or
-    // seed/ path, per the rule's documented narrow-MVP scope (see header comment).
-    files: [
-      "**/*.test.ts",
-      "**/*.spec.ts",
-      "**/test/**/*.ts",
-      "**/fixtures/**/*.ts",
-      "**/seed/**/*.ts",
-    ],
-    plugins: {
-      bridge: bridgeRules,
-    },
-    rules: {
-      "bridge/dummy-prefix": "warn",
     },
   },
   {

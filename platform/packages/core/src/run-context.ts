@@ -70,11 +70,8 @@ export interface RunPersona {
    * distinct from the run-invariant, never-omitted `KERNEL_INVARIANTS` (layer 1)
    * every persona carries regardless. Additive/optional. */
   guardrails?: readonly string[];
-  /** Free-text tone/register descriptor — the spirit-animal tone card for Chief
-   * of Staff / a persona built from an onboarding profile (undefined-elements
-   * #11). Additive: omit and the projection carries no tone line, unchanged
-   * (same graceful default as an unset animal). Never affects authority, only
-   * register (primitive spec: "personality never touches authority"). */
+  /** Optional run-scoped writing register. Visual Avatar choices never feed it,
+   * and it never affects authority. */
   tone?: string;
 }
 

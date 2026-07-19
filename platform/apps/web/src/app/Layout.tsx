@@ -4,7 +4,7 @@ import { BrainCircuit, Home, Package, Plus, Settings, Check, ListChecks, Message
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
-import { hasStoredPrefs, loadAvatarPrefs, computeGrowthStage, type AvatarPrefs, type GrowthStage } from "./avatar/avatar-store";
+import { hasStoredPrefs, loadAvatarPrefs, saveAvatarPrefs, type AvatarPrefs } from "./avatar/avatar-store";
 import { AgentPanel } from "./components/shared/AgentPanel";
 import { NewModuleDialog } from "./components/NewModuleDialog";
 import { usePanelControl, ResizeHandle, CollapseToggleButton } from "./components/shared/PanelControl";
@@ -27,6 +27,7 @@ export default function Layout() {
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [avatarPrefs, setAvatarPrefs] = useState<AvatarPrefs | null>(null);
+  const [organizationConfirmed, setOrganizationConfirmed] = useState<boolean | null>(null);
   const [workspaceName, setWorkspaceName] = useState<string | undefined>(undefined);
   const [workspaces, setWorkspaces] = useState<{ id: string; name: string }[]>([]);
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
@@ -62,8 +63,6 @@ export default function Layout() {
 
   const [moduleLoadError, setModuleLoadError] = useState<string | null>(null);
 
-  const [growthStage, setGrowthStage] = useState<GrowthStage>("egg");
-
   // TASK-001 VOCAB6: load installed modules from packages.list for the nav.
   // Only `available` state packages appear. Fetched once per mount.
   useEffect(() => {
@@ -83,8 +82,6 @@ export default function Layout() {
             displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.packageName,
           }));
         setInstalledModules(available);
-        // Recompute growth stage from module count (proxy for capability count).
-        setGrowthStage(computeGrowthStage(0, available.length));
       })
       .catch((failure) => {
         setModuleLoadError(String(failure));
@@ -104,11 +101,16 @@ export default function Layout() {
       .then((res) => {
         // Existing users (a workspace already has an active blueprint) never
         // see onboarding forced back open; the avatar just defaults to a
-        // neutral hatched owl if this browser never saved prefs (spec section
+        // neutral ready Avatar if this browser never saved prefs (spec section
         // 4, item 4 — "no forced re-onboarding").
-        const hasWorkspace = Boolean(res.definition);
-        if (!hasWorkspace) setOnboardingOpen(true);
-        if (!hasStoredPrefs()) setAvatarPrefs(loadAvatarPrefs(hasWorkspace));
+        const hasOrganization = Boolean(res.definition);
+        setOrganizationConfirmed(hasOrganization);
+        if (!hasOrganization) setOnboardingOpen(true);
+        if (!hasStoredPrefs()) {
+          const resolvedPrefs = loadAvatarPrefs(hasOrganization);
+          if (hasOrganization) saveAvatarPrefs(resolvedPrefs);
+          setAvatarPrefs(resolvedPrefs);
+        }
       })
       .catch(() => {
         // Honest no-op: if the check itself fails (e.g. API unreachable), don't
@@ -121,6 +123,19 @@ export default function Layout() {
     // the network round-trip for returning users.
     if (hasStoredPrefs()) setAvatarPrefs(loadAvatarPrefs(true));
   }, []);
+
+  const desktopAvatarSessionReady =
+    organizationConfirmed === true && avatarPrefs?.avatarReady === true;
+
+  useEffect(() => {
+    const invoke = window.__TAURI_INTERNALS__?.invoke;
+    if (!window.__BRIDGE_DESKTOP__ || !invoke) return;
+    void invoke("overlay_set_session_ready", { ready: desktopAvatarSessionReady }).catch(
+      (failure: unknown) => {
+        console.error("[avatar] failed to synchronize desktop readiness", failure);
+      },
+    );
+  }, [desktopAvatarSessionReady, avatarPrefs?.style, avatarPrefs?.avatarName]);
 
   useEffect(() => {
     trpc.workspace.list
@@ -531,22 +546,26 @@ export default function Layout() {
                 : [...current, organization],
             );
           }}
-          onHatched={(prefs) => setAvatarPrefs(prefs)}
+          onAvatarReady={(prefs) => {
+            setAvatarPrefs(prefs);
+            setOrganizationConfirmed(true);
+          }}
         />
       )}
 
       {/* Persistent avatar overlay — every route, inside the authed shell
           (spec-consolidation-2026-07.md section 3). Renders once prefs are
           resolved (either from localStorage or the existing-user fallback)
-          so it never flashes a default animal before the real one loads.
+          so it never flashes a default style before the real one loads.
           SUPPRESSED in the desktop shell (R-002): there the avatar is an
           OS-level floating companion window (apps/desktop overlay.rs +
           apps/web OverlayApp.tsx) and rendering both would duplicate it;
           plain-browser deploys keep this in-page overlay. */}
-      {avatarPrefs && !(typeof window !== "undefined" && window.__TAURI_INTERNALS__) && (
+      {organizationConfirmed === true &&
+        avatarPrefs?.avatarReady &&
+        !(typeof window !== "undefined" && window.__TAURI_INTERNALS__) && (
         <AvatarOverlay
-          animal={avatarPrefs.animal}
-          growthStage={growthStage}
+          style={avatarPrefs.style}
           {...(avatarPrefs.avatarName ? { avatarName: avatarPrefs.avatarName } : {})}
           {...(workspaceName ? { workspaceName } : {})}
         />

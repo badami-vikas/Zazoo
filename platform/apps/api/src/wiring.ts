@@ -364,7 +364,7 @@ export interface Wiring {
    * both modes for now — defaults-only until a governed nudge is approved and a Drizzle
    * binding lands. */
   policyParams: PolicyParamStore;
-  /** Onboarding personalization profile (ADR-033/R-030) — animal, answers, phone/LinkedIn
+  /** Onboarding personalization profile (ADR-033/R-030) — Avatar style, answers, phone/LinkedIn
    * verification method, connected sources. In-memory in both modes for now (see
    * onboarding-profile.ts's header comment for scope vs. the general Memory/Knowledge gap). */
   onboardingProfileStore: OnboardingProfileStore;

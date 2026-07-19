@@ -373,6 +373,7 @@ pub fn run() {
         .manage(sensor_bridge::SensorHubState::default())
         .manage(api_sidecar::ApiSidecarState::default())
         .manage(overlay::DisplayTopologyState::default())
+        .manage(overlay::OverlaySessionState::default())
         .manage(BootstrapWindowState::default());
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
@@ -387,6 +388,10 @@ pub fn run() {
             overlay::overlay_start_dragging,
             overlay::overlay_resize,
             overlay::overlay_hide,
+            overlay::overlay_set_session_ready,
+            overlay::overlay_get_session_ready,
+            overlay::overlay_present,
+            overlay::overlay_conceal,
             overlay::overlay_save_position,
             overlay::overlay_get_position,
             overlay::focus_main_window,
