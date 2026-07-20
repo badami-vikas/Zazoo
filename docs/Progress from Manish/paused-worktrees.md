@@ -129,7 +129,7 @@ Remaining:
 
 - Live Google/BizBuySell credentials and verified OS/application Human re-authentication remain
   unavailable. Signing and physical-mobile certification remain unclaimed.
-- Keep TASK-006 `in_progress`; do not infer those external gates from code or host-local evidence.
+- AP-060 supersedes this historical status: TASK-006 is `blocked` until an authorized real Source credential and configured/authorized Google OAuth permit live Deal and credential proof.
 - No numbered migration was added.
 
 ## TASK-010 red-flag correction — MERGED 2026-07-18

@@ -65,7 +65,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   pilot Auth, 26 migrations, least-privilege `bridge_app`, policy-backed RLS, Local Plane restart,
   symmetric Source↔Thesis Relation, and desktop/exact-375 evidence are live. Migrations `0025`/`0026`
   align Supabase automatic RLS; ADR-134 records the boundary. Authorized Source credentials and
-  Google OAuth remain external, so TASK-006 stays `in_progress`.
+  Google OAuth remain external, so TASK-006 is `blocked` under AP-060.
 
 ## Critical resume constraints
 
@@ -85,7 +85,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   `manishsbhoopalam8498-persist-dealpilot-locally`; validated implementation/integration head
   `2f85dc7`, final reviewed source `adf6c95`, and landed integration `7f44186`. Live
   Google/BizBuySell and verified OS/application re-authentication remain external, so canonical
-  status stays `in_progress`.
+  historical status stayed `in_progress`; AP-060 now sets the canonical task to `blocked`.
 - TASK-006 live Supabase continuation allocates migrations `0025` and `0026`; next new migration
   is `0027`.
 - TASK-008's validated Relationship continuation from candidate A is merged through `905aee9`.

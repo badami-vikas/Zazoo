@@ -2,7 +2,7 @@
 
 ## Outcome
 
-TASK-006 remains `in_progress`, but its live Supabase blocker is closed.
+TASK-006 is `blocked` under AP-060. Its live Supabase milestone is complete and preserved.
 
 - Created one isolated free Supabase project in `us-east-1`.
 - Enabled `vector` and applied 26 Drizzle migrations without rewriting released migration bytes or hashes.
@@ -41,7 +41,7 @@ TASK-006 remains `in_progress`, but its live Supabase blocker is closed.
   the installer matrix was skipped. This is the payment-blocked runner condition, not
   test execution, and no CI success is claimed.
 
-## Remaining external block
+## Canonical external block
 
 The user does not currently have authorized Source credentials, and no Google OAuth client is configured. Therefore TASK-006 cannot honestly claim:
 
@@ -49,7 +49,7 @@ The user does not currently have authorized Source credentials, and no Google OA
 2. reveal/copy/revoke of a non-dummy Source credential after Human re-authentication;
 3. expiry and wrong-Human denial against a real credential value.
 
-Exact unblock: create authorized Google OAuth credentials with the local callback, connect the pilot Gmail account, and enter a real Source credential directly into the secure Source Form. Then rerun Deal discovery and the value-free credential audit/revoke/expiry checks.
+Exact unblock: provide an authorized real Source credential and configure/authorize Google OAuth with the local callback and pilot Gmail account. Then rerun live BizBuySell Deal discovery plus the value-free credential reveal/copy/revoke/expiry/wrong-Human checks.
 
 No signing or physical-mobile claim is made.
 
