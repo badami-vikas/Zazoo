@@ -43,7 +43,7 @@ function EditableCell({ value, onSave, placeholder, multiline, className }: { va
   );
 }
 
-// `embedded` = rendered inside another shell-v2 page (KnowledgeBase tab) — skip the page-level
+// `embedded` = rendered inside another shell-v2 page — skip the page-level
 // centered Header so the host page's toggle stays the identity element.
 export function ResourcesPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [rows, setRows] = useState<NetworkResource[]>(localResources);

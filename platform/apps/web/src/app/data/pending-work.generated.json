@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T10:37:28.620Z",
+  "generatedAt": "2026-07-20T11:24:14.512Z",
   "items": [
     {
       "id": "TASK-001",
@@ -188,13 +188,14 @@
         "VOCAB2 source `88be310`, integrated through PR #27 at `f6c4376`",
         "partial VOCAB3 checkpoint `58573ba` with migration `0021_vocab3_organization_module_record`",
         "[VOCAB3 completion](../outputs/2026-07-20-task012-vocab3.md) under AP-055/ADR-129",
-        "[VOCAB4 completion](../outputs/2026-07-20-task012-vocab4.md) under AP-056/ADR-130 with migration `0023_vocab4_event_result_file`"
+        "[VOCAB4 completion](../outputs/2026-07-20-task012-vocab4.md) under AP-056/ADR-130 with migration `0023_vocab4_event_result_file`",
+        "[VOCAB5 completion](../outputs/2026-07-20-task012-vocab5.md) under AP-057/ADR-131"
       ],
       "requests": [
         "R-020",
         "vocabulary/glossary directives 2026-07-14"
       ],
-      "approval": "AP-020, AP-029, and AP-050 applied",
+      "approval": "AP-020, AP-029, AP-050, and AP-057 applied",
       "dependencies": [
         "TASK-005"
       ],

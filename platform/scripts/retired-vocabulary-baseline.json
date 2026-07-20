@@ -371,16 +371,6 @@
       }
     },
     "helpdesk": {
-      "apps/api/src/agent-role-templates.ts": {
-        "identifier": 0,
-        "string": 1,
-        "fingerprints": {
-          "identifier": {},
-          "string": {
-            "874daf8ba216bbacfa5fecbabbba2560": 1
-          }
-        }
-      },
       "apps/api/src/built-in-modules.ts": {
         "identifier": 0,
         "string": 3,
@@ -394,29 +384,22 @@
         }
       },
       "apps/api/src/router.ts": {
-        "identifier": 11,
-        "string": 6,
+        "identifier": 7,
+        "string": 3,
         "fingerprints": {
           "identifier": {
-            "701da6d51043befdc8bf30d671e21a44": 1,
-            "80dc853173654f3c843c893160829233": 1,
-            "3522f063246ef138b9b57e77823b29bb": 1,
-            "d08801974755c6d6455919745b6d6ee1": 1,
-            "3a2544a48a555613055280f53a25628a": 1,
-            "a33c1313d3f3f3c6d7bf98701ff651ec": 1,
-            "693b4fa88bd9922470950c4307cb36f8": 1,
-            "83e6a93b1079e361b74ab58e80e52be3": 1,
-            "eb4bfaee4b9719a0b989a19c02c7d1e9": 1,
-            "0b66e9e6218c2e6746b80db78d5aa2b2": 1,
-            "f690c568a87b709e408eb928e1393038": 1
+            "184e2b65eaf560bb6ad1fca633c7cc01": 1,
+            "4f09702cd4231fd47b23740f45ed5376": 1,
+            "130db971259d18997c790a8048ff3ee5": 1,
+            "5fb5efee93ac4967fcaaa815d8f81ebf": 1,
+            "b22be61feccf184b5bc09cbde0ce1408": 1,
+            "d135f75f3ae8f8aad0f03b12966cd442": 1,
+            "d783a2cecbf016fdc995a0290d776084": 1
           },
           "string": {
-            "c9031473ef76fa423a9387e2992e1dd5": 1,
-            "627d65388b6625d5017d08705db4970b": 1,
             "c33de86fb06290c2fb49782f312d9878": 1,
             "45ac5005087af4d781d9d6de63d1952b": 1,
-            "91a2b28ff72ac45e72a8b88b65dfe993": 1,
-            "55be6bebe5dd742f98ee1253d6ae7f30": 1
+            "91a2b28ff72ac45e72a8b88b65dfe993": 1
           }
         }
       },
@@ -426,100 +409,27 @@
         "fingerprints": {
           "identifier": {},
           "string": {
-            "1d609d8ceb9eeef18cdb582fcd7fe132": 1
+            "ba8a047c48a5faf51c706fdfc41e0b16": 1
           }
         }
       },
       "apps/api/src/wiring.ts": {
-        "identifier": 17,
-        "string": 5,
+        "identifier": 11,
+        "string": 1,
         "fingerprints": {
           "identifier": {
             "24c03babe6f269daa22d3317483002cf": 1,
             "346c704fb291651e3bf517735d4b2705": 2,
             "54d0856a3b66036024f3574980474498": 2,
-            "95e3992e40aa15526fc008f8e8885ead": 1,
-            "893538579580ecd7a4ef7eb23523250f": 1,
-            "b1097faf2a101fd62964d88b41b4c550": 1,
-            "e90f9751402a2cbbf2d87ab065427f13": 1,
-            "1c610c66109f3ce030185800290dad79": 1,
             "46d4d7db0aa5fba6882b0728d0eae99e": 1,
             "6efc1a104bf4d1da2cec6d450c34630c": 1,
             "420633c8b1c672961e0ce7cc704e646b": 1,
             "4c918d9fa6a638d691d68db16da42aa5": 1,
-            "fcf49b1aef97161ce4ce45ce14a40b0f": 1,
             "5d6b65f5496857138a5c875380df746b": 1,
             "fa1c6141b9d0e3feb652dc116d565226": 1
           },
           "string": {
-            "396318b63272e2cbf46d9ba41dc7fe30": 1,
-            "e2443bb82e0e788d684458a54b886b8e": 1,
-            "5c222732c387516ca5f070e8098490d0": 1,
-            "13a572e190dcdbd7f27fb923c80dd1f4": 1,
-            "b1715ffbb4faa14c66bba8febda2cc32": 1
-          }
-        }
-      },
-      "apps/web/src/app/components/helpdesk/AskModal.tsx": {
-        "identifier": 6,
-        "string": 8,
-        "fingerprints": {
-          "identifier": {
-            "396393df5c097085569a85a105db117f": 1,
-            "0d8ec5662c6101002578c654dc6edfc6": 1,
-            "742651de8ef58d8070bd5f87980d13fc": 2,
-            "abec55aa26464cd4102afca6c026f533": 1,
-            "8e42ab9b383779d50825d0bac5b2f530": 1
-          },
-          "string": {
-            "9baf49cafec0c65af63976f1a29b05f0": 1,
-            "7936ba854ffab75aa9f71472f967f9b9": 1,
-            "f8c9400e97bccbe821eeac4aa329c485": 1,
-            "bad6147e53878f350783cc8450ba455f": 1,
-            "cae46d7630ee5222710299d3ea620975": 1,
-            "c9b7d800a2c71f1e01133ff1cade1e3f": 1,
-            "4c316db5cf2c83ec7ef807bfef1560ee": 1,
-            "0bbbac143ffeafb7d0ffbcffa48380e9": 1
-          }
-        }
-      },
-      "apps/web/src/app/components/helpdesk/CreateHelpdeskModal.tsx": {
-        "identifier": 1,
-        "string": 7,
-        "fingerprints": {
-          "identifier": {
-            "ca5f37291d50f026582abc21eeb4bda7": 1
-          },
-          "string": {
-            "9baf49cafec0c65af63976f1a29b05f0": 1,
-            "2d860e172eccf446b471224013d4cda0": 1,
-            "5644b8ac7821fdc854be92df1519f852": 1,
-            "9d407537f98d0d5358c3890a1c2cf899": 1,
-            "60a5d2fd5798fec1f310db14b3f972c1": 1,
-            "665e329fc1e84384d0868a8ed108938c": 1,
-            "01fed453fd25c16ac080b67f55994d3a": 1
-          }
-        }
-      },
-      "apps/web/src/app/components/helpdesk/HelpdeskBits.tsx": {
-        "identifier": 1,
-        "string": 2,
-        "fingerprints": {
-          "identifier": {
-            "ff74d1cd7b949951256bf51929ab003f": 1
-          },
-          "string": {
-            "9baf49cafec0c65af63976f1a29b05f0": 2
-          }
-        }
-      },
-      "apps/web/src/app/components/helpdesk/ImpactReportModal.tsx": {
-        "identifier": 0,
-        "string": 1,
-        "fingerprints": {
-          "identifier": {},
-          "string": {
-            "9baf49cafec0c65af63976f1a29b05f0": 1
+            "396318b63272e2cbf46d9ba41dc7fe30": 1
           }
         }
       },
@@ -530,42 +440,6 @@
           "identifier": {},
           "string": {
             "8980ec8ea6aa4020b71b41d9558dce09": 1
-          }
-        }
-      },
-      "apps/web/src/app/data/helpdesk.ts": {
-        "identifier": 3,
-        "string": 11,
-        "fingerprints": {
-          "identifier": {
-            "5a0a5b6778cc94fae5b49fea98beda70": 1,
-            "c18f633cf88429447453e41e117a1cde": 1,
-            "0b97aec79c90366f10fbdf6597b679dc": 1
-          },
-          "string": {
-            "5aa012f213007607e45f0f3471e2fdc8": 1,
-            "d30cc1062ce34cd51eb8b1f927b6cbb9": 1,
-            "3ea66f249474e2e8076a6cdc39d09852": 1,
-            "f55a092fb57e46d2275e92d721762ccf": 1,
-            "c5882968738014dd015ece01c97ec346": 1,
-            "1043d45c75b9736e362cb8532b1482d8": 1,
-            "909e5948ddc1dcf49364aae3a4917d84": 1,
-            "5913909c8302bfb65030a645936d1e81": 1,
-            "b53d43f2f6608e6a63d7f31a69af9121": 1,
-            "dbefcf3edc18cf181a0d52300e2deb48": 1,
-            "132f3e12d03ecfa9f939ba8fd7ac725f": 1
-          }
-        }
-      },
-      "apps/web/src/app/data/helpdeskRemote.ts": {
-        "identifier": 0,
-        "string": 3,
-        "fingerprints": {
-          "identifier": {},
-          "string": {
-            "6d5110641b2aee0d0a069e77fdd3e4c0": 1,
-            "258ed271516be0597f60e9d509b2a095": 1,
-            "be4a775a78d433e756ab680284c46ce5": 1
           }
         }
       },
@@ -629,15 +503,15 @@
             "a8b2a6a280cf65980113f75da48772d6": 1,
             "77389cc9f5b737a62636bc0a41f3b3ad": 1,
             "cf5a4f74a7845e11d84a10fa33095352": 2,
-            "34a1204b31ad220603d442c6e25d01a5": 1,
-            "d20b8b9309cfc9b7e35a2d4901a3a09c": 1,
-            "3b110ece40f29a00c899fbe923dc27c9": 1,
-            "c01057ddbafa9856212ed0577ed05e89": 1
+            "976c4c5116e1263b7b777788b0766813": 1,
+            "3655a5a3a82d8a94a1899442c334fbc6": 1,
+            "a69a460c41e451e9feaf4f0dca43747a": 1,
+            "ae9260f7a6a9c78ea28888c60fc01d56": 1
           },
           "string": {
             "0f62460378b7e58cb9da93f9122c2bb8": 1,
             "721be993c715d090af988ed4927c06ec": 1,
-            "de4019a926be468dc6a20b4505617136": 1,
+            "0f3d2126266e69bf4ac0a13f67567e57": 1,
             "2c65813ef39f5a3249e3fb42837c6951": 1,
             "b1e12a6fb44243d4915d47a80de923ff": 1,
             "a87cd601982ed6c3c94083f0b7a43c2d": 1,
@@ -658,10 +532,10 @@
           "identifier": {
             "df51fd8b1e28068cfc08063ee52b8916": 2,
             "b1c3255504e1735e15e675d27985fbf6": 1,
-            "6bfc97bc5a77328f7642b862488ce40f": 1,
+            "2cbe5daf66d9fb14175329a9e93d671a": 1,
             "521ca5034fd25011efb6ee682cd56c23": 1,
-            "6deb049f45cc99d1d4da3b87a9609e52": 1,
-            "5b74260edcccff3845e75b04cfd9fc06": 1
+            "e8320c1eec4048a61602bdb9c7974a84": 1,
+            "5861a28c6f8ad7630e226ce9256da4b7": 1
           },
           "string": {
             "04191b3535bc02b9c9e40e4a42e7df99": 1,
@@ -692,16 +566,6 @@
             "de2e0b156d099bd115eeb1971d19a14b": 1,
             "39c43f594d9d5563a48c870462854c55": 1,
             "58b5d981abd536bae5165cc53552d83b": 1
-          }
-        }
-      },
-      "packages/db/src/governance-stores.ts": {
-        "identifier": 0,
-        "string": 1,
-        "fingerprints": {
-          "identifier": {},
-          "string": {
-            "9e874bce8d2f6ba8dca56859c2b074e6": 1
           }
         }
       },
@@ -844,16 +708,6 @@
       }
     },
     "project": {
-      "apps/web/src/app/data/helpdesk.ts": {
-        "identifier": 0,
-        "string": 2,
-        "fingerprints": {
-          "identifier": {},
-          "string": {
-            "59977eb763a79801233d2697cfa9da2f": 2
-          }
-        }
-      },
       "packages/core/src/index.ts": {
         "identifier": 2,
         "string": 0,

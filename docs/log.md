@@ -1930,3 +1930,10 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Preserved signed pre-VOCAB4 Commons provenance hashes/signatures while projecting `contentLicense`.
 - Lowered the syntax ratchet from 793 to 360 without family/kind growth; Artifact, Touchpoint, and Incident are zero. Targeted migration/RLS/API/Files/Local/Commons/Result/web/typecheck/build/lint/live-route evidence passed. TASK-012 stays `in_progress` for VOCAB5–VOCAB6 and final compatibility deletion. Durable handoff: `outputs/2026-07-20-task012-vocab4.md`.
 - GitHub Actions run `29735812556` failed every runner-backed job before any step started and emitted no logs (payment-blocked runners). No CI success is claimed; only the recorded targeted local evidence supports landing.
+
+# 2026-07-20 — TASK-012 VOCAB5 complete (AP-057, ADR-131)
+- Published immutable Relationship manifest `0.2.2`; upgrade retains `0.2.1` as legacy and keeps exact Commons owning-Module checks valid.
+- Nested Help Request public/inbox/routing/Offer procedures under `relationship.helpdesk`; moved deterministic routing into the Relationship API and renamed the governed Skill/Goal contract under Relationship.
+- Removed standalone `@bridge/helpdesk`, top-level Helpdesk API, and unreferenced local/remote Helpdesk browser stores/components. Preserved existing DB store, token auth, permissions, RLS, and provenance; no migration `0024`.
+- Added manifest-driven Relations/Interactions/Introductions/Sources routes with shared Files and honest states. Signals/People/Communities remain canonical sibling Pages.
+- Targeted API/web/typecheck/build/lint/no-dummy/vocabulary checks and desktop plus exact 375×812 Chrome proofs passed. Ratchet decreased 360→296. TASK-012 stays `in_progress` for VOCAB6 and final compatibility deletion. Durable handoff: `outputs/2026-07-20-task012-vocab5.md`.

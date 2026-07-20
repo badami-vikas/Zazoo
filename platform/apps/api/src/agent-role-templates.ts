@@ -41,7 +41,7 @@ const AGENT_ROLE_TEMPLATE_SEEDS: readonly AgentRoleTemplateSeed[] = [
     allowedSkills: [
       "stageLearningRecommendation",
       "stageStrategicRecommendation",
-      "helpdesk.stageAnswer",
+      "relationship.help-request.stage-offer",
       "stageCapture",
       "jobpilot.researchCultureSource",
     ],

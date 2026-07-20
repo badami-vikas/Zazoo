@@ -5,7 +5,7 @@ doc_kind: reference
 status: active
 companions: []
 related_wiki: ../wiki/decisions.md
-updated: 2026-07-19
+updated: 2026-07-20
 tags: [adr, decisions, governance, rationale]
 ---
 
@@ -3020,3 +3020,9 @@ Ollama/Anthropic call.
 - **Why**: parallel occurrence stores split provenance, ordering, RLS, Graph visibility, and safe Action preconditions. Renaming display labels would leave the authority and data model inconsistent. Moving local user bytes would add needless loss risk, while indexing only inside the upload path would leave an orphan when the filesystem succeeds and the database write fails.
 - **Alternatives rejected**: retain Signal and Timeline tables behind aliases; dual-write old and new stores; model Signal as a kernel primitive; copy/move existing local directories; index only on upload; collapse non-file outcomes into Files; rehash or re-sign legacy Commons provenance when renaming its content-license field.
 - **Consequences**: one Event ID is the Signal/source Event identity; participant Relations are the evidence boundary and safe Action prerequisite; Signal routes live under Relationship; Event UPDATE/DELETE has no RLS policy; inventory reads repair post-write File-index gaps without deleting content. Pre-VOCAB4 Commons entries retain original canonical bytes, hash, and signature through deterministic projection. The ratchet drops Artifact, Touchpoint, and Incident to zero; TASK-012 remains open for VOCAB5–VOCAB6 and final compatibility deletion.
+
+## ADR-131 — Relationship manifest owns Help Request routing and nested capability routes (2026-07-20)
+- **Decision**: publish Relationship manifest `0.2.2` with Signals/People/Communities Pages, Relations/Interactions/Introductions/Helpdesk/Sources sub-modules, attributable Agents and Skills, Automations, and Integrations. Boot retains `0.2.1` as legacy and installs `0.2.2` as available. Public token threads, authenticated inbox, deterministic capability routing, and governed Help Offer drafting live only under `relationship.helpdesk`; the Offer Skill ID is Relationship-scoped. Delete the standalone `@bridge/helpdesk` package and unreferenced browser local/remote stores after route/API regression proof. Keep Help Request persistence in the existing RLS-safe domain store and all participant/graph reads on shared Record/Relation/Event contracts.
+- **Why**: duplicate package, API, and browser stores let the same capability drift outside its installed Module while confusing Helpdesk domain vocabulary with a kernel primitive. Changing signed manifest content without a version bump would strand existing installations and invalidate exact owning-Module Commons bindings.
+- **Alternatives rejected**: keep a top-level compatibility tRPC alias; leave the standalone package as a hidden implementation detail; dual-write browser localStorage and the API store; add a new Help Request table or migration; mutate Relationship `0.2.1` in place; rebuild TASK-008 or VOCAB4 stores.
+- **Consequences**: existing data, token hashes, permissions, provenance, and RLS stay untouched; no migration `0024` is allocated. Every old `0.2.1` row remains inspectable as legacy, while current installed capability inventory and Commons ownership resolve against immutable `0.2.2`. Nested routes use shared Page/Files grammar and honest empty states. TASK-012 remains open for VOCAB6 and final compatibility deletion.

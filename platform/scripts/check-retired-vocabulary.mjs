@@ -13,7 +13,6 @@ const COMPATIBILITY_ADAPTERS = new Set([
   "apps/api/src/avatar-profile-v1-compat.ts",
   "apps/api/src/culture-result-vocab4-compat.ts",
   "apps/web/src/app/avatar/avatar-v1-compat.ts",
-  "apps/web/src/app/data/helpdesk-vocab3-compat.ts",
   "packages/core/src/capability/mcp-adapter.ts",
   "packages/core/src/module/commons-vocab3-compat.ts",
   "packages/db/src/media-vocab2-compat.ts",

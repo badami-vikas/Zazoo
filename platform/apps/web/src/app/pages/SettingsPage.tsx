@@ -6,8 +6,7 @@
  * Ten sections (requests.md R-017..R-020). Real data where endpoints exist:
  *   Organization        → organization.list (name/id; onboarding owns rename UX)
  *   Team & Permissions  → organization.listMembers + organization.inviteMember
- *   Knowledge           → google.list + integration.list (connected sources)
- *                         + progressive-disclosure link to /knowledge-base
+ *   Sources             → google.list + integration.list (connected sources)
  *   Capabilities        → modules.list (installed Modules)
  *                         + links to manifest-driven Module Detail
  *   Governance          → action.listPending (approvals) + ExecutionLedger

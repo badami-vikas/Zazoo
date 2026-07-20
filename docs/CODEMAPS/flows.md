@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-20 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,automation-executor,goal-task,skill-manifest,child-agent-run}.ts, apps/api/src/{router,relationship-materializer,module-files,server,wiring}.ts, packages/local/src/ports.ts, packages/db/src/{schema,graph-store,ledger-store,relation-materialization-store}.ts, packages/db/migrations/0023_vocab4_event_result_file.sql | Token estimate: ~2000 -->
+<!-- Updated: 2026-07-20 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,automation-executor,goal-task,skill-manifest,child-agent-run}.ts, apps/api/src/{router,relationship-help-routing,relationship-materializer,built-in-modules,module-files,server,wiring}.ts, packages/local/src/ports.ts, packages/db/src/{schema,graph-store,helpdesk-store,ledger-store,relation-materialization-store}.ts, packages/db/migrations/0023_vocab4_event_result_file.sql | Token estimate: ~2050 -->
 
 # Load-Bearing Flows + Schema ER
 
@@ -70,6 +70,12 @@ sequenceDiagram
 Reads page by `(observed_at, created_at, id)`, deduplicate evidence authorization targets, and
 prune inaccessible endpoints/evidence for the authenticated owner. Caller JSON never chooses
 proposal linkage; runtime trusts `ref_ledger_id`.
+
+Help Request public token threads, authenticated inbox, capability routing, and governed Offer
+drafts live only at `relationship.helpdesk.*`. Routing reads accessible Person Records through
+`GraphStore`; tickets remain in the owner/RLS-safe Helpdesk store; Offer drafts use the attributable
+Relationship Skill and Action pipeline. No standalone Helpdesk package, top-level API, browser
+store, occurrence store, or graph exists.
 
 ## 3. Goal/Task Skill + bounded child Agent Run
 

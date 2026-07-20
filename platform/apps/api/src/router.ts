@@ -50,7 +50,7 @@ import {
   PILOT_ORGANIZATION,
   LEARNING_ROLE_MODEL_GOAL_TYPE,
   PRODUCE_RECOMMENDATION_TASK_TYPE,
-  HELPDESK_ROUTING_GOAL_TYPE,
+  RELATIONSHIP_HELP_ROUTING_GOAL_TYPE,
   DRAFT_HELP_OFFER_TASK_TYPE,
   RELATIONSHIP_CAPTURE_GOAL_TYPE,
   STAGE_CAPTURE_TASK_TYPE,
@@ -162,7 +162,11 @@ import {
   resolveOnboardingAvatarStyle,
 } from "./avatar-profile-v1-compat.js";
 import { authUrl } from "@bridge/integrations-google";
-import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@bridge/helpdesk";
+import {
+  routeHelpRequest,
+  draftHelpOffer,
+  type HelpResponderCandidate,
+} from "./relationship-help-routing.js";
 import {
   CredentialAccessError,
   SourceDiscoveryGateError,
@@ -1011,12 +1015,12 @@ async function latestApprovedRoleModelRecommendation(
 }
 
 /** AGS1 (TASK-007 closure) — Help Offer drafting is LEARNING_AGENT's Task. */
-async function provisionHelpdeskAnswerTask(wiring: Wiring, organizationId: string): Promise<{ goalId: string; taskId: string }> {
+async function provisionHelpRequestAnswerTask(wiring: Wiring, organizationId: string): Promise<{ goalId: string; taskId: string }> {
   return provisionGoalTask(
     wiring,
     organizationId,
-    HELPDESK_ROUTING_GOAL_TYPE,
-    "Helpdesk routing and Help Offer drafting",
+    RELATIONSHIP_HELP_ROUTING_GOAL_TYPE,
+    "Relationship Help Request routing and Help Offer drafting",
     DRAFT_HELP_OFFER_TASK_TYPE,
     LEARNING_AGENT,
   );
@@ -5876,6 +5880,214 @@ export const appRouter = t.router({
         await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         return retryApprovedRelationship(ctx, input.organizationId, input.proposalId);
       }),
+
+    helpdesk: t.router({
+      public: t.router({
+        createTicket: publicProcedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              subject: z.string().trim().min(1).max(200),
+              submitterEmail: z.string().trim().email().max(320),
+              submitterName: z.string().trim().max(120).optional(),
+              body: z.string().trim().min(1).max(10_000),
+              operationId: z.string().uuid(),
+              accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            const { ticket, message } = await ctx.wiring.helpdeskStore.createTicket({
+              organizationId: input.organizationId,
+              subject: input.subject,
+              submitterEmail: input.submitterEmail,
+              body: input.body,
+              operationId: input.operationId,
+              accessToken: input.accessToken,
+              ...(input.submitterName ? { submitterName: input.submitterName } : {}),
+            });
+            return { ticket, message };
+          }),
+
+        getThread: publicProcedure
+          .input(z.object({ accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/) }))
+          .query(async ({ input, ctx }) => {
+            const result = await ctx.wiring.helpdeskStore.getTicketByToken(input.accessToken);
+            if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
+            return result;
+          }),
+
+        reply: publicProcedure
+          .input(
+            z.object({
+              accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
+              body: z.string().trim().min(1).max(10_000),
+              operationId: z.string().uuid(),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            const message = await ctx.wiring.helpdeskStore.replyByToken(
+              input.accessToken,
+              input.body,
+              input.operationId,
+            );
+            if (!message) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
+            return message;
+          }),
+      }),
+
+      list: authenticatedProcedure
+        .input(paginatedInput)
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const { items, total } = await ctx.wiring.helpdeskStore.listTickets(input.organizationId, {
+            limit: input.limit,
+            offset: input.offset,
+          });
+          return { items, total, hasMore: input.offset + items.length < total };
+        }),
+
+      get: authenticatedProcedure
+        .input(z.object({ organizationId: z.string().min(1), ticketId: z.string().uuid() }))
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const result = await ctx.wiring.helpdeskStore.getTicket(input.organizationId, input.ticketId);
+          if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
+          return result;
+        }),
+
+      reply: authenticatedProcedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            ticketId: z.string().uuid(),
+            body: z.string().trim().min(1).max(10_000),
+            status: z.enum(["open", "pending", "resolved", "closed"]).optional(),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const message = await ctx.wiring.helpdeskStore.replyAsAgent(
+            input.organizationId,
+            input.ticketId,
+            ctx.identity.id,
+            input.body,
+            input.status,
+          );
+          if (!message) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
+          return message;
+        }),
+
+      route: authenticatedProcedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            subject: z.string().min(1),
+            body: z.string().default(""),
+            topicsByPerson: z
+              .record(z.array(z.string().min(1)).max(50))
+              .refine(
+                (value) => Object.keys(value).every((id) => z.string().uuid().safeParse(id).success),
+                "candidate Person ids must be UUIDs",
+              )
+              .refine((value) => Object.keys(value).length <= 500, "at most 500 candidate People may be routed")
+              .optional(),
+            limit: z.number().int().min(1).max(10).default(3),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const candidates = (
+            await Promise.all(
+              Object.entries(input.topicsByPerson ?? {}).map(async ([personId, topics]) => {
+                const person = await ctx.wiring.graphStore.getPerson(
+                  input.organizationId,
+                  ctx.identity.id,
+                  personId,
+                );
+                return person
+                  ? {
+                      personId: person.id,
+                      displayName: person.displayName ?? "Unnamed person",
+                      topics,
+                    } satisfies HelpResponderCandidate
+                  : null;
+              }),
+            )
+          ).filter((candidate): candidate is HelpResponderCandidate => candidate !== null);
+          return {
+            routes: routeHelpRequest(
+              { subject: input.subject, body: input.body },
+              candidates,
+              input.limit,
+            ),
+          };
+        }),
+
+      stageAnswer: authenticatedProcedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            subject: z.string().min(1),
+            body: z.string().default(""),
+            routedToPersonId: z.string().uuid(),
+            candidateTopics: z.array(z.string().min(1)).max(50),
+            draftBody: z.string().min(1),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const routedPerson = await ctx.wiring.graphStore.getPerson(
+            input.organizationId,
+            ctx.identity.id,
+            input.routedToPersonId,
+          );
+          if (!routedPerson) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "routed Person not found or not accessible" });
+          }
+          const [route] = routeHelpRequest(
+            { subject: input.subject, body: input.body },
+            [{
+              personId: routedPerson.id,
+              displayName: routedPerson.displayName ?? "Unnamed person",
+              topics: input.candidateTopics,
+            }],
+            1,
+          );
+          if (!route) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "the selected Person no longer matches the supplied routing topics",
+            });
+          }
+          const offer = draftHelpOffer(
+            { subject: input.subject, body: input.body },
+            route,
+            input.draftBody,
+          );
+          const goalTaskRef = await provisionHelpRequestAnswerTask(ctx.wiring, input.organizationId);
+          const proposal = await ctx.wiring.pipeline.propose(
+            {
+              organizationId: input.organizationId,
+              actor: { type: "agent", id: LEARNING_AGENT },
+              onBehalfOf: { type: "user", id: ctx.identity.id },
+              action: "write",
+              resourceType: "signal",
+              resourceId: input.routedToPersonId,
+              inputs: { ...offer },
+              skill: "relationship.help-request.stage-offer",
+              goalTaskRef,
+            },
+            ctx.run,
+          );
+          return { proposal, offer };
+        }),
+    }),
   }),
 
   /**
@@ -8415,242 +8627,6 @@ export const appRouter = t.router({
           return { status: "available" as const, proposalId: input.proposalId, approvedAt: decision.createdAt, result, trustOrigin: proposal.trustOrigin ?? null };
         }),
     }),
-  }),
-
-  /**
-   * Helpdesk — the one organization tool with a genuine public/unauthenticated
-   * surface (frontend-migration-scoping.md gap #3). The `public` sub-router's
-   * three procedures NEVER read `ctx.identity`; a submitter's only credential
-   * is possession of the opaque `accessToken` returned by `createTicket` (the
-   * same trust model as a password-reset link) — see helpdesk-store.ts's
-   * header comment and docs/raw/decisions-log.md for why this avoided adding a
-   * new Actor type / identity-resolution change. The top-level procedures below
-   * are the authenticated support-agent inbox (organization members only).
-   */
-  helpdesk: t.router({
-    public: t.router({
-      createTicket: publicProcedure
-        .input(
-          z.object({
-            organizationId: z.string().min(1),
-            subject: z.string().trim().min(1).max(200),
-            submitterEmail: z.string().trim().email().max(320),
-            submitterName: z.string().trim().max(120).optional(),
-            body: z.string().trim().min(1).max(10_000),
-            operationId: z.string().uuid(),
-            accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
-          }),
-        )
-        .mutation(async ({ input, ctx }) => {
-          assertPilotOrganization(input.organizationId);
-          const { ticket, message } = await ctx.wiring.helpdeskStore.createTicket({
-            organizationId: input.organizationId,
-            subject: input.subject,
-            submitterEmail: input.submitterEmail,
-            body: input.body,
-            operationId: input.operationId,
-            accessToken: input.accessToken,
-            ...(input.submitterName ? { submitterName: input.submitterName } : {}),
-          });
-          return { ticket, message };
-        }),
-
-      getThread: publicProcedure
-        .input(z.object({ accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/) }))
-        .query(async ({ input, ctx }) => {
-          const result = await ctx.wiring.helpdeskStore.getTicketByToken(input.accessToken);
-          if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
-          return result;
-        }),
-
-      reply: publicProcedure
-        .input(
-          z.object({
-            accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
-            body: z.string().trim().min(1).max(10_000),
-            operationId: z.string().uuid(),
-          }),
-        )
-        .mutation(async ({ input, ctx }) => {
-          const message = await ctx.wiring.helpdeskStore.replyByToken(
-            input.accessToken,
-            input.body,
-            input.operationId,
-          );
-          if (!message) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
-          return message;
-        }),
-    }),
-
-    /** Support-agent inbox — organization-authenticated. */
-    list: authenticatedProcedure
-      .input(paginatedInput)
-      .query(async ({ input, ctx }) => {
-        assertPilotOrganization(input.organizationId);
-        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        const { items, total } = await ctx.wiring.helpdeskStore.listTickets(input.organizationId, {
-          limit: input.limit,
-          offset: input.offset,
-        });
-        return { items, total, hasMore: input.offset + items.length < total };
-      }),
-
-    get: authenticatedProcedure
-      .input(z.object({ organizationId: z.string().min(1), ticketId: z.string().uuid() }))
-      .query(async ({ input, ctx }) => {
-        assertPilotOrganization(input.organizationId);
-        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        const result = await ctx.wiring.helpdeskStore.getTicket(input.organizationId, input.ticketId);
-        if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
-        return result;
-      }),
-
-    reply: authenticatedProcedure
-      .input(
-        z.object({
-          organizationId: z.string().min(1),
-          ticketId: z.string().uuid(),
-          body: z.string().trim().min(1).max(10_000),
-          status: z.enum(["open", "pending", "resolved", "closed"]).optional(),
-        }),
-      )
-      .mutation(async ({ input, ctx }) => {
-        assertPilotOrganization(input.organizationId);
-        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        const message = await ctx.wiring.helpdeskStore.replyAsAgent(
-          input.organizationId,
-          input.ticketId,
-          ctx.identity.id,
-          input.body,
-          input.status,
-        );
-        if (!message) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
-        return message;
-      }),
-
-    /**
-     * Help Request routing (P2 Helpdesk module, ADR-021 — the
-     * `helpdesk.capability-routing` capability in tools/helpdesk/module.yaml).
-     * Routes a help request over the accessible Relationship graph: candidates
-     * are Person Records, not organization-user identities. Topic tags may be
-     * supplied by the caller (the
-     * graph carries no per-person topic tags yet — with none supplied the
-     * result is an HONEST empty route list, never a fabricated match).
-     */
-    route: authenticatedProcedure
-      .input(
-        z.object({
-          organizationId: z.string().min(1),
-          subject: z.string().min(1),
-          body: z.string().default(""),
-          /** Optional per-person topic tags ({personId -> topics[]}) until the
-           * graph carries real topic/skill data (see docs/BUGS.md). */
-          topicsByPerson: z
-            .record(z.array(z.string().min(1)).max(50))
-            .refine(
-              (value) => Object.keys(value).every((id) => z.string().uuid().safeParse(id).success),
-              "candidate Person ids must be UUIDs",
-            )
-            .refine((value) => Object.keys(value).length <= 500, "at most 500 candidate People may be routed")
-            .optional(),
-          limit: z.number().int().min(1).max(10).default(3),
-        }),
-      )
-      .query(async ({ input, ctx }) => {
-        assertPilotOrganization(input.organizationId);
-        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        const candidates = (
-          await Promise.all(
-            Object.entries(input.topicsByPerson ?? {}).map(async ([personId, topics]) => {
-              const person = await ctx.wiring.graphStore.getPerson(
-                input.organizationId,
-                ctx.identity.id,
-                personId,
-              );
-              return person
-                ? {
-                    personId: person.id,
-                    displayName: person.displayName ?? "Unnamed person",
-                    topics,
-                  } satisfies HelpResponderCandidate
-                : null;
-            }),
-          )
-        ).filter((candidate): candidate is HelpResponderCandidate => candidate !== null);
-        const routes = routeHelpRequest({ subject: input.subject, body: input.body }, candidates, input.limit);
-        return { routes };
-      }),
-
-    /**
-     * Help Offer staging (the `helpdesk.offer-drafting` capability) — the
-     * answer is STAGED as a governed proposal through the SAME pipeline
-     * propose/decide path every other draft-then-approve surface uses; this
-     * procedure never sends or commits the answer itself. resourceType
-     * "signal": a Help Offer is a Signal-shaped recommendation (every Signal
-     * -> an action), decided by a human on the approvals surface.
-     */
-    stageAnswer: authenticatedProcedure
-      .input(
-        z.object({
-          organizationId: z.string().min(1),
-          subject: z.string().min(1),
-          body: z.string().default(""),
-          routedToPersonId: z.string().uuid(),
-          candidateTopics: z.array(z.string().min(1)).max(50),
-          draftBody: z.string().min(1),
-        }),
-      )
-      .mutation(async ({ input, ctx }) => {
-        assertPilotOrganization(input.organizationId);
-        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        const routedPerson = await ctx.wiring.graphStore.getPerson(
-          input.organizationId,
-          ctx.identity.id,
-          input.routedToPersonId,
-        );
-        if (!routedPerson) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "routed Person not found or not accessible" });
-        }
-        const [route] = routeHelpRequest(
-          { subject: input.subject, body: input.body },
-          [{
-            personId: routedPerson.id,
-            displayName: routedPerson.displayName ?? "Unnamed person",
-            topics: input.candidateTopics,
-          }],
-          1,
-        );
-        if (!route) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "the selected Person no longer matches the supplied routing topics",
-          });
-        }
-        const offer = draftHelpOffer(
-          { subject: input.subject, body: input.body },
-          route,
-          input.draftBody,
-        );
-        // AGS1 (TASK-007 closure) — a real governed Skill: LEARNING_AGENT drafts
-        // the Help Offer, never the Human directly (helpdesk.stageAnswer's own
-        // manifest requires it — see wiring.ts's HELPDESK_ANSWER_SKILL_MANIFEST).
-        const goalTaskRef = await provisionHelpdeskAnswerTask(ctx.wiring, input.organizationId);
-        const proposal = await ctx.wiring.pipeline.propose(
-          {
-            organizationId: input.organizationId,
-            actor: { type: "agent", id: LEARNING_AGENT },
-            onBehalfOf: { type: "user", id: ctx.identity.id },
-            action: "write",
-            resourceType: "signal",
-            resourceId: input.routedToPersonId,
-            inputs: { ...offer },
-            skill: "helpdesk.stageAnswer",
-            goalTaskRef,
-          },
-          ctx.run,
-        );
-        return { proposal, offer };
-      }),
   }),
 
   /**

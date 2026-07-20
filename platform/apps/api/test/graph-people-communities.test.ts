@@ -1,6 +1,5 @@
 /**
- * graph.listPeople / graph.listCommunities — read surface for KnowledgeBasePage's
- * People/Communities tabs (currently `NotWiredYet` placeholders in apps/web).
+ * Relationship Person/Community read surfaces and Help Request routing.
  * Mirrors graph.listRecords/listSignals: organization-scoped, paginated, rejects
  * any organizationId that isn't the pilot organization (assertPilotOrganization).
  *
@@ -350,12 +349,12 @@ test("nested Helpdesk keeps token access public while its inbox requires authent
       operationId: "10000000-0000-4000-8000-000000000011",
       accessToken: "test_fixture_public_token_0000000000000001",
     };
-    const created = await caller.helpdesk.public.createTicket(createInput);
-    const retried = await caller.helpdesk.public.createTicket(createInput);
+    const created = await caller.relationship.helpdesk.public.createTicket(createInput);
+    const retried = await caller.relationship.helpdesk.public.createTicket(createInput);
     assert.equal(retried.ticket.id, created.ticket.id);
     assert.equal(retried.message.id, created.message.id);
     await assert.rejects(() =>
-      caller.helpdesk.public.createTicket({
+      caller.relationship.helpdesk.public.createTicket({
         ...createInput,
         subject: "Oversized request",
         body: "x".repeat(10_001),
@@ -367,16 +366,16 @@ test("nested Helpdesk keeps token access public while its inbox requires authent
       body: "One idempotent public reply.",
       operationId: "10000000-0000-4000-8000-000000000012",
     };
-    const reply = await caller.helpdesk.public.reply(replyInput);
-    const retriedReply = await caller.helpdesk.public.reply(replyInput);
+    const reply = await caller.relationship.helpdesk.public.reply(replyInput);
+    const retriedReply = await caller.relationship.helpdesk.public.reply(replyInput);
     assert.equal(retriedReply.id, reply.id);
     assert.equal(
-      (await caller.helpdesk.public.getThread({ accessToken: created.ticket.accessToken })).messages.length,
+      (await caller.relationship.helpdesk.public.getThread({ accessToken: created.ticket.accessToken })).messages.length,
       2,
     );
 
     await assert.rejects(
-      () => caller.helpdesk.list({ organizationId: PILOT_ORGANIZATION, limit: 10, offset: 0 }),
+      () => caller.relationship.helpdesk.list({ organizationId: PILOT_ORGANIZATION, limit: 10, offset: 0 }),
       /UNAUTHORIZED|authentication required/,
     );
   } finally {
@@ -390,7 +389,7 @@ test("Helpdesk rejects malformed Person identifiers before querying UUID columns
     const caller = await makeCaller(wiring);
     await assert.rejects(
       () =>
-        caller.helpdesk.route({
+        caller.relationship.helpdesk.route({
           organizationId: PILOT_ORGANIZATION,
           subject: "Need help",
           body: "",
@@ -401,7 +400,7 @@ test("Helpdesk rejects malformed Person identifiers before querying UUID columns
     );
     await assert.rejects(
       () =>
-        caller.helpdesk.stageAnswer({
+        caller.relationship.helpdesk.stageAnswer({
           organizationId: PILOT_ORGANIZATION,
           subject: "Need help",
           body: "",
@@ -490,7 +489,7 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     assert.equal(proposal.request.seed, fixture.eventId);
     assert.equal(proposal.request.actor.plane, "local");
 
-    const routed = await caller.helpdesk.route({
+    const routed = await caller.relationship.helpdesk.route({
       organizationId: PILOT_ORGANIZATION,
       subject: "Fundraising support",
       body: "We need fundraising guidance.",
@@ -499,7 +498,7 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     });
     assert.equal(routed.routes[0]?.personId, fixture.personId);
 
-    const staged = await caller.helpdesk.stageAnswer({
+    const staged = await caller.relationship.helpdesk.stageAnswer({
       organizationId: PILOT_ORGANIZATION,
       subject: "Fundraising support",
       body: "We need fundraising guidance.",
