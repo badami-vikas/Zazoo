@@ -92,7 +92,7 @@ test("Approvals loads and resolves proposals through the authenticated Action Pi
   assert.match(executionLedger, /label: 'Automation'/);
   assert.doesNotMatch(executionLedger, /label: 'Workflow'/);
   assert.match(executionLedger, /label: 'Record'/);
-  assert.doesNotMatch(executionLedger, /label: 'Record'/);
+  assert.doesNotMatch(executionLedger, /label: 'Initiative'/);
   assert.match(ledgerData, /case 'relation'/);
   assert.match(ledgerData, /originalRecord\?\.kind === 'relationship_signal_evidence'/);
   assert.match(ledgerData, /JSON\.parse\(nextText\)/);

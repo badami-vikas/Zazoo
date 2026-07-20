@@ -292,7 +292,7 @@ export function checkDesignConstraintViolations(draftText: string): string[] {
     violations.push("draft mentions placeholder/dummy/sample/fake/mock data — per CLAUDE.md's no-dummy-data rule, this needs an explicit unavoidability justification + docs/dummy.md row, or it should be removed.");
   }
 
-  const CLAIMS_KERNEL_SCOPE = /\b(modules\/|apps\/api\/|kernel scope|kernel-scope)\b/i;
+  const CLAIMS_KERNEL_SCOPE = /\b(modules\/|packages\/|apps\/api\/|kernel scope|kernel-scope)\b/i;
   if (CLAIMS_KERNEL_SCOPE.test(draftText)) {
     // Mirror no-crm-vocab.js's containsBannedDeal: a standalone "deal"/"deals"
     // token, not part of "dealpilot" (the allowlisted product name).

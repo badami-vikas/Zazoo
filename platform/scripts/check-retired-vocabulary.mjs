@@ -14,8 +14,10 @@ const COMPATIBILITY_ADAPTERS = new Set([
   "apps/web/src/app/avatar/avatar-v1-compat.ts",
   "apps/web/src/app/data/helpdesk-vocab3-compat.ts",
   "packages/core/src/capability/mcp-adapter.ts",
+  "packages/core/src/module/commons-vocab3-compat.ts",
   "packages/db/src/media-vocab2-compat.ts",
   "packages/local/src/stores/vocab3-organization-compat.ts",
+  "services/commons/src/vocab3-registry-compat.ts",
 ]);
 
 const FAMILIES = {
@@ -653,6 +655,34 @@ export function compareInventories(current, baseline) {
   return { introduced, removed };
 }
 
+export function inventoryTotals(inventory) {
+  const totals = {};
+  for (const [family, files] of Object.entries(inventory)) {
+    totals[family] = { identifier: 0, string: 0 };
+    for (const counts of Object.values(files)) {
+      totals[family].identifier += counts.identifier;
+      totals[family].string += counts.string;
+    }
+  }
+  return totals;
+}
+
+export function compareInventoryTotals(current, baseline) {
+  const currentTotals = inventoryTotals(current);
+  const baselineTotals = inventoryTotals(baseline);
+  const increases = [];
+  for (const family of new Set([...Object.keys(currentTotals), ...Object.keys(baselineTotals)])) {
+    for (const kind of ["identifier", "string"]) {
+      const currentCount = currentTotals[family]?.[kind] ?? 0;
+      const baselineCount = baselineTotals[family]?.[kind] ?? 0;
+      if (currentCount > baselineCount) {
+        increases.push({ family, kind, currentCount, baselineCount });
+      }
+    }
+  }
+  return { currentTotals, baselineTotals, increases };
+}
+
 function formatChange(change) {
   return `${change.relativePath}: ${change.family} ${change.kind} fingerprint ${change.fingerprint} changed from ${change.baselineCount} to ${change.currentCount}`;
 }
@@ -667,9 +697,16 @@ async function main() {
   if (process.argv.includes("--write-baseline")) {
     if (isCurrentBaseline(baseline)) {
       const { introduced } = compareInventories(inventory, baseline.families);
-      if (introduced.length > 0) {
+      const reviewedMoves = process.argv.includes("--accept-reviewed-fingerprint-moves");
+      const { increases } = compareInventoryTotals(inventory, baseline.families);
+      if (introduced.length > 0 && (!reviewedMoves || increases.length > 0)) {
         console.error("Refusing to grow the retired-vocabulary baseline:");
         for (const change of introduced) console.error(`- ${formatChange(change)}`);
+        for (const increase of increases) {
+          console.error(
+            `- ${increase.family} ${increase.kind} occurrences changed from ${increase.baselineCount} to ${increase.currentCount}`,
+          );
+        }
         process.exitCode = 1;
         return;
       }

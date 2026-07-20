@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   compareInventories,
+  compareInventoryTotals,
   familyMatchCount,
   inventoryForSource,
   isSourceFileName,
@@ -86,11 +87,32 @@ test("fingerprints reject one-for-one replacements and expose removals for basel
   assert.equal(relocated.removed.length, 1);
 });
 
+test("reviewed fingerprint moves remain downward-only by family and syntax kind", () => {
+  const baseline = inventoryForSource(
+    "packages/core/src/old-path.ts",
+    `const workflowState = "workflow";`,
+  );
+  const moved = inventoryForSource(
+    "packages/core/src/new-path.ts",
+    `const workflowState = "workflow";`,
+  );
+  assert.equal(compareInventories(moved, baseline).introduced.length, 2);
+  assert.deepEqual(compareInventoryTotals(moved, baseline).increases, []);
+
+  const grown = inventoryForSource(
+    "packages/core/src/new-path.ts",
+    `const workflowWorkflowState = "workflow workflow";`,
+  );
+  assert.equal(compareInventoryTotals(grown, baseline).increases.length, 2);
+});
+
 test("only reviewed compatibility adapters are excluded", () => {
   assert.equal(shouldIgnore("apps/api/src/avatar-profile-v1-compat.ts"), true);
   assert.equal(shouldIgnore("apps/web/src/app/avatar/avatar-v1-compat.ts"), true);
   assert.equal(shouldIgnore("apps/api/src/unreviewed-compat.ts"), false);
   assert.equal(shouldIgnore("packages/core/src/compat/escape.ts"), false);
+  assert.equal(shouldIgnore("packages/core/src/module/commons-vocab3-compat.ts"), true);
+  assert.equal(shouldIgnore("services/commons/src/vocab3-registry-compat.ts"), true);
 });
 
 test("collector accepts TypeScript modules plus Rust and SQL sources", () => {

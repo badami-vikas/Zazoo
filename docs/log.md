@@ -1916,3 +1916,9 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Integrated the first TASK-012 milestone through PR #26 at source checkpoints `dd51797` and `bd7de18`; TASK-012 remains `in_progress` for VOCAB2–VOCAB6 and compatibility deletion.
 - Reconciled TASK-024's later website source by replacing its newly introduced retired DOM aliases and paired illustration selectors rather than increasing the 7,515-occurrence ratchet baseline.
 - Synchronized `docs/TASKS.md`, the durable output, and all four `docs/Progress from Manish/` handoff files with the landed milestone and correct next cursor.
+
+# 2026-07-20 — TASK-012 VOCAB3 complete (AP-055, ADR-129)
+- Preserved signed pre-VOCAB3 Commons entries without re-signing or rehashing: original canonical content, SHA-256 pin, publication time, Ed25519 signature, trusted key, provenance, scan, and dependencies remain authoritative; runtime consumers receive a deterministic Organization/Module/Record projection.
+- Restored visibility of the prior filesystem registry directory while keeping new writes under `modules/`; duplicate identities across roots stop fail-closed. The review-found Blueprint relation-target gap is covered by the signed compatibility regression.
+- Reconciled the syntax-fingerprint baseline from 7,515 to 793 occurrences with no family/kind increase. Artifact remains 234 and later VOCAB4/VOCAB5 families remain deferred; the only Package occurrence is the technical `packages/` source path.
+- Targeted core, Commons, Module/Organization/Record API, DB migration/store/RLS/schema, web/typecheck, and live browser checks passed. No migration was added; `0023` remains next. TASK-012 stays `in_progress` for VOCAB4–VOCAB6 and compatibility deletion. Durable handoff: `outputs/2026-07-20-task012-vocab3.md`.

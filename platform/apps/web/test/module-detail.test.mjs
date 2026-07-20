@@ -221,7 +221,7 @@ test("Module Automation Run delegates to server-owned Agent execution and existi
   const source = readFileSync(new URL("../src/app/pages/ModuleDetailPage.tsx", import.meta.url), "utf8");
   assert.match(source, /trpc\.automation\.runById\.mutate/);
   assert.match(source, /automationId:\s*manifestAutomationId/);
-  assert.match(source, /ownerModuleName:\s*pkg\.moduleName/);
+  assert.match(source, /moduleName:\s*pkg\.moduleName/);
   assert.match(source, /automation\.automationId/);
   assert.match(source, /runtimeAutomationIds\.has\(automation\.id\)/);
   assert.match(source, /automation\.runRoute/);
