@@ -62,7 +62,7 @@ export class JudgeScorer implements Scorer {
       `Rubric:\n${caseRubric}`,
       `Case input:\n${stableStringify(caseInput.input)}`,
       `Reference:\n${stableStringify(caseInput.reference)}`,
-      `Produced artifact:\n${stableStringify(produced)}`,
+      `Produced Result:\n${stableStringify(produced)}`,
       `Execution snapshot:\n${stableStringify(snapshotForJudge(snapshot))}`,
       `Pinned judge model version: ${this.modelVersion}`,
     ].join("\n\n");

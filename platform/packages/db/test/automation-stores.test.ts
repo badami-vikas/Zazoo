@@ -12,7 +12,7 @@ import {
 const validStep = {
   skill: "test_fixture_send_note",
   action: "write" as const,
-  resourceType: "touchpoint" as const,
+  resourceType: "event" as const,
 };
 
 function runCtx(): RunCtx {
@@ -62,7 +62,7 @@ test("Automation store validates steps at write and read boundaries", async () =
     await assert.rejects(
       () =>
         registry.saveSteps(organizationId, automationId, [
-          { skill: "test_fixture_bad_step", resourceType: "touchpoint" },
+          { skill: "test_fixture_bad_step", resourceType: "event" },
         ]),
       /Invalid Automation skill_pipeline jsonb/,
     );
@@ -75,7 +75,7 @@ test("Automation store validates steps at write and read boundaries", async () =
           {
             skill: "test_fixture_bad_step",
             action: "not-an-action",
-            resourceType: "touchpoint",
+            resourceType: "event",
           },
         ],
       })

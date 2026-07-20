@@ -5,7 +5,7 @@ doc_kind: audit
 status: active
 companions: [vocabulary-code-migration-plan-2026-07-14.md, ../glossary.md]
 related_wiki: ../wiki/ontology.md
-updated: 2026-07-19
+updated: 2026-07-20
 tags: [vocabulary, migration, inventory, ci, compatibility]
 ---
 
@@ -71,23 +71,23 @@ classification:
     policy: excluded; requirement and ADR history remains immutable evidence
 
 runtime_baseline:
-  total: 7515
+  total: 360
   families:
     avatar_lifecycle: 0
-    ritual: 347
-    workflow: 68
-    brain: 18
-    workspace: 4447
-    package: 889
-    project: 56
-    initiative: 337
-    element: 184
-    touchpoint: 234
+    ritual: 0
+    workflow: 0
+    brain: 0
+    workspace: 0
+    package: 1
+    project: 36
+    initiative: 0
+    element: 99
+    touchpoint: 0
     incident: 0
-    artifact: 234
-    tool: 463
-    knowledge: 10
-    helpdesk: 228
+    artifact: 0
+    tool: 5
+    knowledge: 8
+    helpdesk: 211
     legacy_plane: 0
 
 vocab1:
@@ -109,10 +109,29 @@ vocab1:
     - no Avatar lifecycle or maturity state remains in runtime source
     - desktop Avatar stays native-hidden and click-through until this launch confirms an active Organization and ready preferences
 
+vocab4:
+  storage:
+    occurrence_ledger: events
+    signal: security-invoker read projection over participant-linked Events
+    timeline: read projection over Events
+    non_file_outcome: Result
+    durable_user_content: files plus file_refs
+  migration: 0023_vocab4_event_result_file
+  removed_tables: [signal_actions, timeline_entries, timeline_entry_refs, touchpoints]
+  replaced_table:
+    signals: read_projection
+  compatibility:
+    signed_commons: original pre-VOCAB4 provenance bytes remain hash/signature authority
+    runtime_writes: canonical_only
+  verification:
+    - fresh, upgrade, replay/no-drift, and data-preservation migration coverage
+    - append-only Event and Organization-isolated Event/File RLS
+    - Relationship Signal/Timeline and safe Action API coverage
+    - Module File write plus inventory reconciliation converges to one File
+    - Result-backed JobPilot culture/application contracts
+    - zero Artifact, Touchpoint, and Incident runtime ratchet occurrences
+
 next_batches:
-  - VOCAB2 automation and Engine
-  - VOCAB3 Organization, Module, Database, Record, Relation
-  - VOCAB4 Event, Result, File
   - VOCAB5 Relationship Module
   - VOCAB6 actionable Module shell and Second Brain graph
 ```

@@ -5,7 +5,7 @@
 // procedures and renders whatever the API actually returns, including an
 // honest empty state before research/approval exists. This module holds the
 // small amount of client-side LOGIC involved (deriving a real, grounded
-// claim from an already-fetched artifact; a tiny local pointer so a page
+// claim from an already-fetched result; a tiny local pointer so a page
 // refresh can re-find an in-progress or completed run) as plain, testable
 // functions — the React component itself is a thin consumer of these plus
 // `trpc`.
@@ -111,13 +111,13 @@ export function clearStoredCultureResearchState(storage: KeyValueStorage, organi
 
 /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
  * RE-review round 2, issue 8/9) — the derived quote must be a BOUNDED
- * excerpt, never the artifact's entire raw body. A prior version forwarded
- * `artifact.content` verbatim as the claim's `quote` (still trivially a real,
- * verifiable substring of the fetched artifact, so the server's
+ * excerpt, never the result's entire raw body. A prior version forwarded
+ * `result.content` verbatim as the claim's `quote` (still trivially a real,
+ * verifiable substring of the fetched result, so the server's
  * `groundClaims` check always passed) — but that meant the ENTIRE raw fetched
  * page ended up persisted as `claimText` in the approved, durable ledger row,
- * exactly the "full artifact body retained forever" privacy gap this slice's
- * artifact-expiry/purge mechanism is meant to prevent. Capping the excerpt
+ * exactly the "full result body retained forever" privacy gap this slice's
+ * result-expiry/purge mechanism is meant to prevent. Capping the excerpt
  * length here keeps the claim genuinely citable (a real quote, not
  * paraphrased or fabricated) while bounding how much of the raw page this
  * interim, non-human-curated extraction step can ever carry into a
@@ -126,42 +126,42 @@ export const MAX_DERIVED_CLAIM_SNIPPET_LENGTH = 320;
 
 /**
  * Derives ONE real, fully-grounded "fact" claim from an already-fetched
- * artifact — a BOUNDED excerpt of its actual content (never the whole raw
+ * result — a BOUNDED excerpt of its actual content (never the whole raw
  * body — see `MAX_DERIVED_CLAIM_SNIPPET_LENGTH`'s doc comment), the interim
  * claim-authoring step this prototype uses until a human-excerpt-picker or
  * LLM-assisted extraction exists (tracked as future work; not simulated
- * here). The `quote` is a genuine, verbatim prefix of the artifact's own
+ * here). The `quote` is a genuine, verbatim prefix of the result's own
  * text, so the server's `groundClaims` substring + content-hash check always
  * succeeds for it — this NEVER fabricates or paraphrases content, it only
  * forwards a bounded slice of real fetched bytes back as a citable claim.
  */
-export function deriveBoundedArtifactFactClaim(
+export function deriveBoundedResultFactClaim(
   claimId: string,
   sourceId: string,
-  artifact: { content: string; contentHash: string },
+  result: { content: string; contentHash: string },
 ): { id: string; claimType: 'fact'; sourceId: string; quote: string; contentHash: string } {
   const quote =
-    artifact.content.length > MAX_DERIVED_CLAIM_SNIPPET_LENGTH
-      ? artifact.content.slice(0, MAX_DERIVED_CLAIM_SNIPPET_LENGTH)
-      : artifact.content;
-  return { id: claimId, claimType: 'fact', sourceId, quote, contentHash: artifact.contentHash };
+    result.content.length > MAX_DERIVED_CLAIM_SNIPPET_LENGTH
+      ? result.content.slice(0, MAX_DERIVED_CLAIM_SNIPPET_LENGTH)
+      : result.content;
+  return { id: claimId, claimType: 'fact', sourceId, quote, contentHash: result.contentHash };
 }
 
 /**
  * TASK-011 remediation (2026-07-19 coordinator distributed-defects
- * RE-review round 2, issue 9) — a fetched source's artifact can become
+ * RE-review round 2, issue 9) — a fetched source's result can become
  * unusable WITHOUT its status ever leaving `"fetched"`: the server purges an
- * expired artifact's raw `content` to `""` on read (never serving expired
+ * expired result's raw `content` to `""` on read (never serving expired
  * evidence) while leaving the record's own status untouched, and the client
- * must ALSO proactively treat an artifact past its own `expiresAt` as
+ * must ALSO proactively treat an result past its own `expiresAt` as
  * unusable even before the server's next lazy purge-on-read happens to run.
  * A `"fetched"` status must therefore NEVER be treated as "content
  * available" without this additional check — the caller must never render
  * fetched-success, and must never let this source ground a NEW synthesis,
  * once it is no longer usable.
  */
-export function isArtifactUsable(artifact: { content: string; expiresAt: string } | null | undefined): boolean {
-  if (!artifact) return false;
-  if (artifact.content === '') return false;
-  return new Date(artifact.expiresAt).getTime() > Date.now();
+export function isResultUsable(result: { content: string; expiresAt: string } | null | undefined): boolean {
+  if (!result) return false;
+  if (result.content === '') return false;
+  return new Date(result.expiresAt).getTime() > Date.now();
 }

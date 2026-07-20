@@ -328,12 +328,12 @@ test("persistent governance provisioning grants culture-research authority to Le
     const agents = new DrizzleAgentStore(db);
     assert.deepEqual(await agents.capabilityScope(LEARNING_AGENT), [
       "signal:write",
-      "touchpoint:write",
+      "event:write",
       "external:fetch:read",
       // TASK-011 merge reconciliation (2026-07-19) — origin/main's TASK-010
       // added its own additional Learning Agent grant (event:write, for the
       // red-flag-correction preference-adjustment Skill) alongside this
-      // branch's touchpoint:write/external:fetch:read grants; the persistent
+      // branch's event:write/external:fetch:read grants; the persistent
       // governance provisioning combines both.
       "event:write",
     ]);

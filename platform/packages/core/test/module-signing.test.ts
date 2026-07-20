@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   canonicalizeManifest,
+  canonicalizeJson,
+  adaptVocab3CommonsEntry,
   canonicalizeCommonsSignedPayload,
   commonsModuleContent,
   computeCommonsContentHash,
@@ -98,7 +100,7 @@ function commonsEntry(): CommonsModuleEntry {
       sourceRef: "capability",
       inspectedCommit: "0123456789abcdef0123456789abcdef01234567",
       repositoryLicense: "MIT",
-      artifactLicense: "MIT",
+      contentLicense: "MIT",
       licenseVerified: true,
     },
     securityScan: {
@@ -134,6 +136,36 @@ test("Commons hash excludes its own integrity/signature/publish fields and verif
   );
   assert.deepEqual(
     verifyCommonsEntry(entry, (value) => `hash(${value})`, fakeVerifier("publisher-key-1")),
+    { valid: true },
+  );
+});
+
+test("pre-VOCAB4 Commons content keeps its original hash and signature after projection", () => {
+  const current = commonsEntry();
+  const { contentLicense, ...provenance } = current.provenance;
+  const legacyContent = {
+    ...commonsModuleContent(current),
+    provenance: { ...provenance, artifactLicense: contentLicense },
+  };
+  const canonicalContent = canonicalizeJson(legacyContent);
+  const integrity = {
+    algorithm: "sha256" as const,
+    value: `sha256:hash(${canonicalContent})`,
+  };
+  const publishedAt = current.publishedAt;
+  const adapted = adaptVocab3CommonsEntry({
+    ...legacyContent,
+    integrity,
+    publishedAt,
+    signature: {
+      ...current.signature,
+      signature: `sig(${canonicalizeJson({ content: legacyContent, integrity, publishedAt })})`,
+    },
+  });
+  assert.equal(adapted.provenance.contentLicense, "MIT");
+  assert.equal(adapted.integrity.value, integrity.value);
+  assert.deepEqual(
+    verifyCommonsEntry(adapted, (value) => `hash(${value})`, fakeVerifier("publisher-key-1")),
     { valid: true },
   );
 });

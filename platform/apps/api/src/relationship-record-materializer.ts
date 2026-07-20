@@ -585,7 +585,7 @@ export async function materializeRelationshipMutation(
       participants: [{ recordType: "person", recordId: payload.personId }],
       updatesPersonFreshness: false,
       metadata: {
-        artifact: "memory",
+        result: "memory",
         operation: payload.operation,
         memoryId: payload.memoryId,
         resultingMemoryId,

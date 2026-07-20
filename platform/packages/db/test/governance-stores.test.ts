@@ -61,11 +61,11 @@ test("agent store: write-time — saveCapabilityScope persists and capabilitySco
     const store = new DrizzleAgentStore(db);
 
     await store.saveCapabilityScope(agentId, {
-      resources: ["person:read", "touchpoint:write"],
+      resources: ["person:read", "event:write"],
       dataScope: "private",
     });
 
-    assert.deepEqual(await store.capabilityScope(agentId), ["person:read", "touchpoint:write"]);
+    assert.deepEqual(await store.capabilityScope(agentId), ["person:read", "event:write"]);
     assert.equal(await store.dataScope(agentId), "private");
   } finally {
     await close();

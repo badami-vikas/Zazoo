@@ -31,8 +31,7 @@ function Editable({ text, onSave, multiline = false, className, placeholder }: {
   );
 }
 
-// Vocabulary: a Touchpoint is the work node (the to-do/task unit). It nests to any depth.
-interface Touchpoint { id: string; name: string; done: boolean; parentId: string | null; collapsed?: boolean }
+interface Task { id: string; name: string; done: boolean; parentId: string | null; collapsed?: boolean }
 interface Overview { brief: string; objectives: string[]; boundaries: string[]; metrics: { label: string; value: string }[] }
 
 function load<T>(key: string, fallback: T): T { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } }
@@ -52,20 +51,20 @@ const DEFAULT_OVERVIEW: Overview = {
 
 const RECORD_PAGES = [
   { slug: 'overview', label: 'Overview' },
-  { slug: 'touchpoints', label: 'Touchpoints' },
+  { slug: 'tasks', label: 'Tasks' },
   { slug: 'files', label: 'Files' },
 ] as const;
 
-const TOUCHPOINT_SPEC: TableSpec = {
-  id: 'record-touchpoints',
+const TASK_SPEC: TableSpec = {
+  id: 'record-tasks',
   columns: [
-    { id: 'name', label: 'Touchpoint', kind: 'text', required: true, editable: true },
+    { id: 'name', label: 'Task', kind: 'text', required: true, editable: true },
     { id: 'done', label: 'Done', kind: 'checkbox', editable: true, defaultValue: false },
     {
       id: 'parentId',
-      label: 'Parent Touchpoint',
+      label: 'Parent Task',
       kind: 'relation',
-      relationTarget: 'record-touchpoints',
+      relationTarget: 'record-tasks',
       relationParent: true,
       editable: false,
     },
@@ -84,40 +83,39 @@ export function RecordDetail() {
 
   const name = stored?.name || iid;
   const [overview, setOverview] = useState<Overview>(() => ({ ...DEFAULT_OVERVIEW, ...load(`bridge.record.${iid}.overview`, DEFAULT_OVERVIEW) }));
-  // Storage key kept as `.tasks` to preserve any existing local data; the model is Touchpoints.
-  const [touchpoints, setTouchpoints] = useState<Touchpoint[]>(() => load(`bridge.record.${iid}.tasks`, []));
+  const [tasks, setTasks] = useState<Task[]>(() => load(`bridge.record.${iid}.tasks`, []));
   const requestedView = searchParams.get('view');
   const normalizedView = normalizeViewKind(requestedView);
-  const initialTouchpointKind = normalizedView && computeEligibleKinds(TOUCHPOINT_SPEC).includes(normalizedView)
+  const initialTaskKind = normalizedView && computeEligibleKinds(TASK_SPEC).includes(normalizedView)
     ? normalizedView
     : 'tree';
-  const [touchpointsView, setTouchpointsView] = useState<ViewConfig>(
-    viewConfigForKind(TOUCHPOINT_SPEC, initialTouchpointKind, { id: `record-touchpoints:${iid}` }),
+  const [tasksView, setTasksView] = useState<ViewConfig>(
+    viewConfigForKind(TASK_SPEC, initialTaskKind, { id: `record-tasks:${iid}` }),
   );
-  const [touchpointFormRecord, setTouchpointFormRecord] = useState<DataRow | null>(null);
+  const [taskFormRecord, setTaskFormRecord] = useState<DataRow | null>(null);
 
   const persistOverview = (o: Overview) => { setOverview(o); save(`bridge.record.${iid}.overview`, o); };
-  const persistTouchpoints = (t: Touchpoint[]) => { setTouchpoints(t); save(`bridge.record.${iid}.tasks`, t); };
+  const persistTasks = (nextTasks: Task[]) => { setTasks(nextTasks); save(`bridge.record.${iid}.tasks`, nextTasks); };
 
   const pageParam = searchParams.get('page');
   const activeTab = RECORD_PAGES.find((page) => page.slug === pageParam)?.label ?? RECORD_PAGES[0].label;
   function selectPage(page: (typeof RECORD_PAGES)[number]) {
     const next = new URLSearchParams(searchParams);
     next.set('page', page.slug);
-    if (page.slug !== 'touchpoints') next.delete('view');
+    if (page.slug !== 'tasks') next.delete('view');
     setSearchParams(next);
   }
-  function selectTouchpointsView(view: ViewConfig, preserveFormRecord = false) {
-    setTouchpointsView(view);
-    if (!preserveFormRecord) setTouchpointFormRecord(null);
+  function selectTasksView(view: ViewConfig, preserveFormRecord = false) {
+    setTasksView(view);
+    if (!preserveFormRecord) setTaskFormRecord(null);
     const next = new URLSearchParams(searchParams);
-    next.set('page', 'touchpoints');
+    next.set('page', 'tasks');
     next.set('view', view.kind);
     setSearchParams(next);
   }
 
-  const nid = () => `t-${++counter.current}-${touchpoints.length}`;
-  const progress = (() => { const total = touchpoints.length; const done = touchpoints.filter(t => t.done).length; return total ? Math.round((done / total) * 100) : 0; })();
+  const nid = () => `t-${++counter.current}-${tasks.length}`;
+  const progress = (() => { const total = tasks.length; const done = tasks.filter(t => t.done).length; return total ? Math.round((done / total) * 100) : 0; })();
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: 'var(--color-background)' }}>
@@ -131,7 +129,7 @@ export function RecordDetail() {
             <div className="flex items-center gap-3 mt-1 text-sm" style={{ color: 'var(--color-warm-gray)' }}>
               <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--color-steel)' }} />{stored?.status || 'Planning'}</span>
               <span>·</span>
-              <span>{progress}% complete · {touchpoints.filter(t => t.done).length}/{touchpoints.length} touchpoints</span>
+              <span>{progress}% complete · {tasks.filter(t => t.done).length}/{tasks.length} tasks</span>
             </div>
           </div>
           <DropdownMenu>
@@ -233,43 +231,43 @@ export function RecordDetail() {
             </motion.div>
           )}
 
-          {activeTab === 'Touchpoints' && (
+          {activeTab === 'Tasks' && (
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
               <DataViews
-                spec={TOUCHPOINT_SPEC}
-                view={touchpointsView}
-                data={touchpoints.map((touchpoint) => ({ ...touchpoint }))}
-                onViewChange={selectTouchpointsView}
-                formRecord={touchpointFormRecord}
+                spec={TASK_SPEC}
+                view={tasksView}
+                data={tasks.map((task) => ({ ...task }))}
+                onViewChange={selectTasksView}
+                formRecord={taskFormRecord}
                 onInsert={async (draft) => {
-                  const touchpointName = typeof draft['name'] === 'string' ? draft['name'].trim() : '';
-                  if (!touchpointName) throw new Error('Touchpoint is required.');
-                  persistTouchpoints([
-                    ...touchpoints,
+                  const taskName = typeof draft['name'] === 'string' ? draft['name'].trim() : '';
+                  if (!taskName) throw new Error('Task is required.');
+                  persistTasks([
+                    ...tasks,
                     {
                       id: nid(),
-                      name: touchpointName,
+                      name: taskName,
                       done: draft['done'] === true,
                       parentId: null,
                       collapsed: false,
                     },
                   ]);
                 }}
-                onUpdate={async (touchpointId, draft) => {
-                  persistTouchpoints(touchpoints.map((touchpoint) => touchpoint.id === touchpointId
+                onUpdate={async (taskId, draft) => {
+                  persistTasks(tasks.map((task) => task.id === taskId
                     ? {
-                        ...touchpoint,
+                        ...task,
                         ...(typeof draft['name'] === 'string' && draft['name'].trim()
                           ? { name: draft['name'].trim() }
                           : {}),
                         ...(typeof draft['done'] === 'boolean' ? { done: draft['done'] } : {}),
                       }
-                    : touchpoint));
+                    : task));
                 }}
                 onEditRecord={(row) => {
-                  setTouchpointFormRecord(row);
-                  selectTouchpointsView(
-                    viewConfigForKind(TOUCHPOINT_SPEC, 'form', touchpointsView),
+                  setTaskFormRecord(row);
+                  selectTasksView(
+                    viewConfigForKind(TASK_SPEC, 'form', tasksView),
                     true,
                   );
                 }}

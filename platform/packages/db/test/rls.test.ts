@@ -28,6 +28,73 @@ async function useRlsAppRole(db: Awaited<ReturnType<typeof createLocalDb>>["db"]
   await db.execute(sql`set role bridge_rls_member`);
 }
 
+test("RLS: Events stay append-only and Events/Files remain Organization-isolated", async () => {
+  const { db, close } = await createLocalDb();
+  const organizationA = "10000000-0000-4000-8000-000000000123";
+  const organizationB = "10000000-0000-4000-8000-000000000124";
+  const userA = "20000000-0000-4000-8000-000000000123";
+  const userB = "20000000-0000-4000-8000-000000000124";
+  try {
+    await db.insert(schema.users).values([
+      { id: userA, email: "test_fixture_vocab4_a@example.com" },
+      { id: userB, email: "test_fixture_vocab4_b@example.com" },
+    ]);
+    await db.insert(schema.organizations).values([
+      { id: organizationA, name: "VOCAB4 A" },
+      { id: organizationB, name: "VOCAB4 B" },
+    ]);
+    await useRlsAppRole(db);
+    await setRlsContext(db, organizationA, userA);
+    const eventId = "30000000-0000-4000-8000-000000000123";
+    const fileId = "40000000-0000-4000-8000-000000000123";
+    await db.insert(schema.events).values({
+      id: eventId,
+      organizationId: organizationA,
+      type: "test_fixture_vocab4",
+      entityType: "event",
+      entityId: eventId,
+    });
+    await db.insert(schema.files).values({
+      id: fileId,
+      organizationId: organizationA,
+      source: "test_fixture_vocab4",
+      storageRef: "module://test/file.txt",
+    });
+    await db.insert(schema.fileRefs).values({
+      fileId,
+      entityType: "module",
+      entityId: "50000000-0000-4000-8000-000000000123",
+    });
+    assert.deepEqual(
+      await db.update(schema.events)
+        .set({ type: "changed" })
+        .where(sql`${schema.events.id} = ${eventId}`)
+        .returning({ id: schema.events.id }),
+      [],
+    );
+    assert.deepEqual(
+      await db.delete(schema.events)
+        .where(sql`${schema.events.id} = ${eventId}`)
+        .returning({ id: schema.events.id }),
+      [],
+    );
+    await setRlsContext(db, organizationB, userB);
+    assert.deepEqual(await db.select().from(schema.events), []);
+    assert.deepEqual(await db.select().from(schema.files), []);
+    assert.deepEqual(await db.select().from(schema.fileRefs), []);
+    await assert.rejects(
+      () => db.insert(schema.fileRefs).values({
+        fileId,
+        entityType: "module",
+        entityId: "50000000-0000-4000-8000-000000000124",
+      }),
+      /Failed query|row-level security/i,
+    );
+  } finally {
+    await close();
+  }
+});
+
 test("RLS: bridge_app stores scope transaction-locally and reject cross-Organization nesting", async () => {
   const { db, close } = await createLocalDb();
   const organizationA = "10000000-0000-4000-8000-000000000101";

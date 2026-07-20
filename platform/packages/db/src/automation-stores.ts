@@ -35,7 +35,7 @@ const resourceTypeSchema = z.enum([
   "person",
   "community",
   "record",
-  "touchpoint",
+  "event",
   "automation",
   "module",
   "file",

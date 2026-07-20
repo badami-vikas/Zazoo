@@ -93,7 +93,7 @@ export interface ProposeOptions {
  * `propose()` call, including calls that are pure Human-authored mutations
  * already fully gated by the ordinary authority/policy layers (Layers 0-2 of
  * `resolveAuthority`) and that have NO bounded Agent capability behind them
- * at all — e.g. a Human sharing/exporting their OWN touchpoint, or any other
+ * at all — e.g. a Human sharing/exporting their own Event, or any other
  * mutation not yet bound to a dedicated named Skill. Forcing these through an
  * Agent+Task would misrepresent a Human's own already-authorized action as a
  * delegated Agent capability, and — since `resolveSkillForTask` requires an

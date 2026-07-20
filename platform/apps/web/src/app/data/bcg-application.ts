@@ -1,16 +1,16 @@
-export type ArtifactStatus = 'ready' | 'review' | 'practice' | 'blocked';
+export type ResultStatus = 'ready' | 'review' | 'practice' | 'blocked';
 export type EvidenceStatus = 'verified' | 'needs-review';
 
-export interface ApplicationArtifact {
+export interface ApplicationResult {
   id: string;
   title: string;
   description: string;
-  status: ArtifactStatus;
+  status: ResultStatus;
   ownerAgent: string;
   skill: string;
   updated: string;
   sections: { heading: string; body: string; bullets?: string[] }[];
-  /** IDs of evidence[] items that ground the claims in this artifact */
+  /** IDs of evidence[] items that ground the claims in this result */
   evidenceIds?: readonly string[];
 }
 
@@ -52,7 +52,7 @@ export const BCG_APPLICATION = {
       'Current Olin STEM MBA, Dean’s Scholar, and 98th-percentile GMAT provide a clear academic signal.',
     ],
     concerns: [
-      'Several older source documents conflict on PeopleGamez dates, grant totals, and selected project metrics; only reconciled claims should ship.',
+      'Several older source documents conflict on PeopleGamez dates, grant totals, and selected engagement metrics; only reconciled claims should ship.',
       'Office preference and specific recruiting channel are not yet chosen, so “Why this office?” and deadline fields remain open.',
       'Resume is dense. Final one-page version needs strict prioritization and a recruiter scan before submission.',
     ],
@@ -73,9 +73,9 @@ export const BCG_APPLICATION = {
     { id: 'mba', claim: 'STEM MBA candidate at Washington University in St. Louis, expected May 2027; Dean’s Scholar on full merit scholarship.', source: 'Master Profile → Washington University education record', status: 'verified' as const },
     { id: 'gmat', claim: 'GMAT Focus 695, 98th percentile.', source: 'Master Profile → Washington University test scores', status: 'verified' as const },
     { id: 'peoplegamez-dates', claim: 'PeopleGamez / MetaXP: August 2021–July 2025.', source: 'Master Profile → PeopleGamez canonical dates', status: 'needs-review' as const, note: 'Source files also show Feb 2021–Present and Apr 2022–Present. Confirm the employment framing before submission.' },
-    { id: 'growthpal', claim: 'Repositioned GrowthPal around a subscription model, reduced sales cycle about 40%, and grew deal size 6x to $30K.', source: 'Master Profile → PeopleGamez client projects → GrowthPal', status: 'verified' as const },
-    { id: 'forensics', claim: 'Reclaimed 6 of 8 enterprise clients and increased LTV 18% through an AI-enabled digital-forensics process.', source: 'Master Profile → PeopleGamez client projects → Bluechip Digital Forensics', status: 'verified' as const },
-    { id: 'fintech', claim: 'Used market research, interviews, survey outreach, testing, and modeling to redirect a fintech roadmap and halve time to market.', source: 'Master Profile → PeopleGamez client projects → Jugad', status: 'verified' as const },
+    { id: 'growthpal', claim: 'Repositioned GrowthPal around a subscription model, reduced sales cycle about 40%, and grew deal size 6x to $30K.', source: 'Master Profile → PeopleGamez client engagements → GrowthPal', status: 'verified' as const },
+    { id: 'forensics', claim: 'Reclaimed 6 of 8 enterprise clients and increased LTV 18% through an AI-enabled digital-forensics process.', source: 'Master Profile → PeopleGamez client engagements → Bluechip Digital Forensics', status: 'verified' as const },
+    { id: 'fintech', claim: 'Used market research, interviews, survey outreach, testing, and modeling to redirect a fintech roadmap and halve time to market.', source: 'Master Profile → PeopleGamez client engagements → Jugad', status: 'verified' as const },
     { id: 'opentech', claim: 'Built a 22-person volunteer team that helped 10,000+ students across 30+ institutions use technology on community problems.', source: 'Master Profile → OpenTech', status: 'verified' as const },
     { id: 'grant', claim: 'Won $21K in government innovation grants.', source: 'Master Profile → PeopleGamez achievements and awards', status: 'needs-review' as const, note: 'Other drafts cite $12K, $18K, or an additional $8.5K TIDE grant. Use the award letters to reconcile.' },
     { id: 'learners', claim: 'Scaled simulation-led programs to 40,000+ learners across seven countries.', source: 'Master Profile → PeopleGamez achievements', status: 'verified' as const },
@@ -83,7 +83,7 @@ export const BCG_APPLICATION = {
     { id: 'pi-school', claim: 'Selected as a special 21st scholar for 20 places from 6,000+ applicants.', source: 'Master Profile → Pi School of AI', status: 'verified' as const },
     { id: 'funding', claim: 'Marketplace strategy contributed to three bank MOUs and $10M in funding.', source: 'Master Profile → Singapore-HQ analytics venture', status: 'needs-review' as const, note: 'Confirm whether “catalyzed” or “enabled” best reflects causal attribution.' },
   ] satisfies EvidenceClaim[],
-  artifacts: [
+  results: [
     {
       id: 'resume', title: 'BCG one-page resume', description: 'Impact-first MBA consulting resume with evidence links', status: 'review', ownerAgent: 'Materials Writer', skill: 'tailor resume', updated: 'Draft 1 · July 15', evidenceIds: ['mba', 'gmat', 'peoplegamez-dates', 'growthpal', 'forensics', 'fintech', 'opentech', 'grant', 'learners', 'arcesium', 'pi-school', 'funding'] as const,
       sections: [
@@ -97,10 +97,10 @@ export const BCG_APPLICATION = {
         ] },
         { heading: 'Experience — OpenTech', body: 'FOUNDER & CHIEF FACILITATOR · India · Oct 2016–Jan 2025 (part-time)', bullets: [
           'Built and led a 22-person volunteer team that helped 10,000+ students from underserved communities create technology solutions; participants launched 30+ ventures and one represented India at NASA.',
-          'Adapted the program online during the pandemic; Project Uplift earned a top-three Asia recognition from United People Global.',
+          'Adapted the program online during the pandemic; Uplift earned a top-three Asia recognition from United People Global.',
         ] },
         { heading: 'Earlier education & leadership', body: 'PLAKSHA UNIVERSITY — PGDM, Tech Leaders Fellowship; full merit scholarship. Built a computer-vision/NLP process for Arcesium that reduced processing time ~30%.\nNIT CALICUT — B.Tech, Industrial Engineering; top 10% of class. Founding captain of the institute’s Kho-Kho team; Government of India Toycathon winner.' },
-        { heading: 'Additional', body: 'Tools: Excel, Power BI, Tableau, SQL, Python, Salesforce, HubSpot · National-level Kho-Kho player · State-level chess player · Working knowledge of seven languages.' },
+        { heading: 'Additional', body: 'Software: Excel, Power BI, Tableau, SQL, Python, Salesforce, HubSpot · National-level Kho-Kho player · State-level chess player · Working proficiency in seven languages.' },
       ],
     },
     {
@@ -135,7 +135,7 @@ Sincerely,\nVikas Badami` },
     {
       id: 'networking', title: 'Networking plan', description: 'Warm, specific outreach and learning goals—not referral harvesting', status: 'practice', ownerAgent: 'Search Strategist', skill: 'assess source strategy', updated: '4-week plan',
       sections: [
-        { heading: 'Who to contact', body: 'Prioritize Olin alumni and second-degree contacts in your target offices: post-MBA Consultants (recent transition), Project Leaders (staffing and development), and one recruiting contact. Seek perspective across entrepreneurship, digital/AI, organizational transformation, and social impact.' },
+        { heading: 'Who to contact', body: 'Prioritize Olin alumni and second-degree contacts in your target offices: post-MBA Consultants (recent transition), Engagement Leaders (staffing and development), and one recruiting contact. Seek perspective across entrepreneurship, digital/AI, organizational transformation, and social impact.' },
         { heading: 'Outreach note', body: 'Hi [Name] — I’m a STEM MBA candidate at Olin and former founder preparing for BCG recruiting. Your path from [specific shared point] to [office/practice] stood out. I’d value 20 minutes to understand what surprised you about the transition and how your office helps entrepreneurial hires turn operating experience into client impact. I’m not asking for a referral—your perspective would help me make a more informed choice. Thank you, Vikas' },
         { heading: 'Conversation questions', body: 'Ask: What distinguishes strong founder-to-consultant transitions? How does the office balance creative answers with rigorous team problem solving? What feedback most accelerated your growth? Which local work would connect naturally to my strategy + AI + behavioral-design background? What should I test about my own fit before applying?' },
         { heading: 'Follow-through', body: 'Record specific insights, send a short thank-you within 24 hours, update the office paragraph only with permission-safe facts, and keep each relationship useful even if no referral emerges.' },
@@ -177,16 +177,16 @@ Sincerely,\nVikas Badami` },
         { heading: 'After submission', body: 'Save the confirmation and sent file versions; record the Application Event; schedule a follow-up checkpoint; begin the six-week interview plan without assuming progression.' },
       ],
     },
-  ] satisfies ApplicationArtifact[],
+  ] satisfies ApplicationResult[],
   sources: [
     { label: 'Candidate Master Profile', detail: 'Compiled from 45+ supplied resumes, cover letters, recommendations, and application essays.' },
     { label: 'BCG interview process', detail: 'Official evaluation dimensions and interview stages.' },
     { label: 'BCG case preparation', detail: 'Official case behaviors: structure, questions, analysis, calculations, communication, and creativity.' },
-    { label: 'Existing consulting materials', detail: 'Consulting resume and cover-letter drafts supplied in Tools/Job/Job Application.' },
+    { label: 'Existing consulting materials', detail: 'Consulting resume and cover-letter drafts supplied in JobPilot.' },
     { label: 'JobPilot BRD', detail: 'Agent ownership, evidence traceability, sensitive-field handling, and mandatory Human submission approval.' },
   ],
 } as const;
 
-export function artifactById(id: string) {
-  return BCG_APPLICATION.artifacts.find((artifact) => artifact.id === id);
+export function resultById(id: string) {
+  return BCG_APPLICATION.results.find((result) => result.id === id);
 }

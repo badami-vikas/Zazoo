@@ -3,7 +3,7 @@
  * their USER-EDITABLE permissions (Slice B).
  *
  * An integration is an `integration`-type actor. The Bridge capabilities it holds
- * (external:fetch, person:read, touchpoint:write, …) are CBAC grants in the
+ * (external:fetch, person:read, event:write, …) are CBAC grants in the
  * `permissions` table, revocable via `revoked_at` (history is never deleted).
  * Time-boxed access uses `ephemeral_grants`. The Authority resolver reads these
  * the same way it does for any actor, so edits here change real enforcement.

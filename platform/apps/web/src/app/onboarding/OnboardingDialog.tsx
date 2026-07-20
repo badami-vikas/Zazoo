@@ -22,7 +22,7 @@ const REGISTERED_NODE_TYPES = [
   "person",
   "community",
   "record",
-  "touchpoint",
+  "event",
   "automation",
   "module",
   "file",

@@ -11,6 +11,7 @@ const TYPESCRIPT_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".j
 const SOURCE_EXTENSIONS = new Set([...TYPESCRIPT_EXTENSIONS, ".rs", ".sql"]);
 const COMPATIBILITY_ADAPTERS = new Set([
   "apps/api/src/avatar-profile-v1-compat.ts",
+  "apps/api/src/culture-result-vocab4-compat.ts",
   "apps/web/src/app/avatar/avatar-v1-compat.ts",
   "apps/web/src/app/data/helpdesk-vocab3-compat.ts",
   "packages/core/src/capability/mcp-adapter.ts",

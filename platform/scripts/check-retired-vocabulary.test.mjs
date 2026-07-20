@@ -108,6 +108,7 @@ test("reviewed fingerprint moves remain downward-only by family and syntax kind"
 
 test("only reviewed compatibility adapters are excluded", () => {
   assert.equal(shouldIgnore("apps/api/src/avatar-profile-v1-compat.ts"), true);
+  assert.equal(shouldIgnore("apps/api/src/culture-result-vocab4-compat.ts"), true);
   assert.equal(shouldIgnore("apps/web/src/app/avatar/avatar-v1-compat.ts"), true);
   assert.equal(shouldIgnore("apps/api/src/unreviewed-compat.ts"), false);
   assert.equal(shouldIgnore("packages/core/src/compat/escape.ts"), false);

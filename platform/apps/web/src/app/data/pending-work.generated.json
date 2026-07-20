@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T15:28:41.948Z",
+  "generatedAt": "2026-07-20T10:37:28.620Z",
   "items": [
     {
       "id": "TASK-001",
@@ -182,11 +182,13 @@
         "BUGS package.yaml filename mismatch",
         "BUGS Initiative-scoped API legacy",
         "deprecated Tools/Knowledge/Workflows evidence attached to TASK-001",
-        "OPEN BUGS Module File writes are not yet indexed into canonical `files`/`file_refs` for Graph/File provenance (VOCAB4)",
+        "RESOLVED BUGS Module File writes indexed into canonical `files`/`file_refs` for Graph/File provenance",
         "[VOCAB0 inventory](raw/vocabulary-code-inventory-2026-07-19.md)",
         "[VOCAB0–VOCAB1 implementation](../outputs/2026-07-19-task012-vocab0-vocab1.md), integrated through PR #26 at source checkpoints `dd51797` and `bd7de18`",
         "VOCAB2 source `88be310`, integrated through PR #27 at `f6c4376`",
-        "partial VOCAB3 checkpoint `58573ba` with migration `0021_vocab3_organization_module_record`"
+        "partial VOCAB3 checkpoint `58573ba` with migration `0021_vocab3_organization_module_record`",
+        "[VOCAB3 completion](../outputs/2026-07-20-task012-vocab3.md) under AP-055/ADR-129",
+        "[VOCAB4 completion](../outputs/2026-07-20-task012-vocab4.md) under AP-056/ADR-130 with migration `0023_vocab4_event_result_file`"
       ],
       "requests": [
         "R-020",

@@ -161,7 +161,7 @@ test("modules.install: a transformational-risk module is parked pending user_pre
           {
             id: "dummy.transformational-write",
             capability_type: "skill",
-            permissions: [{ resource_type: "touchpoint", action: "write", data_scope: "all", egress: false }],
+            permissions: [{ resource_type: "event", action: "write", data_scope: "all", egress: false }],
             connectors: [],
           },
         ],
@@ -233,7 +233,7 @@ test("modules.install: lethal trifecta assembled across separate bundled capabil
           {
             id: "dummy.egress-connector",
             capability_type: "automation",
-            permissions: [{ resource_type: "touchpoint", action: "write", data_scope: "all", egress: false }],
+            permissions: [{ resource_type: "event", action: "write", data_scope: "all", egress: false }],
             connectors: [{ id: "dummy-sender", external_send: true }],
           },
         ],
@@ -432,6 +432,12 @@ test("modules.files: reads and writes through the configured canonical File root
   const wiring = await buildWiring({ moduleFilesBridgeRoot: bridgeRoot });
   try {
     const caller = await makeCaller(wiring);
+    const indexed: Parameters<typeof wiring.graphStore.indexModuleFile>[0][] = [];
+    const indexModuleFile = wiring.graphStore.indexModuleFile.bind(wiring.graphStore);
+    wiring.graphStore.indexModuleFile = async (input) => {
+      indexed.push(input);
+      return indexModuleFile(input);
+    };
     const added = await caller.modules.addFile({
       organizationId: PILOT_ORGANIZATION,
       moduleName: "deal-pilot",
@@ -448,6 +454,20 @@ test("modules.files: reads and writes through the configured canonical File root
     assert.equal(
       await readFile(join(inventory.root, added.path), "utf8"),
       "private local evidence",
+    );
+    assert.equal(indexed.length, 2, "write and inventory reconciliation both index the File");
+    assert.equal(indexed[0]?.path, "notes.txt");
+    assert.equal(indexed[0]?.moduleName, "deal-pilot");
+    assert.equal(indexed[0]?.moduleId, indexed[1]?.moduleId);
+    const graph = await wiring.graphStore.listFullGraph(
+      PILOT_ORGANIZATION,
+      PILOT_USER,
+      { limit: 100 },
+    );
+    assert.equal(
+      graph.nodes.filter((node) => node.recordType === "file").length,
+      1,
+      "reconciliation must upsert one canonical File instead of duplicating it",
     );
   } finally {
     await wiring.close();

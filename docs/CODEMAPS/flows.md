@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-18 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,ritual-executor,goal-task,skill-manifest,child-agent-run}.ts, apps/api/src/{router,relationship-materializer,server,wiring}.ts, packages/local/src/ports.ts, packages/db/src/{schema,graph-store,ledger-store,relation-materialization-store}.ts | Token estimate: ~2000 -->
+<!-- Updated: 2026-07-20 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,automation-executor,goal-task,skill-manifest,child-agent-run}.ts, apps/api/src/{router,relationship-materializer,module-files,server,wiring}.ts, packages/local/src/ports.ts, packages/db/src/{schema,graph-store,ledger-store,relation-materialization-store}.ts, packages/db/migrations/0023_vocab4_event_result_file.sql | Token estimate: ~2000 -->
 
 # Load-Bearing Flows + Schema ER
 
@@ -111,7 +111,7 @@ sequenceDiagram
   CA->>CDB: writes public/identity-grade facts only (CanonicalIdentityStore)
 ```
 
-Residency invariant (local/src/ports.ts:1-13): OAuth tokens (SecretStore), raw Gmail/Calendar bodies (BodyStore, structurally private), derived Touchpoints/Memories/Signals/warmth (LocalGraphStore) live ONLY local (pglite) — never cross. DataScope lattice (data-scope.ts): all/public/private, intersect = narrowest, public∩private = none ⇒ deny. Separate DB axis: `node_types.plane` mirror|operational|infra + whitelisted cross-plane edge types (SCHEMA.sql:93-107).
+Residency invariant (local/src/ports.ts:1-13): OAuth tokens (SecretStore), raw Gmail/Calendar bodies (BodyStore, structurally private), derived Events/Memories/Signals/warmth (LocalGraphStore) live ONLY local (pglite) — never cross. DataScope lattice (data-scope.ts): all/public/private, intersect = narrowest, public∩private = none ⇒ deny. Separate DB axis: `node_types.plane` mirror|operational|infra + whitelisted cross-plane edge types (SCHEMA.sql:93-107).
 
 ## 5. Ritual run (ritual-executor.ts — InProcessRitualExecutor; Hatchet/Temporal deferred behind same interface)
 
@@ -136,38 +136,39 @@ sequenceDiagram
   E->>Rec: finish(completed, steps) [168]
 ```
 
-## 6. Schema ER sketch (db/src/schema.ts, 59 tables — top slice)
+## 6. Schema ER sketch (db/src/schema.ts — top slice)
 
 ```mermaid
 erDiagram
-  workspaces ||--o{ people : "workspace_id (RLS boundary on ~every operational table)"
+  organizations ||--o{ people : "organization_id (RLS boundary)"
   users ||--o{ people : user_id
   people_canonical ||--o{ people : "canonical_person_id (nullable)"
   communities_canonical ||--o{ communities : canonical_community_id
   communities ||--o{ people : current_community_id
-  workspaces ||--o{ edges : "unified graph fabric"
+  organizations ||--o{ edges : "unified Relation fabric"
   users ||--o{ edges : "private owner (nullable legacy rows)"
   ledger ||--o{ edges : "winning decision provenance"
   ledger ||--o{ relation_materialization_effects : "proposal + decision"
   users ||--o{ relation_materialization_effects : "owner retry scope"
-  initiatives ||--o{ touchpoints : "initiative_id (nullable)"
-  initiatives ||--o{ rituals : supports_initiative
-  rituals ||--o{ ritual_runs : ritual_id
+  organizations ||--o{ events : "one append-only occurrence ledger"
+  events ||--o{ edges : "participant/evidence Relations"
+  organizations ||--o{ files : "canonical File index"
+  files ||--o{ file_refs : "Module/Record/Event provenance"
+  automations ||--o{ automation_runs : automation_id
   users ||--o{ agents : owner_user_id
-  workspaces ||--o{ goals : workspace_id
-  goals ||--o{ tasks : "same-workspace composite FK"
-  agents ||--o{ tasks : "assigned Agent, same workspace"
-  workspaces ||--o{ skill_manifests : workspace_id
-  tasks ||--o{ child_agent_runs : "same-workspace composite FK"
-  agents ||--o{ child_agent_runs : "parent Agent, same workspace"
+  organizations ||--o{ goals : organization_id
+  goals ||--o{ tasks : "same-Organization composite FK"
+  agents ||--o{ tasks : "assigned Agent, same Organization"
+  organizations ||--o{ skill_manifests : organization_id
+  tasks ||--o{ child_agent_runs : "same-Organization composite FK"
+  agents ||--o{ child_agent_runs : "parent Agent, same Organization"
   ledger ||--o{ ledger : "ref_ledger_id (decision→proposal, append-only spine)"
   ledger ||--o{ decision_traces : ledger_id
   delegations ||--o{ ledger : delegation_id
-  signals ||--o{ signal_actions : signal_id
   roles ||--o{ role_permissions : role_id
   policies ||--o{ policy_params : policy_id
   capability_manifests ||--o{ capability_states : manifest_id
   integrations ||--o{ integration_sync_state : integration_id
 ```
 
-Tiers: **global/public** = `*_canonical`, `node_types`, `embedding_models` · **local/private** = `people`, `communities`, owner-scoped Relations/effects + Local Plane tokens/bodies/derived data · **operational** = workspace-scoped tables protected by RLS-as-code. Production boot rejects superuser/BYPASSRLS app roles; pglite tests need synthetic non-superuser roles to exercise policies. Governance cluster: roles/permissions/ephemeral grants/delegations/policies + capability manifests/states/trust grants + Goal/Task/SkillManifest/child Run contracts.
+Signal is the `signals` security-invoker view over participant-linked Events, not a table. Timeline is an Event read projection. Tiers: **global/public** = `*_canonical`, `node_types`, `embedding_models` · **local/private** = `people`, `communities`, owner-scoped Relations/effects + Local Plane tokens/bodies/derived data · **operational** = Organization-scoped tables protected by RLS-as-code. Production boot rejects superuser/BYPASSRLS app roles; pglite tests need synthetic non-superuser roles to exercise policies. Governance cluster: roles/permissions/ephemeral grants/delegations/policies + capability manifests/states/trust grants + Goal/Task/SkillManifest/child Run contracts.

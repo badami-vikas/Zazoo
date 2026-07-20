@@ -5,7 +5,7 @@
  *   - uuid PKs (gen_random_uuid)
  *   - tenant-scoped tables carry organization_id (RLS deny-by-default, applied in Supabase)
  *   - soft-delete via archived_at (NEVER hard delete)
- *   - append-only tables (events, ledger, timeline, signal_actions) revoke UPDATE/DELETE
+ *   - append-only tables (events, ledger) revoke UPDATE/DELETE
  *   - TWO TIERS: canonical (platform/global/public) vs relationship (per-user/private)
  *
  * RLS policies + the append-only REVOKEs live in the Supabase migrations, not here —
@@ -370,57 +370,11 @@ export const recordCommunities = pgTable(
   (t) => [primaryKey({ columns: [t.recordId, t.communityId] })],
 );
 
-export const touchpoints = pgTable(
-  "touchpoints",
-  {
-    id: uuidPk(),
-    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
-    recordId: uuid("record_id").references(() => records.id),
-    parentTouchpointId: uuid("parent_touchpoint_id"),
-    sortOrder: integer("sort_order").notNull().default(0),
-    depth: integer("depth").notNull().default(0),
-    touchpointKind: text("touchpoint_kind"),
-    alignmentScore: numeric("alignment_score"),
-    assigneeType: text("assignee_type").notNull(),
-    assigneeId: uuid("assignee_id").notNull(),
-    context: text("context"),
-    dueDate: timestamp("due_date", { withTimezone: true }),
-    status: text("status").notNull().default("open"),
-    createdAt: now(),
-  },
-  (t) => [index("touchpoints_tree_idx").on(t.recordId, t.parentTouchpointId)],
-);
-
-export const timelineEntries = pgTable(
-  "timeline_entries",
-  {
-    id: uuidPkV7(),
-    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
-    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
-    type: text("type").notNull(),
-    content: text("content"),
-    createdBy: text("created_by").notNull(),
-    createdAt: now(),
-  },
-  (t) => [index("timeline_entries_org_occurred_idx").on(t.organizationId, t.occurredAt)],
-);
-
-export const timelineEntryRefs = pgTable(
-  "timeline_entry_refs",
-  {
-    entryId: uuid("entry_id").notNull().references(() => timelineEntries.id),
-    entityType: text("entity_type").notNull(),
-    entityId: uuid("entity_id").notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.entryId, t.entityType, t.entityId] })],
-);
-
 /**
  * memories — the MEM-1 "learns how you work" home (roadmap undefined-element #3).
  * A thin, derived, CLASSIFIED layer of confirmed/superseded learned facts that
- * sits ALONGSIDE timeline_entries (the raw capture log), NOT a fork of it: a
- * capture lands as a timeline entry and, when wired, a derived Memory candidate
- * is written here with `source_ref_*` pointing back at that entry.
+ * sits alongside the append-only Event ledger: a capture lands as an Event and,
+ * when wired, a derived Memory candidate points back at that Event.
  *
  * Append-only (corrections supersede via `supersedes_id`, the prior row is
  * retained). Read visibility is authority-scoped by `scope` at the store
@@ -916,6 +870,7 @@ export const events = pgTable(
   (t) => [index("events_org_created_idx").on(t.organizationId, t.createdAt)],
 );
 
+/** Relationship Signal is a read projection over participant-linked Events. */
 export const signals = pgTable("signals", {
   id: uuidPk(),
   organizationId: uuid("organization_id").notNull().references(() => organizations.id),
@@ -925,15 +880,6 @@ export const signals = pgTable("signals", {
   payload: jsonb("payload").notNull().default({}),
   recommendedAction: jsonb("recommended_action").notNull(),
   status: text("status").notNull().default("new"),
-  createdAt: now(),
-});
-
-export const signalActions = pgTable("signal_actions", {
-  id: uuidPk(),
-  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
-  signalId: uuid("signal_id").notNull().references(() => signals.id),
-  userId: uuid("user_id").notNull().references(() => users.id),
-  verb: text("verb").notNull(), // act | dismiss | save
   createdAt: now(),
 });
 

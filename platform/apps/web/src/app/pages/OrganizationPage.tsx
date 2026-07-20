@@ -12,8 +12,8 @@ import { DataViews, DashboardView, type DataRow } from "../dataviews/index";
 const REGISTERED_NODE_TYPES = [
   "person",
   "community",
+  "event",
   "record",
-  "touchpoint",
   "automation",
   "module",
   "file",
@@ -44,12 +44,8 @@ async function fetchRowsFor(nodeType: string): Promise<DataRow[] | null> {
       const page = await trpc.graph.listRecords.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 });
       return page.items.map((r) => ({ ...r }));
     }
-    case "touchpoint": {
-      const page = await trpc.graph.listTouchpoints.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 });
-      return page.items.map((r) => ({ ...r }));
-    }
     case "signal": {
-      const page = await trpc.graph.listSignals.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 });
+      const page = await trpc.relationship.listSignals.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 });
       return page.items.map((r) => ({ ...r }));
     }
     default:

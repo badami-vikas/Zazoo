@@ -41,7 +41,7 @@ test("integration permissions: connect, grant, list, narrow, floor-scope guard, 
     await store.grantScope({
       organizationId: ws.id,
       integrationId: integ.id,
-      resourceType: "touchpoint",
+      resourceType: "event",
       action: "write",
     });
     let scopes = await store.listScopes(ws.id, integ.id);
@@ -64,7 +64,7 @@ test("integration permissions: connect, grant, list, narrow, floor-scope guard, 
     await store.revokeScope(ws.id, fetchGrant.id, new Date("2026-06-20T00:00:00Z"));
     scopes = await store.listScopes(ws.id, integ.id);
     assert.equal(scopes.length, 1);
-    assert.equal(scopes[0]?.resourceType, "touchpoint");
+    assert.equal(scopes[0]?.resourceType, "event");
 
     // Disconnect revokes the integration and every remaining standing grant.
     await store.disconnect(ws.id, integ.id, new Date("2026-06-20T00:00:00Z"));

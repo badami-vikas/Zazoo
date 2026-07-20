@@ -3,13 +3,10 @@
  * existing shared graph tables. Mutating methods are called only after the
  * Universal Action Pipeline has applied a Human request or recorded approval.
  *
- * `signal_actions` (act/dismiss/save) is the one exception: it's the user's
- * reaction bookkeeping to a Signal, not a mutation of Person/Relationship data,
- * so it's a direct authenticated write here (same tier as organization membership
- * CRUD — see organization-store.ts's header comment) rather than routed through
- * UniversalActionPipeline.propose(). See docs/raw/decisions-log.md.
+ * Signal reactions are append-only Events. They are direct authenticated
+ * bookkeeping writes; the safe Action itself still uses the governed pipeline.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
@@ -30,10 +27,8 @@ import {
   people,
   peopleCanonical,
   resources,
-  signalActions,
   signals,
   tasks,
-  touchpoints,
 } from "./schema.js";
 import type { RelationEvidenceRef } from "./schema.js";
 
@@ -128,7 +123,6 @@ const FULL_GRAPH_NODE_TYPES = new Set([
   "signal",
   "event",
   "record",
-  "touchpoint",
   "file",
   "job",
   "application",
@@ -146,7 +140,6 @@ function normalizeFullGraphNodeType(value: string): string | null {
     jobpilot_jobs: "job",
     jobpilot_application: "application",
     jobpilot_applications: "application",
-    record_touchpoint: "touchpoint",
   };
   const nodeType = aliases[normalized] ?? normalized;
   return FULL_GRAPH_NODE_TYPES.has(nodeType) ? nodeType : null;
@@ -163,7 +156,6 @@ function fullGraphDatabase(nodeType: string): { id: string; label: string; modul
     signal: { id: "signals", label: "Signals", moduleId: "relationship" },
     event: { id: "events", label: "Events", moduleId: "relationship" },
     record: { id: "records", label: "Records", moduleId: "record" },
-    touchpoint: { id: "touchpoints", label: "Touchpoints", moduleId: "record" },
     file: { id: "files", label: "Files", moduleId: "files" },
     job: { id: "jobpilot.jobs", label: "Jobs", moduleId: "job-pilot" },
     application: { id: "jobpilot.applications", label: "Applications", moduleId: "job-pilot" },
@@ -450,6 +442,16 @@ export interface SignalEvidenceAnchor {
   sourceEvent: typeof events.$inferSelect;
 }
 
+export interface IndexModuleFileInput {
+  organizationId: string;
+  ownerUserId: string;
+  moduleId: string;
+  moduleName: string;
+  path: string;
+  size: number;
+  modifiedAt: string;
+}
+
 export type RelationVisibility = "private" | "organization" | "public";
 export type RelationRecord = typeof edges.$inferSelect;
 
@@ -516,6 +518,11 @@ const MAX_SIGNAL_RELATIONS = 200;
 const MAX_BATCH_NODE_REFS = 10_000;
 const MAX_TIMELINE_PAGE_SIZE = 50;
 const MAX_INTERACTION_PARTICIPANTS = 100;
+
+function stableReferenceUuid(value: string): string {
+  const hex = createHash("sha256").update(value).digest("hex").slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20)}`;
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -818,95 +825,9 @@ export class DrizzleGraphStore {
     }
     const signal = await this.#getAccessibleSignal(organizationId, viewerUserId, signalId);
     if (!signal) return null;
-    if (sourceEventId) {
-      const sourceEvent = await this.getEvent(organizationId, sourceEventId);
-      return sourceEvent?.entityType === "signal" && sourceEvent.entityId === signal.id
-        ? { signal, sourceEvent }
-        : null;
-    }
-    const approvedSourceEvent = await this.#getApprovedSourceEvent(
-      organizationId,
-      viewerUserId,
-      signal.id,
-    );
-    if (approvedSourceEvent) return { signal, sourceEvent: approvedSourceEvent };
-    const payloadEventId = sourceEventIdFromPayload(signal.payload);
-    const payloadEvent = payloadEventId ? await this.getEvent(organizationId, payloadEventId) : null;
-    if (payloadEvent?.entityType === "signal" && payloadEvent.entityId === signal.id) {
-      return { signal, sourceEvent: payloadEvent };
-    }
-    const eventRows = await this.#db
-      .select()
-      .from(events)
-      .where(
-        and(
-          eq(events.organizationId, organizationId),
-          eq(events.entityType, "signal"),
-          eq(events.entityId, signal.id),
-        ),
-      )
-      .orderBy(desc(events.createdAt))
-      .limit(1);
-    const sourceEvent = eventRows[0];
+    if (sourceEventId && sourceEventId !== signal.id) return null;
+    const sourceEvent = await this.getEvent(organizationId, signal.id);
     return sourceEvent ? { signal, sourceEvent } : null;
-  }
-
-  async #getApprovedSourceEvent(
-    organizationId: string,
-    viewerUserId: string,
-    signalId: string,
-  ): Promise<typeof events.$inferSelect | null> {
-    const rows = await this.#db
-      .select()
-      .from(edges)
-      .where(
-        and(
-          eq(edges.organizationId, organizationId),
-          eq(edges.edgeType, "source_event"),
-          isNotNull(edges.decisionSequence),
-          or(
-            eq(edges.ownerUserId, viewerUserId),
-            inArray(edges.visibility, ["organization", "public"]),
-          ),
-          or(
-            and(
-              eq(edges.srcType, "signal"),
-              eq(edges.srcId, signalId),
-              eq(edges.dstType, "event"),
-              sql<boolean>`EXISTS (
-                SELECT 1
-                FROM "events" AS "approved_source_event"
-                WHERE "approved_source_event"."organization_id" = ${organizationId}
-                  AND "approved_source_event"."id" = ${edges.dstId}
-                  AND "approved_source_event"."entity_type" = 'signal'
-                  AND "approved_source_event"."entity_id" = ${signalId}
-              )`,
-            ),
-            and(
-              eq(edges.dstType, "signal"),
-              eq(edges.dstId, signalId),
-              eq(edges.srcType, "event"),
-              sql<boolean>`EXISTS (
-                SELECT 1
-                FROM "events" AS "approved_source_event"
-                WHERE "approved_source_event"."organization_id" = ${organizationId}
-                  AND "approved_source_event"."id" = ${edges.srcId}
-                  AND "approved_source_event"."entity_type" = 'signal'
-                  AND "approved_source_event"."entity_id" = ${signalId}
-              )`,
-            ),
-          ),
-        ),
-      )
-      .orderBy(...this.#relationPreferenceOrder(viewerUserId))
-      .limit(1);
-    const relation = rows[0];
-    if (!relation) return null;
-    const eventId = relation.srcType === "event" ? relation.srcId : relation.dstId;
-    const sourceEvent = await this.getEvent(organizationId, eventId);
-    return sourceEvent?.entityType === "signal" && sourceEvent.entityId === signalId
-      ? sourceEvent
-      : null;
   }
 
   async #canReadNode(
@@ -928,8 +849,7 @@ export class DrizzleGraphStore {
           payloadString(payload, "visibility") === "organization"
         );
       }
-      if (event.entityType !== "signal") return false;
-      return (await this.#getAccessibleSignal(organizationId, viewerUserId, event.entityId)) !== null;
+      return (await this.#getAccessibleSignal(organizationId, viewerUserId, event.id)) !== null;
     }
     return false;
   }
@@ -1010,7 +930,7 @@ export class DrizzleGraphStore {
         FROM "events" AS "relation_event"
         LEFT JOIN "signals" AS "relation_event_signal"
           ON "relation_event_signal"."organization_id" = "relation_event"."organization_id"
-         AND "relation_event_signal"."id" = "relation_event"."entity_id"
+         AND "relation_event_signal"."id" = "relation_event"."id"
         WHERE "relation_event"."organization_id" = ${organizationId}
           AND "relation_event"."id" = ${nodeId}
           AND (
@@ -1022,7 +942,7 @@ export class DrizzleGraphStore {
               )
             )
             OR (
-              "relation_event"."entity_type" = 'signal'
+              "relation_event_signal"."id" IS NOT NULL
               AND (
                 ("relation_event_signal"."subject_type" = 'person' AND EXISTS (
                   SELECT 1
@@ -1097,87 +1017,8 @@ export class DrizzleGraphStore {
       SELECT 1
       FROM "events" AS "signal_list_event"
       WHERE "signal_list_event"."organization_id" = ${organizationId}
-        AND "signal_list_event"."entity_type" = 'signal'
-        AND "signal_list_event"."entity_id" = ${signals.id}
-        AND "signal_list_event"."id" = COALESCE(
-          (
-            SELECT CASE
-              WHEN "signal_list_source_relation"."src_type" = 'event'
-                THEN "signal_list_source_relation"."src_id"
-              ELSE "signal_list_source_relation"."dst_id"
-            END
-            FROM "edges" AS "signal_list_source_relation"
-            WHERE "signal_list_source_relation"."organization_id" = ${organizationId}
-              AND "signal_list_source_relation"."edge_type" = 'source_event'
-              AND "signal_list_source_relation"."decision_sequence" IS NOT NULL
-              AND (
-                "signal_list_source_relation"."owner_user_id" = ${viewerUserId}
-                OR "signal_list_source_relation"."visibility" IN ('organization', 'public')
-              )
-              AND (
-                (
-                  "signal_list_source_relation"."src_type" = 'signal'
-                  AND "signal_list_source_relation"."src_id" = ${signals.id}
-                  AND "signal_list_source_relation"."dst_type" = 'event'
-                  AND EXISTS (
-                    SELECT 1
-                    FROM "events" AS "signal_list_approved_event"
-                    WHERE "signal_list_approved_event"."organization_id" = ${organizationId}
-                      AND "signal_list_approved_event"."id" = "signal_list_source_relation"."dst_id"
-                      AND "signal_list_approved_event"."entity_type" = 'signal'
-                      AND "signal_list_approved_event"."entity_id" = ${signals.id}
-                  )
-                )
-                OR (
-                  "signal_list_source_relation"."dst_type" = 'signal'
-                  AND "signal_list_source_relation"."dst_id" = ${signals.id}
-                  AND "signal_list_source_relation"."src_type" = 'event'
-                  AND EXISTS (
-                    SELECT 1
-                    FROM "events" AS "signal_list_approved_event"
-                    WHERE "signal_list_approved_event"."organization_id" = ${organizationId}
-                      AND "signal_list_approved_event"."id" = "signal_list_source_relation"."src_id"
-                      AND "signal_list_approved_event"."entity_type" = 'signal'
-                      AND "signal_list_approved_event"."entity_id" = ${signals.id}
-                  )
-                )
-              )
-            ORDER BY
-              CASE
-                WHEN "signal_list_source_relation"."owner_user_id" = ${viewerUserId}
-                  THEN 0
-                ELSE 1
-              END,
-              "signal_list_source_relation"."decision_sequence" DESC,
-              "signal_list_source_relation"."decision_at" DESC,
-              "signal_list_source_relation"."observed_at" DESC,
-              "signal_list_source_relation"."created_at" DESC
-            LIMIT 1
-          ),
-          (
-            SELECT "signal_list_payload_event"."id"
-            FROM "events" AS "signal_list_payload_event"
-            WHERE "signal_list_payload_event"."organization_id" = ${organizationId}
-              AND "signal_list_payload_event"."entity_type" = 'signal'
-              AND "signal_list_payload_event"."entity_id" = ${signals.id}
-              AND lower("signal_list_payload_event"."id"::text) = lower(
-                COALESCE(
-                  ${signals.payload}->>'sourceEventId',
-                  ${signals.payload}->>'eventId'
-                )
-              )
-            LIMIT 1
-          ),
-          (
-            SELECT "signal_list_latest_event"."id"
-            FROM "events" AS "signal_list_latest_event"
-            WHERE "signal_list_latest_event"."organization_id" = ${organizationId}
-              AND "signal_list_latest_event"."entity_type" = 'signal'
-              AND "signal_list_latest_event"."entity_id" = ${signals.id}
-            ORDER BY "signal_list_latest_event"."created_at" DESC
-            LIMIT 1
-          )
-        )
+        AND "signal_list_event"."id" = ${signals.id}
+        AND "signal_list_event"."payload" ? 'relationshipSignal'
         AND EXISTS (
           SELECT 1
           FROM "edges" AS "signal_list_participant"
@@ -1189,16 +1030,8 @@ export class DrizzleGraphStore {
             )
             AND (
               (
-                (
-                  (
-                    "signal_list_participant"."src_type" = 'signal'
-                    AND "signal_list_participant"."src_id" = ${signals.id}
-                  )
-                  OR (
-                    "signal_list_participant"."src_type" = 'event'
-                    AND "signal_list_participant"."src_id" = "signal_list_event"."id"
-                  )
-                )
+                "signal_list_participant"."src_type" = 'event'
+                AND "signal_list_participant"."src_id" = "signal_list_event"."id"
                 AND (
                   (
                     "signal_list_participant"."dst_type" = 'person'
@@ -1238,14 +1071,8 @@ export class DrizzleGraphStore {
               )
               OR (
                 (
-                  (
-                    "signal_list_participant"."dst_type" = 'signal'
-                    AND "signal_list_participant"."dst_id" = ${signals.id}
-                  )
-                  OR (
-                    "signal_list_participant"."dst_type" = 'event'
-                    AND "signal_list_participant"."dst_id" = "signal_list_event"."id"
-                  )
+                  "signal_list_participant"."dst_type" = 'event'
+                  AND "signal_list_participant"."dst_id" = "signal_list_event"."id"
                 )
                 AND (
                   (
@@ -1434,7 +1261,7 @@ export class DrizzleGraphStore {
               signals,
               and(
                 eq(signals.organizationId, events.organizationId),
-                eq(signals.id, events.entityId),
+                eq(signals.id, events.id),
               ),
             )
             .where(
@@ -1450,7 +1277,7 @@ export class DrizzleGraphStore {
                     )`,
                   ),
                   and(
-                    eq(events.entityType, "signal"),
+                    isNotNull(signals.id),
                     this.#readableSignalSubjectCondition(
                       organizationId,
                       viewerUserId,
@@ -1704,7 +1531,6 @@ export class DrizzleGraphStore {
       relationPage,
       recordPersonRows,
       recordCommunityRows,
-      touchpointRows,
       fileReferenceRows,
       applicationRows,
       taskRows,
@@ -1732,17 +1558,6 @@ export class DrizzleGraphStore {
         .innerJoin(records, eq(records.id, recordCommunities.recordId))
         .where(and(eq(records.organizationId, organizationId), isNull(records.archivedAt)))
         .orderBy(desc(records.createdAt))
-        .limit(sourceLimit + 1),
-      this.#db
-        .select({
-          id: touchpoints.id,
-          recordId: touchpoints.recordId,
-          parentTouchpointId: touchpoints.parentTouchpointId,
-          createdAt: touchpoints.createdAt,
-        })
-        .from(touchpoints)
-        .where(eq(touchpoints.organizationId, organizationId))
-        .orderBy(desc(touchpoints.createdAt))
         .limit(sourceLimit + 1),
       this.#db
         .select({
@@ -1824,32 +1639,6 @@ export class DrizzleGraphStore {
         sortAt: row.createdAt,
       });
     }
-    for (const row of touchpointRows.slice(0, sourceLimit)) {
-      if (row.recordId) {
-        candidates.push({
-          id: `touchpoint-record:${row.id}:${row.recordId}`,
-          sourceId: fullGraphNodeId("touchpoint", row.id),
-          targetId: fullGraphNodeId("record", row.recordId),
-          label: "belongs to",
-          relationType: "belongs_to",
-          sourceModule: "record",
-          evidence: "Touchpoint Record reference · source record",
-          sortAt: row.createdAt,
-        });
-      }
-      if (row.parentTouchpointId) {
-        candidates.push({
-          id: `touchpoint-parent:${row.id}:${row.parentTouchpointId}`,
-          sourceId: fullGraphNodeId("touchpoint", row.id),
-          targetId: fullGraphNodeId("touchpoint", row.parentTouchpointId),
-          label: "parent",
-          relationType: "parent",
-          sourceModule: "record",
-          evidence: "Touchpoint parent reference · source record",
-          sortAt: row.createdAt,
-        });
-      }
-    }
     for (const row of fileReferenceRows.slice(0, sourceLimit)) {
       const targetType = normalizeFullGraphNodeType(row.entityType);
       if (!targetType) continue;
@@ -1911,7 +1700,6 @@ export class DrizzleGraphStore {
       baseCommunities,
       baseSignals,
       baseRecords,
-      baseTouchpoints,
       baseFiles,
       baseJobs,
       baseApplications,
@@ -1926,9 +1714,6 @@ export class DrizzleGraphStore {
         eq(records.organizationId, organizationId),
         isNull(records.archivedAt),
       )).orderBy(desc(records.createdAt)).limit(nodeSourceLimit + 1),
-      this.#db.select({ id: touchpoints.id }).from(touchpoints).where(
-        eq(touchpoints.organizationId, organizationId),
-      ).orderBy(desc(touchpoints.createdAt)).limit(nodeSourceLimit + 1),
       this.#db.select({ id: files.id }).from(files).where(and(
         eq(files.organizationId, organizationId),
         isNull(files.archivedAt),
@@ -1956,7 +1741,6 @@ export class DrizzleGraphStore {
       ...baseCommunities.items.map((row) => ({ nodeType: "community", nodeId: row.id })),
       ...baseSignals.items.map((row) => ({ nodeType: "signal", nodeId: row.id })),
       ...baseRecords.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "record", nodeId: row.id })),
-      ...baseTouchpoints.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "touchpoint", nodeId: row.id })),
       ...baseFiles.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "file", nodeId: row.id })),
       ...baseJobs.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "job", nodeId: row.id })),
       ...baseApplications.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "application", nodeId: row.id })),
@@ -1991,7 +1775,6 @@ export class DrizzleGraphStore {
       signalRows,
       eventRows,
       recordRows,
-      resolvedTouchpoints,
       fileRows,
       jobRows,
       resolvedApplications,
@@ -2017,12 +1800,6 @@ export class DrizzleGraphStore {
             eq(records.organizationId, organizationId),
             inArray(records.id, ids("record")),
             isNull(records.archivedAt),
-          )),
-      ids("touchpoint").length === 0
-        ? Promise.resolve<Array<typeof touchpoints.$inferSelect>>([])
-        : this.#db.select().from(touchpoints).where(and(
-            eq(touchpoints.organizationId, organizationId),
-            inArray(touchpoints.id, ids("touchpoint")),
           )),
       ids("file").length === 0
         ? Promise.resolve<Array<typeof files.$inferSelect>>([])
@@ -2140,14 +1917,6 @@ export class DrizzleGraphStore {
         provenance: "Record · source record",
       });
     }
-    for (const touchpoint of resolvedTouchpoints) {
-      addNode("touchpoint", touchpoint.id, {
-        label: touchpoint.context ?? touchpoint.touchpointKind ?? "Touchpoint",
-        subtitle: touchpoint.status,
-        recordPath: "/organization",
-        provenance: "Touchpoint · source record",
-      });
-    }
     for (const file of fileRows) {
       const storageName = file.storageRef?.split(/[\\/]/).at(-1);
       addNode("file", file.id, {
@@ -2213,7 +1982,6 @@ export class DrizzleGraphStore {
     const sourceTruncated = [
       recordPersonRows,
       recordCommunityRows,
-      touchpointRows,
       fileReferenceRows,
       applicationRows,
       taskRows,
@@ -2225,7 +1993,6 @@ export class DrizzleGraphStore {
       baseSignals.total > baseSignals.items.length ||
       [
         baseRecords,
-        baseTouchpoints,
         baseFiles,
         baseJobs,
         baseApplications,
@@ -2525,193 +2292,18 @@ export class DrizzleGraphStore {
     if (new Set(participantKeys).size !== participantKeys.length) {
       throw new Error("Signal evidence participants must be unique by Record");
     }
-
-    await this.#db.execute(
-      sql`SELECT pg_advisory_xact_lock(
-        hashtextextended(${`${organizationId}:${ownerUserId}:${signalId}`}, 0::bigint)
-      )`,
-    );
-    const watermarkRows = await this.#db
-      .select()
-      .from(edges)
-      .where(
-        and(
-          eq(edges.organizationId, organizationId),
-          eq(edges.ownerUserId, ownerUserId),
-          eq(edges.edgeType, "source_event"),
-          isNotNull(edges.decisionSequence),
-          or(
-            and(eq(edges.srcType, "signal"), eq(edges.srcId, signalId)),
-            and(eq(edges.dstType, "signal"), eq(edges.dstId, signalId)),
-          ),
-        ),
-      )
-      .orderBy(
-        desc(edges.decisionSequence),
-        desc(edges.decisionAt),
-        desc(edges.id),
-      )
-      .limit(1);
-    const watermark = watermarkRows[0];
-    const pruneSupersededRelations = async (
-      winningDecisionSequence: number,
-      winningDecisionLedgerId: string,
-    ) => {
-      const sourceRelations = await this.#db
-        .select({
-          srcType: edges.srcType,
-          srcId: edges.srcId,
-          dstType: edges.dstType,
-          dstId: edges.dstId,
-        })
-        .from(edges)
-        .where(
-          and(
-            eq(edges.organizationId, organizationId),
-            eq(edges.ownerUserId, ownerUserId),
-            eq(edges.edgeType, "source_event"),
-            eq(edges.sourceModule, "relationship"),
-            isNotNull(edges.decisionSequence),
-            or(
-              and(eq(edges.srcType, "signal"), eq(edges.srcId, signalId)),
-              and(eq(edges.dstType, "signal"), eq(edges.dstId, signalId)),
-            ),
-          ),
-        );
-      const eventIds = [
-        ...new Set(
-          sourceRelations.flatMap((relation) => [
-            ...(relation.srcType === "event" ? [relation.srcId] : []),
-            ...(relation.dstType === "event" ? [relation.dstId] : []),
-          ]),
-        ),
-      ];
-      const supersededDecision = sql<boolean>`(
-        ${edges.decisionSequence} < ${winningDecisionSequence}
-        OR (
-          ${edges.decisionSequence} = ${winningDecisionSequence}
-          AND ${edges.decisionLedgerId} <> ${winningDecisionLedgerId}
-        )
-      )`;
-      if (eventIds.length > 0) {
-        await this.#db
-          .delete(edges)
-          .where(
-            and(
-              eq(edges.organizationId, organizationId),
-              eq(edges.ownerUserId, ownerUserId),
-              eq(edges.edgeType, "participant"),
-              eq(edges.sourceModule, "relationship"),
-              isNotNull(edges.decisionSequence),
-              supersededDecision,
-              or(
-                and(
-                  eq(edges.srcType, "event"),
-                  inArray(edges.srcId, eventIds),
-                ),
-                and(
-                  eq(edges.dstType, "event"),
-                  inArray(edges.dstId, eventIds),
-                ),
-              ),
-            ),
-          );
-      }
-      await this.#db
-        .delete(edges)
-        .where(
-          and(
-            eq(edges.organizationId, organizationId),
-            eq(edges.ownerUserId, ownerUserId),
-            eq(edges.edgeType, "source_event"),
-            eq(edges.sourceModule, "relationship"),
-            isNotNull(edges.decisionSequence),
-            supersededDecision,
-            or(
-              and(eq(edges.srcType, "signal"), eq(edges.srcId, signalId)),
-              and(eq(edges.dstType, "signal"), eq(edges.dstId, signalId)),
-            ),
-          ),
-        );
-    };
-    if (
-      watermark?.decisionSequence !== null &&
-      watermark?.decisionSequence !== undefined &&
-      (
-        watermark.decisionSequence >= input.decisionSequence
-      )
-    ) {
-      if (!watermark.decisionLedgerId) {
-        throw new Error("Canonical Relationship decision provenance is incomplete");
-      }
-      await pruneSupersededRelations(
-        watermark.decisionSequence,
-        watermark.decisionLedgerId,
-      );
-      const canonicalEventId =
-        watermark.srcType === "event"
-          ? watermark.srcId
-          : watermark.dstType === "event"
-            ? watermark.dstId
-            : null;
-      if (!canonicalEventId) {
-        throw new Error("Canonical Relationship source Event is invalid");
-      }
-      const canonicalParticipants = await this.#db
-        .select()
-        .from(edges)
-        .where(
-          and(
-            eq(edges.organizationId, organizationId),
-            eq(edges.ownerUserId, ownerUserId),
-            eq(edges.edgeType, "participant"),
-            eq(edges.sourceModule, "relationship"),
-            eq(edges.decisionSequence, watermark.decisionSequence),
-            eq(edges.decisionLedgerId, watermark.decisionLedgerId),
-            or(
-              and(
-                eq(edges.srcType, "event"),
-                eq(edges.srcId, canonicalEventId),
-              ),
-              and(
-                eq(edges.dstType, "event"),
-                eq(edges.dstId, canonicalEventId),
-              ),
-            ),
-          ),
-        );
-      return {
-        sourceEvent: watermark,
-        participants: canonicalParticipants,
-      };
+    if (signalId !== sourceEventId) {
+      throw new Error("A Signal is projected from its own participant-linked Event");
     }
-
     const signal = await this.#getAccessibleSignal(
       organizationId,
       ownerUserId,
       signalId,
     );
-    if (!signal) throw new Error("Signal not found or not accessible");
-    const sourceEvent = await this.getEvent(organizationId, sourceEventId);
-    if (
-      !sourceEvent ||
-      sourceEvent.entityType !== "signal" ||
-      sourceEvent.entityId !== signal.id
-    ) {
-      throw new Error("Source Event must belong to the Signal");
+    const signalEvent = await this.getEvent(organizationId, signalId);
+    if (!signal || !signalEvent) {
+      throw new Error("Signal Event not found or not accessible");
     }
-    const sourceEventPayload =
-      typeof sourceEvent.payload === "object" &&
-      sourceEvent.payload !== null &&
-      !Array.isArray(sourceEvent.payload)
-        ? sourceEvent.payload as Record<string, unknown>
-        : {};
-    const source =
-      typeof sourceEventPayload.source === "string" &&
-      sourceEventPayload.source.trim()
-        ? sourceEventPayload.source.trim()
-        : `event:${sourceEvent.type}`;
-    const observedAt = sourceEvent.createdAt;
     if (
       !participants.some(
         (participant) =>
@@ -2721,63 +2313,60 @@ export class DrizzleGraphStore {
     ) {
       throw new Error("Signal evidence participants must include the Signal subject");
     }
-
-    const nodeTypeNames = [
-      "signal",
-      "event",
-      ...participants.map((participant) => participant.recordType),
-    ];
-    const nodeTypeOwners = await Promise.all(
-      [...new Set(nodeTypeNames)].map((nodeType) =>
-        this.getNodeTypeOwner(nodeType),
-      ),
-    );
     if (
-      nodeTypeOwners.some(
-        (owner) => owner === null || owner.owningModule !== "relationship",
-      )
-    ) {
-      throw new Error("Signal evidence node types must be owned by the Relationship Module");
-    }
-
-    const invalidParticipant = participants.find(
-      (participant) =>
-        !UUID_PATTERN.test(participant.recordId) ||
-        !Number.isFinite(participant.confidence) ||
-        participant.confidence < 0 ||
-        participant.confidence > 1,
-    );
-    if (
-      invalidParticipant ||
       !(await this.areRelationshipRecordsAccessible(
         organizationId,
         ownerUserId,
         participants,
       ))
     ) {
-      throw new Error(
-        "Signal evidence participants are invalid or not accessible",
-      );
+      throw new Error("Signal evidence participants are invalid or not accessible");
     }
-
-    const evidenceRef: RelationEvidenceRef = {
-      entityType: "event",
-      entityId: sourceEvent.id,
-      source,
-    };
-    const values: Array<typeof edges.$inferInsert> = [
-      {
+    const currentRows = await this.#db
+      .select()
+      .from(edges)
+      .where(and(
+        eq(edges.organizationId, organizationId),
+        eq(edges.ownerUserId, ownerUserId),
+        eq(edges.edgeType, "participant"),
+        eq(edges.sourceModule, "relationship"),
+        eq(edges.srcType, "event"),
+        eq(edges.srcId, signalId),
+        isNotNull(edges.decisionSequence),
+      ))
+      .orderBy(desc(edges.decisionSequence), desc(edges.decisionAt), desc(edges.id));
+    const watermark = currentRows[0];
+    if (
+      watermark &&
+      watermark.decisionSequence !== null &&
+      watermark.decisionSequence >= input.decisionSequence
+    ) {
+      return { sourceEvent: watermark, participants: currentRows };
+    }
+    await this.#db.delete(edges).where(and(
+      eq(edges.organizationId, organizationId),
+      eq(edges.ownerUserId, ownerUserId),
+      eq(edges.edgeType, "participant"),
+      eq(edges.sourceModule, "relationship"),
+      eq(edges.srcType, "event"),
+      eq(edges.srcId, signalId),
+      isNotNull(edges.decisionSequence),
+    ));
+    const signalPayload = payloadRecord(signalEvent.payload);
+    const source = payloadString(signalPayload, "source") ?? `event:${signalEvent.type}`;
+    const materializedParticipants = await Promise.all(participants.map((participant) =>
+      this.upsertRelation({
         organizationId,
         ownerUserId,
-        srcType: "signal",
-        srcId: signal.id,
-        dstType: "event",
-        dstId: sourceEvent.id,
-        edgeType: "source_event",
-        properties: {},
-        evidenceRefs: [evidenceRef],
-        confidence: "1",
-        observedAt,
+        srcType: "event",
+        srcId: signalId,
+        dstType: participant.recordType,
+        dstId: participant.recordId,
+        relationType: "participant",
+        properties: participant.role ? { role: participant.role } : {},
+        evidenceRefs: [{ entityType: "event", entityId: signalId, source }],
+        confidence: participant.confidence,
+        observedAt: signalEvent.createdAt,
         userConfirmed: input.userConfirmed,
         visibility: input.visibility,
         source,
@@ -2785,77 +2374,11 @@ export class DrizzleGraphStore {
         decisionLedgerId,
         decisionSequence: input.decisionSequence,
         decisionAt: input.decisionAt,
-      },
-      ...participants.map(
-        (participant): typeof edges.$inferInsert => ({
-          organizationId,
-          ownerUserId,
-          srcType: "event",
-          srcId: sourceEvent.id,
-          dstType: participant.recordType,
-          dstId: participant.recordId,
-          edgeType: "participant",
-          properties: participant.role ? { role: participant.role } : {},
-          evidenceRefs: [evidenceRef],
-          confidence: String(participant.confidence),
-          observedAt,
-          userConfirmed: input.userConfirmed,
-          visibility: input.visibility,
-          source,
-          sourceModule: "relationship",
-          decisionLedgerId,
-          decisionSequence: input.decisionSequence,
-          decisionAt: input.decisionAt,
-        }),
-      ),
-    ];
-    const incomingDecisionWins = sql<boolean>`(
-      ${edges.decisionSequence} IS NULL
-      OR excluded."decision_sequence" > ${edges.decisionSequence}
-      OR (
-        excluded."decision_sequence" = ${edges.decisionSequence}
-        AND excluded."decision_ledger_id" = ${edges.decisionLedgerId}
-      )
-    )`;
-    const rows = await this.#db
-      .insert(edges)
-      .values(values)
-      .onConflictDoUpdate({
-        target: [
-          edges.organizationId,
-          edges.srcType,
-          edges.srcId,
-          edges.dstType,
-          edges.dstId,
-          edges.edgeType,
-          edges.ownerUserId,
-        ],
-        set: {
-          properties: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."properties" ELSE ${edges.properties} END`,
-          evidenceRefs: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."evidence_refs" ELSE ${edges.evidenceRefs} END`,
-          confidence: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."confidence" ELSE ${edges.confidence} END`,
-          observedAt: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."observed_at" ELSE ${edges.observedAt} END`,
-          validFrom: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."valid_from" ELSE ${edges.validFrom} END`,
-          validTo: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."valid_to" ELSE ${edges.validTo} END`,
-          userConfirmed: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."user_confirmed" ELSE ${edges.userConfirmed} END`,
-          visibility: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."visibility" ELSE ${edges.visibility} END`,
-          source: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."source" ELSE ${edges.source} END`,
-          sourceModule: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."source_module" ELSE ${edges.sourceModule} END`,
-          decisionLedgerId: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."decision_ledger_id" ELSE ${edges.decisionLedgerId} END`,
-          decisionSequence: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."decision_sequence" ELSE ${edges.decisionSequence} END`,
-          decisionAt: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."decision_at" ELSE ${edges.decisionAt} END`,
-        },
-      })
-      .returning();
-    const sourceEventRelation = rows.find((relation) => relation.edgeType === "source_event");
-    if (!sourceEventRelation || rows.length !== values.length) {
-      throw new Error("Signal evidence Relations were not materialized atomically");
-    }
-    await pruneSupersededRelations(input.decisionSequence, decisionLedgerId);
-    return {
-      sourceEvent: sourceEventRelation,
-      participants: rows.filter((relation) => relation.edgeType === "participant"),
-    };
+      }),
+    ));
+    const anchor = materializedParticipants[0];
+    if (!anchor) throw new Error("Signal Event participant Relations were not materialized");
+    return { sourceEvent: anchor, participants: materializedParticipants };
   }
 
   async listRecords(organizationId: string, opts: PageOpts): Promise<Page<typeof records.$inferSelect>> {
@@ -2870,35 +2393,6 @@ export class DrizzleGraphStore {
   async getRecord(id: string): Promise<typeof records.$inferSelect | null> {
     const rows = await this.#db.select().from(records).where(eq(records.id, id)).limit(1);
     return rows[0] ?? null;
-  }
-
-  /** TASK-010 review round-4 item 6 — a single, organization-scoped touchpoint
-   * lookup mirroring `getRecord`'s shape. Used to validate a red-flag
-   * anchor's `recordId` server-side rather than trusting an unchecked
-   * client-supplied string. Returns null for a nonexistent id OR one that
-   * belongs to a different organization (never leaks cross-organization existence). */
-  async getTouchpoint(organizationId: string, id: string): Promise<typeof touchpoints.$inferSelect | null> {
-    const rows = await this.#db
-      .select()
-      .from(touchpoints)
-      .where(and(eq(touchpoints.id, id), eq(touchpoints.organizationId, organizationId)))
-      .limit(1);
-    return rows[0] ?? null;
-  }
-
-  /** Optionally scoped to one record (the tree view) or left organization-wide. */
-  async listTouchpoints(
-    organizationId: string,
-    opts: PageOpts & { recordId?: string },
-  ): Promise<Page<typeof touchpoints.$inferSelect>> {
-    const where = opts.recordId
-      ? and(eq(touchpoints.organizationId, organizationId), eq(touchpoints.recordId, opts.recordId))
-      : eq(touchpoints.organizationId, organizationId);
-    const [rows, totalRows] = await Promise.all([
-      this.#db.select().from(touchpoints).where(where).orderBy(touchpoints.sortOrder).limit(opts.limit).offset(opts.offset),
-      this.#db.select({ value: count() }).from(touchpoints).where(where),
-    ]);
-    return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
   }
 
   async listSignals(
@@ -4061,7 +3555,7 @@ export class DrizzleGraphStore {
       }],
       updatesPersonFreshness: false,
       metadata: {
-        artifact: "commitment",
+        result: "commitment",
         commitmentId: input.commitmentId,
         personId: input.personId,
         text: input.text,
@@ -4442,7 +3936,7 @@ export class DrizzleGraphStore {
       ],
       updatesPersonFreshness: false,
       metadata: {
-        artifact: "introduction",
+        result: "introduction",
         introductionId: input.introductionId,
         sourcePersonId: input.sourcePersonId,
         targetPersonId: input.targetPersonId,
@@ -4881,6 +4375,75 @@ export class DrizzleGraphStore {
     return rows[0] ?? null;
   }
 
+  async indexModuleFile(input: IndexModuleFileInput): Promise<typeof files.$inferSelect> {
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
+        store.indexModuleFile(input),
+      );
+    }
+    if (
+      !UUID_PATTERN.test(input.organizationId) ||
+      !UUID_PATTERN.test(input.ownerUserId) ||
+      !input.moduleId.trim() ||
+      !input.path.trim() ||
+      !Number.isSafeInteger(input.size) ||
+      input.size < 0 ||
+      Number.isNaN(Date.parse(input.modifiedAt))
+    ) {
+      throw new Error("Canonical Module File metadata is invalid");
+    }
+    const moduleRefId = UUID_PATTERN.test(input.moduleId)
+      ? input.moduleId.toLowerCase()
+      : stableReferenceUuid(
+          `${input.organizationId}:${input.moduleId}:${input.moduleName}`,
+        );
+    const storageRef = `module://${input.moduleId}/${input.path}`;
+    const metadata = {
+      moduleId: input.moduleId,
+      moduleName: input.moduleName,
+      path: input.path,
+      size: input.size,
+      modifiedAt: input.modifiedAt,
+    };
+    await this.#db
+      .insert(files)
+      .values({
+        id: randomUUID(),
+        organizationId: input.organizationId,
+        source: input.moduleName,
+        storageRef,
+        metadata,
+      })
+      .onConflictDoUpdate({
+        target: [files.organizationId, files.storageRef],
+        targetWhere: sql`${files.storageRef} IS NOT NULL AND ${files.archivedAt} IS NULL`,
+        set: {
+          source: input.moduleName,
+          metadata,
+        },
+      });
+    const rows = await this.#db
+      .select()
+      .from(files)
+      .where(and(
+        eq(files.organizationId, input.organizationId),
+        eq(files.storageRef, storageRef),
+        isNull(files.archivedAt),
+      ))
+      .limit(1);
+    const file = rows[0];
+    if (!file) throw new Error("Canonical Module File index write returned no row");
+    await this.#db
+      .insert(fileRefs)
+      .values({
+        fileId: file.id,
+        entityType: "module",
+        entityId: moduleRefId,
+      })
+      .onConflictDoNothing();
+    return file;
+  }
+
   async getSignalDetail(organizationId: string, viewerUserId: string, id: string): Promise<SignalDetail | null> {
     if (!this.#hasRlsContext(organizationId, viewerUserId)) {
       return this.#withRlsContext(organizationId, viewerUserId, (store) =>
@@ -4891,35 +4454,7 @@ export class DrizzleGraphStore {
     if (!anchor) return null;
     const { signal, sourceEvent } = anchor;
 
-    const signalRelations = await this.#db
-      .select()
-      .from(edges)
-      .where(
-        and(
-          eq(edges.organizationId, organizationId),
-          eq(edges.edgeType, "participant"),
-          or(
-            eq(edges.ownerUserId, viewerUserId),
-            inArray(edges.visibility, ["organization", "public"]),
-          ),
-          or(
-            and(
-              eq(edges.srcType, "signal"),
-              eq(edges.srcId, signal.id),
-              inArray(edges.dstType, ["person", "community"]),
-              this.#accessibleNodeCondition(edges.dstType, edges.dstId, organizationId, viewerUserId),
-            ),
-            and(
-              eq(edges.dstType, "signal"),
-              eq(edges.dstId, signal.id),
-              inArray(edges.srcType, ["person", "community"]),
-              this.#accessibleNodeCondition(edges.srcType, edges.srcId, organizationId, viewerUserId),
-            ),
-          ),
-        ),
-      )
-      .orderBy(...this.#relationPreferenceOrder(viewerUserId))
-      .limit(MAX_SIGNAL_RELATIONS);
+    const signalRelations: RelationRecord[] = [];
     const eventRelations = sourceEvent
       ? await this.#db
           .select()
@@ -5041,23 +4576,25 @@ export class DrizzleGraphStore {
     };
   }
 
-  /** Records the user's reaction to a Signal (act | dismiss | save). Does not
-   * itself perform "act" — that's a separate governed `action.propose` call the
-   * caller makes; this only logs which verb the user chose, for signal-status
-   * bookkeeping (`signals.status` is left to a later pass to auto-derive from
-   * this, not touched here — out of scope, see BUGS.md if that gap needs filing). */
+  /** Records the user's reaction without performing the governed Action. */
   async recordSignalAction(input: { organizationId: string; signalId: string; userId: string; verb: "act" | "dismiss" | "save" }): Promise<void> {
     if (!this.#hasRlsContext(input.organizationId, input.userId)) {
       return this.#withRlsContext(input.organizationId, input.userId, (store) =>
         store.recordSignalAction(input),
       );
     }
-    await this.#db.insert(signalActions).values({
+    await this.#db.insert(events).values({
       id: randomUUID(),
       organizationId: input.organizationId,
-      signalId: input.signalId,
-      userId: input.userId,
-      verb: input.verb,
+      type: "relationship.signal.action",
+      entityType: "event",
+      entityId: input.signalId,
+      payload: {
+        kind: "relationship_signal_action",
+        signalEventId: input.signalId,
+        userId: input.userId,
+        verb: input.verb,
+      },
     });
   }
 }

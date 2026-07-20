@@ -1922,3 +1922,10 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Restored visibility of the prior filesystem registry directory while keeping new writes under `modules/`; duplicate identities across roots stop fail-closed. The review-found Blueprint relation-target gap is covered by the signed compatibility regression.
 - Reconciled the syntax-fingerprint baseline from 7,515 to 793 occurrences with no family/kind increase. Artifact remains 234 and later VOCAB4/VOCAB5 families remain deferred; the only Package occurrence is the technical `packages/` source path.
 - Targeted core, Commons, Module/Organization/Record API, DB migration/store/RLS/schema, web/typecheck, and live browser checks passed. No migration was added; `0023` remains next. TASK-012 stays `in_progress` for VOCAB4–VOCAB6 and compatibility deletion. Durable handoff: `outputs/2026-07-20-task012-vocab3.md`.
+
+# 2026-07-20 — TASK-012 VOCAB4 complete (AP-056, ADR-130)
+- Added migration `0023_vocab4_event_result_file`: backfilled Signals/actions, Timeline entries/refs, and Touchpoints into append-only Events plus Relations; removed parallel tables; retained Signal only as a security-invoker Event projection.
+- Moved Signal APIs under Relationship, kept Timeline as an Event projection, removed runtime Artifact/Touchpoint vocabulary, and mapped non-file JobPilot outputs to Results.
+- Indexed Module File writes and inventory reconciliation into stable canonical `files`/`file_refs` without moving local user content. Resolved the attached BUGS evidence.
+- Preserved signed pre-VOCAB4 Commons provenance hashes/signatures while projecting `contentLicense`.
+- Lowered the syntax ratchet from 793 to 360 without family/kind growth; Artifact, Touchpoint, and Incident are zero. Targeted migration/RLS/API/Files/Local/Commons/Result/web/typecheck/build/lint/live-route evidence passed. TASK-012 stays `in_progress` for VOCAB5–VOCAB6 and final compatibility deletion. Durable handoff: `outputs/2026-07-20-task012-vocab4.md`.

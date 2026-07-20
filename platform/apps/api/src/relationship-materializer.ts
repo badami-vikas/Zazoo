@@ -296,7 +296,7 @@ export async function applyApprovedRelationshipMaterialization(
       ownerUserId,
       leaseToken,
       isSignalEvidence
-        ? 1 + (materialization as RelationshipMaterialization).participants.length
+        ? (materialization as RelationshipMaterialization).participants.length
         : 1,
       attemptedAt,
     );

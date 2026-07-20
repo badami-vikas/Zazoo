@@ -535,7 +535,7 @@ export function RelationshipPage() {
   );
 }
 
-type SignalDetail = Awaited<ReturnType<typeof trpc.graph.getSignalDetail.query>>;
+type SignalDetail = Awaited<ReturnType<typeof trpc.relationship.getSignalDetail.query>>;
 
 function SignalEvidence({ detail }: { detail: NonNullable<SignalDetail> }) {
   return (
@@ -602,7 +602,7 @@ export function SignalDetailPage() {
     setError(null);
     setProposalStatus(null);
     setBusy(false);
-    trpc.graph.getSignalDetail
+    trpc.relationship.getSignalDetail
       .query({ organizationId: PILOT_ORGANIZATION, signalId })
       .then((nextDetail) => {
         if (requestGeneration.current === generation) setDetail(nextDetail);
@@ -622,7 +622,7 @@ export function SignalDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      const proposal = await trpc.graph.proposeSignalAction.mutate({
+      const proposal = await trpc.relationship.proposeSignalAction.mutate({
         organizationId: PILOT_ORGANIZATION,
         signalId: actionSignalId,
       });
@@ -679,7 +679,7 @@ export function SignalSourceEventPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    trpc.graph.getSignalDetail
+    trpc.relationship.getSignalDetail
       .query({ organizationId: PILOT_ORGANIZATION, signalId })
       .then(setDetail)
       .catch((cause) => setError(String(cause)));

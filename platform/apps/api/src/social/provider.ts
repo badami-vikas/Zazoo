@@ -5,8 +5,8 @@
  *
  * Private content (post/DM bodies) rides as plain fields the orchestrator persists
  * to the LOCAL plane and never sends outward. Sourced items become People /
- * Touchpoints / Signals — never Leads/Contacts. (Memory has no resource type yet;
- * deferred per decisions.md, so the read contract targets person/touchpoint/signal.)
+ * Events / Signals — never Leads/Contacts. (Memory has no resource type yet;
+ * deferred per decisions.md, so the read contract targets person/event/signal.)
  */
 import type { Action } from "@bridge/core";
 
@@ -29,7 +29,7 @@ export interface SourcedItem {
 }
 
 /** Graph resources a sourced item may propose (typed output contract). */
-export type ProposedResource = "person" | "touchpoint" | "signal";
+export type ProposedResource = "person" | "event" | "signal";
 
 export interface OutboundAction {
   kind: "post" | "dm" | "comment";

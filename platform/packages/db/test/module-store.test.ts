@@ -86,7 +86,7 @@ test("module store: create + get round-trip, manifest jsonb preserved", async ()
             sourceRef: "skill",
             inspectedCommit: "0123456789abcdef0123456789abcdef01234567",
             repositoryLicense: "MIT",
-            artifactLicense: "MIT",
+            contentLicense: "MIT",
             licenseVerified: true,
           },
           securityScan: {

@@ -6,9 +6,9 @@ import {
   loadStoredCultureResearchState,
   saveStoredCultureResearchState,
   clearStoredCultureResearchState,
-  deriveBoundedArtifactFactClaim,
+  deriveBoundedResultFactClaim,
   MAX_DERIVED_CLAIM_SNIPPET_LENGTH,
-  isArtifactUsable,
+  isResultUsable,
 } from './culture-research-client.ts';
 
 function fakeStorage() {
@@ -95,44 +95,44 @@ test('clearStoredCultureResearchState removes only the matching (organizationId,
   assert.deepEqual(loadStoredCultureResearchState(storage, 'ws-1', 'Other Co'), state);
 });
 
-test('deriveBoundedArtifactFactClaim forwards a BOUNDED excerpt of the REAL fetched content as the quote — never fabricates or paraphrases, and never the entire raw body', () => {
-  const artifact = { content: 'Our culture is built on trust and collaboration.', contentHash: 'abc123' };
-  const claim = deriveBoundedArtifactFactClaim('claim-1', 'source-1', artifact);
+test('deriveBoundedResultFactClaim forwards a BOUNDED excerpt of the REAL fetched content as the quote — never fabricates or paraphrases, and never the entire raw body', () => {
+  const result = { content: 'Our culture is built on trust and collaboration.', contentHash: 'abc123' };
+  const claim = deriveBoundedResultFactClaim('claim-1', 'source-1', result);
   assert.equal(claim.claimType, 'fact');
   assert.equal(claim.sourceId, 'source-1');
-  assert.equal(claim.quote, artifact.content);
-  assert.equal(claim.contentHash, artifact.contentHash);
-  // The quote must be an EXACT substring of the artifact content (trivially
+  assert.equal(claim.quote, result.content);
+  assert.equal(claim.contentHash, result.contentHash);
+  // The quote must be an EXACT substring of the result content (trivially
   // true here since it IS the content) — this is what makes the server's
   // groundClaims check always succeed for a claim built this way.
-  assert.ok(artifact.content.includes(claim.quote));
+  assert.ok(result.content.includes(claim.quote));
 });
 
-test('deriveBoundedArtifactFactClaim caps the quote length — a long artifact never has its ENTIRE raw body forwarded as claimText (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 8/9)', () => {
+test('deriveBoundedResultFactClaim caps the quote length — a long result never has its ENTIRE raw body forwarded as claimText (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 8/9)', () => {
   const longContent = 'Our culture values ownership. '.repeat(50); // well over MAX_DERIVED_CLAIM_SNIPPET_LENGTH
-  const artifact = { content: longContent, contentHash: 'def456' };
-  const claim = deriveBoundedArtifactFactClaim('claim-2', 'source-2', artifact);
+  const result = { content: longContent, contentHash: 'def456' };
+  const claim = deriveBoundedResultFactClaim('claim-2', 'source-2', result);
   assert.ok(claim.quote.length <= MAX_DERIVED_CLAIM_SNIPPET_LENGTH, `quote length ${claim.quote.length} must be bounded`);
-  assert.ok(claim.quote.length < longContent.length, 'the quote must be strictly shorter than the full artifact for a long artifact');
+  assert.ok(claim.quote.length < longContent.length, 'the quote must be strictly shorter than the full result for a long result');
   assert.ok(longContent.includes(claim.quote), 'the bounded quote must still be a genuine, verbatim substring of the real fetched content');
 });
 
-test('isArtifactUsable rejects a null/undefined artifact', () => {
-  assert.equal(isArtifactUsable(null), false);
-  assert.equal(isArtifactUsable(undefined), false);
+test('isResultUsable rejects a null/undefined result', () => {
+  assert.equal(isResultUsable(null), false);
+  assert.equal(isResultUsable(undefined), false);
 });
 
-test('isArtifactUsable rejects a purged artifact (empty content) even if expiresAt is still in the future — TASK-011 remediation (2026-07-19 coordinator distributed-defects RE-review round 2, issue 9)', () => {
+test('isResultUsable rejects a purged result (empty content) even if expiresAt is still in the future — TASK-011 remediation (2026-07-19 coordinator distributed-defects RE-review round 2, issue 9)', () => {
   const future = new Date(Date.now() + 60_000).toISOString();
-  assert.equal(isArtifactUsable({ content: '', expiresAt: future }), false);
+  assert.equal(isResultUsable({ content: '', expiresAt: future }), false);
 });
 
-test('isArtifactUsable rejects an artifact past its own expiresAt even if content is still (stale-cached) non-empty — the client must never trust "fetched" status alone', () => {
+test('isResultUsable rejects an result past its own expiresAt even if content is still (stale-cached) non-empty — the client must never trust "fetched" status alone', () => {
   const past = new Date(Date.now() - 60_000).toISOString();
-  assert.equal(isArtifactUsable({ content: 'stale content', expiresAt: past }), false);
+  assert.equal(isResultUsable({ content: 'stale content', expiresAt: past }), false);
 });
 
-test('isArtifactUsable accepts a genuinely fresh, non-empty, unexpired artifact', () => {
+test('isResultUsable accepts a genuinely fresh, non-empty, unexpired result', () => {
   const future = new Date(Date.now() + 60_000).toISOString();
-  assert.equal(isArtifactUsable({ content: 'real content', expiresAt: future }), true);
+  assert.equal(isResultUsable({ content: 'real content', expiresAt: future }), true);
 });

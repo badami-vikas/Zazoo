@@ -274,7 +274,9 @@ export {
 } from "./module/commons.js";
 export {
   adaptVocab2CommonsEntry,
+  adaptVocab3CommonsEntry,
   isVocab2CommonsEntry,
+  isVocab3CommonsEntry,
   readVocab2SignedContent,
 } from "./module/commons-vocab3-compat.js";
 

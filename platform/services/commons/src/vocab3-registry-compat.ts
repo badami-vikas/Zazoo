@@ -1,7 +1,9 @@
 import { join } from "node:path";
 import {
   adaptVocab2CommonsEntry,
+  adaptVocab3CommonsEntry,
   isVocab2CommonsEntry,
+  isVocab3CommonsEntry,
   type CommonsModuleEntry,
 } from "@bridge/core";
 
@@ -11,7 +13,7 @@ export function priorRegistryRoot(dataDir: string): string {
 
 export function decodeStoredCommonsEntry(raw: string): CommonsModuleEntry {
   const parsed: unknown = JSON.parse(raw);
-  return isVocab2CommonsEntry(parsed)
-    ? adaptVocab2CommonsEntry(parsed)
-    : parsed as CommonsModuleEntry;
+  if (isVocab2CommonsEntry(parsed)) return adaptVocab2CommonsEntry(parsed);
+  if (isVocab3CommonsEntry(parsed)) return adaptVocab3CommonsEntry(parsed);
+  return parsed as CommonsModuleEntry;
 }

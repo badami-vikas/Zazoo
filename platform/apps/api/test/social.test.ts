@@ -3,7 +3,7 @@
  *
  * Tests the orchestration against the GovernedGate contract with a recording gate,
  * the fixture provider seam, and an in-memory local quarantine. Proves:
- *  - read: capture → local quarantine → pending Touchpoint proposals, with the
+ *  - read: capture → local quarantine → pending Event proposals, with the
  *    private body kept OUT of the proposal (residency);
  *  - write: the draft step never publishes; egress (external:send) fires only after
  *    a gate approval.

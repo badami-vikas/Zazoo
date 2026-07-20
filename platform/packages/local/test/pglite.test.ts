@@ -117,33 +117,33 @@ test("pglite local plane: tokens, bodies, entities round-trip", async () => {
     await plane.graph.commitEntity({
       id: "tp1",
       organizationId: "ws-1",
-      kind: "touchpoint",
+      kind: "event",
       personId: "p1",
-      payload: { touchpointKind: "email" },
+      payload: { eventKind: "email" },
       source: "gmail",
       sourceRecordId: "thread_1",
       createdAt: "2026-06-20T00:00:00.000Z",
     });
-    assert.equal((await plane.graph.listEntities("ws-1", "touchpoint")).length, 1);
+    assert.equal((await plane.graph.listEntities("ws-1", "event")).length, 1);
 
-    await plane.graph.recordExternal({ organizationId: "ws-1", source: "gmail", sourceRecordId: "thread_1", entityType: "touchpoint", entityId: "tp1", createdAt: "2026-06-20T00:00:00.000Z" });
+    await plane.graph.recordExternal({ organizationId: "ws-1", source: "gmail", sourceRecordId: "thread_1", entityType: "event", entityId: "tp1", createdAt: "2026-06-20T00:00:00.000Z" });
     assert.equal(await plane.graph.hasExternal("ws-1", "gmail", "thread_1"), true);
-    await plane.graph.recordExternal({ organizationId: "ws-1", source: "gmail", sourceRecordId: "thread_1", entityType: "touchpoint", entityId: "tp1", createdAt: "2026-06-20T00:00:00.000Z" });
-    assert.equal((await plane.graph.listEntities("ws-1", "touchpoint")).length, 1, "idempotent: no double-commit");
+    await plane.graph.recordExternal({ organizationId: "ws-1", source: "gmail", sourceRecordId: "thread_1", entityType: "event", entityId: "tp1", createdAt: "2026-06-20T00:00:00.000Z" });
+    assert.equal((await plane.graph.listEntities("ws-1", "event")).length, 1, "idempotent: no double-commit");
 
     // commitEntity itself must be idempotent (retry-the-whole-dual-write safety):
     // calling it again with the SAME id is a silent no-op, not a PK violation.
     await plane.graph.commitEntity({
       id: "tp1",
       organizationId: "ws-1",
-      kind: "touchpoint",
+      kind: "event",
       personId: "p1",
-      payload: { touchpointKind: "email" },
+      payload: { eventKind: "email" },
       source: "gmail",
       sourceRecordId: "thread_1",
       createdAt: "2026-06-20T00:00:00.000Z",
     });
-    assert.equal((await plane.graph.listEntities("ws-1", "touchpoint")).length, 1, "commitEntity retry is a no-op");
+    assert.equal((await plane.graph.listEntities("ws-1", "event")).length, 1, "commitEntity retry is a no-op");
 
     // Sync cursor.
     await plane.graph.setSyncCursor("integ-1", "gmail", "cursor-abc");
@@ -419,7 +419,7 @@ test("pglite local plane imports and removes the pre-Drizzle external-record bac
       INSERT INTO external_records
         (organization_id, source, source_record_id, entity_type, entity_id, created_at)
       VALUES
-        ('organization-a', 'gmail', 'provider-message-a', 'touchpoint', 'provider-entity-a', '2026-07-18T00:00:00.000Z');
+        ('organization-a', 'gmail', 'provider-message-a', 'event', 'provider-entity-a', '2026-07-18T00:00:00.000Z');
       ALTER TABLE external_records RENAME TO local_external_records_legacy;
     `);
     const plane = await createPgliteLocalPlane({ client });

@@ -82,7 +82,7 @@ test("file-backed API wiring preserves DealPilot state across close and reopen",
       organizationId: PILOT_ORGANIZATION,
       source: "gmail",
       sourceRecordId: "provider-message-non-uuid",
-      entityType: "touchpoint",
+      entityType: "event",
       entityId: "provider-entity-non-uuid",
       createdAt: "2026-07-18T00:00:00.000Z",
     });

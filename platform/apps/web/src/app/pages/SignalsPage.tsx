@@ -23,7 +23,7 @@ import {
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow, GraphNode } from "../dataviews/types";
 
-type SignalPage = Awaited<ReturnType<typeof trpc.graph.listSignals.query>>;
+type SignalPage = Awaited<ReturnType<typeof trpc.relationship.listSignals.query>>;
 type SignalItem = SignalPage["items"][number];
 
 const SIGNALS_SPEC: TableSpec = {
@@ -77,7 +77,7 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
   async function refresh(): Promise<void> {
     try {
       const items = await collectAllPages((offset, limit) =>
-        trpc.graph.listSignals.query({ organizationId: PILOT_ORGANIZATION, limit, offset }),
+        trpc.relationship.listSignals.query({ organizationId: PILOT_ORGANIZATION, limit, offset }),
       );
       setPage({ items, total: items.length, hasMore: false });
       setLoadError(null);
@@ -99,7 +99,7 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
       return next;
     });
     try {
-      await trpc.graph.recordSignalAction.mutate({ organizationId: PILOT_ORGANIZATION, signalId, verb });
+      await trpc.relationship.recordSignalAction.mutate({ organizationId: PILOT_ORGANIZATION, signalId, verb });
       await refresh();
     } catch (e) {
       setActionErrors((current) => ({ ...current, [signalId]: String(e) }));

@@ -23,7 +23,7 @@ const provenance = {
   sourceRef: "capability",
   inspectedCommit: "0123456789abcdef0123456789abcdef01234567",
   repositoryLicense: "MIT",
-  artifactLicense: "MIT",
+  contentLicense: "MIT",
   licenseVerified: true,
 };
 const TEST_PUBLISH_TOKEN = "test-commons-publisher-token-00000001";
@@ -234,6 +234,10 @@ test("signed pre-VOCAB3 entries remain verified, pinned, visible, and canonicall
       capabilities: [],
     },
   };
+  const {
+    contentLicense: legacyContentLicense,
+    ...legacyProvenance
+  } = provenance;
   const content = {
     name,
     version,
@@ -241,7 +245,10 @@ test("signed pre-VOCAB3 entries remain verified, pinned, visible, and canonicall
     summary: manifest.summary,
     tags: ["blueprint"],
     manifest,
-    provenance,
+    provenance: {
+      ...legacyProvenance,
+      artifactLicense: legacyContentLicense,
+    },
     securityScan: {
       scanner: "bridge-commons-manifest",
       scannerVersion: "1.0.0",
@@ -294,6 +301,7 @@ test("signed pre-VOCAB3 entries remain verified, pinned, visible, and canonicall
     assert.equal(entry.manifest.blueprint?.entities[0]?.nodeType, "record");
     assert.equal(entry.manifest.blueprint?.entities[0]?.fields[0]?.relationTarget, "record");
     assert.equal(entry.manifest.blueprint?.views[0]?.entity, "record");
+    assert.equal(entry.provenance.contentLicense, "MIT");
     assert.equal(entry.integrity.value, integrity.value);
     assert.equal(entry.signedSource?.vocabularyVersion, 2);
     assert.deepEqual(

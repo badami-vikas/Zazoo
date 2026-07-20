@@ -16,7 +16,7 @@ const provenance = {
   sourceRef: "capability",
   inspectedCommit: "0123456789abcdef0123456789abcdef01234567",
   repositoryLicense: "MIT",
-  artifactLicense: "MIT",
+  contentLicense: "MIT",
   licenseVerified: true,
 };
 const TEST_PUBLISH_TOKEN = "test-commons-publisher-token-00000001";
@@ -235,7 +235,7 @@ test("publish scan resolves and verifies the exact dependency closure", async (t
   ));
 });
 
-test("publish scan gate rejects an unverified artifact license and surfaces evidence", async (t) => {
+test("publish scan gate rejects an unverified content license and surfaces evidence", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "commons-test-"));
   const app = buildTestServer(dataDir);
   t.after(async () => {
@@ -245,12 +245,12 @@ test("publish scan gate rejects an unverified artifact license and surfaces evid
 
   const response = await publish(app, {
     manifest: generalizedManifest(),
-    provenance: { ...provenance, artifactLicense: "NOASSERTION", licenseVerified: false },
+    provenance: { ...provenance, contentLicense: "NOASSERTION", licenseVerified: false },
   });
   assert.equal(response.statusCode, 422);
   assert.equal(response.json().error, "security_scan_failed");
   assert.equal(response.json().securityScan.status, "failed");
   assert.ok(response.json().securityScan.checks.some((item: { id: string; status: string }) =>
-    item.id === "artifact-license" && item.status === "fail"
+    item.id === "content-license" && item.status === "fail"
   ));
 });

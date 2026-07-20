@@ -15,6 +15,7 @@ import {
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
+import { normalizeCultureSynthesisResult } from "./culture-result-vocab4-compat.js";
 import { LocalGeocodingProviderError } from "./geocoding-provider.js";
 import {
   applyApprovedRelationshipMaterialization,
@@ -64,7 +65,7 @@ import {
   cancelCultureSourceFetch,
   reconcileIntentChildConsistency,
   selfHealDeadSynthesisPointer,
-  isArtifactExpired,
+  isResultExpired,
   CULTURE_SOURCE_REGISTRY,
   type SynthesizeCultureProfileOutput,
   PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE,
@@ -1068,9 +1069,9 @@ async function validateAnchorTarget(wiring: Wiring, organizationId: string, view
       }
       return;
     }
-    case "touchpoint": {
-      const touchpoint = await wiring.graphStore.getTouchpoint(organizationId, recordId);
-      if (!touchpoint) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this organization" });
+    case "event": {
+      const event = await wiring.graphStore.getEvent(organizationId, recordId);
+      if (!event) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this organization" });
       return;
     }
     case "person": {
@@ -1554,7 +1555,6 @@ const resourceTypeEnum = z.enum([
   "community",
   "event",
   "record",
-  "touchpoint",
   "automation",
   "module",
   "file",
@@ -2568,7 +2568,7 @@ async function assertCurrentCommonsAttachment(
   if (!entry || entry.integrity.value !== attachment.contentHash) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: "Commons installation no longer matches its pinned root artifact",
+      message: "Commons installation no longer matches its pinned root result",
     });
   }
   try {
@@ -2576,7 +2576,7 @@ async function assertCurrentCommonsAttachment(
   } catch (error) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: error instanceof Error ? error.message : "Commons root artifact failed trust verification",
+      message: error instanceof Error ? error.message : "Commons root result failed trust verification",
     });
   }
   if (entry.kind !== need.kind || !need.tags.every((tag) => entry.tags.includes(tag))) {
@@ -2803,7 +2803,7 @@ async function materializeDealPilotApproval(wiring: Wiring, proposal: Proposal) 
  * `jobpilot.researchCultureSource` fetch-intent output, must be REJECTED
  * (never rendered) rather than blindly cast and served to the client. This
  * is in addition to, not instead of, cross-validating `resourceType`/
- * `action`/`parentRunId`/artifact provenance at the call site.
+ * `action`/`parentRunId`/result provenance at the call site.
  */
 const cultureEvidenceSchema = z.object({
   id: z.string().min(1),
@@ -2826,7 +2826,7 @@ const cultureEvidenceSchema = z.object({
 
 const synthesizeCultureProfileOutputSchema = z.object({
   parentRunId: z.string().min(1),
-  artifactHashes: z.array(z.object({ sourceId: z.string().min(1), contentHash: z.string().min(1) })),
+  resultHashes: z.array(z.object({ sourceId: z.string().min(1), contentHash: z.string().min(1) })),
   partition: z.object({
     facts: z.array(cultureEvidenceSchema),
     opinions: z.array(cultureEvidenceSchema),
@@ -5305,6 +5305,106 @@ export const appRouter = t.router({
         };
       }),
 
+    listSignals: authenticatedProcedure
+      .input(paginatedInput)
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const { items, total } = await ctx.wiring.graphStore.listSignals(
+          input.organizationId,
+          ctx.identity.id,
+          { limit: input.limit, offset: input.offset },
+        );
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    getSignalDetail: authenticatedProcedure
+      .input(z.object({ organizationId: z.string().min(1), signalId: z.string().uuid() }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
+      }),
+
+    proposeSignalAction: authenticatedProcedure
+      .input(z.object({ organizationId: z.string().min(1), signalId: z.string().uuid() }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const detail = await ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
+        if (!detail) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found" });
+        }
+        if (
+          !detail.sourceEvent ||
+          !detail.participants.some(
+            (participant) => participant.relationType === "participant" && participant.relationId,
+          )
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "A governed Relationship Action requires an accessible participant Relation and source Event.",
+          });
+        }
+        const proposal = await ctx.wiring.pipeline.propose(
+          {
+            organizationId: input.organizationId,
+            actor: { type: ctx.identity.type, id: ctx.identity.id, plane: "local" },
+            action: "write",
+            resourceType: "signal",
+            resourceId: detail.signal.id,
+            inputs: {
+              kind: "relationship_signal_action",
+              signalId: detail.signal.id,
+              sourceEventId: detail.sourceEvent.id,
+              participantRefs: detail.participants.map((participant) => ({
+                relationId: participant.relationId,
+                recordType: participant.recordType,
+                recordId: participant.recordId,
+              })),
+              recommendation: detail.signal.recommendedAction,
+            },
+            skill: "stageMutation",
+            dataScope: "private",
+            seed: detail.sourceEvent.id,
+          },
+          ctx.run,
+        );
+        if (proposal.status !== "rejected") {
+          await ctx.wiring.graphStore.recordSignalAction({
+            organizationId: input.organizationId,
+            signalId: input.signalId,
+            userId: ctx.identity.id,
+            verb: "act",
+          });
+        }
+        return proposal;
+      }),
+
+    recordSignalAction: authenticatedProcedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          signalId: z.string().uuid(),
+          verb: z.enum(["act", "dismiss", "save"]),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const detail = await ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
+        if (!detail) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found or not accessible" });
+        }
+        await ctx.wiring.graphStore.recordSignalAction({
+          organizationId: input.organizationId,
+          signalId: input.signalId,
+          userId: ctx.identity.id,
+          verb: input.verb,
+        });
+        return { ok: true };
+      }),
+
     intakeReview: authenticatedProcedure
       .input(z.object({
         organizationId: z.string().uuid(),
@@ -7523,11 +7623,7 @@ export const appRouter = t.router({
     }),
   }),
 
-  /**
-   * Compatibility read surface for legacy Record/Touchpoint and canonical
-   * Signal routes. Person, Community, and Timeline contracts live only under the
-   * manifest-driven `relationship` Module router above.
-   */
+  /** Cross-Module graph and generic Record reads. */
   graph: t.router({
     full: authenticatedProcedure
       .input(
@@ -7561,121 +7657,6 @@ export const appRouter = t.router({
       return ctx.wiring.graphStore.getRecord(input.id);
     }),
 
-    listTouchpoints: procedure
-      .input(paginatedInput.extend({ recordId: z.string().uuid().optional() }))
-      .query(async ({ input, ctx }) => {
-        assertPilotOrganization(input.organizationId);
-        const { items, total } = await ctx.wiring.graphStore.listTouchpoints(input.organizationId, {
-          limit: input.limit,
-          offset: input.offset,
-          ...(input.recordId ? { recordId: input.recordId } : {}),
-        });
-        return { items, total, hasMore: input.offset + items.length < total };
-      }),
-
-    listSignals: authenticatedProcedure
-      .input(paginatedInput)
-      .query(async ({ input, ctx }) => {
-        assertPilotOrganization(input.organizationId);
-        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        const { items, total } = await ctx.wiring.graphStore.listSignals(
-          input.organizationId,
-          ctx.identity.id,
-          { limit: input.limit, offset: input.offset },
-        );
-        return { items, total, hasMore: input.offset + items.length < total };
-      }),
-
-    getSignalDetail: authenticatedProcedure
-      .input(z.object({ organizationId: z.string().min(1), signalId: z.string().uuid() }))
-      .query(async ({ input, ctx }) => {
-        assertPilotOrganization(input.organizationId);
-        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        return ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
-      }),
-
-    proposeSignalAction: authenticatedProcedure
-      .input(z.object({ organizationId: z.string().min(1), signalId: z.string().uuid() }))
-      .mutation(async ({ input, ctx }) => {
-        assertPilotOrganization(input.organizationId);
-        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        const detail = await ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
-        if (!detail) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found" });
-        }
-        if (
-          !detail.sourceEvent ||
-          !detail.participants.some(
-            (participant) => participant.relationType === "participant" && participant.relationId,
-          )
-        ) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "A governed Relationship Action requires an accessible participant Relation and source Event.",
-          });
-        }
-
-        const proposal = await ctx.wiring.pipeline.propose(
-          {
-            organizationId: input.organizationId,
-            actor: { type: ctx.identity.type, id: ctx.identity.id, plane: "local" },
-            action: "write",
-            resourceType: "signal",
-            resourceId: detail.signal.id,
-            inputs: {
-              kind: "relationship_signal_action",
-              signalId: detail.signal.id,
-              sourceEventId: detail.sourceEvent.id,
-              participantRefs: detail.participants.map((participant) => ({
-                relationId: participant.relationId,
-                recordType: participant.recordType,
-                recordId: participant.recordId,
-              })),
-              recommendation: detail.signal.recommendedAction,
-            },
-            skill: "stageMutation",
-            dataScope: "private",
-            seed: detail.sourceEvent.id,
-          },
-          ctx.run,
-        );
-        if (proposal.status !== "rejected") {
-          await ctx.wiring.graphStore.recordSignalAction({
-            organizationId: input.organizationId,
-            signalId: input.signalId,
-            userId: ctx.identity.id,
-            verb: "act",
-          });
-        }
-        return proposal;
-      }),
-
-    /** Records the user's reaction to a Signal (act|dismiss|save) — bookkeeping,
-     * not a governed mutation; see graph-store.ts's header comment for why this
-     * is a direct write rather than routed through action.propose. */
-    recordSignalAction: authenticatedProcedure
-      .input(
-        z.object({
-          organizationId: z.string().min(1),
-          signalId: z.string().uuid(),
-          verb: z.enum(["act", "dismiss", "save"]),
-        }),
-      )
-      .mutation(async ({ input, ctx }) => {
-        assertPilotOrganization(input.organizationId);
-        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        const detail = await ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
-        if (!detail) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found or not accessible" });
-        }
-        await ctx.wiring.graphStore.recordSignalAction({
-          organizationId: input.organizationId,
-          signalId: input.signalId,
-          userId: ctx.identity.id,
-          verb: input.verb,
-        });
-        return { ok: true };
-      }),
   }),
 
   /**
@@ -7798,7 +7779,7 @@ export const appRouter = t.router({
      * vetoed or never-decided proposal can never reach the network. `cancel`
      * aborts an in-flight fetch for real (or, before any fetch starts, simply
      * guarantees one never will). `synthesize` only accepts claims that
-     * `groundClaims` can verify against the artifacts THIS run actually
+     * `groundClaims` can verify against the results THIS run actually
      * fetched — an absent/mutated quote or a forged contradiction reference
      * fails the whole batch closed.
      */
@@ -8071,15 +8052,15 @@ export const appRouter = t.router({
           await reconcileIntentChildConsistency(ctx.wiring, input.organizationId, record, ctx.run);
           // TASK-011 remediation (2026-07-19 coordinator distributed-defects
           // RE-review, issue 7) — never serve expired evidence: purge an
-          // expired artifact's raw content on this read (idempotent,
+          // expired result's raw content on this read (idempotent,
           // metadata-preserving) and return the (possibly just-purged)
           // current record rather than the pre-purge snapshot.
-          const purged = await ctx.wiring.cultureFetchStore.purgeExpiredArtifactContentIfNeeded(input.organizationId, input.childRunId, ctx.run.clock.nowISO());
+          const purged = await ctx.wiring.cultureFetchStore.purgeExpiredResultContentIfNeeded(input.organizationId, input.childRunId, ctx.run.clock.nowISO());
           return purged ?? record;
         }),
 
       /**
-       * Internal Strategist's synthesis — claims must GROUND against artifacts
+       * Internal Strategist's synthesis — claims must GROUND against results
        * this run actually fetched (`groundClaims`, invoked inside the Skill).
        * Skipped sources are recomputed SERVER-SIDE from the registry (never
        * trusted from the client) so the disclosure is authoritative.
@@ -8091,7 +8072,7 @@ export const appRouter = t.router({
             company: z.string().min(1),
             /** TASK-011 remediation (2026-07-18 final review, issue 6) — the
              * EXACT parent Agent Run this synthesis is scoped to. Fetched
-             * artifacts are resolved ONLY from this run's own child Runs,
+             * results are resolved ONLY from this run's own child Runs,
              * never pooled across historical/concurrent runs for the same
              * company. */
             parentRunId: z.string().min(1),
@@ -8122,7 +8103,7 @@ export const appRouter = t.router({
           await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
 
           // TASK-011 remediation (2026-07-18 final review, issue 6) — resolve
-          // fetched artifacts from THIS EXACT parent Run's own child Runs
+          // fetched results from THIS EXACT parent Run's own child Runs
           // only, via the durable `cultureFetchStore`, never by scanning
           // every fetch this organization/company has ever made (which would
           // silently pool evidence across historical or concurrent runs).
@@ -8137,9 +8118,9 @@ export const appRouter = t.router({
           if (mismatchedCompany) {
             throw new TRPCError({ code: "BAD_REQUEST", message: `parent Run "${input.parentRunId}" does not belong to company "${input.company}"` });
           }
-          const fetchedIntents = intentRecords.filter((r) => r.status === "fetched" && r.artifact);
+          const fetchedIntents = intentRecords.filter((r) => r.status === "fetched" && r.result);
           // TASK-011 remediation (2026-07-19 coordinator distributed-defects
-          // RE-review, issues 7/8) — an EXPIRED artifact must never be
+          // RE-review, issues 7/8) — an EXPIRED result must never be
           // consumed by a NEW synthesis attempt ("never serve expired
           // evidence" applies to synthesis input, not just direct reads).
           // Treat an expired source as NOT fetched for this purpose —
@@ -8147,20 +8128,20 @@ export const appRouter = t.router({
           // as `unknown-source`, rather than confusingly failing quote
           // verification against silently-blanked content.
           const nowISO = ctx.run.clock.nowISO();
-          const unexpiredFetchedIntents = fetchedIntents.filter((r) => !isArtifactExpired(r.artifact!, nowISO));
+          const unexpiredFetchedIntents = fetchedIntents.filter((r) => !isResultExpired(r.result!, nowISO));
           const seenSourceIds = new Set<string>();
           for (const r of unexpiredFetchedIntents) {
             if (seenSourceIds.has(r.sourceId)) {
-              throw new TRPCError({ code: "BAD_REQUEST", message: `duplicate fetched artifact for source "${r.sourceId}" under this run` });
+              throw new TRPCError({ code: "BAD_REQUEST", message: `duplicate fetched result for source "${r.sourceId}" under this run` });
             }
             seenSourceIds.add(r.sourceId);
           }
-          const fetchedArtifacts = unexpiredFetchedIntents.map((r) => r.artifact!);
+          const fetchedResults = unexpiredFetchedIntents.map((r) => r.result!);
           // TASK-011 remediation (2026-07-19 coordinator distributed-defects
           // RE-review, issue 8) — reject an EMPTY submission BEFORE ever
           // calling `pipeline.propose`/recording the synthesis pointer.
           // Without this, a caller could submit zero claims and/or find
-          // zero unexpired fetched artifacts, and STILL have a synthesis
+          // zero unexpired fetched results, and STILL have a synthesis
           // proposal created and durably pointed to — poisoning the
           // first-write-wins synthesis pointer for this parentRunId with a
           // worthless/empty result BEFORE any real fetch has even
@@ -8169,8 +8150,8 @@ export const appRouter = t.router({
           if (input.claims.length === 0) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "synthesize requires at least one claim — an empty submission is rejected before any proposal is created" });
           }
-          if (fetchedArtifacts.length === 0) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "synthesize requires at least one unexpired fetched artifact for this parent Run — no claim can ground against zero evidence" });
+          if (fetchedResults.length === 0) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "synthesize requires at least one unexpired fetched result for this parent Run — no claim can ground against zero evidence" });
           }
           const skippedSources = CULTURE_SOURCE_REGISTRY.filter(
             (s) => s.organizationId === input.organizationId && s.company === input.company && classifyCultureSource(s.sourceType).eligibility !== "permitted",
@@ -8247,10 +8228,10 @@ export const appRouter = t.router({
                 skill: "jobpilot.synthesizeCultureProfile",
                 dataScope: "all" as DataScope,
                 // TASK-011 remediation (2026-07-19 coordinator distributed-
-                // defects RE-review round 2, issue 8) — NO artifact bodies
+                // defects RE-review round 2, issue 8) — NO result bodies
                 // here. `req.inputs` is persisted VERBATIM into the
                 // immutable ledger row by `pipeline.propose`; the Skill
-                // resolves its own artifacts internally (see
+                // resolves its own results internally (see
                 // `createSynthesizeCultureProfileSkill`) so the ledger never
                 // durably retains full raw fetched content.
                 inputs: { organizationId: input.organizationId, parentRunId: input.parentRunId, claims: input.claims as GroundedClaimInput[], skippedSources },
@@ -8258,7 +8239,7 @@ export const appRouter = t.router({
                 // TASK-011 remediation (2026-07-19 coordinator distributed-
                 // defects RE-review round 2, issue 9) — Internal Strategist
                 // is reasoning DIRECTLY over untrusted external evidence
-                // (the fetched artifacts) here, even though the claims
+                // (the fetched results) here, even though the claims
                 // themselves are grounded/validated — the turn's provenance
                 // (PI-1) must reflect that, threaded through the persisted
                 // ledger row, `action.decide`, and `synthesisResult`'s own
@@ -8349,7 +8330,7 @@ export const appRouter = t.router({
        * DIFFERENT run/company, is rejected as `not_available` rather than
        * rendered — never trust `resourceType`/`action`/a loose shape match
        * alone; the strict `synthesizeCultureProfileOutputSchema` AND a
-       * re-derivation of the run's real fetched artifacts must both agree.
+       * re-derivation of the run's real fetched results must both agree.
        */
       synthesisResult: authenticatedProcedure
         .input(z.object({ organizationId: z.string().min(1), company: z.string().min(1), proposalId: z.string().min(1), parentRunId: z.string().min(1) }))
@@ -8364,7 +8345,7 @@ export const appRouter = t.router({
           // (LedgerEntry has no `skill` field of its own) — a proposal from ANY
           // other skill that happens to also be action:"write"/resourceType:"signal"
           // is still filtered out below by the strict output-schema parse plus
-          // the parentRunId/artifact cross-check, but this is a cheap first gate.
+          // the parentRunId/result cross-check, but this is a cheap first gate.
           if (proposal.action !== "write" || proposal.resourceType !== "signal") {
             return { status: "not_available" as const };
           }
@@ -8380,7 +8361,9 @@ export const appRouter = t.router({
           if (!decision || decision.userDecision !== "approve") {
             return { status: "not_available" as const };
           }
-          const parsed = synthesizeCultureProfileOutputSchema.safeParse(proposal.proposedOutput);
+          const parsed = synthesizeCultureProfileOutputSchema.safeParse(
+            normalizeCultureSynthesisResult(proposal.proposedOutput),
+          );
           if (!parsed.success) {
             // NOT a jobpilot.synthesizeCultureProfile output at all (or a
             // malformed/foreign one) — fail closed, never render it.
@@ -8390,8 +8373,8 @@ export const appRouter = t.router({
           if (result.parentRunId !== input.parentRunId) {
             return { status: "not_available" as const };
           }
-          // Re-derive this run's REAL fetched artifacts and cross-check every
-          // `artifactHashes` entry against them — a persisted result whose
+          // Re-derive this run's REAL fetched results and cross-check every
+          // `resultHashes` entry against them — a persisted result whose
           // hashes no longer match the run's own durable fetch records (e.g.
           // stale/tampered) must not be rendered as if it were still valid.
           const childRuns = await ctx.wiring.childAgentRuns.listByParentRun(input.organizationId, input.parentRunId);
@@ -8403,9 +8386,9 @@ export const appRouter = t.router({
             return { status: "not_available" as const };
           }
           const realHashesBySourceId = new Map(
-            intentRecords.filter((r) => r.status === "fetched" && r.artifact).map((r) => [r.sourceId, r.artifact!.contentHash]),
+            intentRecords.filter((r) => r.status === "fetched" && r.result).map((r) => [r.sourceId, r.result!.contentHash]),
           );
-          const hashesMatch = result.artifactHashes.every((a) => realHashesBySourceId.get(a.sourceId) === a.contentHash);
+          const hashesMatch = result.resultHashes.every((a) => realHashesBySourceId.get(a.sourceId) === a.contentHash);
           if (!hashesMatch) {
             return { status: "not_available" as const };
           }
@@ -9077,7 +9060,7 @@ export const appRouter = t.router({
           throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.moduleName}" not found` });
         }
         try {
-          return await ctx.wiring.organizationStore.withLockedOrganizationFiles(
+          const inventory = await ctx.wiring.organizationStore.withLockedOrganizationFiles(
             input.organizationId,
             (organization) => listModuleFiles(
               organization.name,
@@ -9086,6 +9069,16 @@ export const appRouter = t.router({
               ctx.wiring.moduleFilesBridgeRoot,
             ),
           );
+          await Promise.all(inventory.items.map((file) =>
+            ctx.wiring.graphStore.indexModuleFile({
+              organizationId: input.organizationId,
+              ownerUserId: ctx.identity.id,
+              moduleId: installation.id,
+              moduleName: installation.moduleName,
+              ...file,
+            }),
+          ));
+          return inventory;
         } catch (error) {
           if (error instanceof ModuleFilesPathError) {
             throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -9119,7 +9112,7 @@ export const appRouter = t.router({
           });
         }
         try {
-          return await ctx.wiring.organizationStore.withLockedOrganizationFiles(
+          const file = await ctx.wiring.organizationStore.withLockedOrganizationFiles(
             input.organizationId,
             (organization) => saveModuleFile(
               organization.name,
@@ -9129,6 +9122,14 @@ export const appRouter = t.router({
               ctx.wiring.moduleFilesBridgeRoot,
             ),
           );
+          await ctx.wiring.graphStore.indexModuleFile({
+            organizationId: input.organizationId,
+            ownerUserId: ctx.identity.id,
+            moduleId: installation.id,
+            moduleName: installation.moduleName,
+            ...file,
+          });
+          return file;
         } catch (error) {
           if (error instanceof ModuleFilesPathError || error instanceof RangeError) {
             throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -9286,7 +9287,7 @@ export const appRouter = t.router({
             if (!local) {
               throw new TRPCError({
                 code: "BAD_REQUEST",
-                message: `Commons dependency "${key}" was not staged from its pinned artifact`,
+                message: `Commons dependency "${key}" was not staged from its pinned result`,
               });
             }
             if (!["private", "promoted", "available"].includes(local.state)) {
@@ -9612,7 +9613,7 @@ export const appRouter = t.router({
               );
               if (!currentEntry || !isSupportedCitedRoleModelManifest(currentEntry.manifest)) {
                 runtimeBindingIssues.push(
-                  "The current signed Commons artifact no longer matches the supported runtime contract",
+                  "The current signed Commons result no longer matches the supported runtime contract",
                 );
               } else if (!await currentSupportedRelationshipOwner(ctx.wiring, installation)) {
                 runtimeBindingIssues.push(

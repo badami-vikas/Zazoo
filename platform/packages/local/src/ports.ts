@@ -84,12 +84,11 @@ export interface LocalPerson {
   canonicalPersonId?: string;
 }
 
-/** A committed graph entry. New interactions are Events. `touchpoint` is read
- * compatibility for records written before VOCAB4; runtime writers use `event`. */
+/** A committed graph entry. Interactions are Events. */
 export interface LocalEntityRecord {
   id: string;
   organizationId: string;
-  kind: "event" | "memory" | "signal" | "touchpoint";
+  kind: "event" | "memory" | "signal";
   /** The Person this entry is about, when matched. */
   personId?: string;
   payload: unknown;

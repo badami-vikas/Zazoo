@@ -93,7 +93,7 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
 function isOwnerScopedLedgerEntrySql(): SQL {
   return or(
     sql`coalesce(${ledger.dataScope}, '') = 'private'`,
-    inArray(ledger.resourceType, ["relation", "person", "community", "event", "touchpoint"]),
+    inArray(ledger.resourceType, ["relation", "person", "community", "event"]),
     sql`${ledger.inputs} -> 'directive' IS NOT NULL`,
     sql`coalesce(${ledger.inputs} ->> 'visibility', '') = 'private'`,
     sql`(
@@ -123,7 +123,7 @@ function privateProposalOwnerScope(
   const referenced = alias(ledger, "owner_scoped_referenced_entry");
   const referencedIsPrivate = or(
     sql`coalesce(${referenced.dataScope}, '') = 'private'`,
-    inArray(referenced.resourceType, ["relation", "person", "community", "event", "touchpoint"]),
+    inArray(referenced.resourceType, ["relation", "person", "community", "event"]),
     sql`${referenced.inputs} -> 'directive' IS NOT NULL`,
     sql`coalesce(${referenced.inputs} ->> 'visibility', '') = 'private'`,
     sql`(

@@ -64,11 +64,11 @@ test("marks a clearly distinct candidate as not near duplicate", async () => {
 
 test("falls back to capabilityType when an existing row has null kind", () => {
   const candidate: OverlapCandidate = {
-    name: "Touchpoint Planner",
+    name: "Event Planner",
     capabilityType: "automation",
   };
   const existing = row({
-    id: "manifest-touchpoint-planner",
+    id: "manifest-event-planner",
     name: "Different Name",
     kind: null,
     capabilityType: "automation",
@@ -87,8 +87,8 @@ test("uses semantic tier for inconclusive structural matches when embeddings exi
   };
   const existing = [
     row({
-      id: "manifest-touchpoint-theme-detector",
-      name: "Touchpoint Theme Detector",
+      id: "manifest-event-theme-detector",
+      name: "Event Theme Detector",
       kind: "skill",
       capabilityType: "skill",
       manifest: { purpose: "Identify repeated Memory themes and suggest an Automation." },
@@ -108,7 +108,7 @@ test("uses semantic tier for inconclusive structural matches when embeddings exi
 
   const matches = await findOverlaps(candidate, existing, { model });
 
-  assert.equal(matches[0]?.manifestId, "manifest-touchpoint-theme-detector");
+  assert.equal(matches[0]?.manifestId, "manifest-event-theme-detector");
   assert.equal(matches[0]?.tier, "semantic");
   assert.equal(matches[0]?.nearDuplicate, true);
   assert.ok((matches[0]?.score ?? 0) > 0.99);
@@ -122,8 +122,8 @@ test("degrades gracefully when semantic comparison is inconclusive but embedding
     purpose: "Identify repeated Memory themes and suggest an Automation.",
   };
   const existing = row({
-    id: "manifest-touchpoint-theme-detector",
-    name: "Touchpoint Theme Detector",
+    id: "manifest-event-theme-detector",
+    name: "Event Theme Detector",
     kind: "skill",
     capabilityType: "skill",
     manifest: { purpose: "Identify repeated Memory themes and suggest an Automation." },
@@ -164,8 +164,8 @@ test("degrades to structural matches when embedding execution fails", async () =
     purpose: "Identify repeated Memory themes and suggest an Automation.",
   };
   const existing = row({
-    id: "manifest-touchpoint-theme-detector",
-    name: "Touchpoint Theme Detector",
+    id: "manifest-event-theme-detector",
+    name: "Event Theme Detector",
     kind: "skill",
     capabilityType: "skill",
     manifest: { purpose: "Identify repeated Memory themes and suggest an Automation." },

@@ -71,7 +71,7 @@ test("local plane renames the legacy text external-record table before Drizzle m
       INSERT INTO external_records
         (organization_id, source, source_record_id, entity_type, entity_id, created_at)
       VALUES
-        ('organization-a', 'gmail', 'message-a', 'touchpoint', 'entity-a', '2026-07-18T00:00:00.000Z');
+        ('organization-a', 'gmail', 'message-a', 'event', 'entity-a', '2026-07-18T00:00:00.000Z');
     `);
   } finally {
     await seed.close();
@@ -171,7 +171,7 @@ test("persistent governance provisions and verifies the attributable Learning Ag
     assert.equal(await ports.agents.assumedRole(agentId), roleId);
     assert.deepEqual(await ports.agents.capabilityScope(agentId), [
       "signal:write",
-      "touchpoint:write",
+      "event:write",
       // TASK-011 remediation (2026-07-19 coordinator distributed-defects
       // review, issue 5) — persistent Learning Agent governance now also
       // grants `external:fetch:read`, matching the in-memory wiring and

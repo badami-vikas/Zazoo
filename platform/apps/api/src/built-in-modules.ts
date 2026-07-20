@@ -63,7 +63,7 @@ function provenance(sourceRef: string): CommonsProvenance {
     sourceRef,
     inspectedCommit: INSPECTED_COMMIT,
     repositoryLicense: "NOASSERTION",
-    artifactLicense: "LicenseRef-Bridge-Internal",
+    contentLicense: "LicenseRef-Bridge-Internal",
     licenseVerified: true,
   };
 }
@@ -206,8 +206,8 @@ const relationshipCapabilities = [
     writePrivate("community"),
   ]),
   capability("relationship.submodule.helpdesk", "Helpdesk", "view", [
-    readPrivate("touchpoint"),
-    writePrivate("touchpoint"),
+    readPrivate("event"),
+    writePrivate("event"),
   ]),
   capability("relationship.skill.timeline-synthesis", "Relationship timeline synthesis", "skill", [
     readPrivate("signal"),
@@ -220,7 +220,7 @@ const relationshipCapabilities = [
   capability("relationship.skill.help-routing", "Help request capability routing", "skill", [
     readPrivate("person"),
     readPrivate("community"),
-    writePrivate("touchpoint"),
+    writePrivate("event"),
   ]),
   capability(
     "relationship.agent.steward",
@@ -245,7 +245,7 @@ const relationshipCapabilities = [
     [
       readPrivate("person"),
       readPrivate("community"),
-      writePrivate("touchpoint"),
+      writePrivate("event"),
     ],
     [],
     [{ manifestId: "relationship.skill.help-routing", versionRange: "0.2.0" }],
@@ -540,7 +540,7 @@ const citedRoleModelPractice: BuiltInModule = {
 export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
   // Relationship's current full capability union forms the lethal trifecta.
   // It remains a local built-in Module but cannot enter Commons until split
-  // into independently safe generalized artifacts.
+  // into independently safe generalized Results.
   ...BUILT_IN_MODULES.filter((pkg) => pkg.manifest.name !== "relationship").map((pkg) => ({
     ...pkg,
     commons: {
