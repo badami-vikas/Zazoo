@@ -24,7 +24,7 @@ import type {
   SecretStore,
   StoredBody,
 } from "../ports.js";
-import { migrateVocab3OrganizationColumns } from "./vocab3-organization-compat.js";
+import { migrateOrganizationColumns } from "./organization-schema-migrations.js";
 
 const INIT_SQL = `
 CREATE TABLE IF NOT EXISTS oauth_tokens (
@@ -792,7 +792,7 @@ export async function createPgliteLocalPlane(
     config.client ??
     (ownership ? new PGlite(ownership.dataDir) : new PGlite());
   try {
-    await migrateVocab3OrganizationColumns(db);
+    await migrateOrganizationColumns(db);
     await db.exec(INIT_SQL);
     await migrateLegacyExternalRecords(db);
   } catch (error) {

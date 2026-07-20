@@ -96,7 +96,7 @@ test("capability store: listManifests paginates within a organization", async ()
         id: `30000000-0000-4000-8000-00000000000${i}`,
         organizationId,
         capabilityType: "skill",
-        name: `test_fixture_tool_${i}`,
+        name: `test_fixture_skill_${i}`,
         version: "1.0.0",
         origin: "built_in",
         audience: "private",

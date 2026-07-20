@@ -1,4 +1,4 @@
-export const MEDIA_VOCAB2_COMPAT_SQL = `
+export const MEDIA_SCHEMA_MIGRATIONS_SQL = `
 UPDATE media_captures
 SET provenance = (provenance - 'tool') || jsonb_build_object('skill', provenance->'tool')
 WHERE provenance ? 'tool'

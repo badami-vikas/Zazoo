@@ -2316,15 +2316,6 @@ export class DrizzleGraphStore {
     ) {
       throw new Error("Signal evidence participants must include the Signal subject");
     }
-    if (
-      !(await this.areRelationshipRecordsAccessible(
-        organizationId,
-        ownerUserId,
-        participants,
-      ))
-    ) {
-      throw new Error("Signal evidence participants are invalid or not accessible");
-    }
     const currentRows = await this.#db
       .select()
       .from(edges)
@@ -2345,6 +2336,15 @@ export class DrizzleGraphStore {
       watermark.decisionSequence >= input.decisionSequence
     ) {
       return { sourceEvent: watermark, participants: currentRows };
+    }
+    if (
+      !(await this.areRelationshipRecordsAccessible(
+        organizationId,
+        ownerUserId,
+        participants,
+      ))
+    ) {
+      throw new Error("Signal evidence participants are invalid or not accessible");
     }
     await this.#db.delete(edges).where(and(
       eq(edges.organizationId, organizationId),

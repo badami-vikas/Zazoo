@@ -11,12 +11,8 @@ const LOCAL_TENANT_TABLES = [
   "local_state",
 ] as const;
 
-/**
- * One-version compatibility for Local Plane databases that are not managed by
- * the numbered @bridge/db migrations. Refuse ambiguous schemas and let
- * PostgreSQL carry primary-key/index definitions across the column rename.
- */
-export async function migrateVocab3OrganizationColumns(db: PGlite): Promise<void> {
+/** Preserve Local Plane data while bringing pre-numbered schemas to Organization scope. */
+export async function migrateOrganizationColumns(db: PGlite): Promise<void> {
   const columns = await db.query<{ table_name: string; column_name: string }>(
     `SELECT table_name, column_name
        FROM information_schema.columns

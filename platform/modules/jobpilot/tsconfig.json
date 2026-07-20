@@ -8,8 +8,8 @@
   },
   "references": [
     { "path": "../../packages/capability-kit" },
-    { "path": "../company-sourcing" },
-    { "path": "../people-sourcing" },
+    { "path": "../../tools/company-sourcing" },
+    { "path": "../../tools/people-sourcing" },
     { "path": "../../packages/dedupe" },
     { "path": "../../packages/facts" },
     { "path": "../../packages/sourcing" },

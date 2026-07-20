@@ -106,14 +106,14 @@ test("reviewed fingerprint moves remain downward-only by family and syntax kind"
   assert.equal(compareInventoryTotals(grown, baseline).increases.length, 2);
 });
 
-test("only reviewed compatibility adapters are excluded", () => {
-  assert.equal(shouldIgnore("apps/api/src/avatar-profile-v1-compat.ts"), true);
-  assert.equal(shouldIgnore("apps/api/src/culture-result-vocab4-compat.ts"), true);
-  assert.equal(shouldIgnore("apps/web/src/app/avatar/avatar-v1-compat.ts"), true);
+test("only explicit migration and signed-content boundaries are excluded", () => {
+  assert.equal(shouldIgnore("packages/db/src/media-schema-migrations.ts"), true);
+  assert.equal(shouldIgnore("packages/db/test/migration-0024.test.ts"), true);
+  assert.equal(shouldIgnore("packages/core/src/module/signed-legacy-entry.ts"), true);
+  assert.equal(shouldIgnore("services/commons/src/legacy-registry-migration.ts"), true);
   assert.equal(shouldIgnore("apps/api/src/unreviewed-compat.ts"), false);
   assert.equal(shouldIgnore("packages/core/src/compat/escape.ts"), false);
-  assert.equal(shouldIgnore("packages/core/src/module/commons-vocab3-compat.ts"), true);
-  assert.equal(shouldIgnore("services/commons/src/vocab3-registry-compat.ts"), true);
+  assert.equal(shouldIgnore("apps/api/test/router.test.ts"), false);
 });
 
 test("collector accepts TypeScript modules plus Rust and SQL sources", () => {
@@ -148,6 +148,28 @@ test("PostgreSQL jsonb array expansion is not classified as a product Element", 
     `SELECT * FROM jsonb_array_elements(payload);`,
   );
   assert.equal(sql.element, undefined);
+});
+
+test("technical DOM and projection identifiers stay classified without allowing product nouns", () => {
+  const dom = inventoryForSource(
+    "apps/web/src/app/routes.tsx",
+    `const node: HTMLDivElement = document.createElement("div");
+     export const route = { element: node };`,
+  );
+  assert.equal(dom.element, undefined);
+
+  const projection = inventoryForSource(
+    "packages/core/src/run-context.ts",
+    `export function projectToPrompt() { return "ready"; }`,
+  );
+  assert.equal(projection.project, undefined);
+
+  const forbidden = inventoryForSource(
+    "packages/core/src/record.ts",
+    `export interface ProjectElement { label: string }`,
+  );
+  assert.equal(forbidden.project["packages/core/src/record.ts"].identifier, 1);
+  assert.equal(forbidden.element["packages/core/src/record.ts"].identifier, 1);
 });
 
 test("Rust and SQL scanners cover identifiers and strings without counting comments", () => {

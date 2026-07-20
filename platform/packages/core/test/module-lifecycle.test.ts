@@ -91,7 +91,7 @@ test("rollbackFromHistory: forks a NEW draft row, never mutating the historical 
   assert.equal(historical.state, "legacy");
 });
 
-test("rollbackFromHistory: rejects local forks of content-hash-pinned Commons artifacts", () => {
+test("rollbackFromHistory: rejects local forks of content-hash-pinned Commons entries", () => {
   const moduleAttachment = {
     source: "commons" as const,
     ownerModuleName: "job-pilot",

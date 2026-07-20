@@ -93,8 +93,6 @@ test("the API exposes no caller-supplied step execution or product-composition e
       .sort(),
     ["create", "runById"],
   );
-  assert.equal(procedures.some((name) => name.startsWith("ritual.")), false);
-  assert.equal(procedures.some((name) => name.startsWith("tool.")), false);
 });
 
 test("automation.create rejects an inactive or unknown owning Agent", async () => {

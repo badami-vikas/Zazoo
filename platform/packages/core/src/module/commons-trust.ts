@@ -12,7 +12,7 @@ import {
   type VerifyManifestOptions,
 } from "./signing.js";
 import type { ModuleKind, ModuleManifest } from "./types.js";
-import { readVocab2SignedContent } from "./commons-vocab3-compat.js";
+import { readLegacySignedContent } from "./signed-legacy-entry.js";
 
 export type ContentHasher = (canonicalContent: string) => string;
 
@@ -101,7 +101,7 @@ export function verifyCommonsEntryContent(
   let hashContent = canonicalizeCommonsContent(commonsModuleContent(entry));
   if (entry.signedSource) {
     try {
-      const source = readVocab2SignedContent(entry.signedSource);
+      const source = readLegacySignedContent(entry.signedSource);
       if (
         canonicalizeCommonsContent(commonsModuleContent(entry)) !==
         canonicalizeCommonsContent(source.adapted)
@@ -159,7 +159,7 @@ export function verifyCommonsEntry(
   let validSignature = false;
   try {
     const signedContent = entry.signedSource
-      ? readVocab2SignedContent(entry.signedSource).original
+      ? readLegacySignedContent(entry.signedSource).original
       : commonsModuleContent(entry);
     validSignature = verify(
       canonicalizeJson({ content: signedContent, integrity: entry.integrity, publishedAt: entry.publishedAt }),

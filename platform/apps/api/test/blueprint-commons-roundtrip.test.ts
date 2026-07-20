@@ -90,11 +90,11 @@ test("BLUEPRINT-1: the declarative gate rejects a non-declarative payload (smugg
 
 test("BLUEPRINT-1: extraction re-validates — a non-organization_definition manifest yields no blueprint", () => {
   const notABlueprint: ModuleManifest = {
-    name: "test-fixture-plain-tool",
+    name: "test-fixture-plain-module",
     version: "1.0.0",
     kind: "module",
-    summary: "plain tool",
-    description: "plain tool",
+    summary: "plain module",
+    description: "plain module",
     lineageManifestId: null,
     dependencies: [],
     capabilities: [],

@@ -145,12 +145,12 @@ function adaptManifest(raw: unknown) {
   return parseModuleManifest(manifest);
 }
 
-export interface AdaptedVocab2SignedContent {
+export interface AdaptedLegacySignedContent {
   original: JsonObject;
   adapted: CommonsModuleContent;
 }
 
-export function readVocab2SignedContent(source: CommonsSignedSource): AdaptedVocab2SignedContent {
+export function readLegacySignedContent(source: CommonsSignedSource): AdaptedLegacySignedContent {
   if (
     (source.vocabularyVersion !== 2 && source.vocabularyVersion !== 3) ||
     typeof source.canonicalContent !== "string"
@@ -208,7 +208,7 @@ export function readVocab2SignedContent(source: CommonsSignedSource): AdaptedVoc
   };
 }
 
-export function isVocab2CommonsEntry(raw: unknown): boolean {
+export function isLegacyVocabularyEntry(raw: unknown): boolean {
   if (!isObject(raw) || !isObject(raw.manifest)) return false;
   return (
     raw.manifest.kind === "workspace_definition" ||
@@ -217,7 +217,7 @@ export function isVocab2CommonsEntry(raw: unknown): boolean {
   );
 }
 
-export function adaptVocab2CommonsEntry(raw: unknown): CommonsModuleEntry {
+export function adaptLegacyVocabularyEntry(raw: unknown): CommonsModuleEntry {
   const envelope = cloneObject(raw, "entry");
   const content = Object.fromEntries(
     [...CONTENT_KEYS].map((key) => [key, envelope[key]]),
@@ -226,7 +226,7 @@ export function adaptVocab2CommonsEntry(raw: unknown): CommonsModuleEntry {
     vocabularyVersion: 2,
     canonicalContent: canonicalizeJson(content),
   };
-  const { adapted } = readVocab2SignedContent(source);
+  const { adapted } = readLegacySignedContent(source);
   const integrity = cloneObject(envelope.integrity, "entry.integrity") as unknown as CommonsModuleEntry["integrity"];
   const publishedAt = requiredString(envelope.publishedAt, "entry.publishedAt");
   const signature = envelope.signature === undefined
@@ -242,7 +242,7 @@ export function adaptVocab2CommonsEntry(raw: unknown): CommonsModuleEntry {
   };
 }
 
-export function isVocab3CommonsEntry(raw: unknown): boolean {
+export function isLegacyLicenseEntry(raw: unknown): boolean {
   if (!isObject(raw) || !isObject(raw.provenance)) return false;
   return (
     Object.hasOwn(raw.provenance, "artifactLicense") &&
@@ -250,7 +250,7 @@ export function isVocab3CommonsEntry(raw: unknown): boolean {
   );
 }
 
-export function adaptVocab3CommonsEntry(raw: unknown): CommonsModuleEntry {
+export function adaptLegacyLicenseEntry(raw: unknown): CommonsModuleEntry {
   const envelope = cloneObject(raw, "entry");
   const content = Object.fromEntries(
     [...CONTENT_KEYS].map((key) => [key, envelope[key]]),

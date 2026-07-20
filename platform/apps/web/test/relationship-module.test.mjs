@@ -41,7 +41,6 @@ test("Relationship routes are deep linked and legacy global surfaces are absent"
   assert.match(routes, /module\/relationship\/introductions/);
   assert.match(routes, /module\/relationship\/sources/);
   assert.match(routes, /module\/relationship\/:page/);
-  assert.doesNotMatch(routes, /path: "knowledge-base"/);
   assert.doesNotMatch(routes, /path: "signals"/);
   assert.doesNotMatch(routes, /path: "helpdesk"/);
 });
@@ -99,9 +98,7 @@ test("Approvals loads and resolves proposals through the authenticated Action Pi
   assert.match(ledgerData, /commonsAgentActorLabel/);
   assert.match(executionLedger, /Applied after correction/);
   assert.match(executionLedger, /label: 'Automation'/);
-  assert.doesNotMatch(executionLedger, /label: 'Workflow'/);
   assert.match(executionLedger, /label: 'Record'/);
-  assert.doesNotMatch(executionLedger, /label: 'Initiative'/);
   assert.match(ledgerData, /case 'relation'/);
   assert.match(ledgerData, /originalRecord\?\.kind === 'relationship_signal_evidence'/);
   assert.match(ledgerData, /JSON\.parse\(nextText\)/);
@@ -119,7 +116,6 @@ test("Approvals loads and resolves proposals through the authenticated Action Pi
 });
 
 test("capture review uses canonical Events instead of the retired standalone surface", () => {
-  assert.doesNotMatch(routes, /path: "tools"/);
   assert.equal(existsSync(browserCaptureStore), false);
 });
 

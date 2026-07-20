@@ -1,6 +1,6 @@
 /**
  * Knowledge-only gate — the Commons' one non-negotiable rule (CLAUDE.md:
- * generalized capability knowledge only, NEVER user data) enforced in code.
+ * generalized capability content only, NEVER user data) enforced in code.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -11,7 +11,7 @@ test("clean generalized manifest passes the gate", () => {
     name: "example-skill",
     version: "1.0.0",
     kind: "skill",
-    summary: "Generalized capability knowledge.",
+    summary: "Generalized capability content.",
     capabilities: [{ id: "example-skill.core", capability_type: "skill", permissions: [] }],
   };
   assert.deepEqual(findOrganizationDataPaths(manifest), []);
@@ -37,7 +37,7 @@ test("organization/user identifiers are flagged with exact JSON paths, at any de
     "organizationId",
   ]);
   // organizationVocab is a legitimate manifest field — the vocab DECLARATION is
-  // generalized knowledge; only instance identifiers are denied.
+  // Generalized content is allowed; only instance identifiers are denied.
   assert.ok(!paths.some((p) => p.startsWith("organizationVocab")));
 });
 

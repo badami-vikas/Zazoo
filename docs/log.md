@@ -1946,3 +1946,10 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Bounded review found and closed stale Run refresh, fixed-200 Module omission, dead edge Action, and adapter-clock drift. No migration `0024`.
 - Targeted Core/DB/API/web tests, typechecks/builds, lint, vocabulary/no-dummy checks, and isolated browser certification passed. Broad validation also exposed stale pre-VOCAB4 Signal-write and Onboarding vocabulary assertions; both are preserved in BUGS for final compatibility deletion rather than masking them with production compatibility. TASK-012 remains `in_progress` for final compatibility deletion/full prototype certification. Durable handoff: `outputs/2026-07-20-task012-vocab6.md`.
 - GitHub Actions run `29740972890` failed all runner-backed jobs before any step and emitted no logs (payment-blocked runner condition). No CI success is claimed.
+
+# 2026-07-20 — TASK-012 final compatibility deletion and closure (AP-059, ADR-133)
+- Moved DealPilot/JobPilot into `platform/modules/`; removed expired Avatar/API/Result aliases and dual Commons registry reads while preserving immutable signed-byte verification.
+- Added migration `0024_task012_compatibility_deletion` with forward, backup/restore, replay, and stored-Result preservation evidence.
+- Repaired canonical GraphStore Event/Relation fixtures and Onboarding Organization/Record/Event expectations; resolved the attached BUGS rows and the Graph ref-warning defect found during live certification.
+- Tightened the vocabulary gate to scan tests and regex literals. Baseline is empty: zero forbidden runtime/test occurrences.
+- Targeted Graph/migration/RLS/API/Commons/Local/Module/web/typecheck/build checks passed. Chrome passed desktop and exact 375×812 Module/Event/File/Graph paths, source navigation, symmetric panels, zero overflow, zero retired labels, and zero console/network errors. Durable handoff: `outputs/2026-07-20-task012-final-closure.md`.

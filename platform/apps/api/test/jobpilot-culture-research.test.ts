@@ -537,7 +537,7 @@ test("distributed cancellation: a SECOND, independent instance (own DurableCultu
     // abort; the ONLY mechanism available to it is the durable
     // `cancelRequested` flag, which instance A's poll loop must notice.
     const instanceBDeps = otherInstanceDeps(wiring);
-    assert.equal(instanceBDeps.abortControllers.has(childRunId), false, "instance B must start with genuinely no knowledge of this fetch");
+    assert.equal(instanceBDeps.abortControllers.has(childRunId), false, "instance B must start without prior state for this fetch");
     const cancelled = await cancelCultureSourceFetch(instanceBDeps, PILOT_ORGANIZATION, proposalId, childRunId, { type: "user", id: PILOT_USER }, makeRun());
     assert.equal(cancelled.cancelRequested, true);
 

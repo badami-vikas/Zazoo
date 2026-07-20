@@ -162,6 +162,13 @@
       "when": 1784539980000,
       "tag": "0023_vocab4_event_result_file",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784552100000,
+      "tag": "0024_task012_compatibility_deletion",
+      "breakpoints": true
     }
   ]
 }

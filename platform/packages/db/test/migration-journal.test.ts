@@ -56,17 +56,18 @@ test("TASK-008 Relation migration is ordered after TASK-007", () => {
   );
 });
 
-test("VOCAB4 follows the Supabase runtime role and earlier vocabulary migrations", () => {
+test("TASK-012 migrations remain ordered through final compatibility deletion", () => {
   const journal = JSON.parse(
     readFileSync(resolve(here, "../../migrations/meta/_journal.json"), "utf8"),
   ) as { entries: Array<{ idx: number; tag: string }> };
   assert.deepEqual(
-    journal.entries.slice(-4).map(({ idx, tag }) => ({ idx, tag })),
+    journal.entries.slice(-5).map(({ idx, tag }) => ({ idx, tag })),
     [
       { idx: 20, tag: "0020_vocab2_automation_engine" },
       { idx: 21, tag: "0021_vocab3_organization_module_record" },
       { idx: 22, tag: "0022_supabase_runtime_role" },
       { idx: 23, tag: "0023_vocab4_event_result_file" },
+      { idx: 24, tag: "0024_task012_compatibility_deletion" },
     ],
   );
 });

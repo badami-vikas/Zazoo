@@ -28,6 +28,62 @@ async function seedOrganizationAndUser(db: Awaited<ReturnType<typeof createLocal
   return { userId: user!.id, organizationId: organization!.id };
 }
 
+async function seedSignalEvent(
+  db: Awaited<ReturnType<typeof createLocalDb>>["db"],
+  input: {
+    organizationId: string;
+    ownerUserId: string;
+    subjectType: "person" | "community";
+    subjectId: string;
+    type: string;
+    reason?: string;
+    actionLabel?: string;
+    visibility?: "private" | "organization";
+    linkParticipant?: boolean;
+  },
+) {
+  const eventId = randomUUID();
+  const [event] = await db
+    .insert(schema.events)
+    .values({
+      id: eventId,
+      organizationId: input.organizationId,
+      type: input.type,
+      entityType: "event",
+      entityId: eventId,
+      payload: {
+        relationshipSignal: {
+          type: input.type,
+          subjectType: input.subjectType,
+          subjectId: input.subjectId,
+          payload: input.reason ? { reason: input.reason } : {},
+          recommendedAction: input.actionLabel ? { label: input.actionLabel } : {},
+          status: "new",
+        },
+      },
+    })
+    .returning({ id: schema.events.id, createdAt: schema.events.createdAt });
+  assert.ok(event);
+
+  if (input.linkParticipant !== false) {
+    await db.insert(schema.edges).values({
+      organizationId: input.organizationId,
+      ownerUserId: input.ownerUserId,
+      srcType: "event",
+      srcId: event.id,
+      dstType: input.subjectType,
+      dstId: input.subjectId,
+      edgeType: "participant",
+      evidenceRefs: [{ entityType: "event", entityId: event.id, source: "test_fixture" }],
+      observedAt: event.createdAt,
+      visibility: input.visibility ?? "private",
+      source: "test_fixture",
+      sourceModule: "relationship",
+    });
+  }
+  return event;
+}
+
 test("listPeople: paginates organization-scoped people, newest first", async () => {
   const { db, close } = await createLocalDb();
   try {
@@ -136,18 +192,15 @@ test("relationship reads mirror the RLS visibility allowlist", async () => {
     assert.ok(privatePerson);
     assert.ok(teamCommunity);
     assert.ok(organizationCommunity);
-    const [privateSignal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId,
-        type: "private_context",
-        subjectType: "person",
-        subjectId: privatePerson.id,
-        payload: { reason: "Private relationship context" },
-        recommendedAction: { label: "Private action" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(privateSignal);
+    const privateSignal = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId,
+      subjectType: "person",
+      subjectId: privatePerson.id,
+      type: "private_context",
+      reason: "Private relationship context",
+      actionLabel: "Private action",
+    });
 
     const peoplePage = await store.listPeople(organizationId, viewer.id, { limit: 20, offset: 0 });
     assert.equal(peoplePage.total, 0);
@@ -188,29 +241,17 @@ test("Relation operations bind organization and owner context under forced RLS",
       })
       .returning({ id: schema.people.id });
     assert.ok(person);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "RLS context evidence" },
-        recommendedAction: { label: "Prepare" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        organizationId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "calendar" },
-      })
-      .returning({ id: schema.events.id, createdAt: schema.events.createdAt });
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_upcoming",
+      reason: "RLS context evidence",
+      actionLabel: "Prepare",
+      linkParticipant: false,
+    });
+    const signal = event;
 
     await db.execute(sql.raw("CREATE ROLE test_fixture_relation_app"));
     await db.execute(
@@ -304,18 +345,16 @@ test("getSignalDetail requires a linked source Event and real participant Relati
       })
       .returning({ id: schema.events.id });
     assert.ok(unrelatedEvent);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { sourceEventId: unrelatedEvent.id, reason: "Unverified detector reason" },
-        recommendedAction: { label: "Prepare context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
+    const signal = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "meeting_prep",
+      reason: "Unverified detector reason",
+      actionLabel: "Prepare context",
+      linkParticipant: false,
+    });
     await db.insert(schema.edges).values({
       organizationId,
       srcType: "event",
@@ -336,7 +375,7 @@ test("getSignalDetail requires a linked source Event and real participant Relati
   }
 });
 
-test("getSignalDetail prefers the approved source Event and owner Relation over newer legacy rows", async () => {
+test("getSignalDetail uses the canonical Signal Event and approved owner Relation", async () => {
   const { db, close } = await createLocalDb();
   try {
     const { userId, organizationId } = await seedOrganizationAndUser(db);
@@ -346,29 +385,17 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
       .values({ organizationId, userId, fullNameOverride: "Signal Participant" })
       .returning({ id: schema.people.id });
     assert.ok(person);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "A permitted meeting Event is approaching." },
-        recommendedAction: { label: "Prepare context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        organizationId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "google-calendar" },
-      })
-      .returning({ id: schema.events.id, createdAt: schema.events.createdAt });
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_upcoming",
+      reason: "A permitted meeting Event is approaching.",
+      actionLabel: "Prepare context",
+      linkParticipant: false,
+    });
+    const signal = event;
     const [approvedParticipant] = await db
       .insert(schema.edges)
       .values({
@@ -395,24 +422,6 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
     await db.insert(schema.edges).values([
       {
         organizationId,
-        ownerUserId: userId,
-        srcType: "signal",
-        srcId: signal.id,
-        dstType: "event",
-        dstId: event.id,
-        edgeType: "source_event",
-        evidenceRefs: [{ entityType: "event", entityId: event.id, source: "google-calendar" }],
-        confidence: "1",
-        observedAt: event.createdAt,
-        decisionLedgerId: "60000000-0000-4000-8000-000000000001",
-        decisionSequence: 1,
-        decisionAt: new Date("2026-07-17T00:00:00.000Z"),
-        visibility: "private",
-        source: "google-calendar",
-        sourceModule: "relationship",
-      },
-      {
-        organizationId,
         srcType: "event",
         srcId: event.id,
         dstType: "person",
@@ -426,15 +435,6 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
         sourceModule: "legacy",
       },
     ]);
-    await db.insert(schema.events).values({
-      organizationId,
-      type: "calendar.newer_but_unapproved",
-      entityType: "signal",
-      entityId: signal.id,
-      payload: { source: "newer-calendar-event" },
-      createdAt: new Date("2027-01-01T00:00:00.000Z"),
-    });
-
     const detail = await store.getSignalDetail(organizationId, userId, signal.id);
     assert.ok(detail);
     assert.equal(detail.sourceEvent?.id, event.id);
@@ -467,44 +467,17 @@ test("getSignalDetail filters inaccessible endpoints before applying its bound",
       })
       .returning({ id: schema.people.id });
     assert.ok(person);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "Bounded detail remains complete." },
-        recommendedAction: { label: "Prepare context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        organizationId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "calendar" },
-      })
-      .returning({ id: schema.events.id, createdAt: schema.events.createdAt });
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_upcoming",
+      reason: "Bounded detail remains complete.",
+      actionLabel: "Prepare context",
+    });
+    const signal = event;
     await db.insert(schema.edges).values([
-      {
-        organizationId,
-        ownerUserId: userId,
-        srcType: "event",
-        srcId: event.id,
-        dstType: "person",
-        dstId: person.id,
-        edgeType: "participant",
-        evidenceRefs: [{ entityType: "event", entityId: event.id, source: "calendar" }],
-        observedAt: event.createdAt,
-        visibility: "private",
-        source: "calendar",
-        sourceModule: "relationship",
-      },
       ...Array.from({ length: 201 }, () => ({
         organizationId,
         ownerUserId: userId,
@@ -567,29 +540,17 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     assert.ok(person);
     assert.ok(community);
     assert.ok(staleCommunity);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "A source Event is available." },
-        recommendedAction: { label: "Review context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        organizationId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "google-calendar" },
-      })
-      .returning();
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_upcoming",
+      reason: "A source Event is available.",
+      actionLabel: "Review context",
+      linkParticipant: false,
+    });
+    const signal = event;
     const store = new DrizzleGraphStore(db);
 
     assert.equal((await store.getNodeTypeOwner("person"))?.owningModule, "relationship");
@@ -656,12 +617,13 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const first = await store.materializeSignalEvidence(materialization);
     const retry = await store.materializeSignalEvidence(materialization);
     assert.ok(await store.getSignalDetail(organizationId, ownerUserId, signal.id));
-    assert.equal(first.sourceEvent.id, retry.sourceEvent.id);
+    assert.ok(first.participants.some((relation) => relation.id === first.sourceEvent.id));
+    assert.ok(retry.participants.some((relation) => relation.id === retry.sourceEvent.id));
     assert.deepEqual(
       first.participants.map((relation) => relation.id).sort(),
       retry.participants.map((relation) => relation.id).sort(),
     );
-    assert.equal((await db.select().from(schema.edges)).length, 3);
+    assert.equal((await db.select().from(schema.edges)).length, 2);
     const newer = await store.materializeSignalEvidence({
       ...materialization,
       decisionLedgerId: "60000000-0000-4000-8000-000000000001",
@@ -730,29 +692,17 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
       0,
       "a superseded retry cannot reinsert an obsolete participant edge",
     );
-    const [reverseSignal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "A newer decision materializes first." },
-        recommendedAction: { label: "Review context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(reverseSignal);
-    const [reverseEvent] = await db
-      .insert(schema.events)
-      .values({
-        organizationId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: reverseSignal.id,
-        payload: { source: "google-calendar" },
-      })
-      .returning();
-    assert.ok(reverseEvent);
+    const reverseEvent = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_upcoming",
+      reason: "A newer decision materializes first.",
+      actionLabel: "Review context",
+      linkParticipant: false,
+    });
+    const reverseSignal = reverseEvent;
     const reverseBase = {
       ...materialization,
       signalId: reverseSignal.id,
@@ -794,49 +744,26 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
         nameOverride: "Post-commit recovery participant",
       })
       .returning({ id: schema.communities.id });
-    const [recoverySignal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "Post-commit recovery." },
-        recommendedAction: { label: "Review context" },
-      })
-      .returning({ id: schema.signals.id });
+    const recoverySignal = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_updated",
+      reason: "Post-commit recovery.",
+      actionLabel: "Review context",
+      linkParticipant: false,
+    });
     assert.ok(recoveryCommunity);
-    assert.ok(recoverySignal);
-    const recoveryEvents = await db
-      .insert(schema.events)
-      .values([
-        {
-          organizationId,
-          type: "calendar.meeting_upcoming",
-          entityType: "signal",
-          entityId: recoverySignal.id,
-          payload: { source: "legacy-calendar" },
-        },
-        {
-          organizationId,
-          type: "calendar.meeting_updated",
-          entityType: "signal",
-          entityId: recoverySignal.id,
-          payload: { source: "calendar" },
-        },
-      ])
-      .returning();
-    assert.equal(recoveryEvents.length, 2);
     const recoveryOld = {
       ...materialization,
       signalId: recoverySignal.id,
-      sourceEventId: recoveryEvents[0]!.id,
+      sourceEventId: recoverySignal.id,
       decisionLedgerId: "60000000-0000-4000-8000-000000000006",
       decisionSequence: 6,
     };
     const recoveryWinner = {
       ...recoveryOld,
-      sourceEventId: recoveryEvents[1]!.id,
       decisionLedgerId: "60000000-0000-4000-8000-000000000007",
       decisionSequence: 7,
       participants: [
@@ -857,9 +784,6 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     await store.materializeSignalEvidence(recoveryOld);
     await store.materializeSignalEvidence(recoveryWinner);
     await db
-      .delete(schema.events)
-      .where(eq(schema.events.id, recoveryEvents[0]!.id));
-    await db
       .delete(schema.communities)
       .where(eq(schema.communities.id, recoveryCommunity.id));
     const sameDecisionRecovery =
@@ -868,9 +792,9 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const obsoleteEventRecovery =
       await store.materializeSignalEvidence(recoveryOld);
     assert.equal(
-      obsoleteEventRecovery.sourceEvent.dstId,
-      recoveryEvents[1]!.id,
-      "a stale retry reconciles without requiring its obsolete source Event",
+      obsoleteEventRecovery.sourceEvent.srcId,
+      recoverySignal.id,
+      "a stale retry reconciles to the canonical Signal Event",
     );
     assert.equal(obsoleteEventRecovery.participants.length, 2);
 
@@ -881,9 +805,9 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
       decisionSequence: 8,
     });
     assert.notEqual(secondOwnerResult.sourceEvent.id, first.sourceEvent.id);
-    assert.equal((await db.select().from(schema.edges)).length, 10);
+    assert.equal((await db.select().from(schema.edges)).length, 6);
 
-    const existingParticipant = first.participants.find((relation) => relation.dstId === person.id);
+    const existingParticipant = newer.participants.find((relation) => relation.dstId === person.id);
     assert.ok(existingParticipant);
     const enriched = await store.upsertRelation({
       organizationId,
@@ -923,8 +847,8 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
       { nodeType: "event", nodeId: event.id },
       { limit: 10 },
     );
-    assert.equal(ownerPage.total, 2);
-    assert.equal(secondOwnerPage.total, 3);
+    assert.equal(ownerPage.total, 1);
+    assert.equal(secondOwnerPage.total, 2);
     assert.ok(ownerPage.items.every((relation) => relation.ownerUserId === ownerUserId));
     assert.ok(secondOwnerPage.items.every((relation) => relation.ownerUserId === secondOwner.id));
   } finally {
@@ -981,29 +905,17 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     assert.ok(privateEvidence);
     assert.ok(visibleCommunity);
     assert.ok(privateCommunity);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: subject.id,
-        payload: { reason: "Evidence pruning test" },
-        recommendedAction: { label: "Inspect" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        organizationId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "calendar" },
-      })
-      .returning();
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId,
+      subjectType: "person",
+      subjectId: subject.id,
+      type: "calendar.meeting_upcoming",
+      reason: "Evidence pruning test",
+      actionLabel: "Inspect",
+      linkParticipant: false,
+    });
+    const signal = event;
     const store = new DrizzleGraphStore(db);
     const common = {
       organizationId,
@@ -1145,29 +1057,14 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
       })
       .returning({ id: schema.people.id });
     assert.ok(person);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId,
-        type: "test_fixture_keyset",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: {},
-        recommendedAction: {},
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        organizationId,
-        type: "test_fixture_keyset",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: {},
-      })
-      .returning({ id: schema.events.id });
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "test_fixture_keyset",
+      linkParticipant: false,
+    });
     const tiedAt = new Date("2026-07-16T12:00:00.124Z");
     const initialIds = Array.from(
       { length: 101 },
@@ -1312,29 +1209,15 @@ test("Relation evidence and Signal participants use bounded batch authorization"
       .returning({ id: schema.people.id });
     const subject = participantRows[0];
     assert.ok(subject);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId,
-        type: "test_fixture_batch_authorization",
-        subjectType: "person",
-        subjectId: subject.id,
-        payload: {},
-        recommendedAction: {},
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        organizationId,
-        type: "test_fixture_batch_authorization",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: {},
-      })
-      .returning({ id: schema.events.id });
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: subject.id,
+      type: "test_fixture_batch_authorization",
+      linkParticipant: false,
+    });
+    const signal = event;
     const evidenceRefs = Array.from({ length: 100 }, (_, index) => ({
       entityType: "event" as const,
       entityId: event.id,
@@ -1348,26 +1231,6 @@ test("Relation evidence and Signal participants use bounded batch authorization"
           set_config('app.user_id', ${userId}, true)
       `);
       await tx.insert(schema.edges).values([
-        {
-          id: randomUUID(),
-          organizationId,
-          ownerUserId: userId,
-          srcType: "signal",
-          srcId: signal.id,
-          dstType: "event",
-          dstId: event.id,
-          edgeType: "source_event",
-          evidenceRefs,
-          confidence: "1",
-          observedAt,
-          userConfirmed: true,
-          visibility: "private",
-          source: "test_fixture",
-          sourceModule: "relationship",
-          decisionLedgerId: randomUUID(),
-          decisionSequence: 1,
-          decisionAt: observedAt,
-        },
         ...participantRows.map((participant, index) => ({
           id: randomUUID(),
           organizationId,
@@ -2781,7 +2644,7 @@ test("Relationship paths are shortest, bounded, and visibility-pruned", async ()
   }
 });
 
-test("full graph projects cross-Module Record, Event, and File Relations without leaking private nodes", async () => {
+test("full graph renders cross-Module Record, Event, and File Relations without leaking private nodes", async () => {
   const { db, close } = await createLocalDb();
   try {
     const { userId: viewerUserId, organizationId } = await seedOrganizationAndUser(db);
