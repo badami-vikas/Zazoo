@@ -1929,3 +1929,4 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Indexed Module File writes and inventory reconciliation into stable canonical `files`/`file_refs` without moving local user content. Resolved the attached BUGS evidence.
 - Preserved signed pre-VOCAB4 Commons provenance hashes/signatures while projecting `contentLicense`.
 - Lowered the syntax ratchet from 793 to 360 without family/kind growth; Artifact, Touchpoint, and Incident are zero. Targeted migration/RLS/API/Files/Local/Commons/Result/web/typecheck/build/lint/live-route evidence passed. TASK-012 stays `in_progress` for VOCAB5–VOCAB6 and final compatibility deletion. Durable handoff: `outputs/2026-07-20-task012-vocab4.md`.
+- GitHub Actions run `29735812556` failed every runner-backed job before any step started and emitted no logs (payment-blocked runners). No CI success is claimed; only the recorded targeted local evidence supports landing.
