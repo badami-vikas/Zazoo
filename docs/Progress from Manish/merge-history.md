@@ -28,6 +28,8 @@ This file prevents a new session from re-merging historical branches or reusing 
   `611c9ad`, allocating migration `0023_vocab4_event_result_file`.
 - VOCAB5 completes through PR #30 at source/evidence `63a7aaa`; no migration is added.
 - VOCAB6 completes through PR #32 at implementation/evidence source `e657cc8`; no migration is added.
+- TASK-012 final compatibility deletion completes through PR #33 at source `cd0ad97` plus provenance
+  pin `e139d88`, allocating migration `0024_task012_compatibility_deletion`.
 - Stalled Supabase deployment session `0f3e2f14-7fd2-4d07-8f3e-9c86c7c5480a` shared the
   central checkout and had no independent branch. Its completed tree was preserved at
   `6590c71`; this merge normally reconciles `origin/main@5ab4568`, retains canonical VOCAB3
@@ -78,6 +80,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `80f8712` / `a07ec02` / `611c9ad` | TASK-012 VOCAB4 implementation, runner-evidence follow-up, and PR #29 merge; migration `0023`. |
 | `63a7aaa` / PR #30 | TASK-012 VOCAB5 Relationship Module convergence; no migration. |
 | `e657cc8` / PR #32 | TASK-012 VOCAB6 Module shell, Runs, symmetric panels, full Graph sources/actions, and runtime Knowledge deletion; no migration. |
+| `cd0ad97` / `e139d88` / PR #33 | TASK-012 final compatibility deletion, zero vocabulary baseline, migration `0024`, canonical Module package paths, and exact source provenance pin. |
 | `6590c71` | Preservation checkpoint for the recovered Supabase pilot deployment before reconciling newer `origin/main`; retained as a merge parent/audit source, not as the final vocabulary integration. |
 | (this merge) | Recovered Supabase session integration: migration `0022`, least-privilege/RLS context, exact hosted Auth, encrypted headless vault, Local/Cloud ledger routing, container assets, and durable recovery records. Local `main` only; no push or cloud provisioning. |
 
@@ -110,7 +113,7 @@ This file prevents a new session from re-merging historical branches or reusing 
   `task-012-vocab2` at `88be310` landed through PR #27 (`f6c4376`). Partial VOCAB3 source
   `task-012-vocab3` checkpoint `58573ba` is historical. VOCAB3/VOCAB4 landed through PRs #28/#29;
   VOCAB5 landed through PR #30 from `63a7aaa`; VOCAB6 lands through PR #32 from `e657cc8`.
-  Continue only final compatibility deletion/full prototype certification from current `main`.
+  Final compatibility deletion lands through PR #33; do not resume any TASK-012 source branch.
 
 ## Migration sequence
 
@@ -133,8 +136,9 @@ This file prevents a new session from re-merging historical branches or reusing 
   as an incomplete checkpoint.
 - `0022_supabase_runtime_role`: recovered Supabase deployment, integrated under AP-054/ADR-128.
 - `0023_vocab4_event_result_file`: TASK-012 VOCAB4, LANDED through PR #29.
+- `0024_task012_compatibility_deletion`: TASK-012 final stored-Result backfill and compatibility closure, PR #33.
 
-Next new migration allocates `0024`; do not reuse `0016` through `0023`.
+Next new migration allocates `0025`; do not reuse `0016` through `0024`.
 
 ## Approval and ADR coordination
 
@@ -156,6 +160,7 @@ Next new migration allocates `0024`; do not reuse `0016` through `0023`.
 - AP-047: TASK-005 exact combined demo certification and closure.
 - AP-052: TASK-024 exact storyboard implementation, optional review skip, and `main` landing.
 - AP-054: recovered Supabase deployment reconciliation and local `main` integration.
+- AP-059: TASK-012 final compatibility deletion, exact certification, closure, and main landing.
 - ADR-121: exact private no-egress Commons Skill + owning-Module runtime binding.
 - ADR-122: serialized Organization DB identity/local Files rename with durable fail-closed recovery.
 - ADR-128: Supabase supplies Postgres/Auth while an external API/static host preserves
