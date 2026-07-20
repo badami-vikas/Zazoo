@@ -37,7 +37,9 @@ TASK-006 remains `in_progress`, but its live Supabase blocker is closed.
 - Supabase migration-bundle regression: 1 passed.
 - Affected API/DB/Google/DealPilot/Tables/web typechecks and production builds passed.
 - Desktop sidecar test, strict Clippy, rustfmt, and zero-baseline vocabulary checks passed.
-- GitHub Actions runners remain payment-blocked; no CI success is claimed.
+- GitHub Actions run `29770323574` failed all eight runner-backed jobs with zero steps;
+  the installer matrix was skipped. This is the payment-blocked runner condition, not
+  test execution, and no CI success is claimed.
 
 ## Remaining external block
 
