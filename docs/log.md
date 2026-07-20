@@ -1937,3 +1937,4 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Removed standalone `@bridge/helpdesk`, top-level Helpdesk API, and unreferenced local/remote Helpdesk browser stores/components. Preserved existing DB store, token auth, permissions, RLS, and provenance; no migration `0024`.
 - Added manifest-driven Relations/Interactions/Introductions/Sources routes with shared Files and honest states. Signals/People/Communities remain canonical sibling Pages.
 - Targeted API/web/typecheck/build/lint/no-dummy/vocabulary checks and desktop plus exact 375×812 Chrome proofs passed. Ratchet decreased 360→296. TASK-012 stays `in_progress` for VOCAB6 and final compatibility deletion. Durable handoff: `outputs/2026-07-20-task012-vocab5.md`.
+- GitHub Actions run `29738518741` failed every runner-backed job before any step started and emitted no logs (payment-blocked runners). No CI success is claimed.
