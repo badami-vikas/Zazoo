@@ -1,9 +1,10 @@
 /** Drizzle bindings for canonical Automation definitions and attributable Runs. */
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type {
   AutomationDefinition,
   AutomationRegistry,
+  AutomationRunRecord,
   AutomationRunRecorder,
   AutomationStepDef,
   RunCtx,
@@ -207,7 +208,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
 
   async start(
     run: { runId: string; automationId: string; organizationId: string; agentId: string },
-    _ctx: RunCtx,
+    ctx: RunCtx,
   ): Promise<void> {
     await withOrganizationOnly(this.#db, run.organizationId, async (tx) => {
       await tx.insert(automationRuns).values({
@@ -217,18 +218,23 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
       agentId: run.agentId,
       runId: run.runId,
       status: "running",
+      startedAt: new Date(ctx.clock.nowISO()),
       });
     });
   }
 
   async finish(
     run: { runId: string; organizationId: string; status: "completed" | "halted"; output: unknown },
-    _ctx: RunCtx,
+    ctx: RunCtx,
   ): Promise<void> {
     await withOrganizationOnly(this.#db, run.organizationId, async (tx) => {
     const rows = await tx
       .update(automationRuns)
-      .set({ status: run.status, output: run.output, finishedAt: new Date() })
+      .set({
+        status: run.status,
+        output: run.output,
+        finishedAt: new Date(ctx.clock.nowISO()),
+      })
       .where(
         and(
           eq(automationRuns.id, run.runId),
@@ -241,6 +247,49 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
         `AutomationRunRecorder.finish: Run ${run.runId} not found in organization ${run.organizationId}`,
       );
     }
+    });
+  }
+
+  async list(
+    organizationId: string,
+    automationIds: string[],
+    opts: { limit: number },
+  ): Promise<AutomationRunRecord[]> {
+    if (automationIds.length === 0) return [];
+    const limit = Math.min(50, Math.max(1, opts.limit));
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const rows = await tx
+        .select({
+          runId: automationRuns.runId,
+          id: automationRuns.id,
+          automationId: automationRuns.automationId,
+          organizationId: automationRuns.organizationId,
+          agentId: automationRuns.agentId,
+          status: automationRuns.status,
+          startedAt: automationRuns.startedAt,
+          finishedAt: automationRuns.finishedAt,
+        })
+        .from(automationRuns)
+        .where(and(
+          eq(automationRuns.organizationId, organizationId),
+          inArray(automationRuns.automationId, automationIds),
+        ))
+        .orderBy(desc(automationRuns.startedAt), desc(automationRuns.id))
+        .limit(limit);
+      return rows.map((row) => {
+        if (row.status !== "running" && row.status !== "completed" && row.status !== "halted") {
+          throw new Error(`Invalid Automation Run status: ${row.status}`);
+        }
+        return {
+          runId: row.runId ?? row.id,
+          automationId: row.automationId,
+          organizationId: row.organizationId,
+          agentId: row.agentId,
+          status: row.status,
+          startedAt: row.startedAt.toISOString(),
+          ...(row.finishedAt ? { finishedAt: row.finishedAt.toISOString() } : {}),
+        };
+      });
     });
   }
 }

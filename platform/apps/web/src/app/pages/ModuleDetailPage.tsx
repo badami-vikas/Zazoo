@@ -35,6 +35,7 @@ import {
   Loader,
   ExternalLink,
   Activity,
+  History,
   ChevronRight,
 } from "lucide-react";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
@@ -114,18 +115,78 @@ function StatusBadge({ value }: { value: string }) {
   const active = value === "available" || value === "installed";
   return (
     <span
-      className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border"
+      className="inline-flex items-center gap-1 text-xs"
       style={{
-        borderColor: active ? "var(--color-steel-light)" : "var(--color-border)",
         color: active ? "var(--color-steel)" : "var(--color-warm-gray)",
-        backgroundColor: active
-          ? "color-mix(in srgb, var(--color-steel-light) 20%, transparent)"
-          : "transparent",
       }}
     >
       {active ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
       {value}
     </span>
+  );
+}
+
+function RunsSection({ pkg, refreshKey }: { pkg: ModuleRow; refreshKey: number }) {
+  type Run = Awaited<ReturnType<typeof trpc.modules.recentRuns.query>>["items"][number];
+  const [runs, setRuns] = useState<Run[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setRuns(null);
+    setError(null);
+    void trpc.modules.recentRuns.query({
+      organizationId: PILOT_ORGANIZATION,
+      moduleName: pkg.moduleName,
+      limit: 10,
+    }).then((result) => {
+      if (active) setRuns(result.items);
+    }).catch((cause) => {
+      if (active) setError(String(cause));
+    });
+    return () => {
+      active = false;
+    };
+  }, [pkg.moduleName, refreshKey]);
+
+  return (
+    <section className="space-y-3">
+      <SectionHeader icon={History} title="Recent Runs" />
+      {error ? (
+        <p role="alert" className="text-sm text-red-600 break-words">
+          Recent Runs could not load: {error}
+        </p>
+      ) : runs === null ? (
+        <p role="status" className="text-sm" style={{ color: "var(--color-warm-gray)" }}>
+          Loading recent Runs…
+        </p>
+      ) : runs.length === 0 ? (
+        <EmptyState
+          message={`No Automation Runs have been recorded for ${pkg.moduleName}.`}
+          hint="A Run appears here after a declared Automation starts its attributable Agent."
+        />
+      ) : (
+        <div className="space-y-2">
+          {runs.map((run) => (
+            <details
+              key={run.runId}
+              className="rounded-lg border p-3"
+              style={{ borderColor: "var(--color-border)" }}
+            >
+              <summary className="cursor-pointer text-sm font-medium" style={{ color: "var(--color-navy)" }}>
+                {run.automationName} · {run.status.replace(/_/g, " ")}
+              </summary>
+              <dl className="mt-3 grid gap-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                <div><dt className="inline font-medium">Run</dt> <dd className="inline break-all">{run.runId}</dd></div>
+                <div><dt className="inline font-medium">Agent</dt> <dd className="inline break-all">{run.agentId}</dd></div>
+                <div><dt className="inline font-medium">Started</dt> <dd className="inline">{new Date(run.startedAt).toLocaleString()}</dd></div>
+                {run.finishedAt && <div><dt className="inline font-medium">Finished</dt> <dd className="inline">{new Date(run.finishedAt).toLocaleString()}</dd></div>}
+              </dl>
+            </details>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -295,6 +356,7 @@ function AgentsSection({
             return (
               <details
                 key={agent.id}
+                id={`agent-${agent.id}`}
                 className="rounded-lg border p-3"
                 style={{ borderColor: "var(--color-border)" }}
               >
@@ -407,7 +469,13 @@ function AgentsSection({
 }
 
 /** Automations section. */
-function AutomationsSection({ pkg }: { pkg: ModuleRow }) {
+function AutomationsSection({
+  pkg,
+  onRunRecorded,
+}: {
+  pkg: ModuleRow;
+  onRunRecorded: () => void;
+}) {
   const automations = pkg.manifest?.module?.automations ?? [];
   const runtimeAutomationIds = new Set(pkg.runtimeAutomationIds);
   const agents = new Map((pkg.manifest?.module?.agents ?? []).map((agent) => [agent.id, agent]));
@@ -434,6 +502,7 @@ function AutomationsSection({ pkg }: { pkg: ModuleRow }) {
           needsReview: result.proposals.some((proposal) => proposal.status === "pending_review"),
         },
       }));
+      onRunRecorded();
     } catch (failure) {
       setRunStates((current) => ({
         ...current,
@@ -622,6 +691,7 @@ export function ModuleDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<ModuleRow[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [runsRefreshKey, setRunsRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!moduleId) return;
@@ -738,7 +808,11 @@ export function ModuleDetailPage() {
           <PagesDatabasesSection pkg={pkg} />
           <SubmodulesSection pkg={pkg} />
           <AgentsSection pkg={pkg} attachments={attachments} onInstalled={() => setRefreshKey((value) => value + 1)} />
-          <AutomationsSection pkg={pkg} />
+          <AutomationsSection
+            pkg={pkg}
+            onRunRecorded={() => setRunsRefreshKey((value) => value + 1)}
+          />
+          <RunsSection pkg={pkg} refreshKey={runsRefreshKey} />
           <IntegrationsSection pkg={pkg} />
           <ModuleFilesSection moduleName={pkg.moduleName} title="Files and Results" />
           <SettingsSection pkg={pkg} />

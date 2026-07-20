@@ -2878,7 +2878,6 @@ test("full graph projects cross-Module Record, Event, and File Relations without
       })
       .returning({ id: schema.events.id });
     assert.ok(crossModuleEvent);
-
     const result = await new DrizzleGraphStore(db).listFullGraph(
       organizationId,
       viewerUserId,

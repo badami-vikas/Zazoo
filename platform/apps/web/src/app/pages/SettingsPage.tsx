@@ -28,7 +28,7 @@ const navItems = [
   { id: "organization", label: "Organization", icon: Building2 },
   { id: "learning", label: "Learning", icon: Sparkles },
   { id: "team", label: "Team & Permissions", icon: Users },
-  { id: "knowledge", label: "Sources", icon: BookOpen },
+  { id: "sources", label: "Sources", icon: BookOpen },
   { id: "intelligence", label: "Capabilities", icon: Sparkles },
   { id: "governance", label: "Governance", icon: Shield },
   { id: "notifications", label: "Notifications", icon: Bell },
@@ -411,7 +411,7 @@ function TeamSection() {
 type GoogleInfo = Awaited<ReturnType<typeof trpc.google.list.query>>;
 type IntegrationsResult = Awaited<ReturnType<typeof trpc.integration.list.query>>;
 
-function KnowledgeSection() {
+function SourcesSection() {
   const [google, setGoogle] = useState<GoogleInfo | null>(null);
   const [connected, setConnected] = useState<IntegrationsResult | null>(null);
 
@@ -608,8 +608,8 @@ export function SettingsPage() {
         return <LearningSection />;
       case "team":
         return <TeamSection />;
-      case "knowledge":
-        return <KnowledgeSection />;
+      case "sources":
+        return <SourcesSection />;
       case "intelligence":
         return <IntelligenceSection />;
       case "governance":

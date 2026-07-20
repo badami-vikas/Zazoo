@@ -23,7 +23,10 @@ import {
   saveModuleFile,
 } from "../src/module-files.js";
 import { appRouter } from "../src/router.js";
-import { BUILT_IN_MODULES } from "../src/built-in-modules.js";
+import {
+  BUILT_IN_MODULES,
+  resolveModuleAutomationRuntimeId,
+} from "../src/built-in-modules.js";
 import {
   buildWiring,
   PILOT_USER,
@@ -114,6 +117,104 @@ test("VOCAB5 upgrades the immutable Relationship manifest", async () => {
       (capability) => capability.id === "relationship.submodule.relations",
     ),
   );
+});
+
+test("modules.recentRuns returns only attributable Runs from the installed Module", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const listed = await caller.modules.list({
+      organizationId: PILOT_ORGANIZATION,
+      limit: 100,
+      offset: 0,
+    });
+
+    const module = listed.items.find((item) => item.moduleName === "deal-pilot");
+    assert.ok(module?.manifest.module);
+    const manifestAutomation = module.manifest.module.automations.find(
+      (automation) => automation.automationId,
+    );
+    assert.ok(manifestAutomation?.automationId);
+    const runtimeAutomationId = resolveModuleAutomationRuntimeId(
+      module.moduleName,
+      manifestAutomation.automationId,
+    );
+    assert.ok(runtimeAutomationId);
+    const definition = await wiring.automationRegistry.load(
+      PILOT_ORGANIZATION,
+      runtimeAutomationId,
+    );
+    assert.ok(definition);
+    const run = makeRun();
+    const runId = run.ids.next();
+    await wiring.automationRunRecorder.start({
+      runId,
+      automationId: runtimeAutomationId,
+      organizationId: PILOT_ORGANIZATION,
+      agentId: definition.agentId,
+    }, run);
+
+    const recent = await caller.modules.recentRuns({
+      organizationId: PILOT_ORGANIZATION,
+      moduleName: module.moduleName,
+      limit: 10,
+    });
+    assert.equal(recent.items.length, 1);
+    assert.equal(recent.items[0]?.runId, runId);
+    assert.equal(recent.items[0]?.manifestAutomationId, manifestAutomation.id);
+    assert.equal(recent.items[0]?.automationName, manifestAutomation.name);
+    assert.equal(recent.items[0]?.agentId, definition.agentId);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("full Graph composes permission-scoped Records with installed Module and Agent sources", async () => {
+  const wiring = await buildWiring();
+  try {
+    const sourceManifest = BUILT_IN_MODULES.find(
+      (builtIn) => builtIn.manifest.name === "deal-pilot",
+    )?.manifest;
+    assert.ok(sourceManifest);
+    for (let index = 0; index < 205; index += 1) {
+      const name = `test-fixture-module-${String(index).padStart(3, "0")}`;
+      const manifest = structuredClone(sourceManifest);
+      manifest.name = name;
+      if (manifest.module) manifest.module.displayName = name;
+      await wiring.moduleStore.create({
+        organizationId: PILOT_ORGANIZATION,
+        moduleName: name,
+        moduleVersion: "1.0.0",
+        manifest,
+        computedRisk: "informational",
+        state: "available",
+        status: "installed",
+        lineageManifestId: null,
+      });
+    }
+    const caller = await makeCaller(wiring);
+    const graph = await caller.graph.full({
+      organizationId: PILOT_ORGANIZATION,
+      limit: 100,
+    });
+    const nodeIds = new Set(graph.nodes.map((node) => node.id));
+    assert.ok(nodeIds.has("module:deal-pilot"));
+    assert.ok(nodeIds.has("agent:deal-pilot:sourcing-agent"));
+    assert.ok(nodeIds.has("module:test-fixture-module-204"));
+    assert.ok(graph.nodes.find((node) => node.id === "module:deal-pilot")?.recordPath);
+    assert.ok(graph.nodes.find((node) => node.id === "agent:deal-pilot:sourcing-agent")?.recordPath);
+    assert.ok(graph.edges.some(
+      (edge) =>
+        edge.relationType === "originates_from" &&
+        edge.sourceId === "agent:deal-pilot:sourcing-agent" &&
+        edge.targetId === "module:deal-pilot",
+    ));
+    assert.ok(graph.edges.every(
+      (edge) => edge.relationType !== "originates_from" || edge.recordPath,
+    ));
+  } finally {
+    await wiring.close();
+  }
 });
 
 test("modules.register: creates a private/pending_review installation, no risk computed yet", async () => {

@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Network, Home, Boxes, Plus, Settings, Check, ListChecks, LogOut, MessageSquare, X } from "lucide-react";
+import { Network, Home, Boxes, Plus, Settings, Check, ListChecks, LogOut, MessageSquare } from "lucide-react";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
 import { hasStoredPrefs, loadAvatarPrefs, saveAvatarPrefs, type AvatarPrefs } from "./avatar/avatar-store";
 import { AgentPanel } from "./components/shared/AgentPanel";
 import { NewModuleDialog } from "./components/NewModuleDialog";
-import { usePanelControl, ResizeHandle, CollapseToggleButton } from "./components/shared/PanelControl";
+import {
+  usePanelControl,
+  ResizeHandle,
+  CollapseToggleButton,
+  ExtendToggleButton,
+} from "./components/shared/PanelControl";
 import { DesktopWindowChrome } from "./components/shared/DesktopWindowChrome";
 import { useAuthSession } from "./auth/AuthSession";
 
@@ -58,8 +63,8 @@ export default function Layout() {
     defaultWidth: RAIL_EXPANDED,
     minWidth: RAIL_COLLAPSED,
     maxWidth: RAIL_EXTENDED,
-    storageKeyWidth: "bridge.rail.width.v2",
-    storageKeyCollapsed: "bridge.rail.collapsed.v2",
+    storageKeyWidth: `bridge.${PILOT_ORGANIZATION}.rail.width.v3`,
+    storageKeyCollapsed: `bridge.${PILOT_ORGANIZATION}.rail.collapsed.v3`,
     snap: true,
     snapMidpoint: (RAIL_COLLAPSED + RAIL_EXPANDED) / 2,
   });
@@ -214,10 +219,7 @@ export default function Layout() {
           }
         }}
         onKeyDown={(e) => {
-          // §5b: Escape key returns expanded → collapsed.
-          if (e.key === "Escape" && railExpanded) {
-            setRailExpandedPersisted(false);
-          }
+          if (e.key === "Escape") rail.handleEscape();
         }}
       >
         {/* Resize handle — shared ResizeHandle component (§5b). */}
@@ -264,11 +266,18 @@ export default function Layout() {
 
           {/* Collapse toggle — shared CollapseToggleButton (§5b). */}
           {railExpanded && (
-            <CollapseToggleButton
-              side="left"
-              collapsed={false}
-              onClick={() => setRailExpandedPersisted(false)}
-            />
+            <div className="flex items-center">
+              <ExtendToggleButton
+                side="left"
+                extended={rail.mode === "extended"}
+                onClick={rail.toggleExtended}
+              />
+              <CollapseToggleButton
+                side="left"
+                collapsed={false}
+                onClick={() => setRailExpandedPersisted(false)}
+              />
+            </div>
           )}
 
           {orgMenuOpen && (
@@ -443,9 +452,11 @@ export default function Layout() {
           >
             <div className="mb-3 flex h-11 items-center justify-between border-b" style={{ borderColor: "var(--color-border)" }}>
               <span className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>Installed Modules</span>
-              <button type="button" onClick={() => setMobileModulesOpen(false)} aria-label="Collapse sidebar" className="rounded p-2">
-                <X className="h-4 w-4" />
-              </button>
+              <CollapseToggleButton
+                side="left"
+                collapsed={false}
+                onClick={() => setMobileModulesOpen(false)}
+              />
             </div>
             <div className="space-y-1">
               {installedModules?.map((module) => (

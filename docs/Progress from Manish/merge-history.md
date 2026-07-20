@@ -27,6 +27,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 - VOCAB4 completed through PR #29 at source `80f8712`, evidence checkpoint `a07ec02`, and merge
   `611c9ad`, allocating migration `0023_vocab4_event_result_file`.
 - VOCAB5 completes through PR #30 at source/evidence `63a7aaa`; no migration is added.
+- VOCAB6 completes through PR #32 at implementation/evidence source `e657cc8`; no migration is added.
 - Stalled Supabase deployment session `0f3e2f14-7fd2-4d07-8f3e-9c86c7c5480a` shared the
   central checkout and had no independent branch. Its completed tree was preserved at
   `6590c71`; this merge normally reconciles `origin/main@5ab4568`, retains canonical VOCAB3
@@ -75,7 +76,8 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `58573ba` | Partial TASK-012 VOCAB3 checkpoint: Organization/Module/Record runtime contracts, migration `0021`, Local Plane compatibility, and targeted regression fixes. Not a VOCAB3 completion claim. |
 | `bdcedeb` / `dc50c33` | TASK-012 VOCAB3 source and PR #28 merge. |
 | `80f8712` / `a07ec02` / `611c9ad` | TASK-012 VOCAB4 implementation, runner-evidence follow-up, and PR #29 merge; migration `0023`. |
-| `63a7aaa` / (this merge) | TASK-012 VOCAB5 Relationship Module convergence through PR #30; no migration. |
+| `63a7aaa` / PR #30 | TASK-012 VOCAB5 Relationship Module convergence; no migration. |
+| `e657cc8` / PR #32 | TASK-012 VOCAB6 Module shell, Runs, symmetric panels, full Graph sources/actions, and runtime Knowledge deletion; no migration. |
 | `6590c71` | Preservation checkpoint for the recovered Supabase pilot deployment before reconciling newer `origin/main`; retained as a merge parent/audit source, not as the final vocabulary integration. |
 | (this merge) | Recovered Supabase session integration: migration `0022`, least-privilege/RLS context, exact hosted Auth, encrypted headless vault, Local/Cloud ledger routing, container assets, and durable recovery records. Local `main` only; no push or cloud provisioning. |
 
@@ -107,8 +109,8 @@ This file prevents a new session from re-merging historical branches or reusing 
   `task-012-vocab01` at checkpoints `dd51797` and `bd7de18`, landed through PR #26. VOCAB2 source
   `task-012-vocab2` at `88be310` landed through PR #27 (`f6c4376`). Partial VOCAB3 source
   `task-012-vocab3` checkpoint `58573ba` is historical. VOCAB3/VOCAB4 landed through PRs #28/#29;
-  VOCAB5 lands through PR #30 from `63a7aaa`. Continue only VOCAB6/final compatibility deletion
-  from current `main`.
+  VOCAB5 landed through PR #30 from `63a7aaa`; VOCAB6 lands through PR #32 from `e657cc8`.
+  Continue only final compatibility deletion/full prototype certification from current `main`.
 
 ## Migration sequence
 

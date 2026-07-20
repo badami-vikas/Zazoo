@@ -1966,7 +1966,6 @@ export class DrizzleGraphStore {
         provenance: "Resource · source resources",
       });
     }
-
     const permittedEdges = candidates.filter(
       (edge) => nodes.has(edge.sourceId) && nodes.has(edge.targetId),
     );
@@ -2004,7 +2003,11 @@ export class DrizzleGraphStore {
       nodes: selectedNodes,
       edges: selectedEdges,
       databases,
-      hasMore: relationPage.hasMore || sourceTruncated || nodeSourceTruncated || permittedEdges.length > limit,
+      hasMore:
+        relationPage.hasMore ||
+        sourceTruncated ||
+        nodeSourceTruncated ||
+        permittedEdges.length > limit,
     };
   }
 

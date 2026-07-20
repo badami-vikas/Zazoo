@@ -498,6 +498,10 @@ test("AutomationExecutor loads a definition, merges params, and records its attr
   const rec = recorder.runs.get(result.runId);
   assert.equal(rec?.status, "completed");
   assert.equal(rec?.agentId, "agent-1");
+  const recent = await recorder.list(WS, ["reconnect"], { limit: 10 });
+  assert.equal(recent.length, 1);
+  assert.equal(recent[0]?.runId, result.runId);
+  assert.equal(recent[0]?.finishedAt !== undefined, true);
 });
 
 test("AutomationExecutor derives the actor exclusively from the stored owning Agent", async () => {

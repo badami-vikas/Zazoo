@@ -1938,3 +1938,11 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Added manifest-driven Relations/Interactions/Introductions/Sources routes with shared Files and honest states. Signals/People/Communities remain canonical sibling Pages.
 - Targeted API/web/typecheck/build/lint/no-dummy/vocabulary checks and desktop plus exact 375×812 Chrome proofs passed. Ratchet decreased 360→296. TASK-012 stays `in_progress` for VOCAB6 and final compatibility deletion. Durable handoff: `outputs/2026-07-20-task012-vocab5.md`.
 - GitHub Actions run `29738518741` failed every runner-backed job before any step started and emitted no logs (payment-blocked runners). No CI success is claimed.
+
+# 2026-07-20 — TASK-012 VOCAB6 residual convergence (AP-058, ADR-132)
+- Audited current `origin/main@18175b0` and reused completed TASK-001/007/009/014 primitives rather than rebuilding them.
+- Added durable attributable Module Run history; explicit symmetric three-state panel controls; full Graph Module/Agent/source composition from active installations; real edge/node source paths; and responsive desktop/exact-375px proof.
+- Deleted orphan Intelligence and standalone Skill surfaces. Migrated remaining runtime Knowledge identifiers/copy to canonical Sources/context/evidence vocabulary. Ratchet fell 296→283; Knowledge is zero and only two time-boxed Tool-family inspected-source paths remain.
+- Bounded review found and closed stale Run refresh, fixed-200 Module omission, dead edge Action, and adapter-clock drift. No migration `0024`.
+- Targeted Core/DB/API/web tests, typechecks/builds, lint, vocabulary/no-dummy checks, and isolated browser certification passed. Broad validation also exposed stale pre-VOCAB4 Signal-write and Onboarding vocabulary assertions; both are preserved in BUGS for final compatibility deletion rather than masking them with production compatibility. TASK-012 remains `in_progress` for final compatibility deletion/full prototype certification. Durable handoff: `outputs/2026-07-20-task012-vocab6.md`.
+- GitHub Actions run `29740972890` failed all runner-backed jobs before any step and emitted no logs (payment-blocked runner condition). No CI success is claimed.

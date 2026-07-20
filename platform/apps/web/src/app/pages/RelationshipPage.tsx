@@ -23,7 +23,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { DataViews } from "../dataviews/DataViews";
 import { computeEligibleKinds, viewConfigForKind } from "../dataviews/eligibility";
-import type { DataRow, GraphData, GraphNode } from "../dataviews/types";
+import type { DataRow, GraphData, GraphEdge, GraphNode } from "../dataviews/types";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { SignalsPage } from "./SignalsPage";
 
@@ -349,6 +349,10 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
     }
   }
 
+  function openRelation(edge: GraphEdge) {
+    if (edge.recordPath) navigate(edge.recordPath);
+  }
+
   async function insertRecord(draft: Partial<DataRow>) {
     const displayName = typeof draft["displayName"] === "string"
       ? draft["displayName"].trim()
@@ -475,6 +479,7 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
             canUpdateRow={(row) => row["isOwner"] === true}
             formRecord={formRecord}
             onOpenRecord={openRecord}
+            onOpenRelation={openRelation}
             onEditRecord={(row) => {
               setFormRecord(row);
               changeView(viewConfigForKind(spec, "form", view), true);

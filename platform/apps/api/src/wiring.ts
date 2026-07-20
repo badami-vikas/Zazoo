@@ -319,6 +319,8 @@ export interface Wiring {
   pilotUserEmail: string;
   /** Canonical Automation definitions used by Automation creation and execution. */
   automationRegistry: AutomationRegistry;
+  /** Attributable Automation Run history used by Module Detail. */
+  automationRunRecorder: AutomationRunRecorder;
   /** Organization + team-member CRUD — direct DB writes, not a governed pipeline skill. */
   organizationStore: DrizzleOrganizationStore;
   /** Read surface for Record/Event/Signal (see graph-store.ts). */
@@ -4059,6 +4061,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     },
     integrationStore,
     automationRegistry,
+    automationRunRecorder,
     organizationStore,
     graphStore,
     jobpilotStore,

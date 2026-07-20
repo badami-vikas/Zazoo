@@ -17,10 +17,18 @@
  * Drag is continuous on "right" panel (chat needs a range); snaps on "left"
  * (rail has two semantic states, not a continuous range).
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronsLeft, ChevronsRight, PanelLeftClose, PanelRightClose } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import {
+  ChevronsLeft,
+  ChevronsRight,
+  Maximize2,
+  Minimize2,
+  PanelLeftClose,
+  PanelRightClose,
+} from "lucide-react";
 
 export type PanelSide = "left" | "right";
+export type PanelMode = "collapsed" | "expanded" | "extended";
 
 export interface PanelControlProps {
   side: PanelSide;
@@ -52,6 +60,7 @@ export interface PanelControlProps {
 
 export interface PanelState {
   collapsed: boolean;
+  mode: PanelMode;
   setCollapsed: (v: boolean) => void;
   width: number;
 }
@@ -73,10 +82,13 @@ export function usePanelControl({
   "defaultWidth" | "minWidth" | "maxWidth" | "storageKeyWidth" | "storageKeyCollapsed" | "snap" | "snapMidpoint"
 >): {
   collapsed: boolean;
+  mode: PanelMode;
   setCollapsedPersisted: (v: boolean) => void;
   panelWidth: number;
   setPanelWidthPersisted: (v: number) => void;
   resizeBy: (delta: number) => void;
+  toggleExtended: () => void;
+  handleEscape: () => void;
   dragWidth: number | null;
   startDrag: (e: React.MouseEvent, side: PanelSide) => void;
   isDragging: boolean;
@@ -91,6 +103,11 @@ export function usePanelControl({
     return stored >= minWidth && stored <= maxWidth ? stored : defaultWidth;
   });
   const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const mode: PanelMode = collapsed
+    ? "collapsed"
+    : panelWidth > defaultWidth
+      ? "extended"
+      : "expanded";
 
   function setCollapsedPersisted(v: boolean) {
     setCollapsed(v);
@@ -142,16 +159,60 @@ export function usePanelControl({
     setPanelWidthPersisted(panelWidth + delta);
   }
 
+  function toggleExtended() {
+    setCollapsedPersisted(false);
+    setPanelWidthPersisted(mode === "extended" ? defaultWidth : maxWidth);
+  }
+
+  function handleEscape() {
+    if (mode === "extended") {
+      setPanelWidthPersisted(defaultWidth);
+      return;
+    }
+    if (mode === "expanded") setCollapsedPersisted(true);
+  }
+
   return {
     collapsed,
+    mode,
     setCollapsedPersisted,
     panelWidth,
     setPanelWidthPersisted,
     resizeBy,
+    toggleExtended,
+    handleEscape,
     dragWidth,
     startDrag,
     isDragging: dragWidth !== null,
   };
+}
+
+export function ExtendToggleButton({
+  side,
+  extended,
+  onClick,
+}: {
+  side: PanelSide;
+  extended: boolean;
+  onClick: () => void;
+}) {
+  const target = side === "left" ? "sidebar" : "chat panel";
+  const label = extended ? `Restore ${target} width` : `Extend ${target}`;
+  const Icon = extended ? Minimize2 : Maximize2;
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={extended}
+      aria-controls={`panel-${side}`}
+      onClick={onClick}
+      className="p-1.5 rounded-lg hover:bg-[var(--color-surface)] transition-colors shrink-0"
+      style={{ color: "var(--color-warm-gray)" }}
+      title={label}
+    >
+      <Icon className="w-4 h-4" />
+    </button>
+  );
 }
 
 /**

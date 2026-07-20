@@ -70,7 +70,7 @@ export const FOUNDATIONAL_AGENTS: readonly FoundationalAgent[] = [
     responsibilities: [
       "learn from conversations, user behavior, corrections and feedback, connected systems, and documents",
       "conduct external research",
-      "build organizational knowledge, user understanding, and domain understanding",
+      "build organizational context, user understanding, and domain understanding",
       "discover patterns and generate insights",
     ],
     neverExecutes: true,
@@ -333,7 +333,7 @@ export const COMMUNICATIONS_SKILL = {
     "draft, edit, rewrite, and summarize",
     "explain, prepare meetings, produce reports and documentation",
     "translate and adapt tone and audience",
-    "organize knowledge into presentations and knowledge articles",
+    "organize evidence into presentations and reference articles",
   ] as const,
 };
 

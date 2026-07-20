@@ -256,6 +256,16 @@ export interface AutomationRegistry {
 }
 
 /** Records attributable Automation Runs. */
+export interface AutomationRunRecord {
+  runId: string;
+  automationId: string;
+  organizationId: string;
+  agentId: string;
+  status: "running" | "completed" | "halted";
+  startedAt: string;
+  finishedAt?: string;
+}
+
 export interface AutomationRunRecorder {
   start(
     run: { runId: string; automationId: string; organizationId: string; agentId: string },
@@ -265,4 +275,9 @@ export interface AutomationRunRecorder {
     run: { runId: string; organizationId: string; status: "completed" | "halted"; output: unknown },
     ctx: RunCtx,
   ): Promise<void>;
+  list(
+    organizationId: string,
+    automationIds: string[],
+    opts: { limit: number },
+  ): Promise<AutomationRunRecord[]>;
 }

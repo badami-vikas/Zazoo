@@ -75,6 +75,7 @@ test("Graph uses one renderer for Page, selected-Database, and Second Brain scop
   assert.match(graphSource, /Full · Second Brain/);
   assert.match(graphSource, /Relation/);
   assert.match(graphSource, /Open Record/);
+  assert.match(graphSource, /Open Relation/);
   assert.match(graphSource, /Governed Action/);
 });
 

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Universal Commons — local-first curated package registry (generalized capability knowledge ONLY, never user data). Same HTTP contract as the future Bridge Cloud registry.",
+  "description": "Universal Commons — local-first curated Module registry (generalized capability content ONLY, never user data). Same HTTP contract as the future Bridge Cloud registry.",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",

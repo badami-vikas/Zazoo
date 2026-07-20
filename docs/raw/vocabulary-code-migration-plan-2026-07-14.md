@@ -137,6 +137,12 @@ migrations:
       - build one shared PanelControl component/state contract for left Sidebar and right Chat Panel expand, collapse, extend, width persistence, tooltips, keyboard controls, and responsive behavior
       - add Second Brain below Modules: cross-Module graph over Records, Relations, Events, Files, Agents, and source Modules; every node/edge opens source detail or a governed Action
       - enforce actionability contract: every non-decorative card, row, node, count, status, and recommendation opens detail, edit, filter, explanation, or governed Action; otherwise render it as plain text, not an affordance
+    compatibility_retained_2026_07_20:
+      paths:
+        - platform/tools/dealpilot/src/manifest.ts
+        - platform/tools/jobpilot/src/manifest.ts
+      reason: exact inspected-source provenance still points at the current repository paths
+      removal: final TASK-012 compatibility-deletion milestone renames the two Module package directories and their provenance references atomically
     exit: no Tools/Knowledge routes or visible copy; repository denylist clean outside migrations/history; all installed Modules drill down; Agent-only Skill invocation contract tested; symmetric panels proven; Second Brain cross-Module navigation and actions proven on desktop + 375px
 ```
 

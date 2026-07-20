@@ -308,16 +308,6 @@
           "string": {}
         }
       },
-      "apps/web/src/app/pages/SkillDetail.tsx": {
-        "identifier": 1,
-        "string": 0,
-        "fingerprints": {
-          "identifier": {
-            "d8501571c252c4b99f11c478abfa42dc": 1
-          },
-          "string": {}
-        }
-      },
       "apps/web/src/app/routes.tsx": {
         "identifier": 10,
         "string": 0,
@@ -480,16 +470,6 @@
           "identifier": {},
           "string": {
             "f6f18716ea44bfc2c00064718873d895": 1
-          }
-        }
-      },
-      "apps/web/src/app/pages/IntelligencePage.tsx": {
-        "identifier": 0,
-        "string": 1,
-        "fingerprints": {
-          "identifier": {},
-          "string": {
-            "0aec6eda7c66d241ba19186d1b9360fc": 1
           }
         }
       },
@@ -658,43 +638,6 @@
         }
       }
     },
-    "knowledge": {
-      "apps/web/src/app/pages/SettingsPage.tsx": {
-        "identifier": 2,
-        "string": 2,
-        "fingerprints": {
-          "identifier": {
-            "bc9d3fa2e5f00d054aaaf66f0bf55560": 1,
-            "7d9a2121738015d10f61066c752ec718": 1
-          },
-          "string": {
-            "2833c4bf51c0fb19507c16c1834d8e5f": 1,
-            "da691ddb821fd9ea5dc501e81b73514a": 1
-          }
-        }
-      },
-      "packages/core/src/agents.ts": {
-        "identifier": 0,
-        "string": 3,
-        "fingerprints": {
-          "identifier": {},
-          "string": {
-            "634a71d41cb74c91b6ff0ce15dbd488a": 1,
-            "409d97c3ddac578202ef5b8f68358bc8": 2
-          }
-        }
-      },
-      "services/commons/src/server.ts": {
-        "identifier": 0,
-        "string": 1,
-        "fingerprints": {
-          "identifier": {},
-          "string": {
-            "7ed8788a447bbdc5ac52bebbdddf14ca": 1
-          }
-        }
-      }
-    },
     "package": {
       "apps/api/src/built-in-modules.ts": {
         "identifier": 0,
@@ -837,17 +780,6 @@
           "string": {
             "59860366855f0f7b53721a798b29f700": 1,
             "8c341826c5ad50e1228c149971d9a975": 1
-          }
-        }
-      },
-      "packages/core/src/guard/content-guard.ts": {
-        "identifier": 0,
-        "string": 3,
-        "fingerprints": {
-          "identifier": {},
-          "string": {
-            "5b47f3298e3242f4db8e0a40e9c6b529": 1,
-            "554e68b91e603a644ac11c9d1b080d2e": 2
           }
         }
       }
