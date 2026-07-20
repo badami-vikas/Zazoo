@@ -86,7 +86,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `cd0ad97` / `e139d88` / PR #33 | TASK-012 final compatibility deletion, zero vocabulary baseline, migration `0024`, canonical Module package paths, and exact source provenance pin. |
 | `6590c71` | Preservation checkpoint for the recovered Supabase pilot deployment before reconciling newer `origin/main`; retained as a merge parent/audit source, not as the final vocabulary integration. |
 | (this merge) | Recovered Supabase session integration: migration `0022`, least-privilege/RLS context, exact hosted Auth, encrypted headless vault, Local/Cloud ledger routing, container assets, and durable recovery records. Local `main` only; no push or cloud provisioning. |
-| TASK-006 live continuation | Free `us-east-1` Supabase pilot, exact Auth/JWKS admission, managed-Postgres migration bundle, migrations `0025`/`0026`, desktop-local residency, and live Source↔Thesis evidence. TASK remains open on Source credentials + Google OAuth. |
+| TASK-006 live continuation | Free `us-east-1` Supabase pilot, exact Auth/JWKS admission, managed-Postgres migration bundle, migrations `0025`/`0026`, desktop-local residency, and live Source↔Thesis evidence. AP-060 sets TASK-006 `blocked` on an authorized real Source credential + configured/authorized Google OAuth. |
 
 ## Historical source branches
 

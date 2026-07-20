@@ -1962,3 +1962,8 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Proved least-privilege `bridge_app`, cross-Organization denial, pooled-context reset, exact pilot `200`, service credential `401`, zero cloud private-surface rows, Local Plane restart durability, governed Source↔Thesis Relation, and desktop/exact-375 rendering.
 - Added create-time password inputs for OS-vault Source credentials. No credential was stored because the user has none available; Google OAuth is also absent, so live BizBuySell Deal discovery and credential reveal/copy/revoke/expiry remain the exact blockers. TASK-006 stays `in_progress`.
 - GitHub Actions run `29770323574` failed all eight runner-backed jobs with zero steps and skipped the installer matrix; this is the payment-blocked runner condition, not test execution, and no CI success is claimed.
+
+# 2026-07-21 — TASK-006 canonical blocked status (AP-060)
+- Applied the user-directed `in_progress` → `blocked` correction without changing the successful Supabase/Auth/RLS/desktop-local milestone.
+- Exact unblock: an authorized real Source credential plus configured/authorized Google OAuth, followed by live BizBuySell Deal discovery and credential reveal/copy/revoke/expiry/wrong-Human proof.
+- Preserved the security evidence that the terminal-exposed runtime password was immediately rotated to a generated Keychain-only value; no value is stored in committed evidence.
