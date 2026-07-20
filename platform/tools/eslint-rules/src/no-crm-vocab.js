@@ -8,7 +8,7 @@
  * docs/raw/decisions-log.md): vocabulary is two-scoped. KERNEL scope (modules/*,
  * apps/api) keeps this ban by default. ORGANIZATION scope (compiled products under tools/*, the
  * generated-organization UI under apps/web) may use domain vocabulary — e.g.
- * tools/dealpilot's "Deal" identifiers are DealPilot's own compiled-product
+ * modules/dealpilot's "Deal" identifiers are DealPilot's own compiled-product
  * vocabulary, not a violation. Module-scoped API identifiers are explicitly
  * allowlisted below so the monolithic API composition root does not turn "Deal"
  * into a generic Engine primitive. The scoping lives HERE (in the rule, via
@@ -29,7 +29,7 @@
  * zero-maintenance option that doesn't false-positive on real code — the tradeoff is the
  * rule can't catch a hypothetical future "salesPipeline"/"dealPipelineStage" identifier,
  * but grep confirmed no such usage exists today, and "Deal" alone (see below) already
- * catches the actual violations found (tools/dealpilot's DealProfile, DealPipelineResult,
+ * catches the actual violations found (modules/dealpilot's DealProfile, DealPipelineResult,
  * processDealCandidate, dealsKanbanView, existingDeals, etc.).
  *
  * "Lead" and "Contact" are excluded from the identifier check too — grep-verified: every

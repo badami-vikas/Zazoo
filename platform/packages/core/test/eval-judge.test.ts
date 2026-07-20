@@ -54,13 +54,13 @@ test("JudgeScorer clamps scores above and below the quality range", async () => 
   const high = new JudgeScorer({ model: modelReturning("quality: 1.4"), modelVersion: "judge-v1" });
   const low = new JudgeScorer({ model: modelReturning("-0.3"), modelVersion: "judge-v1" });
 
-  assert.deepEqual(await high.score(caseInput(), "artifact", snapshot), { quality: 1 });
-  assert.deepEqual(await low.score(caseInput(), "artifact", snapshot), { quality: 0 });
+  assert.deepEqual(await high.score(caseInput(), "result", snapshot), { quality: 1 });
+  assert.deepEqual(await low.score(caseInput(), "result", snapshot), { quality: 0 });
 });
 
 test("JudgeScorer rejects model responses without a number", async () => {
   const scorer = new JudgeScorer({ model: modelReturning("no number here"), modelVersion: "judge-v1" });
-  await assert.rejects(() => scorer.score(caseInput(), "artifact", snapshot), /numeric quality score/);
+  await assert.rejects(() => scorer.score(caseInput(), "result", snapshot), /numeric quality score/);
 });
 
 test("JudgeScorer propagates model failures", async () => {
@@ -73,7 +73,7 @@ test("JudgeScorer propagates model failures", async () => {
     },
   };
   const scorer = new JudgeScorer({ model, modelVersion: "judge-v1" });
-  await assert.rejects(() => scorer.score(caseInput(), "artifact", snapshot), failure);
+  await assert.rejects(() => scorer.score(caseInput(), "result", snapshot), failure);
 });
 
 test("JudgeScorer prompt uses case rubric before constructor rubric", async () => {
@@ -97,7 +97,7 @@ test("JudgeScorer prompt uses case rubric before constructor rubric", async () =
   assert.match(seenPrompt, /Pinned judge model version: judge-v1/);
 });
 
-test("JudgeScorer uses the constructor rubric and stringifies circular artifacts", async () => {
+test("JudgeScorer uses the constructor rubric and stringifies circular Results", async () => {
   let seenPrompt = "";
   const model: ModelProvider = {
     id: "judge-local",
@@ -107,7 +107,7 @@ test("JudgeScorer uses the constructor rubric and stringifies circular artifacts
       return { text: "0.6" };
     },
   };
-  const circular: Record<string, unknown> = { kind: "artifact" };
+  const circular: Record<string, unknown> = { kind: "result" };
   circular.self = circular;
   const scorer = new JudgeScorer({ model, modelVersion: "judge-v1", rubric: "constructor rubric" });
 

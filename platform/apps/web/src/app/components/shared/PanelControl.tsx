@@ -11,7 +11,7 @@
  * State machine:
  *   collapsed (icon strip) ──click/kbd──→ expanded (normal width)
  *   expanded ──drag──→ extended (wider width, same as expanded but user-sized)
- *   expanded/extended ──Escape──→ collapsed (does not discard chat/nav state)
+ *   extended ──Escape──→ expanded ──Escape──→ collapsed
  *
  * Width persistence: collapsed = 0 (hidden to CSS), expanded = persisted px.
  * Drag is continuous on "right" panel (chat needs a range); snaps on "left"

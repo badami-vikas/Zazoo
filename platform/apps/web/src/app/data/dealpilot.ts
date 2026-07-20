@@ -1,4 +1,4 @@
-// DealPilot — local reactive store + the ThesisFit scoring proven in platform/tools/dealpilot.
+// DealPilot — local reactive store + the ThesisFit scoring proven in platform/modules/dealpilot.
 // Listings come only from the real, governed sourcing pipeline (useLiveListings) below — no
 // seeded demo listings. Empty until the user sources or a brokerage connection is committed.
 import { useSyncExternalStore, useState } from 'react';
@@ -30,7 +30,7 @@ function transition(current: DealStage, to: DealStage): DealStage {
   return to;
 }
 
-// ── scoreThesisFit — port of platform/tools/dealpilot/src/scoring.ts ───────────────────────────
+// ── scoreThesisFit — port of platform/modules/dealpilot/src/scoring.ts ─────────────────────────
 export function scoreThesisFit(deal: DealListing, thesis: ThesisProfile): FitResult {
   const matched: string[] = []; const unmatched: string[] = [];
   let points = 0; let possible = 0;

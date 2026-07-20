@@ -287,10 +287,10 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Organizat
     vocabulary,
     entities: [
       { nodeType: entityDef.nodeType, label: entityDef.label, fields },
-      ...(wantsSignals && entityDef.nodeType !== "signal"
+      ...(wantsSignals && entityDef.nodeType !== "event"
         ? [{
-            nodeType: "signal",
-            label: "Signal",
+            nodeType: "event",
+            label: "Signal Event",
             fields: [
               { id: "name", label: "Name", kind: "text" as const },
               { id: "occurred_at", label: "Occurred at", kind: "date" as const },
@@ -311,7 +311,9 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Organizat
           : {}),
       },
       ...(wantsCalendar ? [{ entity: entityDef.nodeType, kind: "calendar" as const }] : []),
-      ...(wantsSignals ? [{ entity: "signal", kind: "table" as const }] : []),
+      ...(wantsSignals && entityDef.nodeType !== "event"
+        ? [{ entity: "event", kind: "table" as const }]
+        : []),
     ],
     capabilities: [],
   };

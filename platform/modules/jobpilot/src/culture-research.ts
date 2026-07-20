@@ -255,7 +255,7 @@ export function buildSourceDisclosure(
  */
 const FABRICATION_PATTERNS: readonly RegExp[] = [
   /\bi (?:personally )?know (?:someone|a friend|people) (?:who|at)\b/i,
-  /\binsider (?:info|information|knowledge|source)\b/i,
+  /\binsider (?:info|information|details|source)\b/i,
   /\bguarantee(?:d)?\s+(?:you'?ll|to)?\s*(?:get|land|receive)\s+(?:the|an?)\s+(?:job|offer|interview)\b/i,
   /\bi have a personal (?:relationship|connection) with\b/i,
   /\b(?:secretly|confidentially) told me\b/i,

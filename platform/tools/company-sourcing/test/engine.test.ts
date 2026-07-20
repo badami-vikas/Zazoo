@@ -28,7 +28,7 @@ test("matchCompany: delegates to shared dedupe with domain+industry as corrobora
   assert.equal(result.tier, "strong");
 });
 
-test("cross-tool registry: both sourcing tools register clean and a DealPilot-shaped external composes both", () => {
+test("cross-Module registry: both sourcing Engines register clean and a DealPilot-shaped external composes both", () => {
   const dealpilot = {
     id: "dealpilot",
     name: "DealPilot",

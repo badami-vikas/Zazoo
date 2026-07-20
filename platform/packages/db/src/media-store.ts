@@ -7,7 +7,7 @@
  */
 import { PGlite } from "@electric-sql/pglite";
 import type { LocalMediaStore, MediaCaptureRecord, MediaKind, MediaStatus } from "@bridge/core";
-import { MEDIA_VOCAB2_COMPAT_SQL } from "./media-vocab2-compat.js";
+import { MEDIA_SCHEMA_MIGRATIONS_SQL } from "./media-schema-migrations.js";
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS media_captures (
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS media_captures (
   archived_at text,
   blob bytea NOT NULL
 );
-${MEDIA_VOCAB2_COMPAT_SQL}
+${MEDIA_SCHEMA_MIGRATIONS_SQL}
 `;
 
 interface Row {

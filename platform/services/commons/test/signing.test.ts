@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -276,11 +276,8 @@ test("signed pre-VOCAB3 entries remain verified, pinned, visible, and canonicall
   };
   const priorDir = join(dataDir, "packages", name);
   await mkdir(priorDir, { recursive: true });
-  await writeFile(
-    join(priorDir, `${version}.json`),
-    JSON.stringify({ ...content, integrity, publishedAt, signature }),
-    "utf8",
-  );
+  const storedBytes = JSON.stringify({ ...content, integrity, publishedAt, signature });
+  await writeFile(join(priorDir, `${version}.json`), storedBytes, "utf8");
 
   const store = new FsCommonsStore(dataDir);
   const app = buildCommonsServer(store, { keyPair, publishToken: TEST_PUBLISH_TOKEN });
@@ -288,6 +285,11 @@ test("signed pre-VOCAB3 entries remain verified, pinned, visible, and canonicall
     const list = (await app.inject({ url: "/v1/modules" })).json();
     assert.equal(list.total, 1);
     assert.equal(list.items[0].name, name);
+    assert.equal(
+      await readFile(join(dataDir, "modules", name, `${version}.json`), "utf8"),
+      storedBytes,
+    );
+    await assert.rejects(() => access(join(dataDir, "packages")), { code: "ENOENT" });
 
     const response = await app.inject({ url: `/v1/modules/${name}/${version}` });
     assert.equal(response.statusCode, 200);
@@ -324,6 +326,38 @@ test("signed pre-VOCAB3 entries remain verified, pinned, visible, and canonicall
     await assert.rejects(() => store.put(entry), /already published/);
   } finally {
     await app.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("legacy registry migration rejects a canonical-path collision before moving signed bytes", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "commons-registry-collision-"));
+  const name = "collision-fixture";
+  const version = "1.0.0";
+  const priorBytes = '{"source":"signed-prior"}';
+  const currentBytes = '{"source":"canonical-current"}';
+  try {
+    const priorDir = join(dataDir, "packages", name);
+    const currentDir = join(dataDir, "modules", name);
+    await mkdir(priorDir, { recursive: true });
+    await mkdir(currentDir, { recursive: true });
+    await writeFile(join(priorDir, `${version}.json`), priorBytes, "utf8");
+    await writeFile(join(currentDir, `${version}.json`), currentBytes, "utf8");
+
+    const store = new FsCommonsStore(dataDir);
+    await assert.rejects(
+      () => store.get(name, version),
+      /conflicting registry entries/,
+    );
+    assert.equal(
+      await readFile(join(priorDir, `${version}.json`), "utf8"),
+      priorBytes,
+    );
+    assert.equal(
+      await readFile(join(currentDir, `${version}.json`), "utf8"),
+      currentBytes,
+    );
+  } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
 });

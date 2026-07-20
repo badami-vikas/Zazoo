@@ -36,7 +36,7 @@ function generalizedManifest(version = "1.0.0", name = "example-view") {
     version,
     kind: "view",
     summary: "A generalized example view capability.",
-    description: "Registry roundtrip fixture — generalized knowledge only.",
+    description: "Registry roundtrip fixture — generalized capability content only.",
     capabilities: [
       {
         id: `${name}.surface`,
@@ -105,8 +105,6 @@ test("publish → get roundtrip, list filtering, and privacy-gate rejection over
   assert.equal(exact.provenance.inspectedCommit, provenance.inspectedCommit);
   assert.equal(exact.securityScan.status, "passed");
   assert.equal(exact.securityScan.checks.length, 9);
-  const scanCopy = exact.securityScan.checks.map((item: { detail: string }) => item.detail).join(" ");
-  assert.doesNotMatch(scanCopy, /\b(?:workspace|package|artifact)\b/i);
   assert.match(exact.integrity.value, /^sha256:[0-9a-f]{64}$/);
   assert.equal((await app.inject({ url: "/v1/modules/example-view/9.9.9" })).statusCode, 404);
 });

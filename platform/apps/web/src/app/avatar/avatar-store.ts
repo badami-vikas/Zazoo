@@ -1,9 +1,5 @@
 /** Avatar visual preferences plus the operational-status store. */
 import { useEffect, useState } from "react";
-import {
-  LEGACY_AVATAR_STORAGE_KEY,
-  readLegacyAvatarPreferences,
-} from "./avatar-v1-compat";
 
 const STORAGE_KEY = "bridge.avatar.v2";
 
@@ -95,15 +91,7 @@ function readPrefs(): AvatarPrefs | null {
       if (parsed) return parsed;
     }
 
-    const legacy = readLegacyAvatarPreferences(window.localStorage);
-    if (!legacy || !isAvatarStyle(legacy.style)) return null;
-    const migrated: AvatarPrefs = {
-      style: legacy.style,
-      avatarReady: legacy.avatarReady,
-      ...(legacy.avatarName ? { avatarName: legacy.avatarName } : {}),
-    };
-    if (writePrefs(migrated)) window.localStorage.removeItem(LEGACY_AVATAR_STORAGE_KEY);
-    return migrated;
+    return null;
   } catch {
     return null;
   }

@@ -6,18 +6,27 @@ import ts from "typescript";
 
 const PLATFORM_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BASELINE_PATH = path.join(PLATFORM_ROOT, "scripts", "retired-vocabulary-baseline.json");
-const SOURCE_ROOTS = ["apps", "packages", "services", "tools"];
+const SOURCE_ROOTS = ["apps", "modules", "packages", "services", "tools"];
 const TYPESCRIPT_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 const SOURCE_EXTENSIONS = new Set([...TYPESCRIPT_EXTENSIONS, ".rs", ".sql"]);
-const COMPATIBILITY_ADAPTERS = new Set([
-  "apps/api/src/avatar-profile-v1-compat.ts",
-  "apps/api/src/culture-result-vocab4-compat.ts",
-  "apps/web/src/app/avatar/avatar-v1-compat.ts",
-  "packages/core/src/capability/mcp-adapter.ts",
-  "packages/core/src/module/commons-vocab3-compat.ts",
-  "packages/db/src/media-vocab2-compat.ts",
-  "packages/local/src/stores/vocab3-organization-compat.ts",
-  "services/commons/src/vocab3-registry-compat.ts",
+const EXPLICIT_MIGRATION_FIXTURES = new Set([
+  "packages/core/src/module/signed-legacy-entry.ts",
+  "packages/core/test/module-signing.test.ts",
+  "packages/db/src/media-schema-migrations.ts",
+  "packages/db/test/media-store.test.ts",
+  "packages/db/test/migration-0011.test.ts",
+  "packages/db/test/migration-0013.test.ts",
+  "packages/db/test/migration-0015.test.ts",
+  "packages/db/test/migration-0016.test.ts",
+  "packages/db/test/migration-0017.test.ts",
+  "packages/db/test/migration-0020.test.ts",
+  "packages/db/test/migration-0021.test.ts",
+  "packages/db/test/migration-0023.test.ts",
+  "packages/db/test/migration-0024.test.ts",
+  "packages/local/src/stores/organization-schema-migrations.ts",
+  "packages/local/test/pglite.test.ts",
+  "services/commons/src/legacy-registry-migration.ts",
+  "services/commons/test/signing.test.ts",
 ]);
 
 const FAMILIES = {
@@ -41,7 +50,6 @@ const FAMILIES = {
   artifact: { tokens: ["artifact", "artifacts"] },
   tool: { tokens: ["tool", "tools"] },
   knowledge: { tokens: ["knowledge", "knowledgebase"] },
-  helpdesk: { tokens: ["helpdesk"] },
   legacy_plane: {
     phrases: ["mirror plane", "operational plane", "cross plane", "infra plane"],
   },
@@ -55,13 +63,11 @@ export function shouldIgnore(relativePath) {
     normalized.includes("/coverage/") ||
     normalized.includes("/target/") ||
     normalized.includes("/migrations/") ||
-    normalized.includes("/test/") ||
-    normalized.includes("/tests/") ||
     normalized.includes("/fixtures/") ||
     normalized.includes("/seed/") ||
-    COMPATIBILITY_ADAPTERS.has(normalized) ||
+    EXPLICIT_MIGRATION_FIXTURES.has(normalized) ||
     normalized.includes(".generated.") ||
-    /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(normalized)
+    false
   );
 }
 
@@ -172,16 +178,117 @@ function addMatch(inventory, family, relativePath, kind, count, value, context) 
 }
 
 function scopedDefinition(family, definition, relativePath) {
-  return family === "brain" && !relativePath.startsWith("apps/web/src/app/")
+  return family === "brain" && !relativePath.startsWith("apps/web/")
     ? { ...definition, allowPhrases: [] }
     : definition;
+}
+
+function isAllowedTechnicalUse(family, relativePath, value, kind) {
+  if (family === "element" && kind === "identifier") {
+    if (
+      /^(?:ElementRef|ElementType|getElementById|createElement|mapElementRef|HTML[A-Za-z]*Element|SVG[A-Za-z]*Element)$/.test(value)
+    ) {
+      return true;
+    }
+    return value === "element" && [
+      "apps/web/src/app/routes.tsx",
+      "apps/web/src/app/dataviews/views/MapView.tsx",
+    ].includes(relativePath);
+  }
+  if (family === "project" && kind === "identifier") {
+    if ([
+      "projectToPrompt",
+      "projectToSystemPrompt",
+      "projectProfile",
+      "projectSummary",
+      "projectDocuments",
+      "projectActivity",
+      "projectId",
+      "project_id",
+    ].includes(value)) {
+      return true;
+    }
+    return (
+      ["Project", "ProjectSchema", "projects"].includes(value) &&
+      [
+        "modules/jobpilot/src/index.ts",
+        "modules/jobpilot/src/master-profile.ts",
+        "modules/jobpilot/src/resume-schema.ts",
+        "modules/jobpilot/test/resume-schema.test.ts",
+      ].includes(relativePath)
+    );
+  }
+  if (family === "project" && kind === "string") {
+    if (
+      relativePath === "modules/dealpilot/test/projections.test.ts" &&
+      /^project(?:Summary|Profile|Documents|Activity):/.test(value)
+    ) {
+      return true;
+    }
+    if (
+      [
+        "packages/core/test/agents-persona.test.ts",
+        "packages/core/test/content-guard.test.ts",
+        "packages/core/test/run-context.test.ts",
+      ].includes(relativePath) &&
+      /\bproject(?:s|ToPrompt)\b/.test(value)
+    ) {
+      return true;
+    }
+    return (
+      relativePath === "modules/jobpilot/test/resume-schema.test.ts" &&
+      value === "Project X"
+    );
+  }
+  if (family === "tool") {
+    if (
+      relativePath === "packages/core/src/capability/mcp-adapter.ts" &&
+      kind === "identifier" &&
+      value === "tools"
+    ) {
+      return true;
+    }
+    if (
+      relativePath === "packages/core/test/importer.test.ts" &&
+      kind === "identifier" &&
+      value === "tools"
+    ) {
+      return true;
+    }
+    if (
+      relativePath === "packages/core/src/guard/content-guard.ts" &&
+      kind === "string" &&
+      /tool_(?:call|use)/.test(value)
+    ) {
+      return true;
+    }
+    return (
+      relativePath === "packages/core/test/content-guard.test.ts" &&
+      value.includes("tool_call")
+    );
+  }
+  return (
+    family === "package" &&
+    kind === "string" &&
+    (
+      /^platform\/packages\/[a-z0-9-]+\/src\//.test(value) ||
+      (
+        relativePath === "packages/core/src/agents.ts" &&
+        (value.includes("packages/") || value.includes("packages\\/"))
+      ) ||
+      (
+        relativePath === "packages/core/test/agents.test.ts" &&
+        value.includes("packages/core")
+      )
+    )
+  );
 }
 
 function inspectValue(inventory, relativePath, value, kind, context = value) {
   for (const [family, definition] of Object.entries(FAMILIES)) {
     const scoped = scopedDefinition(family, definition, relativePath);
     const count = familyMatchCount(value, scoped);
-    if (count > 0) {
+    if (count > 0 && !isAllowedTechnicalUse(family, relativePath, value, kind)) {
       addMatch(inventory, family, relativePath, kind, count, value, context);
     }
   }
@@ -369,7 +476,8 @@ function inventoryForTypeScriptSource(relativePath, source) {
       ts.isTemplateHead(node) ||
       ts.isTemplateMiddle(node) ||
       ts.isTemplateTail(node) ||
-      ts.isJsxText(node)
+      ts.isJsxText(node) ||
+      ts.isRegularExpressionLiteral(node)
     ) {
       inspectValue(
         inventory,

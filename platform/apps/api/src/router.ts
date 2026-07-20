@@ -15,7 +15,6 @@ import {
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
-import { normalizeCultureSynthesisResult } from "./culture-result-vocab4-compat.js";
 import { LocalGeocodingProviderError } from "./geocoding-provider.js";
 import {
   applyApprovedRelationshipMaterialization,
@@ -156,11 +155,6 @@ import {
   type LedgerEntry,
   uuidv7,
 } from "@bridge/core";
-import {
-  normalizeOnboardingAnswers,
-  onboardingAvatarStyleInput,
-  resolveOnboardingAvatarStyle,
-} from "./avatar-profile-v1-compat.js";
 import { authUrl } from "@bridge/integrations-google";
 import {
   routeHelpRequest,
@@ -6763,9 +6757,20 @@ export const appRouter = t.router({
 
     saveProfile: procedure
       .input(
-        z.intersection(z.object({
+        z.object({
           organizationId: z.string().min(1),
-          answers: z.record(z.union([z.string(), z.array(z.string())])).default({}),
+          avatarStyle: z.string().min(1),
+          answers: z.object({
+            profession: z.string().optional(),
+            avatar_style: z.string().optional(),
+            role_model: z.string().optional(),
+            role_model_why: z.string().optional(),
+            domain: z.string().optional(),
+            watch_first: z.array(z.string()).optional(),
+            vocab_name: z.string().optional(),
+            view_style: z.string().optional(),
+            organization_name: z.string().optional(),
+          }).strict().default({}),
           // SEC-7: `linkedin` was removed from this trust-bearing enum. There is no
           // real LinkedIn OAuth proof wired, so accepting a client-asserted
           // `verificationMethod:"linkedin"` would let the browser fabricate a
@@ -6773,16 +6778,15 @@ export const appRouter = t.router({
           // below) is accepted until a real OAuth proof exists.
           verificationMethod: z.enum(["phone"]).nullable().default(null),
           connectedSourceIds: z.array(z.string()).default([]),
-        }), onboardingAvatarStyleInput),
+        }),
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotOrganization(input.organizationId);
         const existing = await ctx.wiring.onboardingProfileStore.get(input.organizationId);
-        const avatarStyle = resolveOnboardingAvatarStyle(input);
         const row = {
           organizationId: input.organizationId,
-          avatarStyle,
-          answers: normalizeOnboardingAnswers(input.answers, avatarStyle),
+          avatarStyle: input.avatarStyle,
+          answers: { ...input.answers, avatar_style: input.avatarStyle },
           phoneVerified: input.verificationMethod === "phone" ? true : (existing?.phoneVerified ?? false),
           verificationMethod: input.verificationMethod ?? existing?.verificationMethod ?? null,
           connectedSourceIds: input.connectedSourceIds,
@@ -8684,7 +8688,7 @@ export const appRouter = t.router({
             return { status: "not_available" as const };
           }
           const parsed = synthesizeCultureProfileOutputSchema.safeParse(
-            normalizeCultureSynthesisResult(proposal.proposedOutput),
+            proposal.proposedOutput,
           );
           if (!parsed.success) {
             // NOT a jobpilot.synthesizeCultureProfile output at all (or a

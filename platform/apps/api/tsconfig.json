@@ -34,10 +34,10 @@
       "path": "../../packages/net-guard"
     },
     {
-      "path": "../../tools/dealpilot"
+      "path": "../../modules/dealpilot"
     },
     {
-      "path": "../../tools/jobpilot"
+      "path": "../../modules/jobpilot"
     },
     {
       "path": "../../tools/company-sourcing"

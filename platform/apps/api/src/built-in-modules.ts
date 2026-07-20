@@ -44,10 +44,10 @@ export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId:
 }
 
 const SOURCE_REPOSITORY = "https://github.com/badami-vikas/relationship-os";
-const INSPECTED_COMMIT = "5775e5b9cf63938e9f2a8220e63b36e1122eac80";
+const INSPECTED_COMMIT = "cd0ad97286e7bad0cde6f68ca514e33d3918e167";
 const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
-  "deal-pilot": "platform/tools/dealpilot/src/manifest.ts",
-  "job-pilot": "platform/tools/jobpilot/src/manifest.ts",
+  "deal-pilot": "platform/modules/dealpilot/src/manifest.ts",
+  "job-pilot": "platform/modules/jobpilot/src/manifest.ts",
   relationship: "platform/apps/web/src/app/pages/RelationshipPage.tsx",
 };
 

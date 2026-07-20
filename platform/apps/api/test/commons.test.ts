@@ -915,15 +915,15 @@ test("commons approval and promotion revalidate the current owning Module need",
   }
 });
 
-test("commons install stages and governs exact pinned dependency artifacts", async () => {
+test("commons install stages and governs exact pinned dependencies", async () => {
   const wiring = await buildWiring();
   const dependency: ModuleManifest = {
-    ...commonsManifest({ name: "shared-tool", version: "1.0.0" }),
+    ...commonsManifest({ name: "shared-skill", version: "1.0.0" }),
     kind: "module",
     capabilities: [{
-      ...commonsManifest({ name: "shared-tool", version: "1.0.0" }).capabilities[0]!,
-      id: "shared-tool.core",
-      name: "shared-tool core",
+      ...commonsManifest({ name: "shared-skill", version: "1.0.0" }).capabilities[0]!,
+      id: "shared-skill.core",
+      name: "shared-skill core",
       capabilityType: "skill",
     }],
   };

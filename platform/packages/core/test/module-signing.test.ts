@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   canonicalizeManifest,
   canonicalizeJson,
-  adaptVocab3CommonsEntry,
+  adaptLegacyLicenseEntry,
   canonicalizeCommonsSignedPayload,
   commonsModuleContent,
   computeCommonsContentHash,
@@ -153,7 +153,7 @@ test("pre-VOCAB4 Commons content keeps its original hash and signature after pro
     value: `sha256:hash(${canonicalContent})`,
   };
   const publishedAt = current.publishedAt;
-  const adapted = adaptVocab3CommonsEntry({
+  const adapted = adaptLegacyLicenseEntry({
     ...legacyContent,
     integrity,
     publishedAt,

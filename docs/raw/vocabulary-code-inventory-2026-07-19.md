@@ -21,73 +21,68 @@ source_of_truth:
     - parse runtime TypeScript and JavaScript with the TypeScript AST
     - lex Rust and non-migration SQL identifiers and strings while excluding comments
     - fold static string/template/JSX compositions that would otherwise split a retired term
-    - count retired tokens in public/private identifiers, strings, interpolated template text, and JSX text
+    - count retired tokens in identifiers, strings, regex literals, interpolated template text, and JSX text across runtime and tests
     - hash each matched syntax value and fail on any new per-file/family/kind fingerprint
     - require a downward-only baseline refresh after removals; the writer refuses growth
   excluded:
     - migrations
-    - tests and fixtures
     - generated files
-    - explicit one-version compatibility adapters
+    - explicit immutable migration fixtures
+    - the signed Commons historical-verification boundary
     - historical documentation
 
 classification:
   schema:
     representatives:
       - platform/packages/db/src/schema.ts
-      - platform/packages/db/src/ritual-stores.ts
-      - platform/packages/db/src/package-store.ts
+      - platform/packages/db/src/graph-store.ts
   api:
     representatives:
       - platform/apps/api/src/router.ts
       - platform/apps/api/src/wiring.ts
   runtime_symbol:
     representatives:
-      - platform/packages/core/src/ritual-executor.ts
-      - platform/packages/core/src/package/
+      - platform/packages/core/src/automation-executor.ts
+      - platform/packages/core/src/module/
       - platform/packages/core/src/types.ts
   ui_copy_and_route:
     representatives:
       - platform/apps/web/src/app/Layout.tsx
-      - platform/apps/web/src/app/pages/RitualDetail.tsx
-      - platform/apps/web/src/app/pages/ToolDetail.tsx
-      - platform/apps/web/src/app/pages/InitiativeDetail.tsx
+      - platform/apps/web/src/app/pages/ModuleDetailPage.tsx
+      - platform/apps/web/src/app/pages/SecondBrainPage.tsx
   persisted_payload:
     representatives:
-      - workspaceId and workspace_id tenant keys
-      - ritual and package manifests
-      - initiative, touchpoint, artifact, and helpdesk payload keys
+      - organizationId and organization_id tenant keys
+      - Automation and Module manifests
+      - Record, Event, Result, File, and Helpdesk payload keys
   local_storage:
     canonical:
       key: bridge.avatar.v2
       fields: [style, avatarReady, avatarName]
-    compatibility_read:
-      file: platform/apps/web/src/app/avatar/avatar-v1-compat.ts
-      removal: delete after the one-version VOCAB1 compatibility window
+    compatibility_read: removed
   tests:
-    policy: excluded from the ratchet so migrations and legacy reads can be proven
-    requirement: no production writer may emit a retired payload
+    policy: scanned by default
+    excluded: explicit immutable migration fixtures only
   historical_documentation:
     policy: excluded; requirement and ADR history remains immutable evidence
 
 runtime_baseline:
-  total: 360
+  total: 0
   families:
     avatar_lifecycle: 0
     ritual: 0
     workflow: 0
     brain: 0
     workspace: 0
-    package: 1
-    project: 36
+    package: 0
+    project: 0
     initiative: 0
-    element: 99
+    element: 0
     touchpoint: 0
     incident: 0
     artifact: 0
-    tool: 5
-    knowledge: 8
-    helpdesk: 211
+    tool: 0
+    knowledge: 0
     legacy_plane: 0
 
 vocab1:
@@ -99,8 +94,8 @@ vocab1:
     preference_fields: [style, avatarReady, avatarName]
     completion_callback: onAvatarReady
   compatibility:
-    browser: platform/apps/web/src/app/avatar/avatar-v1-compat.ts
-    api: platform/apps/api/src/avatar-profile-v1-compat.ts
+    browser: removed
+    api: removed
     writes: canonical_only
   invariants:
     - Avatar style is visual only
@@ -131,7 +126,16 @@ vocab4:
     - Result-backed JobPilot culture/application contracts
     - zero Artifact, Touchpoint, and Incident runtime ratchet occurrences
 
-next_batches:
-  - VOCAB5 Relationship Module
-  - VOCAB6 actionable Module shell and Second Brain graph
+final_compatibility_deletion:
+  migration: 0024_task012_compatibility_deletion
+  technical_classification:
+    element: DOM, React, and SVG identifiers only
+    project: projection verbs, repository roots, and JSON Resume domain fields only
+    package: inspected source paths under platform/packages only
+    helpdesk: glossary-approved Relationship sub-module vocabulary
+  signed_commons:
+    parser: platform/packages/core/src/module/signed-legacy-entry.ts
+    storage: one canonical modules root after byte-preserving filesystem migration
+    writes: canonical_only
+  result: zero forbidden runtime or test occurrences
 ```

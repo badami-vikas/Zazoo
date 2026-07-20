@@ -117,7 +117,7 @@ test("parseOrganizationBlueprint: rejects version-1 aliases in a version-2 paylo
 
 test("organizationBlueprintFromModuleManifest: rejects a non-organization_definition manifest", () => {
   const notOrganization = parseModuleManifest({
-    name: "test-fixture-tool",
+    name: "test-fixture-skill",
     version: "1.0.0",
     kind: "module",
     summary: "s",

@@ -30,11 +30,13 @@ Keep kernel vocabulary small. Product terms and code identifiers converge; no di
 
 ## Migration state
 
-- Runtime guard live: syntax fingerprints. New/replacement debt blocked. Removals ratchet down. Baseline:
+- TASK-012 done 2026-07-20. Runtime + tests guard live. Baseline zero:
   [vocabulary inventory](../raw/vocabulary-code-inventory-2026-07-19.md).
-- Avatar migration done in runtime. Style visual only. Old browser/API shape read once; never written.
-- Done through VOCAB4: Automation/Engine; Organization/Module/Record/Relation; Event/Result/File.
-- Remaining debt: Relationship Module consolidation, actionable shell, final compatibility deletion.
+- Avatar style visual only. Old browser/API aliases gone.
+- One Event ledger. Signal/Timeline projections. One Module shell. One full Graph.
+- DealPilot + JobPilot live under `platform/modules/`.
+- Signed old Commons bytes still verify. Old registry files move once into canonical root. No dual read.
+- Migration `0024` preserves stored culture Results. Backup → restore → replay proven.
 
 ## Failure ownership
 

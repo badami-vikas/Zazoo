@@ -78,7 +78,7 @@ test("sidecar capability authenticates the server-owned pilot without granting r
       appRouter
         .createCaller(verifierContext)
         .dealpilot.module({ organizationId: PILOT_ORGANIZATION }),
-      /authentication required for DealPilot/,
+      /authentication required: verified authentication is required/,
     );
   } finally {
     await wiring.close();
@@ -108,21 +108,19 @@ test("onboarding.saveProfile: a client-asserted verificationMethod:'linkedin' is
   }
 });
 
-test("onboarding.saveProfile: the one-version Avatar payload reader returns only the canonical field", async () => {
+test("onboarding.saveProfile: canonical Avatar fields persist without aliases", async () => {
   const wiring = await buildWiring();
   try {
     const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
     const result = await caller.onboarding.saveProfile({
       organizationId: PILOT_ORGANIZATION,
-      animal: "owl",
-      answers: { spirit_animal: "owl", role: "operator" },
+      avatarStyle: "owl",
+      answers: { avatar_style: "owl", profession: "operator" },
       verificationMethod: null,
     });
     assert.equal(result.profile.avatarStyle, "owl");
-    assert.equal("animal" in result.profile, false);
     assert.equal(result.profile.answers.avatar_style, "owl");
-    assert.equal("spirit_animal" in result.profile.answers, false);
-    assert.equal(result.profile.answers.role, "operator");
+    assert.equal(result.profile.answers.profession, "operator");
   } finally {
     await wiring.close();
   }

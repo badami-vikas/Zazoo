@@ -334,11 +334,11 @@ test("memories: redactLineageContent rewrites content across the FULL lineage (s
     const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_redact_lineage" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
-    const v1 = await store.write(mem({ id: "a1000000-0000-4000-8000-000000000001", organizationId: ws.id, content: "SECRET raw artifact v1" }));
-    const v2 = await store.compareAndSupersede(v1.id, mem({ id: "a1000000-0000-4000-8000-000000000002", organizationId: ws.id, content: "SECRET raw artifact v2" }));
+    const v1 = await store.write(mem({ id: "a1000000-0000-4000-8000-000000000001", organizationId: ws.id, content: "SECRET raw payload v1" }));
+    const v2 = await store.compareAndSupersede(v1.id, mem({ id: "a1000000-0000-4000-8000-000000000002", organizationId: ws.id, content: "SECRET raw payload v2" }));
 
     const redactedCount = await store.redactLineageContent(v2.id, { organizationId: ws.id }, (entry) =>
-      entry.content.includes("SECRET") ? entry.content.replace("SECRET raw artifact", "[redacted]") : null,
+      entry.content.includes("SECRET") ? entry.content.replace("SECRET raw payload", "[redacted]") : null,
     );
     assert.equal(redactedCount, 2, "both the current row and its superseded ancestor must be redacted");
 
@@ -457,8 +457,8 @@ test("memories: redactLineageContent survives a genuine process restart — cont
         assert.ok(ws);
         wsId = ws.id;
         const store = new DrizzleMemoryStore(db);
-        const v1 = await store.write(mem({ id: "a5000000-0000-4000-8000-000000000001", organizationId: wsId, content: "SECRET raw artifact v1" }));
-        const v2 = await store.compareAndSupersede(v1.id, mem({ id: "a5000000-0000-4000-8000-000000000002", organizationId: wsId, content: "SECRET raw artifact v2" }));
+        const v1 = await store.write(mem({ id: "a5000000-0000-4000-8000-000000000001", organizationId: wsId, content: "SECRET raw payload v1" }));
+        const v2 = await store.compareAndSupersede(v1.id, mem({ id: "a5000000-0000-4000-8000-000000000002", organizationId: wsId, content: "SECRET raw payload v2" }));
         targetId = v2.id;
         const redactedCount = await store.redactLineageContent(targetId, { organizationId: wsId }, (entry) =>
           entry.content.includes("SECRET") ? "[redacted]" : null,

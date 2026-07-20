@@ -34,11 +34,11 @@ function mem(overrides: Partial<MemoryWrite> & { id: string }): MemoryWrite {
 
 test("redactLineageContent: redacts content across the FULL lineage (ancestor row AND current row), not just the current view — the exact gap compareAndSupersede alone leaves open", async () => {
   const store = new InMemoryMemoryStore();
-  const first = await store.write(mem({ id: "10000000-0000-4000-8000-000000000001", content: "SECRET raw artifact v1" }));
-  const second = await store.compareAndSupersede(first.id, mem({ id: "10000000-0000-4000-8000-000000000002", content: "SECRET raw artifact v2" }));
+  const first = await store.write(mem({ id: "10000000-0000-4000-8000-000000000001", content: "SECRET raw payload v1" }));
+  const second = await store.compareAndSupersede(first.id, mem({ id: "10000000-0000-4000-8000-000000000002", content: "SECRET raw payload v2" }));
 
   const redactedCount = await store.redactLineageContent(second.id, { organizationId: WS }, (entry) =>
-    entry.content.includes("SECRET") ? entry.content.replace("SECRET raw artifact", "[redacted]") : null,
+    entry.content.includes("SECRET") ? entry.content.replace("SECRET raw payload", "[redacted]") : null,
   );
   assert.equal(redactedCount, 2, "both the current row AND its superseded ancestor must be redacted");
 

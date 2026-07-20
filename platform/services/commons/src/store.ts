@@ -12,8 +12,14 @@
  */
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CommonsModuleEntry } from "@bridge/core";
-import { decodeStoredCommonsEntry, priorRegistryRoot } from "./vocab3-registry-compat.js";
+import {
+  adaptLegacyLicenseEntry,
+  adaptLegacyVocabularyEntry,
+  isLegacyLicenseEntry,
+  isLegacyVocabularyEntry,
+  type CommonsModuleEntry,
+} from "@bridge/core";
+import { migrateLegacyRegistry } from "./legacy-registry-migration.js";
 
 export interface CommonsStore {
   /** Persist one published entry. Rejects on duplicate (name, version) —
@@ -42,22 +48,25 @@ function safeSegment(s: string): string {
 /** Local-filesystem CommonsStore — the v1 local-first backing store. */
 export class FsCommonsStore implements CommonsStore {
   readonly #root: string;
-  readonly #priorRoot: string;
+  readonly #migration: Promise<void>;
 
   constructor(dataDir: string) {
     this.#root = join(dataDir, "modules");
-    this.#priorRoot = priorRegistryRoot(dataDir);
+    this.#migration = migrateLegacyRegistry(dataDir);
   }
 
   #versionPath(root: string, name: string, version: string): string {
     return join(root, safeSegment(name), `${safeSegment(version)}.json`);
   }
 
-  async #read(root: string, name: string, version: string): Promise<CommonsModuleEntry | null> {
+  async #read(name: string, version: string): Promise<CommonsModuleEntry | null> {
     try {
-      return decodeStoredCommonsEntry(
-        await readFile(this.#versionPath(root, name, version), "utf8"),
+      const parsed: unknown = JSON.parse(
+        await readFile(this.#versionPath(this.#root, name, version), "utf8"),
       );
+      if (isLegacyVocabularyEntry(parsed)) return adaptLegacyVocabularyEntry(parsed);
+      if (isLegacyLicenseEntry(parsed)) return adaptLegacyLicenseEntry(parsed);
+      return parsed as CommonsModuleEntry;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
@@ -65,6 +74,7 @@ export class FsCommonsStore implements CommonsStore {
   }
 
   async put(entry: CommonsModuleEntry): Promise<void> {
+    await this.#migration;
     if (await this.get(entry.name, entry.version)) {
       throw new DuplicateVersionError(entry.name, entry.version);
     }
@@ -85,24 +95,18 @@ export class FsCommonsStore implements CommonsStore {
   }
 
   async get(name: string, version: string): Promise<CommonsModuleEntry | null> {
-    const [current, prior] = await Promise.all([
-      this.#read(this.#root, name, version),
-      this.#read(this.#priorRoot, name, version),
-    ]);
-    if (current && prior) {
-      throw new Error(`commons: conflicting registry entries for ${name}@${version}`);
-    }
-    return current ?? prior;
+    await this.#migration;
+    return this.#read(name, version);
   }
 
   async listVersions(name: string): Promise<CommonsModuleEntry[]> {
-    const files = new Set<string>();
-    for (const root of [this.#root, this.#priorRoot]) {
-      try {
-        for (const file of await readdir(join(root, safeSegment(name)))) files.add(file);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
+    await this.#migration;
+    let files: string[];
+    try {
+      files = await readdir(join(this.#root, safeSegment(name)));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
     }
     const entries: CommonsModuleEntry[] = [];
     for (const file of files) {
@@ -115,13 +119,13 @@ export class FsCommonsStore implements CommonsStore {
   }
 
   async listAll(): Promise<CommonsModuleEntry[]> {
-    const dirs = new Set<string>();
-    for (const root of [this.#root, this.#priorRoot]) {
-      try {
-        for (const dir of await readdir(root)) dirs.add(dir);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
+    await this.#migration;
+    let dirs: string[];
+    try {
+      dirs = await readdir(this.#root);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
     }
     const all: CommonsModuleEntry[] = [];
     for (const dir of dirs) {

@@ -273,12 +273,12 @@ export {
   type CommonsSignedSource,
 } from "./module/commons.js";
 export {
-  adaptVocab2CommonsEntry,
-  adaptVocab3CommonsEntry,
-  isVocab2CommonsEntry,
-  isVocab3CommonsEntry,
-  readVocab2SignedContent,
-} from "./module/commons-vocab3-compat.js";
+  adaptLegacyLicenseEntry,
+  adaptLegacyVocabularyEntry,
+  isLegacyLicenseEntry,
+  isLegacyVocabularyEntry,
+  readLegacySignedContent,
+} from "./module/signed-legacy-entry.js";
 
 // Blueprint -> view grammar compiler (docs/wiki/vision.md "View grammar",
 // P1 "Organization Generator") — pure, zero-deps, additive to the pipeline.

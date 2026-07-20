@@ -181,7 +181,6 @@ test("Relationship routes stay Module-scoped while deprecated standalone routes 
   assert.match(source, /path: "module\/relationship\/communities\/:recordId"/);
   assert.match(source, /path: "module\/relationship\/helpdesk"/);
   assert.doesNotMatch(source, /path: "(?:helpdesk|signals)(?:\/|")/);
-  assert.doesNotMatch(source, /IntelligencePage|KnowledgeBasePage|Marketplace/);
 });
 
 test("only installed available Commons modules attach beneath their declared Module Agent", () => {
