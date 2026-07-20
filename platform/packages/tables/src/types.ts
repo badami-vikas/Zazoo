@@ -59,6 +59,7 @@ export interface ColumnSpec {
   relationTarget?: string;
   relationParent?: boolean;
   hiddenInForm?: boolean;
+  sensitive?: boolean;
 }
 
 export interface TableSpec {

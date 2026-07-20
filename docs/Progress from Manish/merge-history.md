@@ -34,6 +34,9 @@ This file prevents a new session from re-merging historical branches or reusing 
   central checkout and had no independent branch. Its completed tree was preserved at
   `6590c71`; this merge normally reconciles `origin/main@5ab4568`, retains canonical VOCAB3
   conflicts, and ports the deployment-specific slice under AP-054/ADR-128.
+- Fresh TASK-006 continuation from `origin/main@922ca52` allocates
+  `0025_task006_supabase_root_catalogs` and `0026_task006_supabase_auto_rls_alignment`; ADR-134
+  keeps policyless catalogs server-only while every RLS-enabled table retains a tracked policy.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -83,6 +86,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `cd0ad97` / `e139d88` / PR #33 | TASK-012 final compatibility deletion, zero vocabulary baseline, migration `0024`, canonical Module package paths, and exact source provenance pin. |
 | `6590c71` | Preservation checkpoint for the recovered Supabase pilot deployment before reconciling newer `origin/main`; retained as a merge parent/audit source, not as the final vocabulary integration. |
 | (this merge) | Recovered Supabase session integration: migration `0022`, least-privilege/RLS context, exact hosted Auth, encrypted headless vault, Local/Cloud ledger routing, container assets, and durable recovery records. Local `main` only; no push or cloud provisioning. |
+| TASK-006 live continuation | Free `us-east-1` Supabase pilot, exact Auth/JWKS admission, managed-Postgres migration bundle, migrations `0025`/`0026`, desktop-local residency, and live Source↔Thesis evidence. TASK remains open on Source credentials + Google OAuth. |
 
 ## Historical source branches
 
@@ -137,8 +141,10 @@ This file prevents a new session from re-merging historical branches or reusing 
 - `0022_supabase_runtime_role`: recovered Supabase deployment, integrated under AP-054/ADR-128.
 - `0023_vocab4_event_result_file`: TASK-012 VOCAB4, LANDED through PR #29.
 - `0024_task012_compatibility_deletion`: TASK-012 final stored-Result backfill and compatibility closure, PR #33.
+- `0025_task006_supabase_root_catalogs`: revoke client roles and restore server-only bootstrap catalogs after Supabase automatic RLS.
+- `0026_task006_supabase_auto_rls_alignment`: revoke/disable the remaining policyless auto-RLS tables; every RLS-enabled table now has a policy.
 
-Next new migration allocates `0025`; do not reuse `0016` through `0024`.
+Next new migration allocates `0027`; do not reuse `0016` through `0026`.
 
 ## Approval and ADR coordination
 
@@ -165,6 +171,7 @@ Next new migration allocates `0025`; do not reuse `0016` through `0024`.
 - ADR-122: serialized Organization DB identity/local Files rename with durable fail-closed recovery.
 - ADR-128: Supabase supplies Postgres/Auth while an external API/static host preserves
   least privilege and explicit Local/Cloud residency.
+- ADR-134: Supabase policyless catalogs stay server-only; policy-backed tables remain RLS.
 
 Known current branch-local collision:
 

@@ -56,11 +56,11 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
     });
     await assert.rejects(
       nonMember.action.listPending({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 }),
-      /is not a member/,
+      /not approved for the pilot Organization/,
     );
     await assert.rejects(
       nonMember.action.decide({ proposalId: created.discovery.id, decision: "approve" }),
-      /is not a member/,
+      /not approved for the pilot Organization/,
     );
     assert.equal((await caller.dealpilot.records({
       organizationId: PILOT_ORGANIZATION,
@@ -401,7 +401,7 @@ test("DealPilot rejects authenticated non-members before Records or credentials 
     });
     await assert.rejects(
       attacker.dealpilot.module({ organizationId: PILOT_ORGANIZATION }),
-      /is not a member/,
+      /not approved for the pilot Organization/,
     );
     await assert.rejects(
       attacker.dealpilot.records({
@@ -410,7 +410,7 @@ test("DealPilot rejects authenticated non-members before Records or credentials 
         limit: 50,
         offset: 0,
       }),
-      /is not a member/,
+      /not approved for the pilot Organization/,
     );
   } finally {
     await wiring.close();

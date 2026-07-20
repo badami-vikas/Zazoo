@@ -18,6 +18,49 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-20 — Source Form could not create a vault-backed credential
+Live TASK-006 certification reached the real Source Form and found that `userId`/`password`
+manifest columns were always locked and hidden. The API, OS-keyring adapter, re-authentication,
+audit, and Record Detail controls existed, but no runtime UI could place the initial non-dummy
+credential into the vault. Source Form now exposes those two fields only at create time as
+password inputs with password-manager semantics; `createSource` sends them directly to the
+vault-backed API, while table rows remain masked and have no update path. Attached to TASK-006.
+
+## RESOLVED 2026-07-20 — Supabase automatic RLS deadlocked runtime bootstrap
+The fresh `us-east-1` pilot applied all 24 released migrations, but the first real
+`bridge_app` boot failed before listening: Supabase's project-level automatic-RLS trigger had
+enabled RLS without policies on 14 root/catalog/junction tables that tracked migrations intentionally
+keep behind the server role. The first failure was `organizations`; after that fix, `role_permissions`
+proved the same drift affected the broader policyless set. Migrations
+`0025_task006_supabase_root_catalogs` and `0026_task006_supabase_auto_rls_alignment` revoke all access
+from `PUBLIC` and any Supabase `anon`/`authenticated` roles, then disable RLS only where no tracked
+policy exists. Every table left RLS-enabled now has a policy; `organization_members` remains
+forced-RLS and is the membership/isolation boundary. Attached to TASK-006.
+
+## RESOLVED 2026-07-20 — TASK-012 renamed an Apple framework type and broke desktop compilation
+Current `main@922ca52` could not compile the macOS desktop app because VOCAB3 changed AppKit's
+`NSWorkspace::sharedWorkspace()` API to nonexistent `NSOrganization::sharedOrganization()`.
+This was not product vocabulary: it is an immutable external framework identifier. The real AppKit
+symbol is restored, local naming remains canonical, and the vocabulary scanner now narrowly allows
+only `NSWorkspace`/`sharedWorkspace` in the frontmost-app provider with a regression test. Attached
+to TASK-006 because it blocked the required desktop prototype run.
+
+## RESOLVED 2026-07-20 — Desktop Supabase sidecar did not declare a safe production/RLS posture
+The desktop sidecar correctly kept DealPilot state and Source credentials local, but it inherited
+`NODE_ENV`. An inherited `production` value made the API apply hosted-container requirements and
+reject the desktop `os-keyring`/Tauri-origin topology. Without that value, the separate production
+RLS posture guard did not run against a configured Supabase `DATABASE_URL`. The sidecar now removes
+the ambiguous hosted-mode variable, declares `BRIDGE_ENV=production` so the runtime-role/RLS guard
+always runs, and declares `BRIDGE_LOCAL_RESIDENCY=desktop-local`; Local Plane storage remains the
+Tauri app-data directory and credentials remain in the OS keyring. Attached to TASK-006.
+
+## RESOLVED 2026-07-20 — DealPilot authorization tests expected the superseded membership denial
+TASK-006's focused API suite failed on current `main@922ca52` because four assertions still expected
+the generic `is not a member` error after exact hosted pilot admission moved ahead of Organization
+membership checks. Runtime behavior was correct and fail-closed: an authenticated non-pilot subject
+received `403` with `This Supabase account is not approved for the pilot Organization`. The tests now
+assert that canonical exact-admission denial. Attached to TASK-006.
+
 ## RESOLVED 2026-07-19 — Production Supabase has no runnable least-privilege database-role path
 `assertRlsPosture()` correctly refuses a production API boot when `DATABASE_URL` uses a
 superuser or `BYPASSRLS` role, which excludes the Supabase owner connection normally copied

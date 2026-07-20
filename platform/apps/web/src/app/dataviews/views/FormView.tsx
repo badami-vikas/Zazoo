@@ -170,14 +170,17 @@ function FieldInput({
 
   return (
     <Input
-      type="text"
+      type={col.sensitive ? "password" : "text"}
+      autoComplete={col.sensitive ? "new-password" : undefined}
       value={strVal}
       onChange={(e) => onChange(e.target.value || undefined)}
       className="h-8 text-sm"
       placeholder={
         col.kind === "location"
           ? "Place label or Label | latitude, longitude"
-          : col.label
+          : col.sensitive
+            ? `${col.label} (stored in secure vault)`
+            : col.label
       }
     />
   );

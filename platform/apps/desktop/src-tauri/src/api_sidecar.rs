@@ -83,10 +83,13 @@ fn api_command(
     let mut command = Command::new(node);
     command
         .arg(entry)
+        .env_remove("NODE_ENV")
+        .env("BRIDGE_ENV", "production")
         .env("PORT", "0")
         // Bind loopback only — never expose the kernel API on the LAN.
         .env("API_HOST", "127.0.0.1")
         .env("BRIDGE_LOCAL_DIR", local_dir)
+        .env("BRIDGE_LOCAL_RESIDENCY", "desktop-local")
         .env("BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "os-keyring")
         .env("BRIDGE_SIDECAR_TOKEN", token)
         .env("BRIDGE_OAUTH_DESKTOP", "1")
@@ -531,6 +534,17 @@ mod tests {
             envs.get(OsStr::new("BRIDGE_LOCAL_DIR"))
                 .and_then(|value| value.as_deref()),
             Some(local_dir.as_os_str())
+        );
+        assert_eq!(envs.get(OsStr::new("NODE_ENV")), Some(&None));
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_ENV"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("production"))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_LOCAL_RESIDENCY"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("desktop-local"))
         );
         assert_eq!(
             envs.get(OsStr::new("PORT"))

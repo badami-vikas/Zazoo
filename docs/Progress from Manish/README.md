@@ -60,6 +60,12 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   Migration `0024` preserves stored Results; vocabulary baseline is zero; expired aliases and dual
   registry reads are deleted; signed Commons bytes remain verifiable; desktop and exact 375px
   certification pass. TASK is `done` under AP-059/ADR-133. Do not resume any VOCAB branch.
+- TASK-006 resumed fresh from `origin/main@922ca52` on
+  `manishsbhoopalam8498-close-dealpilot-pilot`. One free `us-east-1` Supabase project, exact
+  pilot Auth, 26 migrations, least-privilege `bridge_app`, policy-backed RLS, Local Plane restart,
+  symmetric Source↔Thesis Relation, and desktop/exact-375 evidence are live. Migrations `0025`/`0026`
+  align Supabase automatic RLS; ADR-134 records the boundary. Authorized Source credentials and
+  Google OAuth remain external, so TASK-006 stays `in_progress`.
 
 ## Critical resume constraints
 
@@ -80,6 +86,8 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   `2f85dc7`, final reviewed source `adf6c95`, and landed integration `7f44186`. Live
   Google/BizBuySell and verified OS/application re-authentication remain external, so canonical
   status stays `in_progress`.
+- TASK-006 live Supabase continuation allocates migrations `0025` and `0026`; next new migration
+  is `0027`.
 - TASK-008's validated Relationship continuation from candidate A is merged through `905aee9`.
   Candidate B is a superseded historical dirty worktree; do not merge either candidate again.
 - TASK-023 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
