@@ -12,6 +12,7 @@ import {
   type VerifyManifestOptions,
 } from "./signing.js";
 import type { ModuleKind, ModuleManifest } from "./types.js";
+import { readVocab2SignedContent } from "./commons-vocab3-compat.js";
 
 export type ContentHasher = (canonicalContent: string) => string;
 
@@ -32,7 +33,8 @@ export type CommonsEntryVerificationFailure =
   | "hash_mismatch"
   | "metadata_mismatch"
   | "missing_provenance"
-  | "scan_failed";
+  | "scan_failed"
+  | "invalid_signed_source";
 
 export type CommonsEntryVerificationResult =
   | { valid: true }
@@ -96,6 +98,21 @@ export function verifyCommonsEntryContent(
   entry: CommonsModuleEntry,
   hash: ContentHasher,
 ): CommonsEntryVerificationResult {
+  let hashContent = canonicalizeCommonsContent(commonsModuleContent(entry));
+  if (entry.signedSource) {
+    try {
+      const source = readVocab2SignedContent(entry.signedSource);
+      if (
+        canonicalizeCommonsContent(commonsModuleContent(entry)) !==
+        canonicalizeCommonsContent(source.adapted)
+      ) {
+        return { valid: false, reason: "metadata_mismatch" };
+      }
+      hashContent = entry.signedSource.canonicalContent;
+    } catch {
+      return { valid: false, reason: "invalid_signed_source" };
+    }
+  }
   if (
     entry.name !== entry.manifest.name ||
     entry.version !== entry.manifest.version ||
@@ -123,7 +140,7 @@ export function verifyCommonsEntryContent(
   if (entry.integrity?.algorithm !== "sha256" || !entry.integrity.value) {
     return { valid: false, reason: "missing_integrity" };
   }
-  const expected = computeCommonsContentHash(commonsModuleContent(entry), hash);
+  const expected: CommonsContentHash = { algorithm: "sha256", value: `sha256:${hash(hashContent)}` };
   if (expected.value !== entry.integrity.value) return { valid: false, reason: "hash_mismatch" };
   return { valid: true };
 }
@@ -141,8 +158,11 @@ export function verifyCommonsEntry(
   if (signature.algorithm !== "ed25519") return { valid: false, reason: "unsupported_algorithm" };
   let validSignature = false;
   try {
+    const signedContent = entry.signedSource
+      ? readVocab2SignedContent(entry.signedSource).original
+      : commonsModuleContent(entry);
     validSignature = verify(
-      canonicalizeCommonsSignedPayload(commonsModuleContent(entry), entry.integrity, entry.publishedAt),
+      canonicalizeJson({ content: signedContent, integrity: entry.integrity, publishedAt: entry.publishedAt }),
       signature.signature,
       signature.publicKey,
     );

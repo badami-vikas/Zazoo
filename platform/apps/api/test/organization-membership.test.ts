@@ -471,7 +471,9 @@ test("legacy pilot bootstrap migrates its local Files root before updating the d
       ),
       "legacy",
     );
-    await assert.rejects(() => access(legacyRoot), { code: "ENOENT" });
+    const organizationRoots = await readdir(bridgeRoot);
+    assert.ok(organizationRoots.includes("Pilot Organization"));
+    assert.equal(organizationRoots.includes("Pilot organization"), false);
   } finally {
     await wiring.close();
     await rm(tempRoot, { recursive: true, force: true });

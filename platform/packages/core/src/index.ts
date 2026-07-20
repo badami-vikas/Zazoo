@@ -270,7 +270,13 @@ export {
   type CommonsDependencyPin,
   type CommonsSecurityScan,
   type CommonsContentHash,
+  type CommonsSignedSource,
 } from "./module/commons.js";
+export {
+  adaptVocab2CommonsEntry,
+  isVocab2CommonsEntry,
+  readVocab2SignedContent,
+} from "./module/commons-vocab3-compat.js";
 
 // Blueprint -> view grammar compiler (docs/wiki/vision.md "View grammar",
 // P1 "Organization Generator") — pure, zero-deps, additive to the pipeline.

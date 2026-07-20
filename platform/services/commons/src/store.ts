@@ -13,6 +13,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { CommonsModuleEntry } from "@bridge/core";
+import { decodeStoredCommonsEntry, priorRegistryRoot } from "./vocab3-registry-compat.js";
 
 export interface CommonsStore {
   /** Persist one published entry. Rejects on duplicate (name, version) —
@@ -41,21 +42,37 @@ function safeSegment(s: string): string {
 /** Local-filesystem CommonsStore — the v1 local-first backing store. */
 export class FsCommonsStore implements CommonsStore {
   readonly #root: string;
+  readonly #priorRoot: string;
 
   constructor(dataDir: string) {
     this.#root = join(dataDir, "modules");
+    this.#priorRoot = priorRegistryRoot(dataDir);
   }
 
-  #versionPath(name: string, version: string): string {
-    return join(this.#root, safeSegment(name), `${safeSegment(version)}.json`);
+  #versionPath(root: string, name: string, version: string): string {
+    return join(root, safeSegment(name), `${safeSegment(version)}.json`);
+  }
+
+  async #read(root: string, name: string, version: string): Promise<CommonsModuleEntry | null> {
+    try {
+      return decodeStoredCommonsEntry(
+        await readFile(this.#versionPath(root, name, version), "utf8"),
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
   }
 
   async put(entry: CommonsModuleEntry): Promise<void> {
+    if (await this.get(entry.name, entry.version)) {
+      throw new DuplicateVersionError(entry.name, entry.version);
+    }
     const dir = join(this.#root, safeSegment(entry.name));
     await mkdir(dir, { recursive: true });
     try {
       await writeFile(
-        this.#versionPath(entry.name, entry.version),
+        this.#versionPath(this.#root, entry.name, entry.version),
         JSON.stringify(entry, null, 2),
         { encoding: "utf8", flag: "wx" },
       );
@@ -68,22 +85,24 @@ export class FsCommonsStore implements CommonsStore {
   }
 
   async get(name: string, version: string): Promise<CommonsModuleEntry | null> {
-    try {
-      const raw = await readFile(this.#versionPath(name, version), "utf8");
-      return JSON.parse(raw) as CommonsModuleEntry;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw err;
+    const [current, prior] = await Promise.all([
+      this.#read(this.#root, name, version),
+      this.#read(this.#priorRoot, name, version),
+    ]);
+    if (current && prior) {
+      throw new Error(`commons: conflicting registry entries for ${name}@${version}`);
     }
+    return current ?? prior;
   }
 
   async listVersions(name: string): Promise<CommonsModuleEntry[]> {
-    let files: string[];
-    try {
-      files = await readdir(join(this.#root, safeSegment(name)));
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw err;
+    const files = new Set<string>();
+    for (const root of [this.#root, this.#priorRoot]) {
+      try {
+        for (const file of await readdir(join(root, safeSegment(name)))) files.add(file);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
     const entries: CommonsModuleEntry[] = [];
     for (const file of files) {
@@ -96,12 +115,13 @@ export class FsCommonsStore implements CommonsStore {
   }
 
   async listAll(): Promise<CommonsModuleEntry[]> {
-    let dirs: string[];
-    try {
-      dirs = await readdir(this.#root);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw err;
+    const dirs = new Set<string>();
+    for (const root of [this.#root, this.#priorRoot]) {
+      try {
+        for (const dir of await readdir(root)) dirs.add(dir);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
     const all: CommonsModuleEntry[] = [];
     for (const dir of dirs) {

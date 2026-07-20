@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import {
   parseModuleManifest,
+  canonicalizeJson,
   verifyCommonsEntry,
   toSignedEnvelope,
   verifyManifestSignature,
@@ -175,6 +176,7 @@ test("persisted signing keys keep stored entries readable across service restart
       keyPair: firstKeyPair,
       publishToken: TEST_PUBLISH_TOKEN,
     });
+
     const manifest = generalizedManifest("test-fixture-restart");
     assert.equal((await publish(firstApp, { manifest, provenance })).statusCode, 201);
     await firstApp.close();
@@ -188,6 +190,132 @@ test("persisted signing keys keep stored entries readable across service restart
     assert.equal((await secondApp.inject({ url: "/v1/modules/test-fixture-restart/1.0.0" })).statusCode, 200);
     await secondApp.close();
   } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("signed pre-VOCAB3 entries remain verified, pinned, visible, and canonically adapted", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "commons-vocab3-test-"));
+  const keyPair = resolveCommonsSigningKeyPair({ NODE_ENV: "test" });
+  const name = "legacy-organization-blueprint";
+  const version = "1.0.0";
+  const manifest = {
+    name,
+    version,
+    kind: "workspace_definition",
+    summary: "A signed generalized organization blueprint.",
+    description: "A signed generalized organization blueprint.",
+    lineageManifestId: null,
+    dependencies: [],
+    capabilities: [],
+    contextProviders: [],
+    workspaceVocab: {
+      alignsToBridgeTheme: true,
+      domainTerms: {
+        Workspace: "Firm",
+        Package: "Capability",
+        Initiative: "Deal",
+      },
+    },
+    blueprint: {
+      schemaVersion: 2,
+      vocabulary: { Initiative: "Deal" },
+      entities: [{
+        nodeType: "initiative",
+        label: "Deals",
+        fields: [{
+          id: "related",
+          label: "Related deal",
+          kind: "relation",
+          relationTarget: "initiative",
+        }],
+      }],
+      views: [{ entity: "initiative", kind: "table" }],
+      capabilities: [],
+    },
+  };
+  const content = {
+    name,
+    version,
+    kind: manifest.kind,
+    summary: manifest.summary,
+    tags: ["blueprint"],
+    manifest,
+    provenance,
+    securityScan: {
+      scanner: "bridge-commons-manifest",
+      scannerVersion: "1.0.0",
+      policyVersion: "CM1-2026-07",
+      status: "passed",
+      riskBand: "informational",
+      lethalTrifecta: false,
+      checks: [],
+    },
+  };
+  const integrity = {
+    algorithm: "sha256",
+    value: `sha256:${sha256(canonicalizeJson(content))}`,
+  };
+  const publishedAt = "2026-07-18T00:00:00.000Z";
+  const signature = {
+    signature: cryptoSign(
+      null,
+      Buffer.from(canonicalizeJson({ content, integrity, publishedAt }), "utf8"),
+      keyPair.privateKeyPem,
+    ).toString("base64"),
+    publicKey: keyPair.publicKeyPem,
+    algorithm: "ed25519",
+    signedAt: publishedAt,
+  };
+  const priorDir = join(dataDir, "packages", name);
+  await mkdir(priorDir, { recursive: true });
+  await writeFile(
+    join(priorDir, `${version}.json`),
+    JSON.stringify({ ...content, integrity, publishedAt, signature }),
+    "utf8",
+  );
+
+  const store = new FsCommonsStore(dataDir);
+  const app = buildCommonsServer(store, { keyPair, publishToken: TEST_PUBLISH_TOKEN });
+  try {
+    const list = (await app.inject({ url: "/v1/modules" })).json();
+    assert.equal(list.total, 1);
+    assert.equal(list.items[0].name, name);
+
+    const response = await app.inject({ url: `/v1/modules/${name}/${version}` });
+    assert.equal(response.statusCode, 200);
+    const entry = response.json() as CommonsModuleEntry;
+    assert.equal(entry.kind, "organization_definition");
+    assert.deepEqual(entry.manifest.organizationVocab.domainTerms, {
+      Organization: "Firm",
+      Module: "Capability",
+      Record: "Deal",
+    });
+    assert.equal(entry.manifest.blueprint?.entities[0]?.nodeType, "record");
+    assert.equal(entry.manifest.blueprint?.entities[0]?.fields[0]?.relationTarget, "record");
+    assert.equal(entry.manifest.blueprint?.views[0]?.entity, "record");
+    assert.equal(entry.integrity.value, integrity.value);
+    assert.equal(entry.signedSource?.vocabularyVersion, 2);
+    assert.deepEqual(
+      verifyCommonsEntry(entry, sha256, ed25519ManifestVerifier, {
+        trustedPublicKeys: [keyPair.publicKeyPem],
+      }),
+      { valid: true },
+    );
+
+    const tampered = {
+      ...entry,
+      manifest: { ...entry.manifest, summary: "tampered canonical projection" },
+    };
+    assert.deepEqual(
+      verifyCommonsEntry(tampered, sha256, ed25519ManifestVerifier, {
+        trustedPublicKeys: [keyPair.publicKeyPem],
+      }),
+      { valid: false, reason: "metadata_mismatch" },
+    );
+    await assert.rejects(() => store.put(entry), /already published/);
+  } finally {
+    await app.close();
     await rm(dataDir, { recursive: true, force: true });
   }
 });

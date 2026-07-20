@@ -52,6 +52,11 @@ export interface CommonsContentHash {
   value: string;
 }
 
+export interface CommonsSignedSource {
+  vocabularyVersion: 2;
+  canonicalContent: string;
+}
+
 /** One published (name, version) entry as the registry stores/serves it.
  * `tags` are publisher-supplied generalized keywords (discovery only) — they
  * live in the registry envelope, NOT inside the manifest, so the manifest
@@ -67,6 +72,9 @@ export interface CommonsModuleEntry {
   securityScan: CommonsSecurityScan;
   integrity: CommonsContentHash;
   publishedAt: string;
+  /** Original immutable content for a deterministically adapted pre-VOCAB3
+   * entry. Its hash and signature remain authoritative. */
+  signedSource?: CommonsSignedSource;
   /** Detached publisher signature over immutable content + integrity. Optional on the
    * type for backward compatibility with pre-signing entries, but the server
    * signs every publish and the install path REJECTS an entry without a valid

@@ -106,7 +106,7 @@ test("publish → get roundtrip, list filtering, and privacy-gate rejection over
   assert.equal(exact.securityScan.status, "passed");
   assert.equal(exact.securityScan.checks.length, 9);
   const scanCopy = exact.securityScan.checks.map((item: { detail: string }) => item.detail).join(" ");
-  assert.doesNotMatch(scanCopy, /\b(?:organization|module|artifact)\b/i);
+  assert.doesNotMatch(scanCopy, /\b(?:workspace|package|artifact)\b/i);
   assert.match(exact.integrity.value, /^sha256:[0-9a-f]{64}$/);
   assert.equal((await app.inject({ url: "/v1/modules/example-view/9.9.9" })).statusCode, 404);
 });

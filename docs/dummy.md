@@ -209,6 +209,17 @@ its real data source exists, and an empty state would hide the thing being revie
   **Removal condition:** either route this page to a real, `jobpilotStore`-backed application
   detail view, or delete it if `JobPilotPage.tsx`'s own detail affordance supersedes it.
 
+- **2026-07-20 — signed pre-VOCAB3 Commons compatibility fixture**
+  (`platform/services/commons/test/signing.test.ts`).
+  **Reason it can't be real yet:** the regression must create a controlled historical signed entry
+  with known bytes and a temporary Ed25519 key to prove hash/signature preservation, vocabulary
+  projection, prior-directory discovery, and tamper rejection without depending on a user's real
+  Commons registry or private signing key.
+  **Real element it stands in for:** a generalized Commons entry published and signed before
+  VOCAB3 under the prior manifest and filesystem vocabulary.
+  **Removal condition:** remove with the explicit pre-VOCAB3 Commons compatibility adapter after
+  every supported registry has migrated and the TASK-012 compatibility-deletion gate passes.
+
 ## Resolved
 
 *(entries move here, struck through, once removed — none yet)*
