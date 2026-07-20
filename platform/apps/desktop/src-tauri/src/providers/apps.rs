@@ -1,5 +1,5 @@
 //! "apps" context provider — frontmost-application observation via
-//! `NSOrganization.shared.frontmostApplication`.
+//! `NSWorkspace.shared.frontmostApplication`.
 //!
 //! Polling, not the `didActivateApplicationNotification` observer: a
 //! notification-based observer needs a running `NSRunLoop` on the thread
@@ -13,7 +13,7 @@
 
 use super::{now_ts_ms, CaptureEmission, Observation};
 use objc2::rc::autoreleasepool;
-use objc2_app_kit::NSOrganization;
+use objc2_app_kit::NSWorkspace;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -64,13 +64,13 @@ impl AppsProvider {
     }
 }
 
-/// Reads NSOrganization.shared.frontmostApplication, returning (localizedName,
+/// Reads NSWorkspace.shared.frontmostApplication, returning (localizedName,
 /// bundleIdentifier). Wrapped in an autorelease pool since this runs off the
 /// main thread on a fresh Cocoa call each poll tick.
 fn frontmost_app() -> Option<(String, String)> {
     autoreleasepool(|_| {
-        let organization = NSOrganization::sharedOrganization();
-        let app = organization.frontmostApplication()?;
+        let app_manager = NSWorkspace::sharedWorkspace();
+        let app = app_manager.frontmostApplication()?;
         let name = app
             .localizedName()
             .map(|s| s.to_string())

@@ -68,7 +68,15 @@ function displayValue(record: RecordRow, field: string): string {
 
 const CREATE_FIELDS: Record<PageId, ReadonlySet<string>> = {
   deals: new Set(["company", "revenue", "askingPrice"]),
-  sources: new Set(["name", "link", "connectionType", "spendCap", "rightsAttested"]),
+  sources: new Set([
+    "name",
+    "link",
+    "connectionType",
+    "spendCap",
+    "rightsAttested",
+    "userId",
+    "password",
+  ]),
   theses: new Set(["name", "focus", "targetCagr", "criteria", "exclusions"]),
 };
 
@@ -109,9 +117,10 @@ function buildTableSpec(
       label: column.label,
       kind,
       editable,
-      locked: column.kind === "credential",
+      locked: column.kind === "credential" && !editable,
       hiddenInForm: !editable,
       required: requiredFields.has(column.id),
+      sensitive: column.kind === "credential",
       ...(options && options.length > 0 ? { options } : {}),
       ...(column.kind === "relation"
         ? { relationTarget: RELATION_TARGETS[column.id], editable: false, hiddenInForm: true }
@@ -272,6 +281,8 @@ export function DealPilotPage() {
         connectionType: String(draft["connectionType"] ?? "url") as "url" | "email_alert" | "api" | "account",
         spendCap: Number(draft["spendCap"] ?? 0),
         rightsAttested: draft["rightsAttested"] === true,
+        ...(draft["userId"] ? { userId: String(draft["userId"]) } : {}),
+        ...(draft["password"] ? { password: String(draft["password"]) } : {}),
       });
       await load();
       setRouteNotice("Source added. Open it to run governed Deal discovery.");

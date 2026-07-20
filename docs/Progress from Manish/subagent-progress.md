@@ -32,6 +32,16 @@ Canonical state remains in [`docs/TASKS.md`](../TASKS.md). “Merged” below me
 | `b44e7514-4f2d-4e57-a4c7-e2b9b06be88d` — Implement web research | TASK-023 candidate B | `manishsbhoopalam8498-implement-web-research` / `631aa9f` plus 13 changed and 3 untracked paths | Paused, idle | Provider verification, core port/taint, research package/net guard, authority wiring, API route, and focused tests exist. Research suite 24/24; API 4/4 before final onboarding migration. Remaining full post-migration gates/docs/review. Competes with candidate A. |
 | `3d96fe73-2f17-4e87-868f-e8ca692f9e4b` — Implement Zazoo website | TASK-024 | `task-024-zazoo-website` / implementation `a4bf5fb`; `origin/main@512cf35` integration `69ffbff`; PR #23; Pages publication `2306808`, rollback `6b76466` | Merged, publication rolled back, done | Standalone `@zazoo/website` delivers the approved Hero→Family→Governance→Library→Values→Process→Difference→Impact→Night→Morning sequence with governed copy, original SVG rigs, pointer/keyboard/touch interactions, reduced motion, and honest disabled final CTA. Six contract tests, typecheck, production build, ESLint, desktop, and exact 375×812 live runs passed. AP-052 records the user-directed landing and optional independent-review skip. AP-053 records the user-directed Pages rollback; run `29683837490` restored the older experience at `https://zazoo.me` while preserving `CNAME`, `consulting.html`, and `training.html`. No migration. Do not resume or merge again. |
 
+### TASK-006 fresh Supabase continuation
+
+Session `6cd3ce6e-8932-45cd-951e-b147102a7af0` resumed from
+`origin/main@922ca52` on `manishsbhoopalam8498-close-dealpilot-pilot`. It created one free
+`us-east-1` Supabase project, exact pilot Auth, a hash-preserving managed-Postgres migration
+bundle, migrations `0025`/`0026`, least-privilege/RLS/residency/restart evidence, secure
+create-time Source fields, a live rights-attested Source, governed Source↔Thesis Relation, and
+desktop/exact-375 proof. The user has no authorized Source credential and Google OAuth is absent;
+TASK-006 remains `in_progress`.
+
 ## Non-project background agents and reviewers
 
 - The recovered Supabase session started 25 workers and recorded 20 completions. Its five

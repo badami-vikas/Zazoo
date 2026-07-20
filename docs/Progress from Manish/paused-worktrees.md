@@ -39,6 +39,10 @@ surfaces. API/web typechecks and 55 focused Auth, wiring, residency, migration/R
 tests pass. No live Supabase/hosting resource was changed and nothing was pushed. Do not
 resume this dead session or merge `6590c71` again.
 
+This historical statement is superseded operationally by the fresh TASK-006 continuation from
+`origin/main@922ca52`: a free `us-east-1` project is live with exact pilot Auth and migrations
+through `0026`. The dead session remains non-resumable.
+
 ## TASK-005 combined demo certification — MERGED 2026-07-19
 
 - Session: `18c7a8c6-49b0-4cd8-a964-ae47cdbd648a`
@@ -79,7 +83,7 @@ Relationship `0.2.2` and removes standalone Help Request package/browser stores.
 installation-driven Module/Run/Panel/full-Graph convergence. Final closure moves DealPilot/JobPilot
 to canonical Module paths, deletes expired compatibility, migrates stored Results, moves old Commons
 registry bytes into one canonical root, and lowers the forbidden baseline to zero. Desktop and exact
-375×812 routes pass. TASK-012 is done under AP-059/ADR-133. Next new migration is `0025`. Do not
+375×812 routes pass. TASK-012 is done under AP-059/ADR-133. Next new migration is `0027`. Do not
 resume or re-merge any prior VOCAB worktree.
 
 ## TASK-006 durability — MERGED 2026-07-19

@@ -181,6 +181,13 @@ test("Rust and SQL scanners cover identifiers and strings without counting comme
   assert.equal(rust.workflow["apps/desktop/src-tauri/src/probe.rs"].identifier, 1);
   assert.equal(rust.workflow["apps/desktop/src-tauri/src/probe.rs"].string, 1);
 
+  const appKit = inventoryForSource(
+    "apps/desktop/src-tauri/src/providers/apps.rs",
+    `use objc2_app_kit::NSWorkspace;
+     let app_manager = NSWorkspace::sharedWorkspace();`,
+  );
+  assert.equal(appKit.workspace, undefined);
+
   const sql = inventoryForSource(
     "packages/db/src/probe.sql",
     `-- workflow comments are not runtime contracts

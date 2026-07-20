@@ -12,6 +12,12 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 - Panels share collapsed/expanded/extended state. Organization-scoped persistence. Escape steps back one state.
 - Knowledge runtime = zero. Two old Tool strings = inspected-source paths only; delete with final directory rename.
 
+## 2026-07-20 — Supabase policyless tables stay server-only (ADR-134)
+- Auto-RLS without policy = deny-all runtime break, not safety.
+- Policyless catalog/junction table: revoke `PUBLIC`/`anon`/`authenticated`; server role only.
+- Policy-backed table: RLS stays on. Membership stays forced-RLS.
+- Never grant runtime BYPASSRLS. Never run as owner/service role.
+
 ## 2026-07-19 — Hosted Supabase pilot boundary (ADR-128, AP-052)
 - Migration owner separate. Runtime only `bridge_app`. No owner. No BYPASSRLS.
 - RLS identity transaction-local. Pool reuse cannot carry old Human/Organization.

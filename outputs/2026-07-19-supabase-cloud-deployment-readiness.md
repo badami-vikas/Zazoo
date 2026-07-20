@@ -17,16 +17,23 @@ Repository-side Supabase pilot blockers are remediated:
   only explicitly public roots reach Supabase, and decisions/audits follow their parent;
 - DealPilot has an AES-256-GCM encrypted, Organization/Source-bound file vault with
   restart durability, deletion, wrong-key failure, and current/previous-key rotation;
+- the desktop sidecar explicitly declares `desktop-local` residency, uses the OS
+  keyring, and sets `BRIDGE_ENV=production` so a Supabase runtime connection cannot
+  skip the least-privilege/RLS boot guard;
+- migrations `0025`/`0026` align Supabase automatic RLS with tracked policy ownership:
+  client roles lose every policyless table grant, and every table left RLS-enabled has
+  at least one tracked policy;
 - the API has a Turbo-pruned, production-only, non-root Node 22 image and CI build,
   fail-closed production boot, liveness, and readiness probes.
 
 Supabase provides Postgres/Auth and optional Storage/Realtime. It does not host this
-repository's long-running Fastify process. The pilot topology is one persistent API
-container, one static web deployment, and one Supabase project in the same region.
+repository's long-running Fastify process. The user-approved TASK-006 pilot topology is
+the desktop sidecar/local web client against one isolated Supabase project in Northern
+Virginia. Private Local Plane data and Source credentials stay on the device.
 
-Private Local Plane content lives on the API host only when the owner explicitly accepts
-an encrypted persistent cloud volume. If private data must stay on the user's device,
-deploy the desktop sidecar topology instead of the hosted-browser topology.
+The hosted-container topology below remains available only when the owner separately
+accepts an encrypted persistent cloud volume. That boundary is not approved for this
+TASK-006 certification.
 
 ## Recovered session and integration
 
@@ -48,14 +55,16 @@ deploy the desktop sidecar topology instead of the hosted-browser topology.
 
 1. **Choose the pilot boundary.**
    - Use one approved pilot account and one API replica.
-   - Select the Supabase, API, and web regions.
-   - Explicitly approve either an encrypted API-host volume or desktop-local residency.
+   - Use Supabase `us-east-1`; run API/web through the desktop-local sidecar topology.
+   - Keep private/all-scope/legacy-unscoped roots and Source credentials on the device.
    - Do not describe this pilot-only admission model as a public multi-user launch.
 
 2. **Create the Supabase project.**
    - Record its project URL, project ref, region, and web publishable key.
    - Enable `vector` before applying migrations.
-   - Keep RLS enabled.
+   - Enable Data API only with automatic table exposure disabled.
+   - Keep tracked RLS policies enabled. Migrations `0025`/`0026` remove Supabase's
+     automatic-RLS side effect only from server-only tables that have no policy.
    - Prefer asymmetric JWT signing; the API verifies the project's JWKS from
      `SUPABASE_URL`.
 
@@ -67,13 +76,19 @@ deploy the desktop sidecar topology instead of the hosted-browser topology.
    corepack prepare pnpm@10.33.3 --activate
    pnpm install --frozen-lockfile
 
-   export MIGRATION_DATABASE_URL='<Supabase direct owner URI>'
-   pnpm --filter @bridge/db migrate
+   node scripts/build-supabase-migration-bundle.mjs \
+     packages/db/migrations \
+     "$TMPDIR/bridge-supabase-migrations.sql"
+   npx -y supabase@latest db query --linked \
+     --file "$TMPDIR/bridge-supabase-migrations.sql"
+   rm "$TMPDIR/bridge-supabase-migrations.sql"
    ```
 
-   Use the direct endpoint for migrations, as Supabase recommends. If the migration host
-   cannot reach IPv6, use an owner session-pooler URI. Never inject
-   `MIGRATION_DATABASE_URL` into the running API.
+   The generated bundle preserves every released Drizzle hash and applies two
+   transaction-scoped managed-Postgres compatibility transforms: PostgreSQL 17 aggregate
+   inspection and Supabase's non-superuser `postgres` role. It refuses any non-empty
+   Drizzle history and removes its temporary compatibility function before commit.
+   Never inject owner access into the running API.
 
 4. **Set the runtime-role password outside migrations.**
 
@@ -224,8 +239,20 @@ The web publishable key is intentionally public but is still required as a build
   new CI container job.
 - The existing unrelated `@bridge/sensors` aggregate coverage gate remains open under
   TASK-017: 7/7 tests pass, but 35.76% is below its 38% line floor.
-- No live Supabase project was mutated and no cloud service was provisioned because owner
-  project/hosting inputs and secrets have not been supplied.
+- On 2026-07-20, current `main@922ca52` was re-audited for the desktop-local boundary.
+  The audit restored the real AppKit `NSWorkspace` framework API after VOCAB3 had made
+  desktop compilation impossible, made desktop residency explicit, and forced the
+  production RLS posture check through `BRIDGE_ENV=production`. Affected TypeScript
+  build/typecheck, 197 API/DB/Google/DealPilot tests, 7 web contract tests, Rust test,
+  strict Clippy, rustfmt, and zero-baseline vocabulary checks passed.
+- A live free `us-east-1` project now carries 26 Drizzle migrations, `vector 0.8.2`,
+  39 policy-backed RLS tables, zero policyless RLS tables, and one exact activated
+  pilot subject. `bridge_app` live login, exact JWT admission, service-key rejection,
+  cross-Organization denial, transaction-context reset, restart durability, and zero
+  cloud rows for private Local Plane surfaces are proven.
+- Remaining TASK-006 gates are external: authorized Source credentials and a Google
+  OAuth client/account are unavailable, so no live BizBuySell Deal or credential
+  reveal/copy/revoke/expiry result is claimed.
 
 ## References
 

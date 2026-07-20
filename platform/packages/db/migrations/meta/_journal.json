@@ -169,6 +169,20 @@
       "when": 1784552100000,
       "tag": "0024_task012_compatibility_deletion",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784566183701,
+      "tag": "0025_task006_supabase_root_catalogs",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784566535580,
+      "tag": "0026_task006_supabase_auto_rls_alignment",
+      "breakpoints": true
     }
   ]
 }

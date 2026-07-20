@@ -7,6 +7,7 @@ const routeSource = await readFile(new URL("../src/app/routes.tsx", import.meta.
 const trpcSource = await readFile(new URL("../src/app/lib/trpc.ts", import.meta.url), "utf8");
 const apiSource = await readFile(new URL("../src/app/data/api.ts", import.meta.url), "utf8");
 const googleSource = await readFile(new URL("../src/app/pages/GoogleIntegrationPanel.tsx", import.meta.url), "utf8");
+const formSource = await readFile(new URL("../src/app/dataviews/views/FormView.tsx", import.meta.url), "utf8");
 
 test("DealPilot exposes exactly the Deals, Sources, and Theses default Page routes", () => {
   assert.match(routeSource, /dealpilot\/:page/);
@@ -39,6 +40,12 @@ test("Source credentials require re-authentication and are never persisted by th
   assert.match(pageSource, /window\.setTimeout/);
   assert.match(pageSource, /setReauthToken\(null\)/);
   assert.match(pageSource, /setRevealed\(\{\}\)/);
+  assert.match(pageSource, /"rightsAttested",\s*"userId",\s*"password"/s);
+  assert.match(pageSource, /\.\.\.\(draft\["userId"\]/);
+  assert.match(pageSource, /\.\.\.\(draft\["password"\]/);
+  assert.match(pageSource, /sensitive: column\.kind === "credential"/);
+  assert.match(formSource, /type=\{col\.sensitive \? "password" : "text"\}/);
+  assert.match(formSource, /autoComplete=\{col\.sensitive \? "new-password" : undefined\}/);
   assert.doesNotMatch(pageSource, /sessionStorage|localStorage/);
   assert.match(
     trpcSource,

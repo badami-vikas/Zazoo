@@ -184,6 +184,14 @@ function scopedDefinition(family, definition, relativePath) {
 }
 
 function isAllowedTechnicalUse(family, relativePath, value, kind) {
+  if (
+    family === "workspace" &&
+    kind === "identifier" &&
+    relativePath === "apps/desktop/src-tauri/src/providers/apps.rs" &&
+    ["NSWorkspace", "sharedWorkspace"].includes(value)
+  ) {
+    return true;
+  }
   if (family === "element" && kind === "identifier") {
     if (
       /^(?:ElementRef|ElementType|getElementById|createElement|mapElementRef|HTML[A-Za-z]*Element|SVG[A-Za-z]*Element)$/.test(value)
