@@ -61,35 +61,22 @@ lint, no-runtime-dummy, release-native launch, and final independent review pass
 This worktree is historical after merge. Do not resume it, re-run its migration under another
 number, or merge it again.
 
-## TASK-012 vocabulary migration — VOCAB2 MERGED; VOCAB3 PARTIAL 2026-07-19
+## TASK-012 vocabulary migration — VOCAB0–VOCAB5 MERGED 2026-07-20
 
 - Planning session: `3179df41-d08d-4669-b73b-7788eff1f652`
 - Planning-only branch: `manishsbhoopalam8498-fuzzy-adventure` / `5775e5b`
 - VOCAB0–VOCAB1: `task-012-vocab01`, checkpoints `dd51797`/`bd7de18`, PR #26
 - VOCAB2: `task-012-vocab2`, source `88be310`, merge `f6c4376`, PR #27
-- Partial VOCAB3 source: `task-012-vocab3`
-- Partial VOCAB3 checkpoint: `58573ba`
-- Migration: `0021_vocab3_organization_module_record`
+- VOCAB3: PR #28, source `bdcedeb`, merge `dc50c33`, migration `0021`
+- VOCAB4: PR #29, source `80f8712`, evidence `a07ec02`, merge `611c9ad`, migration `0023`
+- VOCAB5: PR #30, source/evidence `63a7aaa`, no migration
 
-VOCAB2 is complete and merged. Checkpoint `58573ba` carries the incomplete VOCAB3 implementation:
-Organization/Module/Record code and schema contracts, migration `0021`, Local Plane compatibility,
-manifest root-collision protection, and historical migration-fixture build repair. Verified at the
-checkpoint: Module parser 14/14, migration 0016 3/3, migration 0021 1/1, Local PGlite 10/10, web
-typecheck, and monorepo build 22/22.
-
-Resume from current `main`. Remaining VOCAB3 work is explicit:
-
-1. Preserve verification of signed legacy Commons entries while adapting their manifests to
-   canonical vocabulary; retain existing content-hash pins and migrate/read the old registry
-   filesystem directory without hiding entries.
-2. Resolve vocabulary-ratchet fingerprint moves caused by VOCAB3 renames without increasing the
-   baseline. Current failures are later Artifact/Touchpoint/Helpdesk/Knowledge/Tool families plus
-   one technical Package occurrence; Workspace/Project/Initiative/Element families introduce none.
-3. Run the remaining targeted Module/Organization/Record API, store, RLS, and schema-hardening
-   tests, then required browser evidence.
-4. Only then mark VOCAB3 complete and continue VOCAB4–VOCAB6 plus compatibility deletion.
-
-Do not re-merge `58573ba` or resume the planning-only branch.
+VOCAB3 preserves signed legacy Commons bytes/hashes/signatures through canonical projection.
+VOCAB4 establishes one Event ledger plus canonical Result/File behavior. VOCAB5 publishes immutable
+Relationship `0.2.2`, nests Help Request APIs under Relationship, removes standalone package/browser
+stores, and lowers the ratchet to 296. Desktop and exact 375×812 routes pass. Resume only VOCAB6 and
+final compatibility deletion from current `main`; next new migration is `0024`. Do not resume or
+re-merge any prior VOCAB worktree.
 
 ## TASK-006 durability — MERGED 2026-07-19
 
