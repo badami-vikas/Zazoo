@@ -5,7 +5,7 @@ import type { TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
 import { Header } from "../components/shared/Header";
 import { DataViews } from "../dataviews/DataViews";
 import { viewConfigForKind } from "../dataviews/eligibility";
-import type { DataRow, GraphNode } from "../dataviews/types";
+import type { DataRow, GraphEdge, GraphNode } from "../dataviews/types";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
 const FULL_GRAPH_VIEWS: ViewKind[] = ["table", "graph"];
@@ -78,6 +78,10 @@ export function SecondBrainPage() {
     if (typeof recordPath === "string" && recordPath) navigate(recordPath);
   }
 
+  function openRelation(edge: GraphEdge) {
+    if (edge.recordPath) navigate(edge.recordPath);
+  }
+
   async function invokeSignalAction(node: GraphNode) {
     const signalId = node.recordId ?? (node.id.startsWith("signal:") ? node.id.slice("signal:".length) : null);
     if (!signalId) {
@@ -127,6 +131,7 @@ export function SecondBrainPage() {
             graphLoading={graph === null}
             graphError={null}
             onOpenRecord={openRecord}
+            onOpenRelation={openRelation}
             onInvokeNodeAction={invokeSignalAction}
             onLoadMoreGraph={graph?.hasMore && limit < 200
               ? () => setLimit((current) => Math.min(200, current + 100))

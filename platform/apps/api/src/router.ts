@@ -5498,6 +5498,7 @@ export const appRouter = t.router({
           provenance: `Community · source ${community.source}`,
         }));
         const nodes = [...personNodes, ...communityNodes];
+        const nodesById = new Map(nodes.map((node) => [node.id, node]));
         const visibleNodeIds = new Set(nodes.map((node) => node.id));
         const edges = relationPage.items.flatMap((relation) => {
           const sourceId = `${relation.srcType}:${relation.srcId}`;
@@ -5511,6 +5512,9 @@ export const appRouter = t.router({
             label: relation.edgeType,
             relationType: relation.edgeType,
             sourceModule: relation.sourceModule,
+            recordPath:
+              nodesById.get(sourceId)?.recordPath ??
+              nodesById.get(targetId)?.recordPath,
             evidence:
               `${evidenceCount} permitted evidence ${evidenceCount === 1 ? "reference" : "references"} · source ${relation.sourceModule}`,
           }];
@@ -7847,11 +7851,117 @@ export const appRouter = t.router({
       .query(async ({ input, ctx }) => {
         assertPilotOrganization(input.organizationId);
         await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        return ctx.wiring.graphStore.listFullGraph(
-          input.organizationId,
-          ctx.identity.id,
-          { limit: input.limit },
+        const loadModuleInstallations = async () => {
+          const items = [];
+          let offset = 0;
+          let total = 0;
+          do {
+            const page = await ctx.wiring.moduleStore.list(
+              input.organizationId,
+              { limit: 100, offset },
+            );
+            total = page.total;
+            if (page.items.length === 0 && offset < total) {
+              throw new Error("Module installation pagination stopped before reaching the reported total");
+            }
+            items.push(...page.items);
+            offset += page.items.length;
+          } while (offset < total);
+          return items;
+        };
+        const [graph, moduleInstallations] = await Promise.all([
+          ctx.wiring.graphStore.listFullGraph(
+            input.organizationId,
+            ctx.identity.id,
+            { limit: input.limit },
+          ),
+          loadModuleInstallations(),
+        ]);
+        const installations = moduleInstallations.filter(
+          (installation) =>
+            installation.state === "available" &&
+            installation.status === "installed" &&
+            installation.manifest.module !== undefined &&
+            installation.moduleAttachment === undefined,
         );
+        const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
+        for (const installation of installations) {
+          const module = installation.manifest.module!;
+          nodes.set(`module:${installation.moduleName}`, {
+            id: `module:${installation.moduleName}`,
+            recordId: installation.moduleName,
+            recordType: "module",
+            label:
+              module.displayName ??
+              installation.manifest.name ??
+              installation.moduleName,
+            databaseId: "modules",
+            databaseLabel: "Modules",
+            moduleId: installation.moduleName,
+            subtitle: `Module v${installation.moduleVersion}`,
+            recordPath: `/module/${installation.moduleName}`,
+            provenance: `Module installation · source ${installation.moduleName}`,
+          });
+          for (const agent of module.agents) {
+            const recordId = `${installation.moduleName}:${agent.id}`;
+            nodes.set(`agent:${recordId}`, {
+              id: `agent:${recordId}`,
+              recordId,
+              recordType: "agent",
+              label: agent.name,
+              databaseId: "agents",
+              databaseLabel: "Agents",
+              moduleId: installation.moduleName,
+              subtitle: `${agent.skillIds.length} ${agent.skillIds.length === 1 ? "Skill" : "Skills"}`,
+              recordPath: `/module/${installation.moduleName}#agent-${agent.id}`,
+              provenance: `Agent binding · source ${installation.moduleName}`,
+            });
+          }
+        }
+        for (const [id, node] of nodes) {
+          if (node.recordPath || !nodes.has(`module:${node.moduleId}`)) continue;
+          nodes.set(id, { ...node, recordPath: `/module/${node.moduleId}` });
+        }
+        const edges = new Map(graph.edges.map((edge) => {
+          const source = nodes.get(edge.sourceId);
+          const target = nodes.get(edge.targetId);
+          return [edge.id, {
+            ...edge,
+            ...(source?.recordPath || target?.recordPath
+              ? { recordPath: source?.recordPath ?? target?.recordPath }
+              : {}),
+          }];
+        }));
+        for (const node of nodes.values()) {
+          if (node.recordType === "module") continue;
+          const moduleNodeId = `module:${node.moduleId}`;
+          if (!nodes.has(moduleNodeId)) continue;
+          const id = `source-module:${node.id}:${moduleNodeId}`;
+          edges.set(id, {
+            id,
+            sourceId: node.id,
+            targetId: moduleNodeId,
+            label: "from",
+            relationType: "originates_from",
+            sourceModule: node.moduleId,
+            evidence: `Source Module ${node.moduleId}`,
+            recordPath: nodes.get(moduleNodeId)?.recordPath,
+          });
+        }
+        const composedNodes = [...nodes.values()];
+        const databases = new Map(graph.databases.map((database) => [database.id, database]));
+        if (composedNodes.some((node) => node.recordType === "module")) {
+          databases.set("modules", { id: "modules", label: "Modules", moduleId: "modules" });
+        }
+        if (composedNodes.some((node) => node.recordType === "agent")) {
+          databases.set("agents", { id: "agents", label: "Agents", moduleId: "agents" });
+        }
+        return {
+          nodes: composedNodes,
+          edges: [...edges.values()],
+          databases: [...databases.values()],
+          hasMore: graph.hasMore,
+        };
       }),
 
     listRecords: procedure
@@ -9622,6 +9732,58 @@ export const appRouter = t.router({
         hasMore: input.offset + itemsWithRuntimeBindings.length < total,
       };
     }),
+
+    recentRuns: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().uuid(),
+        moduleName: z.string().min(1),
+        limit: z.number().int().min(1).max(50).default(10),
+      }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const installation = await ctx.wiring.moduleStore.getAvailable(
+          input.organizationId,
+          input.moduleName,
+        );
+        if (
+          !installation ||
+          installation.status !== "installed" ||
+          !installation.manifest.module ||
+          installation.moduleAttachment
+        ) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "installed Module not found" });
+        }
+        const runtimeAutomations = new Map<string, {
+          id: string;
+          name: string;
+        }>();
+        for (const automation of installation.manifest.module.automations) {
+          if (!automation.automationId) continue;
+          const runtimeId = resolveModuleAutomationRuntimeId(
+            installation.moduleName,
+            automation.automationId,
+          );
+          if (runtimeId) {
+            runtimeAutomations.set(runtimeId, {
+              id: automation.id,
+              name: automation.name,
+            });
+          }
+        }
+        const runs = await ctx.wiring.automationRunRecorder.list(
+          input.organizationId,
+          [...runtimeAutomations.keys()],
+          { limit: input.limit },
+        );
+        return {
+          items: runs.map((run) => ({
+            ...run,
+            manifestAutomationId: runtimeAutomations.get(run.automationId)?.id ?? run.automationId,
+            automationName: runtimeAutomations.get(run.automationId)?.name ?? run.automationId,
+          })),
+        };
+      }),
 
     get: authenticatedProcedure.input(moduleIdInput).query(async ({ input, ctx }) => {
       const installation = await ctx.wiring.moduleStore.get(input.installationId);

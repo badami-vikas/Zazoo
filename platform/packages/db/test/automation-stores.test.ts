@@ -170,6 +170,14 @@ test("Automation Run records retain Agent attribution and organization scope", a
     assert.equal(stored?.agentId, agentId);
     assert.equal(stored?.organizationId, organizationId);
     assert.equal(stored?.status, "completed");
+    assert.equal(stored?.startedAt.toISOString(), "2026-07-20T00:00:00.000Z");
+    assert.equal(stored?.finishedAt?.toISOString(), "2026-07-20T00:00:00.000Z");
+    const recent = await recorder.list(organizationId, [automationId], { limit: 10 });
+    assert.equal(recent.length, 1);
+    assert.equal(recent[0]?.runId, runId);
+    assert.equal(recent[0]?.status, "completed");
+    assert.equal(recent[0]?.finishedAt !== undefined, true);
+    assert.deepEqual(await recorder.list(otherOrganizationId, [automationId], { limit: 10 }), []);
   } finally {
     await close();
   }

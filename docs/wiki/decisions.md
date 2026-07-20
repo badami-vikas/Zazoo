@@ -4,6 +4,14 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-20 — ModuleStore composes shell + Graph identity (ADR-132, AP-058)
+- Nav + Module Detail read active installations.
+- Full Graph = permission-pruned graph + installed Modules + manifest Agents. Compose at authenticated API boundary.
+- Source edge opens real Module/Record path. No guessed route.
+- Module Runs reuse attributable Automation recorder. Same Run clock in memory + DB.
+- Panels share collapsed/expanded/extended state. Organization-scoped persistence. Escape steps back one state.
+- Knowledge runtime = zero. Two old Tool strings = inspected-source paths only; delete with final directory rename.
+
 ## 2026-07-19 — Hosted Supabase pilot boundary (ADR-128, AP-052)
 - Migration owner separate. Runtime only `bridge_app`. No owner. No BYPASSRLS.
 - RLS identity transaction-local. Pool reuse cannot carry old Human/Organization.

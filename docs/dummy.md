@@ -49,13 +49,13 @@ its real data source exists, and an empty state would hide the thing being revie
   **Real elements they stand in for:** Location Record values, a user-installed Local Plane geocoder, and provider coordinates.
   **Removal condition:** retain as isolated privacy/contract regressions; use user-approved local Records and a local self-hosted provider for browser certification.
 
-- **2026-07-17 — TASK-007 Agent-orchestration fixtures** (`platform/packages/core/test/{goal-task,skill-manifest,child-agent-run,pipeline-ags1}.test.ts`,
-  `platform/packages/db/test/{goal-task-store,skill-manifest-store,child-agent-run-store,internal-strategist-governance,local-store,rls,migration-journal}.test.ts`,
-  `platform/apps/api/test/{agent-orchestration,ritual-ownership}.test.ts`).
+- **2026-07-17 — TASK-007 Agent-orchestration fixtures** (`platform/packages/core/test/{goal-task,skill-manifest,child-agent-run,pipeline-ags1,pipeline}.test.ts`,
+  `platform/packages/db/test/{automation-stores,goal-task-store,skill-manifest-store,child-agent-run-store,internal-strategist-governance,local-store,rls,migration-journal}.test.ts`,
+  `platform/apps/api/test/{agent-orchestration,modules,ritual-ownership}.test.ts`).
   **Reason:** deterministic cross-workspace denial, Agent assignment, budget race, lifecycle rollback,
   migration, RLS, and Automation binding tests cannot mutate real user Goals/Tasks or persistent Runs.
   **Real elements they stand in for:** workspace members, foundational Agents, Goals, Tasks, Skill manifests,
-  parent/child Runs, budgets, lifecycle decisions, and audit entries.
+  installed Modules, attributable Automation/parent/child Runs, budgets, lifecycle decisions, and audit entries.
   **Removal condition:** retain as isolated governance/security regressions; use user-approved local workspace
   data for product demonstrations and future end-to-end child-executor evidence.
 

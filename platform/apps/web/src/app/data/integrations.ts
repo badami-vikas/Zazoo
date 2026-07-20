@@ -82,7 +82,7 @@ export const SOCIAL_PROVIDERS: Record<SocialProviderId, SocialProvider> = {
   },
 };
 
-/** Prototype integration ids (IntelligencePage `integrationsData`) → social provider. */
+/** Legacy prototype integration ids → social provider. */
 export const INTEGRATION_TO_PROVIDER: Record<string, SocialProviderId> = {
   'INT-3001': 'linkedin',
   'INT-3006': 'x',

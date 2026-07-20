@@ -16,6 +16,7 @@ import type {
   PolicyStore,
   AutomationDefinition,
   AutomationRegistry,
+  AutomationRunRecord,
   AutomationRunRecorder,
   RoleQuery,
   RunCtx,
@@ -476,7 +477,7 @@ export class InMemoryAutomationRegistry implements AutomationRegistry {
   }
 }
 
-interface RunRecord {
+interface RunRecord extends AutomationRunRecord {
   runId: string;
   automationId: string;
   organizationId: string;
@@ -489,13 +490,18 @@ export class InMemoryAutomationRunRecorder implements AutomationRunRecorder {
   readonly runs = new Map<string, RunRecord>();
   async start(
     run: { runId: string; automationId: string; organizationId: string; agentId: string },
-    _ctx: RunCtx,
+    ctx: RunCtx,
   ): Promise<void> {
-    this.runs.set(run.runId, { ...run, status: "running", output: null });
+    this.runs.set(run.runId, {
+      ...run,
+      status: "running",
+      output: null,
+      startedAt: ctx.clock.nowISO(),
+    });
   }
   async finish(
     run: { runId: string; organizationId: string; status: "completed" | "halted"; output: unknown },
-    _ctx: RunCtx,
+    ctx: RunCtx,
   ): Promise<void> {
     const existing = this.runs.get(run.runId);
     if (!existing || existing.organizationId !== run.organizationId) {
@@ -503,5 +509,18 @@ export class InMemoryAutomationRunRecorder implements AutomationRunRecorder {
     }
     existing.status = run.status;
     existing.output = run.output;
+    existing.finishedAt = ctx.clock.nowISO();
+  }
+  async list(
+    organizationId: string,
+    automationIds: string[],
+    opts: { limit: number },
+  ): Promise<AutomationRunRecord[]> {
+    const allowed = new Set(automationIds);
+    return [...this.runs.values()]
+      .filter((run) => run.organizationId === organizationId && allowed.has(run.automationId))
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+      .slice(0, Math.min(50, Math.max(1, opts.limit)))
+      .map(({ output: _output, ...run }) => run);
   }
 }

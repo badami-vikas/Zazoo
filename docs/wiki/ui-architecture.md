@@ -39,3 +39,5 @@ full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-202
 **Map privacy (ADR-124):** local basemap. Stored coordinates plot. Labels stay local. No public geocoder. No remote tiles. Human may run configured Local Plane geocoder, inspect pins, save through normal Record write.
 
 **Still open elsewhere:** VOCAB4 local File watcher/hash index must connect Module Files to canonical File/Relation provenance (TASK-012). Legacy `/item/:name` Associations still consumes prototype network data (TASK-013). CoS smart grouping begins only after >20 real Files.
+
+**VOCAB6 residual closed 2026-07-20:** active ModuleStore drives nav/detail/full-Graph Module+Agent identity. Recent Runs durable. Edges open real source paths. Panels share 3-state control. Knowledge runtime zero. Final compatibility deletion still separate.

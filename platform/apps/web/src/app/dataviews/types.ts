@@ -41,6 +41,7 @@ export interface GraphEdge {
   relationType: string;
   evidence?: string;
   sourceModule?: string;
+  recordPath?: string;
 }
 
 export interface GraphData {

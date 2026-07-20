@@ -3,7 +3,7 @@
  * installed capability module (`modules.list` rows) — never "module" in
  * UI copy (vocabulary rule, requests.md R-017..R-020).
  *
- * Copied from IntelligencePage's MODULE_ROUTES (owned by another workstream;
+ * Extracted from the retired capability catalog (owned by another workstream;
  * kept byte-identical rather than imported to avoid a cross-page coupling on
  * a page-private constant). Only modules whose `moduleName` appears here
  * have a navigable surface; add a row when a new organization_definition module

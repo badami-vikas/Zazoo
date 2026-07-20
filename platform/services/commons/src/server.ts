@@ -4,14 +4,14 @@
  * serves the SAME routes later, so consumers swap deployments via
  * COMMONS_URL only.
  *
- * Contract (v1 — curated module registry, generalized knowledge only):
+ * Contract (v1 — curated Module registry, generalized capability content only):
  *   GET  /health                      → { ok, service, modules }
  *   GET  /v1/modules                 → list; ?kind= &tag= &limit= &offset=
  *   GET  /v1/modules/:name           → latest entry + version history
  *   GET  /v1/modules/:name/:version  → one full published entry
  *   POST /v1/modules                 → publish { manifest, tags? }
  *        400 invalid_manifest  · 409 duplicate_version
- *        422 organization_data_rejected { offendingPaths } ← knowledge-only gate
+ *        422 organization_data_rejected { offendingPaths } ← generalized-content gate
  */
 import Fastify, { type FastifyInstance } from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -234,7 +234,7 @@ export function buildCommonsServer(
       return reply.status(400).send({ error: "invalid_manifest", message: "body must be { manifest, tags? }" });
     }
 
-    // Knowledge-only gate FIRST, on the raw payload — organization/user data is
+    // Generalized-content gate FIRST, on the raw payload — Organization/user data is
     // rejected even when it hides in fields the manifest parser would drop.
     const offendingPaths = findOrganizationDataPaths({
       manifest: body.manifest,
@@ -245,7 +245,7 @@ export function buildCommonsServer(
       return reply.status(422).send({
         error: "organization_data_rejected",
         message:
-          "Universal Commons stores generalized capability knowledge only — never organization or user data. Remove the offending fields and generalize the manifest.",
+          "Universal Commons stores generalized capability content only — never Organization or user data. Remove the offending fields and generalize the manifest.",
         offendingPaths,
       });
     }

@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-20 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,automation-executor,goal-task,skill-manifest,child-agent-run}.ts, apps/api/src/{router,relationship-help-routing,relationship-materializer,built-in-modules,module-files,server,wiring}.ts, packages/local/src/ports.ts, packages/db/src/{schema,graph-store,helpdesk-store,ledger-store,relation-materialization-store}.ts, packages/db/migrations/0023_vocab4_event_result_file.sql | Token estimate: ~2050 -->
+<!-- Updated: 2026-07-20 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,automation-executor,goal-task,skill-manifest,child-agent-run,ports}.ts, apps/api/src/{router,relationship-help-routing,relationship-materializer,built-in-modules,module-files,server,wiring}.ts, apps/web/src/app/{Layout,pages/ModuleDetailPage,pages/SecondBrainPage,dataviews/views/GraphView,components/shared/PanelControl}.tsx, packages/local/src/ports.ts, packages/db/src/{schema,automation-stores,graph-store,helpdesk-store,ledger-store,relation-materialization-store}.ts, packages/db/migrations/0023_vocab4_event_result_file.sql | Token estimate: ~2400 -->
 
 # Load-Bearing Flows + Schema ER
 
@@ -178,3 +178,26 @@ erDiagram
 ```
 
 Signal is the `signals` security-invoker view over participant-linked Events, not a table. Timeline is an Event read projection. Tiers: **global/public** = `*_canonical`, `node_types`, `embedding_models` · **local/private** = `people`, `communities`, owner-scoped Relations/effects + Local Plane tokens/bodies/derived data · **operational** = Organization-scoped tables protected by RLS-as-code. Production boot rejects superuser/BYPASSRLS app roles; pglite tests need synthetic non-superuser roles to exercise policies. Governance cluster: roles/permissions/ephemeral grants/delegations/policies + capability manifests/states/trust grants + Goal/Task/SkillManifest/child Run contracts.
+
+## 7. Installation-driven Module shell + full Graph composition
+
+```mermaid
+sequenceDiagram
+  participant UI as Layout / Module Detail
+  participant API as authenticated tRPC
+  participant M as ModuleStore
+  participant R as AutomationRunRecorder
+  participant G as GraphStore
+  participant V as shared GraphView
+  UI->>API: modules.list / modules.recentRuns(Module)
+  API->>M: active installed root Modules + manifests
+  API->>R: Runs for runtime Automation IDs resolved from active manifest
+  UI-->>UI: Skills nested under consuming Agent; no standalone route
+  UI->>API: graph.full
+  API->>G: permission-pruned Records/Relations/Events/Files
+  API->>M: page all installations; keep active installed roots
+  API-->>V: graph + Module nodes + manifest Agent nodes + real source paths
+  V-->>UI: same node/edge renderer for full and single-Database scopes
+```
+
+Left Sidebar/right Chat Panel use one `PanelControl` mode (`collapsed|expanded|extended`), Organization-scoped persisted width/state, shared collapse/extend controls, keyboard resize, narrow overlay controls, and Escape extended→expanded→collapsed.

@@ -479,7 +479,7 @@ export function GraphView({
               <div className="text-xs text-muted-foreground">Source Module: {selectedEdge.sourceModule}</div>
             )}
           </div>
-          {onOpenRelation && (
+          {onOpenRelation && selectedEdge.recordPath && (
             <Button size="sm" variant="outline" onClick={() => onOpenRelation(selectedEdge)}>
               Open Relation <ExternalLink className="size-3.5" />
             </Button>

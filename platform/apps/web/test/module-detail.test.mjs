@@ -92,6 +92,16 @@ test("PanelControl snap: extended width is preserved instead of snapping to norm
   assert.deepEqual(result, { collapsed: false, width: 340 });
 });
 
+test("PanelControl Escape returns extended to expanded before collapsing", () => {
+  function escapeDecision(mode, defaultWidth) {
+    if (mode === "extended") return { collapsed: false, width: defaultWidth };
+    if (mode === "expanded") return { collapsed: true };
+    return { collapsed: true };
+  }
+  assert.deepEqual(escapeDecision("extended", 220), { collapsed: false, width: 220 });
+  assert.deepEqual(escapeDecision("expanded", 220), { collapsed: true });
+});
+
 test("PanelControl right panel: drag left (negative client delta) grows width", () => {
   // Right panel: dragging LEFT (startX > ev.clientX) means dx < 0 → startWidth - dx > startWidth
   const startWidth = 286;
@@ -243,4 +253,27 @@ test("installed Commons Skill Run uses the server-owned Agent binding and existi
   assert.match(source, /to="\/approvals"/);
   assert.match(source, /Review or correct in Approvals/);
   assert.doesNotMatch(source, /actor:\s*\{/);
+});
+
+test("Module Detail exposes inspectable recent attributable Automation Runs", () => {
+  const source = readFileSync(new URL("../src/app/pages/ModuleDetailPage.tsx", import.meta.url), "utf8");
+  assert.match(source, /trpc\.modules\.recentRuns\.query/);
+  assert.match(source, /onRunRecorded\(\)/);
+  assert.match(source, /refreshKey/);
+  assert.match(source, /title="Recent Runs"/);
+  assert.match(source, /<details/);
+  assert.match(source, /run\.agentId/);
+});
+
+test("both shell panels use shared collapse, extend, and Escape controls", () => {
+  const panelSource = readFileSync(new URL("../src/app/components/shared/PanelControl.tsx", import.meta.url), "utf8");
+  const layoutSource = readFileSync(new URL("../src/app/Layout.tsx", import.meta.url), "utf8");
+  const chatSource = readFileSync(new URL("../src/app/components/shared/AgentPanel.tsx", import.meta.url), "utf8");
+  assert.match(panelSource, /type PanelMode = "collapsed" \| "expanded" \| "extended"/);
+  assert.match(panelSource, /function handleEscape/);
+  assert.match(panelSource, /function ExtendToggleButton/);
+  assert.match(layoutSource, /<ExtendToggleButton/);
+  assert.match(layoutSource, /rail\.handleEscape\(\)/);
+  assert.match(chatSource, /<ExtendToggleButton/);
+  assert.match(chatSource, /panel\.handleEscape\(\)/);
 });
