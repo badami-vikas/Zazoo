@@ -61,7 +61,7 @@ lint, no-runtime-dummy, release-native launch, and final independent review pass
 This worktree is historical after merge. Do not resume it, re-run its migration under another
 number, or merge it again.
 
-## TASK-012 vocabulary migration — VOCAB0–VOCAB5 MERGED 2026-07-20
+## TASK-012 vocabulary migration — VOCAB0–VOCAB6 MERGED 2026-07-20
 
 - Planning session: `3179df41-d08d-4669-b73b-7788eff1f652`
 - Planning-only branch: `manishsbhoopalam8498-fuzzy-adventure` / `5775e5b`
@@ -70,13 +70,15 @@ number, or merge it again.
 - VOCAB3: PR #28, source `bdcedeb`, merge `dc50c33`, migration `0021`
 - VOCAB4: PR #29, source `80f8712`, evidence `a07ec02`, merge `611c9ad`, migration `0023`
 - VOCAB5: PR #30, source/evidence `63a7aaa`, no migration
+- VOCAB6: PR #32, implementation/evidence source `e657cc8`, no migration
 
 VOCAB3 preserves signed legacy Commons bytes/hashes/signatures through canonical projection.
 VOCAB4 establishes one Event ledger plus canonical Result/File behavior. VOCAB5 publishes immutable
-Relationship `0.2.2`, nests Help Request APIs under Relationship, removes standalone package/browser
-stores, and lowers the ratchet to 296. Desktop and exact 375×812 routes pass. Resume only VOCAB6 and
-final compatibility deletion from current `main`; next new migration is `0024`. Do not resume or
-re-merge any prior VOCAB worktree.
+Relationship `0.2.2` and removes standalone Help Request package/browser stores. VOCAB6 completes
+installation-driven Module/Run/Panel/full-Graph convergence, removes retired Knowledge runtime and
+orphan surfaces, and lowers the ratchet 296→283. Desktop and exact 375×812 routes pass. Resume only
+final compatibility deletion/full prototype certification from current `main`; next new migration is
+`0024`. Do not resume or re-merge any prior VOCAB worktree.
 
 ## TASK-006 durability — MERGED 2026-07-19
 

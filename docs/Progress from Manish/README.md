@@ -56,16 +56,19 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   `origin/main@d153094`; it is historical and must not be resumed.
 - Background agents: none.
 - `relationship-os` worker processes: none.
-- TASK-012 remains `in_progress` for VOCAB6 and final compatibility deletion. Resume from current
-  `main`, not from any historical VOCAB branch.
+- TASK-012 VOCAB6 residual convergence lands through PR #32 from source `e657cc8`: installation-driven
+  Module shell, durable recent Runs, symmetric three-state panels, full Graph Module/Agent/source
+  Actions, Knowledge zero, ratchet 296→283, and no migration `0024`. TASK remains `in_progress` only
+  for final compatibility deletion/full prototype certification. Resume from current `main`, not any
+  historical VOCAB branch.
 
 ## Critical resume constraints
 
 - TASK-010's post-RM4 migration `0016_new_ink` landed and merged into `main` as `e532b15` on 2026-07-18 (owner-aware `memories` RLS, DB-backed `lineage_revision`, JobPilot flag backfill+constraint).
 - Migrations `0018` through `0023_vocab4_event_result_file` are allocated. VOCAB5 required no schema
   or data migration. The next NEW migration is `0024`.
-- TASK-012 VOCAB0–VOCAB5 is merged through PR #30. Continue with VOCAB6 and final compatibility
-  deletion from current `main`; the old planning/integration branches remain historical.
+- TASK-012 VOCAB0–VOCAB6 is represented through PR #32. Continue only final compatibility deletion
+  and full prototype certification from current `main`; old planning/integration branches remain historical.
 - TASK-011 landed on `main` under AP-049 via PR #22 (branch `manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). No new migration was required.
 - TASK-024 landed on `main` through PR #23 under AP-052. Its implementation checkpoint is
   `a4bf5fb`, its `origin/main@512cf35` integration checkpoint is `69ffbff`, and it added no
