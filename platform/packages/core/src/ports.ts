@@ -147,7 +147,7 @@ export interface MediaCaptureRecord {
   status: MediaStatus;
   /** Set when an approved proposal commits the capture. */
   ledgerId?: string;
-  linkedEntity?: { type: "person" | "memory" | "event" | "touchpoint"; id: string } | null;
+  linkedEntity?: { type: "person" | "memory" | "event"; id: string } | null;
   provenance: { skill: string; version: string; model?: string };
   capturedAt: string;
   archivedAt?: string | null;

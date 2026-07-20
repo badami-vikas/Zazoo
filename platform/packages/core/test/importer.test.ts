@@ -28,7 +28,7 @@ test("translateForeignCapability: pi-module extension -> Skill with connector, r
     test_fixture_input({
       source: "pi-module",
       descriptor: { primitive: "extension" },
-      permissionDeclarations: [{ resourceType: "touchpoint", action: "read", scope: "private" }],
+      permissionDeclarations: [{ resourceType: "event", action: "read", scope: "private" }],
       sandboxPolicy: { isolation: "process", networkEgress: false, filesystemAccess: [] },
     }),
   );
@@ -37,7 +37,7 @@ test("translateForeignCapability: pi-module extension -> Skill with connector, r
   assert.equal(result.import.translatedManifest.capabilityType, "skill");
   assert.equal(result.import.translatedManifest.origin, "community");
   assert.equal(result.import.translatedManifest.connectors.length, 1);
-  assert.equal(result.import.translatedManifest.permissions[0]?.resourceType, "touchpoint");
+  assert.equal(result.import.translatedManifest.permissions[0]?.resourceType, "event");
   assert.equal(result.import.translatedManifest.permissions[0]?.dataScope, "private");
 });
 

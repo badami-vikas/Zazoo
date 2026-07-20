@@ -76,20 +76,20 @@ test("in-memory ledger owner-filters legacy Relationship rows and explicit priva
       resourceType: "relation",
     }),
   );
-  const ownTouchpoint = await ledger.append(
+  const ownEvent = await ledger.append(
     row({
-      id: "test_fixture_own_touchpoint",
+      id: "test_fixture_own_event",
       actorType: "user",
       actorId: "test_fixture_owner",
-      resourceType: "touchpoint",
+      resourceType: "event",
     }),
   );
   await ledger.append(
     row({
-      id: "test_fixture_other_touchpoint",
+      id: "test_fixture_other_event",
       actorType: "user",
       actorId: "test_fixture_other_owner",
-      resourceType: "touchpoint",
+      resourceType: "event",
     }),
   );
   const sharedSignal = await ledger.append(row({ id: "test_fixture_shared_signal" }));
@@ -111,7 +111,7 @@ test("in-memory ledger owner-filters legacy Relationship rows and explicit priva
   );
 
   assert.equal(ownRelation.appendSequence, 41);
-  assert.equal(ownTouchpoint.appendSequence, 43);
+  assert.equal(ownEvent.appendSequence, 43);
   assert.equal(sharedSignal.appendSequence, 45);
   assert.equal(ownPrivateSignal.appendSequence, 46);
   const history = await ledger.listHistory("test_fixture_organization", {
@@ -125,7 +125,7 @@ test("in-memory ledger owner-filters legacy Relationship rows and explicit priva
     [
       "test_fixture_own_private_signal",
       "test_fixture_shared_signal",
-      "test_fixture_own_touchpoint",
+      "test_fixture_own_event",
       "test_fixture_own_relation",
     ],
   );

@@ -1489,8 +1489,8 @@ plugin/rule or removing the stale suppression after verifying the effect depende
 ## RESOLVED 2026-07-19 — Initiative “Add Workflow” control navigated to the retired `/rituals` route
 `platform/apps/web/src/app/pages/InitiativeDetail.tsx` exposed an interactive “Add Workflow” control whose destination no longer existed after the shell retired the standalone Rituals/Workflows surface. TASK-014 removed the dead control while converting Initiative Touchpoints to the canonical View registry; no replacement Action was invented without a governed Automation capability.
 
-## OPEN 2026-07-19 — Module File uploads are not indexed into canonical `files`/`file_refs`, so Graph cannot project them
-`packages.addFile` copies bytes into `~/Documents/Bridge/<Organization>/<Module>/` through `module-files.ts`, and `ModuleFilesSection.tsx` lists that filesystem inventory. The write never creates a canonical `files` row or `file_refs` Relation, while `DrizzleGraphStore.listFullGraph()` correctly projects only those canonical rows. Result: capture/import Files already represented in `files` can appear in Second Brain, but Files added through the standard Module Files UI cannot. Fix under TASK-012 VOCAB4 with the planned watcher/hash index and stable File identity; do not dual-write non-atomically from the upload route.
+## RESOLVED 2026-07-20 — Module File uploads are indexed into canonical `files`/`file_refs`
+VOCAB4 keeps bytes at `~/Documents/Bridge/<Organization>/<Module>/` and gives each installed Module/path a stable canonical storage reference. `modules.addFile` indexes the successful write; `modules.files` reconciles inventory so a database failure after byte creation repairs on the next read instead of moving or deleting user content. The partial unique index prevents duplicate active File rows, `file_refs` attributes the File to its Module, and Graph projects the canonical File. Targeted API coverage proves write plus reconciliation converge to one File.
 
 ## RESOLVED 2026-07-18 — TASK-005 file-backed API startup collided on `external_records`
 TASK-005 preflight could not start the real API with a file-backed Local Plane because

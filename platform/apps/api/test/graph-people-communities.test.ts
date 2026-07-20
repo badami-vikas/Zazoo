@@ -12,6 +12,7 @@
  * concurrently-open connections against one on-disk directory.
  */
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -134,29 +135,30 @@ async function seedFixtures(
       role: "member",
       confidence: "1",
     });
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId: PILOT_ORGANIZATION,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: firstPersonId,
-        payload: { reason: "A permitted meeting Event is approaching." },
-        recommendedAction: { label: "Prepare context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
+    const signalId = randomUUID();
     const [event] = await db
       .insert(schema.events)
       .values({
+        id: signalId,
         organizationId: PILOT_ORGANIZATION,
         type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "google-calendar" },
+        entityType: "event",
+        entityId: signalId,
+        payload: {
+          source: "google-calendar",
+          relationshipSignal: {
+            type: "meeting_prep",
+            subjectType: "person",
+            subjectId: firstPersonId,
+            payload: { reason: "A permitted meeting Event is approaching." },
+            recommendedAction: { label: "Prepare context" },
+            status: "new",
+          },
+        },
       })
       .returning({ id: schema.events.id });
     assert.ok(event);
+    const signal = event;
     await db.insert(schema.edges).values({
       organizationId: PILOT_ORGANIZATION,
       ownerUserId: PILOT_USER,
@@ -188,29 +190,30 @@ async function seedFixtures(
       role: "private member",
       confidence: "1",
     });
-    const [otherSignal] = await db
-      .insert(schema.signals)
-      .values({
-        organizationId: PILOT_ORGANIZATION,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: otherPerson.id,
-        payload: { reason: "An owner-scoped Event is approaching." },
-        recommendedAction: { label: "Prepare context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(otherSignal);
+    const otherSignalId = randomUUID();
     const [otherEvent] = await db
       .insert(schema.events)
       .values({
+        id: otherSignalId,
         organizationId: PILOT_ORGANIZATION,
         type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: otherSignal.id,
-        payload: { source: "google-calendar" },
+        entityType: "event",
+        entityId: otherSignalId,
+        payload: {
+          source: "google-calendar",
+          relationshipSignal: {
+            type: "meeting_prep",
+            subjectType: "person",
+            subjectId: otherPerson.id,
+            payload: { reason: "An owner-scoped Event is approaching." },
+            recommendedAction: { label: "Prepare context" },
+            status: "new",
+          },
+        },
       })
       .returning({ id: schema.events.id });
     assert.ok(otherEvent);
+    const otherSignal = otherEvent;
     await db.insert(schema.edges).values({
       organizationId: PILOT_ORGANIZATION,
       ownerUserId: otherMember.id,
@@ -233,18 +236,7 @@ async function seedFixtures(
     });
     let newerEventId: string | null = null;
     if (options.addNewerSourceEvent) {
-      const [newerEvent] = await db
-        .insert(schema.events)
-        .values({
-          organizationId: PILOT_ORGANIZATION,
-          type: "calendar.meeting_followup",
-          entityType: "signal",
-          entityId: signal.id,
-          payload: { source: "newer-calendar-event" },
-          createdAt: new Date("2027-01-01T00:00:00.000Z"),
-        })
-        .returning({ id: schema.events.id });
-      newerEventId = newerEvent?.id ?? null;
+      newerEventId = signal.id;
     }
     return {
       signalId: signal.id,
@@ -479,7 +471,7 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     assert.ok(fullGraph.nodes.every((node) => node.provenance.length > 0));
     assert.ok(fullGraph.edges.some((edge) => edge.sourceModule === "relationship" && edge.evidence.includes("source relationship")));
 
-    const detail = await caller.graph.getSignalDetail({
+    const detail = await caller.relationship.getSignalDetail({
       organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,
     });
@@ -488,7 +480,7 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     assert.equal(detail.participants[0]?.recordId, fixture.personId);
     assert.equal(detail.participants[0]?.relationType, "participant");
 
-    const proposal = await caller.graph.proposeSignalAction({
+    const proposal = await caller.relationship.proposeSignalAction({
       organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,
     });
@@ -968,7 +960,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.equal(lostResponseRetry.effectsStatus, "confirmed");
     assert.deepEqual(lostResponseRetry.relationshipMaterialization, {
       status: "confirmed",
-      relationCount: 3,
+      relationCount: 2,
     });
     assert.equal(
       (
@@ -996,7 +988,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.ok("relationshipMaterialization" in immutableEditReplay);
     assert.deepEqual(immutableEditReplay.relationshipMaterialization, {
       status: "confirmed",
-      relationCount: 3,
+      relationCount: 2,
     });
 
     const reconciled = await caller.relationship.reconcileApproved({
@@ -1009,7 +1001,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     });
     assert.equal(reconciled.status, "confirmed");
     assert.equal(retried.status, "confirmed");
-    const materializedDetail = await caller.graph.getSignalDetail({
+    const materializedDetail = await caller.relationship.getSignalDetail({
       organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,
     });
@@ -1018,7 +1010,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       fixture.eventId,
       "Signal reads must retain the approved Event when a newer unapproved Event exists",
     );
-    assert.equal(retried.effect.relationCount, 3);
+    assert.equal(retried.effect.relationCount, 2);
     const ownerHistory = await caller.action.listHistory({
       organizationId: PILOT_ORGANIZATION,
       limit: 100,
@@ -1052,27 +1044,26 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       nodeId: fixture.signalId,
       limit: 10,
     });
-    assert.equal(signalRelations.total, 1);
-    assert.equal(signalRelations.items[0]?.edgeType, "source_event");
+    assert.equal(signalRelations.total, 0);
     const eventRelations = await caller.relationship.listRelations({
       organizationId: PILOT_ORGANIZATION,
       nodeType: "event",
       nodeId: fixture.eventId,
       limit: 10,
     });
-    assert.equal(eventRelations.total, 3);
+    assert.equal(eventRelations.total, 2);
     const firstEventPage = await caller.relationship.listRelations({
       organizationId: PILOT_ORGANIZATION,
       nodeType: "event",
       nodeId: fixture.eventId,
-      limit: 2,
+      limit: 1,
     });
     assert.ok(firstEventPage.nextCursor);
     const secondEventPage = await caller.relationship.listRelations({
       organizationId: PILOT_ORGANIZATION,
       nodeType: "event",
       nodeId: fixture.eventId,
-      limit: 2,
+      limit: 1,
       cursor: firstEventPage.nextCursor,
     });
     assert.equal(secondEventPage.nextCursor, null);
@@ -1082,7 +1073,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
           (relation) => relation.id,
         ),
       ).size,
-      3,
+      2,
     );
     const editedPerson = eventRelations.items.find(
       (relation) => relation.edgeType === "participant" && relation.dstId === fixture.personId,
@@ -1155,7 +1146,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.ok("relationshipMaterialization" in approvedDecision);
     assert.deepEqual(approvedDecision.relationshipMaterialization, {
       status: "confirmed",
-      relationCount: 3,
+      relationCount: 2,
     });
     assert.deepEqual(
       await caller.action.resolution({ proposalId: approved.proposal.id }),
@@ -1408,7 +1399,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.ok("relationshipMaterialization" in newerDecision);
     assert.deepEqual(newerDecision.relationshipMaterialization, {
       status: "confirmed",
-      relationCount: 2,
+      relationCount: 1,
     });
     const getSignalEvidenceAnchor =
       wiring.graphStore.getSignalEvidenceAnchor.bind(wiring.graphStore);
@@ -1423,14 +1414,14 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     wiring.graphStore.getSignalEvidenceAnchor = getSignalEvidenceAnchor;
     assert.equal(obsoleteRetry.status, "confirmed");
     assert.equal(obsoleteRetry.effect.status, "applied");
-    const recoveredSource =
+    const recoveredParticipants =
       await restartedCaller.relationship.listRelations({
         organizationId: PILOT_ORGANIZATION,
-        nodeType: "signal",
+        nodeType: "event",
         nodeId: fixture.signalId,
         limit: 10,
       });
-    assert.equal(recoveredSource.items[0]?.dstId, fixture.newerEventId);
+    assert.equal(recoveredParticipants.items[0]?.dstId, fixture.personId);
   } finally {
     if (wiring) await wiring.close();
     if (prior === undefined) delete process.env.BRIDGE_LOCAL_DIR;

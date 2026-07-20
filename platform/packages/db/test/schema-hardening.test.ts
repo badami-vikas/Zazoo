@@ -95,20 +95,9 @@ test("schema hardening: ledger/events/timeline_entries ids are UUIDv7 (time-pref
         entityId: "00000000-0000-0000-0000-00000000dead",
       })
       .returning({ id: schema.events.id });
-    const [timelineRow] = await db
-      .insert(schema.timelineEntries)
-      .values({
-        organizationId: ws.id,
-        occurredAt: new Date(),
-        type: "test_fixture_note",
-        createdBy: "test_fixture_user",
-      })
-      .returning({ id: schema.timelineEntries.id });
-
     for (const [label, row] of [
       ["ledger", ledgerRow],
       ["events", eventRow],
-      ["timeline_entries", timelineRow],
     ] as const) {
       assert.ok(row, `${label} row inserted`);
       const versionNibble = row!.id[14];

@@ -63,7 +63,7 @@ export function commonsModuleContent(
 }
 
 /**
- * Canonical immutable artifact bytes. Integrity, signature, and publish time are
+ * Canonical immutable Module content. Integrity, signature, and publish time are
  * excluded by construction, so the content hash can never recursively hash itself.
  */
 export function canonicalizeCommonsContent(content: CommonsModuleContent): string {
@@ -90,7 +90,7 @@ function provenancePresent(provenance: CommonsProvenance | undefined): boolean {
       provenance.sourceRef &&
       /^[0-9a-f]{40}$/i.test(provenance.inspectedCommit) &&
       provenance.repositoryLicense &&
-      provenance.artifactLicense,
+      provenance.contentLicense,
   );
 }
 

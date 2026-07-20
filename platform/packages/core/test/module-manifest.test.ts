@@ -16,7 +16,7 @@ function rawManifest(overrides: Record<string, unknown> = {}): unknown {
         {
           id: "dummy.cap-one",
           capability_type: "skill",
-          permissions: [{ resource_type: "touchpoint", action: "write", data_scope: "private", egress: false }],
+          permissions: [{ resource_type: "event", action: "write", data_scope: "private", egress: false }],
           connectors: [],
         },
       ],
@@ -32,7 +32,7 @@ test("parseModuleManifest: valid manifest parses with defaults", () => {
   assert.equal(parsed.kind, "organization_definition");
   assert.equal(parsed.capabilities.length, 1);
   assert.equal(parsed.capabilities[0]?.id, "dummy.cap-one");
-  assert.equal(parsed.capabilities[0]?.permissions[0]?.resourceType, "touchpoint");
+  assert.equal(parsed.capabilities[0]?.permissions[0]?.resourceType, "event");
   assert.deepEqual(parsed.organizationVocab, { alignsToBridgeTheme: true, domainTerms: {} });
   assert.equal(parsed.lineageManifestId, null);
 });

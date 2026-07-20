@@ -38,7 +38,7 @@ test("computeModuleRisk: composite risk = max over bundled capabilities", () => 
   const p = pkg({
     capabilities: [
       cap({ id: "a", permissions: [{ resourceType: "person", action: "read", dataScope: "private", egress: false }] }),
-      cap({ id: "b", permissions: [{ resourceType: "touchpoint", action: "write", dataScope: "all", egress: false }] }),
+      cap({ id: "b", permissions: [{ resourceType: "event", action: "write", dataScope: "all", egress: false }] }),
     ],
   });
   const result = computeModuleRisk(p, () => undefined, () => undefined);
@@ -65,7 +65,7 @@ test("computeModuleRisk: trifecta assembled ACROSS separate capabilities escalat
       // Capability C: a write to ordinary organization data, but its CONNECTOR can send externally.
       cap({
         id: "c",
-        permissions: [{ resourceType: "touchpoint", action: "write", dataScope: "all", egress: false }],
+        permissions: [{ resourceType: "event", action: "write", dataScope: "all", egress: false }],
         connectors: [{ id: "sender", externalSend: true }],
       }),
     ],

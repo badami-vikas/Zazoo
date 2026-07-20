@@ -86,7 +86,7 @@ export function SecondBrainPage() {
     }
     setActionStatus("Submitting governed Signal Action…");
     try {
-      const proposal = await trpc.graph.proposeSignalAction.mutate({
+      const proposal = await trpc.relationship.proposeSignalAction.mutate({
         organizationId: PILOT_ORGANIZATION,
         signalId,
       });

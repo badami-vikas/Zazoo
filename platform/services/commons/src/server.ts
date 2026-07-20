@@ -52,7 +52,7 @@ function provenanceFromUnknown(value: unknown): CommonsProvenance | null {
     "sourceRef",
     "inspectedCommit",
     "repositoryLicense",
-    "artifactLicense",
+    "contentLicense",
     "licenseVerified",
   ]);
   if (
@@ -65,8 +65,8 @@ function provenanceFromUnknown(value: unknown): CommonsProvenance | null {
     candidate.inspectedCommit.trim() === "" ||
     typeof candidate.repositoryLicense !== "string" ||
     candidate.repositoryLicense.trim() === "" ||
-    typeof candidate.artifactLicense !== "string" ||
-    candidate.artifactLicense.trim() === "" ||
+    typeof candidate.contentLicense !== "string" ||
+    candidate.contentLicense.trim() === "" ||
     typeof candidate.licenseVerified !== "boolean"
   ) {
     return null;
@@ -76,7 +76,7 @@ function provenanceFromUnknown(value: unknown): CommonsProvenance | null {
     sourceRef: candidate.sourceRef.trim(),
     inspectedCommit: candidate.inspectedCommit.trim(),
     repositoryLicense: candidate.repositoryLicense.trim(),
-    artifactLicense: candidate.artifactLicense.trim(),
+    contentLicense: candidate.contentLicense.trim(),
     licenseVerified: candidate.licenseVerified,
   };
 }
@@ -271,7 +271,7 @@ export function buildCommonsServer(
       return reply.status(400).send({
         error: "invalid_provenance",
         message:
-          "provenance must declare sourceRepository, sourceRef, inspectedCommit, repositoryLicense, artifactLicense, and licenseVerified",
+          "provenance must declare sourceRepository, sourceRef, inspectedCommit, repositoryLicense, contentLicense, and licenseVerified",
       });
     }
 

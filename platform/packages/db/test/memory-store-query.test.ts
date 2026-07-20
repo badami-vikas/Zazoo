@@ -41,7 +41,7 @@ test("retrieve: contentPathEquals pushes a dot-path JSON predicate into the SQL 
     const organizationId = await seedOrganization(db);
     const store = new DrizzleMemoryStore(db);
     await store.write(draft("00000000-0000-4000-8000-000000000101", organizationId, { anchor: { moduleId: "record" }, kind: "red_flag" }));
-    await store.write(draft("00000000-0000-4000-8000-000000000102", organizationId, { anchor: { moduleId: "touchpoint" }, kind: "red_flag" }));
+    await store.write(draft("00000000-0000-4000-8000-000000000102", organizationId, { anchor: { moduleId: "event" }, kind: "red_flag" }));
     await store.write(draft("00000000-0000-4000-8000-000000000103", organizationId, { anchor: { moduleId: "record" }, kind: "red_flag" }));
 
     const rows = await store.retrieve(

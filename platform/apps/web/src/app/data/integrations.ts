@@ -59,12 +59,12 @@ export const APPROVAL_ONLY_SCOPES: GrantableScope[] = [
   },
 ];
 
-// Base capabilities every social provider can be granted. Read sourcing + the touchpoints/signals
+// Base capabilities every social provider can be granted. Read sourcing plus Events/Signals
 // the governed read pipeline files from activity. Egress is deliberately absent — see above.
 const BASE_GRANTABLE: GrantableScope[] = [
   { resourceType: 'external:fetch', action: 'read', label: 'Fetch posts & messages', desc: 'Pull public activity and inbound messages into a local quarantine for review.' },
   { resourceType: 'person', action: 'read', label: 'Read connected people', desc: 'Match handles to people already in your graph (no new identities written).' },
-  { resourceType: 'touchpoint', action: 'write', label: 'File touchpoints from activity', desc: 'Stage a Touchpoint per relevant interaction — pending your review.' },
+  { resourceType: 'event', action: 'write', label: 'Record Events from activity', desc: 'Stage an Event per relevant interaction — pending your review.' },
   { resourceType: 'signal', action: 'write', label: 'Raise signals from activity', desc: 'Surface a Signal when activity suggests an action worth taking.' },
 ];
 
@@ -125,7 +125,7 @@ function ensureSeed(id: SocialProviderId): ScopeGrant[] {
   if (!offlineScopes.has(id)) {
     offlineScopes.set(id, [
       { id: `perm_${id}_fetch`, resourceType: 'external:fetch', action: 'read', effect: 'allow', expiresAt: null },
-      { id: `perm_${id}_touchpoint`, resourceType: 'touchpoint', action: 'write', effect: 'allow', expiresAt: null },
+      { id: `perm_${id}_event`, resourceType: 'event', action: 'write', effect: 'allow', expiresAt: null },
     ]);
   }
   return offlineScopes.get(id)!;

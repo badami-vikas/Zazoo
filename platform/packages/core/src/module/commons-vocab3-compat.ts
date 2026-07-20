@@ -151,7 +151,10 @@ export interface AdaptedVocab2SignedContent {
 }
 
 export function readVocab2SignedContent(source: CommonsSignedSource): AdaptedVocab2SignedContent {
-  if (source.vocabularyVersion !== 2 || typeof source.canonicalContent !== "string") {
+  if (
+    (source.vocabularyVersion !== 2 && source.vocabularyVersion !== 3) ||
+    typeof source.canonicalContent !== "string"
+  ) {
     throw new Error("unsupported signed source");
   }
   const parsed: unknown = JSON.parse(source.canonicalContent);
@@ -179,6 +182,17 @@ export function readVocab2SignedContent(source: CommonsSignedSource): AdaptedVoc
     throw new Error("content.tags must be an array of strings");
   }
 
+  const provenance = cloneObject(parsed.provenance, "content.provenance");
+  if (
+    Object.hasOwn(provenance, "artifactLicense") &&
+    !Object.hasOwn(provenance, "contentLicense")
+  ) {
+    provenance.contentLicense = requiredString(
+      provenance.artifactLicense,
+      "content.provenance.artifactLicense",
+    );
+    delete provenance.artifactLicense;
+  }
   return {
     original: parsed,
     adapted: {
@@ -188,7 +202,7 @@ export function readVocab2SignedContent(source: CommonsSignedSource): AdaptedVoc
       summary,
       tags: parsed.tags as string[],
       manifest,
-      provenance: cloneObject(parsed.provenance, "content.provenance") as unknown as CommonsProvenance,
+      provenance: provenance as unknown as CommonsProvenance,
       securityScan: cloneObject(parsed.securityScan, "content.securityScan") as unknown as CommonsSecurityScan,
     },
   };
@@ -226,4 +240,34 @@ export function adaptVocab2CommonsEntry(raw: unknown): CommonsModuleEntry {
     signedSource: source,
     ...(signature ? { signature } : {}),
   };
+}
+
+export function isVocab3CommonsEntry(raw: unknown): boolean {
+  if (!isObject(raw) || !isObject(raw.provenance)) return false;
+  return (
+    Object.hasOwn(raw.provenance, "artifactLicense") &&
+    !Object.hasOwn(raw.provenance, "contentLicense")
+  );
+}
+
+export function adaptVocab3CommonsEntry(raw: unknown): CommonsModuleEntry {
+  const envelope = cloneObject(raw, "entry");
+  const content = Object.fromEntries(
+    [...CONTENT_KEYS].map((key) => [key, envelope[key]]),
+  );
+  const source: CommonsSignedSource = {
+    vocabularyVersion: 3,
+    canonicalContent: canonicalizeJson(content),
+  };
+  const provenance = cloneObject(envelope.provenance, "entry.provenance");
+  provenance.contentLicense = requiredString(
+    provenance.artifactLicense,
+    "entry.provenance.artifactLicense",
+  );
+  delete provenance.artifactLicense;
+  return {
+    ...envelope,
+    provenance,
+    signedSource: source,
+  } as unknown as CommonsModuleEntry;
 }

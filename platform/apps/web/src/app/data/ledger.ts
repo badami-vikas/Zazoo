@@ -203,7 +203,6 @@ function displayResourceType(value: PendingProposal['request']['resourceType']):
     case 'external:fetch':
     case 'policy':
     case 'policy_param':
-    case 'touchpoint':
       return 'external';
   }
 }
@@ -592,7 +591,7 @@ export async function recordDecisionAppend(
 }
 
 /**
- * Ask the server-owned Outreach Agent to stage a pending Touchpoint through the
+ * Ask the server-owned Outreach Agent to stage a pending Event through the
  * Action Pipeline. A failed or unavailable API never falls back to a browser ledger write.
  */
 export type StagedProposal =

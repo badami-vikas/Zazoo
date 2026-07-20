@@ -33,7 +33,8 @@ Keep kernel vocabulary small. Product terms and code identifiers converge; no di
 - Runtime guard live: syntax fingerprints. New/replacement debt blocked. Removals ratchet down. Baseline:
   [vocabulary inventory](../raw/vocabulary-code-inventory-2026-07-19.md).
 - Avatar migration done in runtime. Style visual only. Old browser/API shape read once; never written.
-- Remaining debt: Automation, Organization/Module/Record, Event/File/Result, Relationship Module, shell cleanup.
+- Done through VOCAB4: Automation/Engine; Organization/Module/Record/Relation; Event/Result/File.
+- Remaining debt: Relationship Module consolidation, actionable shell, final compatibility deletion.
 
 ## Failure ownership
 

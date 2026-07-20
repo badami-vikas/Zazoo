@@ -52,7 +52,7 @@ function resolveClosure(
   return { manifests, pins, unresolved };
 }
 
-/** Deterministic CM1 publish gate over the normalized declarative artifact. */
+/** Deterministic CM1 publish gate over normalized declarative Module content. */
 export function scanCommonsModule(
   manifest: ModuleManifest,
   provenance: CommonsProvenance,
@@ -80,9 +80,9 @@ export function scanCommonsModule(
     provenance.repositoryLicense === "NOASSERTION"
       ? check("repository-license", "warning", "Repository has no declared license; capability terms remain independently explicit.")
       : check("repository-license", "pass", `Repository license: ${provenance.repositoryLicense}.`),
-    provenance.licenseVerified && provenance.artifactLicense !== "NOASSERTION"
-      ? check("artifact-license", "pass", `Capability license verified: ${provenance.artifactLicense}.`)
-      : check("artifact-license", "fail", "Capability license must be explicit and verified."),
+    provenance.licenseVerified && provenance.contentLicense !== "NOASSERTION"
+      ? check("content-license", "pass", `Capability license verified: ${provenance.contentLicense}.`)
+      : check("content-license", "fail", "Capability license must be explicit and verified."),
     closure.unresolved.length > 0
       ? check("dependency-pins", "fail", `Unresolved exact capability dependencies: ${closure.unresolved.join(", ")}.`)
       : check(

@@ -11,7 +11,7 @@ import { Key, ListChecks, Database, Send, Lock, ShieldCheck, ShieldX } from 'luc
 // The UI surfaces those as locked rows, not editable switches.
 //
 // Layer order (narrow → wide):
-//   1. Capability scope tokens   (person:read, touchpoint:write, …)
+//   1. Capability scope tokens   (person:read, event:write, …)
 //   2. Allowed skills allow-list
 //   3. Data tier ceiling          (all | public | private)
 //   4. Egress tier                (none | read-graph | draft-graph | source-internet)
@@ -35,7 +35,7 @@ export const CAPABILITY_TOKENS: { value: string; label: string; kind: 'read' | '
   { value: 'memory:read', label: 'memory:read', kind: 'read' },
   { value: 'community:read', label: 'community:read', kind: 'read' },
   { value: 'signal:read', label: 'signal:read', kind: 'read' },
-  { value: 'touchpoint:write', label: 'touchpoint:write', kind: 'write' },
+  { value: 'event:write', label: 'event:write', kind: 'write' },
   { value: 'memory:write', label: 'memory:write', kind: 'write' },
   { value: 'record:write', label: 'record:write', kind: 'write' },
 ];

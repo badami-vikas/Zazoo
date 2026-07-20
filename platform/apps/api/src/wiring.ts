@@ -15,7 +15,7 @@
  * persistent mode instead of the in-memory fake — no more silent lie there.
  *
  * LOCAL plane: pglite (@bridge/local) — OAuth tokens + raw bodies + derived
- * Touchpoints/Memories/Signals persist here, never Supabase. The residency fix.
+ * Events/Memories/Signals persist here, never Supabase. The residency fix.
  *
  * Google egress adapter: the real googleapis gateway when GOOGLE_CLIENT_ID/SECRET
  * are configured; otherwise a fail-closed factory (no fake/dummy data — the platform
@@ -105,7 +105,7 @@ import {
   type CultureSourceEligibility,
   type CultureSkippedSource,
   type CultureSourceDisclosure,
-  type CultureArtifactRef,
+  type CultureResultRef,
   type GroundedClaimInput,
   type ClaimGroundingFailure,
 } from "@bridge/jobpilot";
@@ -216,7 +216,7 @@ import {
 export const PILOT_ORGANIZATION = "b0000000-0000-4000-a000-000000000001";
 export const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 export const OUTREACH_ROLE = "b0000000-0000-4000-a000-0000000000f1";
-const OUTREACH_TOUCHPOINT_PERMISSION = "b0000000-0000-4000-a000-0000000000c1";
+const OUTREACH_EVENT_PERMISSION = "b0000000-0000-4000-a000-0000000000c1";
 export const LEARNING_AGENT = LEARNING_AGENT_RUNTIME_ID;
 export const EGRESS_AGENT = DEALPILOT_SOURCING_AGENT_ID;
 const EGRESS_ROLE = "b0000000-0000-4000-a000-0000000000c1";
@@ -321,7 +321,7 @@ export interface Wiring {
   automationRegistry: AutomationRegistry;
   /** Organization + team-member CRUD — direct DB writes, not a governed pipeline skill. */
   organizationStore: DrizzleOrganizationStore;
-  /** Read surface for Record/Touchpoint/Signal (see graph-store.ts). */
+  /** Read surface for Record/Event/Signal (see graph-store.ts). */
   graphStore: DrizzleGraphStore;
   /** JobPilot's persistence (Phase 4 — @bridge/jobpilot is pure logic, no store). */
   jobpilotStore: DrizzleJobPilotStore;
@@ -332,7 +332,7 @@ export interface Wiring {
   /** Capability Trust Model — capability_manifests + capability_states (docs/wiki/vision.md). */
   capabilityStore: CapabilityStore;
   /** P1 Organization Generator — organization_definitions (blueprint/version/status), the
-   * governed-proposal artifact organization.blueprint.* compiles via @bridge/core's
+   * governed-proposal result organization.blueprint.* compiles via @bridge/core's
    * compileBlueprint (docs/wiki/vision.md "View grammar"). */
   organizationDefinitionStore: OrganizationDefinitionStore;
   /** P2 capability modules (docs/raw/capability-module-format.md, ADR-018) —
@@ -600,7 +600,7 @@ export const RED_FLAG_LEARNING_SKILL_MANIFEST = {
  *     has no effect to gate, and not later, since that would let two racing
  *     materialize calls both proceed). Any exception during materialization
  *     calls `failChildAgentRun` with audit evidence; success calls
- *     `completeChildAgentRun` only once the artifact is durably stored.
+ *     `completeChildAgentRun` only once the result is durably stored.
  *     Materializing an already-fetched/failed/cancelled source is a no-op
  *     that returns the stored record — idempotent, never a silent refetch.
  *  4. Fan-out is bounded by a FIXED constant
@@ -611,8 +611,8 @@ export const RED_FLAG_LEARNING_SKILL_MANIFEST = {
  *     streamed byte cap, and a real `AbortSignal` wired to
  *     `cancelCultureSourceFetch` for genuine mid-fetch cancellation.
  *  6. `jobpilot.synthesizeCultureProfile` now requires every claim to ground
- *     against an immutable fetched artifact (`groundClaims`) — a quote must
- *     be a real substring of the artifact this run actually fetched, bound
+ *     against an immutable fetched result (`groundClaims`) — a quote must
+ *     be a real substring of the result this run actually fetched, bound
  *     by a server-computed content hash so a claim can't cite content that
  *     was never actually retrieved (or has since been superseded).
  *
@@ -752,16 +752,16 @@ const CULTURE_CANCEL_POLL_MS = 400;
  * concurrent lease-reclaim race; this cap only guards against pathological,
  * sustained contention turning into an infinite loop. */
 const CULTURE_CANCEL_CAS_MAX_RETRIES = 5;
-/** How long a fetched artifact's raw content is retained before it is
+/** How long a fetched result's raw content is retained before it is
  * considered stale/expired for synthesis grounding — issue 8 (external
  * trust/retention). Bounded, not indefinite. */
-const CULTURE_ARTIFACT_RETENTION_MS = 24 * 60 * 60 * 1000;
+const CULTURE_RESULT_RETENTION_MS = 24 * 60 * 60 * 1000;
 /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
  * RE-review round 2, issue 7 — hardened after a fresh independent review
  * found the ORIGINAL self-heal check unsafe). A synthesis-pointer's
  * proposalId not YET resolving in the ledger is NOT, by itself, proof the
  * pointer is dead — a genuinely live, in-flight `pipeline.propose` call
- * (authority/policy checks, the Skill's own artifact resolution, the
+ * (authority/policy checks, the Skill's own result resolution, the
  * fabrication guard) can legitimately still be running when a SECOND,
  * concurrent `synthesize()` request for the SAME parentRunId reads this
  * pointer. Without an age check, that second request could self-heal
@@ -782,11 +782,11 @@ const CULTURE_RESEARCH_HISTORY_SCAN_LIMIT = 2_000;
 
 /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
  * RE-review, issue 7) — the ONE predicate every read/synthesis path must
- * use to decide whether a fetched artifact's raw content may still be
+ * use to decide whether a fetched result's raw content may still be
  * relied on. Never serve/consume expired evidence past
- * `CULTURE_ARTIFACT_RETENTION_MS`. */
-export function isArtifactExpired(artifact: CultureArtifactRef, nowISO: string): boolean {
-  return Date.parse(nowISO) >= Date.parse(artifact.expiresAt);
+ * `CULTURE_RESULT_RETENTION_MS`. */
+export function isResultExpired(result: CultureResultRef, nowISO: string): boolean {
+  return Date.parse(nowISO) >= Date.parse(result.expiresAt);
 }
 
 /**
@@ -796,14 +796,14 @@ export function isArtifactExpired(artifact: CultureArtifactRef, nowISO: string):
  * same result, always) — see `redactLineageContent`'s own doc comment for
  * why. Returns `null` (leave this row's content untouched) unless the row
  * is genuinely a `culture_fetch_intent` record carrying a non-empty,
- * NOW-expired artifact — in which case it returns the SAME redacted shape
- * `purgeExpiredArtifactContentIfNeeded` already produces for the current
- * view (artifact content blanked, every other field — hash/URL/timestamps/
+ * NOW-expired result — in which case it returns the SAME redacted shape
+ * `purgeExpiredResultContentIfNeeded` already produces for the current
+ * view (result content blanked, every other field — hash/URL/timestamps/
  * expiry, plus the record's own `updatedAt`/other fields — left exactly as
  * this specific row already had them, since this is redacting a HISTORICAL
  * row, not advancing it to a new "current" state).
  */
-function redactExpiredCultureFetchArtifact(entry: MemoryEntry, nowISO: string): string | null {
+function redactExpiredCultureFetchResult(entry: MemoryEntry, nowISO: string): string | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(entry.content);
@@ -813,10 +813,10 @@ function redactExpiredCultureFetchArtifact(entry: MemoryEntry, nowISO: string): 
   if (typeof parsed !== "object" || parsed === null) return null;
   const record = parsed as Partial<CultureFetchIntentRecord>;
   if (record.kind !== "culture_fetch_intent") return null; // a different record type happens to share this lineage's key space
-  const artifact = record.artifact;
-  if (!artifact || artifact.content === "") return null; // nothing to redact — absent or already purged
-  if (!isArtifactExpired(artifact, nowISO)) return null; // not yet past retention — never redact live evidence
-  return JSON.stringify({ ...record, artifact: { ...artifact, content: "" } });
+  const result = record.result;
+  if (!result || result.content === "") return null; // nothing to redact — absent or already purged
+  if (!isResultExpired(result, nowISO)) return null; // not yet past retention — never redact live evidence
+  return JSON.stringify({ ...record, result: { ...result, content: "" } });
 }
 
 function stripHtmlToText(html: string): string {
@@ -863,7 +863,7 @@ export interface ResearchCultureSourceInput {
 }
 
 /** PURE intent descriptor — proves nothing was fetched yet. No excerpt, no
- * artifact, no network access; just "this is what would be fetched, for
+ * result, no network access; just "this is what would be fetched, for
  * which permitted source." */
 export interface ResearchCultureSourceIntentOutput {
   sourceId: string;
@@ -977,7 +977,7 @@ export interface CultureFetchIntentRecord {
   leaseOwner: string | null;
   leaseExpiresAt: string | null;
   attempt: number;
-  artifact?: CultureArtifactRef;
+  result?: CultureResultRef;
   error?: string;
   createdAt: string;
   updatedAt: string;
@@ -1128,16 +1128,16 @@ export class DurableCultureFetchStore {
       // RE-review, issue 7) — the OUTER `memories` row's own `trustOrigin`
       // column must NEVER read "operator" once its `content` blob embeds
       // real fetched external bytes: a generic Memory-reading caller (one
-      // that has no idea this specific store nests an untrusted artifact
+      // that has no idea this specific store nests an untrusted result
       // inside its JSON content) would otherwise see "operator" and could
       // treat the whole row — bytes included — as trusted/operator-authored,
       // a silent declassification of exactly the taint this field exists to
-      // prevent. Before any fetch completes (no `artifact` yet), the row
+      // prevent. Before any fetch completes (no `result` yet), the row
       // genuinely IS pure operator/system-authored governance metadata
       // ("a fetch was requested/leased/cancelled") — "operator" is honest
-      // then. The moment `artifact` is populated, the row's OWN trustOrigin
+      // then. The moment `result` is populated, the row's OWN trustOrigin
       // flips to `untrusted_external` to match its actual contents.
-      trustOrigin: next.artifact ? "untrusted_external" : "operator",
+      trustOrigin: next.result ? "untrusted_external" : "operator",
       plane: "local",
       createdBy: next.actorId,
     };
@@ -1176,7 +1176,7 @@ export class DurableCultureFetchStore {
   async create(
     input: Omit<
       CultureFetchIntentRecord,
-      "kind" | "proposalId" | "status" | "artifact" | "error" | "createdAt" | "updatedAt" | "cancelRequested" | "leaseOwner" | "leaseExpiresAt" | "attempt"
+      "kind" | "proposalId" | "status" | "result" | "error" | "createdAt" | "updatedAt" | "cancelRequested" | "leaseOwner" | "leaseExpiresAt" | "attempt"
     >,
   ): Promise<CultureFetchIntentRecord> {
     const now = new Date().toISOString();
@@ -1408,7 +1408,7 @@ export class DurableCultureFetchStore {
 
   /**
    * TASK-011 remediation (2026-07-19 coordinator distributed-defects
-   * RE-review, issue 7) — lazily purges an EXPIRED artifact's raw `content`
+   * RE-review, issue 7) — lazily purges an EXPIRED result's raw `content`
    * (keeping `contentHash`/`sourceUrl`/`retrievedAt`/`expiresAt` metadata,
    * which citations/audit still need) the next time this record is READ.
    * There is no background cleanup job in this prototype; purging
@@ -1416,13 +1416,13 @@ export class DurableCultureFetchStore {
    * property rather than an unenforced doc comment — the very next status
    * read or synthesis attempt after expiry durably clears the bytes,
    * regardless of whether anyone ever explicitly asks for cleanup.
-   * Idempotent: a no-op if the artifact is absent, unexpired, or already
+   * Idempotent: a no-op if the result is absent, unexpired, or already
    * purged (empty content).
    *
    * TASK-011 remediation (coordinator central-merge review, issue 2) — the
    * `compareAndSupersede` call below only ever rewrites the CURRENT view
    * (a NEW row, with the OLD "fetched" row — the one that ever held the
-   * full raw artifact bytes — retained as a superseded ancestor). That
+   * full raw result bytes — retained as a superseded ancestor). That
    * ancestor row remained durably readable, bytes and all, via
    * `retrieve({ includeSuperseded: true })` forever — a genuine retention
    * gap for exactly the untrusted external content this slice's own
@@ -1430,19 +1430,19 @@ export class DurableCultureFetchStore {
    * below, in ADDITION to — not instead of — the existing
    * `compareAndSupersede`) walks the WHOLE lineage rooted at this record's
    * current memory row and, for every row whose content still embeds a
-   * NOW-expired, non-empty artifact, rewrites that row's content IN PLACE
+   * NOW-expired, non-empty result, rewrites that row's content IN PLACE
    * to the same redacted shape — so no physical row in this record's
    * history can ever again leak the purged bytes, regardless of whether a
    * caller reads the current view or the superseded history.
    */
-  async purgeExpiredArtifactContentIfNeeded(organizationId: string, childRunId: string, nowISO: string): Promise<CultureFetchIntentRecord | null> {
+  async purgeExpiredResultContentIfNeeded(organizationId: string, childRunId: string, nowISO: string): Promise<CultureFetchIntentRecord | null> {
     const existing = await this.#loadRow(organizationId, childRunId);
     if (!existing) return null;
-    const { artifact } = existing.record;
-    if (!artifact || artifact.content === "" || !isArtifactExpired(artifact, nowISO)) return existing.record;
+    const { result } = existing.record;
+    if (!result || result.content === "" || !isResultExpired(result, nowISO)) return existing.record;
     const next: CultureFetchIntentRecord = {
       ...existing.record,
-      artifact: { ...artifact, content: "" },
+      result: { ...result, content: "" },
       updatedAt: nowISO,
     };
     try {
@@ -1456,24 +1456,24 @@ export class DurableCultureFetchStore {
         // (best-effort, never fatal here) — a concurrent winner may not
         // itself have redacted every ancestor row.
         const reloaded = await this.#loadRow(organizationId, childRunId);
-        await this.#redactExpiredArtifactLineage(organizationId, existing.memoryId, nowISO).catch(() => {});
+        await this.#redactExpiredResultLineage(organizationId, existing.memoryId, nowISO).catch(() => {});
         return reloaded?.record ?? null;
       }
       throw e;
     }
-    await this.#redactExpiredArtifactLineage(organizationId, existing.memoryId, nowISO);
+    await this.#redactExpiredResultLineage(organizationId, existing.memoryId, nowISO);
     return next;
   }
 
   /** Shared by both the success and `MemoryConflictError` paths above — see
-   * `purgeExpiredArtifactContentIfNeeded`'s own doc comment for the full
+   * `purgeExpiredResultContentIfNeeded`'s own doc comment for the full
    * rationale. `redact` is a PURE function of its input (same entry always
    * produces the same redacted content or the same `null`), which is what
    * makes this safe to call from a losing/conflicting caller too — every
    * caller converges on the identical, correct final state. */
-  async #redactExpiredArtifactLineage(organizationId: string, memoryId: string, nowISO: string): Promise<number> {
+  async #redactExpiredResultLineage(organizationId: string, memoryId: string, nowISO: string): Promise<number> {
     return this.#memory.redactLineageContent(memoryId, this.#authScope(organizationId), (entry) =>
-      redactExpiredCultureFetchArtifact(entry, nowISO),
+      redactExpiredCultureFetchResult(entry, nowISO),
     );
   }
 
@@ -1924,7 +1924,7 @@ export async function reconcileIntentChildConsistency(
  *    cancellation issued through a DIFFERENT API instance still aborts this
  *    process's live socket — the process-local `AbortController` is an
  *    optimization, not the authority (issue 2).
- *  - tags the fetched artifact `trustOrigin: "untrusted_external"` with a
+ *  - tags the fetched result `trustOrigin: "untrusted_external"` with a
  *    bounded retention window — fetched bytes are untrusted external data,
  *    never silently declassified as operator-authored (issue 8).
  *  - EVERY terminal write (fetched/failed/cancelled) is LEASE-FENCED: it
@@ -2135,7 +2135,7 @@ export async function materializeCultureSourceFetch(
     }
 
     try {
-      const result = await guardedFetch(fetching.canonicalUrl, {
+      const response = await guardedFetch(fetching.canonicalUrl, {
         headers: { "user-agent": CULTURE_RESEARCH_USER_AGENT },
         timeoutMs: CULTURE_FETCH_TIMEOUT_MS,
         maxBytes: MAX_CULTURE_FETCH_BYTES,
@@ -2143,37 +2143,37 @@ export async function materializeCultureSourceFetch(
         allowedRedirectOrigins: fetching.allowedRedirectOrigins,
         ...(unsafeTestOverrides ? { unsafeTestOverrides } : {}),
       });
-      if (result.status < 200 || result.status >= 300) {
-        throw new Error(`fetch failed with HTTP ${result.status}`);
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(`fetch failed with HTTP ${response.status}`);
       }
-      const contentType = String(result.headers["content-type"] ?? "").toLowerCase();
+      const contentType = String(response.headers["content-type"] ?? "").toLowerCase();
       if (contentType && !contentType.startsWith("text/") && !contentType.includes("xhtml") && !contentType.includes("xml")) {
         throw new Error(`fetch returned a non-text content-type ("${contentType}") — culture-research sources must be textual web content`);
       }
-      const content = stripHtmlToText(result.body.toString("utf8")).slice(0, MAX_CULTURE_EXCERPT_CHARS);
+      const content = stripHtmlToText(response.body.toString("utf8")).slice(0, MAX_CULTURE_EXCERPT_CHARS);
       const retrievedAt = new Date().toISOString();
-      const artifact: CultureArtifactRef = {
+      const result: CultureResultRef = {
         sourceId: record.sourceId,
         sourceType: record.sourceType,
         sourceLabel: record.sourceLabel,
-        sourceUrl: result.finalUrl,
+        sourceUrl: response.finalUrl,
         content,
         contentHash: computeContentHash(content),
         retrievedAt,
         // TASK-011 remediation (2026-07-19, issue 8) — fetched bytes are
         // UNTRUSTED EXTERNAL data, never operator-authored; propagate this
-        // taint into the artifact (and, downstream, into synthesis) rather
+        // taint into the result (and, downstream, into synthesis) rather
         // than silently declassifying it. Retention is bounded, not
         // indefinite.
         trustOrigin: "untrusted_external",
-        expiresAt: new Date(Date.parse(retrievedAt) + CULTURE_ARTIFACT_RETENTION_MS).toISOString(),
+        expiresAt: new Date(Date.parse(retrievedAt) + CULTURE_RESULT_RETENTION_MS).toISOString(),
       };
       deps.abortControllers.delete(childRunId);
       // A cancel may have durably landed (poll caught it, or arrived in the
       // instant between our last poll tick and here) WHILE the fetch was
       // completing — check the authoritative flag one final time before
       // ever declaring "fetched"; a race that let the bytes arrive anyway
-      // must still result in "cancelled", discarding the artifact. This
+      // must still result in "cancelled", discarding the result. This
       // `finalCheck` is a fast-path optimism only — the ACTUAL guarantee
       // against a cancel racing the commit is `requireCancelNotRequested`
       // on the fenced "fetched" transition below, which re-checks
@@ -2204,7 +2204,7 @@ export async function materializeCultureSourceFetch(
         deps.fetchStore,
         organizationId,
         childRunId,
-        (r) => ({ ...r, status: "fetched", artifact }),
+        (r) => ({ ...r, status: "fetched", result }),
         // TASK-011 remediation (2026-07-19 coordinator distributed-defects
         // RE-review round 2, issue 3) — the CAS itself refuses to commit
         // "fetched" if `cancelRequested` is true at commit time, closing
@@ -2404,13 +2404,13 @@ export async function cancelCultureSourceFetch(
 }
 
 export interface SynthesizeCultureProfileInput {
-  /** Needed to independently re-resolve this run's own fetched artifacts
+  /** Needed to independently re-resolve this run's own fetched results
    * from the durable stores below — TASK-011 remediation (2026-07-19
    * coordinator distributed-defects RE-review round 2, issue 8). */
   organizationId: string;
   /** The EXACT parent Agent Run this synthesis is scoped to — TASK-011
    * remediation (2026-07-18 final review, issue 6). The Skill resolves
-   * `artifacts`/`skippedSources` from this run's own fetched intent records
+   * `results`/`skippedSources` from this run's own fetched intent records
    * ONLY, never pooled across historical/concurrent runs for the company. */
   parentRunId: string;
   claims: GroundedClaimInput[];
@@ -2419,11 +2419,11 @@ export interface SynthesizeCultureProfileInput {
 
 export interface SynthesizeCultureProfileOutput {
   parentRunId: string;
-  /** The exact fetched artifacts (by sourceId + their real contentHash) this
+  /** The exact fetched results (by sourceId + their real contentHash) this
    * synthesis was grounded against — persisted so a later reader can verify
    * (or a stale/superseded synthesis can be detected) without re-deriving it
    * from the run's live state. */
-  artifactHashes: ReadonlyArray<{ sourceId: string; contentHash: string }>;
+  resultHashes: ReadonlyArray<{ sourceId: string; contentHash: string }>;
   partition: ReturnType<typeof partitionCultureEvidence>;
   disclosure: CultureSourceDisclosure;
 }
@@ -2438,8 +2438,8 @@ export class ClaimGroundingError extends Error {
 /**
  * Internal Strategist's synthesis Skill — no network access, no invented
  * evidence. TASK-011 remediation #5: claims must GROUND against the
- * immutable fetched artifacts this run actually produced (`groundClaims`) —
- * an absent quote, a quote from the wrong artifact, a stale/mismatched
+ * immutable fetched results this run actually produced (`groundClaims`) —
+ * an absent quote, a quote from the wrong result, a stale/mismatched
  * content hash, a duplicate claim id, a dangling/self-referencing/cyclic
  * contradiction/support reference, or a claim that does not transitively
  * trace back to a real fact/opinion fails the WHOLE batch closed
@@ -2447,24 +2447,24 @@ export class ClaimGroundingError extends Error {
  * fabrication/insider-claim guard run over the resulting evidence text, and
  * only then are evidence partitioned + the disclosure built. TASK-011
  * remediation (2026-07-18, issue 6): the output embeds `parentRunId` and
- * each grounded artifact's real hash, so the persisted ledger row can be
- * independently verified against exactly the run/artifacts it claims.
+ * each grounded result's real hash, so the persisted ledger row can be
+ * independently verified against exactly the run/results it claims.
  *
  * TASK-011 remediation (2026-07-19 coordinator distributed-defects
  * RE-review round 2, issue 8) — a FACTORY, not a plain object: this Skill
- * now resolves the run's fetched artifacts ITSELF, directly from the durable
+ * now resolves the run's fetched results ITSELF, directly from the durable
  * `childAgentRuns`/`fetchStore` (the SAME stores the router's own pre-checks
- * read), rather than trusting full `CultureArtifactRef[]` (including raw
+ * read), rather than trusting full `CultureResultRef[]` (including raw
  * fetched page bodies) passed in via `inputs`. `req.inputs` is exactly what
  * `pipeline.propose` persists VERBATIM into the immutable ledger row — so
- * the previous design durably embedded every fetched artifact's FULL raw
+ * the previous design durably embedded every fetched result's FULL raw
  * content into every synthesis proposal's ledger entry, forever, bypassing
- * this slice's own artifact-expiry/purge mechanism entirely (an expired
- * artifact's raw body was purged from `cultureFetchStore` but remained
+ * this slice's own result-expiry/purge mechanism entirely (an expired
+ * result's raw body was purged from `cultureFetchStore` but remained
  * fully readable, unexpired, inside the ledger row). `inputs` now carries
- * only `organizationId`/`parentRunId`/`claims`/`skippedSources` — no artifact
+ * only `organizationId`/`parentRunId`/`claims`/`skippedSources` — no result
  * bodies at all; the Skill independently re-derives (and re-validates,
- * including expiry) the artifacts it grounds against, exactly mirroring the
+ * including expiry) the results it grounds against, exactly mirroring the
  * checks the router performs for its own earlier fail-fast validation.
  */
 export function createSynthesizeCultureProfileSkill(deps: { childAgentRuns: ChildAgentRunStore; fetchStore: DurableCultureFetchStore }): Skill {
@@ -2480,13 +2480,13 @@ export function createSynthesizeCultureProfileSkill(deps: { childAgentRuns: Chil
       // Last-write-wins per sourceId would silently mask a duplicate — this
       // Skill fails closed instead, exactly like the router's own
       // (independent, non-authoritative) pre-check.
-      const bySourceId = new Map<string, CultureArtifactRef>();
+      const bySourceId = new Map<string, CultureResultRef>();
       for (const r of intentRecords) {
-        if (r.status !== "fetched" || !r.artifact || isArtifactExpired(r.artifact, nowISO)) continue;
+        if (r.status !== "fetched" || !r.result || isResultExpired(r.result, nowISO)) continue;
         if (bySourceId.has(r.sourceId)) {
-          throw new Error(`jobpilot.synthesizeCultureProfile: duplicate fetched artifact for source "${r.sourceId}" under parent Run "${input.parentRunId}"`);
+          throw new Error(`jobpilot.synthesizeCultureProfile: duplicate fetched result for source "${r.sourceId}" under parent Run "${input.parentRunId}"`);
         }
-        bySourceId.set(r.sourceId, r.artifact);
+        bySourceId.set(r.sourceId, r.result);
       }
       const grounded = groundClaims(input.claims, bySourceId);
       if (!grounded.ok) {
@@ -2504,7 +2504,7 @@ export function createSynthesizeCultureProfileSkill(deps: { childAgentRuns: Chil
       const disclosure = buildSourceDisclosure(grounded.evidence, input.skippedSources);
       const output: SynthesizeCultureProfileOutput = {
         parentRunId: input.parentRunId,
-        artifactHashes: [...bySourceId.entries()].map(([sourceId, a]) => ({ sourceId, contentHash: a.contentHash })),
+        resultHashes: [...bySourceId.entries()].map(([sourceId, a]) => ({ sourceId, contentHash: a.contentHash })),
         partition,
         disclosure,
       };
@@ -2948,7 +2948,7 @@ export interface ModePorts {
   automationRunRecorder: AutomationRunRecorder;
   canonical: CanonicalIdentityStore;
   organizationStore: DrizzleOrganizationStore;
-  /** Read surface for Record/Touchpoint/Signal — see graph-store.ts's header
+  /** Read surface for Record/Event/Signal — see graph-store.ts's header
    * comment (frontend-migration-scoping.md Phase 3: these had zero tRPC coverage).
    * Same `DrizzleGraphStore` class binds to either the real Postgres `db` or the
    * local pglite `localDb` — both are the same schema.ts tables. */
@@ -3155,7 +3155,7 @@ export function buildPersistentPorts(env: {
         userId: pilotUserId,
         agentId: OUTREACH_AGENT,
         roleId: OUTREACH_ROLE,
-        permissionId: OUTREACH_TOUCHPOINT_PERMISSION,
+        permissionId: OUTREACH_EVENT_PERMISSION,
       }),
   };
 }
@@ -3330,7 +3330,7 @@ export async function buildInMemoryPorts(env: {
               userId: pilotUserId,
               agentId: OUTREACH_AGENT,
               roleId: OUTREACH_ROLE,
-              permissionId: OUTREACH_TOUCHPOINT_PERMISSION,
+              permissionId: OUTREACH_EVENT_PERMISSION,
             }),
           ensureInternalStrategistGovernance: () =>
             ensureInternalStrategistGovernance(localDb, {
@@ -3590,7 +3590,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // RE-review round 2, issue 8) — registered HERE (not at `skillRegistry`'s
   // initial construction above) because this Skill needs
   // `modePorts.childAgentRuns`/`cultureFetchStore` to resolve its own
-  // fetched artifacts internally, rather than trusting full raw content
+  // fetched results internally, rather than trusting full raw content
   // passed in via `inputs` (see `createSynthesizeCultureProfileSkill`'s doc
   // comment for why).
   skillRegistry.register(createSynthesizeCultureProfileSkill({ childAgentRuns: modePorts.childAgentRuns, fetchStore: cultureFetchStore }));

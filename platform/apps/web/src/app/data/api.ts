@@ -138,7 +138,7 @@ export async function apiDisconnectGoogle(): Promise<boolean> {
   return true;
 }
 
-/** Source Gmail through the gate → returns the Touchpoint/Memory/Signal proposals. */
+/** Source Gmail through the gate → returns the Event/Memory/Signal proposals. */
 export async function apiSyncGmail(maxResults?: number): Promise<IntakeResult | null> {
   if (!API_ENABLED) return null;
   return mutate<IntakeResult>('google.syncGmail', maxResults ? { maxResults } : {});

@@ -215,7 +215,6 @@ export function isOwnerScopedLedgerEntry(entry: LedgerEntry): boolean {
     entry.resourceType === "person" ||
     entry.resourceType === "community" ||
     entry.resourceType === "event" ||
-    entry.resourceType === "touchpoint" ||
     hasRelationshipDirective(entry) ||
     inputs?.visibility === "private" ||
     (

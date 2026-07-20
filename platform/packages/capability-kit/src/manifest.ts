@@ -11,7 +11,7 @@ const modelBinding = z.object({
 });
 
 const capability = z.object({
-  resourceType: z.string(), // e.g. "person", "memory", "touchpoint", "external:fetch"
+  resourceType: z.string(), // e.g. "person", "memory", "event", "external:fetch"
   action: z.enum(["read", "write", "send"]),
   dataScope: z.enum(["public", "private", "all"]),
   // egress = crosses the two-plane gate. Per architecture.md this is agent-floor territory —
@@ -21,7 +21,7 @@ const capability = z.object({
 
 const outputContractEntry = z.object({
   from: z.string(),
-  to: z.enum(["Person", "Community", "Memory", "Touchpoint", "Signal", "Record"]),
+  to: z.enum(["Person", "Community", "Memory", "Event", "Signal", "Record"]),
   note: z.string().optional(),
 });
 

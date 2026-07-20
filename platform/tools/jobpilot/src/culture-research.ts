@@ -146,7 +146,7 @@ export interface CultureEvidence {
   /** ISO date the evidence was actually retrieved — JP3B exit: "every surfaced culture claim
    * opens its Source and retrieval date." For theme/inference/contradiction rows (Internal-
    * Strategist-derived, not independently fetched), this is deterministically the MOST RECENT
-   * `retrievedAt` among the claim's real, transitively-grounded root artifacts — never wall-clock
+   * `retrievedAt` among the claim's real, transitively-grounded root results — never wall-clock
    * time — so re-running the identical synthesis over identical inputs always reproduces identical
    * output (TASK-011 remediation, 2026-07-19 RE-review, issue 10). */
   retrievedAt: string;
@@ -231,7 +231,7 @@ export function buildSourceDisclosure(
     // (theme/inference/contradiction) evidence carries
     // `DERIVED_SYNTHESIS_SOURCE_TYPE`, not a real fetchable source; it must
     // never appear in the "sources actually used" disclosure — only
-    // genuine fact/opinion evidence that cites a real fetched artifact is a
+    // genuine fact/opinion evidence that cites a real fetched result is a
     // "source".
     if (item.sourceType === DERIVED_SYNTHESIS_SOURCE_TYPE) continue;
     const key = `${item.sourceType}:${item.sourceUrl}`;
@@ -281,9 +281,9 @@ export function assertNoFabricatedAffinityOrInsiderClaim(text: string): Fabricat
 //
 // Claims can no longer be arbitrary caller-supplied text merely time-stamped
 // with a fetch. Every fact/opinion claim must carry a `quote` that is an
-// EXACT substring of the immutable, server-fetched artifact it cites, AND a
-// `contentHash` that must match that artifact's real (server-computed) hash —
-// binding the claim to the EXACT fetched bytes, not just "some artifact
+// EXACT substring of the immutable, server-fetched result it cites, AND a
+// `contentHash` that must match that result's real (server-computed) hash —
+// binding the claim to the EXACT fetched bytes, not just "some result
 // somewhere contains this text" (two different sources could coincidentally
 // share a substring; the hash makes the citation unambiguous and rejects a
 // claim built against stale/superseded content). Theme/inference claims
@@ -298,7 +298,7 @@ export function assertNoFabricatedAffinityOrInsiderClaim(text: string): Fabricat
  * (a caller listing 500 source ids must not reserve 500x budget/child Runs). */
 export const MAX_CULTURE_SOURCES_PER_RUN = 5;
 
-/** An immutable, server-fetched artifact's content, as the grounding check
+/** An immutable, server-fetched result's content, as the grounding check
  * needs it. `contentHash` is computed by the server from the REAL fetched
  * bytes (apps/api, via node:crypto) — this module stays hash-algorithm
  * agnostic, it only compares the caller-asserted hash against this value.
@@ -308,7 +308,7 @@ export const MAX_CULTURE_SOURCES_PER_RUN = 5;
  * `"untrusted_external"` for a real fetch and must never be silently
  * declassified. `expiresAt` bounds how long the excerpt may be relied on for
  * grounding/synthesis before it is considered stale and must be re-fetched. */
-export interface CultureArtifactRef {
+export interface CultureResultRef {
   sourceId: string;
   sourceType: CultureSourceType;
   sourceLabel: string;
@@ -323,12 +323,12 @@ export interface CultureArtifactRef {
 export interface GroundedClaimInput {
   id: string;
   claimType: CultureClaimType;
-  /** Required verbatim substring of the cited artifact's content for
+  /** Required verbatim substring of the cited result's content for
    * `fact`/`opinion` claims. Ignored for other claim types. */
   quote?: string;
-  /** Required for `fact`/`opinion` — which fetched artifact this claim cites. */
+  /** Required for `fact`/`opinion` — which fetched result this claim cites. */
   sourceId?: string;
-  /** Required for `fact`/`opinion` — must equal the cited artifact's REAL
+  /** Required for `fact`/`opinion` — must equal the cited result's REAL
    * content hash, or the claim is rejected as stale/mismatched. */
   contentHash?: string;
   /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
@@ -357,7 +357,7 @@ export type ClaimGroundingFailureReason =
   | "duplicate-claim-id"
   | "unknown-source"
   | "missing-quote"
-  | "quote-not-found-in-artifact"
+  | "quote-not-found-in-result"
   | "content-hash-mismatch"
   | "empty-supporting-set"
   | "insufficient-contradiction-roots"
@@ -380,10 +380,10 @@ export interface ClaimGroundingResult {
 
 /**
  * Computes, for every claim, whether it is TRANSITIVELY rooted in at least
- * one real artifact-grounded fact/opinion claim, and which claims sit on a
+ * one real result-grounded fact/opinion claim, and which claims sit on a
  * reference cycle — TASK-011 remediation (2026-07-18 coordinator final
  * review, issue 2). `fact`/`opinion` claims are trivially grounded (they cite
- * a real fetched artifact directly, verified elsewhere in `groundClaims`).
+ * a real fetched result directly, verified elsewhere in `groundClaims`).
  * `theme`/`inference` claims are grounded only if EVERY id in
  * `supportingClaimIds` is itself grounded; `contradiction` claims are
  * grounded only if EVERY id in `contradicts` is itself grounded (each
@@ -456,7 +456,7 @@ function computeReferenceGrounding(claims: readonly GroundedClaimInput[]): {
 }
 
 /**
- * Validates a batch of claims against the REAL fetched artifacts for this
+ * Validates a batch of claims against the REAL fetched results for this
  * run, and against each other (for theme/inference/contradiction
  * cross-references). Returns `ok: false` with the full set of failures if ANY
  * claim fails to ground — this is all-or-nothing per batch (a partially
@@ -465,7 +465,7 @@ function computeReferenceGrounding(claims: readonly GroundedClaimInput[]): {
  */
 export function groundClaims(
   claims: readonly GroundedClaimInput[],
-  artifactsBySourceId: ReadonlyMap<string, CultureArtifactRef>,
+  resultsBySourceId: ReadonlyMap<string, CultureResultRef>,
 ): ClaimGroundingResult {
   const failures: ClaimGroundingFailure[] = [];
   const evidence: CultureEvidence[] = [];
@@ -497,8 +497,8 @@ export function groundClaims(
     if (evidenceById.has(id)) continue; // defensive; postOrder is already unique
 
     if (claim.claimType === "fact" || claim.claimType === "opinion") {
-      const artifact = claim.sourceId ? artifactsBySourceId.get(claim.sourceId) : undefined;
-      if (!artifact) {
+      const result = claim.sourceId ? resultsBySourceId.get(claim.sourceId) : undefined;
+      if (!result) {
         failures.push({ claimId: claim.id, reason: "unknown-source", detail: `source "${claim.sourceId ?? ""}" was not fetched in this run` });
         continue;
       }
@@ -506,22 +506,22 @@ export function groundClaims(
         failures.push({ claimId: claim.id, reason: "missing-quote", detail: "fact/opinion claims require a quote" });
         continue;
       }
-      if (claim.contentHash !== artifact.contentHash) {
-        failures.push({ claimId: claim.id, reason: "content-hash-mismatch", detail: "claimed content hash does not match the fetched artifact's real hash" });
+      if (claim.contentHash !== result.contentHash) {
+        failures.push({ claimId: claim.id, reason: "content-hash-mismatch", detail: "claimed content hash does not match the fetched result's real hash" });
         continue;
       }
-      if (!artifact.content.includes(claim.quote)) {
-        failures.push({ claimId: claim.id, reason: "quote-not-found-in-artifact", detail: "quote is not a substring of the fetched artifact's content" });
+      if (!result.content.includes(claim.quote)) {
+        failures.push({ claimId: claim.id, reason: "quote-not-found-in-result", detail: "quote is not a substring of the fetched result's content" });
         continue;
       }
       const item: CultureEvidence = {
         id: claim.id,
         claimType: claim.claimType,
         claimText: claim.quote,
-        sourceLabel: artifact.sourceLabel,
-        sourceUrl: artifact.sourceUrl,
-        sourceType: artifact.sourceType,
-        retrievedAt: artifact.retrievedAt,
+        sourceLabel: result.sourceLabel,
+        sourceUrl: result.sourceUrl,
+        sourceType: result.sourceType,
+        retrievedAt: result.retrievedAt,
         // TASK-011 remediation (2026-07-19 RE-review, issue 11) — NEVER the
         // caller's `authorContext`; see this field's doc comment on
         // `CultureEvidence` for why.
@@ -554,7 +554,7 @@ export function groundClaims(
         continue;
       }
       if (!grounded.has(claim.id)) {
-        failures.push({ claimId: claim.id, reason: "not-transitively-grounded", detail: "this claim does not transitively trace back to any artifact-grounded fact/opinion" });
+        failures.push({ claimId: claim.id, reason: "not-transitively-grounded", detail: "this claim does not transitively trace back to any result-grounded fact/opinion" });
         continue;
       }
       // TASK-011 remediation (2026-07-19, issue 10) — the claim's TEXT is
@@ -620,7 +620,7 @@ export function groundClaims(
         continue;
       }
       if (!grounded.has(claim.id)) {
-        failures.push({ claimId: claim.id, reason: "not-transitively-grounded", detail: "every contradicted branch must independently trace back to an artifact-grounded fact/opinion" });
+        failures.push({ claimId: claim.id, reason: "not-transitively-grounded", detail: "every contradicted branch must independently trace back to an result-grounded fact/opinion" });
         continue;
       }
       // Deterministically derived (issue 10) — quotes the REAL text of the

@@ -19,7 +19,7 @@ export interface CommonsProvenance {
   sourceRef: string;
   inspectedCommit: string;
   repositoryLicense: string;
-  artifactLicense: string;
+  contentLicense: string;
   licenseVerified: boolean;
 }
 
@@ -53,7 +53,7 @@ export interface CommonsContentHash {
 }
 
 export interface CommonsSignedSource {
-  vocabularyVersion: 2;
+  vocabularyVersion: 2 | 3;
   canonicalContent: string;
 }
 

@@ -51,7 +51,7 @@ test("computeRisk: read-only, no-egress permission is informational", () => {
 
 test("computeRisk: a write to ordinary organization data is transformational", () => {
   const m = manifest({
-    permissions: [{ resourceType: "touchpoint", action: "write", dataScope: "private", egress: false }],
+    permissions: [{ resourceType: "event", action: "write", dataScope: "private", egress: false }],
   });
   assert.equal(computeRisk(m, () => undefined), "transformational");
 });
@@ -100,7 +100,7 @@ test("computeRisk: cycle-safe — a dependency cycle does not infinite-loop", ()
   const a = manifest({ id: "test_fixture_cycle_a", dependencies: [{ manifestId: "test_fixture_cycle_b", versionRange: "*" }] });
   const b = manifest({
     id: "test_fixture_cycle_b",
-    permissions: [{ resourceType: "touchpoint", action: "write", dataScope: "private", egress: false }],
+    permissions: [{ resourceType: "event", action: "write", dataScope: "private", egress: false }],
     dependencies: [{ manifestId: "test_fixture_cycle_a", versionRange: "*" }],
   });
   const registry = new Map([

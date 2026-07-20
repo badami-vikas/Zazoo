@@ -160,7 +160,7 @@ export function GoogleIntegrationPanel() {
               <h1 className="text-2xl font-bold text-[var(--color-navy)] mb-1">Gmail + Google Calendar</h1>
               <p className="text-[var(--color-navy-mid)] text-sm max-w-2xl">
                 Real OAuth, read <span className="font-semibold">and</span> write. Emails &amp; meetings become
-                {' '}<span className="font-semibold">Touchpoints, Memories &amp; Signals</span> — sourced through the gate, fed to the graph
+                {' '}<span className="font-semibold">Events, Memories &amp; Signals</span> — sourced through the gate, fed to the graph
                 {' '}by your approval. Sending is draft-then-approve. Bodies &amp; tokens live in the local plane; nothing private crosses to the cloud.
               </p>
             </div>
@@ -203,7 +203,7 @@ export function GoogleIntegrationPanel() {
           <Card title="Read · source → propose (by approval)" icon={Inbox}>
             <p className="text-sm text-[var(--color-navy-mid)] mb-4">
               An egress agent sources threads &amp; events through the gate; bodies land in the local plane. Matches become
-              {' '}Touchpoint/Memory proposals; uncertain matches file a <span className="font-medium">possible-duplicate Signal</span> (never auto-linked).
+              {' '}Event/Memory proposals; uncertain matches file a <span className="font-medium">possible-duplicate Signal</span> (never auto-linked).
             </p>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => runSync('gmail')} disabled={!!busy}

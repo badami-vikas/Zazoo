@@ -2,7 +2,7 @@
  * Read path: source items → LOCAL quarantine → governed proposals.
  *
  * Each sourced item is persisted to the local plane (private body, never egress),
- * then proposed through the gate as a Touchpoint (action=write, dataScope=private).
+ * then proposed through the gate as an Event (action=write, dataScope=private).
  * The gate drafts it pending_review — humans approve before it commits (capture !=
  * commit). The proposal carries only metadata + a pointer to the quarantined body,
  * never the raw private text, so nothing private rides a record that could sync.
@@ -37,13 +37,13 @@ export async function sourceToProposals(args: {
   for (const item of items) {
     // 1) Capture the private body to the local plane — capture, not commit.
     const quarantinedId = await quarantine.put({ provider: provider.id, item });
-    // 2) Propose a Touchpoint. Note: the raw body is NOT in inputs (residency) —
+    // 2) Propose an Event. Note: the raw body is NOT in inputs (residency) —
     //    only metadata + the local pointer travel with the proposal.
     const request: ActionRequest = {
       organizationId,
       actor,
       action: "write",
-      resourceType: "touchpoint",
+      resourceType: "event",
       inputs: {
         source: provider.id,
         sourceId: item.sourceId,
@@ -51,7 +51,7 @@ export async function sourceToProposals(args: {
         occurredAt: item.occurredAt,
         counterparty: item.counterparty ?? null,
         quarantinedId,
-        // Audit trail must be able to tell a fixture-sourced Touchpoint from a live one.
+        // Audit trail must be able to tell fixture-sourced Events from live ones.
         mode: provider.mode,
       },
       skill: "stageMutation",

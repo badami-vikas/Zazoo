@@ -15,7 +15,7 @@ function dummyEvent(i: number): DomainEvent {
     id: `test_fixture_event_${i}`,
     organizationId: "test_fixture_ws_1",
     type: "dummy.test.event",
-    entityType: "touchpoint",
+    entityType: "event",
     payload: { i },
     createdAt: new Date().toISOString(),
   };
@@ -46,7 +46,7 @@ test("InMemoryEventBus does not trim below the cap for normal usage", async () =
 
 const dummyActor = { type: "user" as const, id: "test_fixture_user_1" };
 const dummyGrant: GrantRule = {
-  resourceType: "touchpoint",
+  resourceType: "event",
   resourceId: null,
   action: "read",
   effect: "allow",

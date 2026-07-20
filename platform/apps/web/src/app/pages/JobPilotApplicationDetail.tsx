@@ -6,29 +6,29 @@ import {
   ChevronRight, ChevronUp, Clipboard, ExternalLink, FileCheck2, FileText, Flag, Lightbulb,
   LockKeyhole, MessageSquareText, Quote, ShieldCheck, ShieldAlert, Sparkles, Target, Users, XCircle,
 } from 'lucide-react';
-import { BCG_APPLICATION, artifactById, type ApplicationArtifact, type ArtifactStatus } from '../data/bcg-application';
+import { BCG_APPLICATION, resultById, type ApplicationResult, type ResultStatus } from '../data/bcg-application';
 import {
   loadStoredCultureResearchState,
   saveStoredCultureResearchState,
   clearStoredCultureResearchState,
-  deriveBoundedArtifactFactClaim,
-  isArtifactUsable,
+  deriveBoundedResultFactClaim,
+  isResultUsable,
   type StoredCultureResearchState,
 } from '../data/culture-research-client';
 import { EditableField } from '../components/shared/EditableField';
 import { useLocalEdits } from '../lib/useLocalEdits';
 import { trpc, PILOT_ORGANIZATION } from '../lib/trpc';
 
-type TabId = 'overview' | 'artifacts' | 'interview' | 'evidence';
+type TabId = 'overview' | 'results' | 'interview' | 'evidence';
 
-const STATUS_STYLE: Record<ArtifactStatus, { label: string; color: string; background: string }> = {
+const STATUS_STYLE: Record<ResultStatus, { label: string; color: string; background: string }> = {
   ready:    { label: 'Ready',       color: 'var(--success)',       background: '#ECF7F1' },
   review:   { label: 'Needs review', color: '#8A5A00',             background: '#FFF6DD' },
   practice: { label: 'In practice', color: 'var(--color-steel)',   background: '#EEF4F7' },
   blocked:  { label: 'Blocked',     color: 'var(--danger)',        background: '#FCEEEE' },
 };
 
-const ARTIFACT_ICON: Record<string, typeof FileText> = {
+const RESULT_ICON: Record<string, typeof FileText> = {
   resume:               FileText,
   'cover-letter':       MessageSquareText,
   'application-answers': FileCheck2,
@@ -39,7 +39,7 @@ const ARTIFACT_ICON: Record<string, typeof FileText> = {
   'submission-checklist': ShieldCheck,
 };
 
-function StatusPill({ status }: { status: ArtifactStatus }) {
+function StatusPill({ status }: { status: ResultStatus }) {
   const s = STATUS_STYLE[status];
   return (
     <span className="rounded-full px-2 py-1 text-[11px] font-semibold" style={{ color: s.color, backgroundColor: s.background }}>
@@ -59,12 +59,12 @@ function SectionCard({ title, children, className = '' }: { title: string; child
 
 /* ── Agent Insights Panel ─────────────────────────────────────────────── */
 
-function AgentInsightsPanel({ artifact }: { artifact: ApplicationArtifact }) {
+function AgentInsightsPanel({ result }: { result: ApplicationResult }) {
   const [open, setOpen] = useState(false);
 
   const relatedEvidence = useMemo(
-    () => BCG_APPLICATION.evidence.filter((e) => artifact.evidenceIds?.includes(e.id as never)),
-    [artifact.evidenceIds],
+    () => BCG_APPLICATION.evidence.filter((e) => result.evidenceIds?.includes(e.id as never)),
+    [result.evidenceIds],
   );
   const needsReview = relatedEvidence.filter((e) => e.status === 'needs-review');
   const verified    = relatedEvidence.filter((e) => e.status === 'verified');
@@ -167,15 +167,15 @@ function AgentInsightsPanel({ artifact }: { artifact: ApplicationArtifact }) {
   );
 }
 
-/* ── Artifact Viewer ──────────────────────────────────────────────────── */
+/* ── Result Viewer ──────────────────────────────────────────────────── */
 
-function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
+function ResultViewer({ result }: { result: ApplicationResult }) {
   const [copied, setCopied] = useState(false);
-  const { fieldValue, setEdit, isEdited } = useLocalEdits(`jobpilot.artifact.${artifact.id}`);
-  const Icon = ARTIFACT_ICON[artifact.id] ?? FileText;
+  const { fieldValue, setEdit, isEdited } = useLocalEdits(`jobpilot.result.${result.id}`);
+  const Icon = RESULT_ICON[result.id] ?? FileText;
 
-  const copyArtifact = async () => {
-    const text = artifact.sections
+  const copyResult = async () => {
+    const text = result.sections
       .map((s, i) => [
         fieldValue(`s${i}.heading`, s.heading),
         fieldValue(`s${i}.body`, s.body),
@@ -201,18 +201,18 @@ function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold" style={{ color: 'var(--color-navy)', fontFamily: 'var(--font-editorial)' }}>
-                {artifact.title}
+                {result.title}
               </h2>
-              <StatusPill status={artifact.status} />
+              <StatusPill status={result.status} />
             </div>
-            <p className="mt-1 text-sm" style={{ color: 'var(--color-warm-gray)' }}>{artifact.description}</p>
+            <p className="mt-1 text-sm" style={{ color: 'var(--color-warm-gray)' }}>{result.description}</p>
             <p className="mt-1 text-xs" style={{ color: 'var(--color-warm-gray)' }}>
-              {artifact.ownerAgent} Agent · {artifact.skill} Skill · {artifact.updated}
+              {result.ownerAgent} Agent · {result.skill} Skill · {result.updated}
             </p>
           </div>
         </div>
         <button
-          onClick={copyArtifact}
+          onClick={copyResult}
           className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-[var(--color-surface)]"
           style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
         >
@@ -222,11 +222,11 @@ function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
       </div>
 
       {/* Agentic insights — collapsible */}
-      <AgentInsightsPanel artifact={artifact} />
+      <AgentInsightsPanel result={result} />
 
       {/* Sections — all fields double-click editable */}
       <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
-        {artifact.sections.map((section, i) => (
+        {result.sections.map((section, i) => (
           <div key={section.heading} className="p-5" style={{ borderColor: 'var(--color-border)' }}>
             <EditableField
               value={fieldValue(`s${i}.heading`, section.heading)}
@@ -284,7 +284,7 @@ function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
  *
  * Claim authoring here is intentionally minimal for this pass: once a source
  * is fetched, its ENTIRE real content is submitted as one grounded "fact"
- * claim (`deriveBoundedArtifactFactClaim`) — never fabricated text. A richer
+ * claim (`deriveBoundedResultFactClaim`) — never fabricated text. A richer
  * human-excerpt-picker or LLM-assisted theme/opinion/contradiction extraction
  * is tracked as future work; the honest result today is a `facts` bucket
  * populated with real cited claims and other buckets empty (a true empty
@@ -489,10 +489,10 @@ function CultureResearchSection() {
       .map((p) => ({ p, status: statuses[p.proposalId] }))
       .filter(
         (x): x is { p: (typeof pointer.pending)[number]; status: CultureFetchStatusResult & { status: 'fetched' } } =>
-          x.status?.status === 'fetched' && isArtifactUsable(x.status.artifact),
+          x.status?.status === 'fetched' && isResultUsable(x.status.result),
       );
     if (fetchedEntries.length === 0) {
-      const anyExpired = pointer.pending.some((p) => statuses[p.proposalId]?.status === 'fetched' && !isArtifactUsable(statuses[p.proposalId]!.artifact));
+      const anyExpired = pointer.pending.some((p) => statuses[p.proposalId]?.status === 'fetched' && !isResultUsable(statuses[p.proposalId]!.result));
       setError(
         anyExpired
           ? 'Every previously fetched source has expired — start a new research run before synthesizing.'
@@ -503,7 +503,7 @@ function CultureResearchSection() {
     setBusy(true);
     setError(null);
     try {
-      const claims = fetchedEntries.map(({ p, status }) => deriveBoundedArtifactFactClaim(`claim-${p.sourceId}`, p.sourceId, status.artifact!));
+      const claims = fetchedEntries.map(({ p, status }) => deriveBoundedResultFactClaim(`claim-${p.sourceId}`, p.sourceId, status.result!));
       const synth = await trpc.jobpilot.cultureResearch.synthesize.mutate({ organizationId, company, parentRunId: pointer.parentRunId, claims });
       persistPointer({ ...pointer, synthesisProposalId: synth.proposalId });
       reconcileFromServer();
@@ -587,10 +587,10 @@ function CultureResearchSection() {
             const status = statuses[p.proposalId];
             // TASK-011 remediation (2026-07-19 coordinator distributed-
             // defects RE-review round 2, issue 9) — a "fetched" status whose
-            // artifact is no longer usable (expired/purged) must NEVER be
+            // result is no longer usable (expired/purged) must NEVER be
             // rendered as a plain fetched-success checkmark — that would be
             // showing fetched success for content that is, in truth, gone.
-            const fetchedButExpired = status?.status === 'fetched' && !isArtifactUsable(status.artifact);
+            const fetchedButExpired = status?.status === 'fetched' && !isResultUsable(status.result);
             return (
               <div key={p.proposalId} className="flex items-center justify-between rounded-lg border px-3 py-2" style={{ borderColor: 'var(--color-border)' }}>
                 <div>
@@ -611,7 +611,7 @@ function CultureResearchSection() {
             );
           })}
           {(() => {
-            const anyUsable = pointer.pending.some((p) => statuses[p.proposalId]?.status === 'fetched' && isArtifactUsable(statuses[p.proposalId]!.artifact));
+            const anyUsable = pointer.pending.some((p) => statuses[p.proposalId]?.status === 'fetched' && isResultUsable(statuses[p.proposalId]!.result));
             const anyFetched = pointer.pending.some((p) => statuses[p.proposalId]?.status === 'fetched');
             const allFetchedExpired = anyFetched && !anyUsable;
             return (
@@ -764,19 +764,19 @@ function CultureResearchSection() {
 export function JobPilotApplicationDetail() {
   const { id } = useParams();
   const [tab, setTab] = useState<TabId>('overview');
-  const [selectedArtifact, setSelectedArtifact] = useState('resume');
+  const [selectedResult, setSelectedResult] = useState('resume');
   const application = id === BCG_APPLICATION.id ? BCG_APPLICATION : null;
-  const selected = artifactById(selectedArtifact) ?? BCG_APPLICATION.artifacts[0];
+  const selected = resultById(selectedResult) ?? BCG_APPLICATION.results[0];
 
   /* Overview fields — inline editable */
   const overviewEdits = useLocalEdits('jobpilot.overview.bcg');
 
   const agents = useMemo(() => {
     const grouped = new Map<string, string[]>();
-    for (const artifact of BCG_APPLICATION.artifacts) {
-      const skills = grouped.get(artifact.ownerAgent) ?? [];
-      if (!skills.includes(artifact.skill)) skills.push(artifact.skill);
-      grouped.set(artifact.ownerAgent, skills);
+    for (const result of BCG_APPLICATION.results) {
+      const skills = grouped.get(result.ownerAgent) ?? [];
+      if (!skills.includes(result.skill)) skills.push(result.skill);
+      grouped.set(result.ownerAgent, skills);
     }
     return Array.from(grouped.entries());
   }, []);
@@ -792,10 +792,10 @@ export function JobPilotApplicationDetail() {
     );
   }
 
-  const openArtifact = (artifact: ApplicationArtifact) => { setSelectedArtifact(artifact.id); setTab('artifacts'); };
+  const openResult = (result: ApplicationResult) => { setSelectedResult(result.id); setTab('results'); };
   const tabs: { id: TabId; label: string }[] = [
     { id: 'overview',  label: 'Overview' },
-    { id: 'artifacts', label: `Artifacts ${application.artifacts.length}` },
+    { id: 'results', label: `Results ${application.results.length}` },
     { id: 'interview', label: 'Interview prep' },
     { id: 'evidence',  label: `Evidence ${application.evidence.length}` },
   ];
@@ -922,7 +922,7 @@ export function JobPilotApplicationDetail() {
                     ))}
                   </ul>
                   <button
-                    onClick={() => openArtifact(artifactById('submission-checklist')!)}
+                    onClick={() => openResult(resultById('submission-checklist')!)}
                     className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold hover:bg-[var(--color-surface)]"
                     style={{ borderColor: 'var(--color-border)', color: 'var(--color-steel)' }}
                   >
@@ -931,14 +931,14 @@ export function JobPilotApplicationDetail() {
                 </SectionCard>
               </div>
 
-              <SectionCard title="Application artifacts">
+              <SectionCard title="Application results">
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {application.artifacts.map((artifact) => {
-                    const Icon = ARTIFACT_ICON[artifact.id] ?? FileText;
+                  {application.results.map((result) => {
+                    const Icon = RESULT_ICON[result.id] ?? FileText;
                     return (
                       <button
-                        key={artifact.id}
-                        onClick={() => openArtifact(artifact)}
+                        key={result.id}
+                        onClick={() => openResult(result)}
                         className="rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-sm"
                         style={{ borderColor: 'var(--color-border)', backgroundColor: '#FFFEFC' }}
                       >
@@ -946,17 +946,17 @@ export function JobPilotApplicationDetail() {
                           <div className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-steel)' }}>
                             <Icon className="h-4.5 w-4.5" />
                           </div>
-                          <StatusPill status={artifact.status} />
+                          <StatusPill status={result.status} />
                         </div>
-                        <div className="text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>{artifact.title}</div>
-                        <div className="mt-1 line-clamp-2 text-xs leading-5" style={{ color: 'var(--color-warm-gray)' }}>{artifact.description}</div>
-                        {artifact.evidenceIds && artifact.evidenceIds.length > 0 && (
+                        <div className="text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>{result.title}</div>
+                        <div className="mt-1 line-clamp-2 text-xs leading-5" style={{ color: 'var(--color-warm-gray)' }}>{result.description}</div>
+                        {result.evidenceIds && result.evidenceIds.length > 0 && (
                           <div className="mt-2 text-[10px]" style={{ color: 'var(--color-steel)' }}>
-                            {artifact.evidenceIds.length} evidence items
+                            {result.evidenceIds.length} evidence items
                           </div>
                         )}
                         <div className="mt-3 flex items-center gap-1 text-[11px] font-medium" style={{ color: 'var(--color-steel)' }}>
-                          Open artifact <ChevronRight className="h-3 w-3" />
+                          Open result <ChevronRight className="h-3 w-3" />
                         </div>
                       </button>
                     );
@@ -979,7 +979,7 @@ export function JobPilotApplicationDetail() {
                 </SectionCard>
                 <SectionCard title="Agents and their Skills">
                   <p className="mb-3 text-xs leading-5" style={{ color: 'var(--color-warm-gray)' }}>
-                    Skills are available only through their allowed Agent. Every artifact shows who created or maintains it.
+                    Skills are available only through their allowed Agent. Every result shows who created or maintains it.
                   </p>
                   <div className="space-y-2">
                     {agents.map(([agent, skills]) => (
@@ -997,30 +997,30 @@ export function JobPilotApplicationDetail() {
             </div>
           )}
 
-          {/* ── ARTIFACTS ── */}
-          {tab === 'artifacts' && (
+          {/* Results */}
+          {tab === 'results' && (
             <div className="grid gap-4 lg:grid-cols-[270px_minmax(0,1fr)]">
               <aside className="h-fit rounded-xl border bg-white p-2" style={{ borderColor: 'var(--color-border)' }}>
-                {application.artifacts.map((artifact) => {
-                  const Icon = ARTIFACT_ICON[artifact.id] ?? FileText;
+                {application.results.map((result) => {
+                  const Icon = RESULT_ICON[result.id] ?? FileText;
                   return (
                     <button
-                      key={artifact.id}
-                      onClick={() => setSelectedArtifact(artifact.id)}
+                      key={result.id}
+                      onClick={() => setSelectedResult(result.id)}
                       className="flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors"
-                      style={{ backgroundColor: selectedArtifact === artifact.id ? 'var(--color-surface)' : 'transparent' }}
+                      style={{ backgroundColor: selectedResult === result.id ? 'var(--color-surface)' : 'transparent' }}
                     >
-                      <Icon className="h-4 w-4 shrink-0" style={{ color: selectedArtifact === artifact.id ? 'var(--color-steel)' : 'var(--color-warm-gray)' }} />
+                      <Icon className="h-4 w-4 shrink-0" style={{ color: selectedResult === result.id ? 'var(--color-steel)' : 'var(--color-warm-gray)' }} />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium" style={{ color: 'var(--color-navy)' }}>{artifact.title}</div>
-                        <div className="mt-0.5 text-[11px]" style={{ color: STATUS_STYLE[artifact.status].color }}>{STATUS_STYLE[artifact.status].label}</div>
+                        <div className="truncate text-sm font-medium" style={{ color: 'var(--color-navy)' }}>{result.title}</div>
+                        <div className="mt-0.5 text-[11px]" style={{ color: STATUS_STYLE[result.status].color }}>{STATUS_STYLE[result.status].label}</div>
                       </div>
                       <ChevronRight className="h-3.5 w-3.5" style={{ color: 'var(--color-warm-gray)' }} />
                     </button>
                   );
                 })}
               </aside>
-              <ArtifactViewer artifact={selected as ApplicationArtifact} />
+              <ResultViewer result={selected as ApplicationResult} />
             </div>
           )}
 
@@ -1028,20 +1028,20 @@ export function JobPilotApplicationDetail() {
           {tab === 'interview' && (
             <div className="space-y-5">
               <div className="grid gap-4 md:grid-cols-3">
-                {['behavioral-stories', 'case-prep', 'interviewer-questions'].map((artifactId) => {
-                  const artifact = artifactById(artifactId)!;
-                  const Icon = ARTIFACT_ICON[artifact.id];
+                {['behavioral-stories', 'case-prep', 'interviewer-questions'].map((resultId) => {
+                  const result = resultById(resultId)!;
+                  const Icon = RESULT_ICON[result.id];
                   return (
-                    <button key={artifact.id} onClick={() => openArtifact(artifact)} className="rounded-xl border bg-white p-5 text-left hover:shadow-sm" style={{ borderColor: 'var(--color-border)' }}>
+                    <button key={result.id} onClick={() => openResult(result)} className="rounded-xl border bg-white p-5 text-left hover:shadow-sm" style={{ borderColor: 'var(--color-border)' }}>
                       <Icon className="h-5 w-5" style={{ color: 'var(--color-steel)' }} />
-                      <h2 className="mt-3 text-base font-semibold" style={{ color: 'var(--color-navy)' }}>{artifact.title}</h2>
-                      <p className="mt-1 text-sm leading-5" style={{ color: 'var(--color-warm-gray)' }}>{artifact.description}</p>
-                      <div className="mt-4"><StatusPill status={artifact.status} /></div>
+                      <h2 className="mt-3 text-base font-semibold" style={{ color: 'var(--color-navy)' }}>{result.title}</h2>
+                      <p className="mt-1 text-sm leading-5" style={{ color: 'var(--color-warm-gray)' }}>{result.description}</p>
+                      <div className="mt-4"><StatusPill status={result.status} /></div>
                     </button>
                   );
                 })}
               </div>
-              <ArtifactViewer artifact={artifactById('case-prep') as ApplicationArtifact} />
+              <ResultViewer result={resultById('case-prep') as ApplicationResult} />
               <CultureResearchSection />
             </div>
           )}

@@ -16,7 +16,7 @@ export const TEST_COMMONS_PROVENANCE: CommonsProvenance = {
   sourceRef: "capability",
   inspectedCommit: "0123456789abcdef0123456789abcdef01234567",
   repositoryLicense: "MIT",
-  artifactLicense: "MIT",
+  contentLicense: "MIT",
   licenseVerified: true,
 };
 

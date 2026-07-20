@@ -16,20 +16,20 @@ test("memory local plane: commitEntity is idempotent on retry with the same id",
   const entry = {
     id: "tp1",
     organizationId: "ws-1",
-    kind: "touchpoint" as const,
+    kind: "event" as const,
     personId: "p1",
-    payload: { touchpointKind: "email" },
+    payload: { eventKind: "email" },
     source: "gmail",
     sourceRecordId: "thread_1",
     createdAt: "2026-06-20T00:00:00.000Z",
   };
 
   await plane.graph.commitEntity(entry);
-  assert.equal((await plane.graph.listEntities("ws-1", "touchpoint")).length, 1);
+  assert.equal((await plane.graph.listEntities("ws-1", "event")).length, 1);
 
   // Retry with the SAME id: previously threw "duplicate entity id"; must now no-op.
   await assert.doesNotReject(() => plane.graph.commitEntity(entry));
-  assert.equal((await plane.graph.listEntities("ws-1", "touchpoint")).length, 1, "no duplicate row after retry");
+  assert.equal((await plane.graph.listEntities("ws-1", "event")).length, 1, "no duplicate row after retry");
 
   await plane.close();
 });

@@ -430,7 +430,7 @@ test("commons.runInstalledSkill invokes the pinned Skill through its owning Agen
     assert.match(
       listedAfterRegistryDrift.items.find((item) => item.id === proposed.installation.id)
         ?.runtimeBindingIssues[0] ?? "",
-      /pinned root artifact/,
+      /pinned root result/,
     );
     registryEntry.integrity.value = currentRegistryHash;
 
@@ -799,7 +799,7 @@ test("commons approved install reconciles idempotently after a transient post-de
       decision: "approve",
     });
     assert.equal(failedResolution.effectsStatus, "failed");
-    assert.match(failedResolution.effectsError ?? "", /pinned root artifact/);
+    assert.match(failedResolution.effectsError ?? "", /pinned root result/);
     assert.equal((await wiring.ledger.decisionFor(proposalId))?.userDecision, "approve");
     assert.equal(
       (await caller.modules.get({ installationId: installation.id })).installation.status,

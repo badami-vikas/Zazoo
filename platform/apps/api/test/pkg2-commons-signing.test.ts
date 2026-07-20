@@ -208,7 +208,7 @@ test("HttpCommonsClient.getVersion: rejects an entry whose deterministic scan di
       status: "failed",
       riskBand: "informational",
       lethalTrifecta: false,
-      checks: [{ id: "artifact-license", status: "fail", detail: "license absent" }],
+      checks: [{ id: "content-license", status: "fail", detail: "license absent" }],
     },
   );
   t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));

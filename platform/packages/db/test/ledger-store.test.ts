@@ -278,7 +278,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           actorType: "user",
           actorId: ownerId,
           action: "write",
-          resourceType: "touchpoint",
+          resourceType: "event",
           inputs: { kind: "legacy_private_interaction" },
           userDecision: null,
           policyResults: [],

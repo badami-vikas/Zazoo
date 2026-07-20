@@ -460,7 +460,7 @@ export async function ensureLearningAgentGovernance(
     action: "write",
     capabilityToken: "signal:write",
     additionalGrants: [
-      { resourceType: "touchpoint", action: "write", capabilityToken: "touchpoint:write" },
+      { resourceType: "event", action: "write", capabilityToken: "event:write" },
       { resourceType: "external:fetch", action: "read", capabilityToken: "external:fetch:read" },
       { resourceType: "event", action: "write", capabilityToken: "event:write" },
     ],
@@ -709,7 +709,7 @@ export class DrizzleAgentStore implements AgentQuery {
   }
 
   async capabilityScope(agentId: string): Promise<string[]> {
-    // Live SCHEMA.sql shape: agents.capability_scope jsonb = { "resources": ["person:read", "touchpoint:write", ...] }.
+    // Live SCHEMA.sql shape: agents.capability_scope jsonb = { "resources": ["person:read", "event:write", ...] }.
     // `tokens` is accepted as a legacy alias. An optional `dataScope` may also ride here.
     // Read-time validation happens in #scope() — throw loudly on a malformed
     // row instead of silently falling back to an empty (or worse, permissive)

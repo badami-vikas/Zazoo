@@ -235,7 +235,7 @@ function toTitleCase(s: string): string {
 const DOMAIN_ENTITY: Record<string, { nodeType: string; label: string }> = {
   sales_deals: { nodeType: "record", label: "Deal" },
   job_search: { nodeType: "record", label: "Application" },
-  support: { nodeType: "touchpoint", label: "Ticket" },
+  support: { nodeType: "event", label: "Support Event" },
   relationships: { nodeType: "person", label: "Person" },
 };
 

@@ -10,8 +10,8 @@ import { apiUpdateAgent } from '../data/api';
 
 const agentDetails: Record<string, any> = {
   'helpdesk-ai': {
-    name: 'Helpdesk AI', specialization: 'Support strategist', model: 'ModelProvider (local default)', status: 'Active',
-    desc: 'Helpdesk AI is the routing Engine of the Helpdesk Module. For every request it asks one question — “how could this person realistically help?” — matching needs to capabilities across the relationship graph (capability, not topic), and proposing concrete ways to contribute (intro, feedback, resources, hiring, funding, expertise). It proposes; humans decide. Every offer is drafted for review, never auto-sent.',
+    name: 'Support Agent', specialization: 'Support strategist', model: 'ModelProvider (local default)', status: 'Active',
+    desc: 'The Support Agent routes Help Requests inside the Relationship Module. For every request it asks one question — “how could this person realistically help?” — matching needs to capabilities across the relationship graph (capability, not topic), and proposing concrete ways to contribute (intro, feedback, resources, hiring, funding, expertise). It proposes; humans decide. Every offer is drafted for review, never auto-sent.',
     avatar: 'H', color: '#4D7EA8',
     accuracy: 96, runs: 0, automations: 0, lastActive: 'Live',
     goal: 'Route each request to people who can meaningfully help, and propose actionable assistance — while keeping noise out of everyone else’s way.',
@@ -24,7 +24,7 @@ const agentDetails: Record<string, any> = {
       { id: 'SK-HD4', name: 'Offer Drafting', category: 'Communication', strength: 88, locked: false },
       { id: 'SK-HD5', name: 'Auto-Filter (noise control)', category: 'Analytics', strength: 91, locked: false },
     ],
-    connectedAutomations: ['Helpdesk — AI-assisted routing', 'Helpdesk — Broadcast + auto-filter', 'Helpdesk — Offer → Approvals → Touchpoint'],
+    connectedAutomations: ['Support — AI-assisted routing', 'Support — Broadcast + auto-filter', 'Support — Offer → Approvals → Event'],
     activity: [
       { time: 'Live', event: 'Routes requests on capability, not topic', type: 'run' },
       { time: 'Live', event: 'Proposes assistance paths to candidate helpers', type: 'output' },

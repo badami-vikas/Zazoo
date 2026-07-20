@@ -38,7 +38,7 @@ test("forbidden tokens: send, governance, full-graph, and god-mode wildcard", ()
   ]) {
     assert.ok(isForbiddenAgentToken(t), `${t} must be forbidden`);
   }
-  for (const t of ["person:read", "touchpoint:write", "external:fetch:read"]) {
+  for (const t of ["person:read", "event:write", "external:fetch:read"]) {
     assert.ok(!isForbiddenAgentToken(t), `${t} must be allowed`);
   }
 });
@@ -54,12 +54,12 @@ test("buildAgentCapability strips escalation + dedupes, reports dropped", () => 
   assert.ok(!built.scope.includes("ledger:approve"));
   assert.deepEqual(built.dropped.sort(), ["*", "external:send:share", "ledger:approve"].sort());
   // tier tokens merged, deduped
-  assert.ok(built.scope.includes("touchpoint:write"));
+  assert.ok(built.scope.includes("event:write"));
   assert.equal(built.scope.filter((t) => t === "person:read").length, 1);
 });
 
 test("Automation within Agent: a step outside the owning Agent's capability is flagged", () => {
-  const agents = [{ scope: ["person:read", "touchpoint:write"], dataScope: "all" as const }];
+  const agents = [{ scope: ["person:read", "event:write"], dataScope: "all" as const }];
   const violations = validateAutomationWithinAgents(
     [
       { action: "read", resourceType: "person" },

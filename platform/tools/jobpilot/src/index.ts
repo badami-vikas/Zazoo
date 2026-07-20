@@ -61,7 +61,7 @@ export type {
   CultureEvidencePartition,
   CultureSourceDisclosure,
   FabricationCheckResult,
-  CultureArtifactRef,
+  CultureResultRef,
   GroundedClaimInput,
   ClaimGroundingFailureReason,
   ClaimGroundingFailure,

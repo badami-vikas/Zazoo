@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { compileBlueprint, BlueprintCompileError, type OrganizationBlueprint } from "../src/index.js";
 
-const REGISTRY = ["record", "touchpoint", "relationship"] as const;
+const REGISTRY = ["record", "event", "relationship"] as const;
 
 function blueprint(overrides: Partial<OrganizationBlueprint> = {}): OrganizationBlueprint {
   return {
@@ -184,7 +184,7 @@ test("unknown node type is rejected against the provided registry", () => {
 });
 
 test("view referencing an entity not declared in the blueprint is rejected", () => {
-  const bp = blueprint({ views: [{ entity: "touchpoint", kind: "table" }] });
+  const bp = blueprint({ views: [{ entity: "event", kind: "table" }] });
   assert.throws(() => compileBlueprint(bp, [...REGISTRY]), BlueprintCompileError);
 });
 

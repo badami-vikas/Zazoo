@@ -443,7 +443,7 @@ export function ItemDetail() {
               )}
               {s.id === 'relationship' && (
                 <div className="grid sm:grid-cols-3 gap-3">
-                  {([['Warmth', 'warmth', warmthLabel(person?.warmth)], ['Orbit', 'orbit', `${person?.ring || 'Active'} ring`], ['Last touchpoint', 'lastTouch', person?.connectedOn || '—']] as [string, string, string][]).map(([k, key, v]) => (
+                  {([['Warmth', 'warmth', warmthLabel(person?.warmth)], ['Orbit', 'orbit', `${person?.ring || 'Active'} ring`], ['Last Event', 'lastEvent', person?.connectedOn || '—']] as [string, string, string][]).map(([k, key, v]) => (
                     <div key={k} className="rounded-xl border px-4 py-3 bg-white" style={{ borderColor: 'var(--color-border)' }}>
                       <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--color-warm-gray)' }}>{k}</div>
                       <EditableText text={fv(key, v)} base={v} onSave={(val: string) => setField(key, val)} className="text-sm font-semibold" />
@@ -527,7 +527,7 @@ export function ItemDetail() {
                       </div>
                       <p className="px-4 py-3 text-sm leading-relaxed" style={{ color: 'var(--color-navy)' }}>{th.message}</p>
                     </div>
-                  )) : !person?.connectedOn && <div className="text-sm" style={{ color: 'var(--color-warm-gray)' }}>No touchpoints yet.</div>}
+                  )) : !person?.connectedOn && <div className="text-sm" style={{ color: 'var(--color-warm-gray)' }}>No Events yet.</div>}
                 </div>
               )}
               {s.id === 'files' && (

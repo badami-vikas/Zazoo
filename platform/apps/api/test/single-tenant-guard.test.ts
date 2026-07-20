@@ -87,7 +87,7 @@ test("action.propose: a non-pilot organizationId is rejected with FORBIDDEN (gua
           organizationId: NON_PILOT_ORGANIZATION,
           actor: { type: "user", id: PILOT_USER },
           action: "write",
-          resourceType: "touchpoint",
+          resourceType: "event",
           inputs: { note: "test_fixture_note" },
           skill: "stageMutation",
         }),
@@ -110,7 +110,7 @@ test("action.propose: the pilot organization's own id still works normally", asy
       organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "write",
-      resourceType: "touchpoint",
+      resourceType: "event",
       inputs: { note: "test_fixture_note" },
       skill: "stageMutation",
     });

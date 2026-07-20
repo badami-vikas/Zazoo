@@ -796,7 +796,7 @@ test("ANCHOR VALIDATION (review round-4 item 6): create rejects an unrecognized 
   }
 });
 
-test("ANCHOR VALIDATION (review round-4 item 6): create rejects a nonexistent 'record'/'touchpoint' module recordId too, not just JobPilot", async () => {
+test("ANCHOR VALIDATION (review round-4 item 6): create rejects a nonexistent 'record'/'event' module recordId too, not just JobPilot", async () => {
   const wiring = await buildWiring();
   try {
     const caller = await makeCaller(wiring);
@@ -816,7 +816,7 @@ test("ANCHOR VALIDATION (review round-4 item 6): create rejects a nonexistent 'r
         caller.redFlag.create({
           organizationId: PILOT_ORGANIZATION,
           operationId: "00000000-0000-4000-8000-000000000414",
-          anchor: { kind: "cell", moduleId: "touchpoint", databaseId: "touchpoints", recordId: bogusId, fieldId: "notes" },
+          anchor: { kind: "cell", moduleId: "event", databaseId: "events", recordId: bogusId, fieldId: "notes" },
           renderedValue: "x",
         }),
       (err: unknown) => err instanceof TRPCError && err.code === "NOT_FOUND",

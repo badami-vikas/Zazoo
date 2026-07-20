@@ -10,7 +10,7 @@
  *  5. Missing or mismatched `(proposalId, childRunId)` pairs never reconstruct.
  *  6. Cancellation is CAS-safe: before-start, in-flight, and after-fetch cases
  *     all land in the correct final state.
- *  7. Synthesis grounds only against this exact parent run's fetched artifacts
+ *  7. Synthesis grounds only against this exact parent run's fetched results
  *     and exposes approved results via `synthesisResult`.
  *  8. Direct Human invocation of both governed Skills still fails closed.
  */
@@ -224,7 +224,7 @@ test("cultureResearch.propose: non-permitted source types are skipped and propos
       childRunId: pending.childRunId,
     });
     assert.equal(status.status, "pending");
-    assert.equal(status.artifact, undefined);
+    assert.equal(status.result, undefined);
   } finally {
     await wiring.close();
   }
@@ -297,13 +297,13 @@ test("materializeCultureSourceFetch: approved fetch succeeds exactly once and is
 
     const record1 = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     assert.equal(record1.status, "fetched");
-    assert.ok(record1.artifact?.content.includes("Culture, Values, And Inclusion"));
-    assert.equal(typeof record1.artifact?.contentHash, "string");
+    assert.ok(record1.result?.content.includes("Culture, Values, And Inclusion"));
+    assert.equal(typeof record1.result?.contentHash, "string");
     assert.equal(requestCount, 1);
 
     const record2 = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     assert.equal(record2.status, "fetched");
-    assert.equal(record2.artifact?.contentHash, record1.artifact?.contentHash);
+    assert.equal(record2.result?.contentHash, record1.result?.contentHash);
     assert.equal(requestCount, 1, "a second materialize call must not refetch");
 
     const childRun = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId);
@@ -653,7 +653,7 @@ test("lease-fenced terminal CAS: a STALE worker (its lease already reclaimed by 
           PILOT_ORGANIZATION,
           childRunId,
           ["fetching"],
-          (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/lease-fence", content: "stale content", contentHash: "deadbeef", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
+          (r) => ({ ...r, status: "fetched", result: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/lease-fence", content: "stale content", contentHash: "deadbeef", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
           { leaseOwner: staleWorker.leaseOwner!, attempt: staleWorker.attempt },
         ),
       (error: unknown) => {
@@ -675,11 +675,11 @@ test("lease-fenced terminal CAS: a STALE worker (its lease already reclaimed by 
       PILOT_ORGANIZATION,
       childRunId,
       ["fetching"],
-      (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/lease-fence", content: "real content", contentHash: "cafebabe", retrievedAt: farFuture, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
+      (r) => ({ ...r, status: "fetched", result: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/lease-fence", content: "real content", contentHash: "cafebabe", retrievedAt: farFuture, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
       { leaseOwner: reclaimingWorker.leaseOwner!, attempt: reclaimingWorker.attempt },
     );
     assert.equal(wonByB.status, "fetched");
-    assert.equal(wonByB.artifact?.content, "real content");
+    assert.equal(wonByB.result?.content, "real content");
   } finally {
     await wiring.close();
   }
@@ -718,7 +718,7 @@ test("cancellation-fenced CAS: a durably-recorded cancelRequested refuses a 'fet
           PILOT_ORGANIZATION,
           childRunId,
           ["fetching"],
-          (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/cancel-race", content: "raced content", contentHash: "deadbeef", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: t0 } }),
+          (r) => ({ ...r, status: "fetched", result: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/cancel-race", content: "raced content", contentHash: "deadbeef", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: t0 } }),
           { leaseOwner: lease.leaseOwner!, attempt: lease.attempt, requireCancelNotRequested: true },
         ),
       (error: unknown) => {
@@ -788,7 +788,7 @@ test("tagged transition ownership: materializeCultureSourceFetch never mutates t
         PILOT_ORGANIZATION,
         childRunId,
         ["fetching"],
-        (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: server.url, content: "stale worker's illegitimate win", contentHash: "badc0de", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
+        (r) => ({ ...r, status: "fetched", result: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: server.url, content: "stale worker's illegitimate win", contentHash: "badc0de", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
         { leaseOwner: stale.leaseOwner!, attempt: stale.attempt },
       ),
     );
@@ -913,7 +913,7 @@ test("idempotent budget reservation: a crash AFTER budget was reserved (but befo
     const recovered = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, recoveredCtx, allowLoopback);
 
     assert.equal(recovered.status, "fetched", "the reclaiming attempt must complete the real fetch despite the crashed attempt's earlier reservation");
-    assert.equal(recovered.artifact?.content, "Real content after crash recovery.");
+    assert.equal(recovered.result?.content, "Real content after crash recovery.");
 
     const childRunAfterRecovery = await wiring.childAgentRuns.get(PILOT_ORGANIZATION, childRunId);
     assert.equal(childRunAfterRecovery?.callsUsed, 1, "budget must NEVER be double-charged — still exactly 1 call used, not 2");
@@ -981,7 +981,7 @@ test("intent/child terminal reconciliation: a fetched intent whose child Run is 
   }
 });
 
-test("artifact expiry: an EXPIRED artifact's raw content is purged (never served) on the next status read, while its citation metadata (hash/URL/timestamps) is preserved (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 7)", async () => {
+test("result expiry: an EXPIRED result's raw content is purged (never served) on the next status read, while its citation metadata (hash/URL/timestamps) is preserved (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 7)", async () => {
   const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("Content that must eventually expire.");
@@ -995,15 +995,15 @@ test("artifact expiry: an EXPIRED artifact's raw content is purged (never served
     await caller.action.decide({ proposalId, decision: "approve" });
     const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
     assert.equal(fetched.status, "fetched");
-    assert.notEqual(fetched.artifact?.content, "");
+    assert.notEqual(fetched.result?.content, "");
 
     // Simulate real elapsed time past the retention window by rewriting the
     // record's own `expiresAt` directly into the past — this is the exact
-    // durable field `isArtifactExpired` reads; no other mechanism exists to
+    // durable field `isResultExpired` reads; no other mechanism exists to
     // "wait" for expiry in a test without a real 24h delay.
     const record = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
-    assert.ok(record?.artifact);
-    const backdated = { ...record!, artifact: { ...record!.artifact!, expiresAt: new Date(Date.now() - 1000).toISOString() } };
+    assert.ok(record?.result);
+    const backdated = { ...record!, result: { ...record!.result!, expiresAt: new Date(Date.now() - 1000).toISOString() } };
     // Overwrite the durable record directly via the underlying memoryStore
     // (bypassing lease/status checks — those aren't the concern of THIS
     // test — to simulate "real elapsed time" without a real 24h wait).
@@ -1012,23 +1012,23 @@ test("artifact expiry: an EXPIRED artifact's raw content is purged (never served
     await wiring.memoryStore.compareAndSupersede(row.id, { ...row, id: randomUUID(), content: JSON.stringify(backdated) });
 
     const beforePurge = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
-    assert.notEqual(beforePurge?.artifact?.content, "", "sanity: content is still present before any purge-triggering read");
+    assert.notEqual(beforePurge?.result?.content, "", "sanity: content is still present before any purge-triggering read");
 
     // The router's own `status` query is what triggers the purge on read.
     const polled = await caller.jobpilot.cultureResearch.status({ organizationId: PILOT_ORGANIZATION, proposalId, childRunId });
-    assert.equal(polled.artifact?.content, "", "expired content must be purged — never served");
-    assert.equal(polled.artifact?.contentHash, fetched.artifact!.contentHash, "citation metadata (hash) must be preserved even after content purge");
-    assert.equal(polled.artifact?.sourceUrl, fetched.artifact!.sourceUrl, "citation metadata (URL) must be preserved even after content purge");
+    assert.equal(polled.result?.content, "", "expired content must be purged — never served");
+    assert.equal(polled.result?.contentHash, fetched.result!.contentHash, "citation metadata (hash) must be preserved even after content purge");
+    assert.equal(polled.result?.sourceUrl, fetched.result!.sourceUrl, "citation metadata (URL) must be preserved even after content purge");
 
     const afterPurge = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
-    assert.equal(afterPurge?.artifact?.content, "", "the purge must be DURABLE, not merely reflected in the one response");
+    assert.equal(afterPurge?.result?.content, "", "the purge must be DURABLE, not merely reflected in the one response");
   } finally {
     await server.close();
     await wiring.close();
   }
 });
 
-test("artifact expiry: synthesize treats an EXPIRED artifact as NOT fetched — a claim citing ONLY the expired source is rejected as unknown-source even while a SECOND, unexpired source's claim in the same batch is available to ground normally (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issues 7/8)", async () => {
+test("result expiry: synthesize treats an EXPIRED result as NOT fetched — a claim citing ONLY the expired source is rejected as unknown-source even while a SECOND, unexpired source's claim in the same batch is available to ground normally (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issues 7/8)", async () => {
   const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("Our culture values collaboration and also transparency.");
@@ -1052,7 +1052,7 @@ test("artifact expiry: synthesize treats an EXPIRED artifact as NOT fetched — 
     const rows = await wiring.memoryStore.retrieve({ subjectRecordId: expiringPending.childRunId, includeSuperseded: false, limit: 1 }, { organizationId: PILOT_ORGANIZATION });
     const row = rows[0]!;
     const record = JSON.parse(row.content) as typeof expiringFetched;
-    const backdated = { ...record, artifact: { ...record.artifact!, expiresAt: new Date(Date.now() - 1000).toISOString() } };
+    const backdated = { ...record, result: { ...record.result!, expiresAt: new Date(Date.now() - 1000).toISOString() } };
     await wiring.memoryStore.compareAndSupersede(row.id, { ...row, id: randomUUID(), content: JSON.stringify(backdated) });
 
     // The synthesis overall still succeeds (the fresh source grounds its
@@ -1067,8 +1067,8 @@ test("artifact expiry: synthesize treats an EXPIRED artifact as NOT fetched — 
           company: TEST_COMPANY,
           parentRunId: proposed.parentRunId,
           claims: [
-            { id: "claim-expired", claimType: "fact", sourceId: expiringId, quote: "values collaboration", contentHash: expiringFetched.artifact!.contentHash },
-            { id: "claim-fresh", claimType: "fact", sourceId: freshId, quote: "also transparency", contentHash: freshFetched.artifact!.contentHash },
+            { id: "claim-expired", claimType: "fact", sourceId: expiringId, quote: "values collaboration", contentHash: expiringFetched.result!.contentHash },
+            { id: "claim-fresh", claimType: "fact", sourceId: freshId, quote: "also transparency", contentHash: freshFetched.result!.contentHash },
           ],
         }),
       /rejected|unknown-source/i,
@@ -1080,7 +1080,7 @@ test("artifact expiry: synthesize treats an EXPIRED artifact as NOT fetched — 
       organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
-      claims: [{ id: "claim-fresh-only", claimType: "fact", sourceId: freshId, quote: "also transparency", contentHash: freshFetched.artifact!.contentHash }],
+      claims: [{ id: "claim-fresh-only", claimType: "fact", sourceId: freshId, quote: "also transparency", contentHash: freshFetched.result!.contentHash }],
     });
     assert.equal(onlyFresh.status, "pending_review");
   } finally {
@@ -1259,12 +1259,12 @@ test("a cancel completing between materialize's reservation success and its pre-
   }
 });
 
-test("cancelCultureSourceFetch on an already fetched record is a no-op that preserves the artifact", async () => {
+test("cancelCultureSourceFetch on an already fetched record is a no-op that preserves the result", async () => {
   let requestCount = 0;
   const server = await startTestServer((_req, res) => {
     requestCount += 1;
     res.writeHead(200, { "content-type": "text/plain" });
-    res.end("Culture with stable artifact.");
+    res.end("Culture with stable result.");
   });
   const wiring = await buildWiring();
   try {
@@ -1286,7 +1286,7 @@ test("cancelCultureSourceFetch on an already fetched record is a no-op that pres
     );
 
     assert.equal(cancelled.status, "fetched");
-    assert.deepEqual(cancelled.artifact, fetched.artifact);
+    assert.deepEqual(cancelled.result, fetched.result);
     assert.equal(requestCount, 1);
   } finally {
     await server.close();
@@ -1487,7 +1487,7 @@ test("action.propose: a Human directly invoking jobpilot.synthesizeCultureProfil
           actor: { type: "user", id: PILOT_USER },
           action: "write",
           resourceType: "signal",
-          inputs: { parentRunId: "parent-run", claims: [], artifacts: [], skippedSources: [] },
+          inputs: { parentRunId: "parent-run", claims: [], results: [], skippedSources: [] },
           skill: "jobpilot.synthesizeCultureProfile",
           goalTaskRef: { goalId: goal.id, taskId: task.id },
         }]),
@@ -1498,7 +1498,7 @@ test("action.propose: a Human directly invoking jobpilot.synthesizeCultureProfil
   }
 });
 
-test("cultureResearch.synthesize: a claim whose quote is absent from the fetched artifact is rejected", async () => {
+test("cultureResearch.synthesize: a claim whose quote is absent from the fetched result is rejected", async () => {
   const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("Our culture is built on trust and collaboration.");
@@ -1518,9 +1518,9 @@ test("cultureResearch.synthesize: a claim whose quote is absent from the fetched
           organizationId: PILOT_ORGANIZATION,
           company: TEST_COMPANY,
           parentRunId: proposed.parentRunId,
-          claims: [{ id: "bad1", claimType: "fact", sourceId: id, quote: "we guarantee industry-leading pay", contentHash: record.artifact!.contentHash }],
+          claims: [{ id: "bad1", claimType: "fact", sourceId: id, quote: "we guarantee industry-leading pay", contentHash: record.result!.contentHash }],
         }),
-      /quote-not-found-in-artifact|failed to ground|claim grounding/i,
+      /quote-not-found-in-result|failed to ground|claim grounding/i,
     );
   } finally {
     await server.close();
@@ -1574,7 +1574,7 @@ test("cultureResearch.synthesize: a well-grounded claim succeeds and the approve
       organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
-      claims: [{ id: "good1", claimType: "fact", sourceId: id, quote: "built on trust and collaboration", contentHash: record.artifact!.contentHash }],
+      claims: [{ id: "good1", claimType: "fact", sourceId: id, quote: "built on trust and collaboration", contentHash: record.result!.contentHash }],
     });
     assert.equal(synthesisProposal.status, "pending_review");
 
@@ -1599,7 +1599,7 @@ test("cultureResearch.synthesize: a well-grounded claim succeeds and the approve
     if (afterApproval.status !== "available") return;
     assert.equal(afterApproval.proposalId, synthesisProposal.proposalId);
     assert.equal(afterApproval.result.parentRunId, proposed.parentRunId);
-    assert.deepEqual(afterApproval.result.artifactHashes, [{ sourceId: id, contentHash: record.artifact!.contentHash }]);
+    assert.deepEqual(afterApproval.result.resultHashes, [{ sourceId: id, contentHash: record.result!.contentHash }]);
     assert.equal(afterApproval.result.partition.facts.length, 1);
     assert.equal(typeof afterApproval.approvedAt, "string");
     // TASK-011 remediation (2026-07-19 coordinator distributed-defects
@@ -1615,7 +1615,7 @@ test("cultureResearch.synthesize: a well-grounded claim succeeds and the approve
   }
 });
 
-test("cultureResearch.synthesize: the persisted ledger row for the synthesis proposal NEVER embeds the full raw fetched artifact content — only bounded quotes/hashes/refs — even though the Skill genuinely grounded (and therefore internally read) the real artifact body (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 8)", async () => {
+test("cultureResearch.synthesize: the persisted ledger row for the synthesis proposal NEVER embeds the full raw fetched result content — only bounded quotes/hashes/refs — even though the Skill genuinely grounded (and therefore internally read) the real result body (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 8)", async () => {
   const secretRawText = "SECRET RAW PAGE BODY: this exact sentinel string must never appear anywhere in the persisted ledger row.";
   const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/plain" });
@@ -1629,27 +1629,27 @@ test("cultureResearch.synthesize: the persisted ledger row for the synthesis pro
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
     const record = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
-    assert.ok(record.artifact!.content.includes(secretRawText), "sanity: the real fetched artifact DOES contain the sentinel");
+    assert.ok(record.result!.content.includes(secretRawText), "sanity: the real fetched result DOES contain the sentinel");
 
     const synthesisProposal = await caller.jobpilot.cultureResearch.synthesize({
       organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
-      claims: [{ id: "good1", claimType: "fact", sourceId: id, quote: "values ownership", contentHash: record.artifact!.contentHash }],
+      claims: [{ id: "good1", claimType: "fact", sourceId: id, quote: "values ownership", contentHash: record.result!.contentHash }],
     });
     assert.equal(synthesisProposal.status, "pending_review");
 
-    // The Skill DID actually ground this claim against the real artifact
+    // The Skill DID actually ground this claim against the real result
     // body (grounding would have failed otherwise) — but the PERSISTED
     // ledger row (both `inputs`, which the router now sends WITHOUT
-    // artifact bodies, and `proposedOutput`, which only ever carried bounded
+    // result bodies, and `proposedOutput`, which only ever carried bounded
     // quotes/hashes) must never contain the raw page body, at any point.
     const ledgerRow = await wiring.ledger.get(synthesisProposal.proposalId);
     assert.ok(ledgerRow, "sanity: the ledger row exists");
     const serializedInputs = JSON.stringify(ledgerRow!.inputs);
     const serializedOutput = JSON.stringify(ledgerRow!.proposedOutput);
-    assert.ok(!serializedInputs.includes(secretRawText), "the ledger row's `inputs` must NEVER embed the raw fetched artifact body");
-    assert.ok(!serializedOutput.includes(secretRawText), "the ledger row's `proposedOutput` must NEVER embed the raw fetched artifact body");
+    assert.ok(!serializedInputs.includes(secretRawText), "the ledger row's `inputs` must NEVER embed the raw fetched result body");
+    assert.ok(!serializedOutput.includes(secretRawText), "the ledger row's `proposedOutput` must NEVER embed the raw fetched result body");
     // Positive control: the bounded, already-validated QUOTE is fine to
     // appear (that's the whole point of `claimText`/citations) — proves
     // this isn't a false negative from an overly-strict/empty output.
@@ -1691,7 +1691,7 @@ test("cultureResearch.latestRun: server-authoritative resume — returns null fo
       organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
-      claims: [{ id: "good1", claimType: "fact", sourceId: id, quote: "built on trust and collaboration", contentHash: record.artifact!.contentHash }],
+      claims: [{ id: "good1", claimType: "fact", sourceId: id, quote: "built on trust and collaboration", contentHash: record.result!.contentHash }],
     });
 
     // Once synthesize() has run, the pointer is discoverable server-side too.
@@ -1886,7 +1886,7 @@ test("cultureResearch.synthesize: a parentRunId from another company is rejected
   }
 });
 
-test("cultureResearch.synthesize: artifacts fetched for a different company are not pooled into this run", async () => {
+test("cultureResearch.synthesize: results fetched for a different company are not pooled into this run", async () => {
   const serverA = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("Company A culture: trust and collaboration.");
@@ -1929,7 +1929,7 @@ test("cultureResearch.synthesize: artifacts fetched for a different company are 
           organizationId: PILOT_ORGANIZATION,
           company: TEST_COMPANY,
           parentRunId: proposedA.parentRunId,
-          claims: [{ id: "cross-company", claimType: "fact", sourceId: idB, quote: "speed and ownership", contentHash: recordB.artifact!.contentHash }],
+          claims: [{ id: "cross-company", claimType: "fact", sourceId: idB, quote: "speed and ownership", contentHash: recordB.result!.contentHash }],
         }),
       /failed to ground|claim grounding/i,
     );
@@ -1966,7 +1966,7 @@ test("cultureResearch.synthesize: rejects an EMPTY claims batch before ever crea
       organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
-      claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "Real content", contentHash: record!.artifact!.contentHash }],
+      claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "Real content", contentHash: record!.result!.contentHash }],
     });
     assert.equal(real.status, "pending_review");
   } finally {
@@ -1975,13 +1975,13 @@ test("cultureResearch.synthesize: rejects an EMPTY claims batch before ever crea
   }
 });
 
-test("cultureResearch.synthesize: rejects when zero unexpired fetched artifacts exist for this parentRunId, even with non-empty claims — no claim can ground against zero evidence (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 8)", async () => {
+test("cultureResearch.synthesize: rejects when zero unexpired fetched results exist for this parentRunId, even with non-empty claims — no claim can ground against zero evidence (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 8)", async () => {
   const wiring = await buildWiring();
   try {
     const caller = makeCaller(wiring);
     const id = registerTestSource("http://127.0.0.1:1/never-fetched");
     const proposed = await caller.jobpilot.cultureResearch.propose({ organizationId: PILOT_ORGANIZATION, company: TEST_COMPANY, sourceIds: [id] });
-    // Deliberately never approve/materialize — zero fetched artifacts exist.
+    // Deliberately never approve/materialize — zero fetched results exist.
     await assert.rejects(
       () =>
         caller.jobpilot.cultureResearch.synthesize({
@@ -1990,7 +1990,7 @@ test("cultureResearch.synthesize: rejects when zero unexpired fetched artifacts 
           parentRunId: proposed.parentRunId,
           claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "anything", contentHash: "deadbeef" }],
         }),
-      /unexpired fetched artifact/i,
+      /unexpired fetched result/i,
     );
   } finally {
     await wiring.close();
@@ -2008,7 +2008,7 @@ test("cultureResearch.synthesisResult: an approved proposal whose actor is NOT t
       parentRunId,
       partition: { facts: [], opinions: [], themes: [], contradictions: [], inferences: [] },
       disclosure: { used: [], skipped: [] },
-      artifactHashes: [],
+      resultHashes: [],
     };
     const proposal = await wiring.pipeline.propose(
       {
@@ -2068,7 +2068,7 @@ test("cultureResearch.synthesize: prebinding the synthesis pointer BEFORE pipeli
     await caller.action.decide({ proposalId, decision: "approve" });
     const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_ORGANIZATION, proposalId, childRunId, makeRun(), allowLoopback);
 
-    // A claim whose quote is absent from the fetched artifact causes
+    // A claim whose quote is absent from the fetched result causes
     // `groundClaims` (invoked INSIDE the Skill, during `pipeline.propose`)
     // to throw a `ClaimGroundingError` SYNCHRONOUSLY — no real ledger row is
     // ever created for this attempt. Without the release-on-failure fix,
@@ -2079,7 +2079,7 @@ test("cultureResearch.synthesize: prebinding the synthesis pointer BEFORE pipeli
         organizationId: PILOT_ORGANIZATION,
         company: TEST_COMPANY,
         parentRunId: proposed.parentRunId,
-        claims: [{ id: "claim-bad", claimType: "fact", sourceId: id, quote: "this text is not in the artifact at all", contentHash: fetched.artifact!.contentHash }],
+        claims: [{ id: "claim-bad", claimType: "fact", sourceId: id, quote: "this text is not in the result at all", contentHash: fetched.result!.contentHash }],
       }),
     );
 
@@ -2091,7 +2091,7 @@ test("cultureResearch.synthesize: prebinding the synthesis pointer BEFORE pipeli
       organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
-      claims: [{ id: "claim-good", claimType: "fact", sourceId: id, quote: "rewards long-term thinking", contentHash: fetched.artifact!.contentHash }],
+      claims: [{ id: "claim-good", claimType: "fact", sourceId: id, quote: "rewards long-term thinking", contentHash: fetched.result!.contentHash }],
     });
     assert.equal(legitimate.status, "pending_review");
     const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_ORGANIZATION, proposed.parentRunId);
@@ -2127,7 +2127,7 @@ test("cultureResearch.synthesize: self-heals a DEAD pointer left by a genuine cr
     // Backdate the pointer's own `createdAt` well past the self-heal grace
     // period — a fresh independent review found the ORIGINAL self-heal
     // check unsafe (it could dethrone a genuinely live, still-in-flight
-    // concurrent synthesize() call, not just a truly dead crash artifact);
+    // concurrent synthesize() call, not just a truly dead crash result);
     // the fix requires the pointer to be OLD before ever releasing it. This
     // backdate is what makes THIS test genuinely simulate "a real crash a
     // long time ago", as opposed to "a request that is merely still running".
@@ -2150,7 +2150,7 @@ test("cultureResearch.synthesize: self-heals a DEAD pointer left by a genuine cr
       organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
-      claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "values direct feedback", contentHash: fetched.artifact!.contentHash }],
+      claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "values direct feedback", contentHash: fetched.result!.contentHash }],
     });
     assert.equal(healed.status, "pending_review");
     assert.notEqual(healed.proposalId, deadProposalId);
@@ -2196,7 +2196,7 @@ test("cultureResearch.synthesize: a YOUNG pointer whose proposalId does not yet 
           organizationId: PILOT_ORGANIZATION,
           company: TEST_COMPANY,
           parentRunId: proposed.parentRunId,
-          claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "values direct feedback", contentHash: fetched.artifact!.contentHash }],
+          claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "values direct feedback", contentHash: fetched.result!.contentHash }],
         }),
       (error: unknown) => {
         assert.ok(error instanceof TRPCError);
@@ -2505,7 +2505,7 @@ test("BRIDGE_LOCAL_DIR genuine process restart: a PENDING research proposal and 
       allowLoopback,
     );
     assert.equal(materialized.status, "fetched");
-    assert.equal(materialized.artifact?.content, "Our culture values durability across restarts.");
+    assert.equal(materialized.result?.content, "Our culture values durability across restarts.");
 
     // The still-pending source must remain fully vetoable post-restart too —
     // proves the pending proposal isn't just visible but genuinely still
@@ -2552,7 +2552,7 @@ test("cultureResearch.synthesisResult: self-repairs a MISSING synthesis-pointer 
       organizationId: PILOT_ORGANIZATION,
       company: TEST_COMPANY,
       parentRunId: proposed.parentRunId,
-      claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "rewards ownership", contentHash: fetched.artifact!.contentHash }],
+      claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "rewards ownership", contentHash: fetched.result!.contentHash }],
     });
     await caller.action.decide({ proposalId: synthesisProposal.proposalId, decision: "approve" });
 

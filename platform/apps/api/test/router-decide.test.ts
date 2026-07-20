@@ -29,23 +29,23 @@ function makeCaller(wiring: Wiring, identity: Actor = { type: "user", id: PILOT_
   });
 }
 
-function grantShareTouchpoint(wiring: Wiring) {
+function grantShareEvent(wiring: Wiring) {
   assert.ok(wiring.roles instanceof InMemoryRoleStore, "buildWiring test harness should use in-memory roles");
   wiring.roles.direct.set(`user:${PILOT_USER}`, [
-    { resourceType: "touchpoint", resourceId: null, action: "share", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "share", effect: "allow" },
   ]);
 }
 
 test("action.decide: a user can veto a pending share proposal through the router", async () => {
   const wiring = await buildWiring();
   try {
-    grantShareTouchpoint(wiring);
+    grantShareEvent(wiring);
     const caller = makeCaller(wiring);
     const proposed = await caller.action.propose({
       organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
-      resourceType: "touchpoint",
+      resourceType: "event",
       inputs: { note: "test_fixture_router_decide_note" },
       skill: "stageMutation",
     });
@@ -81,13 +81,13 @@ test("action.decide: a user can veto a pending share proposal through the router
 test("action.decide: an agent identity is rejected with FORBIDDEN at the review gate", async () => {
   const wiring = await buildWiring();
   try {
-    grantShareTouchpoint(wiring);
+    grantShareEvent(wiring);
     const userCaller = makeCaller(wiring);
     const proposed = await userCaller.action.propose({
       organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
-      resourceType: "touchpoint",
+      resourceType: "event",
       inputs: { note: "test_fixture_router_decide_note" },
       skill: "stageMutation",
     });
@@ -110,13 +110,13 @@ test("action.decide: an agent identity is rejected with FORBIDDEN at the review 
 test("action approvals reject authenticated users outside the proposal organization", async () => {
   const wiring = await buildWiring();
   try {
-    grantShareTouchpoint(wiring);
+    grantShareEvent(wiring);
     const memberCaller = makeCaller(wiring);
     const proposed = await memberCaller.action.propose({
       organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
-      resourceType: "touchpoint",
+      resourceType: "event",
       inputs: { note: "test_fixture_private_pending_proposal" },
       skill: "stageMutation",
     });
@@ -129,7 +129,7 @@ test("action approvals reject authenticated users outside the proposal organizat
           organizationId: PILOT_ORGANIZATION,
           actor: { type: "user", id: NON_MEMBER_USER_ID },
           action: "write",
-          resourceType: "touchpoint",
+          resourceType: "event",
           inputs: { note: "test_fixture_forged_proposal" },
           skill: "stageMutation",
         }),
@@ -166,7 +166,7 @@ test("action.propose rejects browser-selected Agent identities", async () => {
           organizationId: PILOT_ORGANIZATION,
           actor: { type: "agent", id: "b0000000-0000-4000-a000-0000000000d1" },
           action: "write",
-          resourceType: "touchpoint",
+          resourceType: "event",
           inputs: { note: "test_fixture_forged_agent_proposal" },
           skill: "stageMutation",
         }),
@@ -210,7 +210,7 @@ test("rejection audit rows never enter Approvals or become approvable", async ()
 test("action.decide reports post-decision effect failures without losing the recorded decision", async () => {
   const wiring = await buildWiring();
   try {
-    grantShareTouchpoint(wiring);
+    grantShareEvent(wiring);
     wiring.google.onApproved = async () => {
       throw new Error("test_fixture_provider_unavailable");
     };
@@ -219,7 +219,7 @@ test("action.decide reports post-decision effect failures without losing the rec
       organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
-      resourceType: "touchpoint",
+      resourceType: "event",
       inputs: { note: "test_fixture_effect_failure" },
       skill: "stageMutation",
     });
