@@ -23,6 +23,10 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-012 VOCAB2 landed through PR #27 from source `88be310`; merge commit `f6c4376`.
 - Partial VOCAB3 checkpoint `58573ba` was pushed to `main` with migration
   `0021_vocab3_organization_module_record`. TASK-012 and VOCAB3 remain in progress.
+- VOCAB3 completed through PR #28 at source `bdcedeb` and merge `dc50c33`.
+- VOCAB4 completed through PR #29 at source `80f8712`, evidence checkpoint `a07ec02`, and merge
+  `611c9ad`, allocating migration `0023_vocab4_event_result_file`.
+- VOCAB5 completes through PR #30 at source/evidence `63a7aaa`; no migration is added.
 - Stalled Supabase deployment session `0f3e2f14-7fd2-4d07-8f3e-9c86c7c5480a` shared the
   central checkout and had no independent branch. Its completed tree was preserved at
   `6590c71`; this merge normally reconciles `origin/main@5ab4568`, retains canonical VOCAB3
@@ -69,6 +73,9 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `88be310` | Completed TASK-012 VOCAB2 Automation/Engine migration on the source branch. |
 | `f6c4376` | Merged TASK-012 VOCAB2 through PR #27. |
 | `58573ba` | Partial TASK-012 VOCAB3 checkpoint: Organization/Module/Record runtime contracts, migration `0021`, Local Plane compatibility, and targeted regression fixes. Not a VOCAB3 completion claim. |
+| `bdcedeb` / `dc50c33` | TASK-012 VOCAB3 source and PR #28 merge. |
+| `80f8712` / `a07ec02` / `611c9ad` | TASK-012 VOCAB4 implementation, runner-evidence follow-up, and PR #29 merge; migration `0023`. |
+| `63a7aaa` / (this merge) | TASK-012 VOCAB5 Relationship Module convergence through PR #30; no migration. |
 | `6590c71` | Preservation checkpoint for the recovered Supabase pilot deployment before reconciling newer `origin/main`; retained as a merge parent/audit source, not as the final vocabulary integration. |
 | (this merge) | Recovered Supabase session integration: migration `0022`, least-privilege/RLS context, exact hosted Auth, encrypted headless vault, Local/Cloud ledger routing, container assets, and durable recovery records. Local `main` only; no push or cloud provisioning. |
 
@@ -99,7 +106,9 @@ This file prevents a new session from re-merging historical branches or reusing 
   do not merge or resume as implementation. VOCAB0–VOCAB1 integration source:
   `task-012-vocab01` at checkpoints `dd51797` and `bd7de18`, landed through PR #26. VOCAB2 source
   `task-012-vocab2` at `88be310` landed through PR #27 (`f6c4376`). Partial VOCAB3 source
-  `task-012-vocab3` checkpoint `58573ba` is on `main`; continue the still-open task from `main`.
+  `task-012-vocab3` checkpoint `58573ba` is historical. VOCAB3/VOCAB4 landed through PRs #28/#29;
+  VOCAB5 lands through PR #30 from `63a7aaa`. Continue only VOCAB6/final compatibility deletion
+  from current `main`.
 
 ## Migration sequence
 
@@ -121,8 +130,9 @@ This file prevents a new session from re-merging historical branches or reusing 
 - `0021_vocab3_organization_module_record`: TASK-012 partial VOCAB3 checkpoint `58573ba`, LANDED
   as an incomplete checkpoint.
 - `0022_supabase_runtime_role`: recovered Supabase deployment, integrated under AP-054/ADR-128.
+- `0023_vocab4_event_result_file`: TASK-012 VOCAB4, LANDED through PR #29.
 
-Next new migration allocates `0023`; do not reuse `0016` through `0022`.
+Next new migration allocates `0024`; do not reuse `0016` through `0023`.
 
 ## Approval and ADR coordination
 

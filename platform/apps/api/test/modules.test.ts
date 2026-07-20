@@ -23,11 +23,13 @@ import {
   saveModuleFile,
 } from "../src/module-files.js";
 import { appRouter } from "../src/router.js";
+import { BUILT_IN_MODULES } from "../src/built-in-modules.js";
 import {
   buildWiring,
   PILOT_USER,
   PILOT_ORGANIZATION,
   retireSupersededBuiltIns,
+  seedBuiltInModules,
   type Wiring,
 } from "../src/wiring.js";
 
@@ -77,6 +79,42 @@ function dummyManifest(overrides: Record<string, unknown> = {}) {
     },
   };
 }
+
+test("VOCAB5 upgrades the immutable Relationship manifest", async () => {
+  const store = new InMemoryModuleStore();
+  const current = BUILT_IN_MODULES.find((builtIn) => builtIn.manifest.name === "relationship");
+  assert.ok(current);
+  assert.equal(current.manifest.version, "0.2.2");
+
+  const priorManifest = structuredClone(current.manifest);
+  priorManifest.version = "0.2.1";
+  priorManifest.capabilities = priorManifest.capabilities.filter(
+    (capability) =>
+      !capability.id.startsWith("relationship.submodule.")
+      || capability.id === "relationship.submodule.helpdesk",
+  );
+  const prior = await store.create({
+    organizationId: PILOT_ORGANIZATION,
+    moduleName: priorManifest.name,
+    moduleVersion: priorManifest.version,
+    manifest: priorManifest,
+    computedRisk: current.computedRisk,
+    state: "available",
+    status: "installed",
+    lineageManifestId: null,
+  });
+
+  await seedBuiltInModules(store, PILOT_ORGANIZATION);
+
+  assert.equal((await store.get(prior.id))?.state, "legacy");
+  const available = await store.getAvailable(PILOT_ORGANIZATION, "relationship");
+  assert.equal(available?.moduleVersion, "0.2.2");
+  assert.ok(
+    available?.manifest.capabilities.some(
+      (capability) => capability.id === "relationship.submodule.relations",
+    ),
+  );
+});
 
 test("modules.register: creates a private/pending_review installation, no risk computed yet", async () => {
   const wiring = await buildWiring();

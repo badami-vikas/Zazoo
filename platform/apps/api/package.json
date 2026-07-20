@@ -25,7 +25,6 @@
     "@bridge/dealpilot": "workspace:*",
     "@bridge/dedupe": "workspace:*",
     "@bridge/facts": "workspace:*",
-    "@bridge/helpdesk": "workspace:*",
     "@bridge/integrations-google": "workspace:*",
     "@bridge/jobpilot": "workspace:*",
     "@bridge/local": "workspace:*",

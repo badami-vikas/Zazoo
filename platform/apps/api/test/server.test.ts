@@ -509,9 +509,9 @@ test("SEC-2: a burst against a sensitive procedure trips the rate limiter (429)"
 });
 
 test("public Helpdesk create/read/reply paths use the tight sensitive rate bucket", () => {
-  assert.equal(rateLimitBucket("/trpc/helpdesk.public.createTicket"), "sensitive");
-  assert.equal(rateLimitBucket("/trpc/helpdesk.public.getThread?batch=1"), "sensitive");
-  assert.equal(rateLimitBucket("/trpc/helpdesk.public.reply"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/relationship.helpdesk.public.createTicket"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/relationship.helpdesk.public.getThread?batch=1"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/relationship.helpdesk.public.reply"), "sensitive");
 });
 
 test("governed Automation Runs use the tight sensitive rate bucket", () => {

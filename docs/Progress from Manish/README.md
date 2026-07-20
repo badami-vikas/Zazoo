@@ -18,14 +18,12 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
-- TASK-012 VOCAB0–VOCAB1 landed through PR #26 from `task-012-vocab01`. Source checkpoint
-  `dd51797` carries the vocabulary ratchet and canonical Avatar/Onboarding migration; `bd7de18`
-  reconciles TASK-024's newer website identifiers without baseline growth. VOCAB2 landed through
-  PR #27 at source `88be310` and merge `f6c4376`.
-- Partial VOCAB3 checkpoint `58573ba` was pushed to `main` from `task-012-vocab3`. It contains the
-  Organization/Module/Record runtime migration, numbered migration
-  `0021_vocab3_organization_module_record`, Local Plane compatibility, and targeted regression
-  fixes. It is a resumable checkpoint, not a completed VOCAB3 milestone.
+- TASK-012 VOCAB0–VOCAB2 landed through PRs #26/#27. VOCAB3 landed through PR #28 at source
+  `bdcedeb` and merge `dc50c33`. VOCAB4 landed through PR #29 at source `80f8712`, evidence
+  checkpoint `a07ec02`, and merge `611c9ad`.
+- VOCAB5 lands through PR #30 from implementation/evidence checkpoint `63a7aaa`: immutable
+  Relationship manifest `0.2.2`, nested `relationship.helpdesk`, removal of the standalone
+  package and dead browser stores, ratchet 360→296, and no migration `0024`.
 - Supabase deployment session `0f3e2f14-7fd2-4d07-8f3e-9c86c7c5480a` was recovered from a
   defunct parent. Its five displayed workers were stale, completed work was preserved at
   `6590c71`, and this merge ports only the deployment slice onto current Organization-era
@@ -58,21 +56,16 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   `origin/main@d153094`; it is historical and must not be resumed.
 - Background agents: none.
 - `relationship-os` worker processes: none.
-- TASK-012 remains `in_progress`. Resume from current `main`, not from an older TASK-012 branch.
+- TASK-012 remains `in_progress` for VOCAB6 and final compatibility deletion. Resume from current
+  `main`, not from any historical VOCAB branch.
 
 ## Critical resume constraints
 
 - TASK-010's post-RM4 migration `0016_new_ink` landed and merged into `main` as `e532b15` on 2026-07-18 (owner-aware `memories` RLS, DB-backed `lineage_revision`, JobPilot flag backfill+constraint).
-- Migrations `0018_tense_warbound`, `0019_repeat_private_learning_backfill`,
-  `0020_vocab2_automation_engine`, partial-VOCAB3 migration
-  `0021_vocab3_organization_module_record`, and Supabase runtime-role migration
-  `0022_supabase_runtime_role` are allocated. The next NEW migration is `0023`.
-- TASK-012 VOCAB0–VOCAB2 is merged. Partial VOCAB3 checkpoint `58573ba` is on `main`; continue from
-  there. The old `manishsbhoopalam8498-fuzzy-adventure` branch remains planning-only.
-- Before claiming VOCAB3 complete, finish signed legacy Commons manifest/content-hash compatibility
-  (including the old filesystem registry directory), resolve the ratchet fingerprint moves without
-  growing its baseline, run the remaining targeted Module/Organization/Record API and RLS tests,
-  and collect the required browser evidence.
+- Migrations `0018` through `0023_vocab4_event_result_file` are allocated. VOCAB5 required no schema
+  or data migration. The next NEW migration is `0024`.
+- TASK-012 VOCAB0–VOCAB5 is merged through PR #30. Continue with VOCAB6 and final compatibility
+  deletion from current `main`; the old planning/integration branches remain historical.
 - TASK-011 landed on `main` under AP-049 via PR #22 (branch `manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). No new migration was required.
 - TASK-024 landed on `main` through PR #23 under AP-052. Its implementation checkpoint is
   `a4bf5fb`, its `origin/main@512cf35` integration checkpoint is `69ffbff`, and it added no

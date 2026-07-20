@@ -34,6 +34,7 @@ import {
   RelationshipHelpdeskPage,
   RelationshipHelpdeskThreadPage,
 } from "./pages/RelationshipHelpdeskPage";
+import { RelationshipSubmodulePage } from "./pages/RelationshipSubmodulePage";
 import { AuthGate } from "./auth/AuthSession";
 import { AuthPage } from "./auth/AuthPage";
 
@@ -43,6 +44,22 @@ function ProtectedLayout() {
       <Layout />
     </AuthGate>
   );
+}
+
+function RelationshipRelationsPage() {
+  return <RelationshipSubmodulePage submodule="relations" />;
+}
+
+function RelationshipInteractionsPage() {
+  return <RelationshipSubmodulePage submodule="interactions" />;
+}
+
+function RelationshipIntroductionsPage() {
+  return <RelationshipSubmodulePage submodule="introductions" />;
+}
+
+function RelationshipSourcesPage() {
+  return <RelationshipSubmodulePage submodule="sources" />;
 }
 
 export const router = createBrowserRouter([
@@ -104,6 +121,10 @@ export const router = createBrowserRouter([
       { path: "module/relationship/communities/:recordId", element: <RelationshipRecordDetailPage kind="community" /> },
       { path: "module/relationship/helpdesk/:ticketId", Component: RelationshipHelpdeskThreadPage },
       { path: "module/relationship/helpdesk", Component: RelationshipHelpdeskPage },
+      { path: "module/relationship/relations", Component: RelationshipRelationsPage },
+      { path: "module/relationship/interactions", Component: RelationshipInteractionsPage },
+      { path: "module/relationship/introductions", Component: RelationshipIntroductionsPage },
+      { path: "module/relationship/sources", Component: RelationshipSourcesPage },
       { path: "module/relationship/:page", Component: RelationshipPage },
 
       { path: "second-brain", Component: SecondBrainPage },

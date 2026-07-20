@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router";
 import { Button } from "../components/ui/button";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
-type PublicThread = Awaited<ReturnType<typeof trpc.helpdesk.public.getThread.query>>;
+type PublicThread = Awaited<ReturnType<typeof trpc.relationship.helpdesk.public.getThread.query>>;
 
 interface TicketDraft {
   submitterName: string;
@@ -139,7 +139,7 @@ export function PublicHelpdesk() {
     let alive = true;
     setKeyStored(true);
     setAccessToken(savedToken);
-    trpc.helpdesk.public.getThread
+    trpc.relationship.helpdesk.public.getThread
       .query({ accessToken: savedToken })
       .then((nextThread) => {
         if (alive) {
@@ -193,7 +193,7 @@ export function PublicHelpdesk() {
             retryProtectionStored = false;
           }
     try {
-      const created = await trpc.helpdesk.public.createTicket.mutate({
+      const created = await trpc.relationship.helpdesk.public.createTicket.mutate({
         organizationId: PILOT_ORGANIZATION,
         subject,
         submitterEmail,
@@ -253,7 +253,7 @@ export function PublicHelpdesk() {
       retryProtectionStored = false;
     }
     try {
-      const message = await trpc.helpdesk.public.reply.mutate({
+      const message = await trpc.relationship.helpdesk.public.reply.mutate({
         accessToken,
         body,
         operationId: operation.operationId,
@@ -303,7 +303,7 @@ export function PublicHelpdesk() {
     setBusy(true);
     setError(null);
     try {
-      const nextThread = await trpc.helpdesk.public.getThread.query({ accessToken: token });
+      const nextThread = await trpc.relationship.helpdesk.public.getThread.query({ accessToken: token });
       setAccessToken(token);
       setThread(nextThread);
       setExistingKey("");

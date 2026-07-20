@@ -22,7 +22,12 @@ test("Relationship is one installed Module with canonical primary Pages", () => 
   assert.match(builtIns, /relationship\.page\.signals/);
   assert.match(builtIns, /relationship\.page\.people/);
   assert.match(builtIns, /relationship\.page\.communities/);
+  assert.match(builtIns, /relationship\.submodule\.relations/);
+  assert.match(builtIns, /relationship\.submodule\.interactions/);
+  assert.match(builtIns, /relationship\.submodule\.introductions/);
   assert.match(builtIns, /relationship\.submodule\.helpdesk/);
+  assert.match(builtIns, /relationship\.submodule\.sources/);
+  assert.match(builtIns, /relationship\.help-request\.stage-offer/);
   assert.doesNotMatch(builtIns, /name: "helpdesk"/);
 });
 
@@ -31,6 +36,10 @@ test("Relationship routes are deep linked and legacy global surfaces are absent"
   assert.match(routes, /module\/relationship\/people\/:recordId/);
   assert.match(routes, /module\/relationship\/communities\/:recordId/);
   assert.match(routes, /module\/relationship\/helpdesk\/:ticketId/);
+  assert.match(routes, /module\/relationship\/relations/);
+  assert.match(routes, /module\/relationship\/interactions/);
+  assert.match(routes, /module\/relationship\/introductions/);
+  assert.match(routes, /module\/relationship\/sources/);
   assert.match(routes, /module\/relationship\/:page/);
   assert.doesNotMatch(routes, /path: "knowledge-base"/);
   assert.doesNotMatch(routes, /path: "signals"/);
@@ -38,16 +47,16 @@ test("Relationship routes are deep linked and legacy global surfaces are absent"
 });
 
 test("nested Helpdesk uses the organization-scoped API instead of the legacy local store", () => {
-  assert.match(relationshipHelpdesk, /trpc\.helpdesk\.list/);
-  assert.match(relationshipHelpdesk, /trpc\.helpdesk\.get/);
-  assert.match(relationshipHelpdesk, /trpc\.helpdesk\.reply/);
+  assert.match(relationshipHelpdesk, /trpc\.relationship\.helpdesk\.list/);
+  assert.match(relationshipHelpdesk, /trpc\.relationship\.helpdesk\.get/);
+  assert.match(relationshipHelpdesk, /trpc\.relationship\.helpdesk\.reply/);
   assert.doesNotMatch(relationshipHelpdesk, /data\/helpdesk/);
 });
 
 test("public Helpdesk converges on canonical ticket and token-thread procedures", () => {
-  assert.match(publicHelpdesk, /trpc\.helpdesk\.public\.createTicket/);
-  assert.match(publicHelpdesk, /trpc\.helpdesk\.public\.getThread/);
-  assert.match(publicHelpdesk, /trpc\.helpdesk\.public\.reply/);
+  assert.match(publicHelpdesk, /trpc\.relationship\.helpdesk\.public\.createTicket/);
+  assert.match(publicHelpdesk, /trpc\.relationship\.helpdesk\.public\.getThread/);
+  assert.match(publicHelpdesk, /trpc\.relationship\.helpdesk\.public\.reply/);
   assert.match(publicHelpdesk, /operationId: operation\.operationId/);
   assert.match(publicHelpdesk, /\.pending-create/);
   assert.match(publicHelpdesk, /id="public-helpdesk-recovery-key"/);

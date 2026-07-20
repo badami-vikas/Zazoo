@@ -136,7 +136,7 @@ const RATE_LIMIT_SENSITIVE_PATHS = [
   "dealpilot.discoverDeals",
   "automation.runById",
   "commons.runInstalledSkill",
-  "helpdesk.public.",
+  "relationship.helpdesk.public.",
 ] as const;
 
 export interface RateLimitConfig {

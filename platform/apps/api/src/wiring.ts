@@ -2560,8 +2560,8 @@ export const JOBPILOT_SYNTHESIZE_CULTURE_PROFILE_SKILL_MANIFEST = {
  * agent-floor-protected human-approval sites too). This ONE site gets its OWN
  * dedicated Skill + manifest instead of overloading `stageMutation`.
  */
-const stageHelpdeskAnswer: Skill = {
-  name: "helpdesk.stageAnswer",
+const stageHelpRequestOffer: Skill = {
+  name: "relationship.help-request.stage-offer",
   async run(inputs) {
     return { proposedOutput: inputs, diff: { to: inputs } };
   },
@@ -2588,13 +2588,13 @@ export const OUTREACH_DRAFT_SKILL_MANIFEST = {
   defaultAgents: ["outreach"],
   childRunPolicy: "forbidden",
 } as const;
-export const HELPDESK_ROUTING_GOAL_TYPE = "helpdesk.routing";
+export const RELATIONSHIP_HELP_ROUTING_GOAL_TYPE = "relationship.help-request.routing";
 export const DRAFT_HELP_OFFER_TASK_TYPE = "draft_help_offer";
-export const HELPDESK_ANSWER_SKILL_MANIFEST = {
+export const RELATIONSHIP_HELP_OFFER_SKILL_MANIFEST = {
   organizationId: PILOT_ORGANIZATION,
-  skillId: "helpdesk.stageAnswer",
+  skillId: "relationship.help-request.stage-offer",
   version: "1.0.0",
-  goalTypes: [HELPDESK_ROUTING_GOAL_TYPE],
+  goalTypes: [RELATIONSHIP_HELP_ROUTING_GOAL_TYPE],
   taskTypes: [DRAFT_HELP_OFFER_TASK_TYPE],
   permissions: ["signal:write"],
   plane: "local",
@@ -2743,7 +2743,7 @@ export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
   AGENT_ORCHESTRATION_SKILL_MANIFEST,
   LEARNING_RECOMMENDATION_SKILL_MANIFEST,
   RED_FLAG_LEARNING_SKILL_MANIFEST,
-  HELPDESK_ANSWER_SKILL_MANIFEST,
+  RELATIONSHIP_HELP_OFFER_SKILL_MANIFEST,
   OUTREACH_DRAFT_SKILL_MANIFEST,
   DEALPILOT_SOURCE_SKILL_MANIFEST,
   STAGE_CAPTURE_SKILL_MANIFEST,
@@ -2843,7 +2843,7 @@ function seedGovernance(
   agents.skills.set(LEARNING_AGENT, [
     LEARNING_RECOMMENDATION_SKILL_ID,
     "stageStrategicRecommendation",
-    "helpdesk.stageAnswer",
+    "relationship.help-request.stage-offer",
     "stageCapture",
     "jobpilot.researchCultureSource",
     "learning.proposePreferenceAdjustment",
@@ -3406,6 +3406,7 @@ export function encryptedCredentialVaultFromEnv(
       "BRIDGE_CREDENTIAL_VAULT_KEY_ID and BRIDGE_CREDENTIAL_VAULT_KEY are required for the encrypted-file credential vault",
     );
   }
+
   const previousId = env.BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID?.trim();
   const previousKey = env.BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY?.trim();
   if (Boolean(previousId) !== Boolean(previousKey)) {
@@ -3420,6 +3421,30 @@ export function encryptedCredentialVaultFromEnv(
       ? { previous: credentialVaultKeyFromBase64(previousId, previousKey) }
       : {}),
   });
+}
+
+export async function seedBuiltInModules(
+  moduleStore: ModuleStore,
+  organizationId: string,
+): Promise<void> {
+  for (const builtIn of BUILT_IN_MODULES) {
+    const versions = await moduleStore.listVersions(organizationId, builtIn.manifest.name);
+    const current = versions.find((row) => row.moduleVersion === builtIn.manifest.version);
+    if (current) continue;
+    for (const previous of versions.filter((row) => row.state === "available")) {
+      await moduleStore.setState(previous.id, "legacy");
+    }
+    await moduleStore.create({
+      organizationId,
+      moduleName: builtIn.manifest.name,
+      moduleVersion: builtIn.manifest.version,
+      manifest: builtIn.manifest,
+      computedRisk: builtIn.computedRisk,
+      state: "available",
+      status: "installed",
+      lineageManifestId: null,
+    });
+  }
 }
 
 function runningUnderNodeTest(): boolean {
@@ -3437,7 +3462,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     .register(stageCapture)
     .register(stageLearningRecommendation)
     .register(stageStrategicRecommendation)
-    .register(stageHelpdeskAnswer)
+    .register(stageHelpRequestOffer)
     .register(stageOutreachDraft)
     .register(createResearchCultureSourceSkill())
     .register(stagePreferenceAdjustmentProposal);
@@ -3865,28 +3890,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // both retired standalone identities from installed navigation.
   await retireSupersededBuiltIns(moduleStore, PILOT_ORGANIZATION);
 
-  // Seed built-in organization-definition modules as available+installed.
-  // Idempotent: checks existing rows before inserting so a restart doesn't duplicate.
-  const existing = await moduleStore.list(PILOT_ORGANIZATION, { limit: 100, offset: 0 });
-  for (const pkg of BUILT_IN_MODULES) {
-    const versions = existing.items.filter((row) => row.moduleName === pkg.manifest.name);
-    const current = versions.find((row) => row.moduleVersion === pkg.manifest.version);
-    if (!current) {
-      for (const previous of versions.filter((row) => row.state === "available")) {
-        await moduleStore.setState(previous.id, "legacy");
-      }
-      await moduleStore.create({
-        organizationId: PILOT_ORGANIZATION,
-        moduleName: pkg.manifest.name,
-        moduleVersion: pkg.manifest.version,
-        manifest: pkg.manifest,
-        computedRisk: pkg.computedRisk,
-        state: "available",
-        status: "installed",
-        lineageManifestId: null,
-      });
-    }
-  }
+  // Built-in manifest content is immutable per version. New versions replace
+  // the available installation while retaining prior rows as legacy evidence.
+  await seedBuiltInModules(moduleStore, PILOT_ORGANIZATION);
 
   // Signed Module manifests opt individual Automations into the executable
   // runtime with a stable Automation id. Inventory-only rows remain non-clickable.

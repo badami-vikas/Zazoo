@@ -205,9 +205,26 @@ const relationshipCapabilities = [
     readPrivate("community"),
     writePrivate("community"),
   ]),
-  capability("relationship.submodule.helpdesk", "Helpdesk", "view", [
+  capability("relationship.submodule.relations", "Relations", "view", [
+    readPrivate("relation"),
+    writePrivate("relation"),
+  ]),
+  capability("relationship.submodule.interactions", "Interactions", "view", [
     readPrivate("event"),
     writePrivate("event"),
+  ]),
+  capability("relationship.submodule.introductions", "Introductions", "view", [
+    readPrivate("event"),
+    writePrivate("event"),
+  ]),
+  capability("relationship.submodule.helpdesk", "Helpdesk", "view", [
+    readPrivate("record"),
+    writePrivate("record"),
+    readPrivate("event"),
+    writePrivate("event"),
+  ]),
+  capability("relationship.submodule.sources", "Sources", "view", [
+    readPrivate("record"),
   ]),
   capability("relationship.skill.timeline-synthesis", "Relationship timeline synthesis", "skill", [
     readPrivate("signal"),
@@ -221,6 +238,9 @@ const relationshipCapabilities = [
     readPrivate("person"),
     readPrivate("community"),
     writePrivate("event"),
+  ]),
+  capability("relationship.help-request.stage-offer", "Stage a Help Offer", "skill", [
+    writePrivate("signal"),
   ]),
   capability(
     "relationship.agent.steward",
@@ -394,7 +414,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "external",
     manifest: {
       name: "relationship",
-      version: "0.2.1",
+      version: "0.2.2",
       kind: "organization_definition",
       summary: "Signals, People, Communities, and governed relationship continuity.",
       description:
@@ -454,7 +474,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
             id: "learning-agent",
             name: "Learning Agent",
             capabilityId: "relationship.agent.learning",
-            skillIds: [],
+            skillIds: ["relationship.help-request.stage-offer"],
           },
         ],
         automations: [{

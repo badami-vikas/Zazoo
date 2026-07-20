@@ -467,7 +467,7 @@ export async function ensureLearningAgentGovernance(
     allowedSkills: [
       "stageLearningRecommendation",
       "stageStrategicRecommendation",
-      "helpdesk.stageAnswer",
+      "relationship.help-request.stage-offer",
       "stageCapture",
       "jobpilot.researchCultureSource",
       "learning.proposePreferenceAdjustment",
