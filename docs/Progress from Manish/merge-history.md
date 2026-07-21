@@ -40,8 +40,9 @@ This file prevents a new session from re-merging historical branches or reusing 
 - Fresh TASK-006 continuation from `origin/main@922ca52` allocates
   `0025_task006_supabase_root_catalogs` and `0026_task006_supabase_auto_rls_alignment`; ADR-134
   keeps policyless catalogs server-only while every RLS-enabled table retains a tracked policy.
-- AP-063/ADR-137 adds the free Render Blueprint/public-cloud boundary. Live deployment is blocked
-  before resource creation on repository-owner Render GitHub App authorization.
+- AP-063/ADR-137 adds the free Render Blueprint/public-cloud boundary. Repository-specific GitHub
+  App authorization succeeded; the free Virginia API and static site are live with no disk,
+  datastore, or paid resource.
 - TASK-022 recovery source `61e85c3` normally merges preservation checkpoint `85474fa` with
   `origin/main@2325cc5`; PR #43 owns landing under AP-067/ADR-140. The code milestone is complete,
   but canonical status remains blocked on authorized live Anthropic cache-read evidence.
@@ -95,6 +96,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `6590c71` | Preservation checkpoint for the recovered Supabase pilot deployment before reconciling newer `origin/main`; retained as a merge parent/audit source, not as the final vocabulary integration. |
 | (this merge) | Recovered Supabase session integration: migration `0022`, least-privilege/RLS context, exact hosted Auth, encrypted headless vault, Local/Cloud ledger routing, container assets, and durable recovery records. Local `main` only; no push or cloud provisioning. |
 | TASK-006 live continuation | Free `us-east-1` Supabase pilot, exact Auth/JWKS admission, managed-Postgres migration bundle, migrations `0025`/`0026`, desktop-local residency, and live Source↔Thesis evidence. AP-060 sets TASK-006 `blocked` on an authorized real Source credential + configured/authorized Google OAuth. |
+| `115fdfe` / `9e3c26c` / PR #49; `202fcbc` / `76ad7ab` / PR #50; `cb93c0c` / `163562a` / PR #51 | Free Render live deployment: clean static dependencies, public API/static hosts, forwarded Vite API/Auth inputs, Supabase through `0030`, restart/Auth/RLS/residency/375px certification. TASK-006 remains blocked only on its separate Google/Source-credential gate. |
 
 ## Historical source branches
 

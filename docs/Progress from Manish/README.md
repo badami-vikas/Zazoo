@@ -66,14 +66,15 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   Deterministic security/migration fixtures remain tracked. Do not restore archived legacy trees.
 - TASK-006 resumed fresh from `origin/main@922ca52` on
   `manishsbhoopalam8498-close-dealpilot-pilot`. One free `us-east-1` Supabase project, exact
-  pilot Auth, 26 migrations, least-privilege `bridge_app`, policy-backed RLS, Local Plane restart,
+  pilot Auth, migrations through `0030`, least-privilege `bridge_app`, policy-backed RLS, Local Plane restart,
   symmetric Source↔Thesis Relation, and desktop/exact-375 evidence are live. Migrations `0025`/`0026`
   align Supabase automatic RLS; ADR-134 records the boundary. Authorized Source credentials and
   Google OAuth remain external, so TASK-006 is `blocked` under AP-060.
-- AP-063/ADR-137 lands the free Render Blueprint and public-cloud fail-closed boundary. Live
-  deployment is externally blocked before resource creation: a `badami-vikas/relationship-os`
-  owner/admin must grant the Render GitHub App access to the private repository. No secret,
-  resource, or spend was created.
+- AP-063/ADR-137's free Render Virginia API and static site are live at the public URLs recorded in
+  `outputs/2026-07-21-render-free-deployment.md`. PRs #49–#51 repaired clean dependency builds,
+  public host wiring, and Turbo public-build inputs. Auth/refresh/logout, public/private boundary,
+  RLS/reset, restart, secret scans, and exact 375px passed. No disk/database/Key Value/paid resource
+  exists; TASK-006 retains only its separate Google/Source-credential blocker.
 
 ## Critical resume constraints
 
