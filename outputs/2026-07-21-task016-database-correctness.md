@@ -20,7 +20,7 @@ Source: exact `origin/main@5857cb95d98c53928103df801cfc4ff30a73e8e3`.
 - Fresh/upgrade/replay: migrations 0013, 0023, 0029, 0030 plus journal/no-op generation.
 - Changed-scope correctness review: no findings.
 
-GitHub Actions is billing/payment blocked. No CI success is claimed.
+GitHub Actions run `29859505915` failed before execution: eight jobs completed with zero steps and the installer job was skipped. This is the repository's billing/payment block; no CI success is claimed.
 
 ## Files
 
