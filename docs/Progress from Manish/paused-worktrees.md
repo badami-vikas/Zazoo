@@ -188,7 +188,7 @@ PR #43 owns landing. After merge this worktree is historical; do not resume or m
 Canonical TASK-022 stays `blocked` under AP-067 until an authorized Anthropic credential plus
 explicit live spend runs two real public-safe CoS turns and the second receipt reports cache-read tokens.
 
-## TASK-023 candidate A — SELECTED / LANDING OWNER
+## TASK-023 candidate A — MERGED / HISTORICAL
 
 - Session: `874ca9fc-1570-4d17-bf06-172298b0abc3`
 - Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-super-engine`
@@ -196,6 +196,8 @@ explicit live spend runs two real public-safe CoS turns and the second receipt r
 - Preservation checkpoint: `458f747fdc1dbf432897ac5d4b799c6ea5c0799e`
 - Reconciliation base: normal merge of
   `origin/main@5122695d8dbf3a9b74bebd79e89618771126af92`
+- Implementation source: `6e33f051b7e001efe25c949d4038730aee6a1292`
+- PR #44 merge: `b8e1db0b808806d45dd904270902dd77b132541c`
 
 Implemented:
 
@@ -207,6 +209,9 @@ Implemented:
   quarantine, and tainted Result/Memory/Event provenance.
 
 Rights verdict: Parallel anonymous MCP shipped; Jina keyless and DuckDuckGo Instant Answer blocked; no Tier-2/Tier-3/paid provider registered.
+
+Exact durable governed prototype passed. TASK-023 closed under AP-069. This
+worktree is historical after the docs-only closure; do not resume implementation.
 
 ## TASK-023 candidate B — SUPERSEDED / KEEP IDLE
 
@@ -229,7 +234,8 @@ and retrieval-metadata ideas were re-authored in candidate A.
 
 Candidate A selected after read-only feature comparison. It had stronger rights
 intake, policy-drift checks, network regressions, live evidence, and prior
-security review. Candidate B contributes no remaining non-overlapping behavior.
+security review. Candidate B contributes no remaining non-overlapping behavior
+and remains superseded, idle, dirty, and untouched.
 
 ## TASK-008 Relationship continuation — MERGED 2026-07-19
 

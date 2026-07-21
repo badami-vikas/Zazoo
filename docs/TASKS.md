@@ -355,15 +355,15 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Learning Agent governed web-research/recon Skill
 - ID: TASK-023
-- Status: ready
+- Status: done
 - Priority: P2
 - Horizon: Convergence
 - Outcome: Learning Agent's LA3 research lane gains a governed `web-research` Skill backed by a provider-agnostic `SearchProvider` port (same shape as `ModelProvider`/`MemoryStore`/`ContentGuard`), wired only to current-rights-verified $0 Tier-1 direct access (currently anonymous Parallel Search MCP) with pre-vetted Tier-2 and Tier-3 expansion held behind fresh rights and cost/ROI gates, and every fetched result quarantined and tagged `untrusted_external` before Result, Memory, Event, or prompt sinks.
 - Prototype test: From a real Organization, Learning Agent runs a governed `web-research` Skill for an explicit bounded public objective, returns cited results from at least one permitted Tier-1 provider with provenance/taint recorded on Result, Memory, and Event, degrades explicitly if the provider is unavailable, and never silently escalates to credentialed, paid, Tier-2, Tier-3, or self-hosted access.
 - Scope: docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)
-- Evidence: outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning; outputs/2026-07-18-task023-governed-web-research.md — candidate-A selection, current-main reconciliation, shared net-guard/ContentGuard/Module-authority implementation, durable Result/Memory/Event provenance, bounded Parallel evidence, targeted validation, and changed-scope security review (status/order unchanged)
+- Evidence: outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning; outputs/2026-07-18-task023-governed-web-research.md — candidate-A selection, current-main reconciliation, shared net-guard/ContentGuard/Module-authority implementation, durable Result/Memory/Event provenance, bounded Parallel evidence, targeted validation, and changed-scope security review. PR #44 source `6e33f051b7e001efe25c949d4038730aee6a1292` / merge `b8e1db0b808806d45dd904270902dd77b132541c` passed the exact real Organization prototype: anonymous Parallel returned cited bounded public evidence; Result, Memory, and Event preserved provenance plus `untrusted_external`; unavailable-provider and no-paid-escalation paths failed explicitly. Jina/DuckDuckGo remain unregistered at rights gates. GitHub Actions run `29844324937` assigned no runner and executed zero steps; no CI success is claimed. Closed under AP-069.
 - Requests: user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)
-- Approval: AP-039 and AP-068 applied
+- Approval: AP-039, AP-068, and AP-069 applied
 - Dependencies: TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)
 
 ## Zazoo public website cinematic implementation
