@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const blueprint = await readFile(new URL("../../render.yaml", import.meta.url), "utf8");
+const turboConfig = JSON.parse(
+  await readFile(new URL("../turbo.json", import.meta.url), "utf8"),
+);
 
 test("Render Blueprint stays free-only and carries no cloud Local Plane", () => {
   assert.match(blueprint, /name: bridge-pilot-api/);
@@ -37,6 +40,11 @@ test("Render Blueprint stays free-only and carries no cloud Local Plane", () => 
   assert.match(blueprint, /DATABASE_URL\s*\n\s*sync: false/);
   assert.match(blueprint, /BRIDGE_PILOT_USER_ID\s*\n\s*sync: false/);
   assert.match(blueprint, /VITE_SUPABASE_PUBLISHABLE_KEY\s*\n\s*sync: false/);
+  assert.deepEqual(turboConfig.tasks.build.env, [
+    "VITE_API_URL",
+    "VITE_SUPABASE_PUBLISHABLE_KEY",
+    "VITE_SUPABASE_URL",
+  ]);
   assert.doesNotMatch(blueprint, /\ndatabases:/);
   assert.doesNotMatch(blueprint, /\ndisk:/);
   assert.doesNotMatch(blueprint, /encrypted-host-volume/);
