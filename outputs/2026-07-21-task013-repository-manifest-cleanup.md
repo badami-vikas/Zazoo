@@ -7,3 +7,5 @@ Built-in Module identity now has one source at [`platform/modules/manifests/src/
 Superseded prototype-only pages, local fixture datasets, and standalone runtime entrypoints were deleted. Canonical Module, Relationship, DealPilot, JobPilot, Approvals, Task Manager, Graph, and Google surfaces remain connected to real APIs or honest empty/error states. Deterministic security, migration, RLS, cryptography, and provider-isolation fixtures remain tracked in [`docs/dummy.md`](../docs/dummy.md).
 
 Evidence: [`docs/TASKS.md`](../docs/TASKS.md) · [`docs/APPROVALS.md`](../docs/APPROVALS.md) AP-061 · [`docs/raw/decisions-log.md`](../docs/raw/decisions-log.md) ADR-135 · [`docs/CODEMAPS/architecture.md`](../docs/CODEMAPS/architecture.md) · [`docs/CODEMAPS/frontend.md`](../docs/CODEMAPS/frontend.md).
+
+GitHub Actions run `29806155556` failed all runner-backed jobs with zero steps and skipped installer aggregation, matching the repository's payment-blocked runner condition. No CI success is claimed.
