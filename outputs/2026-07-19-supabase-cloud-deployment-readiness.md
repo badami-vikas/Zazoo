@@ -23,6 +23,8 @@ Repository-side Supabase pilot blockers are remediated:
 - migrations `0025`/`0026` align Supabase automatic RLS with tracked policy ownership:
   client roles lose every policyless table grant, and every table left RLS-enabled has
   at least one tracked policy;
+- the live pilot was advanced through canonical `0030` after TASK-021/TASK-015/TASK-016,
+  using the official linked Supabase CLI and a history-guarded `0027`–`0030` transaction;
 - the API has a Turbo-pruned, production-only, non-root Node 22 image and CI build,
   fail-closed production boot, liveness, and readiness probes.
 
@@ -229,11 +231,13 @@ The web publishable key is intentionally public but is still required as a build
   production RLS posture check through `BRIDGE_ENV=production`. Affected TypeScript
   build/typecheck, 197 API/DB/Google/DealPilot tests, 7 web contract tests, Rust test,
   strict Clippy, rustfmt, and zero-baseline vocabulary checks passed.
-- A live free `us-east-1` project now carries 26 Drizzle migrations, `vector 0.8.2`,
-  39 policy-backed RLS tables, zero policyless RLS tables, and one exact activated
-  pilot subject. `bridge_app` live login, exact JWT admission, service-key rejection,
-  cross-Organization denial, transaction-context reset, restart durability, and zero
-  cloud rows for private Local Plane surfaces are proven.
+- A live free `us-east-1` project now reaches migration `0030`, retains `vector 0.8.2`,
+  policy-backed RLS, and one exact activated pilot subject. `bridge_app` live login,
+  exact JWT admission, service-key rejection, cross-Organization denial,
+  transaction-context reset, restart durability, and zero cloud rows for private
+  Local Plane surfaces are proven. The free Render API/static deployment is live and
+  independently re-proves token refresh, public bearer access, private-route denial,
+  least privilege, RLS isolation/reset, restart, and non-disclosure.
 - Remaining TASK-006 gates are external: authorized Source credentials and a Google
   OAuth client/account are unavailable, so no live BizBuySell Deal or credential
   reveal/copy/revoke/expiry result is claimed.

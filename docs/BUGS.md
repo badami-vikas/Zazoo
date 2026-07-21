@@ -18,6 +18,30 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-22 — Render service references produced private names, not public hosts
+The live Blueprint populated `fromService.property: host` as `bridge-pilot-api` /
+`bridge-pilot-web`. Those private service names are not valid browser origins, so API production
+validation rejected CORS and the static build could not target the public API. The Blueprint now
+uses the actual public `onrender.com` hostnames and its contract test rejects `property: host`.
+Official Blueprint validation passed; API CORS allows only the static origin. Attached to
+TASK-006/AP-063.
+
+## RESOLVED 2026-07-22 — Turbo stripped Render's public Vite build inputs
+The corrected static deploy still omitted `VITE_API_URL`, `VITE_SUPABASE_URL`, and the Supabase
+publishable key because Turbo strict environment filtering did not forward or hash those public
+build inputs. `turbo.json` now declares all three on `build`; the deployment contract asserts the
+list. A dependency-inclusive 19/19 build and the live recursive asset scan prove all three public
+values are embedded, while database/private pilot values, vault keys, and Local Plane paths are
+absent. Attached to TASK-006/AP-063.
+
+## RESOLVED 2026-07-22 — Live Supabase schema lagged current API through migration 0026
+The first correctly configured API boot reached Supabase but failed on
+`module_installations.commons_source`, added by migration `0028`; the pilot database had been
+certified before TASK-021/TASK-015/TASK-016 advanced main through `0030`. The official linked
+Supabase CLI applied only canonical `0027`–`0030` in one history-guarded transaction. Live history
+now reaches `0030`, `commons_source` and the canonical Event index exist, and the API boots without
+owner credentials. Attached to TASK-006/AP-063.
+
 ## RESOLVED 2026-07-21 — TASK-022 inference receipt path failed persistent governance boundaries
 Independent correctness/security review and the final blast-radius scan found nine defects before commit:
 Chief-of-Staff conversation did not

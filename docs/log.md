@@ -2046,3 +2046,10 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Added Approval untrusted/unknown warning + source trace and honest empty trace state.
 - Targeted core/DB/RLS/migration/local/model/Google/net-guard/sensor/API/research/culture/restart/red-team/UI tests, affected builds/typechecks, lint, vocabulary, no-dummy, and diff gates pass. GitHub Actions remain payment-blocked; no CI success claimed.
 - One bounded changed-scope review found nine sink/audit/Plane/legacy/web/Automation/model/trace/declassification defects; all were fixed with direct regressions. Exact CDP 375px proof found and fixed shared metrics/content overflow; final `innerWidth` and `scrollWidth` both equal 375.
+
+# 2026-07-22 — Free Render deployment live certification (AP-063, ADR-137)
+- Repository-specific Render GitHub App authorization succeeded. Created only the approved free Virginia Docker API and free static site; no disk/database/Key Value/paid resource or spend.
+- Repaired three live blockers: clean static dependencies (PR #49), public service host wiring (PR #50), and Turbo forwarding/cache hashing for the public Vite API/Auth inputs (PR #51).
+- Advanced the existing free Supabase pilot from `0026` through canonical `0030` with the official linked CLI and no owner URI in chat, files, or shell history.
+- Certified live health/readiness, exact CORS, pilot sign-in/activation/refresh/logout, public bearer success, anonymous credential rejection, private `412 desktop-required`, least-privilege `bridge_app`, cross-Organization RLS/context reset, API restart, secret scans, zero cloud operational Records/local Memories/credential columns, and exact 375px without overflow or page-load errors.
+- Public URLs and provider/deploy IDs are recorded in `outputs/2026-07-21-render-free-deployment.md`. Free idle sleep remains accepted and was not separately timed. TASK-006 remains blocked only on the independent authorized Google OAuth + real Source credential gate.
