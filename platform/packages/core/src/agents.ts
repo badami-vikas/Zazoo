@@ -274,7 +274,15 @@ export async function invokeAgent(args: InvokeAgentArgs): Promise<AgentInvocatio
   const system = buildAgentSystemPrompt(args.agentId, args.tone);
   const source: "model" | "offline" = args.model ? "model" : "offline";
   const text = args.model
-    ? (await args.model.complete({ system, prompt: args.message || agent.mission, maxTokens: args.maxTokens ?? 512 })).text
+    ? (
+        await args.model.complete({
+          system,
+          prompt: args.message || agent.mission,
+          maxTokens: args.maxTokens ?? 512,
+          tier: "reasoning",
+          cache: { strategy: "stable_system_prefix", ttl: "5m" },
+        })
+      ).text
     : `${agent.mission} (offline mode — no model configured, so I can't reason about this yet, but I've recorded the request.)`;
 
   if (agent.requiresApproval) {

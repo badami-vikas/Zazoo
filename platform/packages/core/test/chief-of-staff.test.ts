@@ -46,48 +46,63 @@ test("classifyIntent never returns more than one route (star topology, no peer h
   assert.equal(Object.keys(decision).includes("routes"), false);
 });
 
-function fakeModel(reply: string): ModelProvider {
+function testModel(reply: string): ModelProvider {
   return {
-    id: "fake",
+    id: "test-model",
     plane: "cloud",
-    async complete() {
-      return { text: reply };
+    tiers: ["cheap"],
+    async complete(req) {
+      return {
+        text: reply,
+        model: "test-model-v1",
+        tier: req.tier,
+        usage: {
+          inputTokens: 12,
+          outputTokens: 1,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          source: "provider",
+        },
+      };
     },
   };
 }
 
 test("model path: valid registered id from provider routes correctly", async () => {
-  const decision = await classifyIntent({ message: "any message", registry: REGISTRY, model: fakeModel("calendar.schedule") });
+  const decision = await classifyIntent({ message: "any message", registry: REGISTRY, model: testModel("calendar.schedule") });
   assert.equal(decision.kind, "route");
   assert.equal(decision.route, "calendar.schedule");
   assert.equal(decision.source, "model");
+  assert.equal(decision.modelReceipt?.tier, "cheap");
+  assert.equal(decision.modelReceipt?.usage.inputTokens, 12);
 });
 
 test("model path: CLARIFY token from provider produces a clarify decision", async () => {
-  const decision = await classifyIntent({ message: "any message", registry: REGISTRY, model: fakeModel("CLARIFY") });
+  const decision = await classifyIntent({ message: "any message", registry: REGISTRY, model: testModel("CLARIFY") });
   assert.equal(decision.kind, "clarify");
   assert.equal(decision.source, "model");
 });
 
 test("model path: hallucinated/unregistered id degrades to clarify, never an invented route", async () => {
-  const decision = await classifyIntent({ message: "any message", registry: REGISTRY, model: fakeModel("some.made.up.capability") });
+  const decision = await classifyIntent({ message: "any message", registry: REGISTRY, model: testModel("some.made.up.capability") });
   assert.equal(decision.kind, "clarify");
   assert.equal(decision.route, undefined);
   assert.equal(decision.source, "model");
 });
 
-test("model path: a throwing provider degrades to the keyword fallback instead of throwing", async () => {
+test("model path: a throwing provider fails closed instead of producing an unreceipted keyword result", async () => {
   const throwingModel: ModelProvider = {
     id: "throws",
     plane: "cloud",
+    tiers: ["cheap"],
     async complete() {
       throw new Error("network error");
     },
   };
-  const decision = await classifyIntent({ message: "help me apply to this job posting", registry: REGISTRY, model: throwingModel });
-  assert.equal(decision.kind, "route");
-  assert.equal(decision.route, "jobpilot.search");
-  assert.equal(decision.source, "keyword_fallback");
+  await assert.rejects(
+    () => classifyIntent({ message: "help me apply to this job posting", registry: REGISTRY, model: throwingModel }),
+    /network error/,
+  );
 });
 
 test("assertChainDepth passes below the cap", () => {

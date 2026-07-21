@@ -21,6 +21,7 @@ import {
   relationshipSignalEvidencePayloadSchema,
 } from "./relationship-materializer.js";
 import {
+  EGRESS_AGENT,
   LEARNING_AGENT,
   OUTREACH_AGENT,
   PILOT_WORKSPACE,
@@ -36,10 +37,14 @@ import {
 } from "./wiring.js";
 import type {
   Action,
+  Actor,
   ActorType,
+  AuthorityDecision,
   DataScope,
   EgressTier,
+  ModelProvider,
   OnBehalfOf,
+  PolicyResult,
   ResourceType,
   RitualDefinition,
   RunContext,
@@ -51,6 +56,7 @@ import {
   buildAgentCapability,
   validateRitualWithinAgents,
   computeRisk,
+  createModelCallReceipt,
   advance,
   demoteOnDependencyChange,
   suspendOnFailure,
@@ -66,6 +72,7 @@ import {
   compileBlueprint,
   BlueprintCompileError,
   classifyIntent,
+  resolveAuthority,
   assertChainDepth,
   MAX_CHAIN_DEPTH,
   parseMention,
@@ -108,8 +115,11 @@ import {
   type CommonsListQuery,
   type CommonsPackageDetail,
   type LedgerEntry,
+  type ModelCallReceipt,
+  type ModelTier,
   uuidv7,
 } from "@bridge/core";
+import type { ModelBinding } from "@bridge/tool-kit";
 import { authUrl } from "@bridge/integrations-google";
 import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@bridge/helpdesk";
 import {
@@ -882,6 +892,213 @@ const CHIEF_OF_STAFF_REGISTRY: RoutableCapability[] = [
     keywords: ["resource", "book", "podcast", "vlog", "read", "watch"],
   },
 ];
+
+const MODEL_BINDING_BY_TIER: Readonly<Record<ModelTier, ModelBinding>> = {
+  cheap: {
+    use: "llm",
+    planeDefault: "cloud",
+    providers: { local: "ollama", cloud: ["groq", "anthropic"] },
+  },
+  default: {
+    use: "llm",
+    planeDefault: "cloud",
+    providers: { local: "ollama", cloud: ["anthropic", "groq"] },
+  },
+  reasoning: {
+    use: "llm",
+    planeDefault: "cloud",
+    providers: { local: "ollama", cloud: ["anthropic"] },
+  },
+};
+
+function resolveConfiguredModel(models: Wiring["models"], tier: ModelTier) {
+  const configured = [...models.providers().values()].filter((provider) => provider.id !== "echo");
+  if (configured.length === 0) return undefined;
+  return models.resolve(MODEL_BINDING_BY_TIER[tier], tier);
+}
+
+async function appendIntentModelReceipt(
+  ctx: Pick<ApiContext, "run" | "wiring">,
+  workspaceId: string,
+  purpose: string,
+  receipt: ModelCallReceipt,
+  governance: {
+    actor: Actor;
+    onBehalfOf?: OnBehalfOf;
+    action: Action;
+    resourceType: ResourceType;
+    authority: AuthorityDecision;
+    policyResults: PolicyResult[];
+    dataScope: DataScope;
+  },
+): Promise<string> {
+  const id = ctx.run.ids.next();
+  await ctx.wiring.ledger.append({
+    id,
+    workspaceId,
+    actorType: governance.actor.type,
+    actorId: governance.actor.id,
+    ...(governance.onBehalfOf
+      ? {
+          onBehalfOfType: governance.onBehalfOf.type,
+          onBehalfOfId: governance.onBehalfOf.id,
+          ...(governance.onBehalfOf.delegationId
+            ? { delegationId: governance.onBehalfOf.delegationId }
+            : {}),
+        }
+      : {}),
+    action: governance.action,
+    resourceType: governance.resourceType,
+    inputs: {
+      operation: "model_completion",
+      purpose,
+      providerId: receipt.providerId,
+      providerPlane: receipt.plane,
+      tier: receipt.tier,
+      composition: "chief_of_staff",
+      promptStored: false,
+      authority: {
+        basis: governance.authority.basis,
+        reason: governance.authority.reason,
+      },
+    },
+    proposedOutput: { receipt },
+    userDecision: "auto",
+    policyResults: governance.policyResults,
+    dataScope: governance.dataScope,
+    createdAt: ctx.run.clock.nowISO(),
+  });
+  return id;
+}
+
+async function authorizeModelCompletion(
+  ctx: Pick<ApiContext, "identity" | "run" | "wiring">,
+  workspaceId: string,
+  model: ModelProvider,
+  purpose: string,
+  tier: ModelTier,
+): Promise<{
+  actor: Actor;
+  onBehalfOf?: OnBehalfOf;
+  action: Action;
+  resourceType: ResourceType;
+  authority: AuthorityDecision;
+  policyResults: PolicyResult[];
+  dataScope: DataScope;
+}> {
+  const cloud = model.plane === "cloud";
+  let actor: Actor;
+  let onBehalfOf: OnBehalfOf | undefined;
+  if (cloud) {
+    if (ctx.identity.type !== "user" && ctx.identity.type !== "team") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "cloud model execution requires an attributable user or team principal",
+      });
+    }
+    actor = { type: "agent", id: EGRESS_AGENT, plane: "cloud" };
+    onBehalfOf = { type: ctx.identity.type, id: ctx.identity.id };
+  } else {
+    actor = { ...ctx.identity, plane: "local" };
+  }
+  const action: Action = "read";
+  const resourceType: ResourceType = cloud ? "external:fetch" : "tool";
+  const requestedDataScope: DataScope = cloud ? "public" : "all";
+  const authority = await resolveAuthority(
+    {
+      workspaceId,
+      actor,
+      action,
+      resourceType,
+      ...(onBehalfOf ? { onBehalfOf } : {}),
+      requestedDataScope,
+    },
+    {
+      roles: ctx.wiring.roles,
+      agents: ctx.wiring.agents,
+      ephemeral: ctx.wiring.ephemeral,
+      nowISO: ctx.run.clock.nowISO(),
+    },
+  );
+  if (!authority.allowed || authority.dataScope === "none") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `model execution denied by Authority: ${authority.reason}`,
+    });
+  }
+  const policyInputs = {
+    operation: "model_completion",
+    purpose,
+    providerId: model.id,
+    providerPlane: model.plane,
+    tier,
+    dataScope: requestedDataScope,
+    promptStored: false,
+  };
+  const policyResults = await ctx.wiring.policies.evaluate({
+    workspaceId,
+    actor,
+    action,
+    resourceType,
+    resourceId: undefined,
+    phase: "pre",
+    inputs: policyInputs,
+    ...(ctx.run.taint ? { taint: ctx.run.taint } : {}),
+  });
+  const stoppingPolicy = policyResults.find(
+    (result) => result.effect === "block" || result.effect === "require_approval",
+  );
+  if (stoppingPolicy) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `model execution denied by policy "${stoppingPolicy.policyId}": ${stoppingPolicy.reason}`,
+    });
+  }
+  return {
+    actor,
+    ...(onBehalfOf ? { onBehalfOf } : {}),
+    action,
+    resourceType,
+    authority,
+    policyResults,
+    dataScope: authority.dataScope,
+  };
+}
+
+function createGovernedModelProvider(
+  ctx: Pick<ApiContext, "identity" | "run" | "wiring">,
+  workspaceId: string,
+  model: ModelProvider,
+  purpose: string,
+): { provider: ModelProvider; receiptLedgerId: () => string | null } {
+  let receiptLedgerId: string | null = null;
+  const provider: ModelProvider = {
+    id: model.id,
+    plane: model.plane,
+    tiers: model.tiers,
+    ...(model.pricing ? { pricing: model.pricing } : {}),
+    async complete(request) {
+      const governance = await authorizeModelCompletion(
+        ctx,
+        workspaceId,
+        model,
+        purpose,
+        request.tier,
+      );
+      const completion = await model.complete(request);
+      const receipt = createModelCallReceipt(model, completion, request.tier);
+      receiptLedgerId = await appendIntentModelReceipt(
+        ctx,
+        workspaceId,
+        purpose,
+        receipt,
+        governance,
+      );
+      return completion;
+    },
+  };
+  return { provider, receiptLedgerId: () => receiptLedgerId };
+}
 
 const chiefOfStaffConverseInput = z.object({
   workspaceId: z.string().min(1),
@@ -5212,6 +5429,7 @@ export const appRouter = t.router({
      */
     converse: procedure.input(chiefOfStaffConverseInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
 
       // AGENTS-2: resolve the spirit-animal tone + Chief-of-Staff persona
       // SERVER-SIDE from the stored onboarding profile rather than trusting the
@@ -5238,16 +5456,34 @@ export const appRouter = t.router({
       // FOUNDATIONAL_AGENTS' registry).
       const skillMention = parseSkillMention(input.message);
       if (skillMention.skill === "communications") {
-        const registeredModels = [...ctx.wiring.models.providers().values()].filter((p) => p.id !== "echo");
-        const model = registeredModels[0];
-        const system = buildCommunicationsSystemPrompt(tone);
-        const text = model
-          ? (await model.complete({ system, prompt: skillMention.rest || input.message, maxTokens: 512 })).text
+        const configuredModel = resolveConfiguredModel(ctx.wiring.models, "default");
+        const governedModel = configuredModel
+          ? createGovernedModelProvider(
+              ctx,
+              input.workspaceId,
+              configuredModel,
+              "communications_draft",
+            )
+          : undefined;
+        const system = buildCommunicationsSystemPrompt(
+          configuredModel?.plane === "cloud" ? undefined : tone,
+        );
+        const text = governedModel
+          ? (
+              await governedModel.provider.complete({
+                system,
+                prompt: skillMention.rest || input.message,
+                maxTokens: 512,
+                tier: "default",
+                cache: { strategy: "stable_system_prefix", ttl: "5m" },
+              })
+            ).text
           : `${COMMUNICATIONS_SKILL.mission} (offline mode — no model configured, so I can't draft this yet, but I've recorded the request.)`;
         return {
           reply: text,
           decision: { kind: "direct_reply" as const, confidence: 1, reason: "directly addressed via @communications skill", source: "model" as const },
           proposal: null,
+          modelReceiptLedgerId: governedModel?.receiptLedgerId() ?? null,
           // Display-only label, not a FoundationalAgentId — Communications
           // has no identity/capability-scope row (ADR-046), this string
           // exists purely so AgentPanel.tsx can badge the reply the same
@@ -5267,8 +5503,15 @@ export const appRouter = t.router({
       const { agentId, rest } = parseMention(input.message);
       if (agentId) {
         const agent = findFoundationalAgent(agentId);
-        const registeredModels = [...ctx.wiring.models.providers().values()].filter((p) => p.id !== "echo");
-        const model = registeredModels[0];
+        const configuredModel = resolveConfiguredModel(ctx.wiring.models, "reasoning");
+        const governedModel = configuredModel
+          ? createGovernedModelProvider(
+              ctx,
+              input.workspaceId,
+              configuredModel,
+              `foundational_agent:${agentId}`,
+            )
+          : undefined;
 
         // AGENTS-1: invoke the addressed agent as a first-class peer through the
         // @bridge/core `invokeAgent` seam (system-prompt assembly + model call +
@@ -5277,13 +5520,20 @@ export const appRouter = t.router({
         // strongest thing a chat reply can carry is a draft this procedure must
         // still propose — the "no independent write" guarantee is structural,
         // not a convention re-checked here.
-        const result = await invokeAgent({ agentId, message: rest || input.message, ...(model ? { model } : {}), ...(tone ? { tone } : {}) });
+        const result = await invokeAgent({
+          agentId,
+          message: rest || input.message,
+          ...(governedModel ? { model: governedModel.provider } : {}),
+          ...(tone && configuredModel?.plane !== "cloud" ? { tone } : {}),
+        });
+        const modelReceiptLedgerId = governedModel?.receiptLedgerId() ?? null;
 
         if (result.kind === "information") {
           return {
             reply: result.text,
             decision: { kind: "direct_reply" as const, confidence: 1, reason: `directly addressed via @${agentId}`, source: "model" as const },
             proposal: null,
+            modelReceiptLedgerId,
             agent: agentId,
             persona: personaCard,
           };
@@ -5304,7 +5554,13 @@ export const appRouter = t.router({
             actor: { type: ctx.identity.type, id: ctx.identity.id },
             action: "execute",
             resourceType: "skill",
-            inputs: { agent: agentId, message: input.message, draft: result.text, designConstraintViolations: constraintViolations },
+            inputs: {
+              agent: agentId,
+              message: input.message,
+              draft: result.text,
+              designConstraintViolations: constraintViolations,
+              ...(modelReceiptLedgerId ? { modelReceiptLedgerId } : {}),
+            },
             skill: "stageMutation",
           },
           ctx.run,
@@ -5313,6 +5569,7 @@ export const appRouter = t.router({
           reply: `${replyText}\n\nDrafted via ${agent.name} — proposed for review, not yet executed.`,
           decision: { kind: "route" as const, route: agentId, confidence: 1, reason: `directly addressed via @${agentId}`, source: "model" as const },
           proposal,
+          modelReceiptLedgerId,
           agent: agentId,
           persona: personaCard,
         };
@@ -5325,25 +5582,33 @@ export const appRouter = t.router({
         chainOk = false;
       }
 
-      // The "echo" provider (in-memory mode's network-free ModelProvider double,
-      // @bridge/core's EchoModelProvider) echoes its prompt back verbatim — it is
-      // not a real classifier, so classifyIntent's model path would always fail
-      // to parse a registered route id from it and degrade to "clarify" on every
-      // turn. Excluding it here means in-memory mode genuinely exercises the
-      // DETERMINISTIC KEYWORD FALLBACK (the offline-required path) rather than a
-      // model path that can never succeed; any other registered provider
-      // (Ollama/Anthropic in persistent mode) is used normally.
-      const registeredModels = [...ctx.wiring.models.providers().values()].filter((p) => p.id !== "echo");
-      const model = registeredModels[0];
+      // In-memory mode exposes only the deterministic echo adapter, which is not
+      // a classifier. A configured deployment resolves the explicit cheap tier;
+      // no provider is ever selected by registration position.
+      const configuredModel = resolveConfiguredModel(ctx.wiring.models, "cheap");
+      const governedModel =
+        chainOk && configuredModel
+          ? createGovernedModelProvider(
+              ctx,
+              input.workspaceId,
+              configuredModel,
+              "intent_classification",
+            )
+          : undefined;
 
       const decision = chainOk
-        ? await classifyIntent({ message: input.message, registry: CHIEF_OF_STAFF_REGISTRY, ...(model ? { model } : {}) })
+        ? await classifyIntent({
+            message: input.message,
+            registry: CHIEF_OF_STAFF_REGISTRY,
+            ...(governedModel ? { model: governedModel.provider } : {}),
+          })
         : {
             kind: "direct_reply" as const,
             confidence: 0,
             reason: `chain depth ${input.chainDepth} hit the hard cap (${MAX_CHAIN_DEPTH}) — replying directly instead of routing further (best-so-far fallback)`,
             source: "keyword_fallback" as const,
           };
+      const modelReceiptLedgerId = governedModel?.receiptLedgerId() ?? null;
 
       if (decision.kind !== "route" || !decision.route) {
         return {
@@ -5352,6 +5617,7 @@ export const appRouter = t.router({
               ? "I'm not confident which capability handles that yet — could you say more about what you're trying to do?"
               : "Noted — I don't have a capability to route that to yet, but I've recorded the request.",
           decision,
+          modelReceiptLedgerId,
           proposal: null,
           agent: "chief_of_staff" as const,
           persona: personaCard,
@@ -5365,7 +5631,11 @@ export const appRouter = t.router({
           actor: { type: ctx.identity.type, id: ctx.identity.id },
           action: "execute",
           resourceType: "skill",
-          inputs: { route: decision.route, message: input.message },
+          inputs: {
+            route: decision.route,
+            message: input.message,
+            ...(modelReceiptLedgerId ? { modelReceiptLedgerId } : {}),
+          },
           skill: "stageMutation",
         },
         ctx.run,
@@ -5374,6 +5644,7 @@ export const appRouter = t.router({
       return {
         reply: `Routing this to "${decision.route}"${target ? ` (${target.description})` : ""} — proposed for review, not yet executed.`,
         decision,
+        modelReceiptLedgerId,
         proposal,
         agent: "chief_of_staff" as const,
         persona: personaCard,

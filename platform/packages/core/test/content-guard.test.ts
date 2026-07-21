@@ -123,7 +123,25 @@ test("projectToPrompt spotlights untrusted memory snippets", () => {
 // ---------------------------------------------------------------------------
 
 function fakeModel(text: string): ModelProvider {
-  return { id: "fake-local", plane: "local", async complete() { return { text }; } };
+  return {
+    id: "fake-local",
+    plane: "local",
+    tiers: ["cheap"],
+    async complete(req) {
+      return {
+        text,
+        model: "test-content-guard",
+        tier: req.tier,
+        usage: {
+          inputTokens: 4,
+          outputTokens: 4,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          source: "provider",
+        },
+      };
+    },
+  };
 }
 
 test("QuarantinedContentGuard: benign content + cooperative model → safe with typed extraction", async () => {

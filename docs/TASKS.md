@@ -338,7 +338,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: ModelProvider calls use Anthropic prompt caching on the stable prefix, model selection routes by cost/capability tier (cheap/default/reasoning) instead of first-registered-provider, and complete() returns usage token counts enabling cost receipts — all preserving the local-plane-never-falls-to-cloud rule.
 - Prototype test: A repeated CoS turn shows non-zero cache_read_input_tokens on the second call; CoS intent classification runs on the cheap tier while a reasoning-tagged call runs on a higher tier; complete() usage is logged for at least one call site.
 - Scope: platform/packages/models/src/anthropic-provider.ts; platform/packages/models/src/router.ts; platform/packages/core/src/ports.ts; platform/packages/core/src/run-context.ts; platform/packages/core/src/chief-of-staff.ts; platform/apps/api/src/router.ts (~4573); docs/raw/optimizations-memory-vm-dealpilot-plan-2026-07.md (phase 1 slice)
-- Evidence: outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0])
+- Evidence: outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0]); outputs/2026-07-18-task-022-inference-cost-optimization.md (typed tier/usage/receipt contract, explicit Anthropic stable-prefix cache breakpoint, governed CoS receipt, deterministic protocol and fail-closed tests); docs/BUGS.md resolved 2026-07-18 TASK-022 review findings
 - Requests: LLM prompt/infra optimization audit directive 2026-07-17
 - Approval: AP-038 applied
 - Dependencies: none

@@ -2,27 +2,31 @@
  * In-memory port implementations. Let core run + be tested with no database.
  * The Drizzle/Supabase implementations in `@bridge/db` bind the same interfaces.
  */
-import type {
-  AgentQuery,
-  EphemeralQuery,
-  EventBus,
-  LedgerStore,
-  LocalMediaStore,
-  MediaCaptureRecord,
-  MediaKind,
-  MediaStatus,
-  ModelProvider,
-  PolicyEvalInput,
-  PolicyStore,
-  RitualDefinition,
-  RitualRegistry,
-  RitualRunRecorder,
-  ToolRegistry,
-  RoleQuery,
-  RunCtx,
-  Skill,
-  SkillRegistry,
-  VarianceAdjuster,
+import {
+  MODEL_TIERS,
+  type ModelCompletion,
+  type ModelCompletionRequest,
+  type ModelTier,
+  type AgentQuery,
+  type EphemeralQuery,
+  type EventBus,
+  type LedgerStore,
+  type LocalMediaStore,
+  type MediaCaptureRecord,
+  type MediaKind,
+  type MediaStatus,
+  type ModelProvider,
+  type PolicyEvalInput,
+  type PolicyStore,
+  type RitualDefinition,
+  type RitualRegistry,
+  type RitualRunRecorder,
+  type ToolRegistry,
+  type RoleQuery,
+  type RunCtx,
+  type Skill,
+  type SkillRegistry,
+  type VarianceAdjuster,
 } from "../ports.js";
 import type {
   Actor,
@@ -366,12 +370,31 @@ export class InMemoryMediaStore implements LocalMediaStore {
 export class EchoModelProvider implements ModelProvider {
   readonly id: string;
   readonly plane: "local" | "cloud";
-  constructor(id = "echo", plane: "local" | "cloud" = "local") {
+  readonly tiers: readonly ModelTier[];
+  constructor(
+    id = "echo",
+    plane: "local" | "cloud" = "local",
+    tiers: readonly ModelTier[] = MODEL_TIERS,
+  ) {
     this.id = id;
     this.plane = plane;
+    this.tiers = [...tiers];
   }
-  async complete(req: { system?: string; prompt: string; maxTokens?: number }): Promise<{ text: string }> {
-    return { text: req.system ? `${req.system}\n${req.prompt}` : req.prompt };
+  async complete(req: ModelCompletionRequest): Promise<ModelCompletion> {
+    const text = req.system ? `${req.system}\n${req.prompt}` : req.prompt;
+    const estimatedTokens = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
+    return {
+      text,
+      model: this.id,
+      tier: req.tier,
+      usage: {
+        inputTokens: estimatedTokens(text),
+        outputTokens: estimatedTokens(text),
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        source: "estimated",
+      },
+    };
   }
   async embed(texts: string[]): Promise<number[][]> {
     // Deterministic pseudo-embedding: vector of char-code sums, fixed length 8.

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   assembleRunContext,
   projectToPrompt,
+  projectToSystemPrompt,
   FixedClock,
   UuidGen,
   type AssembleRunContextInput,
@@ -209,4 +210,13 @@ test("projectToPrompt: a fully-populated context renders every section in ADR-02
 test("projectToPrompt: is a pure deterministic template — same context always yields the same string", () => {
   const ctx = assembleRunContext(test_fixture_input(), test_fixture_run_ctx());
   assert.equal(projectToPrompt(ctx), projectToPrompt(ctx));
+});
+
+test("projectToSystemPrompt: changing only the turn leaves the stable cache prefix byte-identical", () => {
+  const first = assembleRunContext(test_fixture_input({ request: "first turn" }), test_fixture_run_ctx());
+  const second = assembleRunContext(test_fixture_input({ request: "second turn" }), test_fixture_run_ctx());
+
+  assert.equal(projectToSystemPrompt(first), projectToSystemPrompt(second));
+  assert.doesNotMatch(projectToSystemPrompt(first), /first turn/);
+  assert.notEqual(first.request, second.request);
 });

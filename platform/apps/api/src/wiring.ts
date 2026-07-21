@@ -361,6 +361,12 @@ export interface Wiring {
   close(): Promise<void>;
 }
 
+export interface BuildWiringOptions {
+  /** Explicit provider set for composition tests or alternate deployments.
+   * Omitted means the normal environment-bound providers for the selected mode. */
+  modelProviders?: readonly ModelProvider[];
+}
+
 /** A first skill: stage an entity mutation (echo inputs as the proposed change). */
 /** The kernel's reserved passthrough — see @bridge/core's `KERNEL_PASSTHROUGH_SKILL`
  * doc comment (pipeline.ts) for exactly why Human-authored mutations may use it
@@ -651,6 +657,43 @@ export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
 ];
 
 const policies: PolicyFn[] = [
+  (i) => {
+    if (
+      i.phase !== "pre" ||
+      typeof i.inputs !== "object" ||
+      i.inputs === null ||
+      (i.inputs as { operation?: unknown }).operation !== "model_completion"
+    ) {
+      return null;
+    }
+    const input = i.inputs as {
+      providerPlane?: unknown;
+      dataScope?: unknown;
+    };
+    const cloudAllowed =
+      input.providerPlane === "cloud" &&
+      input.dataScope === "public" &&
+      i.actor.type === "agent" &&
+      i.actor.plane === "cloud" &&
+      i.resourceType === "external:fetch" &&
+      i.action === "read" &&
+      i.taint !== "untrusted_external";
+    const localAllowed =
+      input.providerPlane === "local" &&
+      input.dataScope === "all" &&
+      (i.actor.plane ?? "local") === "local" &&
+      i.resourceType === "tool" &&
+      i.action === "read";
+    return {
+      policyId: "pol-model-execution-plane",
+      phase: "pre",
+      effect: cloudAllowed || localAllowed ? "allow" : "block",
+      reason:
+        cloudAllowed || localAllowed
+          ? "model execution matches its Authority-approved Plane and data scope"
+          : "model execution Plane, data scope, actor, or trust provenance is not permitted",
+    };
+  },
   (i) =>
     i.phase === "pre" &&
     typeof i.inputs === "object" &&
@@ -1122,7 +1165,7 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
   };
 }
 
-export async function buildWiring(): Promise<Wiring> {
+export async function buildWiring(opts: BuildWiringOptions = {}): Promise<Wiring> {
   const events = new InMemoryEventBus();
   const skillRegistry = new InMemorySkillRegistry()
     .register(stageMutation)
@@ -1183,10 +1226,11 @@ export async function buildWiring(): Promise<Wiring> {
     goalTasks,
     skillManifests,
     childAgentRuns,
-    modelProviders,
+    modelProviders: modeModelProviders,
     memory,
     closeDb,
   } = modePorts;
+  const modelProviders = opts.modelProviders ? [...opts.modelProviders] : modeModelProviders;
   // Kernel policies are deployment-invariant safety rules. Persistent mode also
   // evaluates workspace policies from Postgres; it must not replace these rules.
   const staticPolicyStore = new InMemoryPolicyStore(policies);

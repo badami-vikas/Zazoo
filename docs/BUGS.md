@@ -18,6 +18,25 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-18 — TASK-022 inference receipt path failed persistent governance boundaries
+Independent correctness/security review and the final blast-radius scan found eight defects before commit:
+Chief-of-Staff conversation did not
+check workspace membership before cloud egress; its receipt used non-UUID `"chief_of_staff"` values in UUID
+ledger columns; model or accounting failures were broadly caught and converted into unreceipted keyword
+success; Anthropic's required nullable cache counters were parsed backwards (null rejected, omission accepted);
+the exposed one-hour cache TTL was costed at the cheaper five-minute write rate; and membership-gated
+Chief-of-Staff branches still called cloud providers without Authority/Plane/policy evaluation. Provider HTTP
+errors also retained arbitrary response bodies, and extreme finite price inputs could overflow persisted cost.
+Every configured
+CoS completion now resolves Authority before provider access: cloud inference is a public-scope
+`external:fetch` by the governed Egress Agent on behalf of the member, while local inference remains a local
+principal `tool:read`. A static Plane/data-scope/trust policy must allow the call, and every successful branch
+(classification, Communications, foundational Agent) appends the prompt-free usage receipt with real policy
+results. Cloud prompts contain static instructions plus the explicit user turn, never profile-derived tone.
+The earlier UUID, broad-fallback, nullable-usage, and five-minute-only pricing fixes remain. Regressions
+cover non-member and member-without-egress no-provider-access, all three receipt paths, fail-closed model errors,
+nullable/omitted Anthropic protocol cases, redacted provider failures, tier mismatch, and finite bounded cost.
+
 ## RESOLVED 2026-07-16 — TASK-001 Module File inventory accepted relative path segments
 The manifest-backed File inventory sanitized filesystem-reserved characters but allowed an
 Organization or Module display name equal to `.` or `..`. `path.join` therefore resolved outside

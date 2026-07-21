@@ -25,6 +25,19 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-18 — TASK-022 model-provider protocol fixtures** (`platform/packages/models/test/{providers,router}.test.ts`,
+  `platform/packages/models/test/local-content-guard.test.ts`, `platform/apps/api/test/chief-of-staff.test.ts`,
+  `platform/packages/core/test/{agents-invoke,capability-registry,chief-of-staff,content-guard,eval-judge,model-provider,run-context}.test.ts`).
+  **Reason:** cache creation/read, tier selection, usage propagation, provider failure, Authority/Plane denial,
+  and append-only receipt tests
+  must be deterministic and cannot spend against mutable external APIs, require developer credentials, or write
+  synthetic calls into a real workspace ledger. The Anthropic adapter enforces the documented model-specific
+  minimum cacheable prefix and explicit system-block breakpoint; it is test-only, never a runtime fallback.
+  **Real elements they stand in for:** Anthropic/Groq/Ollama completion responses, configured cheap/reasoning
+  providers, token price metadata, authenticated Chief-of-Staff calls, and persisted model-call receipts.
+  **Removal condition:** retain as isolated protocol/governance regressions; add credentialed provider-sandbox
+  evidence separately when an approved non-production account and spend budget exist.
+
 - **2026-07-17 — TASK-007 Agent-orchestration fixtures** (`platform/packages/core/test/{goal-task,skill-manifest,child-agent-run,pipeline-ags1}.test.ts`,
   `platform/packages/db/test/{goal-task-store,skill-manifest-store,child-agent-run-store,internal-strategist-governance,local-store,rls,migration-journal}.test.ts`,
   `platform/apps/api/test/{agent-orchestration,ritual-ownership}.test.ts`).

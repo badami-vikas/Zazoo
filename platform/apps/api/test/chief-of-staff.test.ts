@@ -10,9 +10,24 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
+import {
+  SeededRng,
+  SystemClock,
+  UuidGen,
+  type ModelCompletionRequest,
+  type ModelProvider,
+  type ModelTier,
+  type ModelTokenPricing,
+  type RunCtx,
+} from "@bridge/core";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import {
+  buildWiring,
+  EGRESS_AGENT,
+  PILOT_USER,
+  PILOT_WORKSPACE,
+  type Wiring,
+} from "../src/wiring.js";
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -20,14 +35,45 @@ function makeRun(): RunCtx {
   return { clock, rng, ids: new UuidGen(clock, rng) };
 }
 
-async function makeCaller(wiring: Wiring) {
+async function makeCaller(wiring: Wiring, userId = PILOT_USER) {
   return appRouter.createCaller({
     wiring,
     run: makeRun(),
-    identity: { type: "user", id: "test_fixture_chief_of_staff_user" },
+    identity: { type: "user", id: userId },
     authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
     verifying: false,
   });
+}
+
+class TierTrackingModel implements ModelProvider {
+  readonly plane = "cloud" as const;
+  readonly calls: ModelCompletionRequest[] = [];
+  readonly pricing: Readonly<Partial<Record<ModelTier, ModelTokenPricing>>>;
+
+  constructor(
+    readonly id: string,
+    readonly tiers: readonly ModelTier[],
+    readonly reply: string,
+    pricing: Readonly<Partial<Record<ModelTier, ModelTokenPricing>>> = {},
+  ) {
+    this.pricing = pricing;
+  }
+
+  async complete(req: ModelCompletionRequest) {
+    this.calls.push(req);
+    return {
+      text: this.reply,
+      model: `${this.id}-v1`,
+      tier: req.tier,
+      usage: {
+        inputTokens: 100,
+        outputTokens: 4,
+        cacheCreationInputTokens: 20,
+        cacheReadInputTokens: 0,
+        source: "provider" as const,
+      },
+    };
+  }
 }
 
 test("chiefOfStaff.converse: a message matching a registered capability's keywords routes to it and creates a governed proposal, not a direct execution", async () => {
@@ -39,11 +85,115 @@ test("chiefOfStaff.converse: a message matching a registered capability's keywor
       message: "can you check my job applications for any interview updates",
       chainDepth: 0,
     });
+
     assert.equal(result.decision.kind, "route");
     assert.equal(result.decision.route, "jobpilot");
     assert.equal(result.decision.source, "keyword_fallback");
     assert.ok(result.proposal, "routing a message must create a proposal, never execute directly");
     assert.ok(typeof result.reply === "string" && result.reply.length > 0);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("chiefOfStaff.converse: tier routing ignores registration order and persists an attributable cost/usage receipt", async () => {
+  const pricing: ModelTokenPricing = {
+    inputUsdPerMillion: 1,
+    outputUsdPerMillion: 2,
+    cacheCreationInputUsdPerMillion: 1.25,
+    cacheReadInputUsdPerMillion: 0.1,
+    source: "test protocol price catalog",
+    asOf: "2026-07-18",
+  };
+  const reasoning = new TierTrackingModel("reasoning-cloud", ["reasoning"], "reasoned answer");
+  const defaultModel = new TierTrackingModel("default-cloud", ["default"], "drafted response");
+  const cheap = new TierTrackingModel("cheap-cloud", ["cheap"], "jobpilot", { cheap: pricing });
+  const wiring = await buildWiring({ modelProviders: [reasoning, defaultModel, cheap] });
+  try {
+    await wiring.onboardingProfileStore.save({
+      workspaceId: PILOT_WORKSPACE,
+      animal: "owl",
+      answers: {},
+      phoneVerified: false,
+      verificationMethod: null,
+      connectedSourceIds: [],
+      updatedAtISO: new Date().toISOString(),
+    });
+    const caller = await makeCaller(wiring);
+    const routed = await caller.chiefOfStaff.converse({
+      workspaceId: PILOT_WORKSPACE,
+      message: "check my job applications",
+      chainDepth: 0,
+    });
+
+    assert.equal(cheap.calls.length, 1);
+    assert.equal(reasoning.calls.length, 0);
+    assert.equal(cheap.calls[0]?.tier, "cheap");
+    assert.deepEqual(cheap.calls[0]?.cache, { strategy: "stable_system_prefix", ttl: "5m" });
+    assert.ok(routed.modelReceiptLedgerId);
+
+    const history = await wiring.ledger.listHistory(PILOT_WORKSPACE, {
+      limit: 20,
+      offset: 0,
+      privateOwnerUserId: PILOT_USER,
+    });
+    const receiptEntry = history.items.find((entry) => entry.id === routed.modelReceiptLedgerId);
+    assert.ok(receiptEntry);
+    assert.equal(receiptEntry.actorType, "agent");
+    assert.equal(receiptEntry.actorId, EGRESS_AGENT);
+    assert.equal(receiptEntry.onBehalfOfType, "user");
+    assert.equal(receiptEntry.onBehalfOfId, PILOT_USER);
+    assert.equal(receiptEntry.resourceType, "external:fetch");
+    assert.equal(receiptEntry.resourceId, undefined);
+    assert.equal(receiptEntry.dataScope, "public");
+    assert.deepEqual(
+      receiptEntry.policyResults.map((result) => [result.policyId, result.effect]),
+      [["pol-model-execution-plane", "allow"]],
+    );
+    assert.equal((receiptEntry.inputs as { promptStored?: unknown }).promptStored, false);
+    assert.doesNotMatch(JSON.stringify(receiptEntry), /check my job applications/);
+    const proposedOutput = receiptEntry.proposedOutput as {
+      receipt: { tier: string; usage: { inputTokens: number }; cost: { status: string; estimatedUsd: number | null } };
+    };
+    assert.equal(proposedOutput.receipt.tier, "cheap");
+    assert.equal(proposedOutput.receipt.usage.inputTokens, 100);
+    assert.equal(proposedOutput.receipt.cost.status, "estimated");
+    assert.ok((proposedOutput.receipt.cost.estimatedUsd ?? 0) > 0);
+
+    const addressed = await caller.chiefOfStaff.converse({
+      workspaceId: PILOT_WORKSPACE,
+      message: "@learning identify the important pattern",
+      chainDepth: 0,
+    });
+    assert.equal(addressed.agent, "learning");
+    assert.ok(addressed.modelReceiptLedgerId);
+    assert.equal(reasoning.calls.length, 1);
+    assert.equal(reasoning.calls[0]?.tier, "reasoning");
+    assert.doesNotMatch(
+      reasoning.calls[0]?.system ?? "",
+      /wise and calm/,
+      "profile-derived tone must not enter a cloud prompt",
+    );
+    const addressedReceipt = await wiring.ledger.get(addressed.modelReceiptLedgerId);
+    assert.equal(addressedReceipt?.actorId, EGRESS_AGENT);
+    assert.equal(addressedReceipt?.onBehalfOfId, PILOT_USER);
+
+    const drafted = await caller.chiefOfStaff.converse({
+      workspaceId: PILOT_WORKSPACE,
+      message: "@communications draft a short update",
+      chainDepth: 0,
+    });
+    assert.ok(drafted.modelReceiptLedgerId);
+    assert.equal(defaultModel.calls.length, 1);
+    assert.equal(defaultModel.calls[0]?.tier, "default");
+    assert.doesNotMatch(
+      defaultModel.calls[0]?.system ?? "",
+      /wise and calm/,
+      "profile-derived tone must not enter a cloud prompt",
+    );
+    const draftedReceipt = await wiring.ledger.get(drafted.modelReceiptLedgerId);
+    assert.equal(draftedReceipt?.actorId, EGRESS_AGENT);
+    assert.equal(draftedReceipt?.onBehalfOfId, PILOT_USER);
   } finally {
     await wiring.close();
   }
@@ -143,6 +293,58 @@ test("chiefOfStaff.converse: a non-pilot workspaceId is rejected with FORBIDDEN 
         chainDepth: 0,
       }),
     );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("chiefOfStaff.converse: a non-member is rejected before any model call", async () => {
+  const cheap = new TierTrackingModel("cheap-cloud", ["cheap"], "jobpilot");
+  const wiring = await buildWiring({ modelProviders: [cheap] });
+  try {
+    const caller = await makeCaller(wiring, "d0000000-0000-4000-a000-00000000cafe");
+    await assert.rejects(
+      () =>
+        caller.chiefOfStaff.converse({
+          workspaceId: PILOT_WORKSPACE,
+          message: "check my job applications",
+          chainDepth: 0,
+        }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code: unknown }).code === "FORBIDDEN",
+    );
+    assert.equal(cheap.calls.length, 0);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("chiefOfStaff.converse: workspace membership without model-egress authority fails before provider access", async () => {
+  const cheap = new TierTrackingModel("cheap-cloud", ["cheap"], "jobpilot");
+  const wiring = await buildWiring({ modelProviders: [cheap] });
+  try {
+    const member = await wiring.workspaceStore.inviteMember(
+      PILOT_WORKSPACE,
+      "test-fixture-task-022-no-egress@example.invalid",
+    );
+    const caller = await makeCaller(wiring, member.userId);
+    await assert.rejects(
+      () =>
+        caller.chiefOfStaff.converse({
+          workspaceId: PILOT_WORKSPACE,
+          message: "check my job applications",
+          chainDepth: 0,
+        }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code: unknown }).code === "FORBIDDEN",
+    );
+    assert.equal(cheap.calls.length, 0);
   } finally {
     await wiring.close();
   }

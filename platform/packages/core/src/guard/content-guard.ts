@@ -160,6 +160,8 @@ export class QuarantinedContentGuard implements ContentGuard {
         system,
         prompt: spotlightUntrusted(input.content),
         maxTokens: 300,
+        tier: "cheap",
+        cache: { strategy: "stable_system_prefix", ttl: "5m" },
       });
       const obj = safeParseObject(res.text);
       if (obj) {

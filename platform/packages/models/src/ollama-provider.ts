@@ -6,8 +6,14 @@
  * never any other model SDK — so swapping the local runtime later only means
  * swapping this one file.
  */
-import type { ModelProvider } from "@bridge/core";
+import {
+  MODEL_TIERS,
+  type ModelCompletion,
+  type ModelCompletionRequest,
+  type ModelProvider,
+} from "@bridge/core";
 import { defaultFetch, type FetchLike } from "./fetch-types.js";
+import { asRecord, providerRequestError, requiredString, requiredTokenCount } from "./usage.js";
 
 export interface OllamaProviderOpts {
   /** Base URL for the Ollama daemon. Defaults to OLLAMA_URL env or the
@@ -25,6 +31,7 @@ const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 export class OllamaProvider implements ModelProvider {
   readonly id = "ollama";
   readonly plane = "local" as const;
+  readonly tiers = MODEL_TIERS;
   readonly #baseUrl: string;
   readonly #model: string;
   readonly #embedModel: string;
@@ -37,7 +44,7 @@ export class OllamaProvider implements ModelProvider {
     this.#fetchImpl = opts.fetchImpl ?? defaultFetch;
   }
 
-  async complete(req: { system?: string; prompt: string; maxTokens?: number }): Promise<{ text: string }> {
+  async complete(req: ModelCompletionRequest): Promise<ModelCompletion> {
     const body = {
       model: this.#model,
       prompt: req.prompt,
@@ -51,10 +58,24 @@ export class OllamaProvider implements ModelProvider {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      throw new Error(`OllamaProvider.complete: ${res.status} ${await res.text()}`);
+      throw providerRequestError("OllamaProvider.complete", res.status);
     }
-    const json = (await res.json()) as { response?: string };
-    return { text: json.response ?? "" };
+    const json = asRecord(await res.json(), "OllamaProvider.complete response");
+    return {
+      text: requiredString(json["response"], "OllamaProvider.complete response.response"),
+      model: requiredString(json["model"], "OllamaProvider.complete response.model"),
+      tier: req.tier,
+      usage: {
+        inputTokens: requiredTokenCount(
+          json["prompt_eval_count"],
+          "OllamaProvider.complete response.prompt_eval_count",
+        ),
+        outputTokens: requiredTokenCount(json["eval_count"], "OllamaProvider.complete response.eval_count"),
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        source: "provider",
+      },
+    };
   }
 
   async embed(texts: string[]): Promise<number[][]> {
@@ -65,9 +86,16 @@ export class OllamaProvider implements ModelProvider {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      throw new Error(`OllamaProvider.embed: ${res.status} ${await res.text()}`);
+      throw providerRequestError("OllamaProvider.embed", res.status);
     }
-    const json = (await res.json()) as { embeddings?: number[][] };
-    return json.embeddings ?? [];
+    const json = asRecord(await res.json(), "OllamaProvider.embed response");
+    const embeddings = json["embeddings"];
+    if (!Array.isArray(embeddings)) throw new Error("OllamaProvider.embed response.embeddings: expected an array");
+    return embeddings.map((vector, index) => {
+      if (!Array.isArray(vector) || !vector.every((value) => typeof value === "number" && Number.isFinite(value))) {
+        throw new Error(`OllamaProvider.embed response.embeddings[${index}]: expected finite numbers`);
+      }
+      return vector;
+    });
   }
 }
