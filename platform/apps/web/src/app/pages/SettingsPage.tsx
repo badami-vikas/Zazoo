@@ -22,7 +22,6 @@ import {
 import clsx from "clsx";
 import { ExecutionLedger } from "../components/ExecutionLedger";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
-import { MODULE_ROUTES } from "../lib/moduleRoutes";
 
 const navItems = [
   { id: "organization", label: "Organization", icon: Building2 },
@@ -513,7 +512,7 @@ function IntelligenceSection() {
                     to={`/module/${encodeURIComponent(row.moduleName)}`}
                     className="text-sm font-medium text-[var(--color-navy)] no-underline hover:text-[var(--color-steel)] hover:underline"
                   >
-                    {MODULE_ROUTES[row.moduleName]?.label ?? row.moduleName}
+                    {row.manifest.module?.displayName ?? row.manifest.name}
                   </Link>
                   <span className="text-xs text-[var(--color-warm-gray)]"> · v{row.moduleVersion}</span>
                 </div>

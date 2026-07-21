@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T12:58:08.162Z",
+  "generatedAt": "2026-07-21T06:10:38.824Z",
   "items": [
     {
       "id": "TASK-001",
@@ -135,7 +135,7 @@
     {
       "id": "TASK-013",
       "title": "TASK-013 — Repository and manifest cleanup",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "Duplicate prototypes, deprecated data/code paths, stale dummy records, and non-manifest built-ins are removed or explicitly retained with one reason and owner.",
@@ -145,20 +145,23 @@
         "docs/dummy.md"
       ],
       "evidence": [
-        "BUGS duplicate prototype/Tools copies",
-        "BUGS dummy-prefix conflict",
-        "BUGS legacy prototype CI imports deliberately uncommitted PII-derived modules",
-        "OPEN BUGS legacy `ItemDetail` Associations still derives a runtime projection from prototype `network.ts` and invents Initiative overlays (already tracked in `docs/dummy.md`)"
+        "`outputs/2026-07-21-task013-repository-manifest-cleanup.md`",
+        "exact pre-cleanup `origin/main@7f37e17e1132ebbbee74f1c612f0e83b211139ef` preserved at verified private ref `archive/task-013-pre-cleanup-2026-07-21`",
+        "duplicate legacy roots removed from main without history rewrite or private-content inspection",
+        "root audit docs moved under `docs/raw/` with frontmatter",
+        "`platform/modules/manifests` is the one built-in catalog",
+        "API/executable/web routes derive from it",
+        "legacy Item Detail/Associations and unrouted JobPilot fixture BUGS/dummy rows resolved"
       ],
       "requests": [
         "cleanup directives 2026-07-14"
       ],
-      "approval": "AP-029 applied for planning; archive/deletion substep still requires a dedicated approval before destructive removal",
+      "approval": "AP-029 applied for planning; AP-061 applied for private archive, destructive cleanup, exact closure, and main landing",
       "dependencies": [
         "TASK-005",
         "TASK-012"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 111,
@@ -204,7 +207,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 124,
+      "sourceLine": 125,
       "rank": 6
     },
     {
@@ -258,7 +261,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 141,
+      "sourceLine": 142,
       "rank": 7
     },
     {
@@ -299,7 +302,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 155,
+      "sourceLine": 156,
       "rank": 8
     },
     {
@@ -337,7 +340,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 168,
+      "sourceLine": 169,
       "rank": 9
     },
     {
@@ -373,7 +376,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 181,
+      "sourceLine": 182,
       "rank": 10
     },
     {
@@ -412,7 +415,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 195,
+      "sourceLine": 196,
       "rank": 11
     },
     {
@@ -448,7 +451,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 208,
+      "sourceLine": 209,
       "rank": 12
     },
     {
@@ -478,7 +481,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 221,
+      "sourceLine": 222,
       "rank": 13
     },
     {
@@ -513,13 +516,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 234,
+      "sourceLine": 235,
       "rank": 14
     },
     {
       "id": "TASK-006",
       "title": "TASK-006 — DealPilot ETA core prototype",
-      "status": "in-progress",
+      "status": "blocked",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "DealPilot supports ETA work through only Deals, Sources, and Theses as default Pages, with correct many-to-many relations, secure Source credential projection, Record Detail, rights/spend gates, and thesis→source→deal discovery.",
@@ -534,14 +537,14 @@
       "requests": [
         "DealPilot requirements 2026-07-14–15"
       ],
-      "approval": "AP-023, AP-029, AP-044, AP-045, and AP-054 applied",
+      "approval": "AP-023, AP-029, AP-044, AP-045, AP-054, and AP-060 applied",
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 247,
+      "sourceLine": 248,
       "rank": 15
     },
     {
@@ -570,7 +573,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 261,
+      "sourceLine": 262,
       "rank": 16
     },
     {
@@ -605,7 +608,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 275,
+      "sourceLine": 276,
       "rank": 17
     },
     {
@@ -638,7 +641,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 289,
+      "sourceLine": 290,
       "rank": 18
     },
     {
@@ -669,7 +672,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 302,
+      "sourceLine": 303,
       "rank": 19
     },
     {
@@ -697,7 +700,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 315,
+      "sourceLine": 316,
       "rank": 20
     },
     {
@@ -724,7 +727,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 328,
+      "sourceLine": 329,
       "rank": 21
     },
     {
@@ -755,7 +758,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 341,
+      "sourceLine": 342,
       "rank": 22
     },
     {
@@ -782,7 +785,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 354,
+      "sourceLine": 355,
       "rank": 23
     },
     {
@@ -814,7 +817,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 367,
+      "sourceLine": 368,
       "rank": 24
     }
   ]

@@ -1526,8 +1526,9 @@ plugin/rule or removing the stale suppression after verifying the effect depende
 `platform/packages/tables/src/types.ts:60` types the View kind as `"network"`; `docs/glossary.md`'s View definition names it `"graph"` (*"table, cards, board, calendar, map, graph, or form"*). Per the standing vocabulary rule (glossary wins, AP-020 lineage), the code identifier should rename to `graph`. Fix belongs to TASK-014.
 **Resolution:** Blueprint schema v2 and `@bridge/tables` now emit only `graph`; v1/unversioned `network` migrates at the version boundary, while explicit v2 aliases fail validation.
 
-## OPEN 2026-07-19 — Legacy Item Detail Associations renders a prototype-derived graph and invents Initiative overlays
+## RESOLVED 2026-07-21 — Legacy Item Detail Associations rendered a prototype-derived graph and invented Initiative overlays
 `platform/apps/web/src/app/components/AssociationsMap.tsx` now uses the canonical Graph/Table renderer, but its input still comes from `data/associations.ts` and the replaceable local `data/network.ts` prototype export. `buildAssociations()` also fabricates Initiative overlays such as "Monthly inner-ring check-in" and generated warm-intro/gathering records. This is already covered by the 2026-07-07 prototype-data row in `docs/dummy.md`, but the reachable `/item/:name` surface can still present the projection as real. Remove the legacy Item Detail route or rewire it to canonical Relationship Records/Relations under TASK-013; do not copy this adapter into new Pages.
+**Resolution:** TASK-013 removed the legacy route, page, adapter, and prototype data modules. Canonical Relationship Record Detail and Graph routes remain API-backed.
 
 ## RESOLVED 2026-07-19 — Initiative “Add Workflow” control navigated to the retired `/rituals` route
 `platform/apps/web/src/app/pages/InitiativeDetail.tsx` exposed an interactive “Add Workflow” control whose destination no longer existed after the shell retired the standalone Rituals/Workflows surface. TASK-014 removed the dead control while converting Initiative Touchpoints to the canonical View registry; no replacement Action was invented without a governed Automation capability.

@@ -109,16 +109,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Repository and manifest cleanup
 - ID: TASK-013
-- Status: ready
+- Status: done
 - Priority: P2
 - Horizon: Convergence
 - Outcome: Duplicate prototypes, deprecated data/code paths, stale dummy records, and non-manifest built-ins are removed or explicitly retained with one reason and owner.
 - Prototype test: Duplicate/source scan passes, package manifests drive built-ins, deprecated docs are marked rather than erased, dummy ledger matches every unavoidable fixture, and production/build entry points use one implementation.
 - Scope: docs/raw/repo-restructure-egg-commons-2026-07.md P1–P2; docs/dummy.md
-- Evidence: BUGS duplicate prototype/Tools copies; BUGS dummy-prefix conflict; BUGS legacy prototype CI imports deliberately uncommitted PII-derived modules; OPEN BUGS legacy `ItemDetail` Associations still derives a runtime projection from prototype `network.ts` and invents Initiative overlays (already tracked in `docs/dummy.md`)
+- Evidence: `outputs/2026-07-21-task013-repository-manifest-cleanup.md`; exact pre-cleanup `origin/main@7f37e17e1132ebbbee74f1c612f0e83b211139ef` preserved at verified private ref `archive/task-013-pre-cleanup-2026-07-21`; duplicate legacy roots removed from main without history rewrite or private-content inspection; root audit docs moved under `docs/raw/` with frontmatter; `platform/modules/manifests` is the one built-in catalog; API/executable/web routes derive from it; legacy Item Detail/Associations and unrouted JobPilot fixture BUGS/dummy rows resolved
 - Requests: cleanup directives 2026-07-14
-- Approval: AP-029 applied for planning; archive/deletion substep still requires a dedicated approval before destructive removal
+- Approval: AP-029 applied for planning; AP-061 applied for private archive, destructive cleanup, exact closure, and main landing
 - Dependencies: TASK-005; TASK-012
+- Verification: duplicate/root/source scans find no noncanonical tracked root, loose root audit doc, stale runtime fixture import, or second built-in manifest catalog; manifest, API Modules/Commons, and web tests pass; affected Module/API/web typechecks and builds pass; vocabulary and runtime-dummy guards are zero; changed-file lint passes; DB migrations are untouched. Web retains canonical Module, Relationship, DealPilot, JobPilot, Approvals, Task Manager, Graph, and Google routes with real APIs or honest empty/error states. Deterministic security/migration/RLS/cryptography fixtures remain tracked at current paths. One bounded final review found only stale TASK evidence and incorrect capability-kit codemap naming; both were corrected before closure. Repository history still contains the archived material because TASK-013 did not authorize history rewriting. GitHub Actions run `29806155556` failed all eight runner-backed jobs with zero steps and skipped installer aggregation, matching the payment-blocked runner condition; no CI success is claimed.
 
 ## Complete vocabulary migration
 - ID: TASK-012

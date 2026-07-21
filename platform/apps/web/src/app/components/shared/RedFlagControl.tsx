@@ -2,7 +2,7 @@
  * RedFlagControl — the ONE shared platform primitive for TASK-010 (docs/raw/
  * ui-architecture-rules-2026-07.md §5d, docs/glossary.md "Red Flag"). Every
  * eligible data cell (TableView.tsx and friends) and rendered bullet
- * (JobPilotApplicationDetail.tsx and friends) wraps its value with this ONE
+ * A supported data surface wraps its value with this ONE
  * component — no per-page red-flag logic, no duplicate feedback subsystem.
  * Must be rendered inside a `RedFlagProvider` (RedFlagProvider.tsx), which
  * batches ONE query for an entire visible table/record instead of each

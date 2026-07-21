@@ -461,8 +461,8 @@ const redFlagAnchorInput = z.discriminatedUnion("kind", [
 /** TASK-010 review round-5 item 6 — every known ALIAS for the same real
  * module must normalize to ONE canonical spelling BEFORE an anchor is
  * hashed into its lineage key: `moduleIdFromDatabaseId("jobpilot.jobs")`
- * yields `"jobpilot"` while `JobPilotApplicationDetail.tsx` (and this
- * router's own `validateAnchorTarget`) used the literal `"job-pilot"` —
+ * yields `"jobpilot"` while another caller could use the manifest name
+ * `"job-pilot"` —
  * two DIFFERENT strings for the SAME real module would silently split one
  * real-world cell/bullet's correction history into two independent,
  * non-colliding lineages depending on which caller's spelling happened to

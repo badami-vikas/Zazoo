@@ -15,7 +15,7 @@ const ledgerData = readFileSync(new URL("../src/app/data/ledger.ts", import.meta
 const executionLedger = readFileSync(new URL("../src/app/components/ExecutionLedger.tsx", import.meta.url), "utf8");
 const settingsPage = readFileSync(new URL("../src/app/pages/SettingsPage.tsx", import.meta.url), "utf8");
 const browserCaptureStore = new URL("../src/app/data/localMedia.ts", import.meta.url);
-const builtIns = readFileSync(new URL("../../api/src/built-in-modules.ts", import.meta.url), "utf8");
+const builtIns = readFileSync(new URL("../../../modules/manifests/src/index.ts", import.meta.url), "utf8");
 
 test("Relationship is one installed Module with canonical primary Pages", () => {
   assert.match(builtIns, /name: "relationship"/);
@@ -32,15 +32,14 @@ test("Relationship is one installed Module with canonical primary Pages", () => 
 });
 
 test("Relationship routes are deep linked and legacy global surfaces are absent", () => {
-  assert.match(routes, /module\/relationship\/signals\/:signalId\/event/);
-  assert.match(routes, /module\/relationship\/people\/:recordId/);
-  assert.match(routes, /module\/relationship\/communities\/:recordId/);
-  assert.match(routes, /module\/relationship\/helpdesk\/:ticketId/);
-  assert.match(routes, /module\/relationship\/relations/);
-  assert.match(routes, /module\/relationship\/interactions/);
-  assert.match(routes, /module\/relationship\/introductions/);
-  assert.match(routes, /module\/relationship\/sources/);
-  assert.match(routes, /module\/relationship\/:page/);
+  assert.match(routes, /requireBuiltInModule\("relationship"\)/);
+  assert.ok(routes.includes("${childPath(relationshipSignalsRoute)}/:signalId/event"));
+  assert.ok(routes.includes("${childPath(relationshipModule.route)}/people/:recordId"));
+  assert.ok(routes.includes("${childPath(relationshipModule.route)}/communities/:recordId"));
+  assert.ok(routes.includes("${childPath(relationshipModule.route)}/helpdesk/:ticketId"));
+  for (const path of ["relations", "interactions", "introductions", "sources", ":page"]) {
+    assert.ok(routes.includes(`\${childPath(relationshipModule.route)}/${path}`));
+  }
   assert.doesNotMatch(routes, /path: "signals"/);
   assert.doesNotMatch(routes, /path: "helpdesk"/);
 });

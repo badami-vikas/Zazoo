@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-18 | Files scanned: platform/apps/{api,web,desktop}, platform/packages/{core,db,local}, platform/tools | Token estimate: ~750 -->
+<!-- Updated: 2026-07-21 | Files scanned: platform/apps/{api,web,desktop}, platform/modules, platform/packages/{core,db,local}, platform/tools | Token estimate: ~800 -->
 
 # Architecture Codemap
 
@@ -10,8 +10,8 @@ One authoritative runtime lives under **`platform/`**:
 3. **Desktop client** — `platform/apps/desktop` Tauri host for the same web client plus native
    Avatar/capture/display behavior.
 
-`Design Bridge AI Interface (Copy)/` is retained historical prototype/reference material. It is
-not the production build entry point.
+Pre-cleanup legacy source is absent from main and preserved only on TASK-013's private archive ref.
+Repository history was not rewritten.
 
 ## Two-plane data model (platform)
 
@@ -49,13 +49,14 @@ for persistent versus in-memory adapters. Persistent startup provisions both Dea
 Relationship governance. `PILOT_WORKSPACE`/`PILOT_USER` still constrain the prototype runtime;
 see `docs/BUGS.md` for stores that remain process-local.
 
-## Tool model
+## Module and Engine boundaries
 
-Each `platform/tools/*` package is a standalone capability (DealPilot, JobPilot, People/Company
-Sourcing, Recorder) composed from shared packages (`@bridge/sourcing` waterfall connectors,
-`@bridge/dedupe` match/score, `@bridge/facts` living-profile store, `@bridge/tables` TableSpec).
-`@bridge/tool-kit` provides the generic manifest→quarantine→commit intake seam; only DealPilot
-is wired to it so far (Recon, a separate `Tools/recon` app outside this monorepo, is not).
+`platform/modules/manifests/src/index.ts` is the one built-in Module catalog. API installation,
+Commons publication, executable DealPilot/JobPilot manifests, and web routes derive from it.
+DealPilot and JobPilot implementation packages live in `platform/modules/{dealpilot,jobpilot}`.
+People/company sourcing and recording remain internal Engine packages under the existing
+`platform/tools/` workspace path; no standalone legacy application is a production entrypoint.
+`@bridge/capability-kit` remains the gated intake seam used by DealPilot.
 
 ## Deferred/seam-only (architecture exists, no running code)
 

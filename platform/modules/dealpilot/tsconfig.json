@@ -16,6 +16,7 @@
     { "path": "../../packages/sourcing" },
     { "path": "../../packages/tables" },
     { "path": "../../packages/integrations-google" }
+    ,{ "path": "../manifests" }
   ],
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

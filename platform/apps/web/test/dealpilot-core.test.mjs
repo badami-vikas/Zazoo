@@ -10,8 +10,9 @@ const googleSource = await readFile(new URL("../src/app/pages/GoogleIntegrationP
 const formSource = await readFile(new URL("../src/app/dataviews/views/FormView.tsx", import.meta.url), "utf8");
 
 test("DealPilot exposes exactly the Deals, Sources, and Theses default Page routes", () => {
-  assert.match(routeSource, /dealpilot\/:page/);
-  assert.match(routeSource, /dealpilot\/:page\/:recordId/);
+  assert.match(routeSource, /requireBuiltInModule\("deal-pilot"\)/);
+  assert.match(routeSource, /dealPilotModule\.pages\.map/);
+  assert.ok(routeSource.includes("${childPath(dealPilotRoot)}/:page/:recordId"));
   assert.match(pageSource, /deals: \{ label: "Deals"/);
   assert.match(pageSource, /sources: \{ label: "Sources"/);
   assert.match(pageSource, /theses: \{ label: "Theses"/);

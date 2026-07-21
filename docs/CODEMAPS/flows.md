@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-20 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,automation-executor,goal-task,skill-manifest,child-agent-run,ports}.ts, apps/api/src/{router,relationship-help-routing,relationship-materializer,built-in-modules,module-files,server,wiring}.ts, apps/web/src/app/{Layout,pages/ModuleDetailPage,pages/SecondBrainPage,dataviews/views/GraphView,components/shared/PanelControl}.tsx, packages/local/src/ports.ts, packages/db/src/{schema,automation-stores,graph-store,helpdesk-store,ledger-store,relation-materialization-store}.ts, packages/db/migrations/0023_vocab4_event_result_file.sql | Token estimate: ~2400 -->
+<!-- Updated: 2026-07-21 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,automation-executor,goal-task,skill-manifest,child-agent-run,ports}.ts, modules/manifests/src/index.ts, apps/api/src/{router,relationship-help-routing,relationship-materializer,built-in-modules,module-files,server,wiring}.ts, apps/web/src/app/{Layout,routes,pages/HomePage,pages/ModuleDetailPage,pages/SecondBrainPage,dataviews/views/GraphView,components/shared/PanelControl}.tsx, packages/local/src/ports.ts, packages/db/src/{schema,automation-stores,graph-store,helpdesk-store,ledger-store,relation-materialization-store}.ts, packages/db/migrations/0023_vocab4_event_result_file.sql | Token estimate: ~2450 -->
 
 # Load-Bearing Flows + Schema ER
 
@@ -190,6 +190,7 @@ sequenceDiagram
   participant G as GraphStore
   participant V as shared GraphView
   UI->>API: modules.list / modules.recentRuns(Module)
+  Note over UI,M: Built-in identity/routes originate in modules/manifests; API only re-exports
   API->>M: active installed root Modules + manifests
   API->>R: Runs for runtime Automation IDs resolved from active manifest
   UI-->>UI: Skills nested under consuming Agent; no standalone route

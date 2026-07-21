@@ -6,7 +6,6 @@ const redFlagControlUrl = new URL("../src/app/components/shared/RedFlagControl.t
 const redFlagProviderUrl = new URL("../src/app/components/shared/RedFlagProvider.tsx", import.meta.url);
 const tableViewUrl = new URL("../src/app/dataviews/views/TableView.tsx", import.meta.url);
 const eligibilityUrl = new URL("../src/app/dataviews/eligibility.ts", import.meta.url);
-const jobPilotDetailUrl = new URL("../src/app/pages/JobPilotApplicationDetail.tsx", import.meta.url);
 const flagIconUrl = new URL("../src/app/components/shared/FlagIcon.tsx", import.meta.url);
 const dataJobpilotUrl = new URL("../src/app/data/jobpilot.ts", import.meta.url);
 
@@ -136,12 +135,6 @@ test("TableView requires a STABLE persisted record id — never the sorted row's
   assert.match(eligibilitySource, /export function moduleIdFromDatabaseId/);
   assert.match(eligibilitySource, /export function isSupportedRedFlagModule/);
   assert.doesNotMatch(eligibilitySource, /SUPPORTED_RED_FLAG_MODULES = new Set\(\[[^\]]*"signal"/, "Signal has no backing existence-check store yet — must NOT be in the supported-module allowlist");
-});
-
-test("JobPilotApplicationDetail (unrouted, fixture-only) has NO red-flag wiring — a control on non-UUID fixture ids would always fail-closed (review round-5 item 6, AP-021)", async () => {
-  const source = await readFile(jobPilotDetailUrl, "utf8");
-  assert.doesNotMatch(source, /RedFlagControl/);
-  assert.doesNotMatch(source, /RedFlagProvider/);
 });
 
 test("JobPilotPage wires REAL cell and bullet Red Flag surfaces — anchored to the persisted application.id, not a fixture", async () => {
