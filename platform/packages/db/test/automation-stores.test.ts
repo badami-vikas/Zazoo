@@ -15,8 +15,8 @@ const validStep = {
   resourceType: "event" as const,
 };
 
-function runCtx(): RunCtx {
-  const clock = new FixedClock("2026-07-20T00:00:00.000Z");
+function runCtx(now = "2026-07-20T00:00:00.000Z"): RunCtx {
+  const clock = new FixedClock(now);
   const rng = new SeededRng(7);
   return { clock, rng, ids: new UuidGen(clock, rng) };
 }
@@ -161,6 +161,26 @@ test("Automation Run records retain Agent attribution and organization scope", a
       { runId, organizationId, status: "completed", output: { steps: 1 } },
       runCtx(),
     );
+    await recorder.finish(
+      { runId, organizationId, status: "completed", output: { steps: 1 } },
+      runCtx("2026-07-21T00:00:00.000Z"),
+    );
+    await recorder.finish(
+      { runId, organizationId, status: "completed", output: { decision: "approve" } },
+      runCtx("2026-07-21T01:00:00.000Z"),
+    );
+    await recorder.finish(
+      { runId, organizationId, status: "completed", output: { decision: "approve" } },
+      runCtx("2026-07-21T02:00:00.000Z"),
+    );
+    await assert.rejects(
+      () =>
+        recorder.finish(
+          { runId, organizationId, status: "completed", output: { decision: "veto" } },
+          runCtx(),
+        ),
+      /conflicts with existing terminal result/,
+    );
 
     const [stored] = await db
       .select()
@@ -171,13 +191,32 @@ test("Automation Run records retain Agent attribution and organization scope", a
     assert.equal(stored?.organizationId, organizationId);
     assert.equal(stored?.status, "completed");
     assert.equal(stored?.startedAt.toISOString(), "2026-07-20T00:00:00.000Z");
-    assert.equal(stored?.finishedAt?.toISOString(), "2026-07-20T00:00:00.000Z");
+    assert.deepEqual(stored?.output, { decision: "approve" });
+    assert.equal(stored?.finishedAt?.toISOString(), "2026-07-21T01:00:00.000Z");
     const recent = await recorder.list(organizationId, [automationId], { limit: 10 });
     assert.equal(recent.length, 1);
     assert.equal(recent[0]?.runId, runId);
     assert.equal(recent[0]?.status, "completed");
     assert.equal(recent[0]?.finishedAt !== undefined, true);
     assert.deepEqual(await recorder.list(otherOrganizationId, [automationId], { limit: 10 }), []);
+
+    const racingRunId = "b0000000-0000-4000-a000-0000000000f6";
+    await recorder.start(
+      { runId: racingRunId, automationId, organizationId, agentId },
+      runCtx(),
+    );
+    const finishes = await Promise.allSettled([
+      recorder.finish(
+        { runId: racingRunId, organizationId, status: "completed", output: { winner: 1 } },
+        runCtx(),
+      ),
+      recorder.finish(
+        { runId: racingRunId, organizationId, status: "halted", output: { winner: 2 } },
+        runCtx(),
+      ),
+    ]);
+    assert.equal(finishes.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(finishes.filter((result) => result.status === "rejected").length, 1);
   } finally {
     await close();
   }

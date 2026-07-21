@@ -247,6 +247,17 @@ function stableModuleInstallProposalId(organizationId: string, installationId: s
   return stableProposalId(`module-install:${organizationId}:${installationId}`);
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function moduleInstallationLedgerResourceId(
+  organizationId: string,
+  installationId: string,
+): string {
+  return UUID_PATTERN.test(installationId)
+    ? installationId
+    : stableProposalId(`legacy-module-installation:${organizationId}:${installationId}`);
+}
+
 const SUPPORTED_RELATIONSHIP_CONTRACT = (() => {
   const relationship = BUILT_IN_MODULES.find(
     (candidate) => candidate.manifest.name === "relationship",
@@ -2558,7 +2569,10 @@ function moduleInstallIdFromProposal(entry: LedgerEntry): string | undefined {
   if (typeof entry.inputs !== "object" || entry.inputs === null || Array.isArray(entry.inputs)) return undefined;
   const inputs = entry.inputs as Record<string, unknown>;
   if (inputs.operation !== "module_install" || typeof inputs.installationId !== "string") return undefined;
-  if (entry.resourceId !== inputs.installationId) return undefined;
+  if (
+    entry.resourceId !==
+    moduleInstallationLedgerResourceId(entry.organizationId, inputs.installationId)
+  ) return undefined;
   if (entry.id !== stableModuleInstallProposalId(entry.organizationId, inputs.installationId)) return undefined;
   return inputs.installationId;
 }
@@ -10582,7 +10596,10 @@ export const appRouter = t.router({
                 actor: { type: ctx.identity.type, id: ctx.identity.id },
                 action: "write",
                 resourceType: "signal", // governed install intent; module_installation is not yet a kernel ResourceType
-                resourceId: installation.id,
+                resourceId: moduleInstallationLedgerResourceId(
+                  input.organizationId,
+                  installation.id,
+                ),
                 inputs: {
                   operation: "module_install",
                   installationId: installation.id,

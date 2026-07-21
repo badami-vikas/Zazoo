@@ -601,7 +601,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "operational",
     manifest: {
       name: "task-manager",
-      version: "1.0.1",
+      version: "1.0.2",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:

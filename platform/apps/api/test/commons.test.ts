@@ -10,6 +10,9 @@
  * Pattern mirrors modules.test.ts (buildWiring + appRouter.createCaller).
  */
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   SeededRng,
@@ -20,6 +23,7 @@ import {
   type CommonsProvenance,
   type RunCtx,
 } from "@bridge/core";
+import { DrizzleModuleStore } from "@bridge/db";
 import type {
   CommonsListQuery,
   CommonsListResult,
@@ -1060,16 +1064,18 @@ test("commons.publishBuiltins: publishes BUILT_IN_MODULES to the mock registry",
 });
 
 test("commons.installPropose reconciles the signed normalized Task Manager root Module", async () => {
+  const localDir = await mkdtemp(join(tmpdir(), "bridge-commons-module-restart-"));
   const builtIn = COMMONS_BUILT_IN_MODULES.find(
     (candidate) => candidate.manifest.name === "task-manager",
   );
   assert.ok(builtIn);
   const normalized = parseModuleManifest({ module: builtIn.manifest });
   const entry = makeEntry(normalized, [...builtIn.commons.tags]);
-  const wiring = await buildWiring();
+  let wiring: Wiring | undefined = await buildWiring({ localDir });
   const registry = new InMemoryTestCommonsRegistry().seed(entry);
   (wiring as { commonsRegistry: CommonsRegistry }).commonsRegistry = registry;
   try {
+    assert.ok(wiring.moduleStore instanceof DrizzleModuleStore);
     const caller = await makeCaller(wiring);
     const existing = await wiring.moduleStore.getAvailable(PILOT_ORGANIZATION, "task-manager");
     assert.ok(existing);
@@ -1089,11 +1095,11 @@ test("commons.installPropose reconciles the signed normalized Task Manager root 
 
     const nextManifest = {
       ...normalized,
-      version: "1.0.2",
+      version: "1.0.3",
       summary: "Task Manager signed upgrade",
       capabilities: normalized.capabilities.map((capability) => ({
         ...capability,
-        version: "1.0.2",
+        version: "1.0.3",
       })),
     };
     const nextEntry = makeEntry(nextManifest, [...builtIn.commons.tags]);
@@ -1103,6 +1109,7 @@ test("commons.installPropose reconciles the signed normalized Task Manager root 
       name: "task-manager",
       version: nextManifest.version,
     });
+    assert.match(staged.installation.id, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     assert.equal(staged.installation.state, "private");
     assert.equal(staged.installation.commonsSource?.contentHash, nextEntry.integrity.value);
     const install = await caller.modules.install({
@@ -1132,7 +1139,29 @@ test("commons.installPropose reconciles the signed normalized Task Manager root 
       }),
       /hash_mismatch|trust verification/i,
     );
-  } finally {
     await wiring.close();
+    wiring = undefined;
+
+    wiring = await buildWiring({ localDir });
+    assert.ok(wiring.moduleStore instanceof DrizzleModuleStore);
+    const recovered = await wiring.moduleStore.getAvailable(
+      PILOT_ORGANIZATION,
+      "task-manager",
+    );
+    assert.equal(recovered?.id, promoted.installation.id);
+    assert.equal(recovered?.moduleVersion, nextManifest.version);
+    assert.equal(recovered?.status, "installed");
+    assert.equal(recovered?.commonsSource?.contentHash, nextEntry.integrity.value);
+    const recoveredVersions = await wiring.moduleStore.listVersions(
+      PILOT_ORGANIZATION,
+      "task-manager",
+    );
+    const recoveredBuiltIn = recoveredVersions.find(
+      (candidate) => candidate.moduleVersion === normalized.version,
+    );
+    assert.equal(recoveredBuiltIn?.commonsSource?.contentHash, result.installation.commonsSource?.contentHash);
+  } finally {
+    await wiring?.close();
+    await rm(localDir, { recursive: true, force: true });
   }
 });

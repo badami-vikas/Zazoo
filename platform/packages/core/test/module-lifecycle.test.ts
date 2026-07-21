@@ -159,7 +159,7 @@ test("InMemoryModuleStore: create/get/list round trip", async () => {
       /conflicting immutable content/,
     );
   });
-  assert.ok(created.id);
+  assert.match(created.id, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   const fetched = await store.get(created.id);
   assert.equal(fetched?.moduleName, "dummy-module");
   const { items, total } = await store.list("test_fixture_ws", { limit: 10, offset: 0 });

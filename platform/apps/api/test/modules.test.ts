@@ -339,14 +339,45 @@ test("modules.install: an external-risk module (egress permission) is parked pen
         ],
       }),
     });
+    assert.ok(wiring.moduleStore instanceof InMemoryModuleStore);
+    const stored = wiring.moduleStore.rows.get(installation.id);
+    assert.ok(stored);
+    wiring.moduleStore.rows.delete(installation.id);
+    const legacyInstallationId = "pkginst_legacy_external";
+    wiring.moduleStore.rows.set(legacyInstallationId, {
+      ...stored,
+      id: legacyInstallationId,
+    });
     const result = await caller.modules.install({
       organizationId: PILOT_ORGANIZATION,
-      installationId: installation.id,
+      installationId: legacyInstallationId,
       todayKey: "2026-07-06",
     });
     assert.equal(result.installed, false);
     assert.equal(result.risk.effectiveRisk, "external");
     assert.equal(result.decision.requirement, "explicit_human");
+    assert.ok(result.proposal);
+    const ledgerProposal = await wiring.ledger.get(result.proposal.id);
+    assert.match(ledgerProposal?.resourceId ?? "", /^[0-9a-f-]{36}$/);
+    assert.ok(
+      ledgerProposal?.inputs &&
+      typeof ledgerProposal.inputs === "object" &&
+      "installationId" in ledgerProposal.inputs,
+    );
+    assert.equal(ledgerProposal.inputs.installationId, legacyInstallationId);
+    await caller.action.decide({
+      proposalId: result.proposal.id,
+      decision: "approve",
+    });
+    const approved = await wiring.moduleStore.get(legacyInstallationId);
+    assert.equal(approved?.status, "installed");
+    assert.equal(approved?.state, "promoted");
+    const promoted = await caller.modules.promote({
+      organizationId: PILOT_ORGANIZATION,
+      installationId: legacyInstallationId,
+    });
+    assert.equal(promoted.installation.id, legacyInstallationId);
+    assert.equal(promoted.installation.state, "available");
   } finally {
     await wiring.close();
   }

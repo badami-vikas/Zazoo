@@ -5,10 +5,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
+import {
+  DrizzleAutomationRegistry,
+  DrizzleAutomationRunRecorder,
+  DrizzleModuleStore,
+} from "@bridge/db";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
 import { moduleFilesRoot } from "../src/module-files.js";
-import { TASK_MANAGER_SWEEP_AUTOMATION_ID } from "../src/built-in-modules.js";
+import {
+  TASK_MANAGER_DRIFT_AUTOMATION_ID,
+  TASK_MANAGER_SWEEP_AUTOMATION_ID,
+} from "../src/built-in-modules.js";
 
 function run(): RunCtx {
   const clock = new SystemClock();
@@ -97,12 +105,39 @@ test("Task Manager API creates through impact review and applies governed restru
 
 test("Task Manager API durably reconciles a real projection File and runs completed-bay sweep", async () => {
   const filesRoot = await mkdtemp(join(tmpdir(), "bridge-task-manager-recert-"));
-  const wiring = await buildWiring({
-    allowEphemeralLocalPlane: true,
+  const localDir = await mkdtemp(join(tmpdir(), "bridge-task-manager-local-"));
+  let wiring: Wiring | undefined = await buildWiring({
+    localDir,
     moduleFilesBridgeRoot: filesRoot,
   });
-  const api = caller(wiring);
+  let api = caller(wiring);
   try {
+    assert.ok(wiring.automationRegistry instanceof DrizzleAutomationRegistry);
+    assert.ok(wiring.automationRunRecorder instanceof DrizzleAutomationRunRecorder);
+    assert.ok(wiring.moduleStore instanceof DrizzleModuleStore);
+    const untouchedDraft = await api.taskManager.create({
+      organizationId: PILOT_ORGANIZATION,
+      title: "Historical completed Task",
+      isGoal: true,
+      outcomes: [],
+      reviewCadence: "weekly",
+      ownerType: "human",
+      ownerId: PILOT_USER,
+    });
+    await api.taskManager.verify({
+      organizationId: PILOT_ORGANIZATION,
+      taskId: untouchedDraft.task.id,
+      evidenceRefs: ["10000000-0000-4000-a000-000000000001"],
+    });
+    await api.taskManager.transition({
+      organizationId: PILOT_ORGANIZATION,
+      taskId: untouchedDraft.task.id,
+      status: "done",
+    });
+    const untouchedBefore = await api.taskManager.get({
+      organizationId: PILOT_ORGANIZATION,
+      taskId: untouchedDraft.task.id,
+    });
     const task = await api.taskManager.create({
       organizationId: PILOT_ORGANIZATION,
       title: "Projection certification",
@@ -150,6 +185,38 @@ test("Task Manager API durably reconciles a real projection File and runs comple
       expiresAt,
     });
     assert.equal(repeated.proposal.id, proposed.proposal.id);
+    const firstInstanceRuns = await wiring.automationRunRecorder.list(
+      PILOT_ORGANIZATION,
+      [TASK_MANAGER_DRIFT_AUTOMATION_ID],
+      { limit: 10 },
+    );
+    assert.ok(firstInstanceRuns.some((entry) => entry.runId === proposed.runId));
+    await wiring.close();
+    wiring = undefined;
+
+    wiring = await buildWiring({
+      localDir,
+      moduleFilesBridgeRoot: filesRoot,
+    });
+    api = caller(wiring);
+    assert.ok(wiring.automationRegistry instanceof DrizzleAutomationRegistry);
+    assert.ok(wiring.automationRunRecorder instanceof DrizzleAutomationRunRecorder);
+    assert.ok(wiring.moduleStore instanceof DrizzleModuleStore);
+    const restartedRuns = await wiring.automationRunRecorder.list(
+      PILOT_ORGANIZATION,
+      [TASK_MANAGER_DRIFT_AUTOMATION_ID],
+      { limit: 10 },
+    );
+    assert.ok(restartedRuns.some((entry) => entry.runId === proposed.runId));
+    const restartedReplay = await api.taskManager.proposeProjectionReconcile({
+      organizationId: PILOT_ORGANIZATION,
+      externalContent,
+      expectedFileHash: externalHash,
+      idempotencyKey: "projection-reconcile-api-1",
+      expiresAt,
+    });
+    assert.equal(restartedReplay.proposal.id, proposed.proposal.id);
+    assert.equal(restartedReplay.runId, proposed.runId);
     const editedContent = externalContent.replace(
       "Projection certification reconciled",
       "Projection certification Human edit",
@@ -172,6 +239,14 @@ test("Task Manager API durably reconciles a real projection File and runs comple
       "Projection certification Human edit",
     );
     assert.match(await readFile(path, "utf8"), /Projection certification Human edit/);
+    const untouchedAfter = await api.taskManager.get({
+      organizationId: PILOT_ORGANIZATION,
+      taskId: untouchedDraft.task.id,
+    });
+    assert.equal(untouchedAfter.version, untouchedBefore.version);
+    assert.equal(untouchedAfter.updatedAt, untouchedBefore.updatedAt);
+    assert.equal(untouchedAfter.status, untouchedBefore.status);
+    assert.deepEqual(untouchedAfter.evidenceRefs, untouchedBefore.evidenceRefs);
     const replay = await api.taskManager.decideProposal({
       organizationId: PILOT_ORGANIZATION,
       proposalId: proposed.proposal.id,
@@ -261,17 +336,44 @@ test("Task Manager API durably reconciles a real projection File and runs comple
       taskId: task.task.id,
       status: "done",
     });
-    const sweep = await api.taskManager.runCompletedBaySweep({
+    const capSweep = await api.taskManager.runCompletedBaySweep({
       organizationId: PILOT_ORGANIZATION,
-      completedCap: 0,
-      maxAgeDays: 7,
-      idempotencyKey: "completed-bay-sweep-api-1",
+      completedCap: 1,
+      maxAgeDays: 365,
+      idempotencyKey: "completed-bay-cap-api-1",
       expiresAt,
     });
-    assert.ok(sweep.proposal);
+    assert.ok(capSweep.proposal);
+    assert.ok(Array.isArray(capSweep.plan.eligibleTaskIds));
+    assert.equal(capSweep.plan.eligibleTaskIds.length, 1);
     await api.taskManager.decideProposal({
       organizationId: PILOT_ORGANIZATION,
-      proposalId: sweep.proposal.id,
+      proposalId: capSweep.proposal.id,
+      decision: "approve",
+    });
+    const afterCap = await Promise.all([
+      api.taskManager.get({
+        organizationId: PILOT_ORGANIZATION,
+        taskId: task.task.id,
+      }),
+      api.taskManager.get({
+        organizationId: PILOT_ORGANIZATION,
+        taskId: untouchedDraft.task.id,
+      }),
+    ]);
+    assert.equal(afterCap.filter((entry) => entry.status === "archived").length, 1);
+
+    const ageSweep = await api.taskManager.runCompletedBaySweep({
+      organizationId: PILOT_ORGANIZATION,
+      completedCap: 100,
+      maxAgeDays: 0,
+      idempotencyKey: "completed-bay-age-api-1",
+      expiresAt,
+    });
+    assert.ok(ageSweep.proposal);
+    await api.taskManager.decideProposal({
+      organizationId: PILOT_ORGANIZATION,
+      proposalId: ageSweep.proposal.id,
       decision: "approve",
     });
     const archived = await api.taskManager.get({
@@ -280,23 +382,31 @@ test("Task Manager API durably reconciles a real projection File and runs comple
     });
     assert.equal(archived.status, "archived");
     assert.ok(archived.evidenceRefs.includes(evidence.fileId));
+    const untouchedArchived = await api.taskManager.get({
+      organizationId: PILOT_ORGANIZATION,
+      taskId: untouchedDraft.task.id,
+    });
+    assert.equal(untouchedArchived.status, "archived");
+    assert.deepEqual(untouchedArchived.evidenceRefs, untouchedBefore.evidenceRefs);
     const sweepRetry = await api.taskManager.runCompletedBaySweep({
       organizationId: PILOT_ORGANIZATION,
-      completedCap: 99,
+      completedCap: 0,
       maxAgeDays: 365,
-      idempotencyKey: "completed-bay-sweep-api-1",
+      idempotencyKey: "completed-bay-age-api-1",
       expiresAt,
     });
-    assert.equal(sweepRetry.runId, sweep.runId);
-    assert.equal(sweepRetry.proposal?.id, sweep.proposal.id);
+    assert.equal(sweepRetry.runId, ageSweep.runId);
+    assert.equal(sweepRetry.proposal?.id, ageSweep.proposal.id);
     const runs = await wiring.automationRunRecorder.list(
       PILOT_ORGANIZATION,
       [TASK_MANAGER_SWEEP_AUTOMATION_ID],
       { limit: 10 },
     );
-    assert.ok(runs.some((entry) => entry.runId === sweep.runId && entry.status === "completed"));
+    assert.ok(runs.some((entry) => entry.runId === capSweep.runId && entry.status === "completed"));
+    assert.ok(runs.some((entry) => entry.runId === ageSweep.runId && entry.status === "completed"));
   } finally {
-    await wiring.close();
+    await wiring?.close();
     await rm(filesRoot, { recursive: true, force: true });
+    await rm(localDir, { recursive: true, force: true });
   }
 });
