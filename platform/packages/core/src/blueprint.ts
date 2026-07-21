@@ -45,19 +45,21 @@ import type { ModuleManifest } from "./module/types.js";
 export const BLUEPRINT_SCHEMA_VERSION = 2 as const;
 const LEGACY_BLUEPRINT_SCHEMA_VERSION = 1 as const;
 
-/** Structural mirror of @bridge/tables' ColumnKind. */
-export type BlueprintColumnKind =
-  | "text"
-  | "number"
-  | "select"
-  | "multiselect"
-  | "date"
-  | "checkbox"
-  | "url"
-  | "relation"
-  | "formula"
-  | "skill"
-  | "location";
+/** Canonical field-kind contract shared by parsers and API boundaries. */
+export const BLUEPRINT_FIELD_KINDS = [
+  "text",
+  "number",
+  "select",
+  "multiselect",
+  "date",
+  "checkbox",
+  "url",
+  "relation",
+  "formula",
+  "skill",
+  "location",
+] as const;
+export type BlueprintColumnKind = (typeof BLUEPRINT_FIELD_KINDS)[number];
 export type BlueprintDefaultValue =
   | string
   | number
@@ -511,9 +513,6 @@ function rejectUnknownKeys(obj: Record<string, unknown>, allowed: readonly strin
   }
 }
 
-const BLUEPRINT_FIELD_KINDS: readonly BlueprintColumnKind[] = [
-  "text", "number", "select", "multiselect", "date", "checkbox", "url", "relation", "formula", "skill", "location",
-];
 const FILTER_OPS: readonly BlueprintFilterOp[] = ["contains", "is", "is_not", "is_empty", "is_not_empty", "starts_with"];
 
 function isDefaultValue(value: unknown): value is BlueprintDefaultValue {

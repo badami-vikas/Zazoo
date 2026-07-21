@@ -290,6 +290,7 @@ export {
   compileBlueprint,
   BlueprintCompileError,
   BLUEPRINT_SCHEMA_VERSION,
+  BLUEPRINT_FIELD_KINDS,
   parseOrganizationBlueprint,
   BlueprintValidationError,
   organizationBlueprintToModuleManifest,

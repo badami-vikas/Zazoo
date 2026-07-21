@@ -11,14 +11,14 @@
  * fake lets the slice run + be tested with zero infra (and is the default until a
  * Supabase URL is configured — identity then mirrors local-only, audited).
  */
-import { eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { peopleCanonical } from "./schema.js";
 
 /** A public, identity-grade fact about a counterparty. No private fields. */
 export interface CanonicalPersonIdentity {
-  /** Stable global key (e.g. lowercased primary email). Drives global dedup. */
-  dedupKey: string;
+  /** Stable global key (e.g. lowercased primary email), or null when unavailable. */
+  dedupKey: string | null;
   fullName?: string;
   emails: string[];
   currentCompanyName?: string;
@@ -44,13 +44,15 @@ export interface CanonicalIdentityStore {
 export class DrizzleCanonicalIdentityStore implements CanonicalIdentityStore {
   constructor(private readonly db: Database) {}
   async upsertPersonIdentity(identity: CanonicalPersonIdentity, idIfNew: string): Promise<UpsertResult> {
-    const existing = await this.db
-      .select({ id: peopleCanonical.id })
-      .from(peopleCanonical)
-      .where(eq(peopleCanonical.dedupKey, identity.dedupKey))
-      .limit(1);
-    const found = existing[0];
-    if (found) return { canonicalPersonId: found.id, created: false };
+    if (identity.dedupKey !== null) {
+      const existing = await this.db
+        .select({ id: peopleCanonical.id })
+        .from(peopleCanonical)
+        .where(eq(peopleCanonical.dedupKey, identity.dedupKey))
+        .limit(1);
+      const found = existing[0];
+      if (found) return { canonicalPersonId: found.id, created: false };
+    }
 
     const inserted = await this.db
       .insert(peopleCanonical)
@@ -62,7 +64,10 @@ export class DrizzleCanonicalIdentityStore implements CanonicalIdentityStore {
         dedupKey: identity.dedupKey,
         ...(identity.enrichmentSource ? { enrichmentSource: identity.enrichmentSource } : {}),
       })
-      .onConflictDoNothing({ target: peopleCanonical.dedupKey })
+      .onConflictDoNothing({
+        target: peopleCanonical.dedupKey,
+        where: isNotNull(peopleCanonical.dedupKey),
+      })
       // No-arg returning() (full row) — typechecks across the postgres-js | pglite
       // Database union; we only read `.id`.
       .returning();
@@ -71,19 +76,31 @@ export class DrizzleCanonicalIdentityStore implements CanonicalIdentityStore {
     if (row) return { canonicalPersonId: row.id, created: true };
 
     // Lost a race to a concurrent insert — read the winner.
+    if (identity.dedupKey === null) {
+      throw new Error("Canonical identity insert returned no row for a null dedup key");
+    }
     const after = await this.db
       .select({ id: peopleCanonical.id })
       .from(peopleCanonical)
       .where(eq(peopleCanonical.dedupKey, identity.dedupKey))
       .limit(1);
-    return { canonicalPersonId: after[0]?.id ?? idIfNew, created: false };
+    const winner = after[0];
+    if (!winner) {
+      throw new Error(`Canonical identity conflict winner missing for dedup key "${identity.dedupKey}"`);
+    }
+    return { canonicalPersonId: winner.id, created: false };
   }
 }
 
 /** In-memory fake — zero-infra default; identity mirrors local-only until Supabase is wired. */
 export class InMemoryCanonicalIdentityStore implements CanonicalIdentityStore {
   readonly identities = new Map<string, CanonicalPersonIdentity & { canonicalPersonId: string }>();
+  readonly unkeyedIdentities = new Map<string, CanonicalPersonIdentity & { canonicalPersonId: string }>();
   async upsertPersonIdentity(identity: CanonicalPersonIdentity, idIfNew: string): Promise<UpsertResult> {
+    if (identity.dedupKey === null) {
+      this.unkeyedIdentities.set(idIfNew, { ...identity, canonicalPersonId: idIfNew });
+      return { canonicalPersonId: idIfNew, created: true };
+    }
     const existing = this.identities.get(identity.dedupKey);
     if (existing) return { canonicalPersonId: existing.canonicalPersonId, created: false };
     this.identities.set(identity.dedupKey, { ...identity, canonicalPersonId: idIfNew });

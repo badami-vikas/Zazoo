@@ -121,13 +121,18 @@ test("schema hardening: ledger/events/timeline_entries ids are UUIDv7 (time-pref
   }
 });
 
-test("schema hardening: timeline_entries(organization_id, occurred_at) composite index exists", async () => {
+test("schema hardening: canonical Events keep the Organization/time composite index", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const rows = (await db.execute(
-      sql`select indexname from pg_indexes where tablename = 'timeline_entries' and indexname = 'timeline_entries_org_occurred_idx'`,
-    )) as unknown as { rows: Array<{ indexname: string }> };
-    assert.equal(rows.rows.length, 1, "timeline_entries_org_occurred_idx must exist");
+    const rows = (await db.execute(sql`
+      select indexdef from pg_indexes where tablename = 'events'
+    `)) as unknown as { rows: Array<{ indexdef: string }> };
+    assert.ok(
+      rows.rows.some(({ indexdef }) =>
+        /"?organization_id"?, "?created_at"?/i.test(indexdef),
+      ),
+      "events Organization/created_at index must exist",
+    );
   } finally {
     await close();
   }

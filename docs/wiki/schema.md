@@ -20,3 +20,12 @@ Table names = code vocab; primitives per [ontology](ontology.md): `rituals` = **
 **RLS — APPLIED & PROVEN** (live DB: Supabase *Bridge AI* `emtbimowmqqhixqlxhzb`; migrations `replace_with_schema_v2`+`rls_policies_v1`+`harden_helper_grants`): workspace isolation · relationship-tier visibility (private/team/workspace, owner-only writes) · join parent-scoping · append-only (UPDATE/DELETE revoked) · signals read-only · canonical shared-read · embeddings deny-all-client. SECURITY DEFINER helpers (my_workspace_ids/my_team_ids/shares_*). Live JWT-impersonation test PASSED → cross-workspace=0 · co-member-private=0 · team=1 · workspace=1 · canonical=1 · cross-owner-update=0. Advisors: **0 rls_disabled**. Known WARN (SOC2 hardening): vector/pg_trgm in public · helper RPC exposure (→ move to private schema).
 
 **Pending**: seed agent-floor DENY rows · design-fix UI build (F1–F5, see [design](design.md)) · pilot enrichment (public sources) · E2EE (P6).
+
+**2026-07-21 DB correctness**:
+- migrations high-water = `0030_task016_schema_alignment`
+- `0029` snapshot re-baselines full schema; `0030` adds missing `events(organization_id, created_at)` index
+- `drizzle-kit generate` = tested no-op
+- field kinds = one core tuple; includes `location`
+- UUIDs fail before SQL
+- canonical Person non-null dedup = partial-index conflict predicate; null keys stay multiple
+- DB test contract = 4 concurrent files

@@ -43,6 +43,24 @@ function dummyBlueprint(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function locationBlueprint() {
+  return dummyBlueprint({
+    entities: [{
+      nodeType: "record",
+      label: "Record",
+      fields: [
+        { id: "name", label: "Name", kind: "text" as const },
+        { id: "where", label: "Where", kind: "location" as const },
+      ],
+    }],
+    views: [{
+      entity: "record",
+      kind: "map" as const,
+      config: { locationBy: "where" },
+    }],
+  });
+}
+
 test("organization.blueprint.get: returns null definition for a organization with no active blueprint yet (no dummy fallback)", async () => {
   const wiring = await buildWiring();
   try {
@@ -62,6 +80,7 @@ test("organization.blueprint.propose: creates a draft, rejects an invalid bluepr
       organizationId: PILOT_ORGANIZATION,
       blueprint: dummyBlueprint(),
     });
+
     assert.equal(definition.status, "draft");
     assert.equal(definition.organizationId, PILOT_ORGANIZATION);
 
@@ -73,6 +92,25 @@ test("organization.blueprint.propose: creates a draft, rejects an invalid bluepr
         }),
       /BAD_REQUEST|not a registered node type/,
     );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("organization.blueprint.propose: round-trips a location field through API and persistent store", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const { definition: draft } = await caller.organization.blueprint.propose({
+      organizationId: PILOT_ORGANIZATION,
+      blueprint: locationBlueprint(),
+    });
+    const { definition } = await caller.organization.blueprint.getById({
+      organizationId: PILOT_ORGANIZATION,
+      definitionId: draft.id,
+    });
+    assert.equal(definition.blueprint.entities[0]?.fields[1]?.kind, "location");
+    assert.equal(definition.blueprint.views[0]?.config?.locationBy, "where");
   } finally {
     await wiring.close();
   }

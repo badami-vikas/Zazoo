@@ -17,6 +17,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SignJWT } from "jose";
+import { TRPCError } from "@trpc/server";
 import { createLocalDb, schema } from "@bridge/db";
 import {
   InMemoryRoleStore,
@@ -256,7 +257,7 @@ async function seedFixtures(
 
 test("graph.listPeople: paginates people under the pilot organization", async () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-graph-people-test-"));
-  await seedFixtures(dir);
+  const fixtures = await seedFixtures(dir);
 
   const prior = process.env.BRIDGE_LOCAL_DIR;
   process.env.BRIDGE_LOCAL_DIR = dir;
@@ -274,8 +275,34 @@ test("graph.listPeople: paginates people under the pilot organization", async ()
     assert.equal(lastPage.items.length, 1);
     assert.equal(lastPage.hasMore, false);
 
-    await assert.rejects(() =>
-      caller.relationship.listPeople({ organizationId: "test_fixture_other_organization", limit: 10, offset: 0 }),
+    for (const organizationId of ["test_fixture_other_organization", ""]) {
+      await assert.rejects(
+        () => caller.relationship.listPeople({ organizationId, limit: 10, offset: 0 }),
+        (error) => error instanceof TRPCError && error.code === "BAD_REQUEST",
+      );
+    }
+
+    await assert.rejects(
+      () => caller.relationship.listPeople({
+        organizationId: "83000000-0000-4000-8000-000000000001",
+        limit: 10,
+        offset: 0,
+      }),
+      (error) => error instanceof TRPCError && error.code === "FORBIDDEN",
+    );
+    assert.equal(
+      await caller.relationship.getPerson({
+        organizationId: PILOT_ORGANIZATION,
+        id: "84000000-0000-4000-8000-000000000001",
+      }),
+      null,
+    );
+    assert.equal(
+      (await caller.relationship.getPerson({
+        organizationId: PILOT_ORGANIZATION,
+        id: fixtures.personId,
+      }))?.id,
+      fixtures.personId,
     );
   } finally {
     if (wiring) await wiring.close();

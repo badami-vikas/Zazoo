@@ -12,6 +12,7 @@ import {
   IntegrationFloorScopeError,
   UnknownOrganizationError,
   OrganizationRenameRollbackError,
+  databaseUuidSchema,
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
@@ -117,6 +118,7 @@ import {
   EvidenceThresholdError,
   compileBlueprint,
   BlueprintCompileError,
+  BLUEPRINT_FIELD_KINDS,
   classifyIntent,
   resolveAuthority,
   assertChainDepth,
@@ -1950,7 +1952,7 @@ const relationshipSignalEvidenceInput = relationshipSignalEvidencePayloadSchema
     organizationId: z.string().uuid().transform((value) => value.toLowerCase()),
   });
 const relationshipListInput = z.object({
-  organizationId: z.string().uuid(),
+  organizationId: databaseUuidSchema,
   query: z.string().trim().max(120).optional(),
   limit: z.number().int().min(1).max(100).default(50),
   offset: z.number().int().min(0).max(10_000).default(0),
@@ -2635,7 +2637,7 @@ const BLUEPRINT_RELATIONSHIP_NODE_TYPES = ["edge"] as const;
 const blueprintFieldInput = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
-  kind: z.enum(["text", "number", "select", "multiselect", "date", "checkbox", "url", "relation", "formula", "skill", "location"]),
+  kind: z.enum(BLUEPRINT_FIELD_KINDS),
   options: z.array(z.string()).optional(),
   skillId: z.string().optional(),
   required: z.boolean().optional(),
@@ -2731,18 +2733,18 @@ function toOrganizationBlueprint(input: z.infer<typeof organizationBlueprintInpu
   };
 }
 
-const blueprintGetInput = z.object({ organizationId: z.string().min(1) });
+const blueprintGetInput = z.object({ organizationId: databaseUuidSchema });
 const blueprintGetByIdInput = z.object({
-  organizationId: z.string().min(1),
-  definitionId: z.string().min(1),
+  organizationId: databaseUuidSchema,
+  definitionId: databaseUuidSchema,
 });
 const blueprintProposeInput = z.object({
-  organizationId: z.string().min(1),
+  organizationId: databaseUuidSchema,
   blueprint: organizationBlueprintInput,
 });
 const blueprintActivateInput = z.object({
-  organizationId: z.string().min(1),
-  definitionId: z.string().min(1),
+  organizationId: databaseUuidSchema,
+  definitionId: databaseUuidSchema,
 });
 
 // ---------------------------------------------------------------------------
@@ -4910,7 +4912,7 @@ export const appRouter = t.router({
       }),
 
     taintTrace: authenticatedProcedure
-      .input(z.object({ proposalId: z.string().uuid() }))
+      .input(z.object({ proposalId: databaseUuidSchema }))
       .query(async ({ input, ctx }) => {
         const proposal = await ctx.wiring.ledger.get(input.proposalId);
         if (!proposal) {
@@ -6184,7 +6186,7 @@ export const appRouter = t.router({
       }),
 
     getPerson: authenticatedProcedure
-      .input(z.object({ organizationId: z.string().uuid(), id: z.string().uuid() }))
+      .input(z.object({ organizationId: databaseUuidSchema, id: databaseUuidSchema }))
       .query(async ({ input, ctx }) => {
         assertPilotOrganization(input.organizationId);
         await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
@@ -6235,7 +6237,7 @@ export const appRouter = t.router({
       }),
 
     archivePerson: authenticatedProcedure
-      .input(z.object({ organizationId: z.string().uuid(), id: z.string().uuid() }))
+      .input(z.object({ organizationId: databaseUuidSchema, id: databaseUuidSchema }))
       .mutation(async ({ input, ctx }) => {
         assertPilotOrganization(input.organizationId);
         await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);

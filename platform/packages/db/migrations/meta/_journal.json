@@ -204,6 +204,13 @@
       "when": 1784651400000,
       "tag": "0029_task015_runtime_taint",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1784658336873,
+      "tag": "0030_task016_schema_alignment",
+      "breakpoints": true
     }
   ]
 }

@@ -20,6 +20,7 @@ import {
   withDefaultOrganization,
   withOrganizationOnly,
 } from "./organization-context.js";
+import { parseDatabaseUuid } from "./uuid.js";
 
 /**
  * Validate `organization_definitions.blueprint` jsonb. Throws loudly on a
@@ -57,6 +58,7 @@ export class DrizzleOrganizationDefinitionStore implements OrganizationDefinitio
   }
 
   async create(row: Omit<OrganizationDefinitionRow, "createdAt">): Promise<OrganizationDefinitionRow> {
+    parseDatabaseUuid(row.id, "definitionId");
     return withOrganizationOnly(this.#db, row.organizationId, async (tx) => {
     const validated = parseBlueprint(row.blueprint);
     const [inserted] = await tx
@@ -76,8 +78,9 @@ export class DrizzleOrganizationDefinitionStore implements OrganizationDefinitio
   }
 
   async get(id: string): Promise<OrganizationDefinitionRow | null> {
+    const definitionId = parseDatabaseUuid(id, "definitionId");
     return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (tx) => {
-    const rows = await tx.select().from(organizationDefinitions).where(eq(organizationDefinitions.id, id)).limit(1);
+    const rows = await tx.select().from(organizationDefinitions).where(eq(organizationDefinitions.id, definitionId)).limit(1);
     const row = rows[0];
     return row ? unpack(row) : null;
     });
@@ -108,13 +111,14 @@ export class DrizzleOrganizationDefinitionStore implements OrganizationDefinitio
   }
 
   async setStatus(id: string, status: OrganizationDefinitionStatus): Promise<OrganizationDefinitionRow> {
+    const definitionId = parseDatabaseUuid(id, "definitionId");
     return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (tx) => {
     const [updated] = await tx
       .update(organizationDefinitions)
       .set({ status })
-      .where(eq(organizationDefinitions.id, id))
+      .where(eq(organizationDefinitions.id, definitionId))
       .returning();
-    if (!updated) throw new Error(`organization_definitions: unknown id ${id}`);
+    if (!updated) throw new Error(`organization_definitions: unknown id ${definitionId}`);
     return unpack(updated);
     });
   }

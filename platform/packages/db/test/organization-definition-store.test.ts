@@ -33,7 +33,21 @@ test("organization definition store: create + get round-trip, blueprint jsonb pr
     const created = await store.create({
       id: "50000000-0000-4000-8000-000000000001",
       organizationId,
-      blueprint: blueprint(),
+      blueprint: blueprint({
+        entities: [{
+          nodeType: "record",
+          label: "Record",
+          fields: [
+            { id: "name", label: "Name", kind: "text" },
+            { id: "where", label: "Where", kind: "location" },
+          ],
+        }],
+        views: [{
+          entity: "record",
+          kind: "map",
+          config: { locationBy: "where" },
+        }],
+      }),
       version: 1,
       status: "draft",
       createdBy: null,
@@ -42,7 +56,8 @@ test("organization definition store: create + get round-trip, blueprint jsonb pr
 
     const fetched = await store.get(created.id);
     assert.ok(fetched);
-    assert.deepEqual(fetched.blueprint.entities[0]?.nodeType, "record");
+    assert.equal(fetched.blueprint.entities[0]?.fields[1]?.kind, "location");
+    assert.equal(fetched.blueprint.views[0]?.config?.locationBy, "where");
   } finally {
     await close();
   }

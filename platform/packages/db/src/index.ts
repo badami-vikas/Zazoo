@@ -17,6 +17,13 @@ export {
   withOrganizationOnly,
   type OrganizationContext,
 } from "./organization-context.js";
+export {
+  databaseUuidSchema,
+  isDatabaseUuid,
+  parseDatabaseUuid,
+  InvalidDatabaseIdentifierError,
+  type DatabaseUuid,
+} from "./uuid.js";
 export { DrizzleLedgerStore } from "./ledger-store.js";
 export { DrizzleTaintAuditStore } from "./taint-audit-store.js";
 export {

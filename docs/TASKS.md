@@ -222,16 +222,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Database and migration correctness backlog
 - ID: TASK-016
-- Status: ready
+- Status: done
 - Priority: P3
 - Horizon: Hardening
 - Outcome: Known schema, migration, identity-upsert, UUID-validation, and concurrent-test defects are corrected with regression coverage.
 - Prototype test: Location enum matches all consumers; identity upsert uses a valid conflict target; migration snapshots round-trip without re-emitting old DDL; invalid UUIDs return typed errors; DB suite passes under supported concurrency.
 - Scope: docs/BUGS.md detailed database evidence
-- Evidence: BUGS location enum; BUGS partial dedup conflict; BUGS incomplete Drizzle metadata; BUGS pglite invalid UUID; BUGS concurrent DB flake; RESOLVED 2026-07-19 Supabase least-privilege runtime role and transaction-local Organization/user RLS context, migration `0022_supabase_runtime_role`, and focused recovery evidence in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md); AP-063 public-cloud RLS/provider certification is TASK-006 evidence only and does not close this backlog
-- Requests: none
-- Approval: AP-054 applied for the Supabase runtime-role/RLS slice; none for the remaining backlog
+- Evidence: RESOLVED 2026-07-21 location field-kind drift, partial dedup conflict target, incomplete Drizzle metadata, PGlite malformed-UUID crash path, and concurrent DB flake; migration `0030_task016_schema_alignment` restores the canonical Event Organization/time index exposed by metadata reconciliation; RESOLVED 2026-07-19 Supabase least-privilege runtime role and transaction-local Organization/user RLS context, migration `0022_supabase_runtime_role`, and focused recovery evidence in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md); exact close evidence in [TASK-016 database correctness](../outputs/2026-07-21-task016-database-correctness.md)
+- Requests: explicit TASK-016 completion/landing directive 2026-07-21
+- Approval: AP-054 applied for the Supabase runtime-role/RLS slice; AP-071 applied for complete prototype and canonical closure
 - Dependencies: TASK-012
+- Verification: Prototype PASS — the canonical field-kind tuple drives core/API parsing and a `location` definition round-trips through PGlite/API; non-null identity keys use the partial-index predicate while null keys remain multiple and eight same-key writers converge; tool-generated snapshots through `0030` make generation a deterministic no-op and fresh/upgrade migrations preserve Event/taint/RLS data; malformed/empty UUIDs return typed errors before SQL and leave PGlite usable; the 198-test DB package passes three consecutive official runs at four-file concurrency, including two waves of four concurrent fresh migrations. One bounded changed-scope review found no defect.
 
 ## Runtime and package correctness backlog
 - ID: TASK-017
@@ -241,7 +242,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Package persistence/types, Helpdesk routing, browser bundling, styling, and remaining shell persistence defects are production-correct.
 - Prototype test: Package state survives restart; install proposals use the right resource type; Helpdesk topics are derived/validated; browser bundle excludes Node-only sandbox code; web styling loads; persisted pins use governed storage.
 - Scope: docs/BUGS.md detailed runtime evidence
-- Evidence: BUGS in-memory package store; BUGS package resourceType skill; BUGS caller-supplied Helpdesk topics; BUGS Node vm browser leak; BUGS empty globals.css; BUGS client-only pin persistence; BUGS post-decision effect retry; BUGS 2026-07-16 baseline lint/typecheck failures; BUGS 2026-07-15 sensor coverage floor; BUGS 2026-07-19 paginated Relationship Views filter/sort only the loaded page; RESOLVED 2026-07-19 API container build/readiness and exact hosted Supabase Auth admission, documented in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md); AP-063 Render Blueprint/public-cloud boundary is a landed slice only and does not close the remaining prototype
+- Evidence: BUGS in-memory package store; BUGS package resourceType skill; BUGS caller-supplied Helpdesk topics; BUGS Node vm browser leak; BUGS empty globals.css; BUGS client-only pin persistence; BUGS post-decision effect retry; BUGS 2026-07-16 baseline lint/typecheck failures; BUGS 2026-07-15 sensor coverage floor; BUGS 2026-07-19 paginated Relationship Views filter/sort only the loaded page; BUGS 2026-07-21 three stale Relationship API taint expectations; RESOLVED 2026-07-19 API container build/readiness and exact hosted Supabase Auth admission, documented in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md); AP-063 Render Blueprint/public-cloud boundary is a landed slice only and does not close the remaining prototype
 - Requests: none
 - Approval: AP-054 applied for the Supabase container/Auth slice; none for the remaining backlog
 - Dependencies: TASK-012
