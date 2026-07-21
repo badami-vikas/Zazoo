@@ -2,14 +2,16 @@
 title: DataEngine / View Grammar Business Requirements
 type: raw
 doc_kind: reference
-status: proposed
+status: implemented
 companions: [ui-architecture-rules-2026-07.md, calendar-module-plan-2026-07.md, calendar-plan.md, relationship-module-plan-2026-07.md, taskmanager-module-plan-2026-07.md, requirement-ui-architecture-rules-2026-07-13.md]
 related_wiki: ../wiki/ui-architecture.md
-updated: 2026-07-17
+updated: 2026-07-19
 tags: [dataengine, view-grammar, views, calendar, graph, map, table, board, form, tree, ui-architecture, business-requirements]
 ---
 
 # 1. Executive decision
+
+**Implemented 2026-07-19 (TASK-014 + TASK-009).** One registry now owns all eight kinds. Calendar's package/route identity and duplicate renderers are removed. Graph uses one renderer across single-Database, selected-Database, and full/Second-Brain scopes. Blueprint v2 emits canonical names; v1/unversioned `kanban` and `network` migrate at the schema boundary.
 
 There is **one View Grammar**: a fixed, registered set of View kinds, each a stateless presentation overlay (filter + sort + column config + kind-specific rendering) over Database rows. A View is never a separate entity, never a separate route, never a separate installed Module, and never tied to one integration. Whether a Page offers a given View kind is computed from that Page's column metadata (does it have a date column? a relation column? a location column? a self-referential parent column?) — never hand-picked per Page and never hardcoded per surface.
 
@@ -96,9 +98,11 @@ view_kinds:
     explicitly_not: a dedicated Module, Tool, nav item, or route; not owned by or coupled to any one Integration
 
   map:
-    eligible_when: a location-kind column exists (geocodable address/place field)
-    renders: pins by geocoded location; click pin -> Record Detail
-    features: [pin clustering at zoom-out (currently a tracked gap — BUGS "map view is not a map"), filter/List support same as table]
+    eligible_when: a location-kind column exists (place label and/or structured local coordinates)
+    value_contract: "label; latitude,longitude; label | latitude,longitude; {label?, latitude|lat, longitude|lng|lon}; or GeoJSON Point"
+    renders: pins on a bundled Local Plane basemap; click pin -> Record Detail
+    geocoding: "never automatic and never public by default; unresolved labels remain local and honest until the Human invokes an explicitly configured Local Plane GeocodingProvider, then may save the resolved coordinate through the ordinary Record update path"
+    features: [pin clustering at zoom-out, local search/fly-to, explicit unresolved-label state, optional private geocoder, filter/List support same as table]
     reflected_in: Relationship People/Communities (address field), DealPilot Sources (headquarters location), any Page with a location column
 
   graph:                      # code symbol currently "network" — rename to match glossary (§1)

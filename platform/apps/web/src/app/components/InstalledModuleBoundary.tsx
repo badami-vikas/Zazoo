@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import { PILOT_WORKSPACE, trpc } from "../lib/trpc";
+import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
 export function InstalledModuleBoundary({
-  packageName,
+  moduleName,
   children,
 }: {
-  packageName: string;
+  moduleName: string;
   children: ReactNode;
 }) {
   const [installed, setInstalled] = useState<boolean | null>(null);
@@ -16,14 +16,14 @@ export function InstalledModuleBoundary({
     let cancelled = false;
     setInstalled(null);
     setError(null);
-    trpc.packages.list
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
+    trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
       .then((result) => {
         if (cancelled) return;
         setInstalled(
           result.items.some(
             (item) =>
-              item.packageName === packageName &&
+              item.moduleName === moduleName &&
               item.state === "available" &&
               item.status === "installed",
           ),
@@ -35,7 +35,7 @@ export function InstalledModuleBoundary({
     return () => {
       cancelled = true;
     };
-  }, [packageName]);
+  }, [moduleName]);
 
   if (error) {
     return <div className="p-6 text-sm text-red-600">Could not verify installed Module: {error}</div>;

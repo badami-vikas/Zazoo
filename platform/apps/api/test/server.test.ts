@@ -1,14 +1,51 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
+import Fastify from "fastify";
 import { SignJWT } from "jose";
 import {
   assertProductionEnv,
   buildServer,
+  closeServerWithDeadline,
   corsOriginConfig,
+  desktopOAuthRedirectUri,
+  inheritedListenFd,
+  listenServer,
   rateLimitBucket,
   rateLimitConfig,
   serverHostConfig,
+  watchParentLiveness,
 } from "../src/server.js";
+import { PILOT_USER } from "../src/wiring.js";
+
+const COMPLETE_PRODUCTION_ENV = {
+  NODE_ENV: "production",
+  DATABASE_URL: "postgresql://bridge_app:test@localhost:5432/test_fixture_db",
+  SUPABASE_URL: "https://test-fixture.supabase.co",
+  API_ALLOWED_ORIGINS: "https://bridge.test",
+  BRIDGE_PILOT_USER_ID: "20000000-0000-4000-8000-000000000001",
+  BRIDGE_PILOT_USER_EMAIL: "pilot@bridge.test",
+  BRIDGE_LOCAL_DIR: "/var/lib/bridge/local",
+  BRIDGE_FILES_ROOT: "/var/lib/bridge/files",
+  BRIDGE_LOCAL_RESIDENCY: "encrypted-host-volume",
+  BRIDGE_DEALPILOT_CREDENTIAL_VAULT: "encrypted-file",
+  BRIDGE_CREDENTIAL_VAULT_KEY_ID: "test-key-1",
+  BRIDGE_CREDENTIAL_VAULT_KEY: Buffer.alloc(32, 7).toString("base64"),
+  BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID: undefined,
+  BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY: undefined,
+} as const;
+
+const PUBLIC_CLOUD_PRODUCTION_ENV = {
+  ...COMPLETE_PRODUCTION_ENV,
+  API_ALLOWED_ORIGINS: undefined,
+  BRIDGE_RENDER_WEB_HOST: "bridge-pilot-web.onrender.com",
+  BRIDGE_LOCAL_DIR: "/tmp/bridge-public-only/local",
+  BRIDGE_FILES_ROOT: "/tmp/bridge-public-only/files",
+  BRIDGE_LOCAL_RESIDENCY: "public-cloud",
+  BRIDGE_DEALPILOT_CREDENTIAL_VAULT: "disabled",
+  BRIDGE_CREDENTIAL_VAULT_KEY_ID: undefined,
+  BRIDGE_CREDENTIAL_VAULT_KEY: undefined,
+} as const;
 
 function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
   const prior: Record<string, string | undefined> = {};
@@ -51,6 +88,21 @@ async function withEnvAsync<T>(vars: Record<string, string | undefined>, fn: () 
 test("CORS: explicit API_ALLOWED_ORIGINS always wins, in any NODE_ENV", () => {
   withEnv({ API_ALLOWED_ORIGINS: "https://test_fixture_a.example, https://test_fixture_b.example", NODE_ENV: "production" }, () => {
     assert.deepEqual(corsOriginConfig(), ["https://test_fixture_a.example", "https://test_fixture_b.example"]);
+  });
+
+  test("CORS: Render static host derives one exact HTTPS origin", () => {
+    withEnv(
+      {
+        API_ALLOWED_ORIGINS: undefined,
+        BRIDGE_RENDER_WEB_HOST: "bridge-pilot-web.onrender.com",
+        NODE_ENV: "production",
+      },
+      () => {
+        assert.deepEqual(corsOriginConfig(), [
+          "https://bridge-pilot-web.onrender.com",
+        ]);
+      },
+    );
   });
   withEnv({ API_ALLOWED_ORIGINS: "https://test_fixture_a.example", NODE_ENV: undefined }, () => {
     assert.deepEqual(corsOriginConfig(), ["https://test_fixture_a.example"]);
@@ -105,21 +157,225 @@ test("CORS (SEC-2): a configured verifier forces restrictive CORS even in non-pr
 });
 
 test("assertProductionEnv: refuses to boot in production without DATABASE_URL", () => {
-  withEnv({ NODE_ENV: "production", DATABASE_URL: undefined }, () => {
+  withEnv({ ...COMPLETE_PRODUCTION_ENV, DATABASE_URL: undefined }, () => {
     assert.throws(() => assertProductionEnv(), /DATABASE_URL/);
   });
 });
 
-test("assertProductionEnv: passes in production when DATABASE_URL is set", () => {
+test("assertProductionEnv: accepts the complete hosted pilot contract", () => {
+  withEnv(COMPLETE_PRODUCTION_ENV, () => {
   withEnv({ NODE_ENV: "production", DATABASE_URL: "postgres://test_fixture_user:test_fixture_pw@localhost:5432/test_fixture_db" }, () => {
     assert.doesNotThrow(() => assertProductionEnv());
   });
+
+  test("assertProductionEnv: accepts public-cloud only with ephemeral scratch and no vault", () => {
+    withEnv(PUBLIC_CLOUD_PRODUCTION_ENV, () => {
+      assert.doesNotThrow(() => assertProductionEnv());
+    });
+    for (const [key, value, expected] of [
+      ["BRIDGE_LOCAL_DIR", "/var/lib/bridge/local", /scratch paths/],
+      ["BRIDGE_FILES_ROOT", "/var/lib/bridge/files", /scratch paths/],
+      ["BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "encrypted-file", /disabled/],
+      ["BRIDGE_CREDENTIAL_VAULT_KEY_ID", "unexpected", /forbids credential vault keys/],
+    ] as const) {
+      withEnv({ ...PUBLIC_CLOUD_PRODUCTION_ENV, [key]: value }, () => {
+        assert.throws(() => assertProductionEnv(), expected);
+      });
+    }
+  });
+  });
+});
+
+test("assertProductionEnv: rejects unsafe residency, Auth, CORS, and vault settings", () => {
+  const cases: Array<[keyof typeof COMPLETE_PRODUCTION_ENV, string | undefined, RegExp]> = [
+    ["SUPABASE_URL", "http://test-fixture.supabase.co", /SUPABASE_URL/],
+    ["API_ALLOWED_ORIGINS", "http://bridge.test", /API_ALLOWED_ORIGINS/],
+    ["BRIDGE_PILOT_USER_ID", "not-a-uuid", /BRIDGE_PILOT_USER_ID/],
+    ["BRIDGE_LOCAL_DIR", "relative/local", /BRIDGE_LOCAL_DIR/],
+    ["BRIDGE_LOCAL_RESIDENCY", undefined, /BRIDGE_LOCAL_RESIDENCY/],
+    ["BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "os-keyring", /BRIDGE_DEALPILOT_CREDENTIAL_VAULT/],
+    ["BRIDGE_CREDENTIAL_VAULT_KEY", "not-a-key", /BRIDGE_CREDENTIAL_VAULT_KEY/],
+  ];
+  for (const [key, value, expected] of cases) {
+    withEnv({ ...COMPLETE_PRODUCTION_ENV, [key]: value }, () => {
+      assert.throws(() => assertProductionEnv(), expected);
+    });
+  }
+});
+
+test("assertProductionEnv: requires both halves of a vault rotation key", () => {
+  withEnv(
+    {
+      ...COMPLETE_PRODUCTION_ENV,
+      BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID: "test-key-0",
+      BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY: undefined,
+    },
+    () => {
+      assert.throws(() => assertProductionEnv(), /configure together/);
+    },
+  );
 });
 
 test("assertProductionEnv: no-op outside production even without DATABASE_URL", () => {
   withEnv({ NODE_ENV: "development", DATABASE_URL: undefined }, () => {
     assert.doesNotThrow(() => assertProductionEnv());
   });
+});
+
+test("server host: a managed sidecar is loopback-only even with shared deployment settings", () => {
+  withEnv(
+    {
+      BRIDGE_SIDECAR_TOKEN: "a".repeat(64),
+      API_HOST: "0.0.0.0",
+      DATABASE_URL: "postgres://test_fixture",
+    },
+    () => {
+      assert.equal(serverHostConfig(), "127.0.0.1");
+    },
+  );
+});
+
+test("managed sidecar listeners are inherited and fail closed without a reservation", async () => {
+  if (process.platform !== "win32") {
+    withEnv({ BRIDGE_LISTEN_FD: "12" }, () => {
+      assert.equal(inheritedListenFd(), 12);
+    });
+  }
+  withEnv({ BRIDGE_LISTEN_FD: "not-a-descriptor" }, () => {
+    assert.throws(
+      () => inheritedListenFd(),
+      process.platform === "win32"
+        ? /unsupported on Windows/
+        : /numeric file descriptor/,
+    );
+  });
+  await withEnvAsync(
+    {
+      BRIDGE_LISTEN_FD: undefined,
+      BRIDGE_SIDECAR_TOKEN: "a".repeat(64),
+    },
+    async () => {
+      const app = Fastify();
+      try {
+        await assert.rejects(
+          listenServer(app, 0),
+          /parent-retained inherited loopback listener/,
+        );
+      } finally {
+        await app.close();
+      }
+    },
+  );
+});
+
+test("desktop OAuth redirect uses the API's child-bound loopback port", () => {
+  assert.equal(
+    desktopOAuthRedirectUri({
+      address: "127.0.0.1",
+      family: "IPv4",
+      port: 43123,
+    }),
+    "http://127.0.0.1:43123/integrations/google/callback",
+  );
+  assert.throws(
+    () =>
+      desktopOAuthRedirectUri({
+        address: "0.0.0.0",
+        family: "IPv4",
+        port: 43123,
+      }),
+    /bound loopback TCP address/,
+  );
+});
+
+test("desktop sidecar shuts down when its inherited parent-liveness pipe closes", async () => {
+  const pipe = new PassThrough();
+  let shutdowns = 0;
+  const stop = watchParentLiveness(pipe, () => {
+    shutdowns += 1;
+  });
+  try {
+    pipe.end();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(shutdowns, 1);
+  } finally {
+    stop();
+    pipe.destroy();
+  }
+});
+
+test("sidecar shutdown exits on completion and has an independent deadline", async (t) => {
+  const gracefulExits: number[] = [];
+  closeServerWithDeadline(
+    { close: async () => {} },
+    (code) => gracefulExits.push(code),
+    50,
+  );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(gracefulExits, [0]);
+
+  const forcedExits: number[] = [];
+  let idleSweeps = 0;
+  const error = t.mock.method(console, "error", () => {});
+  closeServerWithDeadline(
+    {
+      close: () => new Promise<void>(() => {}),
+      server: {
+        closeIdleConnections: () => {
+          idleSweeps += 1;
+        },
+      },
+    },
+    (code) => forcedExits.push(code),
+    20,
+    5,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(forcedExits, [1]);
+  assert.ok(idleSweeps > 1);
+  assert.match(
+    String(error.mock.calls[0]?.arguments[0]),
+    /graceful shutdown timed out/,
+  );
+});
+
+test("desktop sidecar capability protects loopback routes and accepts only the exact token", async () => {
+  const sidecarToken = "a".repeat(64);
+  await withEnvAsync(
+    {
+      BRIDGE_SIDECAR_TOKEN: sidecarToken,
+      SUPABASE_JWT_SECRET: undefined,
+      SUPABASE_URL: undefined,
+    },
+    async () => {
+      const app = await buildServer();
+      try {
+        const missing = await app.inject({ method: "GET", url: "/health" });
+        assert.equal(missing.statusCode, 401);
+        const invalid = await app.inject({
+          method: "GET",
+          url: "/health",
+          headers: { "x-bridge-sidecar-token": "b".repeat(64) },
+        });
+        assert.equal(invalid.statusCode, 401);
+        const valid = await app.inject({
+          method: "GET",
+          url: "/health",
+          headers: { "x-bridge-sidecar-token": sidecarToken },
+        });
+        assert.equal(valid.statusCode, 200);
+        const shutdown = await app.inject({
+          method: "POST",
+          url: "/internal/sidecar/shutdown",
+          headers: { "x-bridge-sidecar-token": sidecarToken },
+        });
+        assert.equal(shutdown.statusCode, 202);
+        assert.deepEqual(shutdown.json(), { stopping: true });
+      } finally {
+        await app.close();
+      }
+    },
+  );
 });
 
 test("verify failure (bad bearer token) yields a clean 401, not a 500/unhandled rejection — even when the tRPC procedure itself needs no auth", async () => {
@@ -155,7 +411,7 @@ test("verify failure (bad bearer token) yields a clean 401, not a 500/unhandled 
 test("SEC-1: an unauthenticated mutation is rejected with 401 under a configured verifier", async () => {
   // A verifier IS configured (SUPABASE_JWT_SECRET) but the request carries NO bearer
   // token. Pre-SEC-1 this silently resolved to the pilot identity and the mutation ran;
-  // now `requireAuthOnMutation` must reject it before the resolver executes. The gate
+  // now the authenticated procedure middleware rejects it before the resolver executes. The gate
   // fires ahead of input parsing, so an empty body still exercises exactly this path.
   await withEnvAsync(
     { SUPABASE_JWT_SECRET: "test_fixture_correct_secret", SUPABASE_URL: undefined },
@@ -178,17 +434,64 @@ test("SEC-1: an unauthenticated mutation is rejected with 401 under a configured
   );
 });
 
-test("SEC-1: a query is NOT gated by the mutation auth check (reads still open under a verifier)", async () => {
-  // The gate is mutation-only. A tokenless GET to a query/health path under a configured
-  // verifier must NOT be turned away by `requireAuthOnMutation` (it 200s; a bad *token*
-  // is still rejected by identity resolution, covered by the test above).
+test("hosted Auth: tokenless reads are rejected under a configured verifier", async () => {
   await withEnvAsync(
     { SUPABASE_JWT_SECRET: "test_fixture_correct_secret", SUPABASE_URL: undefined },
     async () => {
       const app = await buildServer();
       try {
         const res = await app.inject({ method: "GET", url: "/trpc/health" });
-        assert.equal(res.statusCode, 200);
+        assert.equal(res.statusCode, 401);
+      } finally {
+        await app.close();
+      }
+    },
+  );
+});
+
+test("hosted Auth: only the configured pilot subject is admitted and activated", async () => {
+  const secret = "test_fixture_correct_secret";
+  await withEnvAsync(
+    {
+      SUPABASE_JWT_SECRET: secret,
+      SUPABASE_URL: undefined,
+      NODE_ENV: "test",
+      BRIDGE_PILOT_USER_ID: PILOT_USER,
+      BRIDGE_PILOT_USER_EMAIL: "pilot@bridge.test",
+    },
+    async () => {
+      const app = await buildServer();
+      try {
+        const approved = await new SignJWT({ sub: PILOT_USER })
+          .setProtectedHeader({ alg: "HS256" })
+          .setIssuedAt()
+          .setExpirationTime("5m")
+          .sign(new TextEncoder().encode(secret));
+        const activation = await app.inject({
+          method: "POST",
+          url: "/trpc/organization.activateSession",
+          headers: {
+            authorization: `Bearer ${approved}`,
+            "content-type": "application/json",
+          },
+          payload: { json: null },
+        });
+        assert.equal(activation.statusCode, 200);
+        assert.equal(activation.json().result.data.userId, PILOT_USER);
+
+        const unapproved = await new SignJWT({
+          sub: "20000000-0000-4000-8000-000000000099",
+        })
+          .setProtectedHeader({ alg: "HS256" })
+          .setIssuedAt()
+          .setExpirationTime("5m")
+          .sign(new TextEncoder().encode(secret));
+        const denied = await app.inject({
+          method: "GET",
+          url: "/trpc/health",
+          headers: { authorization: `Bearer ${unapproved}` },
+        });
+        assert.equal(denied.statusCode, 403);
       } finally {
         await app.close();
       }
@@ -249,13 +552,14 @@ test("SEC-2: a burst against a sensitive procedure trips the rate limiter (429)"
 });
 
 test("public Helpdesk create/read/reply paths use the tight sensitive rate bucket", () => {
-  assert.equal(rateLimitBucket("/trpc/helpdesk.public.createTicket"), "sensitive");
-  assert.equal(rateLimitBucket("/trpc/helpdesk.public.getThread?batch=1"), "sensitive");
-  assert.equal(rateLimitBucket("/trpc/helpdesk.public.reply"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/relationship.helpdesk.public.createTicket"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/relationship.helpdesk.public.getThread?batch=1"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/relationship.helpdesk.public.reply"), "sensitive");
 });
 
 test("governed Automation Runs use the tight sensitive rate bucket", () => {
-  assert.equal(rateLimitBucket("/trpc/ritual.runById"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/automation.runById"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/commons.runInstalledSkill"), "sensitive");
   assert.equal(rateLimitBucket("/trpc/dealpilot.discoverDeals"), "sensitive");
   assert.equal(rateLimitBucket("/trpc/health"), "global");
 });

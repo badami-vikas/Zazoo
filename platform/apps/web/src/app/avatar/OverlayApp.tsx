@@ -4,10 +4,10 @@
  * Rendered by the separate Vite entry `overlay.html` inside the Tauri
  * "overlay" window (apps/desktop src-tauri/src/overlay.rs): ~96×96,
  * transparent, undecorated, always-on-top, anchored bottom-right. Reuses the
- * exact same Creature + avatar-store as the in-page AvatarOverlay so the two
+ * exact same AvatarFigure + avatar-store as the in-page AvatarOverlay so the two
  * surfaces can never drift apart visually.
  *
- * State machine (adopted Invoko spec; v1 minimal-egg subset implemented):
+ * State machine (adopted Invoko spec; v1 operational subset implemented):
  *   collapsed → hover → expanded_idle → working → result_ready → error
  *     → dismissing → collapsed
  * v1 ships collapsed / hover / expanded_idle / working (+ error passthrough
@@ -19,21 +19,17 @@
  * bottom-right corner pinned) — the panel is real OS chrome, not a div
  * overflowing a fixed window.
  *
- * **Drag (TASK-003)**: The collapsed avatar has a drag handle at its top with
- * `data-tauri-drag-region`. Tauri routes that attribute to the OS window-move
- * primitive (works on all platforms, no macOS-only dep). On drag end
- * (pointerup), `overlay_save_position` persists the physical window position;
- * `overlay_get_position` is called on mount to confirm the Rust-side restore
- * succeeded.
+ * **Drag (TASK-003)**: The collapsed avatar uses Tauri's native drag-region
+ * hook. Rust debounces the resulting native move events and saves the
+ * reconciled position. `overlay_get_position` is called on mount to confirm
+ * the Rust-side restore succeeded.
  *
- * **macOS Spaces / fullscreen (NOT implemented — local macOS session required)**
- * See overlay.rs module doc for the three specific macOS blockers
- * (tauri-nspanel, NSWindowCollectionBehaviorCanJoinAllSpaces,
- * NSWindowCollectionBehaviorFullScreenAuxiliary).
+ * On macOS the Rust window is an NSPanel configured for all Spaces and
+ * fullscreen auxiliary presence.
  */
-import { useEffect, useRef, useState } from "react";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { Creature } from "./AvatarOverlay";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
+import { AvatarFigure } from "./AvatarOverlay";
 import {
   CAPTURE_EVENT,
   STATUS_LABEL,
@@ -46,6 +42,16 @@ interface ChatTurn {
   role: "user" | "assistant";
   text: string;
 }
+
+interface AvatarPointerGesture {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  dragStarted: boolean;
+}
+
+const AVATAR_DRAG_THRESHOLD_PX = 4;
+const AVATAR_SESSION_READY_EVENT = "bridge:avatar-session-ready";
 
 /** Full Invoko-spec vocabulary; v1 drives the first four (+ error). */
 export type CompanionState =
@@ -82,11 +88,31 @@ function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<unkno
   });
 }
 
+async function tauriListen<T>(event: string, callback: (payload: T) => void): Promise<() => void> {
+  const internals = typeof window !== "undefined" ? window.__TAURI_INTERNALS__ : undefined;
+  if (!internals?.invoke || !internals.transformCallback) return () => undefined;
+  const handler = internals.transformCallback((data: unknown) => {
+    const eventData = data as { payload?: T };
+    if (eventData && "payload" in eventData) callback(eventData.payload as T);
+  });
+  const eventId = await internals.invoke("plugin:event|listen", {
+    event,
+    target: { kind: "Any" },
+    handler,
+  });
+  if (typeof eventId !== "number") throw new Error(`Invalid Tauri listener id for ${event}`);
+  return () => {
+    void internals.invoke("plugin:event|unlisten", { event, eventId }).catch((error: unknown) => {
+      console.error("[companion] unlisten failed", event, error);
+    });
+  };
+}
+
 export function OverlayApp() {
-  // localStorage is shared with the main window (same origin), so the
-  // companion always shows the same hatched animal/name. `true`: by the time
-  // the desktop shell exists, this install is an existing user.
-  const [prefs] = useState(() => loadAvatarPrefs(true));
+  // Persisted visual preferences are not proof that this launch has an active
+  // Organization. The native shell owns that session-scoped readiness gate.
+  const [prefs, setPrefs] = useState(() => loadAvatarPrefs(false));
+  const [sessionReady, setSessionReady] = useState(false);
   const status = useAvatarStatus();
   // "status" = the existing pending-approvals panel (click the avatar).
   // "chat" = the hover chat bubble's compact inline chat.
@@ -94,6 +120,8 @@ export function OverlayApp() {
   const [hovering, setHovering] = useState(false);
   const [blinking, setBlinking] = useState(false);
   const blinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const avatarPointerGesture = useRef<AvatarPointerGesture | null>(null);
+  const suppressAvatarClick = useRef(false);
 
   const [pendingCount, setPendingCount] = useState<number | null>(null);
   const [pendingError, setPendingError] = useState(false);
@@ -109,10 +137,73 @@ export function OverlayApp() {
   const [chatSending, setChatSending] = useState(false);
   const [chatChainDepth, setChatChainDepth] = useState(0);
 
-  // Drag state — ref (not state) to avoid a re-render mid-drag.
-  const dragActiveRef = useRef(false);
-
   const expanded = panel !== "none";
+
+  useEffect(() => {
+    let active = true;
+    const refreshPreferences = () => {
+      if (active) setPrefs(loadAvatarPrefs(false));
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === "bridge.avatar.v2") refreshPreferences();
+    };
+    window.addEventListener("storage", onStorage);
+    refreshPreferences();
+    return () => {
+      active = false;
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    let eventGeneration = 0;
+    let unlisten: () => void = () => undefined;
+
+    const applyReadiness = (ready: boolean) => {
+      if (!active) return;
+      setSessionReady(ready);
+      setPrefs(loadAvatarPrefs(false));
+      if (!ready) {
+        setPanel("none");
+        setHovering(false);
+        setMenuOpen(false);
+      }
+    };
+
+    void (async () => {
+      unlisten = await tauriListen<boolean>(AVATAR_SESSION_READY_EVENT, (ready) => {
+        eventGeneration += 1;
+        applyReadiness(ready);
+      });
+      if (!active) {
+        unlisten();
+        return;
+      }
+      const generationBeforeRead = eventGeneration;
+      const ready = await tauriInvoke("overlay_get_session_ready");
+      if (
+        active &&
+        eventGeneration === generationBeforeRead &&
+        typeof ready === "boolean"
+      ) {
+        applyReadiness(ready);
+      }
+    })().catch((error: unknown) => {
+      console.error("[companion] readiness handshake failed", error);
+    });
+
+    return () => {
+      active = false;
+      unlisten();
+    };
+  }, []);
+
+  useEffect(() => {
+    void tauriInvoke(
+      sessionReady && prefs.avatarReady ? "overlay_present" : "overlay_conceal",
+    );
+  }, [sessionReady, prefs.avatarReady]);
 
   // Derived companion state (the machine's read model).
   const working =
@@ -155,21 +246,6 @@ export function OverlayApp() {
     });
   }, []);
 
-  // Drag end handler — attached once per pointerdown on the drag handle.
-  // Saves the window's new physical position after the OS drag completes.
-  function handleDragHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (e.button !== 0) return;
-    dragActiveRef.current = true;
-    const onUp = () => {
-      if (dragActiveRef.current) {
-        dragActiveRef.current = false;
-        void tauriInvoke("overlay_save_position");
-      }
-      document.removeEventListener("pointerup", onUp);
-    };
-    document.addEventListener("pointerup", onUp, { once: true });
-  }
-
   // Window chrome follows the state machine. The right-click menu takes
   // priority over everything else — it's a modal-ish overlay on top of
   // whatever panel state was active, and always gets its own (smallest)
@@ -197,12 +273,58 @@ export function OverlayApp() {
     // for "how many actions await approval".
     setPendingError(false);
     trpc.action.listPending
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 1, offset: 0 })
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 1, offset: 0 })
       .then((res) => setPendingCount(res.total))
       .catch(() => {
         setPendingCount(null);
         setPendingError(true);
       });
+  }
+
+  function beginAvatarPointerGesture(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!event.isPrimary || event.button !== 0) return;
+    suppressAvatarClick.current = false;
+    avatarPointerGesture.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragStarted: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function continueAvatarPointerGesture(event: ReactPointerEvent<HTMLButtonElement>) {
+    const gesture = avatarPointerGesture.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.dragStarted) return;
+    if (
+      Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) <
+      AVATAR_DRAG_THRESHOLD_PX
+    ) {
+      return;
+    }
+
+    gesture.dragStarted = true;
+    suppressAvatarClick.current = true;
+    event.preventDefault();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    void tauriInvoke("overlay_start_dragging");
+  }
+
+  function endAvatarPointerGesture(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    avatarPointerGesture.current = null;
+  }
+
+  function activateAvatar() {
+    if (suppressAvatarClick.current) {
+      suppressAvatarClick.current = false;
+      return;
+    }
+    openStatusPanel();
   }
 
   function openChatPanel() {
@@ -217,10 +339,9 @@ export function OverlayApp() {
     setChatTurns((prev) => [...prev, { role: "user", text: message }]);
     try {
       const result = await trpc.chiefOfStaff.converse.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         message,
         chainDepth: chatChainDepth,
-        animal: prefs.animal,
       });
       setChatTurns((prev) => [...prev, { role: "assistant", text: result.reply }]);
       setChatChainDepth(result.decision.kind === "route" ? chatChainDepth + 1 : 0);
@@ -253,8 +374,9 @@ export function OverlayApp() {
     });
   }
 
-  const name = prefs.avatarName || prefs.animal[0]!.toUpperCase() + prefs.animal.slice(1);
+  const name = prefs.avatarName || "Bridge Avatar";
   const label = STATUS_LABEL[status];
+  if (!sessionReady || !prefs.avatarReady) return null;
 
   return (
     <div
@@ -455,10 +577,8 @@ export function OverlayApp() {
            * so the two hit areas are non-overlapping — the drag handle is for
            * moving the window; the button is for opening the status panel.
            *
-           * `data-tauri-drag-region` on the drag handle tells Tauri to initiate
-           * an OS-level window move when the user presses on it. This is the
-           * cross-platform-safe drag primitive (works on macOS, Windows, Linux).
-           * The `pointerdown` handler saves the position when the drag ends.
+           * Tauri's drag-region hook starts the native drag; Rust saves the
+           * final position from the resulting debounced window-move events.
            *
            * The handle is hidden while a panel is expanded — the window is
            * larger then and the user is interacting with content, not dragging.
@@ -467,7 +587,6 @@ export function OverlayApp() {
             {!expanded && (
               <div
                 data-tauri-drag-region
-                onPointerDown={handleDragHandlePointerDown}
                 role="button"
                 tabIndex={0}
                 aria-label={`Drag to move ${name}`}
@@ -500,17 +619,28 @@ export function OverlayApp() {
             )}
             <button
               type="button"
-              onClick={openStatusPanel}
+              onPointerDown={beginAvatarPointerGesture}
+              onPointerMove={continueAvatarPointerGesture}
+              onPointerUp={endAvatarPointerGesture}
+              onPointerCancel={endAvatarPointerGesture}
+              onClick={activateAvatar}
               aria-label={`${name}, ${label}`}
-              title={label}
+              title={`${label} — drag to move`}
               className="w-14 h-14 rounded-full bg-background border border-border shadow-md flex items-center justify-center focus:outline-none focus-visible:ring-2"
               style={{
+                cursor: "grab",
+                touchAction: "none",
                 animation:
                   status === "idle" ? "bridge-companion-breathe 3.2s ease-in-out infinite" : undefined,
               }}
             >
               <div className="w-11 h-11" role="img" aria-label={`Avatar state: ${label}`}>
-                <Creature animal={prefs.animal} status={status} blinking={blinking} reducedMotion={false} />
+                <AvatarFigure
+                  avatarStyle={prefs.style}
+                  status={status}
+                  blinking={blinking}
+                  reducedMotion={false}
+                />
               </div>
             </button>
           </div>

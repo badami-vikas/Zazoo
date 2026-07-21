@@ -2,7 +2,7 @@
   "name": "@bridge/eslint-rules",
   "private": true,
   "version": "0.0.0",
-  "description": "Local ESLint rules enforcing Bridge AI's CLAUDE.md conventions (banned CRM vocabulary in identifiers; dummy_-prefix rule retired 2026-07-06, kept as a documented no-op — see src/dummy-prefix.js).",
+  "description": "Local ESLint rules enforcing Bridge's scoped Engine and Module vocabulary conventions.",
   "type": "module",
   "main": "src/index.js",
   "exports": {

@@ -1,7 +1,7 @@
 /**
  * PI-2 — tainted-context egress gate (the RUNTIME data-flow half of the lethal
- * trifecta). The static manifest audit (`package/risk.ts::packageHasLethalTrifecta`:
- * privateRead && untrustedIngest && egress) tells us a package *could* exfiltrate; this
+ * trifecta). The static manifest audit (`module/risk.ts::moduleHasLethalTrifecta`:
+ * privateRead && untrustedIngest && egress) tells us a module *could* exfiltrate; this
  * gate governs the actual turn: when the effective provenance is `untrusted_external`,
  * any egress (external:send / share) is forced to human review instead of auto-applying.
  *
@@ -29,7 +29,7 @@ export const TAINTED_EGRESS_RESOURCES: ReadonlySet<ResourceType> = new Set<Resou
   "external:send",
 ]);
 
-/** True when this action leaves the workspace boundary (egress). */
+/** True when this action leaves the organization boundary (egress). */
 function isEgress(action: Action, resourceType: ResourceType): boolean {
   return TAINTED_EGRESS_RESOURCES.has(resourceType) || action === "share";
 }

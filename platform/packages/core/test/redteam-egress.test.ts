@@ -73,7 +73,7 @@ function freshCtx(startISO = "2026-06-01T00:00:00.000Z", seed = 42): RunCtx {
  * can gate it is the PI-2 taint rule, not authority. */
 function egressReq(partial: Partial<ActionRequest>): ActionRequest {
   return {
-    workspaceId: WS,
+    organizationId: WS,
     actor: { type: "user", id: "u1", plane: "cloud" },
     action: "share",
     resourceType: "external:send",
@@ -126,7 +126,7 @@ test("evaluateTaintedEgress: untagged (undefined) egress is allowed → null", (
 
 test("taintedEgressPolicy: fires only at runtime phase", () => {
   const base = {
-    workspaceId: WS,
+    organizationId: WS,
     actor: { type: "user" as const, id: "u1" },
     action: "share" as const,
     resourceType: "external:send" as const,
@@ -182,7 +182,7 @@ test("CONTROL: untrusted context on a NON-egress action (write person) still aut
   ]);
   const p = await h.pipeline.propose(
     {
-      workspaceId: WS,
+      organizationId: WS,
       actor: { type: "user", id: "u1" },
       action: "write",
       resourceType: "person",

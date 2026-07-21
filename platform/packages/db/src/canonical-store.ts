@@ -3,7 +3,7 @@
  *
  * Dual-write rule (decisions.md): the ONLY thing that crosses the gate outward to
  * cloud canonical is a counterparty's PUBLIC / identity-grade fact (name, email,
- * company). Private relationship data — Gmail/Calendar bodies, derived Touchpoints/
+ * company). Private relationship data — Gmail/Calendar bodies, derived Events/
  * Memories/Signals, warmth — NEVER lands here; it stays in @bridge/local.
  *
  * This store writes only `people_canonical` (GLOBAL-deduped, no tenant linkage),

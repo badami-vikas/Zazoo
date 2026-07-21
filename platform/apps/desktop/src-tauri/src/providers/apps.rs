@@ -69,8 +69,8 @@ impl AppsProvider {
 /// main thread on a fresh Cocoa call each poll tick.
 fn frontmost_app() -> Option<(String, String)> {
     autoreleasepool(|_| {
-        let workspace = NSWorkspace::sharedWorkspace();
-        let app = workspace.frontmostApplication()?;
+        let app_manager = NSWorkspace::sharedWorkspace();
+        let app = app_manager.frontmostApplication()?;
         let name = app
             .localizedName()
             .map(|s| s.to_string())

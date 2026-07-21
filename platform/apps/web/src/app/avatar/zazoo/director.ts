@@ -76,7 +76,7 @@ interface Pose {
   pawChest: number; // 0..1 paw-over-chest (comforting)
   pawMeditate: number; // 0..1 both paws meet at front, palms up
   squash: number; // 0..1 body squash (sneak/anticipation)
-  hide: number; // 0..1 roll-and-wrap into own suit → cloth egg
+  hide: number; // 0..1 roll-and-wrap into a compact cloth bundle
   levitate: number; // 0..1 meditation float
   gazeBiasX: number; // -1..1 emotion-driven gaze offset
   gazeBiasY: number;

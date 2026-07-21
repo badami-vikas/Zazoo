@@ -3,12 +3,13 @@ import { ArrowLeft, LifeBuoy, Send } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { Button } from "../components/ui/button";
 import { Header } from "../components/shared/Header";
+import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { collectAllPages } from "../lib/pagination";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 
-type TicketPage = Awaited<ReturnType<typeof trpc.helpdesk.list.query>>;
+type TicketPage = Awaited<ReturnType<typeof trpc.relationship.helpdesk.list.query>>;
 type Ticket = TicketPage["items"][number];
-type Thread = Awaited<ReturnType<typeof trpc.helpdesk.get.query>>;
+type Thread = Awaited<ReturnType<typeof trpc.relationship.helpdesk.get.query>>;
 
 function displayDate(value: string | Date): string {
   const date = new Date(value);
@@ -22,7 +23,7 @@ export function RelationshipHelpdeskPage() {
 
   useEffect(() => {
     collectAllPages((offset, limit) =>
-      trpc.helpdesk.list.query({ workspaceId: PILOT_WORKSPACE, limit, offset }),
+      trpc.relationship.helpdesk.list.query({ organizationId: PILOT_ORGANIZATION, limit, offset }),
     )
       .then((items) => setPage({ items, total: items.length, hasMore: false }))
       .catch((cause) => setError(String(cause)));
@@ -59,7 +60,7 @@ export function RelationshipHelpdeskPage() {
           style={{ borderColor: "var(--color-border)" }}
         />
       </div>
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 space-y-8 overflow-auto p-4">
         {tickets.length === 0 ? (
           <div className="rounded-xl border border-dashed p-8 text-center" style={{ borderColor: "var(--color-border)" }}>
             <LifeBuoy className="mx-auto w-8 h-8" style={{ color: "var(--color-warm-gray)" }} />
@@ -92,6 +93,7 @@ export function RelationshipHelpdeskPage() {
             ))}
           </div>
         )}
+        <ModuleFilesSection moduleName="relationship" />
       </div>
     </div>
   );
@@ -107,8 +109,8 @@ export function RelationshipHelpdeskThreadPage() {
 
   async function refresh(expectedTicketId: string, generation: number): Promise<void> {
     try {
-      const nextThread = await trpc.helpdesk.get.query({
-        workspaceId: PILOT_WORKSPACE,
+      const nextThread = await trpc.relationship.helpdesk.get.query({
+        organizationId: PILOT_ORGANIZATION,
         ticketId: expectedTicketId,
       });
       if (requestGeneration.current === generation) {
@@ -141,8 +143,8 @@ export function RelationshipHelpdeskThreadPage() {
     setBusy(true);
     setError(null);
     try {
-      await trpc.helpdesk.reply.mutate({
-        workspaceId: PILOT_WORKSPACE,
+      await trpc.relationship.helpdesk.reply.mutate({
+        organizationId: PILOT_ORGANIZATION,
         ticketId: targetTicketId,
         body,
         status: "pending",

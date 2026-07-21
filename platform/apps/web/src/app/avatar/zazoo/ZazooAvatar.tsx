@@ -52,7 +52,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
   const refs = {
     root: useRef<SVGGElement>(null),
     cat: useRef<SVGGElement>(null),
-    egg: useRef<SVGGElement>(null),
+    bundle: useRef<SVGGElement>(null),
     body: useRef<SVGGElement>(null),
     tail: useRef<SVGGElement>(null),
     earL: useRef<SVGGElement>(null),
@@ -98,8 +98,8 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
           ? `translate(${(120 + h * 12).toFixed(1)} 256) rotate(${(h * 900).toFixed(1)}) scale(${(1 - h * 0.5).toFixed(3)} ${(1 - h * 0.55).toFixed(3)}) translate(-120 -256)`
           : "",
       );
-      r.egg.current!.setAttribute("opacity", h < 0.3 ? "0" : ((h - 0.3) / 0.7).toFixed(3));
-      r.egg.current!.setAttribute(
+      r.bundle.current!.setAttribute("opacity", h < 0.3 ? "0" : ((h - 0.3) / 0.7).toFixed(3));
+      r.bundle.current!.setAttribute(
         "transform",
         `translate(${(120 + (1 - Math.min(1, h * 1.1)) * 4).toFixed(1)} 272) rotate(${((1 - Math.min(1, h * 1.1)) * 140).toFixed(1)}) scale(${(0.55 + h * 0.45).toFixed(3)}) translate(-120 -272)`,
       );
@@ -211,7 +211,6 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [director]);
 
   const { body, suit, accessory } = appearance;
@@ -237,8 +236,8 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
           <stop offset="70%" stopColor={body} />
           <stop offset="100%" stopColor={bodyDark} />
         </radialGradient>
-        {/* the rolled-up hide egg takes the SUIT's color (wrapped cloth), never a fixed grey */}
-        <radialGradient id="zz-egg" cx="0.42" cy="0.3" r="0.9">
+        {/* The rolled-up bundle takes the suit's color. */}
+        <radialGradient id="zz-bundle" cx="0.42" cy="0.3" r="0.9">
           <stop offset="0%" stopColor={suitLight} />
           <stop offset="100%" stopColor={suitDark} />
         </radialGradient>
@@ -251,9 +250,9 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       <g ref={refs.root}>
         <ellipse ref={refs.shadow} cx="120" cy="294" rx="62" ry="7" fill="#000" opacity="0.10" />
 
-        {/* miniature grey egg — all that remains in the hide pose */}
-        <g ref={refs.egg} opacity="0">
-          <ellipse cx="120" cy="274" rx="24" ry="17" fill="url(#zz-egg)" />
+        {/* Compact cloth bundle shown in the hide pose. */}
+        <g ref={refs.bundle} opacity="0">
+          <ellipse cx="120" cy="274" rx="24" ry="17" fill="url(#zz-bundle)" />
           <ellipse cx="113" cy="268" rx="7" ry="5" fill="#E3E5E9" opacity="0.7" />
         </g>
 
@@ -275,7 +274,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
               <path d="M 165,107 C 168,89 161,79 151,84 C 144,88 143,100 145,110 Z" fill={inner} opacity="0.75" />
             </g>
 
-            {/* egg body */}
+            {/* rounded body */}
             <path
               d="M 120,84 C 176,84 202,142 202,200 C 202,258 164,288 120,288 C 76,288 38,258 38,200 C 38,142 64,84 120,84 Z"
               fill="url(#zz-body)"

@@ -17,9 +17,14 @@
  * created that doesn't also exist in the deployed wiring code.
  */
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import type { ChildRunPolicy, DataScope, Plane, RiskBand, SkillManifest, SkillManifestRegistry } from "@bridge/core";
 import type { Database } from "./client.js";
 import { skillManifests } from "./schema.js";
+import {
+  withDefaultOrganization,
+  withOrganizationOnly,
+} from "./organization-context.js";
 
 const stringArraySchema = z.array(z.string());
 
@@ -59,7 +64,7 @@ function unpack(row: typeof skillManifests.$inferSelect): SkillManifest {
       : parseStringArray(row.requiredIntegrations, "required_integrations");
   const budget = parseBudget(row.budget);
   return {
-    workspaceId: row.workspaceId,
+    organizationId: row.organizationId,
     skillId: row.skillId,
     version: row.version,
     goalTypes: parseStringArray(row.goalTypes, "goal_types"),
@@ -80,11 +85,13 @@ function unpack(row: typeof skillManifests.$inferSelect): SkillManifest {
 
 export class DrizzleSkillManifestRegistry implements SkillManifestRegistry {
   #db: Database;
+  #defaultOrganizationId: string | undefined;
   #cache = new Map<string, SkillManifest[]>();
   #loaded = false;
 
-  constructor(db: Database) {
+  constructor(db: Database, defaultOrganizationId?: string) {
     this.#db = db;
+    this.#defaultOrganizationId = defaultOrganizationId;
   }
 
   /** Load the full catalog from the DB into an in-process read cache. Call once
@@ -93,11 +100,20 @@ export class DrizzleSkillManifestRegistry implements SkillManifestRegistry {
    * request, so this avoids a DB round-trip per proposed action. Safe to call
    * again to pick up a fresh seed (e.g. in tests). */
   async refresh(): Promise<void> {
-    const rows = await this.#db.select().from(skillManifests);
+    const rows = await withDefaultOrganization(
+      this.#db,
+      this.#defaultOrganizationId,
+      (tx) => {
+        const query = tx.select().from(skillManifests);
+        return this.#defaultOrganizationId
+          ? query.where(eq(skillManifests.organizationId, this.#defaultOrganizationId))
+          : query;
+      },
+    );
     const next = new Map<string, SkillManifest[]>();
     for (const row of rows) {
       const manifest = unpack(row);
-      const key = `${manifest.workspaceId}:${manifest.skillId}`;
+      const key = `${manifest.organizationId}:${manifest.skillId}`;
       const existing = next.get(key) ?? [];
       existing.push(manifest);
       next.set(key, existing);
@@ -112,14 +128,14 @@ export class DrizzleSkillManifestRegistry implements SkillManifestRegistry {
     }
   }
 
-  forSkill(workspaceId: string, skillId: string): readonly SkillManifest[] {
+  forSkill(organizationId: string, skillId: string): readonly SkillManifest[] {
     this.#requireLoaded();
-    return this.#cache.get(`${workspaceId}:${skillId}`) ?? [];
+    return this.#cache.get(`${organizationId}:${skillId}`) ?? [];
   }
 
-  all(workspaceId: string): readonly SkillManifest[] {
+  all(organizationId: string): readonly SkillManifest[] {
     this.#requireLoaded();
-    const prefix = `${workspaceId}:`;
+    const prefix = `${organizationId}:`;
     return [...this.#cache.entries()]
       .filter(([key]) => key.startsWith(prefix))
       .flatMap(([, manifests]) => manifests);
@@ -128,13 +144,13 @@ export class DrizzleSkillManifestRegistry implements SkillManifestRegistry {
 
 /**
  * Idempotently upsert the code-declared manifest catalog into `skill_manifests`
- * (unique on workspace_id+skill_id+version — re-running on every boot with the
+ * (unique on organization_id+skill_id+version — re-running on every boot with the
  * SAME declarations is a no-op update, not a growing duplicate list).
  */
 export async function seedSkillManifests(db: Database, catalog: readonly SkillManifest[]): Promise<void> {
   for (const manifest of catalog) {
     const values = {
-      workspaceId: manifest.workspaceId,
+      organizationId: manifest.organizationId,
       skillId: manifest.skillId,
       version: manifest.version,
       goalTypes: [...manifest.goalTypes],
@@ -152,16 +168,18 @@ export async function seedSkillManifests(db: Database, catalog: readonly SkillMa
       childRunPolicy: manifest.childRunPolicy ?? null,
     };
 
-    await db
-      .insert(skillManifests)
-      .values(values)
-      .onConflictDoUpdate({
-        target: [
-          skillManifests.workspaceId,
-          skillManifests.skillId,
-          skillManifests.version,
-        ],
-        set: values,
-      });
+    await withOrganizationOnly(db, manifest.organizationId, async (tx) => {
+      await tx
+        .insert(skillManifests)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [
+            skillManifests.organizationId,
+            skillManifests.skillId,
+            skillManifests.version,
+          ],
+          set: values,
+        });
+    });
   }
 }

@@ -127,6 +127,8 @@ function fakeModel(text: string): ModelProvider {
     id: "fake-local",
     plane: "local",
     tiers: ["cheap"],
+    models: { cheap: "test-content-guard" },
+    routingHealth: () => "unknown",
     async complete(req) {
       return {
         text,

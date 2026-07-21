@@ -8,16 +8,20 @@
  * behaviour. The chat state (turns, draft) is unaffected — it survives
  * collapse/expand cycles.
  */
-import { useEffect, useState } from "react";
-import { ChevronsLeft } from "lucide-react";
-import { trpc, PILOT_WORKSPACE } from "../../lib/trpc";
+import { useState } from "react";
+import { trpc, PILOT_ORGANIZATION } from "../../lib/trpc";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Badge } from "../ui/badge";
 import { AvatarIcon } from "../../avatar/AvatarOverlay";
 import { loadAvatarPrefs } from "../../avatar/avatar-store";
 import { getRoutingDecisionDisplay } from "../../lib/routing-decision-display";
-import { usePanelControl, ResizeHandle, CollapseToggleButton } from "./PanelControl";
+import {
+  usePanelControl,
+  ResizeHandle,
+  CollapseToggleButton,
+  ExtendToggleButton,
+} from "./PanelControl";
 
 type ConverseResult = Awaited<ReturnType<typeof trpc.chiefOfStaff.converse.mutate>>;
 
@@ -46,8 +50,8 @@ const AGENT_LABELS: Record<string, string> = {
 const PANEL_DEFAULT_WIDTH = 286;
 const PANEL_MIN_WIDTH = 260;
 const PANEL_MAX_WIDTH = 520;
-const WIDTH_KEY = "bridge.agentPanel.width.v2";
-const COLLAPSE_KEY = "bridge.agentPanel.collapsed.v2";
+const WIDTH_KEY = `bridge.${PILOT_ORGANIZATION}.chatPanel.width.v3`;
+const COLLAPSE_KEY = `bridge.${PILOT_ORGANIZATION}.chatPanel.collapsed.v3`;
 
 export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onClose?: () => void }) {
   // §5b: shared usePanelControl — same semantics as the left sidebar but
@@ -61,13 +65,12 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
     snap: false,
   });
   const { collapsed, setCollapsedPersisted, panelWidth, dragWidth } = panel;
-  useEffect(() => {
-    if (mobile) setCollapsedPersisted(false);
-  }, [mobile]);
-
   function collapse() {
-    setCollapsedPersisted(true);
-    onClose?.();
+    if (mobile) {
+      onClose?.();
+    } else {
+      setCollapsedPersisted(true);
+    }
   }
 
   const [turns, setTurns] = useState<ChatTurn[]>([
@@ -81,8 +84,8 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const avatarPrefs = loadAvatarPrefs(true);
-  const animal = avatarPrefs.animal;
-  const agentName = avatarPrefs.avatarName || animal.charAt(0).toUpperCase() + animal.slice(1);
+  const avatarStyle = avatarPrefs.style;
+  const agentName = avatarPrefs.avatarName || "Chief of Staff";
 
   async function send() {
     const message = draft.trim();
@@ -92,7 +95,7 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
     setError(null);
     setTurns((prev) => [...prev, { role: "user", text: message }]);
     try {
-      const result = await trpc.chiefOfStaff.converse.mutate({ workspaceId: PILOT_WORKSPACE, message, chainDepth, animal });
+      const result = await trpc.chiefOfStaff.converse.mutate({ organizationId: PILOT_ORGANIZATION, message, chainDepth });
       setTurns((prev) => [
         ...prev,
         { role: "assistant", text: result.reply, decision: result.decision, proposalId: result.proposal?.id, agent: result.agent },
@@ -105,22 +108,21 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
     }
   }
 
-  if (collapsed) {
+  if (collapsed && !mobile) {
     return (
-      <button
+      <aside
         id="panel-right"
-        aria-label="Expand chat panel"
-        aria-expanded="false"
-        aria-controls="panel-right"
-        onClick={() => setCollapsedPersisted(false)}
-        title="Open AI chat"
+        aria-label="Collapsed chat panel"
         className="w-12 shrink-0 border-l flex flex-col items-center gap-1.5 pt-3"
         style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}
       >
-        {/* Collapsed strip: avatar + expand-chevron (§5b — same as left rail). */}
-        <AvatarIcon animal={animal} size={28} />
-        <ChevronsLeft className="w-4 h-4" style={{ color: "var(--color-warm-gray)" }} />
-      </button>
+        <AvatarIcon style={avatarStyle} size={28} />
+        <CollapseToggleButton
+          side="right"
+          collapsed
+          onClick={() => setCollapsedPersisted(false)}
+        />
+      </aside>
     );
   }
 
@@ -131,8 +133,9 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
       style={{ width: mobile ? "min(100vw, 360px)" : dragWidth ?? panelWidth, borderColor: "var(--color-border)" }}
       className={`shrink-0 border-l flex flex-col h-full overflow-hidden bg-white relative ${dragWidth === null ? "transition-[width] duration-75" : ""}`}
       onKeyDown={(e) => {
-        // §5b: Escape key returns expanded → collapsed (does not discard chat).
-        if (e.key === "Escape") collapse();
+        if (e.key !== "Escape") return;
+        if (mobile) collapse();
+        else panel.handleEscape();
       }}
     >
       {/* Resize handle — shared ResizeHandle component (§5b), left edge. */}
@@ -147,13 +150,22 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
       />
       <div className="h-14 flex items-center justify-between px-4 border-b shrink-0" style={{ borderColor: "var(--color-border)" }}>
         {/* Shared CollapseToggleButton (§5b). */}
-        <CollapseToggleButton
-          side="right"
-          collapsed={false}
-          onClick={collapse}
-        />
+        <div className="flex items-center">
+          {!mobile && (
+            <ExtendToggleButton
+              side="right"
+              extended={panel.mode === "extended"}
+              onClick={panel.toggleExtended}
+            />
+          )}
+          <CollapseToggleButton
+            side="right"
+            collapsed={false}
+            onClick={collapse}
+          />
+        </div>
         <div className="font-bold text-lg tracking-tight flex items-center gap-2">
-          <AvatarIcon animal={animal} size={24} />
+          <AvatarIcon style={avatarStyle} size={24} />
           <span style={{ color: "var(--color-navy)" }}>{agentName}</span>
         </div>
         <div className="w-9" />

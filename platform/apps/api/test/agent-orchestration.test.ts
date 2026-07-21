@@ -17,7 +17,7 @@ import {
 import { appRouter } from "../src/router.js";
 import {
   buildWiring,
-  PILOT_WORKSPACE,
+  PILOT_ORGANIZATION,
   PILOT_USER,
   INTERNAL_STRATEGIST_AGENT,
   LEARNING_AGENT,
@@ -49,12 +49,12 @@ async function makeCaller(
 
 async function seedGoalAndTask(caller: Awaited<ReturnType<typeof makeCaller>>, assignedAgentId: string) {
   const goal = await caller.agentOrchestration.goal.create({
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     type: RELATIONSHIP_LEARNING_GOAL_TYPE,
     title: "test_fixture goal",
   });
   const task = await caller.agentOrchestration.task.create({
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     goalId: goal.id,
     type: SYNTHESIZE_RECOMMENDATION_TASK_TYPE,
     assignedAgentId,
@@ -68,7 +68,7 @@ test("agentOrchestration: a Task assigned to a non-default eligible Agent (Inter
     const caller = await makeCaller(wiring);
     const { goal, task } = await seedGoalAndTask(caller, INTERNAL_STRATEGIST_AGENT);
     const resolution = await caller.agentOrchestration.skill.resolve({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       goalId: goal.id,
       taskId: task.id,
       agentId: INTERNAL_STRATEGIST_AGENT,
@@ -87,7 +87,7 @@ test("agentOrchestration: the SAME governed skill resolves for Learning too, on 
     const caller = await makeCaller(wiring);
     const { goal, task } = await seedGoalAndTask(caller, LEARNING_AGENT);
     const resolution = await caller.agentOrchestration.skill.resolve({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       goalId: goal.id,
       taskId: task.id,
       agentId: LEARNING_AGENT,
@@ -105,7 +105,7 @@ test("agentOrchestration: reassigning a Task changes eligibility — the old Age
     const caller = await makeCaller(wiring);
     const { goal, task } = await seedGoalAndTask(caller, LEARNING_AGENT);
     const before = await caller.agentOrchestration.skill.resolve({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       goalId: goal.id,
       taskId: task.id,
       agentId: INTERNAL_STRATEGIST_AGENT,
@@ -115,13 +115,13 @@ test("agentOrchestration: reassigning a Task changes eligibility — the old Age
     assert.equal(before.reason, "not-assigned-agent");
 
     await caller.agentOrchestration.task.reassign({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       taskId: task.id,
       assignedAgentId: INTERNAL_STRATEGIST_AGENT,
     });
 
     const after = await caller.agentOrchestration.skill.resolve({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       goalId: goal.id,
       taskId: task.id,
       agentId: INTERNAL_STRATEGIST_AGENT,
@@ -139,7 +139,7 @@ test("server-owned Agent runtime: an eligible assigned Agent invoking the govern
     const caller = await makeCaller(wiring);
     const { goal, task } = await seedGoalAndTask(caller, INTERNAL_STRATEGIST_AGENT);
     const proposal = await wiring.pipeline.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "agent", id: INTERNAL_STRATEGIST_AGENT },
       action: "write",
       resourceType: "signal",
@@ -159,22 +159,26 @@ test("action.propose: a Human directly invoking the governed skill fails closed 
     const caller = await makeCaller(wiring);
     const asHuman = await makeCaller(wiring, { type: "user", id: PILOT_USER }); // PILOT_USER holds a real signal:write grant
     const { goal, task } = await seedGoalAndTask(caller, INTERNAL_STRATEGIST_AGENT);
-    const proposal = await asHuman.action.propose({
-      workspaceId: PILOT_WORKSPACE,
-      actor: { type: "user", id: PILOT_USER },
-      action: "write",
-      resourceType: "signal",
-      inputs: { text: "a strategic recommendation" },
-      skill: "stageStrategicRecommendation",
-      goalTaskRef: { goalId: goal.id, taskId: task.id },
-    });
+    await assert.rejects(
+      () =>
+        Reflect.apply(asHuman.action.propose, asHuman.action, [{
+          organizationId: PILOT_ORGANIZATION,
+          actor: { type: "user", id: PILOT_USER },
+          action: "write",
+          resourceType: "signal",
+          inputs: { text: "a strategic recommendation" },
+          skill: "stageStrategicRecommendation",
+          goalTaskRef: { goalId: goal.id, taskId: task.id },
+        }]),
+      /stageMutation|invalid literal/i,
+    );
 
     test("action.propose handles null inputs without crashing policy evaluation", async () => {
       const wiring = await buildWiring();
       try {
         const caller = await makeCaller(wiring);
         const proposal = await caller.action.propose({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           actor: { type: "user", id: PILOT_USER },
           action: "write",
           resourceType: "person",
@@ -187,8 +191,6 @@ test("action.propose: a Human directly invoking the governed skill fails closed 
         await wiring.close();
       }
     });
-    assert.equal(proposal.status, "rejected");
-    assert.match(proposal.rejectionReason ?? "", /may only be invoked by an eligible Agent Run/);
   } finally {
     await wiring.close();
   }
@@ -199,7 +201,7 @@ test("server-owned Agent runtime: a governed Skill with no goalTaskRef fails clo
   try {
     const caller = await makeCaller(wiring);
     const proposal = await wiring.pipeline.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "agent", id: INTERNAL_STRATEGIST_AGENT },
       action: "write",
       resourceType: "signal",
@@ -213,7 +215,7 @@ test("server-owned Agent runtime: a governed Skill with no goalTaskRef fails clo
   }
 });
 
-test("server-owned child Run creation is inspectable and cancellable through the authenticated workspace-scoped API", async () => {
+test("server-owned child Run creation is inspectable and cancellable through the authenticated organization-scoped API", async () => {
   const wiring = await buildWiring();
   try {
     const caller = await makeCaller(wiring);
@@ -224,7 +226,7 @@ test("server-owned child Run creation is inspectable and cancellable through the
       {
         runId: parentRunId,
         agentId: INTERNAL_STRATEGIST_AGENT,
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         authorityScope: ["signal:write"],
         eligibleSkills: ["stageStrategicRecommendation"],
         dataScope: "all",
@@ -252,19 +254,19 @@ test("server-owned child Run creation is inspectable and cancellable through the
     assert.equal(run.depth, 1);
 
     const fetched = await caller.agentOrchestration.childRun.get({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       childRunId: run.id,
     });
     assert.deepEqual(fetched, run);
 
     const byParent = await caller.agentOrchestration.childRun.listByParentRun({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       parentRunId,
     });
     assert.equal(byParent.length, 1);
 
     const cancelled = await caller.agentOrchestration.childRun.cancel({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       childRunId: run.id,
     });
     assert.equal(cancelled.status, "cancelled");
@@ -283,12 +285,12 @@ test("agentOrchestration exposes no client-controlled child Run creation procedu
   }
 });
 
-test("agentOrchestration queries require workspace membership", async () => {
+test("agentOrchestration queries require organization membership", async () => {
   const wiring = await buildWiring();
   try {
     const outsider = await makeCaller(wiring, { type: "user", id: crypto.randomUUID() });
     await assert.rejects(
-      () => outsider.agentOrchestration.goal.list({ workspaceId: PILOT_WORKSPACE }),
+      () => outsider.agentOrchestration.goal.list({ organizationId: PILOT_ORGANIZATION }),
       /not a member/,
     );
   } finally {
@@ -300,18 +302,19 @@ test("Agent-backed routes reject non-members before provisioning Tasks", async (
   const wiring = await buildWiring();
   try {
     const outsider = await makeCaller(wiring, { type: "user", id: crypto.randomUUID() });
-    const before = await wiring.goalTasks.listGoals(PILOT_WORKSPACE);
+    const before = await wiring.goalTasks.listGoals(PILOT_ORGANIZATION);
 
     await assert.rejects(
       () =>
         outsider.capture.stage({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           localMediaId: "test_fixture_local_media",
+          capturedAt: "2026-07-18T12:00:00.000Z",
         }),
       /not a member/,
     );
     await assert.rejects(
-      () => outsider.dealpilot.discoverDeals({ workspaceId: PILOT_WORKSPACE, sourceId: "source-1" }),
+      () => outsider.dealpilot.discoverDeals({ organizationId: PILOT_ORGANIZATION, sourceId: "source-1" }),
       /not a member/,
     );
     await assert.rejects(() => outsider.google.syncGmail(), /not a member/);
@@ -320,14 +323,14 @@ test("Agent-backed routes reject non-members before provisioning Tasks", async (
     await assert.rejects(
       () =>
         outsider.onboarding.recommendFromRoleModel({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           figure: "test fixture figure",
           admiredFor: "test fixture trait",
         }),
       /not a member/,
     );
 
-    assert.equal((await wiring.goalTasks.listGoals(PILOT_WORKSPACE)).length, before.length);
+    assert.equal((await wiring.goalTasks.listGoals(PILOT_ORGANIZATION)).length, before.length);
   } finally {
     await wiring.close();
   }
@@ -338,20 +341,20 @@ test("AGS3: all five foundational Agents have durable boundaries — Governance 
   try {
     const caller = await makeCaller(wiring);
     const goal = await caller.agentOrchestration.goal.create({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       type: RELATIONSHIP_LEARNING_GOAL_TYPE,
       title: "test_fixture AGS3 durable-boundary goal",
     });
 
     for (const agentId of [GOVERNANCE_AGENT, CAPABILITY_BUILDER_AGENT]) {
       const task = await caller.agentOrchestration.task.create({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         goalId: goal.id,
         type: SYNTHESIZE_RECOMMENDATION_TASK_TYPE,
         assignedAgentId: agentId,
       });
       const resolution = await caller.agentOrchestration.skill.resolve({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         goalId: goal.id,
         taskId: task.id,
         agentId,

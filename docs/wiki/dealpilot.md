@@ -13,4 +13,4 @@ BRD: [../raw/brd-dealpilot-2026-07.md](../raw/brd-dealpilot-2026-07.md) · deliv
 - Standard capability inventory. DealPilot customizes contents, never structure.
 - Work split: Learning research · Internal Strategist analysis · CoS stakeholders · Builder programming · Governance review. Skills bind Goal/Task; no default specialist Agents.
 - Delivery DP0–DP6. Acceptance includes real data/empty states, standard toolbar/menus, desktop+375px proof, no display aliases, runtime taint gates.
-- TASK-006 still open: Records/captures/vault process-local; live Google + real re-auth + desktop/375px proof missing.
+- TASK-006 blocked (AP-060). Supabase/Auth/RLS/restart/UI proven live. Unblock = authorized real Source credential + configured/authorized Google OAuth → live BizBuySell Deal + reveal/copy/revoke/expiry/wrong-Human proof.

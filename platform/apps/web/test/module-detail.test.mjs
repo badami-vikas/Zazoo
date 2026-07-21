@@ -5,7 +5,7 @@
  * Tests are pure-logic (no DOM/React runtime), exercising:
  *   1. RISK_LABELS — every risk tier has a display label
  *   2. PanelControl state logic — collapsed persists, width clamping, drag direction
- *   3. Nav modules filter — only installed, available packages are shown
+ *   3. Nav modules filter — only installed, available modules are shown
  *
  * Run with: node --test test/module-detail.test.mjs
  */
@@ -27,8 +27,8 @@ const RISK_LABELS = {
   external: "External — sends to external services (governed)",
 };
 
-/** Mirrored from built-in-packages.ts */
-const BUILT_IN_PACKAGE_NAMES = ["deal-pilot", "job-pilot", "relationship", "calendar"];
+/** Mirrored from built-in-modules.ts */
+const BUILT_IN_MODULE_NAMES = ["deal-pilot", "job-pilot", "relationship", "calendar"];
 
 // ---------------------------------------------------------------------------
 // PanelControl state logic (mirrored from usePanelControl, no React)
@@ -56,8 +56,8 @@ function continuousWidth(startWidth, dx, min, max) {
 // Tests
 // ---------------------------------------------------------------------------
 
-test("RISK_LABELS covers all risk tiers from built-in-packages.ts", () => {
-  // built-in packages use: advisory, operational, external
+test("RISK_LABELS covers all risk tiers from built-in-modules.ts", () => {
+  // built-in modules use: advisory, operational, external
   for (const tier of ["advisory", "operational", "external"]) {
     assert.ok(tier in RISK_LABELS, `Missing risk label for "${tier}"`);
     assert.ok(RISK_LABELS[tier].length > 0);
@@ -92,6 +92,16 @@ test("PanelControl snap: extended width is preserved instead of snapping to norm
   assert.deepEqual(result, { collapsed: false, width: 340 });
 });
 
+test("PanelControl Escape returns extended to expanded before collapsing", () => {
+  function escapeDecision(mode, defaultWidth) {
+    if (mode === "extended") return { collapsed: false, width: defaultWidth };
+    if (mode === "expanded") return { collapsed: true };
+    return { collapsed: true };
+  }
+  assert.deepEqual(escapeDecision("extended", 220), { collapsed: false, width: 220 });
+  assert.deepEqual(escapeDecision("expanded", 220), { collapsed: true });
+});
+
 test("PanelControl right panel: drag left (negative client delta) grows width", () => {
   // Right panel: dragging LEFT (startX > ev.clientX) means dx < 0 → startWidth - dx > startWidth
   const startWidth = 286;
@@ -115,20 +125,20 @@ test("PanelControl right panel: drag respects minimum width", () => {
 });
 
 test("Nav module filter: only installed Module manifests appear", () => {
-  const packages = [
-    { packageName: "deal-pilot", state: "available", status: "installed", manifest: { module: {} } },
-    { packageName: "job-pilot", state: "available", status: "pending_review", manifest: { module: {} } },
-    { packageName: "relationship", state: "available", status: "installed", manifest: { module: {} } },
-    { packageName: "calendar", state: "deprecated", status: "installed", manifest: { module: {} } },
+  const modules = [
+    { moduleName: "deal-pilot", state: "available", status: "installed", manifest: { module: {} } },
+    { moduleName: "job-pilot", state: "available", status: "pending_review", manifest: { module: {} } },
+    { moduleName: "relationship", state: "available", status: "installed", manifest: { module: {} } },
+    { moduleName: "calendar", state: "deprecated", status: "installed", manifest: { module: {} } },
     {
-      packageName: "calendar-skill",
+      moduleName: "calendar-skill",
       state: "available",
       status: "installed",
       manifest: {},
-      moduleAttachment: { modulePackageName: "job-pilot" },
+      moduleAttachment: { ownerModuleName: "job-pilot" },
     },
   ];
-  const navModules = packages.filter(
+  const navModules = modules.filter(
     (p) =>
       p.state === "available" &&
       p.status === "installed" &&
@@ -137,17 +147,17 @@ test("Nav module filter: only installed Module manifests appear", () => {
   );
   assert.equal(navModules.length, 2);
   assert.deepEqual(
-    navModules.map((m) => m.packageName),
+    navModules.map((m) => m.moduleName),
     ["deal-pilot", "relationship"]
   );
 });
 
-test("Module Detail route uses packageName as route param", () => {
-  // The route is /module/:moduleId where moduleId === packageName
-  for (const name of BUILT_IN_PACKAGE_NAMES) {
+test("Module Detail route uses moduleName as route param", () => {
+  // The route is /module/:moduleId where moduleId === moduleName
+  for (const name of BUILT_IN_MODULE_NAMES) {
     const route = `/module/${name}`;
     assert.ok(route.startsWith("/module/"), `route should start with /module/`);
-    assert.ok(route.endsWith(name), `route should end with packageName`);
+    assert.ok(route.endsWith(name), `route should end with moduleName`);
   }
 });
 
@@ -157,45 +167,52 @@ test("Commons discovery stays Module-scoped and does not resurrect an Intelligen
   assert.equal(routedSurfaces.includes("marketplace"), false);
 });
 
-test("Relationship routes stay Module-scoped while deprecated standalone routes remain removed", () => {
-  const source = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
-  assert.match(source, /path: "module\/relationship\/signals\/:signalId"/);
-  assert.match(source, /path: "module\/relationship\/people\/:recordId"/);
-  assert.match(source, /path: "module\/relationship\/communities\/:recordId"/);
-  assert.match(source, /path: "module\/relationship\/helpdesk"/);
-  assert.doesNotMatch(source, /path: "(?:helpdesk|signals)(?:\/|")/);
-  assert.doesNotMatch(source, /IntelligencePage|KnowledgeBasePage|Marketplace/);
+test("Commons provenance uses canonical capability vocabulary", () => {
+  const source = readFileSync(new URL("../src/app/components/CommonsCapabilityPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /source \{detail\.latest\.provenance\.repositoryLicense\}/);
+  assert.match(source, /capability \{detail\.latest\.provenance\.contentLicense\}/);
+  assert.doesNotMatch(source, /· result \{/);
 });
 
-test("only installed available Commons packages attach beneath their declared Module Agent", () => {
-  const packages = [
+test("Relationship routes stay Module-scoped while deprecated standalone routes remain removed", () => {
+  const source = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
+  assert.match(source, /requireBuiltInModule\("relationship"\)/);
+  assert.ok(source.includes("${childPath(relationshipSignalsRoute)}/:signalId"));
+  assert.ok(source.includes("${childPath(relationshipModule.route)}/people/:recordId"));
+  assert.ok(source.includes("${childPath(relationshipModule.route)}/communities/:recordId"));
+  assert.ok(source.includes("${childPath(relationshipModule.route)}/helpdesk"));
+  assert.doesNotMatch(source, /path: "(?:helpdesk|signals)(?:\/|")/);
+});
+
+test("only installed available Commons modules attach beneath their declared Module Agent", () => {
+  const modules = [
     {
-      packageName: "calendar-skill",
+      moduleName: "calendar-skill",
       state: "available",
       status: "installed",
-      moduleAttachment: { modulePackageName: "job-pilot", agentId: "application-agent", needId: "calendar" },
+      moduleAttachment: { ownerModuleName: "job-pilot", agentId: "application-agent", needId: "calendar" },
     },
     {
-      packageName: "pending-skill",
+      moduleName: "pending-skill",
       state: "promoted",
       status: "pending_review",
-      moduleAttachment: { modulePackageName: "job-pilot", agentId: "application-agent", needId: "calendar" },
+      moduleAttachment: { ownerModuleName: "job-pilot", agentId: "application-agent", needId: "calendar" },
     },
     {
-      packageName: "other-module-skill",
+      moduleName: "other-module-skill",
       state: "available",
       status: "installed",
-      moduleAttachment: { modulePackageName: "deal-pilot", agentId: "sourcing-agent", needId: "source" },
+      moduleAttachment: { ownerModuleName: "deal-pilot", agentId: "sourcing-agent", needId: "source" },
     },
   ];
-  const attachments = packages.filter(
+  const attachments = modules.filter(
     (item) =>
-      item.moduleAttachment?.modulePackageName === "job-pilot" &&
+      item.moduleAttachment?.ownerModuleName === "job-pilot" &&
       item.moduleAttachment.agentId === "application-agent" &&
       item.state === "available" &&
       item.status === "installed"
   );
-  assert.deepEqual(attachments.map((item) => item.packageName), ["calendar-skill"]);
+  assert.deepEqual(attachments.map((item) => item.moduleName), ["calendar-skill"]);
 });
 
 test("Commons install retries resume promotion after an interrupted install", () => {
@@ -210,12 +227,12 @@ test("Commons install retries resume promotion after an interrupted install", ()
   assert.equal(nextStep({ state: "available", status: "installed" }), "done");
 });
 
-test("Module Automation Run delegates to server-owned ritual execution and existing Approvals", () => {
+test("Module Automation Run delegates to server-owned Agent execution and existing Approvals", () => {
   const source = readFileSync(new URL("../src/app/pages/ModuleDetailPage.tsx", import.meta.url), "utf8");
-  assert.match(source, /trpc\.ritual\.runById\.mutate/);
-  assert.match(source, /ritualId,/);
-  assert.match(source, /modulePackageName:\s*pkg\.packageName/);
-  assert.match(source, /automation\.ritualId/);
+  assert.match(source, /trpc\.automation\.runById\.mutate/);
+  assert.match(source, /automationId:\s*manifestAutomationId/);
+  assert.match(source, /moduleName:\s*pkg\.moduleName/);
+  assert.match(source, /automation\.automationId/);
   assert.match(source, /runtimeAutomationIds\.has\(automation\.id\)/);
   assert.match(source, /automation\.runRoute/);
   assert.match(source, /to=\{automation\.runRoute\}/);
@@ -223,4 +240,40 @@ test("Module Automation Run delegates to server-owned ritual execution and exist
   assert.doesNotMatch(source, /actor:\s*\{/);
   assert.match(source, /to="\/approvals"/);
   assert.match(source, /Review or correct in Approvals/);
+});
+
+test("installed Commons Skill Run uses the server-owned Agent binding and existing correction surface", () => {
+  const source = readFileSync(new URL("../src/app/pages/ModuleDetailPage.tsx", import.meta.url), "utf8");
+  assert.match(source, /attachment\.runtimeSkillIds\.includes\(capability\.id\)/);
+  assert.match(source, /trpc\.commons\.runInstalledSkill\.mutate/);
+  assert.match(source, /installationId:\s*attachment\.id/);
+  assert.match(source, /Run with \$\{agent\.name\}/);
+  assert.match(source, /attachment\.runtimeBindingIssues\[0\]/);
+  assert.match(source, /Runtime binding unavailable/);
+  assert.match(source, /to="\/approvals"/);
+  assert.match(source, /Review or correct in Approvals/);
+  assert.doesNotMatch(source, /actor:\s*\{/);
+});
+
+test("Module Detail exposes inspectable recent attributable Automation Runs", () => {
+  const source = readFileSync(new URL("../src/app/pages/ModuleDetailPage.tsx", import.meta.url), "utf8");
+  assert.match(source, /trpc\.modules\.recentRuns\.query/);
+  assert.match(source, /onRunRecorded\(\)/);
+  assert.match(source, /refreshKey/);
+  assert.match(source, /title="Recent Runs"/);
+  assert.match(source, /<details/);
+  assert.match(source, /run\.agentId/);
+});
+
+test("both shell panels use shared collapse, extend, and Escape controls", () => {
+  const panelSource = readFileSync(new URL("../src/app/components/shared/PanelControl.tsx", import.meta.url), "utf8");
+  const layoutSource = readFileSync(new URL("../src/app/Layout.tsx", import.meta.url), "utf8");
+  const chatSource = readFileSync(new URL("../src/app/components/shared/AgentPanel.tsx", import.meta.url), "utf8");
+  assert.match(panelSource, /type PanelMode = "collapsed" \| "expanded" \| "extended"/);
+  assert.match(panelSource, /function handleEscape/);
+  assert.match(panelSource, /function ExtendToggleButton/);
+  assert.match(layoutSource, /<ExtendToggleButton/);
+  assert.match(layoutSource, /rail\.handleEscape\(\)/);
+  assert.match(chatSource, /<ExtendToggleButton/);
+  assert.match(chatSource, /panel\.handleEscape\(\)/);
 });

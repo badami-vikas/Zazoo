@@ -30,17 +30,17 @@ export interface RunCtx {
 }
 
 export interface RoleQuery {
-  /** Role ids the principal (user/team) holds in the workspace. */
-  rolesForPrincipal(workspaceId: string, actor: Actor): Promise<string[]>;
+  /** Role ids the principal (user/team) holds in the organization. */
+  rolesForPrincipal(organizationId: string, actor: Actor): Promise<string[]>;
   /** Grants attached to a role. */
   grantsForRole(roleId: string): Promise<GrantRule[]>;
   /** Direct (non-role) grants for an actor. */
-  directGrants(workspaceId: string, actor: Actor): Promise<GrantRule[]>;
+  directGrants(organizationId: string, actor: Actor): Promise<GrantRule[]>;
 }
 
 export interface AgentQuery {
-  /** Owning workspace for this physical Agent identity, or null when unknown. */
-  workspaceId(agentId: string): Promise<string | null>;
+  /** Owning organization for this physical Agent identity, or null when unknown. */
+  organizationId(agentId: string): Promise<string | null>;
   /** Only active Agents may resolve or invoke governed Skills. */
   isActive(agentId: string): Promise<boolean>;
   /** The role an agent inherits (assumes_role_id), if any. */
@@ -66,7 +66,7 @@ export interface AgentQuery {
 export interface EphemeralQuery {
   /** Active (unexpired, unconsumed) ephemeral grants for an actor in a run context. */
   activeGrants(
-    workspaceId: string,
+    organizationId: string,
     actor: Actor,
     context: RunContext | undefined,
     nowISO: string,
@@ -74,7 +74,7 @@ export interface EphemeralQuery {
 }
 
 export interface PolicyEvalInput {
-  workspaceId: string;
+  organizationId: string;
   actor: Actor;
   action: Action;
   resourceType: ResourceType;
@@ -110,13 +110,13 @@ export interface LedgerStore {
    * Ordered newest-first; paginated by the caller (offset/limit).
    */
   listPending(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }>;
-  /** Bounded append-only history. Private Relation rows remain visible only to
-   * their effective owning user; other resource types retain workspace scope. */
+  /** Bounded append-only history. Every private row remains visible only to its
+   * effective owning user; non-private rows retain organization scope. */
   listHistory(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }>;
 }
@@ -133,7 +133,7 @@ export type MediaStatus = "pending" | "committed" | "archived";
  */
 export interface MediaCaptureRecord {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   kind: MediaKind;
   mimeType: string;
   byteSize: number;
@@ -147,14 +147,14 @@ export interface MediaCaptureRecord {
   status: MediaStatus;
   /** Set when an approved proposal commits the capture. */
   ledgerId?: string;
-  linkedEntity?: { type: "person" | "memory" | "touchpoint"; id: string } | null;
-  provenance: { tool: string; version: string; model?: string };
+  linkedEntity?: { type: "person" | "memory" | "event"; id: string } | null;
+  provenance: { skill: string; version: string; model?: string };
   capturedAt: string;
   archivedAt?: string | null;
 }
 
 /**
- * LOCAL-plane media store — the seam the camera Tool persists blobs through. The
+ * LOCAL-plane media store — the seam the camera capture Skill persists blobs through. The
  * in-memory adapter lives in `memory/stores.ts`; the pglite (bytea) adapter lives
  * in `@bridge/db`. Blobs NEVER cross the gate. Append-only: a row's blob + core
  * metadata are immutable after `put`; only status/ledgerId/linkedEntity/caption/
@@ -164,7 +164,7 @@ export interface LocalMediaStore {
   put(rec: MediaCaptureRecord, blob: Uint8Array): Promise<MediaCaptureRecord>;
   get(id: string): Promise<MediaCaptureRecord | null>;
   getBlob(id: string): Promise<Uint8Array | null>;
-  list(filter?: { status?: MediaStatus; kind?: MediaKind; workspaceId?: string }): Promise<MediaCaptureRecord[]>;
+  list(filter?: { status?: MediaStatus; kind?: MediaKind; organizationId?: string }): Promise<MediaCaptureRecord[]>;
   update(id: string, patch: Partial<MediaCaptureRecord>): Promise<MediaCaptureRecord>;
   archive(id: string): Promise<void>;
 }
@@ -175,6 +175,8 @@ export interface EventBus {
 
 export const MODEL_TIERS = ["cheap", "default", "reasoning"] as const;
 export type ModelTier = (typeof MODEL_TIERS)[number];
+export const MODEL_PROVIDER_HEALTH = ["healthy", "unknown", "degraded", "unavailable"] as const;
+export type ModelProviderHealth = (typeof MODEL_PROVIDER_HEALTH)[number];
 
 export interface ModelPromptCache {
   strategy: "stable_system_prefix";
@@ -193,6 +195,39 @@ export interface ModelCompletionRequest {
   /** Provider-neutral cache intent. Providers without prefix caching may
    * ignore it; Anthropic binds it to the stable system block. */
   cache?: ModelPromptCache;
+}
+
+export const MAX_MODEL_PROMPT_CHARS = 1_000_000;
+export const MAX_MODEL_OUTPUT_TOKENS = 32_768;
+
+export function assertModelCompletionRequest(
+  request: ModelCompletionRequest,
+  label = "model completion",
+): void {
+  if (!MODEL_TIERS.includes(request.tier)) {
+    throw new Error(`${label}: unsupported model tier`);
+  }
+  if (
+    typeof request.prompt !== "string" ||
+    (request.system !== undefined && typeof request.system !== "string") ||
+    request.prompt.length + (request.system?.length ?? 0) > MAX_MODEL_PROMPT_CHARS
+  ) {
+    throw new Error(`${label}: prompt exceeds the bounded request size`);
+  }
+  if (
+    request.maxTokens !== undefined &&
+    (!Number.isSafeInteger(request.maxTokens) ||
+      request.maxTokens <= 0 ||
+      request.maxTokens > MAX_MODEL_OUTPUT_TOKENS)
+  ) {
+    throw new Error(`${label}: maxTokens exceeds the bounded output size`);
+  }
+  if (
+    request.cache !== undefined &&
+    (request.cache.strategy !== "stable_system_prefix" || request.cache.ttl !== "5m")
+  ) {
+    throw new Error(`${label}: unsupported cache policy`);
+  }
 }
 
 export interface ModelUsage {
@@ -239,7 +274,7 @@ export interface ModelCallReceipt {
 
 /**
  * ModelProvider — the seam every model call in the kernel goes through (never
- * a direct SDK/fetch call inline in a skill/tool). `plane` mirrors the
+ * a direct SDK/fetch call inline in a Skill). `plane` mirrors the
  * two-plane gate (types.ts `Plane`): a `local` provider (e.g. Ollama) is safe
  * to bind for capture/sensor-plane work per CLAUDE.md ("capture/sensor plane =
  * local models default"); a `cloud` provider (e.g. Anthropic) is subject to
@@ -255,6 +290,12 @@ export interface ModelProvider {
   plane: "local" | "cloud";
   /** Cost/capability tiers this configured provider can honestly satisfy. */
   tiers: readonly ModelTier[];
+  /** Configured model identity by tier. Real adapters declare this so a
+   * provider response cannot silently relabel the billed model. */
+  models: Readonly<Partial<Record<ModelTier, string>>>;
+  /** Synchronous routing snapshot. `unknown` is the honest default when no
+   * active probe exists; `unavailable` is never selected. */
+  routingHealth(): ModelProviderHealth;
   /** Optional price catalog by tier. Missing means receipts record usage while
    * explicitly reporting that a dollar estimate is unavailable. */
   pricing?: Readonly<Partial<Record<ModelTier, ModelTokenPricing>>>;
@@ -265,6 +306,9 @@ export interface ModelProvider {
 const MAX_MODEL_RECEIPT_ID_LENGTH = 256;
 const MAX_MODEL_PRICING_SOURCE_LENGTH = 2_048;
 const MAX_MODEL_PRICING_AS_OF_LENGTH = 64;
+const MAX_MODEL_USAGE_TOKENS = 10_000_000;
+const MAX_MODEL_PRICE_USD_PER_MILLION = 10_000;
+const MAX_MODEL_CALL_COST_USD = 100_000;
 
 export function createModelCallReceipt(
   provider: ModelProvider,
@@ -289,13 +333,21 @@ export function createModelCallReceipt(
   if (model.length === 0 || model.length > MAX_MODEL_RECEIPT_ID_LENGTH) {
     throw new Error(`model receipt: provider ${providerId} returned an invalid model id`);
   }
+  const declaredModel = provider.models[completion.tier]?.trim();
+  if (!declaredModel || model !== declaredModel) {
+    throw new Error(`model receipt: provider ${providerId} returned an undeclared model identity`);
+  }
   const usageCounts = [
     completion.usage.inputTokens,
     completion.usage.outputTokens,
     completion.usage.cacheCreationInputTokens,
     completion.usage.cacheReadInputTokens,
   ];
-  if (usageCounts.some((count) => !Number.isSafeInteger(count) || count < 0)) {
+  if (
+    usageCounts.some(
+      (count) => !Number.isSafeInteger(count) || count < 0 || count > MAX_MODEL_USAGE_TOKENS,
+    )
+  ) {
     throw new Error(`model receipt: provider ${providerId} returned invalid token usage`);
   }
   if (completion.usage.source !== "provider" && completion.usage.source !== "estimated") {
@@ -309,7 +361,12 @@ export function createModelCallReceipt(
       pricing.outputUsdPerMillion,
       pricing.cacheCreationInputUsdPerMillion,
       pricing.cacheReadInputUsdPerMillion,
-    ].some((rate) => !Number.isFinite(rate) || rate < 0)
+    ].some(
+      (rate) =>
+        !Number.isFinite(rate) ||
+        rate < 0 ||
+        rate > MAX_MODEL_PRICE_USD_PER_MILLION,
+    )
   ) {
     throw new Error(`model receipt: provider ${providerId} declares invalid pricing`);
   }
@@ -320,7 +377,7 @@ export function createModelCallReceipt(
     (
       !pricingSource ||
       pricingSource.length > MAX_MODEL_PRICING_SOURCE_LENGTH ||
-      !pricingAsOf ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(pricingAsOf) ||
       pricingAsOf.length > MAX_MODEL_PRICING_AS_OF_LENGTH
     )
   ) {
@@ -334,7 +391,12 @@ export function createModelCallReceipt(
         completion.usage.cacheReadInputTokens * pricing.cacheReadInputUsdPerMillion
       ) / 1_000_000
     : null;
-  if (estimatedUsd !== null && (!Number.isFinite(estimatedUsd) || estimatedUsd < 0)) {
+  if (
+    estimatedUsd !== null &&
+    (!Number.isFinite(estimatedUsd) ||
+      estimatedUsd < 0 ||
+      estimatedUsd > MAX_MODEL_CALL_COST_USD)
+  ) {
     throw new Error(`model receipt: provider ${providerId} produced an invalid cost estimate`);
   }
 
@@ -343,7 +405,7 @@ export function createModelCallReceipt(
     plane: provider.plane,
     model,
     tier: completion.tier,
-    usage: completion.usage,
+    usage: { ...completion.usage },
     cost: pricing
       ? {
           currency: "USD",
@@ -379,8 +441,8 @@ export interface VarianceAdjuster {
   observe(entry: LedgerEntry, ctx: RunCtx): Promise<void>;
 }
 
-/** A ritual step as stored in the registry (rituals.skill_pipeline jsonb). */
-export interface RitualStepDef {
+/** An Automation step stored in `automations.skill_pipeline`. */
+export interface AutomationStepDef {
   skill: string;
   action: Action;
   resourceType: ResourceType;
@@ -390,56 +452,61 @@ export interface RitualStepDef {
   /** Data tier this step may touch (the per-step access dropdown). Absent = 'all'. */
   dataScope?: import("./data-scope.js").DataScope;
   /**
-   * AGS1/TASK-007 — binds this step to the typed Goal/Task the Ritual's
-   * (Automation's) declared Agent is fulfilling, threaded unchanged into
+   * AGS1/TASK-007 — binds this step to the typed Goal/Task the Automation's
+   * declared Agent is fulfilling, threaded unchanged into
    * `pipeline.propose`'s `goalTaskRef`. This is the SAME Goal/Task resolver
    * contract every other governed Skill invocation uses — an Automation does
    * not get a second, parallel actor-binding mechanism; a step whose `skill`
    * has a registered SkillManifest still resolves through
    * `resolveSkillForTask` exactly as a direct Agent call would, and still
    * fails closed without a valid `goalTaskRef` naming a Task assigned to the
-   * ritual's declared Agent. Absent for steps that target an ungoverned
+   * Automation's declared Agent. Absent for steps that target an ungoverned
    * (no-manifest) skill — unaffected, same as any other caller.
    */
   goalTaskRef?: { goalId: string; taskId: string };
 }
 
-/** A ritual definition resolved from the registry (P2: rituals are config rows). */
-export interface RitualDefinition {
+/** An Automation definition resolved from the canonical registry. */
+export interface AutomationDefinition {
   id: string;
   name: string;
-  workspaceId: string;
-  /** Owning Agent. Optional only so legacy/unbound rows can be loaded and rejected explicitly at execution. */
-  agentId?: string;
-  /** Execution residency for the owning Agent. Optional only for legacy rows, which execution rejects. */
-  agentPlane?: import("./types.js").Plane;
-  steps: RitualStepDef[];
+  organizationId: string;
+  /** The sole actor for every Run started from this Automation. */
+  agentId: string;
+  /** Execution residency for the owning Agent. */
+  agentPlane: import("./types.js").Plane;
+  steps: AutomationStepDef[];
 }
 
-/** Loads ritual definitions — the `rituals` table (Drizzle) or in-memory in dev. */
-export interface RitualRegistry {
-  load(workspaceId: string, ritualId: string): Promise<RitualDefinition | null>;
-  save(definition: RitualDefinition): Promise<void>;
+/** Loads Automation definitions from the canonical store. */
+export interface AutomationRegistry {
+  load(organizationId: string, automationId: string): Promise<AutomationDefinition | null>;
+  save(definition: AutomationDefinition): Promise<void>;
 }
 
-/**
- * Loads tool definitions — the `tools` table (`composition` jsonb). A Tool is a
- * composition of skills bound to a surface; invoking one runs its steps through
- * the SAME governed pipeline (config → pipeline, like rituals). Reuses the ritual
- * definition shape.
- */
-export interface ToolRegistry {
-  load(workspaceId: string, toolId: string): Promise<RitualDefinition | null>;
+/** Records attributable Automation Runs. */
+export interface AutomationRunRecord {
+  runId: string;
+  automationId: string;
+  organizationId: string;
+  agentId: string;
+  status: "running" | "completed" | "halted";
+  startedAt: string;
+  finishedAt?: string;
 }
 
-/** Records ritual_runs (start/finish) — feeds the ledger linkage. */
-export interface RitualRunRecorder {
+export interface AutomationRunRecorder {
   start(
-    run: { runId: string; ritualId: string; workspaceId: string; actorId: string },
+    run: { runId: string; automationId: string; organizationId: string; agentId: string },
     ctx: RunCtx,
   ): Promise<void>;
   finish(
-    run: { runId: string; status: "completed" | "halted"; output: unknown },
+    run: { runId: string; organizationId: string; status: "completed" | "halted"; output: unknown },
     ctx: RunCtx,
   ): Promise<void>;
+  list(
+    organizationId: string,
+    automationIds: string[],
+    opts: { limit: number },
+  ): Promise<AutomationRunRecord[]>;
 }

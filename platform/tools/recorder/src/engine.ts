@@ -1,8 +1,8 @@
 import type { FactStore } from "@bridge/facts";
 import type { RecorderPort } from "./sidecar-port.js";
 
-// Runs record -> transcribe -> summarize and records each stage as a fact on the touchpoint
-// entity, so a composing external tool (Conference) gets provenance-tagged history for free
+// Runs record -> transcribe -> summarize and records each stage as a fact on the Event.
+// entity, so a composing Module gets provenance-tagged history for free
 // instead of re-plumbing the sidecar calls itself.
 export async function captureAndProcess(port: RecorderPort, facts: FactStore, entityId: string, projectId: string, transcriptText: string) {
   const recording = await port.pasteTranscript(projectId, transcriptText);

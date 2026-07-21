@@ -1,12 +1,15 @@
-import { parseToolManifest, type InternalToolManifest } from "@bridge/tool-kit";
+import {
+  parseExecutableManifest,
+  type SkillExecutableManifest,
+} from "@bridge/capability-kit";
 
-// Internal tool manifest — no nav entry, no route. Consumed by external tools (DealPilot,
-// JobPilot, a future Conference tool) via `composes: ["people-sourcing"]`, never copied.
-export const peopleSourcingManifest: InternalToolManifest = parseToolManifest({
+// Skill manifest — no nav entry, no route. Consumed by Modules (DealPilot,
+// JobPilot or another Module) through `skillDependencies`, never copied.
+export const peopleSourcingManifest: SkillExecutableManifest = parseExecutableManifest({
   id: "people-sourcing",
   name: "People Sourcing",
   version: "0.1.0",
-  kind: "internal",
+  kind: "skill",
   runModes: ["account_bound"],
   provides: [
     { id: "source.people", input: "SourceQuery", output: "CaptureEnvelope[]" },
@@ -14,4 +17,4 @@ export const peopleSourcingManifest: InternalToolManifest = parseToolManifest({
   ],
   capabilities: [{ resourceType: "external:fetch", action: "read", dataScope: "public", egress: true }],
   intakePolicy: { quarantine: true, commitVia: "pipeline_proposal", scope: "public", accountBoundOnly: true },
-}) as InternalToolManifest;
+}) as SkillExecutableManifest;

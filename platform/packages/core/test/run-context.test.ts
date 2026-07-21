@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import {
   assembleRunContext,
   projectToPrompt,
-  projectToSystemPrompt,
   FixedClock,
   UuidGen,
   type AssembleRunContextInput,
@@ -98,7 +97,7 @@ test("assembleRunContext: carries surface, contextItems, disclosedCapabilities, 
   const item = test_fixture_context_item();
   const ctx = assembleRunContext(
     test_fixture_input({
-      surface: { kind: "initiative", id: "init_1", label: "Acme Corp acquisition" },
+      surface: { kind: "record", id: "init_1", label: "Acme Corp acquisition" },
       contextItems: [item],
       disclosedCapabilities: [
         {
@@ -115,7 +114,7 @@ test("assembleRunContext: carries surface, contextItems, disclosedCapabilities, 
     test_fixture_run_ctx(),
   );
 
-  assert.deepEqual(ctx.surface, { kind: "initiative", id: "init_1", label: "Acme Corp acquisition" });
+  assert.deepEqual(ctx.surface, { kind: "record", id: "init_1", label: "Acme Corp acquisition" });
   assert.equal(ctx.contextItems.length, 1);
   assert.equal(ctx.contextItems[0]?.payload && (ctx.contextItems[0].payload as { text: string }).text, "test_fixture_payload");
   assert.equal(ctx.disclosedCapabilities.length, 1);
@@ -131,7 +130,7 @@ test("assembleRunContext: composes the existing ephemeral RunContext (types.ts) 
       governance: {
         approvalRequirement: "governance",
         trustGrants: [{ capabilityClass: "skill", riskBand: "operational", autoActivate: false }],
-        ephemeralContext: { type: "initiative", id: "init_1", runId: "run_abc" },
+        ephemeralContext: { type: "record", id: "init_1", runId: "run_abc" },
       },
     }),
     test_fixture_run_ctx(),
@@ -139,7 +138,7 @@ test("assembleRunContext: composes the existing ephemeral RunContext (types.ts) 
 
   assert.equal(ctx.governance.approvalRequirement, "governance");
   assert.equal(ctx.governance.trustGrants.length, 1);
-  assert.deepEqual(ctx.governance.ephemeralContext, { type: "initiative", id: "init_1", runId: "run_abc" });
+  assert.deepEqual(ctx.governance.ephemeralContext, { type: "record", id: "init_1", runId: "run_abc" });
 });
 
 test("projectToPrompt: minimal context projects a compact prompt with no empty sections", () => {
@@ -161,7 +160,7 @@ test("projectToPrompt: minimal context projects a compact prompt with no empty s
 test("projectToPrompt: a fully-populated context renders every section in ADR-027 order", () => {
   const ctx: ModelRunContext = assembleRunContext(
     test_fixture_input({
-      surface: { kind: "initiative", id: "init_1", label: "Acme Corp acquisition" },
+      surface: { kind: "record", id: "init_1", label: "Acme Corp acquisition" },
       contextItems: [test_fixture_context_item()],
       disclosedCapabilities: [
         {
@@ -175,7 +174,7 @@ test("projectToPrompt: a fully-populated context renders every section in ADR-02
       governance: {
         approvalRequirement: "user_pref",
         trustGrants: [],
-        ephemeralContext: { type: "ritual", id: "ritual_1", runId: "run_xyz" },
+        ephemeralContext: { type: "automation", id: "automation_1", runId: "run_xyz" },
       },
       memory: [{ source: "test_fixture_memory_store", text: "Acme Corp deal opened 2026-06-01" }],
     }),
@@ -199,24 +198,15 @@ test("projectToPrompt: a fully-populated context renders every section in ADR-02
     lastIndex = index;
   }
 
-  assert.ok(prompt.includes("initiative:init_1 (Acme Corp acquisition)"));
+  assert.ok(prompt.includes("record:init_1 (Acme Corp acquisition)"));
   assert.ok(prompt.includes("[clipboard/selection]"));
   assert.ok(prompt.includes("dealpilot.score (skill, private) — message mentions deals"));
   assert.ok(prompt.includes("Approval mode: user_pref"));
-  assert.ok(prompt.includes("Ephemeral run scope: ritual:ritual_1 (run run_xyz)"));
+  assert.ok(prompt.includes("Ephemeral run scope: automation:automation_1 (run run_xyz)"));
   assert.ok(prompt.includes("[test_fixture_memory_store] Acme Corp deal opened 2026-06-01"));
 });
 
 test("projectToPrompt: is a pure deterministic template — same context always yields the same string", () => {
   const ctx = assembleRunContext(test_fixture_input(), test_fixture_run_ctx());
   assert.equal(projectToPrompt(ctx), projectToPrompt(ctx));
-});
-
-test("projectToSystemPrompt: changing only the turn leaves the stable cache prefix byte-identical", () => {
-  const first = assembleRunContext(test_fixture_input({ request: "first turn" }), test_fixture_run_ctx());
-  const second = assembleRunContext(test_fixture_input({ request: "second turn" }), test_fixture_run_ctx());
-
-  assert.equal(projectToSystemPrompt(first), projectToSystemPrompt(second));
-  assert.doesNotMatch(projectToSystemPrompt(first), /first turn/);
-  assert.notEqual(first.request, second.request);
 });

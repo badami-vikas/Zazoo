@@ -74,10 +74,10 @@ test("migration 0013 translates Skill UUID allowlists and preserves fail-closed 
     );
     await db.query(
       `INSERT INTO "rituals" ("id", "workspace_id", "agent_ids", "skill_pipeline") VALUES
-        ('40000000-0000-4000-8000-000000000001', $4, ARRAY[$1]::uuid[], '[{"skill":"test_fixture_local","action":"write","resourceType":"touchpoint"}]'),
+        ('40000000-0000-4000-8000-000000000001', $4, ARRAY[$1]::uuid[], '[{"skill":"test_fixture_local","action":"write","resourceType":"event"}]'),
         ('40000000-0000-4000-8000-000000000002', $4, ARRAY[$1]::uuid[], '[{"skill":"test_fixture_fetch","action":"read","resourceType":"external:fetch"}]'),
-        ('40000000-0000-4000-8000-000000000003', $4, ARRAY[$1, $2]::uuid[], '[{"skill":"test_fixture_local","action":"write","resourceType":"touchpoint"}]'),
-        ('40000000-0000-4000-8000-000000000004', $4, ARRAY[$3]::uuid[], '[{"skill":"test_fixture_local","action":"write","resourceType":"touchpoint"}]'),
+        ('40000000-0000-4000-8000-000000000003', $4, ARRAY[$1, $2]::uuid[], '[{"skill":"test_fixture_local","action":"write","resourceType":"event"}]'),
+        ('40000000-0000-4000-8000-000000000004', $4, ARRAY[$3]::uuid[], '[{"skill":"test_fixture_local","action":"write","resourceType":"event"}]'),
         ('40000000-0000-4000-8000-000000000005', $4, ARRAY[$1]::uuid[], '[{"skill":"test_fixture_malformed","action":"read"}]'),
         ('40000000-0000-4000-8000-000000000006', $4, ARRAY[$1]::uuid[], '[{"skill":"test_fixture_share","action":"share","resourceType":"person"}]')`,
       [firstAgentId, secondAgentId, crossWorkspaceAgentId, workspaceId],

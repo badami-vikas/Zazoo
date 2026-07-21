@@ -6,14 +6,22 @@
  * two-plane gate applies (capture/sensor plane must never bind this provider —
  * createModelRouter enforces planeDefault, not this class).
  */
-import type { ModelCompletion, ModelCompletionRequest, ModelProvider, ModelTier } from "@bridge/core";
+import {
+  assertModelCompletionRequest,
+  type ModelCompletion,
+  type ModelCompletionRequest,
+  type ModelProvider,
+  type ModelTier,
+} from "@bridge/core";
 import { defaultFetch, type FetchLike } from "./fetch-types.js";
 import {
   asRecord,
   assertTierSupported,
+  configuredModelId,
   providerRequestError,
   requiredString,
   requiredTokenCount,
+  verifiedProviderModel,
 } from "./usage.js";
 
 export interface GroqProviderOpts {
@@ -30,6 +38,7 @@ export class GroqProvider implements ModelProvider {
   readonly id = "groq";
   readonly plane = "cloud" as const;
   readonly tiers = ["cheap", "default"] as const satisfies readonly ModelTier[];
+  readonly models: Readonly<Partial<Record<ModelTier, string>>>;
   readonly #apiKey: string;
   readonly #model: string;
   readonly #baseUrl: string;
@@ -42,12 +51,21 @@ export class GroqProvider implements ModelProvider {
       throw new Error("GroqProvider requires an API key (GROQ_API_KEY)");
     }
     this.#apiKey = key;
-    this.#model = opts.model ?? process.env["GROQ_MODEL"] ?? DEFAULT_MODEL;
+    this.#model = configuredModelId(
+      opts.model ?? process.env["GROQ_MODEL"] ?? DEFAULT_MODEL,
+      "GroqProvider model",
+    );
+    this.models = { cheap: this.#model, default: this.#model };
     this.#baseUrl = opts.baseUrl ?? GROQ_URL;
     this.#fetchImpl = opts.fetchImpl ?? defaultFetch;
   }
 
+  routingHealth() {
+    return "unknown" as const;
+  }
+
   async complete(req: ModelCompletionRequest): Promise<ModelCompletion> {
+    assertModelCompletionRequest(req, "GroqProvider.complete");
     assertTierSupported(this.id, this.tiers, req.tier);
     const messages = [
       ...(req.system !== undefined ? [{ role: "system", content: req.system }] : []),
@@ -78,7 +96,11 @@ export class GroqProvider implements ModelProvider {
     const usage = asRecord(json["usage"], "GroqProvider.complete response.usage");
     return {
       text: requiredString(message["content"], "GroqProvider.complete response.choices[0].message.content"),
-      model: requiredString(json["model"], "GroqProvider.complete response.model"),
+      model: verifiedProviderModel(
+        this.#model,
+        json["model"],
+        "GroqProvider.complete response.model",
+      ),
       tier: req.tier,
       usage: {
         inputTokens: requiredTokenCount(usage["prompt_tokens"], "GroqProvider.complete usage.prompt_tokens"),

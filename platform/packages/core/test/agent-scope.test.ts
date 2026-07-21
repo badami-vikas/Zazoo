@@ -5,7 +5,7 @@ import {
   buildAgentCapability,
   egressTierTokens,
   isForbiddenAgentToken,
-  validateRitualWithinAgents,
+  validateAutomationWithinAgents,
 } from "../src/index.js";
 
 test("egress tiers are layered + narrowing: none ⊂ read ⊂ draft ⊂ source-internet", () => {
@@ -38,7 +38,7 @@ test("forbidden tokens: send, governance, full-graph, and god-mode wildcard", ()
   ]) {
     assert.ok(isForbiddenAgentToken(t), `${t} must be forbidden`);
   }
-  for (const t of ["person:read", "touchpoint:write", "external:fetch:read"]) {
+  for (const t of ["person:read", "event:write", "external:fetch:read"]) {
     assert.ok(!isForbiddenAgentToken(t), `${t} must be allowed`);
   }
 });
@@ -54,13 +54,13 @@ test("buildAgentCapability strips escalation + dedupes, reports dropped", () => 
   assert.ok(!built.scope.includes("ledger:approve"));
   assert.deepEqual(built.dropped.sort(), ["*", "external:send:share", "ledger:approve"].sort());
   // tier tokens merged, deduped
-  assert.ok(built.scope.includes("touchpoint:write"));
+  assert.ok(built.scope.includes("event:write"));
   assert.equal(built.scope.filter((t) => t === "person:read").length, 1);
 });
 
-test("ritual ⊆ agent: a step outside the assigned agents' capability is flagged", () => {
-  const agents = [{ scope: ["person:read", "touchpoint:write"], dataScope: "all" as const }];
-  const violations = validateRitualWithinAgents(
+test("Automation within Agent: a step outside the owning Agent's capability is flagged", () => {
+  const agents = [{ scope: ["person:read", "event:write"], dataScope: "all" as const }];
+  const violations = validateAutomationWithinAgents(
     [
       { action: "read", resourceType: "person" },
       { action: "write", resourceType: "community" }, // not in any agent scope
@@ -72,9 +72,9 @@ test("ritual ⊆ agent: a step outside the assigned agents' capability is flagge
   assert.equal(violations[0]!.reason, "outside-agent-capability");
 });
 
-test("ritual ⊆ agent: a step exceeding the agent's data tier is flagged", () => {
+test("Automation within Agent: a step exceeding the Agent's data tier is flagged", () => {
   const agents = [{ scope: ["person:read"], dataScope: "public" as const }];
-  const violations = validateRitualWithinAgents(
+  const violations = validateAutomationWithinAgents(
     [{ action: "read", resourceType: "person", dataScope: "private" }],
     agents,
   );
@@ -82,12 +82,12 @@ test("ritual ⊆ agent: a step exceeding the agent's data tier is flagged", () =
   assert.equal(violations[0]!.reason, "exceeds-agent-data-tier");
 });
 
-test("ritual ⊆ agent: union of multiple agents can cover all steps", () => {
+test("Automation validation reports no violations when the supplied Agents cover all steps", () => {
   const agents = [
     { scope: ["person:read"], dataScope: "all" as const },
     { scope: ["community:write"], dataScope: "all" as const },
   ];
-  const violations = validateRitualWithinAgents(
+  const violations = validateAutomationWithinAgents(
     [
       { action: "read", resourceType: "person" },
       { action: "write", resourceType: "community" },

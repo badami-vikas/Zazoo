@@ -3,7 +3,7 @@ title: Capability Builder Agent Roadmap — Design, Business, and Technical
 type: raw
 doc_kind: plan
 status: proposed
-companions: [module-evolution-system-2026-07.md, capability-package-format.md, dealpilot-module-plan-2026-07.md, clean-room-capability-research-protocol-2026-07.md, oss-commons-integration-plan-2026-07.md, brain-engine-execution-plan-2026-07.md]
+companions: [module-evolution-system-2026-07.md, capability-module-format.md, dealpilot-module-plan-2026-07.md, clean-room-capability-research-protocol-2026-07.md, oss-commons-integration-plan-2026-07.md, brain-engine-execution-plan-2026-07.md]
 related_wiki: ../wiki/builder-agent.md
 updated: 2026-07-13
 tags: [builder-agent, capability-builder, generation, compiler, workspaces, packages, evolution, reuse]

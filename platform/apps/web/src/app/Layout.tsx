@@ -1,20 +1,26 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Home, Package, Plus, Settings, Check, ListChecks, MessageSquare, X } from "lucide-react";
-import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
+import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare } from "lucide-react";
+import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
-import { hasStoredPrefs, loadAvatarPrefs, computeGrowthStage, type AvatarPrefs, type GrowthStage } from "./avatar/avatar-store";
+import { hasStoredPrefs, loadAvatarPrefs, saveAvatarPrefs, type AvatarPrefs } from "./avatar/avatar-store";
 import { AgentPanel } from "./components/shared/AgentPanel";
 import { NewModuleDialog } from "./components/NewModuleDialog";
-import { usePanelControl, ResizeHandle, CollapseToggleButton } from "./components/shared/PanelControl";
+import {
+  usePanelControl,
+  ResizeHandle,
+  CollapseToggleButton,
+  ExtendToggleButton,
+} from "./components/shared/PanelControl";
 import { DesktopWindowChrome } from "./components/shared/DesktopWindowChrome";
+import { useAuthSession } from "./auth/AuthSession";
 
 /**
  * Shell IA v3 — TASK-001 / VOCAB6 (2026-07-16): installed Modules are
- * first-class left-nav items, sourced from packages.list (not hardcoded).
- * Each Module links to /module/:packageName (manifest-driven Module Detail).
- * Deprecated surfaces (Knowledge, Intelligence, standalone Tools, Workflows,
+ * first-class left-nav items, sourced from modules.list (not hardcoded).
+ * Each Module links to /module/:moduleName (manifest-driven Module Detail).
+ * Deprecated surfaces (Knowledge, Intelligence, standalone Tools,
  * Projects) are removed from primary nav. Settings moves to its own section.
  *
  * Panel behaviour: usePanelControl (§5b) — left sidebar and right AgentPanel
@@ -22,16 +28,30 @@ import { DesktopWindowChrome } from "./components/shared/DesktopWindowChrome";
  * PanelControl component.
  */
 export default function Layout() {
+  const auth = useAuthSession();
   const location = useLocation();
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [avatarPrefs, setAvatarPrefs] = useState<AvatarPrefs | null>(null);
-  const [workspaceName, setWorkspaceName] = useState<string | undefined>(undefined);
-  const [workspaces, setWorkspaces] = useState<{ id: string; name: string }[]>([]);
+  const [organizationConfirmed, setOrganizationConfirmed] = useState<boolean | null>(null);
+  const [organizationName, setOrganizationName] = useState<string | undefined>(undefined);
+  const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
   const [mobileModulesOpen, setMobileModulesOpen] = useState(false);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+
+  async function signOut() {
+    setSignOutError(null);
+    try {
+      await auth.signOut();
+    } catch (failure) {
+      setSignOutError(
+        failure instanceof Error ? failure.message : "Could not sign out",
+      );
+    }
+  }
 
   // TASK-001 §5b: left rail uses the shared usePanelControl hook. A drag below
   // the midpoint collapses it; larger widths are preserved as the extended
@@ -43,8 +63,8 @@ export default function Layout() {
     defaultWidth: RAIL_EXPANDED,
     minWidth: RAIL_COLLAPSED,
     maxWidth: RAIL_EXTENDED,
-    storageKeyWidth: "bridge.rail.width.v2",
-    storageKeyCollapsed: "bridge.rail.collapsed.v2",
+    storageKeyWidth: `bridge.${PILOT_ORGANIZATION}.rail.width.v3`,
+    storageKeyCollapsed: `bridge.${PILOT_ORGANIZATION}.rail.collapsed.v3`,
     snap: true,
     snapMidpoint: (RAIL_COLLAPSED + RAIL_EXPANDED) / 2,
   });
@@ -54,21 +74,19 @@ export default function Layout() {
     rail.setCollapsedPersisted(!next);
   }
 
-  // TASK-001 VOCAB6: installed modules from packages.list (real API, not
+  // TASK-001 VOCAB6: installed modules from modules.list (real API, not
   // hardcoded). Only `available` state modules appear in the nav.
   const [installedModules, setInstalledModules] = useState<
-    { packageName: string; displayName: string }[] | null
+    { moduleName: string; displayName: string }[] | null
   >(null);
 
   const [moduleLoadError, setModuleLoadError] = useState<string | null>(null);
 
-  const [growthStage, setGrowthStage] = useState<GrowthStage>("egg");
-
-  // TASK-001 VOCAB6: load installed modules from packages.list for the nav.
-  // Only `available` state packages appear. Fetched once per mount.
+  // TASK-001 VOCAB6: load installed modules from modules.list for the nav.
+  // Only `available` state modules appear. Fetched once per mount.
   useEffect(() => {
-    trpc.packages.list
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
+    trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
       .then((res) => {
         const available = res.items
           .filter(
@@ -79,12 +97,10 @@ export default function Layout() {
               p.moduleAttachment === undefined,
           )
           .map((p) => ({
-            packageName: p.packageName,
-            displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.packageName,
+            moduleName: p.moduleName,
+            displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
           }));
         setInstalledModules(available);
-        // Recompute growth stage from module count (proxy for capability count).
-        setGrowthStage(computeGrowthStage(0, available.length));
       })
       .catch((failure) => {
         setModuleLoadError(String(failure));
@@ -99,16 +115,21 @@ export default function Layout() {
   }, []);
 
   useEffect(() => {
-    trpc.workspace.blueprint.get
-      .query({ workspaceId: PILOT_WORKSPACE })
+    trpc.organization.blueprint.get
+      .query({ organizationId: PILOT_ORGANIZATION })
       .then((res) => {
-        // Existing users (a workspace already has an active blueprint) never
+        // Existing users (a organization already has an active blueprint) never
         // see onboarding forced back open; the avatar just defaults to a
-        // neutral hatched owl if this browser never saved prefs (spec section
+        // neutral ready Avatar if this browser never saved prefs (spec section
         // 4, item 4 — "no forced re-onboarding").
-        const hasWorkspace = Boolean(res.definition);
-        if (!hasWorkspace) setOnboardingOpen(true);
-        if (!hasStoredPrefs()) setAvatarPrefs(loadAvatarPrefs(hasWorkspace));
+        const hasOrganization = Boolean(res.definition);
+        setOrganizationConfirmed(hasOrganization);
+        if (!hasOrganization) setOnboardingOpen(true);
+        if (!hasStoredPrefs()) {
+          const resolvedPrefs = loadAvatarPrefs(hasOrganization);
+          if (hasOrganization) saveAvatarPrefs(resolvedPrefs);
+          setAvatarPrefs(resolvedPrefs);
+        }
       })
       .catch(() => {
         // Honest no-op: if the check itself fails (e.g. API unreachable), don't
@@ -122,13 +143,26 @@ export default function Layout() {
     if (hasStoredPrefs()) setAvatarPrefs(loadAvatarPrefs(true));
   }, []);
 
+  const desktopAvatarSessionReady =
+    organizationConfirmed === true && avatarPrefs?.avatarReady === true;
+
   useEffect(() => {
-    trpc.workspace.list
+    const invoke = window.__TAURI_INTERNALS__?.invoke;
+    if (!window.__BRIDGE_DESKTOP__ || !invoke) return;
+    void invoke("overlay_set_session_ready", { ready: desktopAvatarSessionReady }).catch(
+      (failure: unknown) => {
+        console.error("[avatar] failed to synchronize desktop readiness", failure);
+      },
+    );
+  }, [desktopAvatarSessionReady, avatarPrefs?.style, avatarPrefs?.avatarName]);
+
+  useEffect(() => {
+    trpc.organization.list
       .query()
       .then((rows) => {
-        const mine = rows.find((w) => w.id === PILOT_WORKSPACE);
-        if (mine?.name) setWorkspaceName(mine.name);
-        setWorkspaces(rows.map((w) => ({ id: w.id, name: w.name || "Unnamed organization" })));
+        const mine = rows.find((w) => w.id === PILOT_ORGANIZATION);
+        if (mine?.name) setOrganizationName(mine.name);
+        setOrganizations(rows.map((w) => ({ id: w.id, name: w.name || "Unnamed organization" })));
       })
       .catch(() => {
         // Honest no-op — the avatar popover falls back to "Unnamed organization".
@@ -160,7 +194,7 @@ export default function Layout() {
 
   const homeActive = location.pathname === "/" || isActive("/home");
   const settingsActive = isActive("/settings");
-  const pendingWorkActive = isActive("/task-manager") || isActive("/pending-work") || isActive("/calendar");
+  const secondBrainActive = isActive("/second-brain");
 
   return (
     <div className="flex h-screen w-full overflow-hidden font-sans">
@@ -184,10 +218,7 @@ export default function Layout() {
           }
         }}
         onKeyDown={(e) => {
-          // §5b: Escape key returns expanded → collapsed.
-          if (e.key === "Escape" && railExpanded) {
-            setRailExpandedPersisted(false);
-          }
+          if (e.key === "Escape") rail.handleEscape();
         }}
       >
         {/* Resize handle — shared ResizeHandle component (§5b). */}
@@ -215,30 +246,37 @@ export default function Layout() {
             onClick={() => setOrgMenuOpen((v) => !v)}
             aria-haspopup="menu"
             aria-expanded={orgMenuOpen}
-            aria-label={`Organization: ${workspaceName || "Bridge"}`}
+            aria-label={`Organization: ${organizationName || "Bridge"}`}
             className={`flex rounded-lg hover:bg-[var(--color-surface)] transition-colors ${
               railExpanded ? "flex-row items-center gap-2.5 py-1.5 px-1.5 w-full" : "flex-col items-center gap-0.5 py-1.5 px-1"
             }`}
-            title={workspaceName || "Bridge"}
+            title={organizationName || "Bridge"}
           >
             <div
               className="w-8 h-8 rounded-lg text-white flex items-center justify-center text-sm font-bold shadow-sm shrink-0"
               style={{ backgroundColor: "var(--color-steel)" }}
             >
-              {(workspaceName || "B").charAt(0).toUpperCase()}
+              {(organizationName || "B").charAt(0).toUpperCase()}
             </div>
             <span className={navLabelClass(railExpanded ? "text-left" : "")} style={{ color: "var(--color-navy-mid)", maxWidth: railExpanded ? undefined : 64 }}>
-              {workspaceName || "Bridge"}
+              {organizationName || "Bridge"}
             </span>
           </button>
 
           {/* Collapse toggle — shared CollapseToggleButton (§5b). */}
           {railExpanded && (
-            <CollapseToggleButton
-              side="left"
-              collapsed={false}
-              onClick={() => setRailExpandedPersisted(false)}
-            />
+            <div className="flex items-center">
+              <ExtendToggleButton
+                side="left"
+                extended={rail.mode === "extended"}
+                onClick={rail.toggleExtended}
+              />
+              <CollapseToggleButton
+                side="left"
+                collapsed={false}
+                onClick={() => setRailExpandedPersisted(false)}
+              />
+            </div>
           )}
 
           {orgMenuOpen && (
@@ -251,8 +289,8 @@ export default function Layout() {
                 style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}
               >
                 <div className="p-1.5 flex flex-col">
-                  {(workspaces.length ? workspaces : [{ id: PILOT_WORKSPACE, name: workspaceName || "Bridge" }]).map((w, i) => {
-                    const active = w.id === PILOT_WORKSPACE;
+                  {(organizations.length ? organizations : [{ id: PILOT_ORGANIZATION, name: organizationName || "Bridge" }]).map((w, i) => {
+                    const active = w.id === PILOT_ORGANIZATION;
                     return (
                       <button
                         key={w.id}
@@ -260,7 +298,7 @@ export default function Layout() {
                         role="menuitemradio"
                         aria-checked={active}
                         disabled={!active}
-                        title={active ? undefined : "Switching workspaces isn't wired yet"}
+                        title={active ? undefined : "Switching Organizations isn't available yet"}
                         onClick={() => setOrgMenuOpen(false)}
                         className="flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:bg-[var(--color-surface)]"
                         style={{ backgroundColor: active ? "var(--color-surface)" : "transparent" }}
@@ -283,8 +321,8 @@ export default function Layout() {
         </div>
 
         {/* Top nav — Home + installed Modules (VOCAB6) + "+New", icon+label stacked.
-            Modules are sourced from packages.list (not hardcoded). Each links to
-            /module/:packageName (manifest-driven Module Detail, §4b). */}
+            Modules are sourced from modules.list (not hardcoded). Each links to
+            /module/:moduleName (manifest-driven Module Detail, §4b). */}
         <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
           {!railExpanded && (
             <div className="flex justify-center pb-1">
@@ -301,7 +339,7 @@ export default function Layout() {
             <span className={navLabelClass()}>Home</span>
           </Link>
 
-          {/* Installed Modules — from packages.list (real API, §5c). */}
+          {/* Installed Modules — from modules.list (real API, §5c). */}
           {installedModules === null ? (
             // Loading state: show a subtle indicator rather than a spinner in the nav.
             <div
@@ -318,23 +356,29 @@ export default function Layout() {
             </div>
           ) : (
             installedModules.map((mod) => {
-              const to = `/module/${mod.packageName}`;
+              const to = `/module/${mod.moduleName}`;
               const active = isActive(to);
               return (
                 <Link
-                  key={mod.packageName}
+                  key={mod.moduleName}
                   to={to}
                   className={navItemClass(active)}
                   title={mod.displayName}
                   aria-current={active ? "page" : undefined}
                 >
                   {active && <ActiveBar />}
-                  <Package className="w-5 h-5 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+                  <Boxes className="w-5 h-5 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
                   <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>{mod.displayName}</span>
                 </Link>
               );
             })
           )}
+
+          <Link to="/second-brain" className={navItemClass(secondBrainActive)} title="Second Brain">
+            {secondBrainActive && <ActiveBar />}
+            <Network className="w-5 h-5 shrink-0" style={{ color: secondBrainActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>Second Brain</span>
+          </Link>
 
           {/* "+New" — ALWAYS below all modules. */}
           <button
@@ -349,9 +393,9 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Bottom section — Settings + Pending work.
+        {/* Bottom section — Settings.
             TASK-001 VOCAB6: Knowledge and Intelligence removed from primary nav
-            (deprecated surfaces: Tools, Knowledge, Workflows, Projects). */}
+            (deprecated surfaces: Tools, Knowledge, Projects). */}
         <div
           className="border-t flex flex-col gap-0.5 px-1.5 pb-3 pt-2 shrink-0"
           style={{ borderColor: "var(--color-border)" }}
@@ -361,11 +405,17 @@ export default function Layout() {
             <Settings className="w-5 h-5 shrink-0" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Settings</span>
           </Link>
-          <Link to="/task-manager" className={navItemClass(pendingWorkActive)} title="Task Manager">
-            {pendingWorkActive && <ActiveBar />}
-            <ListChecks className="w-5 h-5 shrink-0" style={{ color: pendingWorkActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            <span className={navLabelClass()}>Task Manager</span>
-          </Link>
+          {auth.configured && (
+            <button
+              type="button"
+              className={navItemClass(false)}
+              onClick={() => void signOut()}
+              title="Sign out"
+            >
+              <LogOut className="h-5 w-5 shrink-0 text-[var(--color-warm-gray)]" />
+              <span className={navLabelClass()}>Sign out</span>
+            </button>
+          )}
 
         </div>
       </nav>
@@ -396,23 +446,34 @@ export default function Layout() {
           >
             <div className="mb-3 flex h-11 items-center justify-between border-b" style={{ borderColor: "var(--color-border)" }}>
               <span className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>Installed Modules</span>
-              <button type="button" onClick={() => setMobileModulesOpen(false)} aria-label="Collapse sidebar" className="rounded p-2">
-                <X className="h-4 w-4" />
-              </button>
+              <CollapseToggleButton
+                side="left"
+                collapsed={false}
+                onClick={() => setMobileModulesOpen(false)}
+              />
             </div>
             <div className="space-y-1">
               {installedModules?.map((module) => (
                 <Link
-                  key={module.packageName}
-                  to={`/module/${module.packageName}`}
+                  key={module.moduleName}
+                  to={`/module/${module.moduleName}`}
                   onClick={() => setMobileModulesOpen(false)}
                   className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
                   style={{ color: "var(--color-navy)" }}
                 >
-                  <Package className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+                  <Boxes className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
                   {module.displayName}
                 </Link>
               ))}
+              <Link
+                to="/second-brain"
+                onClick={() => setMobileModulesOpen(false)}
+                className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
+                style={{ color: "var(--color-navy)" }}
+              >
+                <Network className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+                Second Brain
+              </Link>
               {moduleLoadError && <p className="px-3 py-2 text-xs text-red-600">Modules unavailable: {moduleLoadError}</p>}
             </div>
             <div className="mt-3 space-y-1 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
@@ -428,15 +489,6 @@ export default function Layout() {
                 <Plus className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
                 New module or record
               </button>
-              <Link
-                to="/task-manager"
-                onClick={() => setMobileModulesOpen(false)}
-                className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
-                style={{ color: "var(--color-navy)" }}
-              >
-                <ListChecks className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
-                Task Manager
-              </Link>
             </div>
           </nav>
         </div>
@@ -476,7 +528,7 @@ export default function Layout() {
           aria-expanded={mobileModulesOpen}
           aria-controls="mobile-module-menu"
         >
-          <Package className="w-4 h-4" style={{ color: mobileModulesOpen ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+          <Boxes className="w-4 h-4" style={{ color: mobileModulesOpen ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
           Modules
         </button>
         <button
@@ -496,7 +548,26 @@ export default function Layout() {
           <Settings className="w-4 h-4" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
           Settings
         </Link>
+        {auth.configured && (
+          <button
+            type="button"
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs text-muted-foreground"
+            onClick={() => void signOut()}
+          >
+            <LogOut className="h-4 w-4 text-[var(--color-warm-gray)]" />
+            Sign out
+          </button>
+        )}
       </nav>
+
+      {signOutError && (
+        <div
+          role="alert"
+          className="fixed bottom-16 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-red-700 px-4 py-2 text-sm text-white shadow-lg"
+        >
+          {signOutError}
+        </div>
+      )}
 
       <NewModuleDialog open={newOpen} onOpenChange={setNewOpen} />
 
@@ -507,25 +578,36 @@ export default function Layout() {
           // Does NOT close the dialog (see OnboardingDialog.tsx's prop comment,
           // docs/BUGS.md cosmetic-auto-close fix) — only marks that onboarding
           // no longer needs to auto-open on a future mount.
-          onProposed={() => {}}
-          onHatched={(prefs) => setAvatarPrefs(prefs)}
+          onProposed={(organization) => {
+            setOrganizationName(organization.name);
+            setOrganizations((current) =>
+              current.some((item) => item.id === organization.id)
+                ? current.map((item) => (item.id === organization.id ? organization : item))
+                : [...current, organization],
+            );
+          }}
+          onAvatarReady={(prefs) => {
+            setAvatarPrefs(prefs);
+            setOrganizationConfirmed(true);
+          }}
         />
       )}
 
       {/* Persistent avatar overlay — every route, inside the authed shell
           (spec-consolidation-2026-07.md section 3). Renders once prefs are
           resolved (either from localStorage or the existing-user fallback)
-          so it never flashes a default animal before the real one loads.
+          so it never flashes a default style before the real one loads.
           SUPPRESSED in the desktop shell (R-002): there the avatar is an
           OS-level floating companion window (apps/desktop overlay.rs +
           apps/web OverlayApp.tsx) and rendering both would duplicate it;
           plain-browser deploys keep this in-page overlay. */}
-      {avatarPrefs && !(typeof window !== "undefined" && window.__TAURI_INTERNALS__) && (
+      {organizationConfirmed === true &&
+        avatarPrefs?.avatarReady &&
+        !(typeof window !== "undefined" && window.__TAURI_INTERNALS__) && (
         <AvatarOverlay
-          animal={avatarPrefs.animal}
-          growthStage={growthStage}
+          style={avatarPrefs.style}
           {...(avatarPrefs.avatarName ? { avatarName: avatarPrefs.avatarName } : {})}
-          {...(workspaceName ? { workspaceName } : {})}
+          {...(organizationName ? { organizationName } : {})}
         />
       )}
     </div>

@@ -27,26 +27,74 @@ its real data source exists, and an empty state would hide the thing being revie
 
 - **2026-07-18 — TASK-022 model-provider protocol fixtures** (`platform/packages/models/test/{providers,router}.test.ts`,
   `platform/packages/models/test/local-content-guard.test.ts`, `platform/apps/api/test/chief-of-staff.test.ts`,
-  `platform/packages/core/test/{agents-invoke,capability-registry,chief-of-staff,content-guard,eval-judge,model-provider,run-context}.test.ts`).
+  `platform/packages/core/test/{agents-invoke,capability-registry,chief-of-staff,content-guard,eval-judge,model-provider}.test.ts`).
   **Reason:** cache creation/read, tier selection, usage propagation, provider failure, Authority/Plane denial,
   and append-only receipt tests
   must be deterministic and cannot spend against mutable external APIs, require developer credentials, or write
   synthetic calls into a real workspace ledger. The Anthropic adapter enforces the documented model-specific
   minimum cacheable prefix and explicit system-block breakpoint; it is test-only, never a runtime fallback.
+  The secure opt-in CoS live branch uses the real Anthropic adapter and is not satisfied by these fixtures.
   **Real elements they stand in for:** Anthropic/Groq/Ollama completion responses, configured cheap/reasoning
   providers, token price metadata, authenticated Chief-of-Staff calls, and persisted model-call receipts.
   **Removal condition:** retain as isolated protocol/governance regressions; add credentialed provider-sandbox
   evidence separately when an approved non-production account and spend budget exist.
 
-- **2026-07-17 — TASK-007 Agent-orchestration fixtures** (`platform/packages/core/test/{goal-task,skill-manifest,child-agent-run,pipeline-ags1}.test.ts`,
-  `platform/packages/db/test/{goal-task-store,skill-manifest-store,child-agent-run-store,internal-strategist-governance,local-store,rls,migration-journal}.test.ts`,
-  `platform/apps/api/test/{agent-orchestration,ritual-ownership}.test.ts`).
+- **2026-07-19 — Supabase deployment-boundary fixtures** (`platform/packages/db/test/rls.test.ts`,
+  `platform/apps/api/test/{server,security-hardening,wiring,residency-ledger}.test.ts`,
+  `platform/modules/dealpilot/test/encrypted-file-credentials.test.ts`,
+  `.github/workflows/ci.yml`).
+  **Reason:** deterministic runtime-role isolation, JWT/pilot admission, production fail-closed,
+  Local/Cloud routing, encrypted-vault corruption/rotation/scope, and container smoke tests
+  cannot mutate a live Supabase project, a Human's Local Plane, or real Source credentials.
+  **Real elements they stand in for:** Supabase Auth subjects and tokens, two Organizations,
+  public/private proposals, Source credentials and wrapping keys, an encrypted persistent
+  volume, and production API configuration.
+  **Removal condition:** retain as permanent identity/RLS/residency/cryptography/deployment
+  regressions; certify each release against owner-provisioned Supabase and hosting without
+  copying live secrets or private payloads into fixtures.
+
+- **2026-07-19 — TASK-009/TASK-014 merge regressions** (`platform/packages/db/test/migration-0019.test.ts`, `platform/apps/api/test/workspace-membership.test.ts`, `platform/apps/api/test/packages.test.ts`).
+  **Reason:** deterministic divergent-migration ancestry and concurrent Organization rename/File upload cannot safely mutate a real user's migration journal or private Files.
+  **Real elements they stand in for:** an upgraded Local Plane database, private Learning recommendation rows, an Organization Files root, and a Human-uploaded Module File.
+  **Removal condition:** retain as permanent migration/privacy/concurrency regressions; use user-approved local data only for product certification.
+
+- **2026-07-19 — TASK-014 private Map/geocoder regression fixtures** (`platform/packages/tables/test/location.test.ts`, `platform/apps/api/test/map-geocoding.test.ts`).
+  **Reason:** deterministic coordinate parsing, fail-closed provider configuration, label deduplication, not-found handling, and loopback-origin tests cannot send real private place labels to a live service or mutate user Records.
+  **Real elements they stand in for:** Location Record values, a user-installed Local Plane geocoder, and provider coordinates.
+  **Removal condition:** retain as isolated privacy/contract regressions; use user-approved local Records and a local self-hosted provider for browser certification.
+
+- **2026-07-17 — TASK-007 Agent-orchestration fixtures** (`platform/packages/core/test/{goal-task,skill-manifest,child-agent-run,pipeline-ags1,pipeline}.test.ts`,
+  `platform/packages/db/test/{automation-stores,goal-task-store,skill-manifest-store,child-agent-run-store,internal-strategist-governance,local-store,rls,migration-journal}.test.ts`,
+  `platform/apps/api/test/{agent-orchestration,modules,ritual-ownership}.test.ts`).
   **Reason:** deterministic cross-workspace denial, Agent assignment, budget race, lifecycle rollback,
   migration, RLS, and Automation binding tests cannot mutate real user Goals/Tasks or persistent Runs.
   **Real elements they stand in for:** workspace members, foundational Agents, Goals, Tasks, Skill manifests,
-  parent/child Runs, budgets, lifecycle decisions, and audit entries.
+  installed Modules, attributable Automation/parent/child Runs, budgets, lifecycle decisions, and audit entries.
   **Removal condition:** retain as isolated governance/security regressions; use user-approved local workspace
   data for product demonstrations and future end-to-end child-executor evidence.
+
+- **2026-07-17 — TASK-011 JobPilot culture-research fixtures** (`platform/apps/api/test/jobpilot-culture-research.test.ts`,
+  `platform/packages/net-guard/test/net-guard.test.ts`, `platform/modules/jobpilot/test/culture-research.test.ts`,
+  `platform/apps/api/test/agent-eligibility.test.ts`).
+  **Reason (updated after the 2026-07-18 coordinator final-review remediation pass):** these tests must
+  never make a real network call in CI, yet must exercise REAL redirect/byte-cap/abort/reservation/
+  durability mechanics rather than mocking them away. `net-guard`'s tests spin up real local `node:http`/
+  `node:https` servers (loopback is allowlisted ONLY via the test-only `unsafeTestOverrides` seam, every
+  other private range stays blocked; the HTTPS downgrade test generates a real, throwaway self-signed
+  certificate via `openssl` at test time and relaxes `NODE_TLS_REJECT_UNAUTHORIZED` for that one test
+  only) to prove genuine redirect-following, cross-origin header-stripping, downgrade rejection, cycle
+  detection, byte-cap streaming, and `AbortSignal` cancellation over real sockets. `apps/api`'s tests
+  register additional TEST-ONLY entries in the server-owned `CULTURE_SOURCE_REGISTRY` via
+  `unsafeRegisterTestOnlyCultureSource` (never reachable from production code) pointing at real local
+  test servers, and call `materializeCultureSourceFetch`/`cancelCultureSourceFetch` directly with the
+  same loopback-allow override to prove the real durable-record/CAS/reservation/idempotency/completion
+  logic end-to-end (including a genuine restart-durability proof via a second `DurableCultureFetchStore`
+  wrapping the same underlying `memoryStore`). All test-only company/claim/source text is
+  `test_fixture_`-prefixed in spirit (labelled "test_fixture Co"/"test_fixture source N" etc.) even
+  though it is plain string data, not a `dummy_` identifier.
+  **Real elements they stand in for:** a real candidate company's official careers page fetch, a real
+  Learning-Agent-owned bounded child Agent Run, and a real Internal-Strategist culture-evidence synthesis.
+  **Removal condition:** retain as the permanent deterministic regression suite for this Skill.
 
 - **2026-07-17 — TASK-004 migration compatibility fixtures** (`platform/packages/db/test/migration-0011.test.ts`,
   `platform/packages/db/test/migration-0013.test.ts`, `platform/packages/db/test/package-store.test.ts`).
@@ -93,19 +141,23 @@ its real data source exists, and an empty state would hide the thing being revie
   **Removal condition:** retain only as isolated parser fixtures; use signed real manifests for end-to-end
   Commons/install certification.
 
-- **2026-07-15 — JobPilot JP1 domain test fixtures** (`platform/tools/jobpilot/test/resume-schema.test.ts`,
+- **2026-07-15 — JobPilot JP1 domain test fixtures** (`platform/modules/jobpilot/test/resume-schema.test.ts`,
   `master-profile.test.ts`, `profile-approval.test.ts`).
   **Reason:** deterministic merge/conflict/approval tests cannot use private real resumes in the repository.
   **Real element they stand in for:** parsed user resumes and cover letters represented as JSON Resume records.
   **Removal condition:** retain only as isolated unit fixtures; replace exit-gate/eval evidence with a
   user-approved, local-only labeled real-document corpus when JP1 ingestion is exercised.
 
-- **2026-07-15 — DealPilot DP0 domain test fixtures** (`platform/tools/dealpilot/test/deal.test.ts`,
-  `projections.test.ts`, `table.test.ts`, `domain.test.ts`, `credentials.test.ts`;
-  `platform/apps/api/test/dealpilot-core.test.ts`).
+- **2026-07-15 — DealPilot DP0 domain test fixtures** (`platform/modules/dealpilot/test/deal.test.ts`,
+  `projections.test.ts`, `table.test.ts`, `domain.test.ts`, `credentials.test.ts`,
+  `keyring-credentials.test.ts`, `runtime-store.test.ts`;
+  `platform/apps/api/test/dealpilot-core.test.ts`, `dealpilot-durability.test.ts`;
+  `platform/packages/local/test/memory.test.ts`, `pglite.test.ts`).
   **Reason:** deterministic stage/projection tests need stable synthetic Deal shells, facts, flags, documents,
-  and activity events; repository tests cannot depend on private live deal data.
-  **Real element they stand in for:** Deal records and append-only facts from the governed sourcing pipeline.
+  activity events, restart state, concurrent writes, and credential-provider behavior; repository tests cannot
+  depend on private live deal data or mutate a developer's OS keychain.
+  **Real element they stand in for:** Deal records, append-only facts, Local Plane state, and keychain entries
+  from the governed sourcing pipeline.
   **Removal condition:** retain only as isolated unit fixtures; add local-only real-store/browser evidence
   before DP0 can be proposed DONE.
 
@@ -131,25 +183,27 @@ its real data source exists, and an empty state would hide the thing being revie
   **Removal condition:** replace the source with a real ≥1024×1024 Bridge brand icon and re-run
   `tauri icon` (file names stay the same, so no `tauri.conf.json` change needed).
 
-- **2026-07-07 — ported prototype fixture data modules** (`platform/apps/web/src/app/data/`:
-  `actionQueue.ts`, `api.ts`, `associations.ts`, `brokerages.ts`, `db.ts`, `dealpilot.ts`,
-  `governance.ts`, `helpdesk.ts`, `helpdeskRemote.ts`, `initiatives.ts`, `integrations.ts`,
-  `jobpilot.ts`, `ledger.ts`, `localMedia.ts`, `network.ts`, `resources.generated.ts`,
-  `signals.ts`, `toolCaptures.ts`, `tools.ts`).
-  **Reason:** user-ordered faithful visual port of the prototype, 2026-07-07 — the full prototype
-  page surface (HomePage/WorkPage/ItemDetail/ToolsPage/SkillDetail + rich JobPilot/Helpdesk/
-  Approvals/Calendar/Rituals/Resources/Settings, DataEngine at /network) had to land visually
-  intact before real-data wiring; these modules are the fixture content those pages render.
-  **Real element each stands in for:** people/communities → `graph.listPeople` /
-  `graph.listCommunities` (exist today); approvals → `action.listPending` (exists); signals →
-  signal read procedures (pending schema v2); rituals/agents/skills/integrations/tools →
-  capability manifests + `packages.list` (packages.list exists; per-capability reads pending);
-  initiatives/work → Initiative procedures (pending); helpdesk/jobpilot/dealpilot → their
-  capability packages' backends (pending); ledger/governance → execution-ledger + trust-grant
-  reads (pending).
-  **Removal condition:** each page wired to real endpoints in the shell-v2 pass — a module's
-  entry moves to Resolved when its consuming page(s) read tRPC instead of the module.
+- **2026-07-20 — signed pre-VOCAB3 Commons compatibility fixture**
+  (`platform/services/commons/test/signing.test.ts`).
+  **Reason it can't be real yet:** the regression must create a controlled historical signed entry
+  with known bytes and a temporary Ed25519 key to prove hash/signature preservation, vocabulary
+  projection, prior-directory discovery, and tamper rejection without depending on a user's real
+  Commons registry or private signing key.
+  **Real element it stands in for:** a generalized Commons entry published and signed before
+  VOCAB3 under the prior manifest and filesystem vocabulary.
+  **Removal condition:** remove with the explicit pre-VOCAB3 Commons compatibility adapter after
+  every supported registry has migrated and the TASK-012 compatibility-deletion gate passes.
 
 ## Resolved
 
-*(entries move here, struck through, once removed — none yet)*
+- ~~**2026-07-07 — ported prototype fixture data modules.**~~ **Resolved 2026-07-21:** TASK-013
+  deleted superseded prototype consumers and fixture-bearing modules. Home now reads installed
+  Modules from `modules.list`; canonical Module, Relationship, DealPilot, JobPilot, Approvals,
+  Task Manager, and Google surfaces use real API data or honest empty/error states. Remaining
+  `data/api.ts`, `data/governance.ts`, and `data/ledger.ts` files are typed API/empty-state
+  adapters, not seeded product data.
+
+- ~~**2026-07-17 — unrouted JobPilot application fixture.**~~ **Resolved 2026-07-21:** TASK-013
+  deleted the superseded page, its fixture module, and its fixture-only client tests. The routed
+  `JobPilotPage.tsx` continues to use persisted application Records and live culture-research
+  procedures.

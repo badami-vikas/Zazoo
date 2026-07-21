@@ -1,42 +1,21 @@
-# Calendar (wiki)
+# Calendar
 
-full: [../raw/calendar-plan.md](../raw/calendar-plan.md)
+full grammar: [DataEngine / View Grammar BRD](../raw/brd-dataengine-views-2026-07.md) · history: [old Tool plan](../raw/calendar-plan.md) · [old Module plan](../raw/calendar-module-plan-2026-07.md) · ADR-108.
 
-**STATUS (2026-06-24): P0–P2 BUILT for Google Calendar** — list + create/modify/delete, governed round-trip. Backend `@bridge/integrations-google` (5/5 calendar tests, suite 9/9). Frontend = pinnable native `/calendar` Tool. P3–P6 (rituals/initiatives overlay · team/shared · conference adapters · scheduling) = future.
+**NOW (2026-07-19): Calendar = View.**
 
-**Call:** Calendar = time-axis PROJECTION over Unified Graph, packaged as pinnable **Tool**. NOT a calendar product/server. Build thin surface Bridge owns. Adopt OSS only for rendering + RFC-5545 math.
+- One canonical kind: `calendar`.
+- Eligible when Database has Date column.
+- One renderer: `dataviews/views/CalendarView.tsx`.
+- Same Page rows as Table/Form/Board. No second store.
+- No `/calendar` route. No Module. No Tool. No nav item. No package gate.
+- Google Calendar = Integration. Syncs rows. Does not own UI.
+- Form-created and Integration-synced rows render same.
+- Creation controls appear only when Page has real governed insert.
+- Honest empty state when no dated rows.
 
-## Why not buy whole calendar
-- Every calendar SYSTEM = copyleft → banned embed. Cal.com AGPLv3 · Radicale/Baïkal GPL-3.0 · Nextcloud AGPLv3.
-- Whole product = SECOND source-of-truth → fights graph + pipeline + RLS Bridge already owns.
-- Arch already says so: List/Board/Table/**Calendar**/MindMap = projections over ONE Touchpoint tree.
+**Old plans superseded:** their projection/governance lessons survive. Their dedicated Calendar Tool/Module/nav identity does not.
 
-## 3 layers, 3 owners
-1. **Render** (month/week/day/agenda grid, drag, resize, lanes) → ADOPT OSS behind `CalendarView` port. No moat.
-2. **Standards math** (RRULE recurrence, DST/tz, ICS parse+gen) → ADOPT small libs behind `RecurrenceEngine`/`IcsCodec`. NEVER hand-roll recurrence — #1 bug factory.
-3. **System-of-record + governance** (projection, sync, write-back, team scope, scheduling) → BUILD on existing platform. THE moat.
+**Writes:** ordinary Page write or governed external egress. External Calendar write stays Human-approved.
 
-## Library picks (permissive, verified 2026-06-24)
-- **Render = IN-HOUSE** (date-fns + Bridge tokens), v1 SHIPPED — user wanted max-modifiable + design-native + no new dep. **react-big-calendar** (MIT) = documented swap-in behind the view boundary (ADR in [decisions](decisions.md) / decisions-log). Reject pay: FullCalendar/Schedule-X premium lane views.
-- **ical.js** (MPL-2.0) = recurrence expand + ICS parse — **DEFERRED**: Google expands recurring events server-side (`singleEvents:true`), so not needed for GCal-only scope. (Re-add for ICS-import / multi-source.)
-- **ical-generator** (MIT, .ics feed) + **Luxon** (tz) = future (feed + multi-source).
-
-## How it plugs in (zero new subsystem)
-- **Projection** = read-time UNION → normalized `CalendarEvent` contract. Sources: GCal `external_records` (local plane, ALREADY synced) · Touchpoints w/ times · ritual_runs next-fire · Initiative timelines · FUTURE conference/ICS adapters.
-- **Sync** = reuse existing `integrations`+`integration_sync_state`+`external_records` (GCal shipped 2026-06-20). External stays source-of-truth.
-- **Write-back** = create/move → Pipeline egress → `external:send` agent-floor DENY → human approve ≥L2. Gate already enforces.
-- **Team/shared cal** = RLS visibility filter (private|team|workspace), NOT new ACL. `visibility>=team AND team_id=:t` over projection.
-- **New source** = new integration adapter emitting `CalendarEvent`. Surface NEVER changes. = future-proof.
-- **Scheduling** (Calendly-like) = build on projection later (P6+). Cal.com AGPL banned; revisit cal.diy (MIT) — verify license first.
-
-## Tool manifest
-id `calendar` · native · pinnable + `/calendar` · reads gcal/touchpoints/ritual_runs/initiatives · output_contract `CalendarEvent` · write via pipeline · ports `CalendarView`/`RecurrenceEngine`/`IcsCodec`.
-
-## Phases
-P0 contract+projection (no UI) → P1 read-only surface (react-big-calendar) → P2 governed write-back + .ics feed → P3 rituals/initiatives overlay → P4 team/shared (RLS + lanes) → P5 conference adapters → P6+ scheduling (defer). Sequences after local-gate slice + Initiatives P1.
-
-## Risks
-render lib ceiling → headless via port · recurrence/DST → ical.js never hand-roll · cal.diy license drift → defer+verify · mixed tz → normalize to timestamptz, render user-tz.
-
-## Strengthened delivery (2026-07-12)
-Module plan [calendar-module-plan](../raw/calendar-module-plan-2026-07.md) §6 now carries per-slice goals/deliverables/exit-criteria/dependencies + §6.1 metrics + §6.2 risk register. Key hard facts: **CAL4 (team/shared) HARD-BLOCKED on SEC-5 RLS-as-code + SEC-6 membership checks** — RLS leak = trust-killer, tested at policy level not UI. CAL5 gated on recurrence/DST eval suite (EXDATE/RECURRENCE-ID/DST boundaries, must stay 100%). CAL6 free/busy must strip event details (contract test). Monitored invariants: unapproved external writes == 0, RLS leaks == 0, escaped calendar-math bugs → permanent eval cases. Second-source-of-truth creep reviewed at every slice exit. JP6 + DealPilot meetings consume CAL3+.
+**Future:** recurrence/ICS/team scheduling only when a consuming Database/Integration needs it. Never rebuild Calendar as product/server.

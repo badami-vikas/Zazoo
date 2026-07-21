@@ -3,7 +3,7 @@
  *
  * Tests the orchestration against the GovernedGate contract with a recording gate,
  * the fixture provider seam, and an in-memory local quarantine. Proves:
- *  - read: capture → local quarantine → pending Touchpoint proposals, with the
+ *  - read: capture → local quarantine → pending Event proposals, with the
  *    private body kept OUT of the proposal (residency);
  *  - write: the draft step never publishes; egress (external:send) fires only after
  *    a gate approval.
@@ -61,7 +61,7 @@ test("read: an unconfigured (no live provider) seam sources nothing — an hones
     gate,
     provider,
     quarantine,
-    workspaceId: "test_fixture_ws",
+    organizationId: "test_fixture_ws",
     actor,
     run,
   });
@@ -104,7 +104,7 @@ test("sourceToProposals: with a real sourced item, proposal inputs.mode reflects
     gate,
     provider,
     quarantine,
-    workspaceId: "test_fixture_ws",
+    organizationId: "test_fixture_ws",
     actor,
     run,
   });
@@ -157,7 +157,7 @@ test("write: draft never publishes; egress fires only after gate approval", asyn
     gate,
     provider,
     action: { kind: "post", text: "test_fixture_outbound post" },
-    workspaceId: "test_fixture_ws",
+    organizationId: "test_fixture_ws",
     actor,
     run,
   });

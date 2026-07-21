@@ -1,0 +1,6 @@
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap");
+@import "./styles/base.css";
+@import "./styles/characters.css";
+@import "./styles/opening.css";
+@import "./styles/chapters.css";
+@import "./styles/closing.css";

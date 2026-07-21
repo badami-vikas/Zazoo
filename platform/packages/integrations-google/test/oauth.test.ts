@@ -20,9 +20,14 @@ class test_fixture_FakeOAuth2 {
     return `https://accounts.example.test/auth?state=${encodeURIComponent((args as { state: string }).state)}`;
   }
 
-  async getToken(code: string): Promise<{ tokens: Record<string, unknown> }> {
-    this.credentials = { code };
-    return { tokens: test_fixture_FakeOAuth2.tokensByCode.get(code) ?? {} };
+  async getToken(input: {
+    code: string;
+    codeVerifier: string;
+  }): Promise<{ tokens: Record<string, unknown> }> {
+    this.credentials = input;
+    return {
+      tokens: test_fixture_FakeOAuth2.tokensByCode.get(input.code) ?? {},
+    };
   }
 
   setCredentials(credentials: unknown): void {
@@ -76,9 +81,13 @@ test("oauthConfigFromEnv returns null unless client id and secret are configured
   }
 });
 
-test("authUrl asks Google for offline consent with the package scopes and state", () => {
+test("authUrl asks Google for offline consent bound with PKCE S256", () => {
   test_fixture_FakeOAuth2.instances = [];
-  const url = oauth.authUrl(cfg, "test_fixture_state");
+  const url = oauth.authUrl(
+    cfg,
+    "test_fixture_state",
+    "test_fixture_code_challenge",
+  );
   const client = test_fixture_FakeOAuth2.instances[0]!;
 
   assert.equal(url, "https://accounts.example.test/auth?state=test_fixture_state");
@@ -89,6 +98,8 @@ test("authUrl asks Google for offline consent with the package scopes and state"
     scope: GOOGLE_SCOPES,
     include_granted_scopes: true,
     state: "test_fixture_state",
+    code_challenge: "test_fixture_code_challenge",
+    code_challenge_method: "S256",
   });
 });
 
@@ -109,26 +120,55 @@ test("exchangeCode normalizes optional token fields and rejects malformed token 
     ["test_fixture_bad_code", { refresh_token: "test_fixture_refresh_without_access" }],
   ]);
 
-  assert.deepEqual(await oauth.exchangeCode(cfg, "test_fixture_good_code"), {
+  assert.deepEqual(
+    await oauth.exchangeCode(
+      cfg,
+      "test_fixture_good_code",
+      "test_fixture_code_verifier",
+    ),
+    {
     accessToken: "test_fixture_access_token",
     refreshToken: "test_fixture_refresh_token",
     scope: "test_fixture_scope_a test_fixture_scope_b",
     tokenType: "Bearer",
     expiryDate: 1_800_000,
-  });
-  assert.deepEqual(await oauth.exchangeCode(cfg, "test_fixture_minimal_code"), {
-    accessToken: "test_fixture_minimal_access",
-    scope: GOOGLE_SCOPES.join(" "),
-    tokenType: "Bearer",
-  });
-  await assert.rejects(() => oauth.exchangeCode(cfg, "test_fixture_bad_code"), /no access_token/);
+    },
+  );
+  assert.deepEqual(
+    test_fixture_FakeOAuth2.instances[0]?.credentials,
+    {
+      code: "test_fixture_good_code",
+      codeVerifier: "test_fixture_code_verifier",
+    },
+  );
+  assert.deepEqual(
+    await oauth.exchangeCode(
+      cfg,
+      "test_fixture_minimal_code",
+      "test_fixture_code_verifier",
+    ),
+    {
+      accessToken: "test_fixture_minimal_access",
+      scope: GOOGLE_SCOPES.join(" "),
+      tokenType: "Bearer",
+    },
+  );
+  await assert.rejects(
+    () =>
+      oauth.exchangeCode(
+        cfg,
+        "test_fixture_bad_code",
+        "test_fixture_code_verifier",
+      ),
+    /no access_token/,
+  );
 });
 
 test("clientFromToken and tokenRecordFrom preserve optional fields without inventing absent values", () => {
   test_fixture_FakeOAuth2.instances = [];
   const stored: OAuthTokenRecord = {
     integrationId: "test_fixture_integration",
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     provider: "google",
     accessToken: "test_fixture_access",
     refreshToken: "test_fixture_refresh",
@@ -149,13 +189,13 @@ test("clientFromToken and tokenRecordFrom preserve optional fields without inven
   assert.deepEqual(
     oauth.tokenRecordFrom(
       "test_fixture_integration",
-      "test_fixture_workspace",
+      "test_fixture_organization",
       { accessToken: "test_fixture_access", scope: "test_fixture_scope", tokenType: "Bearer" },
       "2026-07-14T00:00:00.000Z",
     ),
     {
       integrationId: "test_fixture_integration",
-      workspaceId: "test_fixture_workspace",
+      organizationId: "test_fixture_organization",
       provider: "google",
       accessToken: "test_fixture_access",
       scope: "test_fixture_scope",

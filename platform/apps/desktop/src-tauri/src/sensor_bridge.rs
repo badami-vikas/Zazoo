@@ -91,6 +91,7 @@ pub struct SensorHubState {
 }
 
 struct SensorHubInner {
+    disabled: bool,
     running: std::collections::HashMap<String, RunningProvider>,
     receiver: Option<Receiver<CaptureEmission>>,
     sender: Sender<CaptureEmission>,
@@ -105,6 +106,7 @@ impl Default for SensorHubState {
         let (sender, receiver) = channel();
         Self {
             inner: Mutex::new(SensorHubInner {
+                disabled: false,
                 running: std::collections::HashMap::new(),
                 receiver: Some(receiver),
                 sender,
@@ -113,6 +115,31 @@ impl Default for SensorHubState {
             }),
         }
     }
+}
+
+/// Stop every provider and discard all pending/raw capture material. Used when
+/// the trusted desktop surface is lost so capture can never continue headless.
+pub fn shutdown(state: &SensorHubState) -> Result<(), String> {
+    let mut inner = state
+        .inner
+        .lock()
+        .map_err(|_| "sensor hub mutex is poisoned".to_string())?;
+    inner.disabled = true;
+    #[cfg(target_os = "macos")]
+    for (_, provider) in inner.running.drain() {
+        match provider {
+            RunningProvider::Apps(provider) => provider.stop(),
+            RunningProvider::Clipboard(provider) => provider.stop(),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    inner.running.clear();
+    if let Some(receiver) = inner.receiver.as_ref() {
+        while receiver.try_recv().is_ok() {}
+    }
+    inner.queue = ObservationQueue::new();
+    inner.raw_ring = RawRingBuffer::new(RAW_RING_CAPACITY);
+    Ok(())
 }
 
 /// Drains anything sitting in the mpsc channel into the queue/ring-buffer.
@@ -206,6 +233,13 @@ pub fn sensor_start(
     #[cfg(target_os = "macos")]
     {
         let mut inner = state.inner.lock().expect("sensor hub mutex poisoned");
+        if inner.disabled {
+            return Err(SensorBridgeError {
+                code: "SENSOR_DISABLED",
+                message: "capture is disabled because the trusted Bridge surface is unavailable"
+                    .to_string(),
+            });
+        }
         if inner.running.contains_key(&sensor_id) {
             return Ok(());
         }
@@ -314,4 +348,34 @@ pub fn capture_screenshot_on_demand() -> Result<String, SensorBridgeError> {
         "capture_screenshot_on_demand",
         "CGWindowListCreateImage (or ScreenCaptureKit SCScreenshotManager on macOS 14+)",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::Observation;
+
+    #[test]
+    fn shutdown_discards_pending_and_raw_capture_material() {
+        let state = SensorHubState::default();
+        {
+            let mut inner = state.inner.lock().expect("sensor hub should lock");
+            inner.queue.push(Observation {
+                kind: "clipboard".to_string(),
+                ts: 1,
+                fields: serde_json::Map::new(),
+            });
+            inner
+                .raw_ring
+                .push("clipboard", serde_json::json!({ "text": "private" }));
+        }
+
+        shutdown(&state).expect("sensor shutdown should succeed");
+
+        let inner = state.inner.lock().expect("sensor hub should lock");
+        assert!(inner.disabled);
+        assert!(inner.running.is_empty());
+        assert!(inner.queue.is_empty());
+        assert!(inner.raw_ring.is_empty());
+    }
 }

@@ -26,6 +26,23 @@ import type { GoogleGateway, GoogleGatewayFactory } from "./gateway.js";
 import { clientFromToken, type GoogleOAuthConfig } from "./oauth.js";
 
 const DEFAULT_LOOKAHEAD_MS = 90 * 24 * 60 * 60 * 1000;
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const RFC3339_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function calendarDateValue(value: string): { date: string } | { dateTime: string } {
+  if (DATE_ONLY_PATTERN.test(value)) {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+      throw new Error(`google calendar: invalid all-day date ${value}`);
+    }
+    return { date: value };
+  }
+  if (!RFC3339_PATTERN.test(value) || Number.isNaN(new Date(value).getTime())) {
+    throw new Error(`google calendar: invalid RFC3339 date-time ${value}`);
+  }
+  return { dateTime: value };
+}
 
 /** Cap on simultaneous in-flight `threads.get` calls per sync — parallelizes the
  * previously-sequential N+1 fetch without firing hundreds of requests at once against
@@ -34,7 +51,7 @@ const THREAD_FETCH_CONCURRENCY = 15;
 
 /** Bounded retries for a single transient Gmail API call (network blip, momentary
  * 429/5xx). Mirrors intake.ts's `withRetry` (bounded linear backoff, logs each retry) —
- * this package didn't have a retry helper before; scoped to this file only. */
+ * this module didn't have a retry helper before; scoped to this file only. */
 async function withRetry<T>(label: string, attempts: number, delayMs: number, fn: () => Promise<T>): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -293,8 +310,8 @@ export class GoogleApiGateway implements GoogleGateway {
         summary: envelope.summary,
         ...(envelope.description ? { description: envelope.description } : {}),
         ...(envelope.location ? { location: envelope.location } : {}),
-        start: { dateTime: envelope.start },
-        end: { dateTime: envelope.end },
+        start: calendarDateValue(envelope.start),
+        end: calendarDateValue(envelope.end),
         ...(envelope.attendees && envelope.attendees.length
           ? { attendees: envelope.attendees.map((email) => ({ email })) }
           : {}),
@@ -314,8 +331,8 @@ export class GoogleApiGateway implements GoogleGateway {
         ...(envelope.summary ? { summary: envelope.summary } : {}),
         ...(envelope.description ? { description: envelope.description } : {}),
         ...(envelope.location ? { location: envelope.location } : {}),
-        ...(envelope.start ? { start: { dateTime: envelope.start } } : {}),
-        ...(envelope.end ? { end: { dateTime: envelope.end } } : {}),
+        ...(envelope.start ? { start: calendarDateValue(envelope.start) } : {}),
+        ...(envelope.end ? { end: calendarDateValue(envelope.end) } : {}),
       },
     });
     return {
@@ -388,14 +405,24 @@ export class GoogleApiGatewayFactory implements GoogleGatewayFactory {
     // loads the stale (possibly now-invalid) token from the store — silently bricking the
     // integration with an opaque "invalid_grant" and no diagnostic. Surface the failure loudly
     // instead of swallowing it (`void` previously discarded the promise entirely).
+    let persistedToken = token;
+    let refreshPersistence = Promise.resolve();
     client.on("tokens", (t) => {
-      this.secrets
-        .putToken({
-          ...token,
-          ...(t.access_token ? { accessToken: t.access_token } : {}),
-          ...(t.refresh_token ? { refreshToken: t.refresh_token } : {}),
-          ...(t.expiry_date ? { expiryDate: t.expiry_date } : {}),
-          updatedAt: new Date(t.expiry_date ?? Date.now()).toISOString(),
+      refreshPersistence = refreshPersistence
+        .then(async () => {
+          const replacement = {
+            ...persistedToken,
+            ...(t.access_token ? { accessToken: t.access_token } : {}),
+            ...(t.refresh_token ? { refreshToken: t.refresh_token } : {}),
+            ...(t.expiry_date ? { expiryDate: t.expiry_date } : {}),
+            updatedAt: new Date(t.expiry_date ?? Date.now()).toISOString(),
+          };
+          const stored = await this.secrets.compareAndSwapToken(
+            integrationId,
+            persistedToken,
+            replacement,
+          );
+          if (stored) persistedToken = replacement;
         })
         .catch((err: unknown) => {
           console.error(`google: failed to persist refreshed token for integration ${integrationId} — next sync will use a stale token`, err);

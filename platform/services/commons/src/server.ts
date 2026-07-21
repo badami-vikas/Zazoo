@@ -4,43 +4,42 @@
  * serves the SAME routes later, so consumers swap deployments via
  * COMMONS_URL only.
  *
- * Contract (v1 — curated package registry, generalized knowledge only):
- *   GET  /health                      → { ok, service, packages }
- *   GET  /v1/packages                 → list; ?kind= &tag= &limit= &offset=
- *   GET  /v1/packages/:name           → latest entry + version history
- *   GET  /v1/packages/:name/:version  → one full published entry
- *   POST /v1/packages                 → publish { manifest, tags? }
+ * Contract (v1 — curated Module registry, generalized capability content only):
+ *   GET  /health                      → { ok, service, modules }
+ *   GET  /v1/modules                 → list; ?kind= &tag= &limit= &offset=
+ *   GET  /v1/modules/:name           → latest entry + version history
+ *   GET  /v1/modules/:name/:version  → one full published entry
+ *   POST /v1/modules                 → publish { manifest, tags? }
  *        400 invalid_manifest  · 409 duplicate_version
- *        422 workspace_data_rejected { offendingPaths } ← knowledge-only gate
+ *        422 organization_data_rejected { offendingPaths } ← generalized-content gate
  */
 import Fastify, { type FastifyInstance } from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
 import {
   computeCommonsContentHash,
   normalizeCommonsTags,
-  parsePackageManifest,
-  PackageManifestValidationError,
+  parseModuleManifest,
+  ModuleManifestValidationError,
   verifyCommonsEntry,
   type CommonsListResult,
-  type CommonsPackageDetail,
-  type CommonsPackageEntry,
-  type CommonsPackageSummary,
+  type CommonsModuleDetail,
+  type CommonsModuleEntry,
+  type CommonsModuleSummary,
   type CommonsProvenance,
-  type PackageKind,
+  type ModuleKind,
 } from "@bridge/core";
-import { findWorkspaceDataPaths } from "./privacy-gate.js";
-import { scanCommonsPackage } from "./security-scan.js";
+import { findOrganizationDataPaths } from "./privacy-gate.js";
+import { scanCommonsModule } from "./security-scan.js";
 import { ed25519ManifestVerifier, resolveCommonsSigningKeyPair, signCommonsEntry, type CommonsSigningKeyPair } from "./signing.js";
 import { DuplicateVersionError, type CommonsStore } from "./store.js";
 
-const PACKAGE_KINDS: readonly string[] = [
+const MODULE_KINDS: readonly string[] = [
   "skill",
-  "workflow",
+  "automation",
   "agent",
-  "tool",
   "view",
   "integration_bundle",
-  "workspace_definition",
+  "organization_definition",
 ];
 
 const sha256 = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
@@ -53,7 +52,7 @@ function provenanceFromUnknown(value: unknown): CommonsProvenance | null {
     "sourceRef",
     "inspectedCommit",
     "repositoryLicense",
-    "artifactLicense",
+    "contentLicense",
     "licenseVerified",
   ]);
   if (
@@ -66,8 +65,8 @@ function provenanceFromUnknown(value: unknown): CommonsProvenance | null {
     candidate.inspectedCommit.trim() === "" ||
     typeof candidate.repositoryLicense !== "string" ||
     candidate.repositoryLicense.trim() === "" ||
-    typeof candidate.artifactLicense !== "string" ||
-    candidate.artifactLicense.trim() === "" ||
+    typeof candidate.contentLicense !== "string" ||
+    candidate.contentLicense.trim() === "" ||
     typeof candidate.licenseVerified !== "boolean"
   ) {
     return null;
@@ -77,12 +76,12 @@ function provenanceFromUnknown(value: unknown): CommonsProvenance | null {
     sourceRef: candidate.sourceRef.trim(),
     inspectedCommit: candidate.inspectedCommit.trim(),
     repositoryLicense: candidate.repositoryLicense.trim(),
-    artifactLicense: candidate.artifactLicense.trim(),
+    contentLicense: candidate.contentLicense.trim(),
     licenseVerified: candidate.licenseVerified,
   };
 }
 
-function assertStoredEntryTrusted(entry: CommonsPackageEntry, publicKey: string): void {
+function assertStoredEntryTrusted(entry: CommonsModuleEntry, publicKey: string): void {
   const result = verifyCommonsEntry(entry, sha256, ed25519ManifestVerifier, { trustedPublicKeys: [publicKey] });
   if (!result.valid) throw new Error(`commons stored entry failed trust verification: ${result.reason}`);
 }
@@ -101,18 +100,18 @@ function publisherAuthorized(authorization: string | undefined, publishToken: st
 
 async function verifiedDependencyResolver(
   store: CommonsStore,
-  manifest: ReturnType<typeof parsePackageManifest>,
+  manifest: ReturnType<typeof parseModuleManifest>,
   publicKey: string,
 ): Promise<
   (
     manifestId: string,
     version: string,
-  ) => { manifest: ReturnType<typeof parsePackageManifest>; contentHash: string } | undefined
+  ) => { manifest: ReturnType<typeof parseModuleManifest>; contentHash: string } | undefined
 > {
-  const resolved = new Map<string, { manifest: ReturnType<typeof parsePackageManifest>; contentHash: string }>();
+  const resolved = new Map<string, { manifest: ReturnType<typeof parseModuleManifest>; contentHash: string }>();
   const visited = new Set<string>();
 
-  async function visit(current: ReturnType<typeof parsePackageManifest>): Promise<void> {
+  async function visit(current: ReturnType<typeof parseModuleManifest>): Promise<void> {
     for (const dependency of current.dependencies) {
       const key = `${dependency.manifestId}@${dependency.version}`;
       if (visited.has(key)) continue;
@@ -141,7 +140,7 @@ export function buildCommonsServer(
 
   app.get("/health", async () => {
     const all = await store.listAll();
-    return { ok: true, service: "commons", packages: new Set(all.map((e) => e.name)).size };
+    return { ok: true, service: "commons", modules: new Set(all.map((e) => e.name)).size };
   });
 
   app.get("/v1/signing-key", async () => {
@@ -149,11 +148,11 @@ export function buildCommonsServer(
   });
 
   app.get<{ Querystring: { kind?: string; tag?: string; search?: string; limit?: string; offset?: string } }>(
-    "/v1/packages",
+    "/v1/modules",
     async (req, reply) => {
       const { kind, tag } = req.query;
-      if (kind !== undefined && !PACKAGE_KINDS.includes(kind)) {
-        return reply.status(400).send({ error: "invalid_kind", message: `kind must be one of ${PACKAGE_KINDS.join(", ")}` });
+      if (kind !== undefined && !MODULE_KINDS.includes(kind)) {
+        return reply.status(400).send({ error: "invalid_kind", message: `kind must be one of ${MODULE_KINDS.join(", ")}` });
       }
       const limit = Math.min(Math.max(Number(req.query.limit ?? 50) || 50, 1), 200);
       const offset = Math.max(Number(req.query.offset ?? 0) || 0, 0);
@@ -166,7 +165,7 @@ export function buildCommonsServer(
         byName.set(entry.name, versions);
       }
 
-      let summaries: CommonsPackageSummary[] = [...byName.values()].map((versions) => {
+      let summaries: CommonsModuleSummary[] = [...byName.values()].map((versions) => {
         const latest = latestOf(versions);
         return {
           name: latest.name,
@@ -178,7 +177,7 @@ export function buildCommonsServer(
           publishedAt: latest.publishedAt,
         };
       });
-      if (kind !== undefined) summaries = summaries.filter((s) => s.kind === (kind as PackageKind));
+      if (kind !== undefined) summaries = summaries.filter((s) => s.kind === (kind as ModuleKind));
       if (tag !== undefined) summaries = summaries.filter((s) => s.tags.includes(tag));
       const search = req.query.search?.trim().toLocaleLowerCase();
       if (search) {
@@ -198,13 +197,13 @@ export function buildCommonsServer(
     },
   );
 
-  app.get<{ Params: { name: string } }>("/v1/packages/:name", async (req, reply) => {
+  app.get<{ Params: { name: string } }>("/v1/modules/:name", async (req, reply) => {
     const versions = await store.listVersions(req.params.name);
     if (versions.length === 0) {
-      return reply.status(404).send({ error: "not_found", message: `no package named ${req.params.name}` });
+      return reply.status(404).send({ error: "not_found", message: `no module named ${req.params.name}` });
     }
     for (const entry of versions) assertStoredEntryTrusted(entry, keyPair.publicKeyPem);
-    const detail: CommonsPackageDetail = {
+    const detail: CommonsModuleDetail = {
       name: req.params.name,
       latest: latestOf(versions),
       versions: versions.map((v) => ({ version: v.version, publishedAt: v.publishedAt })),
@@ -212,7 +211,7 @@ export function buildCommonsServer(
     return detail;
   });
 
-  app.get<{ Params: { name: string; version: string } }>("/v1/packages/:name/:version", async (req, reply) => {
+  app.get<{ Params: { name: string; version: string } }>("/v1/modules/:name/:version", async (req, reply) => {
     const entry = await store.get(req.params.name, req.params.version);
     if (entry === null) {
       return reply.status(404).send({ error: "not_found", message: `no ${req.params.name}@${req.params.version}` });
@@ -223,7 +222,7 @@ export function buildCommonsServer(
 
   app.post<{
     Body: { manifest?: unknown; tags?: unknown; provenance?: unknown; expectedContentHash?: unknown };
-  }>("/v1/packages", async (req, reply) => {
+  }>("/v1/modules", async (req, reply) => {
     if (!publisherAuthorized(req.headers.authorization, options.publishToken)) {
       return reply.status(401).send({
         error: "publisher_unauthorized",
@@ -235,27 +234,27 @@ export function buildCommonsServer(
       return reply.status(400).send({ error: "invalid_manifest", message: "body must be { manifest, tags? }" });
     }
 
-    // Knowledge-only gate FIRST, on the raw payload — workspace/user data is
+    // Generalized-content gate FIRST, on the raw payload — Organization/user data is
     // rejected even when it hides in fields the manifest parser would drop.
-    const offendingPaths = findWorkspaceDataPaths({
+    const offendingPaths = findOrganizationDataPaths({
       manifest: body.manifest,
       provenance: body.provenance,
       tags: body.tags,
     });
     if (offendingPaths.length > 0) {
       return reply.status(422).send({
-        error: "workspace_data_rejected",
+        error: "organization_data_rejected",
         message:
-          "Universal Commons stores generalized capability knowledge only — never workspace or user data. Remove the offending fields and generalize the manifest.",
+          "Universal Commons stores generalized capability content only — never Organization or user data. Remove the offending fields and generalize the manifest.",
         offendingPaths,
       });
     }
 
     let manifest;
     try {
-      manifest = parsePackageManifest(body.manifest);
+      manifest = parseModuleManifest(body.manifest);
     } catch (err) {
-      if (err instanceof PackageManifestValidationError) {
+      if (err instanceof ModuleManifestValidationError) {
         return reply.status(400).send({ error: "invalid_manifest", message: err.message });
       }
       throw err;
@@ -272,16 +271,16 @@ export function buildCommonsServer(
       return reply.status(400).send({
         error: "invalid_provenance",
         message:
-          "provenance must declare sourceRepository, sourceRef, inspectedCommit, repositoryLicense, artifactLicense, and licenseVerified",
+          "provenance must declare sourceRepository, sourceRef, inspectedCommit, repositoryLicense, contentLicense, and licenseVerified",
       });
     }
 
     const resolveDependency = await verifiedDependencyResolver(store, manifest, keyPair.publicKeyPem);
-    const securityScan = scanCommonsPackage(manifest, provenance, offendingPaths, resolveDependency);
+    const securityScan = scanCommonsModule(manifest, provenance, offendingPaths, resolveDependency);
     if (securityScan.status !== "passed") {
       return reply.status(422).send({
         error: "security_scan_failed",
-        message: "deterministic Commons security scan rejected the artifact",
+        message: "deterministic Commons security scan rejected the capability",
         securityScan,
       });
     }
@@ -304,12 +303,12 @@ export function buildCommonsServer(
         computedContentHash: integrity.value,
       });
     }
-    const unsignedEntry: Omit<CommonsPackageEntry, "signature"> = {
+    const unsignedEntry: Omit<CommonsModuleEntry, "signature"> = {
       ...content,
       integrity,
       publishedAt: new Date().toISOString(),
     };
-    const entry: CommonsPackageEntry = { ...unsignedEntry, signature: signCommonsEntry(unsignedEntry, keyPair) };
+    const entry: CommonsModuleEntry = { ...unsignedEntry, signature: signCommonsEntry(unsignedEntry, keyPair) };
     const check = verifyCommonsEntry(entry, sha256, ed25519ManifestVerifier, { trustedPublicKeys: [keyPair.publicKeyPem] });
     if (!check.valid) {
       return reply.status(500).send({ error: "signing_failed", message: check.reason });

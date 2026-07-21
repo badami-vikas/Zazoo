@@ -8,6 +8,8 @@ function testModel(id: string, plane: "local" | "cloud", text: string): ModelPro
     id,
     plane,
     tiers: ["cheap"],
+    models: { cheap: `${id}-v1` },
+    routingHealth: () => "unknown",
     complete: async (req) => ({
       text,
       model: `${id}-v1`,

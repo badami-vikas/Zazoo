@@ -1,7 +1,7 @@
 /**
  * @bridge/core — the platform spine. Zero runtime dependencies.
  *
- * Universal Action Pipeline · Authority resolver · Policy engine · RitualExecutor
+ * Universal Action Pipeline · Authority resolver · Policy engine · AutomationExecutor
  * seam · determinism primitives. In-memory adapters ship here; @bridge/db binds
  * the same ports to Drizzle/Supabase.
  */
@@ -9,18 +9,19 @@ export * from "./types.js";
 export * from "./data-scope.js";
 export * from "./determinism.js";
 export * from "./ports.js";
+export * from "./geocoding.js";
 export { resolveAuthority, agentFloorDeny, planeGate, type ResolveArgs, type AuthorityDeps } from "./authority.js";
 export {
   buildAgentCapability,
   egressTierTokens,
   isForbiddenAgentToken,
   scopePermits,
-  validateRitualWithinAgents,
+  validateAutomationWithinAgents,
   type EgressTier,
   type BuiltAgentCapability,
   type AgentScopeView,
-  type RitualStepView,
-  type RitualScopeViolation,
+  type AutomationStepView,
+  type AutomationScopeViolation,
 } from "./agent-scope.js";
 export {
   AGENT_FLOOR_PROTECTED_RESOURCES,
@@ -40,18 +41,18 @@ export {
   type PipelineDeps,
 } from "./pipeline.js";
 export {
-  InProcessRitualExecutor,
-  type RitualExecutor,
-  type RitualExecutorOpts,
-  type RitualStep,
-  type RitualRunRequest,
-  type RitualRunByIdRequest,
-  type RitualRunResult,
-} from "./ritual-executor.js";
+  InProcessAutomationExecutor,
+  type AutomationExecutor,
+  type AutomationExecutorOpts,
+  type AutomationStep,
+  type AutomationRunByIdRequest,
+  type AutomationRunResult,
+} from "./automation-executor.js";
 export * from "./memory/stores.js";
 export * from "./memory/memory-store.js";
 export * from "./skills.js";
 export * from "./goal-task.js";
+export * from "./task-manager.js";
 export * from "./skill-manifest.js";
 export * from "./child-agent-run.js";
 
@@ -113,22 +114,22 @@ export {
   type ForeignImportResult,
 } from "./capability/importer.js";
 
-// Builder toolbelt (execution-plan-2026-07.md Track F2) -- governed
+// Builder primitives (execution-plan-2026-07.md Track F2) -- governed
 // Read/Write/Edit/Bash-equivalent primitives + the SandboxProvider port
 // shell:execute must route through (ADR-027 sandbox doctrine).
 export {
-  classifyToolbeltRisk,
+  classifyBuilderPrimitiveRisk,
   checkGrantScope,
   checkCommandAllowed,
   runShellExecute,
-  type ToolbeltResourceToken,
-  type ToolbeltRiskClassification,
-  type ToolbeltGrant,
-  type ToolbeltDenialReason,
-  type ToolbeltScopeCheckResult,
-  type ToolbeltRequest,
-  type ToolbeltResult,
-} from "./capability/toolbelt.js";
+  type BuilderPrimitiveToken,
+  type BuilderPrimitiveRiskClassification,
+  type BuilderPrimitiveGrant,
+  type BuilderPrimitiveDenialReason,
+  type BuilderPrimitiveScopeCheckResult,
+  type BuilderPrimitiveRequest,
+  type BuilderPrimitiveResult,
+} from "./capability/builder-primitives.js";
 export {
   InProcessJsSandboxProvider,
   NotImplementedContainerSandboxProvider,
@@ -159,24 +160,25 @@ export type {
   ContextProvider,
 } from "./context-provider.js";
 
-// Capability packages (docs/raw/capability-package-format.md, ADR-018) — the
+// Capability modules (docs/raw/capability-module-format.md, ADR-018) — the
 // shipping unit ABOVE one capability_manifests row. Builds on capability/*
 // above; never redefines its trust-model types.
-export * from "./package/types.js";
-export { parsePackageManifest, PackageManifestValidationError } from "./package/manifest.js";
-export { computePackageRisk, packageHasLethalTrifecta, type PackageRiskResult } from "./package/risk.js";
+export * from "./module/types.js";
+export { parseModuleManifest, ModuleManifestValidationError } from "./module/manifest.js";
+export { findOrganizationDataPaths } from "./module/privacy.js";
+export { computeModuleRisk, moduleHasLethalTrifecta, type ModuleRiskResult } from "./module/risk.js";
 export {
-  InvalidPackageTransitionError,
-  advancePackageState,
+  InvalidModuleTransitionError,
+  advanceModuleState,
   promoteToAvailable,
   rollbackFromHistory,
   type PromoteResult,
-} from "./package/lifecycle.js";
+} from "./module/lifecycle.js";
 export {
-  InMemoryPackageStore,
-  type PackageAttachmentTarget,
-  type PackageStore,
-} from "./package/ports.js";
+  InMemoryModuleStore,
+  type ModuleAttachmentTarget,
+  type ModuleStore,
+} from "./module/ports.js";
 // PKG-2 (Month-6) Commons supply-chain trust — pure signing/verification policy
 // + canonicalization + TLS-by-default (crypto itself is bound at the seam).
 export {
@@ -193,20 +195,20 @@ export {
   type ManifestVerificationFailure,
   type ManifestVerificationResult,
   type VerifyManifestOptions,
-} from "./package/signing.js";
+} from "./module/signing.js";
 export {
   canonicalizeCommonsContent,
   canonicalizeCommonsSignedPayload,
-  commonsPackageContent,
+  commonsModuleContent,
   computeCommonsContentHash,
   normalizeCommonsTags,
   verifyCommonsEntry,
   verifyCommonsEntryContent,
-  type CommonsPackageContent,
+  type CommonsModuleContent,
   type CommonsEntryVerificationFailure,
   type CommonsEntryVerificationResult,
   type ContentHasher,
-} from "./package/commons-trust.js";
+} from "./module/commons-trust.js";
 
 // PI-2 tainted-context egress gate + PI-3 dual-LLM quarantine / spotlighting (Month-3
 // prompt-injection defenses; ADR-066/067). The pipeline enforces the egress gate
@@ -260,9 +262,9 @@ export { contractMatchScorer, deterministicScorers, replayDeterminismScorer, rou
 export {
   CommonsPublishRejectedError,
   type CommonsRegistry,
-  type CommonsPackageEntry,
-  type CommonsPackageSummary,
-  type CommonsPackageDetail,
+  type CommonsModuleEntry,
+  type CommonsModuleSummary,
+  type CommonsModuleDetail,
   type CommonsListQuery,
   type CommonsListResult,
   type CommonsProvenance,
@@ -270,18 +272,26 @@ export {
   type CommonsDependencyPin,
   type CommonsSecurityScan,
   type CommonsContentHash,
-} from "./package/commons.js";
+  type CommonsSignedSource,
+} from "./module/commons.js";
+export {
+  adaptLegacyLicenseEntry,
+  adaptLegacyVocabularyEntry,
+  isLegacyLicenseEntry,
+  isLegacyVocabularyEntry,
+  readLegacySignedContent,
+} from "./module/signed-legacy-entry.js";
 
 // Blueprint -> view grammar compiler (docs/wiki/vision.md "View grammar",
-// P1 "Workspace Generator") — pure, zero-deps, additive to the pipeline.
+// P1 "Organization Generator") — pure, zero-deps, additive to the pipeline.
 export {
   compileBlueprint,
   BlueprintCompileError,
   BLUEPRINT_SCHEMA_VERSION,
-  parseWorkspaceBlueprint,
+  parseOrganizationBlueprint,
   BlueprintValidationError,
-  workspaceBlueprintToPackageManifest,
-  workspaceBlueprintFromPackageManifest,
+  organizationBlueprintToModuleManifest,
+  organizationBlueprintFromModuleManifest,
   type BlueprintColumnKind,
   type BlueprintColumnSpec,
   type BlueprintTableSpec,
@@ -293,18 +303,18 @@ export {
   type BlueprintFieldSpec,
   type BlueprintEntitySpec,
   type BlueprintViewSpec,
-  type WorkspaceBlueprint,
-  type WorkspaceBlueprintPublishOptions,
+  type OrganizationBlueprint,
+  type OrganizationBlueprintPublishOptions,
   type NavigationEntry,
-  type CompiledWorkspace,
+  type CompiledOrganization,
   type CompiledViewConfig,
 } from "./blueprint.js";
 export {
-  InMemoryWorkspaceDefinitionStore,
-  type WorkspaceDefinitionStatus,
-  type WorkspaceDefinitionRow,
-  type WorkspaceDefinitionStore,
-} from "./workspace-definition.js";
+  InMemoryOrganizationDefinitionStore,
+  type OrganizationDefinitionStatus,
+  type OrganizationDefinitionRow,
+  type OrganizationDefinitionStore,
+} from "./organization-definition.js";
 
 // Chief of Staff v1 (docs/wiki/roadmap.md P1 "Chief of Staff v1") — pure intent
 // classification + star-topology routing types. No I/O; apps/api's
@@ -327,7 +337,6 @@ export {
 // (COMMUNICATIONS_SKILL + parseSkillMention + buildCommunicationsSystemPrompt).
 export {
   FOUNDATIONAL_AGENTS,
-  ANIMAL_TONE,
   parseMention,
   findFoundationalAgent,
   buildAgentPersona,
@@ -371,7 +380,6 @@ export {
 export {
   InMemoryOnboardingProfileStore,
   profileFromRow,
-  resolveAnimalTone,
   buildChiefOfStaffPersona,
   type OnboardingProfileRow,
   type OnboardingProfileStore,

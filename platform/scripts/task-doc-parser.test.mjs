@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseCanonicalTasks } from './task-doc-parser.mjs';
+import { parseCanonicalTasks, projectCanonicalTasks } from './task-doc-parser.mjs';
 
 test('one canonical task absorbs roadmap, bug, request, and approval references', () => {
   const document = `
-## TASK-001 — Prototype shell
+## Prototype shell
+- ID: TASK-001
 - Status: ready
 - Priority: P0
 - Horizon: Prototype
@@ -25,6 +26,45 @@ test('one canonical task absorbs roadmap, bug, request, and approval references'
     scope: ['docs/raw/ui.md'], evidence: ['BUGS#tools', 'BUGS#panels'], requests: ['R-019'],
     approval: 'AP-021 applied', dependencies: [],
   });
+});
+
+test('docs/TASKS.md projection separates stable Record identity from materialized root path', () => {
+  const projection = projectCanonicalTasks(`
+## Task Manager Module
+- ID: TASK-021
+- Status: in_progress
+- Outcome: One governed queue.
+- Prototype test: Real Task flow completes with evidence.
+`);
+  assert.equal(projection.tasks[0].recordId, 'TASK-021');
+  assert.equal(projection.tasks[0].path, '21');
+  assert.equal(projection.tasks[0].exitTest, 'Real Task flow completes with evidence.');
+  assert.equal(projection.tasks[0].outcomes[0].target, 'Real Task flow completes with evidence.');
+  assert.match(projection.contentHash, /^[0-9a-f]{8}$/);
+  assert.match(projection.recordVersions['TASK-021'], /^[0-9a-f]{8}$/);
+});
+
+test('a non-task section heading (no immediately-following "- ID:" line) is never mistaken for a task, and does not leak its own fields onto the preceding task', () => {
+  const document = `
+## Prototype shell
+- ID: TASK-001
+- Status: ready
+
+## Execution order
+
+Some prose, not a field line.
+
+- Status: this looks like a field but belongs to no task
+
+## Second task
+- ID: TASK-002
+- Status: done
+`;
+  const tasks = parseCanonicalTasks(document);
+  assert.equal(tasks.length, 2);
+  assert.deepEqual(tasks.map((t) => t.id), ['TASK-001', 'TASK-002']);
+  assert.equal(tasks[0].status, 'ready', "the 'Execution order' section's stray '- Status:' line must never overwrite TASK-001's own status");
+  assert.equal(tasks[1].status, 'done');
 });
 
 test('parses title headings with explicit task IDs and preserves canonical order', () => {

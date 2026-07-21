@@ -25,9 +25,9 @@ function harness() {
   const pipeline = new UniversalActionPipeline({
     authority: { roles, agents, ephemeral, nowISO: "" }, policies, skills, ledger, events, variance,
   });
-  // The signed-in user may write touchpoints + signals on the private tier.
+  // The signed-in user may write Events + Signals on the private tier.
   roles.direct.set(`user:${USER}`, [
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow", dataScope: "private" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow", dataScope: "private" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow", dataScope: "private" },
   ]);
   return { roles, agents, ledger, events, pipeline };
@@ -39,10 +39,10 @@ function ctx(): RunCtx {
 }
 function captureReq(partial: Partial<ActionRequest> = {}): ActionRequest {
   return {
-    workspaceId: WS,
+    organizationId: WS,
     actor: { type: "user", id: USER, plane: "local" },
     action: "write",
-    resourceType: "touchpoint",
+    resourceType: "event",
     dataScope: "private",
     skill: "stageCapture",
     inputs: { local_media_id: "m1", kind: "photo", caption: "test_fixture_whiteboard", ocrText: "test_fixture_roadmap Q3" },
@@ -50,14 +50,14 @@ function captureReq(partial: Partial<ActionRequest> = {}): ActionRequest {
   };
 }
 
-test("stageCapture proposes a Touchpoint referencing the local media id (no blob)", async () => {
+test("stageCapture proposes an Event referencing the local media id (no blob)", async () => {
   const h = harness();
   const c = ctx();
-  // A human with an allow grant + no policy auto-applies; assert the proposed Touchpoint shape.
+  // A human with an allow grant + no policy auto-applies; assert the proposed Event shape.
   const p = await h.pipeline.propose(captureReq(), c);
   assert.equal(p.status, "applied");
   const out = p.output?.proposedOutput as Record<string, unknown>;
-  assert.equal(out.type, "touchpoint");
+  assert.equal(out.type, "event");
   assert.equal(out.local_media_id, "m1");
   assert.match(String(out.text), /Captured a photo/);
   // The blob is never in the output/ledger — only a local reference.
@@ -67,10 +67,10 @@ test("stageCapture proposes a Touchpoint referencing the local media id (no blob
 test("agent capture drafts for review, approve appends a ledger decision row", async () => {
   const h = harness();
   h.agents.assumed.set("cam-agent", "role-cam");
-  h.agents.scope.set("cam-agent", ["touchpoint:write"]);
+  h.agents.scope.set("cam-agent", ["event:write"]);
   h.agents.tiers.set("cam-agent", "private");
   h.roles.roleGrants.set("role-cam", [
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow", dataScope: "private" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow", dataScope: "private" },
   ]);
   const c = ctx();
   const p = await h.pipeline.propose(

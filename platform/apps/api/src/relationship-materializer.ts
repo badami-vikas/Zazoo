@@ -1,4 +1,4 @@
-import type { LedgerEntry, LedgerStore, Proposal } from "@bridge/core";
+import type { LedgerEntry, LedgerStore, MemoryStore, Proposal } from "@bridge/core";
 import type {
   DrizzleGraphStore,
   DrizzleRelationMaterializationStore,
@@ -6,6 +6,15 @@ import type {
   RelationRecord,
 } from "@bridge/db";
 import { z } from "zod";
+import {
+  isRelationshipMutation,
+  materializeRelationshipMutation,
+  type RelationshipMutationMaterialization,
+} from "./relationship-record-materializer.js";
+import {
+  isGoogleLinkedInteractionIntake,
+  materializeApprovedGoogleInteraction,
+} from "./relationship-intake-materializer.js";
 
 const canonicalUuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
 
@@ -20,7 +29,7 @@ export const relationshipSignalEvidencePayloadSchema = z.object({
   kind: z.literal("relationship_signal_evidence"),
   signalId: canonicalUuidSchema,
   sourceEventId: canonicalUuidSchema,
-  visibility: z.enum(["private", "workspace", "public"]),
+  visibility: z.enum(["private", "organization", "public"]),
   userConfirmed: z.boolean(),
   participants: z
     .array(relationshipParticipantSchema)
@@ -54,7 +63,9 @@ export interface RelationshipMaterialization {
 
 export interface RelationshipMaterializationEffectResult {
   effect: RelationMaterializationEffect;
-  materialization: RelationshipMaterialization | null;
+  materialization:
+    | RelationshipMaterialization
+    | RelationshipMutationMaterialization;
 }
 
 function nextRelationshipRetryAt(
@@ -104,7 +115,7 @@ export function proposalFromResolvedRelationshipLedger(
     id: decision.id,
     status: "applied",
     request: {
-      workspaceId: original.workspaceId,
+      organizationId: original.organizationId,
       actor: { type: original.actorType, id: original.actorId },
       ...(original.onBehalfOfType && original.onBehalfOfId
         ? {
@@ -156,7 +167,7 @@ export async function materializeApprovedRelationshipProposal(
     (decision.userDecision !== "approve" && decision.userDecision !== "edit") ||
     proposal.id !== decision.id ||
     decision.refLedgerId !== original.id ||
-    decision.workspaceId !== original.workspaceId ||
+    decision.organizationId !== original.organizationId ||
     decision.actorType !== original.actorType ||
     decision.actorId !== original.actorId ||
     decision.onBehalfOfType !== original.onBehalfOfType ||
@@ -198,7 +209,7 @@ export async function materializeApprovedRelationshipProposal(
   }
 
   return graphStore.materializeSignalEvidence({
-    workspaceId: proposal.request.workspaceId,
+    organizationId: proposal.request.organizationId,
     ownerUserId,
     signalId: parsed.signalId,
     sourceEventId: parsed.sourceEventId,
@@ -223,6 +234,7 @@ export async function applyApprovedRelationshipMaterialization(
   decision: LedgerEntry,
   attemptedAt: Date,
   opts: { allowExhausted?: boolean } = {},
+  memoryStore?: MemoryStore,
 ): Promise<RelationshipMaterializationEffectResult> {
   const ownerUserId = relationshipOwnerFromLedger(original);
   if (!ownerUserId || relationshipOwnerFromLedger(decision) !== ownerUserId) {
@@ -232,7 +244,7 @@ export async function applyApprovedRelationshipMaterialization(
   }
   const attempt = await effectStore.beginAttempt(
     {
-      workspaceId: original.workspaceId,
+      organizationId: original.organizationId,
       ownerUserId,
       proposalLedgerId: original.id,
       decisionLedgerId: decision.id,
@@ -251,23 +263,41 @@ export async function applyApprovedRelationshipMaterialization(
     throw new Error("Approved Relationship materialization attempt has no lease");
   }
   try {
-    const materialization = await materializeApprovedRelationshipProposal(
-      graphStore,
-      proposalFromResolvedRelationshipLedger(original, decision),
-      original,
-      decision,
-    );
-    if (!materialization) {
+    const isSignalEvidence = isRelationshipSignalEvidence(original.inputs);
+    const materialization = isSignalEvidence
+      ? await materializeApprovedRelationshipProposal(
+          graphStore,
+          proposalFromResolvedRelationshipLedger(original, decision),
+          original,
+          decision,
+        )
+      : isRelationshipMutation(original.inputs)
+        ? await materializeRelationshipMutation(
+            graphStore,
+            original,
+            decision,
+            memoryStore,
+          )
+        : isGoogleLinkedInteractionIntake(original.inputs)
+          ? await materializeApprovedGoogleInteraction(
+              graphStore,
+              original,
+              decision,
+            )
+        : null;
+    if (materialization === null) {
       throw new Error(
         "Approved proposal did not produce Relationship materialization",
       );
     }
     const effect = await effectStore.markApplied(
       attempt.effect.id,
-      original.workspaceId,
+      original.organizationId,
       ownerUserId,
       leaseToken,
-      1 + materialization.participants.length,
+      isSignalEvidence
+        ? (materialization as RelationshipMaterialization).participants.length
+        : 1,
       attemptedAt,
     );
     return { effect, materialization };
@@ -280,7 +310,7 @@ export async function applyApprovedRelationshipMaterialization(
     );
     await effectStore.markFailed(
       attempt.effect.id,
-      original.workspaceId,
+      original.organizationId,
       ownerUserId,
       leaseToken,
       message,
@@ -295,10 +325,11 @@ export async function reconcileRetryableRelationshipMaterializations(
   graphStore: DrizzleGraphStore,
   effectStore: DrizzleRelationMaterializationStore,
   ledger: LedgerStore,
-  workspaceId: string,
+  organizationId: string,
   ownerUserId: string,
   attemptedAt: Date,
   limit = 20,
+  memoryStore?: MemoryStore,
 ): Promise<{
   discovered: number;
   attempted: number;
@@ -310,7 +341,7 @@ export async function reconcileRetryableRelationshipMaterializations(
   const errors: string[] = [];
   try {
     discovered = await effectStore.discoverApproved(
-      workspaceId,
+      organizationId,
       ownerUserId,
       { limit },
     );
@@ -318,12 +349,49 @@ export async function reconcileRetryableRelationshipMaterializations(
     errors.push(cause instanceof Error ? cause.message : String(cause));
   }
   const retryable = await effectStore.listRetryable(
-    workspaceId,
+    organizationId,
     ownerUserId,
     { limit, now: attemptedAt },
   );
+  const autoMutationIds =
+    await effectStore.listUnmaterializedAutoMutationIds(
+      organizationId,
+      ownerUserId,
+      { limit },
+    );
+  discovered += autoMutationIds.length;
   let applied = 0;
   let failed = 0;
+  for (const proposalId of autoMutationIds) {
+    try {
+      const original = await ledger.get(proposalId);
+      if (
+        !original ||
+        original.organizationId !== organizationId ||
+        original.userDecision !== "auto" ||
+        !isRelationshipMutation(original.inputs)
+      ) {
+        throw new Error(
+          "Auto-applied Relationship materialization has no matching ledger resolution",
+        );
+      }
+      const materialization = await materializeRelationshipMutation(
+        graphStore,
+        original,
+        original,
+        memoryStore,
+      );
+      if (materialization === null) {
+        throw new Error(
+          "Auto-applied Relationship proposal did not produce materialization",
+        );
+      }
+      applied += 1;
+    } catch (cause) {
+      failed += 1;
+      errors.push(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
   for (const effect of retryable) {
     try {
       const original = await ledger.get(effect.proposalLedgerId);
@@ -339,7 +407,7 @@ export async function reconcileRetryableRelationshipMaterializations(
           "Relationship materialization effect has no matching approved decision";
         const attempt = await effectStore.beginAttempt(
           {
-            workspaceId,
+            organizationId,
             ownerUserId,
             proposalLedgerId: effect.proposalLedgerId,
             decisionLedgerId: effect.decisionLedgerId,
@@ -355,7 +423,7 @@ export async function reconcileRetryableRelationshipMaterializations(
           }
           await effectStore.markFailed(
             attempt.effect.id,
-            workspaceId,
+            organizationId,
             ownerUserId,
             leaseToken,
             message,
@@ -375,6 +443,8 @@ export async function reconcileRetryableRelationshipMaterializations(
         original,
         decision,
         attemptedAt,
+        {},
+        memoryStore,
       );
       if (result.effect.status === "applied") applied += 1;
     } catch (cause) {
@@ -384,24 +454,25 @@ export async function reconcileRetryableRelationshipMaterializations(
   }
   return {
     discovered,
-    attempted: retryable.length,
+    attempted: autoMutationIds.length + retryable.length,
     applied,
     failed,
     errors,
   };
 }
 
-export async function reconcileWorkspaceRelationshipMaterializations(
+export async function reconcileOrganizationRelationshipMaterializations(
   graphStore: DrizzleGraphStore,
   effectStore: DrizzleRelationMaterializationStore,
   ledger: LedgerStore,
-  workspaceId: string,
+  organizationId: string,
   attemptedAt: Date,
   opts: {
     ownerLimit?: number;
     effectLimit?: number;
     afterOwnerUserId?: string;
   } = {},
+  memoryStore?: MemoryStore,
 ): Promise<{
   ownersExamined: number;
   nextOwnerCursor: string | null;
@@ -411,7 +482,7 @@ export async function reconcileWorkspaceRelationshipMaterializations(
   failed: number;
   errors: string[];
 }> {
-  const owners = await effectStore.listApprovedOwners(workspaceId, {
+  const owners = await effectStore.listApprovedOwners(organizationId, {
     limit: opts.ownerLimit ?? 25,
     ...(opts.afterOwnerUserId
       ? { afterOwnerUserId: opts.afterOwnerUserId }
@@ -432,10 +503,11 @@ export async function reconcileWorkspaceRelationshipMaterializations(
         graphStore,
         effectStore,
         ledger,
-        workspaceId,
+        organizationId,
         ownerUserId,
         attemptedAt,
         opts.effectLimit ?? 20,
+        memoryStore,
       );
       aggregate.discovered += result.discovered;
       aggregate.attempted += result.attempted;

@@ -2,10 +2,10 @@
 
 > **TERM CHANGE (2026-07-12):** "Package" retired. User-facing term = **Module**.
 > Module = installable bundle of ≥1 Capabilities. `ModuleManifest` replaces
-> `PackageManifest`. Code migration in progress; existing `package.*` symbols
-> are legacy. See [ontology](ontology.md) for full mapping.
+> `PackageManifest`. Runtime and schema migration completed in VOCAB3; older
+> names below are retained only where this wiki records historical evidence.
 
-full: [../raw/capability-package-format.md](../raw/capability-package-format.md)
+full: [../raw/capability-module-format.md](../raw/capability-module-format.md)
 
 **What:** shipping unit ABOVE one `capability_manifests` row (ADR-012 trust model = kernel this
 builds on, unchanged). Module = `bridge.module.yaml` + dir (was `bridge.package.yaml`), bundles

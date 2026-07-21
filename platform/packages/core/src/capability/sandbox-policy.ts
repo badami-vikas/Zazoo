@@ -1,5 +1,5 @@
 /**
- * Sandbox requirement gate (PKG-1, roadmap Month-6 "package runtime hardening
+ * Sandbox requirement gate (PKG-1, roadmap Month-6 "module runtime hardening
  * ahead of executable logic"). Pure, zero-deps — mirrors risk.ts/lifecycle.ts
  * discipline (a plain function over plain data, no store, no I/O, no wall-clock).
  *
@@ -16,10 +16,10 @@
  *
  *  2. SANDBOX-CAP TRIFECTA — "extend the lethal-trifecta union check to gate
  *     sandbox caps (network/fs/env) before Active." An executable capability's
- *     GRANTED SANDBOX CAPS are mapped to lethal-trifecta legs so that a package
+ *     GRANTED SANDBOX CAPS are mapped to lethal-trifecta legs so that a module
  *     (or a single capability) whose sandbox assembles private-read +
  *     untrusted-ingest + egress escalates to `external` exactly like the
- *     permission/connector-derived trifecta already does (package/risk.ts).
+ *     permission/connector-derived trifecta already does (module/risk.ts).
  *     A sandbox that grants network is BOTH an egress and an untrusted-ingest
  *     vector; filesystem or env passthrough is a private-data read vector.
  *
@@ -47,7 +47,7 @@ const NO_LEGS: SandboxTrifectaLegs = { privateRead: false, untrustedIngest: fals
  *   - network  -> egress AND untrustedIngest (it can both send and pull untrusted content)
  *   - filesystem (non-empty) -> privateRead (local files are private data)
  *   - env (non-empty)        -> privateRead (env vars routinely carry secrets)
- * package/risk.ts ORs these into its per-capability trifecta accounting, so the
+ * module/risk.ts ORs these into its per-capability trifecta accounting, so the
  * SAME union check catches a trifecta assembled through sandbox grants — even
  * across separate capabilities — that individually-benign permissions would miss.
  */
@@ -95,7 +95,7 @@ function containsNetworkAndFs(isolation: SandboxIsolationLevel): boolean {
 /**
  * The pre-Active sandbox floor gate. Pure, sync, no I/O. Returns a typed result
  * (never throws) so the install/approve path can surface the specific `reason`
- * as an auditable denial, mirroring toolbelt.ts's ToolbeltScopeCheckResult
+ * as an auditable denial, mirroring builder-primitives.ts's scope check result
  * discipline of typed rejection over exceptions for expected-path denials.
  */
 export function evaluateSandboxRequirement(manifest: CapabilityManifest): SandboxGateResult {

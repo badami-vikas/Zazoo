@@ -51,6 +51,8 @@ function testModel(reply: string): ModelProvider {
     id: "test-model",
     plane: "cloud",
     tiers: ["cheap"],
+    models: { cheap: "test-model-v1" },
+    routingHealth: () => "unknown",
     async complete(req) {
       return {
         text: reply,
@@ -95,6 +97,8 @@ test("model path: a throwing provider fails closed instead of producing an unrec
     id: "throws",
     plane: "cloud",
     tiers: ["cheap"],
+    models: { cheap: "throws-v1" },
+    routingHealth: () => "unknown",
     async complete() {
       throw new Error("network error");
     },

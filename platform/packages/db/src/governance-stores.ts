@@ -20,13 +20,18 @@ import type {
 import type { Actor, DataScope, GrantRule, PolicyResult } from "@bridge/core";
 import type { Database } from "./client.js";
 import {
+  withDefaultOrganization,
+  withOrganizationContext,
+  withOrganizationOnly,
+} from "./organization-context.js";
+import {
   agents,
   ephemeralGrants,
   permissions,
   policies,
   rolePermissions,
   roles,
-  workspaceMembers,
+  organizationMembers,
 } from "./schema.js";
 
 type Effect = "allow" | "deny";
@@ -47,11 +52,11 @@ function stableGovernanceId(value: string): string {
  *
  * Before adding this, searched for an existing zod schema for this shape
  * (`grep -rn "z.object" packages/core`, `grep -rn "capabilityScope"`) — none
- * exists; `@bridge/core` is a types-only package (no zod dependency; ports.ts
+ * exists; `@bridge/core` is a types-only module (no zod dependency; ports.ts
  * only declares the TS interface), so this schema is colocated here in
  * `@bridge/db`, the only place that validates the jsonb wire shape at
- * read/write boundaries. `RitualStepDef`'s equivalent schema lives colocated
- * in `ritual-stores.ts` for the same reason — the shapes are unrelated so
+ * read/write boundaries. `AutomationStepDef`'s equivalent schema lives in
+ * `automation-stores.ts` for the same reason — the shapes are unrelated so
  * there is nothing to share between the two files.
  */
 const dataScopeSchema = z.enum(["all", "public", "private"]);
@@ -99,7 +104,7 @@ export function parseAllowedSkills(raw: unknown): string[] {
 }
 
 export interface LearningAgentGovernanceConfig {
-  workspaceId: string;
+  organizationId: string;
   userId: string;
   agentId: string;
   roleId: string;
@@ -111,7 +116,7 @@ export type FoundationalAgentGovernanceConfig = LearningAgentGovernanceConfig;
 export type InternalStrategistGovernanceConfig = FoundationalAgentGovernanceConfig;
 export type RuntimeAgentGovernanceConfig = FoundationalAgentGovernanceConfig;
 export interface PrincipalGovernanceConfig {
-  workspaceId: string;
+  organizationId: string;
   userId: string;
 }
 export type RelationshipUserGovernanceConfig = PrincipalGovernanceConfig;
@@ -136,6 +141,10 @@ async function ensurePersistentAgentGovernance(
   db: Database,
   config: PersistentAgentGovernanceConfig,
 ): Promise<void> {
+  return withOrganizationContext(
+    db,
+    { organizationId: config.organizationId, userId: config.userId },
+    async (db) => {
   const grants = [
     {
       resourceType: config.resourceType,
@@ -150,7 +159,7 @@ async function ensurePersistentAgentGovernance(
     .insert(roles)
     .values({
       id: config.roleId,
-      workspaceId: config.workspaceId,
+      organizationId: config.organizationId,
       name: config.name,
       kind: "agent",
       description: config.description,
@@ -158,7 +167,7 @@ async function ensurePersistentAgentGovernance(
     .onConflictDoUpdate({
       target: roles.id,
       set: {
-        workspaceId: config.workspaceId,
+        organizationId: config.organizationId,
         name: config.name,
         kind: "agent",
         description: config.description,
@@ -169,7 +178,7 @@ async function ensurePersistentAgentGovernance(
     .insert(agents)
     .values({
       id: config.agentId,
-      workspaceId: config.workspaceId,
+      organizationId: config.organizationId,
       name: config.name,
       ownerUserId: config.userId,
       assumesRoleId: config.roleId,
@@ -181,7 +190,7 @@ async function ensurePersistentAgentGovernance(
     .onConflictDoUpdate({
       target: agents.id,
       set: {
-        workspaceId: config.workspaceId,
+        organizationId: config.organizationId,
         name: config.name,
         ownerUserId: config.userId,
         assumesRoleId: config.roleId,
@@ -227,7 +236,7 @@ async function ensurePersistentAgentGovernance(
       .from(permissions)
       .where(
         and(
-          eq(permissions.workspaceId, config.workspaceId),
+          eq(permissions.organizationId, config.organizationId),
           eq(permissions.actorType, "user"),
           eq(permissions.actorId, config.userId),
           eq(permissions.resourceType, grant.resourceType),
@@ -246,9 +255,9 @@ async function ensurePersistentAgentGovernance(
             index === 0
               ? config.permissionId
               : stableGovernanceId(
-                  `principal:${config.workspaceId}:${config.userId}:${grant.resourceType}:${grant.action}`,
+                  `principal:${config.organizationId}:${config.userId}:${grant.resourceType}:${grant.action}`,
                 ),
-          workspaceId: config.workspaceId,
+          organizationId: config.organizationId,
           actorType: "user",
           actorId: config.userId,
           resourceType: grant.resourceType,
@@ -267,7 +276,7 @@ async function ensurePersistentAgentGovernance(
     agentStore.assumedRole(config.agentId),
     agentStore.capabilityScope(config.agentId),
     roleStore.grantsForRole(config.roleId),
-    roleStore.directGrants(config.workspaceId, { type: "user", id: config.userId }),
+    roleStore.directGrants(config.organizationId, { type: "user", id: config.userId }),
   ]);
   const hasGrant = (actual: GrantRule, expected: (typeof grants)[number]) =>
     actual.resourceType === expected.resourceType &&
@@ -282,6 +291,8 @@ async function ensurePersistentAgentGovernance(
   ) {
     throw new Error(`Persistent ${config.name} governance provisioning failed verification`);
   }
+    },
+  );
 }
 
 /** Provision the Human permissions used by DealPilot's governed discovery and
@@ -290,9 +301,13 @@ export async function ensureDealPilotPrincipalGovernance(
   db: Database,
   config: PrincipalGovernanceConfig,
 ): Promise<void> {
+  return withOrganizationContext(
+    db,
+    { organizationId: config.organizationId, userId: config.userId },
+    async (db) => {
   const grants = [
-    { resourceType: "tool" as const, action: "read" as const },
-    { resourceType: "tool" as const, action: "write" as const },
+    { resourceType: "module" as const, action: "read" as const },
+    { resourceType: "module" as const, action: "write" as const },
   ];
   for (const grant of grants) {
     const existing = await db
@@ -300,7 +315,7 @@ export async function ensureDealPilotPrincipalGovernance(
       .from(permissions)
       .where(
         and(
-          eq(permissions.workspaceId, config.workspaceId),
+          eq(permissions.organizationId, config.organizationId),
           eq(permissions.actorType, "user"),
           eq(permissions.actorId, config.userId),
           eq(permissions.resourceType, grant.resourceType),
@@ -313,13 +328,13 @@ export async function ensureDealPilotPrincipalGovernance(
       .limit(1);
     if (!existing[0]) {
       const id = stableGovernanceId(
-        `principal:${config.workspaceId}:${config.userId}:${grant.resourceType}:${grant.action}`,
+        `principal:${config.organizationId}:${config.userId}:${grant.resourceType}:${grant.action}`,
       );
       await db
         .insert(permissions)
         .values({
           id,
-          workspaceId: config.workspaceId,
+          organizationId: config.organizationId,
           actorType: "user",
           actorId: config.userId,
           resourceType: grant.resourceType,
@@ -331,7 +346,7 @@ export async function ensureDealPilotPrincipalGovernance(
         .onConflictDoUpdate({
           target: permissions.id,
           set: {
-            workspaceId: config.workspaceId,
+            organizationId: config.organizationId,
             actorType: "user",
             actorId: config.userId,
             resourceType: grant.resourceType,
@@ -346,7 +361,7 @@ export async function ensureDealPilotPrincipalGovernance(
   }
 
   const direct = await new DrizzleRoleStore(db).directGrants(
-    config.workspaceId,
+    config.organizationId,
     { type: "user", id: config.userId },
   );
   if (
@@ -362,55 +377,73 @@ export async function ensureDealPilotPrincipalGovernance(
   ) {
     throw new Error("Persistent DealPilot principal governance provisioning failed verification");
   }
+    },
+  );
 }
 
-/** Idempotently grants only the Human principal the Relationship Relation surface. */
+/** Idempotently grants only the Human principal the governed Relationship surface. */
 export async function ensureRelationshipUserGovernance(
   db: Database,
   config: RelationshipUserGovernanceConfig,
 ): Promise<void> {
-  await db.transaction(async (tx) => {
-    await tx.execute(sql`
-      SELECT
-        set_config('app.workspace_id', ${config.workspaceId}, true),
-        set_config('app.user_id', ${config.userId}, true)
-    `);
-    for (const action of ["read", "write"] as const) {
+  const grants = [
+    { resourceType: "relation", action: "read" },
+    { resourceType: "relation", action: "write" },
+    { resourceType: "person", action: "read" },
+    { resourceType: "person", action: "write" },
+    { resourceType: "person", action: "archive" },
+    { resourceType: "community", action: "read" },
+    { resourceType: "community", action: "write" },
+    { resourceType: "community", action: "archive" },
+    { resourceType: "event", action: "read" },
+    { resourceType: "event", action: "write" },
+    { resourceType: "record", action: "read" },
+    { resourceType: "record", action: "write" },
+    { resourceType: "record", action: "archive" },
+  ] as const;
+  await withOrganizationContext(
+    db,
+    { organizationId: config.organizationId, userId: config.userId },
+    async (tx) => {
+    for (const grant of grants) {
       await tx
         .insert(permissions)
         .values({
           id: stableGovernanceId(
-            `principal:${config.workspaceId}:${config.userId}:relation:${action}`,
+            `principal:${config.organizationId}:${config.userId}:${grant.resourceType}:${grant.action}`,
           ),
-          workspaceId: config.workspaceId,
+          organizationId: config.organizationId,
           actorType: "user",
           actorId: config.userId,
-          resourceType: "relation",
+          resourceType: grant.resourceType,
           resourceId: null,
-          action,
+          action: grant.action,
           effect: "allow",
           grantedBy: config.userId,
         })
         .onConflictDoNothing();
     }
     const direct = await new DrizzleRoleStore(tx).directGrants(
-      config.workspaceId,
+      config.organizationId,
       { type: "user", id: config.userId },
     );
-    for (const action of ["read", "write"] as const) {
+    for (const grant of grants) {
       if (
         !direct.some(
-          (grant) =>
-            grant.resourceType === "relation" &&
-            grant.resourceId === null &&
-            grant.action === action &&
-            grant.effect === "allow",
+          (actual) =>
+            actual.resourceType === grant.resourceType &&
+            actual.resourceId === null &&
+            actual.action === grant.action &&
+            actual.effect === "allow",
         )
       ) {
-        throw new Error(`Persistent Relationship Relation ${action} grant provisioning failed`);
+        throw new Error(
+          `Persistent Relationship ${grant.resourceType} ${grant.action} grant provisioning failed`,
+        );
       }
     }
-  });
+    },
+  );
 }
 
 /**
@@ -430,13 +463,17 @@ export async function ensureLearningAgentGovernance(
     action: "write",
     capabilityToken: "signal:write",
     additionalGrants: [
-      { resourceType: "touchpoint", action: "write", capabilityToken: "touchpoint:write" },
+      { resourceType: "event", action: "write", capabilityToken: "event:write" },
+      { resourceType: "external:fetch", action: "read", capabilityToken: "external:fetch:read" },
+      { resourceType: "event", action: "write", capabilityToken: "event:write" },
     ],
     allowedSkills: [
       "stageLearningRecommendation",
       "stageStrategicRecommendation",
-      "helpdesk.stageAnswer",
+      "relationship.help-request.stage-offer",
       "stageCapture",
+      "jobpilot.researchCultureSource",
+      "learning.proposePreferenceAdjustment",
     ],
     dataScope: "all",
   });
@@ -450,11 +487,11 @@ export async function ensureOutreachAgentGovernance(
   return ensurePersistentAgentGovernance(db, {
     ...config,
     name: "Outreach Agent",
-    description: "May draft relationship Touchpoints; never approves or sends them.",
-    goal: "Produce inspectable relationship Touchpoint drafts for Human review.",
-    resourceType: "touchpoint",
+    description: "May draft relationship Events; never approves or sends them.",
+    goal: "Produce inspectable relationship Event drafts for Human review.",
+    resourceType: "event",
     action: "write",
-    capabilityToken: "touchpoint:write",
+    capabilityToken: "event:write",
     allowedSkills: ["outreach.stageDraft"],
   });
 }
@@ -490,9 +527,9 @@ export async function ensureIntakeAgentGovernance(
     name: "Intake Agent",
     description: "May stage sourced evidence into governed local graph proposals.",
     goal: "Transform authorized source data into inspectable local proposals.",
-    resourceType: "touchpoint",
+    resourceType: "event",
     action: "write",
-    capabilityToken: "touchpoint:write",
+    capabilityToken: "event:write",
     additionalGrants: [
       { resourceType: "signal", action: "write", capabilityToken: "signal:write" },
       { resourceType: "person", action: "write", capabilityToken: "person:write" },
@@ -520,10 +557,24 @@ export async function ensureInternalStrategistGovernance(
   db: Database,
   config: InternalStrategistGovernanceConfig,
 ): Promise<void> {
-  return ensureSignalDraftAgentGovernance(db, config, {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
     name: "Internal Strategist",
     description: "May draft inspectable analytical-synthesis Signal recommendations; never approves or executes them.",
     goal: "Produce evidenced analytical synthesis and recommendations from cited Human/Learning data, without executing Actions.",
+    resourceType: "signal",
+    action: "write",
+    capabilityToken: "signal:write",
+    additionalGrants: [
+      { resourceType: "record", action: "read", capabilityToken: "record:read" },
+      { resourceType: "record", action: "write", capabilityToken: "record:write" },
+    ],
+    allowedSkills: [
+      "stageStrategicRecommendation",
+      "jobpilot.synthesizeCultureProfile",
+      "task-manager.ledger-projection",
+    ],
+    dataScope: "all",
   });
 }
 
@@ -531,10 +582,20 @@ export async function ensureGovernanceAgentGovernance(
   db: Database,
   config: FoundationalAgentGovernanceConfig,
 ): Promise<void> {
-  return ensureSignalDraftAgentGovernance(db, config, {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
     name: "Governance",
     description: "May draft inspectable risk-assessment Signals; never approves or executes them.",
     goal: "Explain policy, assess risk, and summarize audit findings without deciding authority.",
+    resourceType: "signal",
+    action: "write",
+    capabilityToken: "signal:write",
+    additionalGrants: [
+      { resourceType: "record", action: "read", capabilityToken: "record:read" },
+      { resourceType: "record", action: "archive", capabilityToken: "record:archive" },
+    ],
+    allowedSkills: ["task-manager.completed-bay-sweep"],
+    dataScope: "all",
   });
 }
 
@@ -565,23 +626,28 @@ function asGrant(row: {
 
 export class DrizzleRoleStore implements RoleQuery {
   #db: Database;
-  constructor(db: Database) {
+  #defaultOrganizationId: string | undefined;
+  constructor(db: Database, defaultOrganizationId?: string) {
     this.#db = db;
+    this.#defaultOrganizationId = defaultOrganizationId;
   }
 
-  async rolesForPrincipal(workspaceId: string, actor: Actor): Promise<string[]> {
-    // Schema v2: a workspace member carries a single role_id. Team-level roles
+  async rolesForPrincipal(organizationId: string, actor: Actor): Promise<string[]> {
+    // Schema v2: a organization member carries a single role_id. Team-level roles
     // are resolved by the caller's delegation scope (not modeled as a row yet).
     if (actor.type !== "user") return [];
-    const rows = await this.#db
-      .select({ roleId: workspaceMembers.roleId })
-      .from(workspaceMembers)
-      .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, actor.id)));
+    return withOrganizationOnly(this.#db, organizationId, async (db) => {
+    const rows = await db
+      .select({ roleId: organizationMembers.roleId })
+      .from(organizationMembers)
+      .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, actor.id)));
     return rows.map((r) => r.roleId).filter((id): id is string => id !== null);
+    });
   }
 
   async grantsForRole(roleId: string): Promise<GrantRule[]> {
-    const rows = await this.#db
+    return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (db) => {
+    const rows = await db
       .select({
         resourceType: rolePermissions.resourceType,
         resourceId: rolePermissions.resourceId,
@@ -591,12 +657,14 @@ export class DrizzleRoleStore implements RoleQuery {
       .from(rolePermissions)
       .where(eq(rolePermissions.roleId, roleId));
     return rows.map(asGrant);
+    });
   }
 
-  async directGrants(workspaceId: string, actor: Actor): Promise<GrantRule[]> {
+  async directGrants(organizationId: string, actor: Actor): Promise<GrantRule[]> {
     // Active (not revoked) direct CBAC grants. Expiry is checked by the resolver's
     // injected clock at the ephemeral layer; here we honor revoked_at only.
-    const rows = await this.#db
+    return withOrganizationOnly(this.#db, organizationId, async (db) => {
+    const rows = await db
       .select({
         resourceType: permissions.resourceType,
         resourceId: permissions.resourceId,
@@ -606,51 +674,60 @@ export class DrizzleRoleStore implements RoleQuery {
       .from(permissions)
       .where(
         and(
-          eq(permissions.workspaceId, workspaceId),
+          eq(permissions.organizationId, organizationId),
           eq(permissions.actorType, actor.type),
           eq(permissions.actorId, actor.id),
           isNull(permissions.revokedAt),
         ),
       );
     return rows.map(asGrant);
+    });
   }
 }
 
 export class DrizzleAgentStore implements AgentQuery {
   #db: Database;
-  constructor(db: Database) {
+  #defaultOrganizationId: string | undefined;
+  constructor(db: Database, defaultOrganizationId?: string) {
     this.#db = db;
+    this.#defaultOrganizationId = defaultOrganizationId;
   }
 
-  async workspaceId(agentId: string): Promise<string | null> {
-    const rows = await this.#db
-      .select({ workspaceId: agents.workspaceId })
+  async organizationId(agentId: string): Promise<string | null> {
+    return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (db) => {
+    const rows = await db
+      .select({ organizationId: agents.organizationId })
       .from(agents)
       .where(eq(agents.id, agentId))
       .limit(1);
-    return rows[0]?.workspaceId ?? null;
+    return rows[0]?.organizationId ?? null;
+    });
   }
 
   async isActive(agentId: string): Promise<boolean> {
-    const rows = await this.#db
+    return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (db) => {
+    const rows = await db
       .select({ status: agents.status })
       .from(agents)
       .where(eq(agents.id, agentId))
       .limit(1);
     return rows[0]?.status === "active";
+    });
   }
 
   async assumedRole(agentId: string): Promise<string | null> {
-    const rows = await this.#db
+    return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (db) => {
+    const rows = await db
       .select({ role: agents.assumesRoleId })
       .from(agents)
       .where(eq(agents.id, agentId))
       .limit(1);
     return rows[0]?.role ?? null;
+    });
   }
 
   async capabilityScope(agentId: string): Promise<string[]> {
-    // Live SCHEMA.sql shape: agents.capability_scope jsonb = { "resources": ["person:read", "touchpoint:write", ...] }.
+    // Live SCHEMA.sql shape: agents.capability_scope jsonb = { "resources": ["person:read", "event:write", ...] }.
     // `tokens` is accepted as a legacy alias. An optional `dataScope` may also ride here.
     // Read-time validation happens in #scope() — throw loudly on a malformed
     // row instead of silently falling back to an empty (or worse, permissive)
@@ -665,7 +742,8 @@ export class DrizzleAgentStore implements AgentQuery {
   }
 
   async allowedSkills(agentId: string): Promise<string[]> {
-    const rows = await this.#db
+    return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (db) => {
+    const rows = await db
       .select({ allowed: agents.allowedSkills })
       .from(agents)
       .where(eq(agents.id, agentId))
@@ -675,22 +753,28 @@ export class DrizzleAgentStore implements AgentQuery {
     // Read-time validation: throw loudly on a malformed entry instead of
     // silently filtering it out of the allow-list (see parseAllowedSkills).
     return parseAllowedSkills(allowed);
+    });
   }
 
   /** Write-time gate: validates the capability_scope shape and throws before anything is persisted. */
   async saveCapabilityScope(agentId: string, scope: unknown): Promise<void> {
     const validated = parseAgentCapabilityScope(scope);
-    await this.#db.update(agents).set({ capabilityScope: validated }).where(eq(agents.id, agentId));
+    await withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (db) => {
+      await db.update(agents).set({ capabilityScope: validated }).where(eq(agents.id, agentId));
+    });
   }
 
   /** Write-time gate: validates the allowed-skills list and throws before anything is persisted. */
   async saveAllowedSkills(agentId: string, allowedSkills: unknown): Promise<void> {
     const validated = parseAllowedSkills(allowedSkills);
-    await this.#db.update(agents).set({ allowedSkills: validated }).where(eq(agents.id, agentId));
+    await withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (db) => {
+      await db.update(agents).set({ allowedSkills: validated }).where(eq(agents.id, agentId));
+    });
   }
 
   async #scope(agentId: string): Promise<AgentCapabilityScope | undefined> {
-    const rows = await this.#db
+    return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (db) => {
+    const rows = await db
       .select({ scope: agents.capabilityScope })
       .from(agents)
       .where(eq(agents.id, agentId))
@@ -699,6 +783,7 @@ export class DrizzleAgentStore implements AgentQuery {
     // Read-time validation: throw loudly rather than silently coercing a
     // malformed capability_scope into an empty/permissive default.
     return parseAgentCapabilityScope(rows[0]?.scope);
+    });
   }
 }
 
@@ -709,12 +794,13 @@ export class DrizzleEphemeralStore implements EphemeralQuery {
   }
 
   async activeGrants(
-    workspaceId: string,
+    organizationId: string,
     actor: Actor,
     context: { id: string } | undefined,
     nowISO: string,
   ): Promise<GrantRule[]> {
-    const rows = await this.#db
+    return withOrganizationOnly(this.#db, organizationId, async (db) => {
+    const rows = await db
       .select({
         resourceType: ephemeralGrants.resourceType,
         resourceId: ephemeralGrants.resourceId,
@@ -724,7 +810,7 @@ export class DrizzleEphemeralStore implements EphemeralQuery {
       .from(ephemeralGrants)
       .where(
         and(
-          eq(ephemeralGrants.workspaceId, workspaceId),
+          eq(ephemeralGrants.organizationId, organizationId),
           eq(ephemeralGrants.actorType, actor.type),
           eq(ephemeralGrants.actorId, actor.id),
           isNull(ephemeralGrants.consumedAt),
@@ -739,6 +825,7 @@ export class DrizzleEphemeralStore implements EphemeralQuery {
         action: r.action as GrantRule["action"],
         effect: "allow" as Effect, // ephemeral grants are allow-only by construction
       }));
+    });
   }
 }
 
@@ -763,7 +850,8 @@ export class DrizzlePolicyStore implements PolicyStore {
   }
 
   async evaluate(input: PolicyEvalInput): Promise<PolicyResult[]> {
-    const rows = await this.#db
+    return withOrganizationOnly(this.#db, input.organizationId, async (db) => {
+    const rows = await db
       .select({
         id: policies.id,
         scopeType: policies.scopeType,
@@ -775,11 +863,11 @@ export class DrizzlePolicyStore implements PolicyStore {
       .from(policies)
       .where(
         and(
-          eq(policies.workspaceId, input.workspaceId),
+          eq(policies.organizationId, input.organizationId),
           eq(policies.active, true),
           eq(policies.evaluationPhase, input.phase),
-          // Scope: workspace-wide OR matches the resource being acted on.
-          or(eq(policies.scopeType, "workspace"), eq(policies.scopeType, input.resourceType)),
+          // Scope: organization-wide OR matches the resource being acted on.
+          or(eq(policies.scopeType, "organization"), eq(policies.scopeType, input.resourceType)),
         ),
       )
       .orderBy(policies.priority);
@@ -796,5 +884,6 @@ export class DrizzlePolicyStore implements PolicyStore {
       });
     }
     return out;
+    });
   }
 }

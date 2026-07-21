@@ -17,6 +17,8 @@ function testModel(reply: string): ModelProvider & { lastSystem: string | undefi
     id: "test-model",
     plane: "local",
     tiers: ["reasoning"],
+    models: { reasoning: "test-model-v1" },
+    routingHealth: () => "unknown",
     lastSystem: undefined,
     lastTier: undefined,
     async complete(req) {
@@ -106,7 +108,7 @@ test("AGENTS-1: buildAgentPersona carries responsibilities + identity guardrails
 
   const builder = buildAgentPersona("capability_builder");
   assert.ok(builder.guardrails?.some((g) => /governed approval pipeline/i.test(g)));
-  assert.ok(builder.guardrails?.some((g) => /Minimal-egg boundary/i.test(g)), "Builder persona should carry the standing design constraints");
+  assert.ok(builder.guardrails?.some((g) => /Kernel boundary/i.test(g)), "Builder persona should carry the standing design constraints");
 });
 
 test("AGENTS-1: tone threads into the agent identity layer only when supplied", () => {

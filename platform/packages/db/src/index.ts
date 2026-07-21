@@ -4,8 +4,19 @@
  */
 export * as schema from "./schema.js";
 export { createDb, type Database, type DbConfig } from "./client.js";
-export { createLocalDb, type LocalDatabase, type LocalDbConfig } from "./client-local.js";
+export {
+  createLocalDb,
+  LocalDbInitializationCleanupError,
+  type LocalDatabase,
+  type LocalDbConfig,
+} from "./client-local.js";
 export { assertRlsPosture, type RlsEnvironment, type RlsPostureOptions, type RlsRoleAttributes } from "./rls-guard.js";
+export {
+  withDefaultOrganization,
+  withOrganizationContext,
+  withOrganizationOnly,
+  type OrganizationContext,
+} from "./organization-context.js";
 export { DrizzleLedgerStore } from "./ledger-store.js";
 export {
   DrizzleRelationMaterializationStore,
@@ -37,7 +48,11 @@ export {
   type OutreachAgentGovernanceConfig,
   type PrincipalGovernanceConfig,
 } from "./governance-stores.js";
-export { DrizzleRitualRegistry, DrizzleToolRegistry, DrizzleRitualRunRecorder } from "./ritual-stores.js";
+export {
+  DrizzleAutomationRegistry,
+  DrizzleAutomationRunRecorder,
+  parseAutomationSteps,
+} from "./automation-stores.js";
 export {
   DrizzleCanonicalIdentityStore,
   InMemoryCanonicalIdentityStore,
@@ -54,23 +69,62 @@ export {
   type ScopeGrant,
 } from "./integration-store.js";
 export { PgliteMediaStore, createLocalMediaStore } from "./media-store.js";
-export { DrizzleWorkspaceStore, type WorkspaceRow, type MemberRow } from "./workspace-store.js";
+export {
+  DrizzleOrganizationStore,
+  UnknownOrganizationError,
+  OrganizationRenameCoordinatorUnavailableError,
+  OrganizationRenameRollbackError,
+  type OrganizationRenameCoordinator,
+  type OrganizationRenameLease,
+  type OrganizationRow,
+  type MemberRow,
+} from "./organization-store.js";
 export {
   DrizzleGraphStore,
+  type ArchiveRelationshipRecordInput,
+  type CommitmentPage,
+  type CommitmentRecord,
+  type CommitmentStatus,
+  type CommunityDetail,
   type CommunityRecord,
+  type CreateCommunityInput,
+  type CreateInteractionInput,
+  type CreatePersonInput,
+  type DecisionProvenance,
+  type FullGraphEdgeRecord,
+  type FullGraphNodeRecord,
+  type FullGraphPage,
+  type GraphRelationPage,
+  type InteractionParticipantInput,
+  type IntroductionPage,
+  type IntroductionRecord,
+  type IntroductionStatus,
+  type MaterializeIntroductionInput,
   type MaterializeSignalEvidenceInput,
+  type MaterializeCommitmentInput,
   type NodeTypeOwner,
   type PageOpts,
   type Page,
   type PersonRecord,
+  type PersonDetail,
   type RelationCursor,
   type RelationPage,
+  type RelationshipPath,
+  type RelationshipPathNode,
+  type RelationshipPathResult,
+  type RelationshipPathStep,
   type RelationRecord,
   type RelationVisibility,
   type SignalDetail,
   type SignalEvidenceAnchor,
   type SignalParticipant,
   type SignalParticipantRelationInput,
+  type TimelineCursor,
+  type TimelineItem,
+  type TimelinePage,
+  type TimelineParticipant,
+  type UpdateCommunityInput,
+  type UpdatePersonInput,
   type UpsertRelationInput,
 } from "./graph-store.js";
 export { DrizzleJobPilotStore, type JobRow, type ApplicationRow, type CreateJobInput } from "./jobpilot-store.js";
@@ -88,13 +142,13 @@ export {
   parseEvidence,
 } from "./capability-store.js";
 export {
-  DrizzleWorkspaceDefinitionStore,
+  DrizzleOrganizationDefinitionStore,
   parseBlueprint,
-  workspaceBlueprintSchema,
-} from "./workspace-definition-store.js";
-export { DrizzlePackageStore, parsePackageManifestRow } from "./package-store.js";
+} from "./organization-definition-store.js";
+export { DrizzleModuleStore, parseModuleManifestRow } from "./module-store.js";
 export { DrizzleMemoryStore } from "./memory-store.js";
 export { DrizzleGoalTaskStore } from "./goal-task-store.js";
+export { DrizzleTaskManagerStore } from "./task-manager-store.js";
 export { DrizzleSkillManifestRegistry, seedSkillManifests } from "./skill-manifest-store.js";
 export { DrizzleChildAgentRunStore } from "./child-agent-run-store.js";
 
@@ -108,27 +162,32 @@ import {
   DrizzleRoleStore,
 } from "./governance-stores.js";
 import {
-  DrizzleRitualRegistry,
-  DrizzleToolRegistry,
-  DrizzleRitualRunRecorder,
-} from "./ritual-stores.js";
-import { DrizzleWorkspaceStore } from "./workspace-store.js";
+  DrizzleAutomationRegistry,
+  DrizzleAutomationRunRecorder,
+} from "./automation-stores.js";
+import {
+  DrizzleOrganizationStore,
+  type OrganizationRenameCoordinator,
+} from "./organization-store.js";
 
 /** All Drizzle-backed ports, ready to hand to the core pipeline + executor. */
 export function createDrizzlePorts(
   db: Db,
-  options: { defaultWorkspaceId?: string } = {},
+  options: {
+    defaultOrganizationId?: string;
+    defaultUserId?: string;
+    organizationRenameCoordinator?: OrganizationRenameCoordinator;
+  } = {},
 ) {
   return {
-    roles: new DrizzleRoleStore(db),
-    agents: new DrizzleAgentStore(db),
+    roles: new DrizzleRoleStore(db, options.defaultOrganizationId),
+    agents: new DrizzleAgentStore(db, options.defaultOrganizationId),
     ephemeral: new DrizzleEphemeralStore(db),
     policies: new DrizzlePolicyStore(db),
     ledger: new DrizzleLedgerStore(db, options),
     relationMaterializations: new DrizzleRelationMaterializationStore(db),
-    ritualRegistry: new DrizzleRitualRegistry(db),
-    toolRegistry: new DrizzleToolRegistry(db),
-    ritualRunRecorder: new DrizzleRitualRunRecorder(db),
-    workspaceStore: new DrizzleWorkspaceStore(db),
+    automationRegistry: new DrizzleAutomationRegistry(db),
+    automationRunRecorder: new DrizzleAutomationRunRecorder(db),
+    organizationStore: new DrizzleOrganizationStore(db, options.organizationRenameCoordinator),
   };
 }

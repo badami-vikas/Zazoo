@@ -1,10 +1,10 @@
 /**
  * DrizzleGraphStore — read coverage for the Bridge kernel vocabulary nouns
- * (Person/Community here; Initiative/Touchpoint/Signal already ship without
- * their own test file). Against a real (pglite) database: seed a workspace +
+ * (Person/Community here; Record/Touchpoint/Signal already ship without
+ * their own test file). Against a real (pglite) database: seed a organization +
  * user, seed a page-worth of people/communities beyond the default page size,
  * and confirm pagination (limit/offset/total/ordering) behaves the same way
- * `listInitiatives`/`listSignals` do.
+ * `listRecords`/`listSignals` do.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -14,43 +14,99 @@ import { createLocalDb, DrizzleGraphStore, schema } from "../src/index.js";
 
 const FIXTURE_COUNT = 5;
 
-async function seedWorkspaceAndUser(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
+async function seedOrganizationAndUser(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
   const [user] = await db
     .insert(schema.users)
     .values({ email: "test_fixture_graph_store_user@example.com" })
     .returning({ id: schema.users.id });
   assert.ok(user, "fixture user seeded");
-  const [workspace] = await db
-    .insert(schema.workspaces)
-    .values({ name: "test_fixture_graph_store_workspace" })
-    .returning({ id: schema.workspaces.id });
-  assert.ok(workspace, "fixture workspace seeded");
-  return { userId: user!.id, workspaceId: workspace!.id };
+  const [organization] = await db
+    .insert(schema.organizations)
+    .values({ name: "test_fixture_graph_store_organization" })
+    .returning({ id: schema.organizations.id });
+  assert.ok(organization, "fixture organization seeded");
+  return { userId: user!.id, organizationId: organization!.id };
 }
 
-test("listPeople: paginates workspace-scoped people, newest first", async () => {
+async function seedSignalEvent(
+  db: Awaited<ReturnType<typeof createLocalDb>>["db"],
+  input: {
+    organizationId: string;
+    ownerUserId: string;
+    subjectType: "person" | "community";
+    subjectId: string;
+    type: string;
+    reason?: string;
+    actionLabel?: string;
+    visibility?: "private" | "organization";
+    linkParticipant?: boolean;
+  },
+) {
+  const eventId = randomUUID();
+  const [event] = await db
+    .insert(schema.events)
+    .values({
+      id: eventId,
+      organizationId: input.organizationId,
+      type: input.type,
+      entityType: "event",
+      entityId: eventId,
+      payload: {
+        relationshipSignal: {
+          type: input.type,
+          subjectType: input.subjectType,
+          subjectId: input.subjectId,
+          payload: input.reason ? { reason: input.reason } : {},
+          recommendedAction: input.actionLabel ? { label: input.actionLabel } : {},
+          status: "new",
+        },
+      },
+    })
+    .returning({ id: schema.events.id, createdAt: schema.events.createdAt });
+  assert.ok(event);
+
+  if (input.linkParticipant !== false) {
+    await db.insert(schema.edges).values({
+      organizationId: input.organizationId,
+      ownerUserId: input.ownerUserId,
+      srcType: "event",
+      srcId: event.id,
+      dstType: input.subjectType,
+      dstId: input.subjectId,
+      edgeType: "participant",
+      evidenceRefs: [{ entityType: "event", entityId: event.id, source: "test_fixture" }],
+      observedAt: event.createdAt,
+      visibility: input.visibility ?? "private",
+      source: "test_fixture",
+      sourceModule: "relationship",
+    });
+  }
+  return event;
+}
+
+test("listPeople: paginates organization-scoped people, newest first", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const store = new DrizzleGraphStore(db);
 
     for (let i = 0; i < FIXTURE_COUNT; i += 1) {
       await db.insert(schema.people).values({
-        workspaceId,
+        organizationId,
         userId,
         fullNameOverride: `test_fixture_person_${i}`,
       });
     }
 
-    const firstPage = await store.listPeople(workspaceId, userId, { limit: 2, offset: 0 });
+    const firstPage = await store.listPeople(organizationId, userId, { limit: 2, offset: 0 });
     assert.equal(firstPage.items.length, 2);
     assert.equal(firstPage.total, FIXTURE_COUNT);
 
-    const lastPage = await store.listPeople(workspaceId, userId, { limit: 2, offset: 4 });
+    const lastPage = await store.listPeople(organizationId, userId, { limit: 2, offset: 4 });
     assert.equal(lastPage.items.length, 1);
     assert.equal(lastPage.total, FIXTURE_COUNT);
 
-    // A different, unseeded workspace sees none of these rows. Must be a
+    // A different, unseeded organization sees none of these rows. Must be a
     // well-formed UUID — pglite (0.2.17) crashes the wasm runtime instead of
     // cleanly erroring on a non-UUID string compared against a `uuid` column
     // (reproduced: `22P02 invalid input syntax for type uuid` followed by
@@ -64,25 +120,25 @@ test("listPeople: paginates workspace-scoped people, newest first", async () => 
   }
 });
 
-test("listCommunities: paginates workspace-scoped communities", async () => {
+test("listCommunities: paginates organization-scoped communities", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const store = new DrizzleGraphStore(db);
 
     for (let i = 0; i < FIXTURE_COUNT; i += 1) {
       await db.insert(schema.communities).values({
-        workspaceId,
+        organizationId,
         userId,
         nameOverride: `test_fixture_community_${i}`,
       });
     }
 
-    const firstPage = await store.listCommunities(workspaceId, userId, { limit: 3, offset: 0 });
+    const firstPage = await store.listCommunities(organizationId, userId, { limit: 3, offset: 0 });
     assert.equal(firstPage.items.length, 3);
     assert.equal(firstPage.total, FIXTURE_COUNT);
 
-    const lastPage = await store.listCommunities(workspaceId, userId, { limit: 3, offset: 3 });
+    const lastPage = await store.listCommunities(organizationId, userId, { limit: 3, offset: 3 });
     assert.equal(lastPage.items.length, 2);
     assert.equal(lastPage.total, FIXTURE_COUNT);
 
@@ -98,7 +154,7 @@ test("listCommunities: paginates workspace-scoped communities", async () => {
 test("relationship reads mirror the RLS visibility allowlist", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [viewer] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_relationship_viewer@example.com" })
@@ -109,7 +165,7 @@ test("relationship reads mirror the RLS visibility allowlist", async () => {
     const [privatePerson] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
         visibility: "private",
         fullNameOverride: "Private Person",
@@ -118,50 +174,47 @@ test("relationship reads mirror the RLS visibility allowlist", async () => {
     const [teamCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
         visibility: "team",
         nameOverride: "Owner-only Team Community",
       })
       .returning({ id: schema.communities.id });
-    const [workspaceCommunity] = await db
+    const [organizationCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
-        nameOverride: "Workspace Community",
+        visibility: "organization",
+        nameOverride: "Organization Community",
       })
       .returning({ id: schema.communities.id });
     assert.ok(privatePerson);
     assert.ok(teamCommunity);
-    assert.ok(workspaceCommunity);
-    const [privateSignal] = await db
-      .insert(schema.signals)
-      .values({
-        workspaceId,
-        type: "private_context",
-        subjectType: "person",
-        subjectId: privatePerson.id,
-        payload: { reason: "Private relationship context" },
-        recommendedAction: { label: "Private action" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(privateSignal);
+    assert.ok(organizationCommunity);
+    const privateSignal = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId,
+      subjectType: "person",
+      subjectId: privatePerson.id,
+      type: "private_context",
+      reason: "Private relationship context",
+      actionLabel: "Private action",
+    });
 
-    const peoplePage = await store.listPeople(workspaceId, viewer.id, { limit: 20, offset: 0 });
+    const peoplePage = await store.listPeople(organizationId, viewer.id, { limit: 20, offset: 0 });
     assert.equal(peoplePage.total, 0);
-    assert.equal(await store.getPerson(workspaceId, viewer.id, privatePerson.id), null);
-    const signalsPage = await store.listSignals(workspaceId, viewer.id, { limit: 20, offset: 0 });
+    assert.equal(await store.getPerson(organizationId, viewer.id, privatePerson.id), null);
+    const signalsPage = await store.listSignals(organizationId, viewer.id, { limit: 20, offset: 0 });
     assert.equal(signalsPage.total, 0);
-    assert.equal(await store.getSignalDetail(workspaceId, viewer.id, privateSignal.id), null);
+    assert.equal(await store.getSignalDetail(organizationId, viewer.id, privateSignal.id), null);
 
-    const communitiesPage = await store.listCommunities(workspaceId, viewer.id, { limit: 20, offset: 0 });
+    const communitiesPage = await store.listCommunities(organizationId, viewer.id, { limit: 20, offset: 0 });
     assert.equal(communitiesPage.total, 1);
-    assert.equal(communitiesPage.items[0]?.displayName, "Workspace Community");
-    assert.equal(await store.getCommunity(workspaceId, viewer.id, teamCommunity.id), null);
+    assert.equal(communitiesPage.items[0]?.displayName, "Organization Community");
+    assert.equal(await store.getCommunity(organizationId, viewer.id, teamCommunity.id), null);
     assert.equal(
-      (await store.getCommunity(workspaceId, ownerUserId, teamCommunity.id))?.displayName,
+      (await store.getCommunity(organizationId, ownerUserId, teamCommunity.id))?.displayName,
       "Owner-only Team Community",
     );
   } finally {
@@ -169,10 +222,10 @@ test("relationship reads mirror the RLS visibility allowlist", async () => {
   }
 });
 
-test("Relation operations bind workspace and owner context under forced RLS", async () => {
+test("Relation operations bind organization and owner context under forced RLS", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const [otherUser] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_relation_rls_other@example.com" })
@@ -181,36 +234,24 @@ test("Relation operations bind workspace and owner context under forced RLS", as
     const [person] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId,
-        visibility: "workspace",
+        visibility: "organization",
         fullNameOverride: "RLS-visible participant",
       })
       .returning({ id: schema.people.id });
     assert.ok(person);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        workspaceId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "RLS context evidence" },
-        recommendedAction: { label: "Prepare" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        workspaceId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "calendar" },
-      })
-      .returning({ id: schema.events.id, createdAt: schema.events.createdAt });
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_upcoming",
+      reason: "RLS context evidence",
+      actionLabel: "Prepare",
+      linkParticipant: false,
+    });
+    const signal = event;
 
     await db.execute(sql.raw("CREATE ROLE test_fixture_relation_app"));
     await db.execute(
@@ -233,14 +274,14 @@ test("Relation operations bind workspace and owner context under forced RLS", as
 
     const store = new DrizzleGraphStore(db);
     const anchor = await store.getSignalEvidenceAnchor(
-      workspaceId,
+      organizationId,
       userId,
       signal.id,
       event.id,
     );
     assert.equal(anchor?.sourceEvent.id, event.id);
     const materialized = await store.materializeSignalEvidence({
-      workspaceId,
+      organizationId,
       ownerUserId: userId,
       signalId: signal.id,
       sourceEventId: event.id,
@@ -260,21 +301,21 @@ test("Relation operations bind workspace and owner context under forced RLS", as
     });
     assert.equal(materialized.participants.length, 1);
     assert.equal(
-      (await store.getSignalDetail(workspaceId, userId, signal.id))?.participants[0]?.recordId,
+      (await store.getSignalDetail(organizationId, userId, signal.id))?.participants[0]?.recordId,
       person.id,
     );
-    const ownerSignals = await store.listSignals(workspaceId, userId, {
+    const ownerSignals = await store.listSignals(organizationId, userId, {
       limit: 1,
       offset: 0,
     });
     assert.equal(ownerSignals.total, 1);
     assert.deepEqual(ownerSignals.items.map((item) => item.id), [signal.id]);
     assert.equal(
-      await store.getSignalDetail(workspaceId, otherUser.id, signal.id),
+      await store.getSignalDetail(organizationId, otherUser.id, signal.id),
       null,
     );
     assert.deepEqual(
-      await store.listSignals(workspaceId, otherUser.id, { limit: 1, offset: 0 }),
+      await store.listSignals(organizationId, otherUser.id, { limit: 1, offset: 0 }),
       { items: [], total: 0 },
     );
   } finally {
@@ -286,17 +327,17 @@ test("Relation operations bind workspace and owner context under forced RLS", as
 test("getSignalDetail requires a linked source Event and real participant Relation", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const store = new DrizzleGraphStore(db);
     const [person] = await db
       .insert(schema.people)
-      .values({ workspaceId, userId, fullNameOverride: "Unlinked Signal Subject" })
+      .values({ organizationId, userId, fullNameOverride: "Unlinked Signal Subject" })
       .returning({ id: schema.people.id });
     assert.ok(person);
     const [unrelatedEvent] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
+        organizationId,
         type: "calendar.unrelated",
         entityType: "person",
         entityId: person.id,
@@ -304,20 +345,18 @@ test("getSignalDetail requires a linked source Event and real participant Relati
       })
       .returning({ id: schema.events.id });
     assert.ok(unrelatedEvent);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        workspaceId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { sourceEventId: unrelatedEvent.id, reason: "Unverified detector reason" },
-        recommendedAction: { label: "Prepare context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
+    const signal = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "meeting_prep",
+      reason: "Unverified detector reason",
+      actionLabel: "Prepare context",
+      linkParticipant: false,
+    });
     await db.insert(schema.edges).values({
-      workspaceId,
+      organizationId,
       srcType: "event",
       srcId: unrelatedEvent.id,
       dstType: "person",
@@ -326,9 +365,9 @@ test("getSignalDetail requires a linked source Event and real participant Relati
       properties: {},
     });
 
-    const detail = await store.getSignalDetail(workspaceId, userId, signal.id);
+    const detail = await store.getSignalDetail(organizationId, userId, signal.id);
     assert.equal(detail, null);
-    const list = await store.listSignals(workspaceId, userId, { limit: 20, offset: 0 });
+    const list = await store.listSignals(organizationId, userId, { limit: 20, offset: 0 });
     assert.equal(list.total, 0);
     assert.deepEqual(list.items, []);
   } finally {
@@ -336,43 +375,31 @@ test("getSignalDetail requires a linked source Event and real participant Relati
   }
 });
 
-test("getSignalDetail prefers the approved source Event and owner Relation over newer legacy rows", async () => {
+test("getSignalDetail uses the canonical Signal Event and approved owner Relation", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const store = new DrizzleGraphStore(db);
     const [person] = await db
       .insert(schema.people)
-      .values({ workspaceId, userId, fullNameOverride: "Signal Participant" })
+      .values({ organizationId, userId, fullNameOverride: "Signal Participant" })
       .returning({ id: schema.people.id });
     assert.ok(person);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        workspaceId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "A permitted meeting Event is approaching." },
-        recommendedAction: { label: "Prepare context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        workspaceId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "google-calendar" },
-      })
-      .returning({ id: schema.events.id, createdAt: schema.events.createdAt });
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_upcoming",
+      reason: "A permitted meeting Event is approaching.",
+      actionLabel: "Prepare context",
+      linkParticipant: false,
+    });
+    const signal = event;
     const [approvedParticipant] = await db
       .insert(schema.edges)
       .values({
-        workspaceId,
+        organizationId,
         ownerUserId: userId,
         srcType: "event",
         srcId: event.id,
@@ -394,25 +421,7 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
     assert.ok(approvedParticipant);
     await db.insert(schema.edges).values([
       {
-        workspaceId,
-        ownerUserId: userId,
-        srcType: "signal",
-        srcId: signal.id,
-        dstType: "event",
-        dstId: event.id,
-        edgeType: "source_event",
-        evidenceRefs: [{ entityType: "event", entityId: event.id, source: "google-calendar" }],
-        confidence: "1",
-        observedAt: event.createdAt,
-        decisionLedgerId: "60000000-0000-4000-8000-000000000001",
-        decisionSequence: 1,
-        decisionAt: new Date("2026-07-17T00:00:00.000Z"),
-        visibility: "private",
-        source: "google-calendar",
-        sourceModule: "relationship",
-      },
-      {
-        workspaceId,
+        organizationId,
         srcType: "event",
         srcId: event.id,
         dstType: "person",
@@ -421,21 +430,12 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
         properties: { role: "legacy-attendee" },
         confidence: "0.1",
         observedAt: new Date("2028-01-01T00:00:00.000Z"),
-        visibility: "workspace",
+        visibility: "organization",
         source: "legacy-import",
         sourceModule: "legacy",
       },
     ]);
-    await db.insert(schema.events).values({
-      workspaceId,
-      type: "calendar.newer_but_unapproved",
-      entityType: "signal",
-      entityId: signal.id,
-      payload: { source: "newer-calendar-event" },
-      createdAt: new Date("2027-01-01T00:00:00.000Z"),
-    });
-
-    const detail = await store.getSignalDetail(workspaceId, userId, signal.id);
+    const detail = await store.getSignalDetail(organizationId, userId, signal.id);
     assert.ok(detail);
     assert.equal(detail.sourceEvent?.id, event.id);
     assert.equal(detail.reasonSource, "event");
@@ -445,7 +445,7 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
     assert.equal(detail.participants[0]?.relationId, approvedParticipant.id);
     assert.equal(detail.participants[0]?.confidence, 0.9);
     assert.equal(
-      (await store.listSignals(workspaceId, userId, { limit: 20, offset: 0 })).total,
+      (await store.listSignals(organizationId, userId, { limit: 20, offset: 0 })).total,
       1,
     );
   } finally {
@@ -456,57 +456,30 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
 test("getSignalDetail filters inaccessible endpoints before applying its bound", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const [person] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId,
-        visibility: "workspace",
+        visibility: "organization",
         fullNameOverride: "Accessible bounded participant",
       })
       .returning({ id: schema.people.id });
     assert.ok(person);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        workspaceId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "Bounded detail remains complete." },
-        recommendedAction: { label: "Prepare context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        workspaceId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "calendar" },
-      })
-      .returning({ id: schema.events.id, createdAt: schema.events.createdAt });
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_upcoming",
+      reason: "Bounded detail remains complete.",
+      actionLabel: "Prepare context",
+    });
+    const signal = event;
     await db.insert(schema.edges).values([
-      {
-        workspaceId,
-        ownerUserId: userId,
-        srcType: "event",
-        srcId: event.id,
-        dstType: "person",
-        dstId: person.id,
-        edgeType: "participant",
-        evidenceRefs: [{ entityType: "event", entityId: event.id, source: "calendar" }],
-        observedAt: event.createdAt,
-        visibility: "private",
-        source: "calendar",
-        sourceModule: "relationship",
-      },
       ...Array.from({ length: 201 }, () => ({
-        workspaceId,
+        organizationId,
         ownerUserId: userId,
         srcType: "event",
         srcId: event.id,
@@ -514,13 +487,13 @@ test("getSignalDetail filters inaccessible endpoints before applying its bound",
         dstId: randomUUID(),
         edgeType: "participant",
         observedAt: new Date("2027-01-01T00:00:00.000Z"),
-        visibility: "workspace",
+        visibility: "organization",
         source: "calendar",
         sourceModule: "relationship",
       })),
     ]);
 
-    const detail = await new DrizzleGraphStore(db).getSignalDetail(workspaceId, userId, signal.id);
+    const detail = await new DrizzleGraphStore(db).getSignalDetail(organizationId, userId, signal.id);
     assert.ok(detail);
     assert.deepEqual(detail.participants.map((participant) => participant.recordId), [person.id]);
   } finally {
@@ -531,7 +504,7 @@ test("getSignalDetail filters inaccessible endpoints before applying its bound",
 test("materializeSignalEvidence is atomic, retry-idempotent, and semantically unique per owner", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [secondOwner] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_relation_second_owner@example.com" })
@@ -540,56 +513,44 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const [person] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         fullNameOverride: "Relation Person",
       })
       .returning({ id: schema.people.id });
     const [community] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         nameOverride: "Relation Community",
       })
       .returning({ id: schema.communities.id });
     const [staleCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         nameOverride: "Stale Relation Community",
       })
       .returning({ id: schema.communities.id });
     assert.ok(person);
     assert.ok(community);
     assert.ok(staleCommunity);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        workspaceId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "A source Event is available." },
-        recommendedAction: { label: "Review context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        workspaceId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "google-calendar" },
-      })
-      .returning();
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_upcoming",
+      reason: "A source Event is available.",
+      actionLabel: "Review context",
+      linkParticipant: false,
+    });
+    const signal = event;
     const store = new DrizzleGraphStore(db);
 
     assert.equal((await store.getNodeTypeOwner("person"))?.owningModule, "relationship");
@@ -598,18 +559,18 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     assert.equal((await store.getNodeTypeOwner("event"))?.owningModule, "relationship");
     assert.equal(await store.getNodeTypeOwner("unsupported"), null);
     assert.equal(
-      await store.getSignalDetail(workspaceId, ownerUserId, signal.id),
+      await store.getSignalDetail(organizationId, ownerUserId, signal.id),
       null,
       "an Event anchor without a participant Relation is not evidence-backed Signal detail",
     );
     assert.equal(
-      (await store.getSignalEvidenceAnchor(workspaceId, ownerUserId, signal.id))?.sourceEvent.id,
+      (await store.getSignalEvidenceAnchor(organizationId, ownerUserId, signal.id))?.sourceEvent.id,
       event.id,
       "Relation staging can still resolve the accessible Signal and source Event",
     );
 
     const materialization = {
-      workspaceId: workspaceId.toUpperCase(),
+      organizationId: organizationId.toUpperCase(),
       ownerUserId: ownerUserId.toUpperCase(),
       signalId: signal.id.toUpperCase(),
       sourceEventId: event.id.toUpperCase(),
@@ -655,13 +616,14 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
 
     const first = await store.materializeSignalEvidence(materialization);
     const retry = await store.materializeSignalEvidence(materialization);
-    assert.ok(await store.getSignalDetail(workspaceId, ownerUserId, signal.id));
-    assert.equal(first.sourceEvent.id, retry.sourceEvent.id);
+    assert.ok(await store.getSignalDetail(organizationId, ownerUserId, signal.id));
+    assert.ok(first.participants.some((relation) => relation.id === first.sourceEvent.id));
+    assert.ok(retry.participants.some((relation) => relation.id === retry.sourceEvent.id));
     assert.deepEqual(
       first.participants.map((relation) => relation.id).sort(),
       retry.participants.map((relation) => relation.id).sort(),
     );
-    assert.equal((await db.select().from(schema.edges)).length, 3);
+    assert.equal((await db.select().from(schema.edges)).length, 2);
     const newer = await store.materializeSignalEvidence({
       ...materialization,
       decisionLedgerId: "60000000-0000-4000-8000-000000000001",
@@ -730,29 +692,17 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
       0,
       "a superseded retry cannot reinsert an obsolete participant edge",
     );
-    const [reverseSignal] = await db
-      .insert(schema.signals)
-      .values({
-        workspaceId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "A newer decision materializes first." },
-        recommendedAction: { label: "Review context" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(reverseSignal);
-    const [reverseEvent] = await db
-      .insert(schema.events)
-      .values({
-        workspaceId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: reverseSignal.id,
-        payload: { source: "google-calendar" },
-      })
-      .returning();
-    assert.ok(reverseEvent);
+    const reverseEvent = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_upcoming",
+      reason: "A newer decision materializes first.",
+      actionLabel: "Review context",
+      linkParticipant: false,
+    });
+    const reverseSignal = reverseEvent;
     const reverseBase = {
       ...materialization,
       signalId: reverseSignal.id,
@@ -788,55 +738,32 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const [recoveryCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         nameOverride: "Post-commit recovery participant",
       })
       .returning({ id: schema.communities.id });
-    const [recoverySignal] = await db
-      .insert(schema.signals)
-      .values({
-        workspaceId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: { reason: "Post-commit recovery." },
-        recommendedAction: { label: "Review context" },
-      })
-      .returning({ id: schema.signals.id });
+    const recoverySignal = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "calendar.meeting_updated",
+      reason: "Post-commit recovery.",
+      actionLabel: "Review context",
+      linkParticipant: false,
+    });
     assert.ok(recoveryCommunity);
-    assert.ok(recoverySignal);
-    const recoveryEvents = await db
-      .insert(schema.events)
-      .values([
-        {
-          workspaceId,
-          type: "calendar.meeting_upcoming",
-          entityType: "signal",
-          entityId: recoverySignal.id,
-          payload: { source: "legacy-calendar" },
-        },
-        {
-          workspaceId,
-          type: "calendar.meeting_updated",
-          entityType: "signal",
-          entityId: recoverySignal.id,
-          payload: { source: "calendar" },
-        },
-      ])
-      .returning();
-    assert.equal(recoveryEvents.length, 2);
     const recoveryOld = {
       ...materialization,
       signalId: recoverySignal.id,
-      sourceEventId: recoveryEvents[0]!.id,
+      sourceEventId: recoverySignal.id,
       decisionLedgerId: "60000000-0000-4000-8000-000000000006",
       decisionSequence: 6,
     };
     const recoveryWinner = {
       ...recoveryOld,
-      sourceEventId: recoveryEvents[1]!.id,
       decisionLedgerId: "60000000-0000-4000-8000-000000000007",
       decisionSequence: 7,
       participants: [
@@ -857,9 +784,6 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     await store.materializeSignalEvidence(recoveryOld);
     await store.materializeSignalEvidence(recoveryWinner);
     await db
-      .delete(schema.events)
-      .where(eq(schema.events.id, recoveryEvents[0]!.id));
-    await db
       .delete(schema.communities)
       .where(eq(schema.communities.id, recoveryCommunity.id));
     const sameDecisionRecovery =
@@ -868,9 +792,9 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const obsoleteEventRecovery =
       await store.materializeSignalEvidence(recoveryOld);
     assert.equal(
-      obsoleteEventRecovery.sourceEvent.dstId,
-      recoveryEvents[1]!.id,
-      "a stale retry reconciles without requiring its obsolete source Event",
+      obsoleteEventRecovery.sourceEvent.srcId,
+      recoverySignal.id,
+      "a stale retry reconciles to the canonical Signal Event",
     );
     assert.equal(obsoleteEventRecovery.participants.length, 2);
 
@@ -881,12 +805,12 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
       decisionSequence: 8,
     });
     assert.notEqual(secondOwnerResult.sourceEvent.id, first.sourceEvent.id);
-    assert.equal((await db.select().from(schema.edges)).length, 10);
+    assert.equal((await db.select().from(schema.edges)).length, 6);
 
-    const existingParticipant = first.participants.find((relation) => relation.dstId === person.id);
+    const existingParticipant = newer.participants.find((relation) => relation.dstId === person.id);
     assert.ok(existingParticipant);
     const enriched = await store.upsertRelation({
-      workspaceId,
+      organizationId,
       ownerUserId,
       srcType: "event",
       srcId: event.id,
@@ -912,19 +836,19 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     assert.deepEqual(enriched.properties, { role: "reviewed-attendee" });
 
     const ownerPage = await store.listRelations(
-      workspaceId,
+      organizationId,
       ownerUserId,
       { nodeType: "event", nodeId: event.id },
       { limit: 10 },
     );
     const secondOwnerPage = await store.listRelations(
-      workspaceId,
+      organizationId,
       secondOwner.id,
       { nodeType: "event", nodeId: event.id },
       { limit: 10 },
     );
-    assert.equal(ownerPage.total, 2);
-    assert.equal(secondOwnerPage.total, 3);
+    assert.equal(ownerPage.total, 1);
+    assert.equal(secondOwnerPage.total, 2);
     assert.ok(ownerPage.items.every((relation) => relation.ownerUserId === ownerUserId));
     assert.ok(secondOwnerPage.items.every((relation) => relation.ownerUserId === secondOwner.id));
   } finally {
@@ -935,7 +859,7 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
 test("Relation reads prune inaccessible endpoints and evidence before bounded pagination", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [viewer] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_relation_viewer@example.com" })
@@ -944,16 +868,16 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     const [subject] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
-        fullNameOverride: "Workspace Subject",
+        visibility: "organization",
+        fullNameOverride: "Organization Subject",
       })
       .returning({ id: schema.people.id });
     const [privateEvidence] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
         visibility: "private",
         fullNameOverride: "Private Evidence",
@@ -962,16 +886,16 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     const [visibleCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         nameOverride: "Visible Community",
       })
       .returning({ id: schema.communities.id });
     const [privateCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
         visibility: "private",
         nameOverride: "Private Community",
@@ -981,32 +905,20 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     assert.ok(privateEvidence);
     assert.ok(visibleCommunity);
     assert.ok(privateCommunity);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        workspaceId,
-        type: "meeting_prep",
-        subjectType: "person",
-        subjectId: subject.id,
-        payload: { reason: "Evidence pruning test" },
-        recommendedAction: { label: "Inspect" },
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        workspaceId,
-        type: "calendar.meeting_upcoming",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "calendar" },
-      })
-      .returning();
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId,
+      subjectType: "person",
+      subjectId: subject.id,
+      type: "calendar.meeting_upcoming",
+      reason: "Evidence pruning test",
+      actionLabel: "Inspect",
+      linkParticipant: false,
+    });
+    const signal = event;
     const store = new DrizzleGraphStore(db);
     const common = {
-      workspaceId,
+      organizationId,
       ownerUserId,
       srcType: "event",
       srcId: event.id,
@@ -1026,7 +938,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
         { entityType: "event", entityId: event.id, source: "calendar" },
         { entityType: "person", entityId: privateEvidence.id, source: "user" },
       ],
-      visibility: "workspace",
+      visibility: "organization",
     });
     await store.upsertRelation({
       ...common,
@@ -1034,7 +946,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
       dstId: subject.id,
       relationType: "subject",
       evidenceRefs: [{ entityType: "event", entityId: event.id, source: "calendar" }],
-      visibility: "workspace",
+      visibility: "organization",
     });
     await store.upsertRelation({
       ...common,
@@ -1042,7 +954,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
       dstId: privateCommunity.id,
       relationType: "hidden_endpoint",
       evidenceRefs: [{ entityType: "event", entityId: event.id, source: "calendar" }],
-      visibility: "workspace",
+      visibility: "organization",
     });
     await store.upsertRelation({
       ...common,
@@ -1055,11 +967,11 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     await db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
-          set_config('app.workspace_id', ${workspaceId}, true),
+          set_config('app.organization_id', ${organizationId}, true),
           set_config('app.user_id', ${ownerUserId}, true)
       `);
       await tx.insert(schema.edges).values({
-        workspaceId,
+        organizationId,
         ownerUserId,
         srcType: "event",
         srcId: event.id,
@@ -1070,20 +982,20 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
         confidence: "1",
         observedAt: event.createdAt,
         userConfirmed: true,
-        visibility: "workspace",
+        visibility: "organization",
         source: "test_fixture",
         sourceModule: "relationship",
       });
     });
 
     const firstPage = await store.listRelations(
-      workspaceId,
+      organizationId,
       viewer.id,
       { nodeType: "event", nodeId: event.id },
       { limit: 1 },
     );
     const secondPage = await store.listRelations(
-      workspaceId,
+      organizationId,
       viewer.id,
       { nodeType: "event", nodeId: event.id },
       { limit: 1, cursor: firstPage.nextCursor },
@@ -1093,7 +1005,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     assert.equal(secondPage.total, 2);
     assert.equal(secondPage.items.length, 1);
     const visible = [...firstPage.items, ...secondPage.items];
-    assert.ok(visible.every((relation) => relation.visibility === "workspace"));
+    assert.ok(visible.every((relation) => relation.visibility === "organization"));
     const participant = visible.find((relation) => relation.edgeType === "participant");
     assert.ok(participant);
     assert.deepEqual(participant.evidenceRefs, [
@@ -1101,7 +1013,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     ]);
 
     const inaccessibleAnchor = await store.listRelations(
-      workspaceId,
+      organizationId,
       viewer.id,
       { nodeType: "community", nodeId: privateCommunity.id },
       { limit: 10 },
@@ -1112,7 +1024,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
       nextCursor: null,
     });
 
-    const detail = await store.getSignalDetail(workspaceId, viewer.id, signal.id);
+    const detail = await store.getSignalDetail(organizationId, viewer.id, signal.id);
     assert.ok(detail);
     const communityParticipant = detail.participants.find(
       (entry) => entry.recordType === "community",
@@ -1134,40 +1046,25 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
 test("Relation keyset pagination is deterministic for tied timestamps and concurrent inserts", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const [person] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId,
         visibility: "private",
         fullNameOverride: "test_fixture_keyset_person",
       })
       .returning({ id: schema.people.id });
     assert.ok(person);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        workspaceId,
-        type: "test_fixture_keyset",
-        subjectType: "person",
-        subjectId: person.id,
-        payload: {},
-        recommendedAction: {},
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        workspaceId,
-        type: "test_fixture_keyset",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: {},
-      })
-      .returning({ id: schema.events.id });
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: person.id,
+      type: "test_fixture_keyset",
+      linkParticipant: false,
+    });
     const tiedAt = new Date("2026-07-16T12:00:00.124Z");
     const initialIds = Array.from(
       { length: 101 },
@@ -1177,13 +1074,13 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     await db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
-          set_config('app.workspace_id', ${workspaceId}, true),
+          set_config('app.organization_id', ${organizationId}, true),
           set_config('app.user_id', ${userId}, true)
       `);
       await tx.insert(schema.edges).values(
         initialIds.map((id, index) => ({
           id,
-          workspaceId,
+          organizationId,
           ownerUserId: userId,
           srcType: "event",
           srcId: event.id,
@@ -1212,12 +1109,12 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
               THEN '2026-07-16T12:00:00.123900Z'::timestamptz
             ELSE '2026-07-16T12:00:00.123800Z'::timestamptz
           END
-        WHERE workspace_id = ${workspaceId}
+        WHERE organization_id = ${organizationId}
       `);
     });
     const store = new DrizzleGraphStore(db);
     const first = await store.listRelations(
-      workspaceId,
+      organizationId,
       userId,
       { nodeType: "event", nodeId: event.id },
       { limit: 50 },
@@ -1230,12 +1127,12 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     await db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
-          set_config('app.workspace_id', ${workspaceId}, true),
+          set_config('app.organization_id', ${organizationId}, true),
           set_config('app.user_id', ${userId}, true)
       `);
       await tx.insert(schema.edges).values({
         id: concurrentId,
-        workspaceId,
+        organizationId,
         ownerUserId: userId,
         srcType: "event",
         srcId: event.id,
@@ -1253,7 +1150,7 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     });
 
     const second = await store.listRelations(
-      workspaceId,
+      organizationId,
       userId,
       { nodeType: "event", nodeId: event.id },
       { limit: 50, cursor: first.nextCursor },
@@ -1261,7 +1158,7 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     assert.equal(second.items.length, 50);
     assert.ok(second.nextCursor);
     const third = await store.listRelations(
-      workspaceId,
+      organizationId,
       userId,
       { nodeType: "event", nodeId: event.id },
       { limit: 50, cursor: second.nextCursor },
@@ -1276,7 +1173,7 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     assert.equal(pagedIds.includes(concurrentId), false);
 
     const fresh = await store.listRelations(
-      workspaceId,
+      organizationId,
       userId,
       { nodeType: "event", nodeId: event.id },
       { limit: 1 },
@@ -1298,12 +1195,12 @@ test("Relation evidence and Signal participants use bounded batch authorization"
     },
   });
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const participantRows = await db
       .insert(schema.people)
       .values(
         Array.from({ length: 100 }, (_, index) => ({
-          workspaceId,
+          organizationId,
           userId,
           visibility: "private",
           fullNameOverride: `test_fixture_batch_person_${index}`,
@@ -1312,29 +1209,15 @@ test("Relation evidence and Signal participants use bounded batch authorization"
       .returning({ id: schema.people.id });
     const subject = participantRows[0];
     assert.ok(subject);
-    const [signal] = await db
-      .insert(schema.signals)
-      .values({
-        workspaceId,
-        type: "test_fixture_batch_authorization",
-        subjectType: "person",
-        subjectId: subject.id,
-        payload: {},
-        recommendedAction: {},
-      })
-      .returning({ id: schema.signals.id });
-    assert.ok(signal);
-    const [event] = await db
-      .insert(schema.events)
-      .values({
-        workspaceId,
-        type: "test_fixture_batch_authorization",
-        entityType: "signal",
-        entityId: signal.id,
-        payload: {},
-      })
-      .returning({ id: schema.events.id });
-    assert.ok(event);
+    const event = await seedSignalEvent(db, {
+      organizationId,
+      ownerUserId: userId,
+      subjectType: "person",
+      subjectId: subject.id,
+      type: "test_fixture_batch_authorization",
+      linkParticipant: false,
+    });
+    const signal = event;
     const evidenceRefs = Array.from({ length: 100 }, (_, index) => ({
       entityType: "event" as const,
       entityId: event.id,
@@ -1344,33 +1227,13 @@ test("Relation evidence and Signal participants use bounded batch authorization"
     await db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
-          set_config('app.workspace_id', ${workspaceId}, true),
+          set_config('app.organization_id', ${organizationId}, true),
           set_config('app.user_id', ${userId}, true)
       `);
       await tx.insert(schema.edges).values([
-        {
-          id: randomUUID(),
-          workspaceId,
-          ownerUserId: userId,
-          srcType: "signal",
-          srcId: signal.id,
-          dstType: "event",
-          dstId: event.id,
-          edgeType: "source_event",
-          evidenceRefs,
-          confidence: "1",
-          observedAt,
-          userConfirmed: true,
-          visibility: "private",
-          source: "test_fixture",
-          sourceModule: "relationship",
-          decisionLedgerId: randomUUID(),
-          decisionSequence: 1,
-          decisionAt: observedAt,
-        },
         ...participantRows.map((participant, index) => ({
           id: randomUUID(),
-          workspaceId,
+          organizationId,
           ownerUserId: userId,
           srcType: "event",
           srcId: event.id,
@@ -1395,7 +1258,7 @@ test("Relation evidence and Signal participants use bounded batch authorization"
 
     queries.length = 0;
     const relationPage = await store.listRelations(
-      workspaceId,
+      organizationId,
       userId,
       { nodeType: "event", nodeId: event.id },
       { limit: 100 },
@@ -1415,7 +1278,7 @@ test("Relation evidence and Signal participants use bounded batch authorization"
     );
 
     queries.length = 0;
-    const detail = await store.getSignalDetail(workspaceId, userId, signal.id);
+    const detail = await store.getSignalDetail(organizationId, userId, signal.id);
     assert.equal(detail?.participants.length, 100);
     assert.ok(
       detail?.participants.every(
@@ -1438,6 +1301,1489 @@ test("Relation evidence and Signal participants use bounded batch authorization"
       0,
       "Signal detail must reuse its already-authorized source Event",
     );
+  } finally {
+    await close();
+  }
+});
+
+test("Relationship search escapes wildcards and clamps page bounds", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
+    const [otherUser] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_relationship_search_other@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(otherUser);
+    await db.insert(schema.people).values([
+      ...Array.from({ length: 103 }, (_, index) => ({
+        organizationId,
+        userId,
+        visibility: "organization",
+        fullNameOverride: `Bounded Person ${String(index).padStart(3, "0")}`,
+        ...(index < 3
+          ? { emailsOverride: ["ambiguous-intake@example.com"] }
+          : {}),
+      })),
+      {
+        organizationId,
+        userId,
+        visibility: "organization",
+        fullNameOverride: "Literal 100% Match",
+        emailsOverride: ["intake-match@example.com"],
+      },
+      {
+        organizationId,
+        userId,
+        visibility: "organization",
+        fullNameOverride: "Literal 100X Match",
+      },
+      {
+        organizationId,
+        userId: otherUser.id,
+        visibility: "private",
+        fullNameOverride: "Hidden email match",
+        emailsOverride: ["intake-match@example.com"],
+      },
+    ]);
+    const store = new DrizzleGraphStore(db);
+
+    const bounded = await store.listPeople(organizationId, userId, {
+      limit: 1_000,
+      offset: -50,
+    });
+    assert.equal(bounded.items.length, 100);
+    assert.equal(bounded.total, 105);
+
+    const literalPercent = await store.listPeople(organizationId, userId, {
+      limit: 50,
+      offset: 0,
+      query: "%",
+    });
+    assert.equal(literalPercent.total, 1);
+    assert.equal(literalPercent.items[0]?.displayName, "Literal 100% Match");
+    const exactEmail = await store.findPeopleByEmail(
+      organizationId,
+      userId,
+      " INTAKE-MATCH@example.com ",
+    );
+    assert.deepEqual(
+      exactEmail.map((person) => person.displayName),
+      ["Literal 100% Match"],
+      "exact intake matching prunes another owner's private Person",
+    );
+    assert.equal(
+      (
+        await store.findPeopleByEmail(
+          organizationId,
+          userId,
+          "ambiguous-intake@example.com",
+          50,
+        )
+      ).length,
+      2,
+      "identity ambiguity detection remains bounded",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Relationship lifecycle is owner-only, decision-provenanced, and archive-idempotent", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
+    const [viewer] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_relationship_lifecycle_viewer@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(viewer);
+    const store = new DrizzleGraphStore(db);
+    const personId = randomUUID();
+    const createDecisionId = randomUUID();
+    const updateDecisionId = randomUUID();
+    const staleUpdateDecisionId = randomUUID();
+    const ordinaryInteractionId = randomUUID();
+    const laggingUpdateDecisionId = randomUUID();
+    const staleArchiveDecisionId = randomUUID();
+    const archiveDecisionId = randomUUID();
+    const archivedUpdateDecisionId = randomUUID();
+    const archivedRetryDecisionId = randomUUID();
+
+    const created = await store.createPerson({
+      id: personId,
+      organizationId,
+      ownerUserId,
+      displayName: "Lifecycle Person",
+      currentTitle: "Builder",
+      bio: "Inspectably governed.",
+      emails: ["LIFECYCLE@example.com", "lifecycle@example.com"],
+      visibility: "organization",
+      source: "user",
+      decisionLedgerId: createDecisionId,
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T10:00:00.000Z"),
+    });
+    assert.equal(created.ownerUserId, ownerUserId);
+    assert.deepEqual(created.emails, ["lifecycle@example.com"]);
+    assert.equal(
+      (
+        await db
+          .select({ id: schema.peopleCanonical.id })
+          .from(schema.peopleCanonical)
+          .where(eq(schema.peopleCanonical.id, personId))
+      ).length,
+      0,
+      "owner-scoped Person values must not be copied to canonical identity",
+    );
+    assert.equal(
+      (
+        await db
+          .select({ canonicalPersonId: schema.people.canonicalPersonId })
+          .from(schema.people)
+          .where(eq(schema.people.id, personId))
+          .limit(1)
+      )[0]?.canonicalPersonId,
+      null,
+    );
+    assert.equal((await store.getPerson(organizationId, viewer.id, personId))?.isOwner, false);
+
+    const deniedUpdate = await store.updatePerson({
+      id: personId,
+      organizationId,
+      ownerUserId: viewer.id,
+      displayName: "Unauthorized rename",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-18T10:01:00.000Z"),
+    });
+    assert.equal(deniedUpdate, null);
+    const deniedArchive = await store.archivePerson({
+      id: personId,
+      organizationId,
+      ownerUserId: viewer.id,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-18T10:02:00.000Z"),
+    });
+    assert.equal(deniedArchive, false);
+
+    const updated = await store.updatePerson({
+      id: personId,
+      organizationId,
+      ownerUserId,
+      displayName: "Lifecycle Person Updated",
+      visibility: "private",
+      decisionLedgerId: updateDecisionId,
+      decisionSequence: 4,
+      decisionAt: new Date("2026-07-18T10:03:00.000Z"),
+    });
+    assert.equal(updated?.displayName, "Lifecycle Person Updated");
+    assert.equal(await store.getPerson(organizationId, viewer.id, personId), null);
+    const staleReplay = await store.updatePerson({
+      id: personId,
+      organizationId,
+      ownerUserId,
+      displayName: "Stale replay must not win",
+      decisionLedgerId: staleUpdateDecisionId,
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-18T10:01:30.000Z"),
+    });
+    assert.equal(
+      staleReplay?.displayName,
+      "Lifecycle Person Updated",
+      "an older durable effect cannot overwrite a newer Record decision",
+    );
+    await store.createInteraction({
+      id: ordinaryInteractionId,
+      organizationId,
+      ownerUserId,
+      kind: "person_updated",
+      occurredAt: new Date("2026-07-18T10:02:00.000Z"),
+      summary: "Ordinary meeting after the queued Record update",
+      source: "user",
+      visibility: "private",
+      participants: [{ recordType: "person", recordId: personId }],
+      decisionLedgerId: ordinaryInteractionId,
+      decisionSequence: 6,
+      decisionAt: new Date("2026-07-18T10:02:00.000Z"),
+    });
+    const laggingUpdate = await store.updatePerson({
+      id: personId,
+      organizationId,
+      ownerUserId,
+      currentTitle: "Recovered after meeting",
+      decisionLedgerId: laggingUpdateDecisionId,
+      decisionSequence: 5,
+      decisionAt: new Date("2026-07-18T10:01:45.000Z"),
+    });
+    assert.equal(
+      laggingUpdate?.currentTitle,
+      "Recovered after meeting",
+      "even a colliding Interaction kind cannot supersede a delayed Record mutation",
+    );
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        organizationId,
+        ownerUserId,
+        decisionLedgerId: staleArchiveDecisionId,
+        decisionSequence: 3,
+        decisionAt: new Date("2026-07-18T10:02:30.000Z"),
+      }),
+      true,
+    );
+    assert.equal(
+      (await store.getPerson(organizationId, ownerUserId, personId))?.displayName,
+      "Lifecycle Person Updated",
+      "an older archive cannot erase a newer Record decision",
+    );
+
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        organizationId,
+        ownerUserId,
+        decisionLedgerId: archiveDecisionId,
+        decisionSequence: 7,
+        decisionAt: new Date("2026-07-18T10:04:00.000Z"),
+      }),
+      true,
+    );
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        organizationId,
+        ownerUserId,
+        decisionLedgerId: archiveDecisionId,
+        decisionSequence: 7,
+        decisionAt: new Date("2026-07-18T10:04:00.000Z"),
+      }),
+      true,
+    );
+    assert.equal(
+      await store.updatePerson({
+        id: personId,
+        organizationId,
+        ownerUserId,
+        displayName: "Archived Record must stay archived",
+        decisionLedgerId: archivedUpdateDecisionId,
+        decisionSequence: 8,
+        decisionAt: new Date("2026-07-18T10:05:00.000Z"),
+      }),
+      null,
+    );
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        organizationId,
+        ownerUserId,
+        decisionLedgerId: archivedRetryDecisionId,
+        decisionSequence: 9,
+        decisionAt: new Date("2026-07-18T10:06:00.000Z"),
+      }),
+      true,
+    );
+    assert.equal(await store.getPerson(organizationId, ownerUserId, personId), null);
+
+    const lifecycleEvents = await db
+      .select({ id: schema.events.id, payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.entityType, "interaction"));
+    assert.deepEqual(
+      lifecycleEvents.map((event) => event.id).sort(),
+      [
+        archiveDecisionId,
+        createDecisionId,
+        laggingUpdateDecisionId,
+        ordinaryInteractionId,
+        updateDecisionId,
+      ].sort(),
+    );
+    assert.ok(
+      lifecycleEvents.every((event) => {
+        const payload = event.payload as Record<string, unknown>;
+        return payload.decisionLedgerId === event.id;
+      }),
+    );
+    assert.equal(
+      (lifecycleEvents.find((event) => event.id === ordinaryInteractionId)?.payload as
+        | Record<string, unknown>
+        | undefined)?.recordMutationLifecycle,
+      undefined,
+    );
+    assert.ok(
+      lifecycleEvents
+        .filter((event) => event.id !== ordinaryInteractionId)
+        .every(
+          (event) =>
+            (event.payload as Record<string, unknown>).recordMutationLifecycle === true,
+        ),
+    );
+    const skippedReceipts = await db
+      .select({ id: schema.events.id, payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.entityType, "materialization_receipt"));
+    assert.deepEqual(
+      skippedReceipts.map((event) => event.id).sort(),
+      [
+        archivedRetryDecisionId,
+        archivedUpdateDecisionId,
+        staleArchiveDecisionId,
+        staleUpdateDecisionId,
+      ].sort(),
+    );
+    assert.ok(
+      skippedReceipts.every((event) => {
+        const payload = event.payload as Record<string, unknown>;
+        return (
+          payload.outcome === "skipped" &&
+          (payload.reason === "record_archived" ||
+            payload.reason === "superseded_by_newer_decision")
+        );
+      }),
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Relationship Records keep private values out of canonical identity and preserve explicit clears", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
+    const store = new DrizzleGraphStore(db);
+    const canonicalPersonId = randomUUID();
+    const personId = randomUUID();
+    await db.insert(schema.peopleCanonical).values({
+      id: canonicalPersonId,
+      fullName: "Canonical Person",
+      currentTitle: "Canonical title",
+      bio: "Canonical bio",
+    });
+    await db.insert(schema.people).values({
+      id: personId,
+      organizationId,
+      userId: ownerUserId,
+      canonicalPersonId,
+      visibility: "private",
+      fullNameOverride: "Owner Person",
+    });
+    assert.equal(
+      (await store.getPerson(organizationId, ownerUserId, personId))?.currentTitle,
+      "Canonical title",
+    );
+    const clearedPerson = await store.updatePerson({
+      id: personId,
+      organizationId,
+      ownerUserId,
+      currentTitle: null,
+      bio: null,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T13:00:00.000Z"),
+    });
+    assert.equal(clearedPerson?.currentTitle, null);
+    assert.equal(clearedPerson?.bio, null);
+    const [personOverrides] = await db
+      .select({
+        currentTitle: schema.people.currentTitleOverride,
+        bio: schema.people.bioOverride,
+      })
+      .from(schema.people)
+      .where(eq(schema.people.id, personId))
+      .limit(1);
+    assert.deepEqual(personOverrides, { currentTitle: "", bio: "" });
+
+    const canonicalCommunityId = randomUUID();
+    const communityId = randomUUID();
+    await db.insert(schema.communitiesCanonical).values({
+      id: canonicalCommunityId,
+      name: "Canonical Community",
+      description: "Canonical description",
+      kind: "Canonical kind",
+    });
+    await db.insert(schema.communities).values({
+      id: communityId,
+      organizationId,
+      userId: ownerUserId,
+      canonicalCommunityId,
+      visibility: "private",
+      nameOverride: "Owner Community",
+    });
+    const clearedCommunity = await store.updateCommunity({
+      id: communityId,
+      organizationId,
+      ownerUserId,
+      description: null,
+      kind: null,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-18T13:01:00.000Z"),
+    });
+    assert.equal(clearedCommunity?.description, null);
+    assert.equal(clearedCommunity?.kind, null);
+
+    const ownerPersonId = randomUUID();
+    await store.createPerson({
+      id: ownerPersonId,
+      organizationId,
+      ownerUserId,
+      displayName: "Private owner value",
+      emails: ["private-owner@example.com"],
+      visibility: "private",
+      source: "user",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-18T13:02:00.000Z"),
+    });
+    const ownerCommunityId = randomUUID();
+    await store.createCommunity({
+      id: ownerCommunityId,
+      organizationId,
+      ownerUserId,
+      displayName: "Private owner community",
+      description: "Private owner description",
+      visibility: "private",
+      source: "user",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 4,
+      decisionAt: new Date("2026-07-18T13:03:00.000Z"),
+    });
+    assert.equal(
+      (
+        await db
+          .select({ id: schema.peopleCanonical.id })
+          .from(schema.peopleCanonical)
+          .where(eq(schema.peopleCanonical.id, ownerPersonId))
+      ).length,
+      0,
+    );
+    assert.equal(
+      (
+        await db
+          .select({ id: schema.communitiesCanonical.id })
+          .from(schema.communitiesCanonical)
+          .where(eq(schema.communitiesCanonical.id, ownerCommunityId))
+      ).length,
+      0,
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Interaction participants drive one bounded Timeline with pruned provenance", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
+    const [viewer] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_relationship_timeline_viewer@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(viewer);
+    const [person, privatePerson] = await db
+      .insert(schema.people)
+      .values([
+        {
+          organizationId,
+          userId: ownerUserId,
+          visibility: "organization",
+          fullNameOverride: "Timeline Person",
+        },
+        {
+          organizationId,
+          userId: ownerUserId,
+          visibility: "private",
+          fullNameOverride: "Private Timeline Person",
+        },
+      ])
+      .returning({ id: schema.people.id });
+    const [community] = await db
+      .insert(schema.communities)
+      .values({
+        organizationId,
+        userId: ownerUserId,
+        visibility: "organization",
+        nameOverride: "Timeline Community",
+      })
+      .returning({ id: schema.communities.id });
+    assert.ok(person);
+    assert.ok(privatePerson);
+    assert.ok(community);
+    const store = new DrizzleGraphStore(db);
+    const visibleEventIds = [randomUUID(), randomUUID()];
+    const visibleDecisionIds = [randomUUID(), randomUUID()];
+
+    for (const [index, id] of visibleEventIds.entries()) {
+      const item = await store.createInteraction({
+        id,
+        organizationId,
+        ownerUserId,
+        kind: index === 0 ? "meeting" : "email",
+        occurredAt: new Date(
+          index === 0
+            ? "2026-07-18T11:00:00.000Z"
+            : "2026-07-18T10:00:00.000Z",
+        ),
+        summary: index === 0 ? "Met at the community office." : "Sent a follow-up.",
+        source: index === 0 ? "calendar" : "gmail",
+        sourceRecordId: `source-${index}`,
+        visibility: "organization",
+        participants: [
+          { recordType: "person", recordId: person.id, role: "attendee" },
+          { recordType: "community", recordId: community.id, role: "host" },
+        ],
+        decisionLedgerId: visibleDecisionIds[index]!,
+        decisionSequence: index + 1,
+        decisionAt: new Date(`2026-07-18T1${index}:01:00.000Z`),
+      });
+      assert.equal(item.participants.length, 2);
+      assert.deepEqual(item.provenance.decisionLedgerIds, [visibleDecisionIds[index]]);
+      assert.deepEqual(item.provenance.evidenceRefs, [
+        { entityType: "event", entityId: id, source: index === 0 ? "calendar" : "gmail" },
+      ]);
+    }
+    const personAfterInteractions = await store.getPerson(
+      organizationId,
+      ownerUserId,
+      person.id,
+    );
+    assert.equal(
+      personAfterInteractions?.lastInteractionAt?.toISOString(),
+      "2026-07-18T11:00:00.000Z",
+      "the latest real Interaction advances Person freshness",
+    );
+    const privateEventId = randomUUID();
+    await store.createInteraction({
+      id: privateEventId,
+      organizationId,
+      ownerUserId,
+      kind: "note",
+      occurredAt: new Date("2026-07-18T12:00:00.000Z"),
+      summary: "Private participant context.",
+      source: "capture",
+      visibility: "organization",
+      participants: [
+        { recordType: "community", recordId: community.id },
+        { recordType: "person", recordId: privatePerson.id },
+      ],
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-18T12:01:00.000Z"),
+    });
+    const [privateEventRow] = await db
+      .select({ payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.id, privateEventId))
+      .limit(1);
+    assert.equal(
+      JSON.stringify(privateEventRow?.payload).includes(
+        "Private participant context.",
+      ),
+      false,
+      "private Event content is absent from the organization-scoped Event row",
+    );
+    const privateParticipantRelations = await db
+      .select({ properties: schema.edges.properties })
+      .from(schema.edges)
+      .where(and(
+        eq(schema.edges.organizationId, organizationId),
+        eq(schema.edges.ownerUserId, ownerUserId),
+        eq(schema.edges.srcType, "event"),
+        eq(schema.edges.srcId, privateEventId),
+        eq(schema.edges.edgeType, "participant"),
+      ));
+    assert.ok(
+      privateParticipantRelations.every((relation) =>
+        JSON.stringify(relation.properties).includes(
+          "Private participant context.",
+        ),
+      ),
+      "private Event content is stored only on owner-filtered Relations",
+    );
+
+    const firstPage = await store.listTimeline(
+      organizationId,
+      viewer.id,
+      "community",
+      community.id,
+      { limit: 1 },
+    );
+    assert.equal(firstPage.items.length, 1);
+    assert.equal(
+      firstPage.items[0]?.id,
+      visibleEventIds[0],
+      "Timeline order follows occurrence time, not insertion time",
+    );
+    assert.ok(firstPage.nextCursor);
+    const secondPage = await store.listTimeline(
+      organizationId,
+      viewer.id,
+      "community",
+      community.id,
+      { limit: 1, cursor: firstPage.nextCursor },
+    );
+    assert.equal(secondPage.items.length, 1);
+    assert.equal(secondPage.nextCursor, null);
+    assert.deepEqual(
+      new Set([...firstPage.items, ...secondPage.items].map((item) => item.id)),
+      new Set(visibleEventIds),
+    );
+    assert.ok(
+      [...firstPage.items, ...secondPage.items].every((item) =>
+        item.participants.every((participant) => participant.recordId !== privatePerson.id),
+      ),
+    );
+
+    const ownerTimeline = await store.listTimeline(
+      organizationId,
+      ownerUserId,
+      "community",
+      community.id,
+      { limit: 100 },
+    );
+    assert.equal(ownerTimeline.items.length, 3);
+    assert.equal(ownerTimeline.nextCursor, null);
+    assert.equal(
+      ownerTimeline.items.find((item) => item.id === privateEventId)?.visibility,
+      "private",
+    );
+    assert.equal(
+      ownerTimeline.items.find((item) => item.id === privateEventId)?.summary,
+      "Private participant context.",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Commitments are private evidence-bearing Event snapshots with bounded current-state reads", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
+    const [viewer, person] = await Promise.all([
+      db
+        .insert(schema.users)
+        .values({ email: "test_fixture_commitment_viewer@example.com" })
+        .returning({ id: schema.users.id })
+        .then((rows) => rows[0]),
+      db
+        .insert(schema.people)
+        .values({
+          organizationId,
+          userId: ownerUserId,
+          visibility: "organization",
+          fullNameOverride: "Commitment Person",
+        })
+        .returning({ id: schema.people.id })
+        .then((rows) => rows[0]),
+    ]);
+    assert.ok(viewer);
+    assert.ok(person);
+    const store = new DrizzleGraphStore(db);
+    const commitmentId = randomUUID();
+    const createDecisionId = randomUUID();
+    const updateDecisionId = randomUUID();
+    const archiveDecisionId = randomUUID();
+
+    const created = await store.materializeCommitment({
+      operation: "create",
+      commitmentId,
+      transitionEventId: commitmentId,
+      organizationId,
+      ownerUserId,
+      personId: person.id,
+      text: "Send the diligence notes",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "pending",
+      decisionLedgerId: createDecisionId,
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T12:00:00.000Z"),
+    });
+    assert.equal(created.provenance.evidenceRefs[0]?.entityId, commitmentId);
+
+    await store.materializeCommitment({
+      operation: "update",
+      commitmentId,
+      transitionEventId: updateDecisionId,
+      organizationId,
+      ownerUserId,
+      personId: person.id,
+      text: "Sent the diligence notes",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "completed",
+      decisionLedgerId: updateDecisionId,
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-19T12:00:00.000Z"),
+    });
+
+    const current = await store.listCommitments(
+      organizationId,
+      ownerUserId,
+      person.id,
+      { limit: 25, offset: 0 },
+    );
+    assert.equal(current.total, 1);
+    assert.equal(current.items[0]?.status, "completed");
+    assert.equal(current.items[0]?.text, "Sent the diligence notes");
+    assert.equal(current.items[0]?.provenance.decisionLedgerId, updateDecisionId);
+    assert.deepEqual(
+      await store.listCommitments(organizationId, viewer.id, person.id, {
+        limit: 25,
+        offset: 0,
+      }),
+      { items: [], total: 0 },
+      "another organization member cannot read the owner's private commitment",
+    );
+    const timeline = await store.listTimeline(
+      organizationId,
+      ownerUserId,
+      "person",
+      person.id,
+      { limit: 25 },
+    );
+    assert.deepEqual(
+      timeline.items.map((item) => item.id),
+      [updateDecisionId, commitmentId],
+      "commitment transitions remain in the unified Timeline",
+    );
+
+    await store.materializeCommitment({
+      operation: "archive",
+      commitmentId,
+      transitionEventId: archiveDecisionId,
+      organizationId,
+      ownerUserId,
+      personId: person.id,
+      text: "Sent the diligence notes",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "archived",
+      decisionLedgerId: archiveDecisionId,
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-20T12:00:00.000Z"),
+    });
+    assert.equal(
+      (
+        await store.listCommitments(organizationId, ownerUserId, person.id, {
+          limit: 25,
+          offset: 0,
+        })
+      ).total,
+      0,
+    );
+    assert.equal(
+      (
+        await store.listCommitments(organizationId, ownerUserId, person.id, {
+          limit: 25,
+          offset: 0,
+          includeArchived: true,
+        })
+      ).items[0]?.status,
+      "archived",
+    );
+
+    const firstPageCommitmentId = randomUUID();
+    const secondPageCommitmentId = randomUUID();
+    for (const [id, text, dueAt, createdAt] of [
+      [
+        firstPageCommitmentId,
+        "First snapshot commitment",
+        "2026-07-26T12:00:00.000Z",
+        "2026-07-22T10:00:00.000Z",
+      ],
+      [
+        secondPageCommitmentId,
+        "Second snapshot commitment",
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-22T10:01:00.000Z",
+      ],
+    ] as const) {
+      await store.materializeCommitment({
+        operation: "create",
+        commitmentId: id,
+        transitionEventId: id,
+        organizationId,
+        ownerUserId,
+        personId: person.id,
+        text,
+        dueAt: new Date(dueAt),
+        status: "pending",
+        decisionLedgerId: randomUUID(),
+        decisionSequence: 1,
+        decisionAt: new Date(createdAt),
+      });
+      await db
+        .update(schema.events)
+        .set({ createdAt: new Date(createdAt) })
+        .where(eq(schema.events.id, id));
+    }
+    const commitmentSnapshotAt = new Date("2026-07-22T10:02:00.000Z");
+    const firstCommitmentPage = await store.listCommitments(
+      organizationId,
+      ownerUserId,
+      person.id,
+      { limit: 1, offset: 0, snapshotAt: commitmentSnapshotAt },
+    );
+    assert.equal(firstCommitmentPage.items[0]?.id, firstPageCommitmentId);
+    assert.equal(firstCommitmentPage.total, 2);
+
+    const laterCommitmentId = randomUUID();
+    await store.materializeCommitment({
+      operation: "create",
+      commitmentId: laterCommitmentId,
+      transitionEventId: laterCommitmentId,
+      organizationId,
+      ownerUserId,
+      personId: person.id,
+      text: "Later snapshot commitment",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "pending",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-22T10:03:00.000Z"),
+    });
+    await db
+      .update(schema.events)
+      .set({ createdAt: new Date("2026-07-22T10:03:00.000Z") })
+      .where(eq(schema.events.id, laterCommitmentId));
+    const secondCommitmentPage = await store.listCommitments(
+      organizationId,
+      ownerUserId,
+      person.id,
+      { limit: 1, offset: 1, snapshotAt: commitmentSnapshotAt },
+    );
+    assert.equal(
+      secondCommitmentPage.items[0]?.id,
+      secondPageCommitmentId,
+      "a post-snapshot insert cannot shift commitment offset pages",
+    );
+    assert.equal(secondCommitmentPage.total, 2);
+  } finally {
+    await close();
+  }
+});
+
+test("Introductions require double consent and keep decline reasons private", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
+    const [[viewer], people] = await Promise.all([
+      db
+        .insert(schema.users)
+        .values({ email: "test_fixture_introduction_viewer@example.com" })
+        .returning({ id: schema.users.id }),
+      db
+        .insert(schema.people)
+        .values([
+          {
+            organizationId,
+            userId: ownerUserId,
+            visibility: "organization",
+            fullNameOverride: "Introduction Source",
+          },
+          {
+            organizationId,
+            userId: ownerUserId,
+            visibility: "organization",
+            fullNameOverride: "Introduction Target",
+          },
+        ])
+        .returning({ id: schema.people.id }),
+    ]);
+    assert.ok(viewer);
+    const [source, target] = people;
+    assert.ok(source);
+    assert.ok(target);
+    const store = new DrizzleGraphStore(db);
+    const introductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId,
+      transitionEventId: introductionId,
+      organizationId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T12:00:00.000Z"),
+    });
+    const readyEventId = randomUUID();
+    const ready = await store.materializeIntroduction({
+      operation: "consent",
+      introductionId,
+      transitionEventId: readyEventId,
+      organizationId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: true,
+      status: "ready",
+      decisionLedgerId: readyEventId,
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-19T12:00:00.000Z"),
+    });
+    assert.equal(ready.status, "ready");
+    assert.equal(ready.provenance.relationIds.length, 2);
+    assert.equal(
+      (await store.listIntroductions(organizationId, ownerUserId, source.id, {
+        limit: 25,
+        offset: 0,
+      })).items[0]?.status,
+      "ready",
+    );
+    assert.equal(
+      (await store.listIntroductions(organizationId, ownerUserId, target.id, {
+        limit: 25,
+        offset: 0,
+      })).items[0]?.id,
+      introductionId,
+      "both People see the same Introduction lifecycle",
+    );
+    assert.deepEqual(
+      await store.listIntroductions(organizationId, viewer.id, source.id, {
+        limit: 25,
+        offset: 0,
+      }),
+      { items: [], total: 0 },
+      "a different member cannot read the owner's private Introduction",
+    );
+
+    const concurrentIntroductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId: concurrentIntroductionId,
+      transitionEventId: randomUUID(),
+      organizationId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 10,
+      decisionAt: new Date("2026-07-19T13:00:00.000Z"),
+    });
+    const firstConcurrentConsent = {
+      operation: "consent" as const,
+      introductionId: concurrentIntroductionId,
+      transitionEventId: randomUUID(),
+      organizationId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: true,
+      status: "ready" as const,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 11,
+      decisionAt: new Date("2026-07-19T13:01:00.000Z"),
+    };
+    const secondConcurrentConsent = {
+      ...firstConcurrentConsent,
+      transitionEventId: randomUUID(),
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 12,
+      decisionAt: new Date("2026-07-19T13:02:00.000Z"),
+    };
+    const concurrentResults = await Promise.all([
+      store.materializeIntroduction(firstConcurrentConsent),
+      store.materializeIntroduction(secondConcurrentConsent),
+    ]);
+    assert.ok(concurrentResults.every((result) => result.status === "ready"));
+    const introductionEventCount = async () => {
+      const rows = await db.execute(sql`
+        SELECT count(*)::int AS value
+        FROM ${schema.events} AS transition
+        WHERE transition.organization_id = ${organizationId}::uuid
+          AND EXISTS (
+            SELECT 1
+            FROM ${schema.edges} AS introduction
+            WHERE introduction.organization_id = transition.organization_id
+              AND introduction.src_type = 'event'
+              AND introduction.src_id = transition.id
+              AND introduction.edge_type = 'introduction'
+              AND introduction.properties ->> 'introductionId' =
+                ${concurrentIntroductionId}
+          )
+      `);
+      return Number(
+        (
+          Array.isArray(rows)
+            ? rows
+            : (rows as unknown as { rows?: Array<{ value: number }> }).rows ?? []
+        )[0]?.value ?? 0,
+      );
+    };
+    assert.equal(
+      await introductionEventCount(),
+      2,
+      "concurrent equivalent consents produce one transition Event",
+    );
+    await store.materializeIntroduction(firstConcurrentConsent);
+    assert.equal(
+      await introductionEventCount(),
+      2,
+      "replaying a recorded consent is an idempotent no-op",
+    );
+
+    const declinedIntroductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId: declinedIntroductionId,
+      transitionEventId: declinedIntroductionId,
+      organizationId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-20T12:00:00.000Z"),
+    });
+    const declinedEventId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "consent",
+      introductionId: declinedIntroductionId,
+      transitionEventId: declinedEventId,
+      organizationId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "declined",
+      privateDeclineReason: "Not the right time",
+      decisionLedgerId: declinedEventId,
+      decisionSequence: 4,
+      decisionAt: new Date("2026-07-21T12:00:00.000Z"),
+    });
+    const declined = await store.listIntroductions(
+      organizationId,
+      ownerUserId,
+      source.id,
+      { limit: 1, offset: 0, introductionId: declinedIntroductionId },
+    );
+    assert.equal(declined.items[0]?.status, "declined");
+    assert.equal(declined.items[0]?.declineReasonRecorded, true);
+    assert.equal(
+      JSON.stringify(declined).includes("Not the right time"),
+      false,
+      "decline reason contents are not returned by Relationship projections",
+    );
+    const [declineEvent] = await db
+      .select({ payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.id, declinedEventId))
+      .limit(1);
+    assert.equal(
+      JSON.stringify(declineEvent?.payload).includes("Not the right time"),
+      false,
+      "private decline text is never copied into the organization-scoped Event table",
+    );
+    assert.equal(
+      JSON.stringify(declineEvent?.payload).includes(declinedIntroductionId),
+      false,
+      "private Introduction details stay on owner-filtered Relations",
+    );
+    const declineMemories = await db
+      .select({ id: schema.memories.id })
+      .from(schema.memories)
+      .where(eq(schema.memories.id, declinedEventId));
+    assert.equal(
+      declineMemories.length,
+      0,
+      "decline text never enters the organization-readable Memory table",
+    );
+    const [privateReasonRelation] = await db
+      .select({ properties: schema.edges.properties })
+      .from(schema.edges)
+      .where(and(
+        eq(schema.edges.organizationId, organizationId),
+        eq(schema.edges.ownerUserId, ownerUserId),
+        eq(schema.edges.srcId, declinedEventId),
+        eq(schema.edges.dstId, source.id),
+        eq(schema.edges.edgeType, "introduction"),
+      ))
+      .limit(1);
+    assert.equal(
+      (privateReasonRelation?.properties as { privateDeclineReason?: string })
+        ?.privateDeclineReason,
+      "Not the right time",
+      "decline text is retained only on the owner's private Relation",
+    );
+
+    const [paginationSource, paginationTarget] = await db
+      .insert(schema.people)
+      .values([
+        {
+          organizationId,
+          userId: ownerUserId,
+          visibility: "organization",
+          fullNameOverride: "Introduction Pagination Source",
+        },
+        {
+          organizationId,
+          userId: ownerUserId,
+          visibility: "organization",
+          fullNameOverride: "Introduction Pagination Target",
+        },
+      ])
+      .returning({ id: schema.people.id });
+    assert.ok(paginationSource);
+    assert.ok(paginationTarget);
+    const firstPageIntroductionId = randomUUID();
+    const secondPageIntroductionId = randomUUID();
+    for (const [id, decisionAt, createdAt] of [
+      [
+        firstPageIntroductionId,
+        "2026-07-23T12:00:00.000Z",
+        "2026-07-23T12:01:00.000Z",
+      ],
+      [
+        secondPageIntroductionId,
+        "2026-07-23T11:00:00.000Z",
+        "2026-07-23T12:02:00.000Z",
+      ],
+    ] as const) {
+      await store.materializeIntroduction({
+        operation: "create",
+        introductionId: id,
+        transitionEventId: id,
+        organizationId,
+        ownerUserId,
+        sourcePersonId: paginationSource.id,
+        targetPersonId: paginationTarget.id,
+        initiatorConsent: true,
+        recipientConsent: false,
+        status: "awaiting_consents",
+        decisionLedgerId: randomUUID(),
+        decisionSequence: 1,
+        decisionAt: new Date(decisionAt),
+      });
+      await db
+        .update(schema.events)
+        .set({ createdAt: new Date(createdAt) })
+        .where(eq(schema.events.id, id));
+    }
+    const introductionSnapshotAt = new Date("2026-07-23T12:03:00.000Z");
+    const firstIntroductionPage = await store.listIntroductions(
+      organizationId,
+      ownerUserId,
+      paginationSource.id,
+      { limit: 1, offset: 0, snapshotAt: introductionSnapshotAt },
+    );
+    assert.equal(firstIntroductionPage.items[0]?.id, firstPageIntroductionId);
+    assert.equal(firstIntroductionPage.total, 2);
+
+    const laterIntroductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId: laterIntroductionId,
+      transitionEventId: laterIntroductionId,
+      organizationId,
+      ownerUserId,
+      sourcePersonId: paginationSource.id,
+      targetPersonId: paginationTarget.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-23T13:00:00.000Z"),
+    });
+    await db
+      .update(schema.events)
+      .set({ createdAt: new Date("2026-07-23T13:01:00.000Z") })
+      .where(eq(schema.events.id, laterIntroductionId));
+    const secondIntroductionPage = await store.listIntroductions(
+      organizationId,
+      ownerUserId,
+      paginationSource.id,
+      { limit: 1, offset: 1, snapshotAt: introductionSnapshotAt },
+    );
+    assert.equal(
+      secondIntroductionPage.items[0]?.id,
+      secondPageIntroductionId,
+      "a post-snapshot insert cannot shift Introduction offset pages",
+    );
+    assert.equal(secondIntroductionPage.total, 2);
+  } finally {
+    await close();
+  }
+});
+
+test("Relationship paths are shortest, bounded, and visibility-pruned", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
+    const [otherUser] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_path_other@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(otherUser);
+    const [start, end, hidden] = await db
+      .insert(schema.people)
+      .values([
+        {
+          organizationId,
+          userId: ownerUserId,
+          visibility: "organization",
+          fullNameOverride: "Path Start",
+        },
+        {
+          organizationId,
+          userId: ownerUserId,
+          visibility: "organization",
+          fullNameOverride: "Path End",
+        },
+        {
+          organizationId,
+          userId: otherUser.id,
+          visibility: "private",
+          fullNameOverride: "Hidden Path End",
+        },
+      ])
+      .returning({ id: schema.people.id });
+    const [community] = await db
+      .insert(schema.communities)
+      .values({
+        organizationId,
+        userId: ownerUserId,
+        visibility: "organization",
+        nameOverride: "Path Community",
+      })
+      .returning({ id: schema.communities.id });
+    assert.ok(start);
+    assert.ok(end);
+    assert.ok(hidden);
+    assert.ok(community);
+    const store = new DrizzleGraphStore(db);
+    await store.upsertRelation({
+      organizationId,
+      ownerUserId,
+      srcType: "person",
+      srcId: start.id,
+      dstType: "community",
+      dstId: community.id,
+      relationType: "member",
+      properties: {},
+      evidenceRefs: [{ entityType: "community", entityId: community.id, source: "user" }],
+      confidence: 0.8,
+      observedAt: new Date("2026-07-18T12:00:00.000Z"),
+      userConfirmed: true,
+      visibility: "organization",
+      source: "user",
+      sourceModule: "relationship",
+    });
+    await store.upsertRelation({
+      organizationId,
+      ownerUserId,
+      srcType: "community",
+      srcId: community.id,
+      dstType: "person",
+      dstId: end.id,
+      relationType: "member",
+      properties: {},
+      evidenceRefs: [{ entityType: "community", entityId: community.id, source: "user" }],
+      confidence: 0.5,
+      observedAt: new Date("2026-07-18T12:01:00.000Z"),
+      userConfirmed: true,
+      visibility: "organization",
+      source: "user",
+      sourceModule: "relationship",
+    });
+
+    const result = await store.findRelationshipPaths(
+      organizationId,
+      ownerUserId,
+      { nodeType: "person", nodeId: start.id },
+      { nodeType: "person", nodeId: end.id },
+      { maxDepth: 4, maxPaths: 3, maxVisited: 10, maxEdgesPerNode: 10 },
+    );
+    assert.equal(result.paths.length, 1);
+    assert.deepEqual(
+      result.paths[0]?.nodes.map((node) => node.nodeType),
+      ["person", "community", "person"],
+    );
+    assert.equal(result.paths[0]?.confidence, 0.4);
+    assert.ok(result.visited <= 10);
+    assert.equal(
+      (
+        await store.findRelationshipPaths(
+          organizationId,
+          ownerUserId,
+          { nodeType: "person", nodeId: start.id },
+          { nodeType: "person", nodeId: end.id },
+          { maxDepth: 1, maxPaths: 3 },
+        )
+      ).paths.length,
+      0,
+    );
+    assert.deepEqual(
+      await store.findRelationshipPaths(
+        organizationId,
+        ownerUserId,
+        { nodeType: "person", nodeId: start.id },
+        { nodeType: "person", nodeId: hidden.id },
+        { maxDepth: 4, maxPaths: 3 },
+      ),
+      { paths: [], visited: 0, truncated: false },
+      "an inaccessible endpoint is indistinguishable from no path",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("full graph renders cross-Module Record, Event, and File Relations without leaking private nodes", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: viewerUserId, organizationId } = await seedOrganizationAndUser(db);
+    const [otherUser] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_full_graph_private@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(otherUser);
+    const [visiblePerson, hiddenPerson] = await db
+      .insert(schema.people)
+      .values([
+        {
+          organizationId,
+          userId: viewerUserId,
+          visibility: "organization",
+          fullNameOverride: "Visible Full Graph Person",
+          source: "relationship",
+        },
+        {
+          organizationId,
+          userId: otherUser.id,
+          visibility: "private",
+          fullNameOverride: "Hidden Full Graph Person",
+          source: "relationship",
+        },
+      ])
+      .returning({ id: schema.people.id });
+    const [record] = await db
+      .insert(schema.records)
+      .values({ organizationId, title: "Real Full Graph Record" })
+      .returning({ id: schema.records.id });
+    assert.ok(visiblePerson);
+    assert.ok(hiddenPerson);
+    assert.ok(record);
+    await db.insert(schema.recordParticipants).values([
+      { recordId: record.id, personId: visiblePerson.id, role: "owner" },
+      { recordId: record.id, personId: hiddenPerson.id, role: "reviewer" },
+    ]);
+    const [visibleFile, hiddenFile] = await db
+      .insert(schema.files)
+      .values([
+        {
+          organizationId,
+          source: "job-pilot",
+          metadata: { name: "visible-source.pdf" },
+        },
+        {
+          organizationId,
+          source: "job-pilot",
+          metadata: { name: "hidden-source.pdf" },
+        },
+      ])
+      .returning({ id: schema.files.id });
+    assert.ok(visibleFile);
+    assert.ok(hiddenFile);
+    await db.insert(schema.fileRefs).values([
+      { fileId: visibleFile.id, entityType: "person", entityId: visiblePerson.id },
+      { fileId: hiddenFile.id, entityType: "person", entityId: hiddenPerson.id },
+    ]);
+    const [job] = await db
+      .insert(schema.jobpilotJobs)
+      .values({
+        organizationId,
+        title: "Platform Engineer",
+        company: "Real Company",
+        source: "manual",
+      })
+      .returning({ id: schema.jobpilotJobs.id });
+    assert.ok(job);
+    const [application] = await db
+      .insert(schema.jobpilotApplications)
+      .values({ organizationId, jobId: job.id, stage: "queued" })
+      .returning({ id: schema.jobpilotApplications.id });
+    assert.ok(application);
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        organizationId,
+        type: "job.saved",
+        entityType: "job",
+        entityId: job.id,
+        payload: {},
+      })
+      .returning({ id: schema.events.id });
+    assert.ok(event);
+    const [crossModuleEvent] = await db
+      .insert(schema.events)
+      .values({
+        organizationId,
+        type: "record.updated",
+        entityType: "record",
+        entityId: record.id,
+        payload: {},
+      })
+      .returning({ id: schema.events.id });
+    assert.ok(crossModuleEvent);
+    const result = await new DrizzleGraphStore(db).listFullGraph(
+      organizationId,
+      viewerUserId,
+      { limit: 100 },
+    );
+    const nodeIds = new Set(result.nodes.map((node) => node.id));
+    assert.ok(nodeIds.has(`person:${visiblePerson.id}`));
+    assert.ok(nodeIds.has(`record:${record.id}`));
+    assert.ok(nodeIds.has(`file:${visibleFile.id}`));
+    assert.ok(nodeIds.has(`job:${job.id}`));
+    assert.ok(nodeIds.has(`application:${application.id}`));
+    assert.ok(nodeIds.has(`event:${event.id}`));
+    assert.ok(nodeIds.has(`event:${crossModuleEvent.id}`));
+    assert.ok(!nodeIds.has(`person:${hiddenPerson.id}`), "another user's private Person must not render");
+    assert.ok(!result.edges.some(
+      (edge) =>
+        edge.sourceId === `file:${hiddenFile.id}` ||
+        edge.targetId === `person:${hiddenPerson.id}`,
+    ), "a permitted File must not reveal its inaccessible target");
+    assert.ok(result.edges.some(
+      (edge) =>
+        edge.relationType === "file_reference" &&
+        edge.sourceModule === "files" &&
+        edge.sourceId === `file:${visibleFile.id}` &&
+        edge.targetId === `person:${visiblePerson.id}`,
+    ));
+    assert.ok(result.edges.some(
+      (edge) =>
+        edge.relationType === "participant" &&
+        edge.sourceModule === "record" &&
+        edge.sourceId === `record:${record.id}` &&
+        edge.targetId === `person:${visiblePerson.id}`,
+    ));
+    assert.ok(result.edges.some(
+      (edge) =>
+        edge.relationType === "recorded_for" &&
+        edge.sourceModule === "record" &&
+        edge.sourceId === `event:${crossModuleEvent.id}` &&
+        edge.targetId === `record:${record.id}`,
+    ));
+    assert.ok(result.edges.some((edge) => edge.relationType === "tracks" && edge.sourceModule === "job-pilot"));
+    assert.ok(result.edges.some((edge) => edge.relationType === "recorded_for" && edge.sourceModule === "job-pilot"));
+    assert.ok(result.nodes.every((node) => node.provenance.length > 0));
   } finally {
     await close();
   }

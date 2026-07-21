@@ -1,7 +1,7 @@
 // Typed shapes mirroring the existing FastAPI sidecar's contract (Tools/recorder/backend/app/
-// routes/{recordings,notes,summaries,projects}.py) — this package does not reimplement capture
+// routes/{recordings,notes,summaries,projects}.py) — this module does not reimplement capture
 // or Whisper transcription, it wraps the existing Python service as a sidecar, same pattern as
-// Docling/Resume-Matcher (packages/extraction, future JobPilot scorers).
+// Docling/Resume-Matcher (modules/extraction, future JobPilot scorers).
 
 export interface Recording {
   id: string;

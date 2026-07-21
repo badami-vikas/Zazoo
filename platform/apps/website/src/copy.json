@@ -1,0 +1,113 @@
+{
+  "hero": {
+    "wordmark": "zazoo",
+    "heading": "Your Zazoo never stops.",
+    "subhead": "Already helping. Always within your rules.",
+    "action": "Meet the Zazoos",
+    "bubbles": [
+      "Vendor replied.",
+      "Draft ready.",
+      "I found three similar proposals.",
+      "Meeting moved to Thursday.",
+      "Waiting for approval.",
+      "I think this article might help.",
+      "I've already reminded them."
+    ]
+  },
+  "family": {
+    "term": "Zazoo",
+    "pronunciation": "/za-zoo/",
+    "partOfSpeech": "noun",
+    "definitionLabel": "Definition",
+    "definition": "An asymmetrical leap in capability.",
+    "purposeLabel": "Purpose",
+    "purpose": "Quietly remove everyday friction so people can focus on extraordinary work.",
+    "quote": "A Zazoo is an AI companion whose sole purpose is to create an asymmetrical leap in your capability, making you significantly effective without demanding extra effort.",
+    "linaIntroduction": "Hi. I'm Lina. I read, connect ideas, and bring back what deserves your attention.",
+    "cast": [
+      { "name": "Aeva", "role": "Chief of Staff" },
+      { "name": "Lina", "role": "Research Companion" },
+      { "name": "Nori", "role": "Operations" },
+      { "name": "Bomi", "role": "Builder" },
+      { "name": "Jia", "role": "Relationships" },
+      { "name": "Neva", "role": "Creativity" }
+    ]
+  },
+  "governance": {
+    "heading": "Governance isn't what slows work. It's what allows trust to grow.",
+    "denial": "Sorry. Not authorized.",
+    "pairs": [
+      ["Always available.", "Only when permitted."],
+      ["Always learning.", "Only what you allow."],
+      ["Always transparent.", "Nothing hidden."],
+      ["Always helpful.", "Never overreaching."]
+    ]
+  },
+  "library": {
+    "heading": "Four chapters of a Zazoo's life.",
+    "books": ["Values", "Process", "Difference", "Impact"],
+    "back": "Back to the books"
+  },
+  "values": {
+    "heading": "How a Zazoo behaves.",
+    "lines": [
+      "Loyal before clever.",
+      "Quiet before loud.",
+      "Helpful before impressive.",
+      "Trusted before autonomous.",
+      "Present before prompted."
+    ]
+  },
+  "process": {
+    "heading": "Insight becomes action without leaving judgment behind.",
+    "stages": ["Insight", "Decision", "Delegation", "Execution", "Learning"],
+    "continue": "Continue",
+    "support": "The footprints pause at every decision that is yours."
+  },
+  "difference": {
+    "heading": "The Zazoo difference.",
+    "vignettes": [
+      {
+        "caption": "Some AI ends with the conversation. A Zazoo begins with it."
+      },
+      {
+        "caption": "Some AI lives in one conversation. A Zazoo lives alongside your work."
+      },
+      {
+        "caption": "Some AI creates more information. A Zazoo protects your attention.",
+        "detail": "This actually matters."
+      },
+      {
+        "caption": "Capability includes judgment.",
+        "detail": "I think this email may upset them. Would you like another version?"
+      },
+      {
+        "caption": "Trust isn't assumed. It's earned every time."
+      },
+      {
+        "caption": "Some AI answers questions. A Zazoo notices opportunities.",
+        "detail": "I've noticed we're solving this every week. Would you like me to automate it?"
+      },
+      {
+        "caption": "Some AI works alone. Zazoos work together."
+      },
+      {
+        "caption": "The greatest achievements don't come from carrying more. They come from never climbing alone."
+      }
+    ]
+  },
+  "impact": {
+    "heading": "Your success is your Zazoo's success.",
+    "body": "Quietly removing everyday friction so you can focus on extraordinary work."
+  },
+  "night": {
+    "status": "Privacy mode enabled.",
+    "line": "She never climbs the mountain. She makes the climb possible."
+  },
+  "final": {
+    "heading": "Everyone deserves a Zazoo.",
+    "body": "Never climb alone.",
+    "action": "Meet your Zazoo",
+    "wordmark": "zazoo"
+  }
+}

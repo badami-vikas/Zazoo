@@ -60,9 +60,9 @@ export class EgressExecutor {
       return { executed: false, skipped: true, reason: "external:send not human-approved (>= L2 required)" };
     }
 
-    const workspaceId = original.workspaceId;
+    const organizationId = original.organizationId;
     // Idempotency: never send twice for the same approved proposal.
-    if (await this.deps.graph.hasExternal(workspaceId, EGRESS_AUDIT_SOURCE, proposalId)) {
+    if (await this.deps.graph.hasExternal(organizationId, EGRESS_AUDIT_SOURCE, proposalId)) {
       return { executed: false, alreadyExecuted: true };
     }
 
@@ -112,7 +112,7 @@ export class EgressExecutor {
     const auditId = ctx.ids.next();
     const auditRow: LedgerEntry = {
       id: auditId,
-      workspaceId,
+      organizationId,
       actorType: original.actorType,
       actorId: original.actorId,
       ...(original.onBehalfOfType ? { onBehalfOfType: original.onBehalfOfType } : {}),
@@ -129,7 +129,7 @@ export class EgressExecutor {
     await this.deps.ledger.append(auditRow);
 
     await this.deps.graph.recordExternal({
-      workspaceId,
+      organizationId,
       source: EGRESS_AUDIT_SOURCE,
       sourceRecordId: proposalId,
       entityType: committed.egressKind,

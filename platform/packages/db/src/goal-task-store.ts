@@ -1,7 +1,7 @@
 /**
  * DrizzleGoalTaskStore — binds the core `GoalTaskStore` port (@bridge/core's
  * goal-task.ts) to `goals`/`tasks` (schema.ts's LAYER 8). Mirrors
- * DrizzleWorkspaceDefinitionStore's shape: a single class, `#db` private
+ * DrizzleOrganizationDefinitionStore's shape: a single class, `#db` private
  * field, an `unpack` helper per table.
  *
  * TASK-007 closure requirement: the in-memory `InMemoryGoalTaskStore` stays
@@ -11,15 +11,16 @@
  * `apps/api`'s persistent wiring can swap it in without touching any caller
  * (router.ts, the Google integrations, the AGS1 pipeline gate).
  */
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { CreateGoalInput, CreateTaskInput, Goal, GoalTaskIdClock, GoalTaskStore, Task, TaskStatus } from "@bridge/core";
 import type { Database } from "./client.js";
-import { goals, tasks } from "./schema.js";
+import { tasks } from "./schema.js";
+import { withOrganizationOnly } from "./organization-context.js";
 
-function unpackGoal(row: typeof goals.$inferSelect): Goal {
+function unpackGoal(row: typeof tasks.$inferSelect): Goal {
   return {
     id: row.id,
-    workspaceId: row.workspaceId,
+    organizationId: row.organizationId,
     type: row.type,
     title: row.title,
     createdAt: row.createdAt.toISOString(),
@@ -29,11 +30,11 @@ function unpackGoal(row: typeof goals.$inferSelect): Goal {
 function unpackTask(row: typeof tasks.$inferSelect): Task {
   return {
     id: row.id,
-    workspaceId: row.workspaceId,
-    goalId: row.goalId,
+    organizationId: row.organizationId,
+    goalId: row.anchorTaskId ?? row.id,
     type: row.type,
-    assignedAgentId: row.assignedAgentId,
-    status: row.status as TaskStatus,
+    assignedAgentId: row.assignedAgentId ?? "",
+    status: (row.status === "pending" ? "open" : row.status) as TaskStatus,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -45,85 +46,135 @@ export class DrizzleGoalTaskStore implements GoalTaskStore {
   }
 
   async createGoal(input: CreateGoalInput, seam: GoalTaskIdClock): Promise<Goal> {
-    const [inserted] = await this.#db
-      .insert(goals)
-      .values({
-        id: input.id ?? seam.nextId(),
-        workspaceId: input.workspaceId,
-        type: input.type,
-        title: input.title,
-      })
-      .returning();
-    if (!inserted) throw new Error("goals: insert returned no row");
-    return unpackGoal(inserted);
-  }
-
-  async getGoal(workspaceId: string, id: string): Promise<Goal | null> {
-    const rows = await this.#db
-      .select()
-      .from(goals)
-      .where(and(eq(goals.workspaceId, workspaceId), eq(goals.id, id)))
-      .limit(1);
-    const row = rows[0];
-    return row ? unpackGoal(row) : null;
-  }
-
-  async listGoals(workspaceId: string): Promise<Goal[]> {
-    const rows = await this.#db.select().from(goals).where(eq(goals.workspaceId, workspaceId));
-    return rows.map(unpackGoal);
-  }
-
-  async createTask(input: CreateTaskInput, seam: GoalTaskIdClock): Promise<Task> {
-    const [inserted] = await this.#db
+    return withOrganizationOnly(this.#db, input.organizationId, async (tx) => {
+    const [inserted] = await tx
       .insert(tasks)
       .values({
         id: input.id ?? seam.nextId(),
-        workspaceId: input.workspaceId,
-        goalId: input.goalId,
+        organizationId: input.organizationId,
         type: input.type,
+        title: input.title,
+        path: sql<string>`(
+          SELECT (coalesce(max(split_part(path, '.', 1)::integer), 0) + 1)::text
+          FROM tasks
+          WHERE organization_id = ${input.organizationId} AND parent_task_id IS NULL
+        )`,
+        isGoal: true,
+        status: "pending",
+        ownerType: "human",
+      })
+      .returning();
+    if (!inserted) throw new Error("tasks: goal-flagged insert returned no row");
+    return unpackGoal(inserted);
+    });
+  }
+
+  async getGoal(organizationId: string, id: string): Promise<Goal | null> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+    const rows = await tx
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.organizationId, organizationId), eq(tasks.id, id), eq(tasks.isGoal, true)))
+      .limit(1);
+    const row = rows[0];
+    return row ? unpackGoal(row) : null;
+    });
+  }
+
+  async listGoals(organizationId: string): Promise<Goal[]> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.organizationId, organizationId), eq(tasks.isGoal, true)))
+        .orderBy(asc(tasks.path));
+      return rows.map(unpackGoal);
+    });
+  }
+
+  async createTask(input: CreateTaskInput, seam: GoalTaskIdClock): Promise<Task> {
+    return withOrganizationOnly(this.#db, input.organizationId, async (tx) => {
+    const [inserted] = await tx
+      .insert(tasks)
+      .values({
+        id: input.id ?? seam.nextId(),
+        organizationId: input.organizationId,
+        anchorTaskId: input.goalId,
+        parentTaskId: input.goalId,
+        path: sql<string>`(
+          SELECT ${tasks.path} || '.' || (
+            coalesce(max(child.sort_order), 0) + 1
+          )::text
+          FROM tasks
+          LEFT JOIN tasks child
+            ON child.organization_id = tasks.organization_id
+           AND child.parent_task_id = tasks.id
+          WHERE tasks.organization_id = ${input.organizationId}
+            AND tasks.id = ${input.goalId}
+          GROUP BY tasks.path
+        )`,
+        level: 1,
+        sortOrder: sql<number>`(
+          SELECT coalesce(max(sort_order), 0) + 1
+          FROM tasks
+          WHERE organization_id = ${input.organizationId}
+            AND parent_task_id = ${input.goalId}
+        )`,
+        title: input.type,
+        type: input.type,
+        exitTest: input.exitTest,
         assignedAgentId: input.assignedAgentId,
-        status: input.status ?? "open",
+        status: input.status === "open" || input.status === undefined ? "pending" : input.status,
       })
       .returning();
     if (!inserted) throw new Error("tasks: insert returned no row");
     return unpackTask(inserted);
+    });
   }
 
-  async getTask(workspaceId: string, id: string): Promise<Task | null> {
-    const rows = await this.#db
+  async getTask(organizationId: string, id: string): Promise<Task | null> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+    const rows = await tx
       .select()
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+      .where(and(eq(tasks.organizationId, organizationId), eq(tasks.id, id)))
       .limit(1);
     const row = rows[0];
     return row ? unpackTask(row) : null;
+    });
   }
 
-  async listTasksByGoal(workspaceId: string, goalId: string): Promise<Task[]> {
-    const rows = await this.#db
+  async listTasksByGoal(organizationId: string, goalId: string): Promise<Task[]> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+    const rows = await tx
       .select()
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.goalId, goalId)));
+      .where(and(eq(tasks.organizationId, organizationId), eq(tasks.anchorTaskId, goalId)));
     return rows.map(unpackTask);
+    });
   }
 
-  async reassignTask(workspaceId: string, id: string, assignedAgentId: string): Promise<Task> {
-    const [updated] = await this.#db
+  async reassignTask(organizationId: string, id: string, assignedAgentId: string): Promise<Task> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+    const [updated] = await tx
       .update(tasks)
       .set({ assignedAgentId })
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+      .where(and(eq(tasks.organizationId, organizationId), eq(tasks.id, id)))
       .returning();
     if (!updated) throw new Error(`tasks: unknown task ${id}`);
     return unpackTask(updated);
+    });
   }
 
-  async updateTaskStatus(workspaceId: string, id: string, status: TaskStatus): Promise<Task> {
-    const [updated] = await this.#db
+  async updateTaskStatus(organizationId: string, id: string, status: TaskStatus): Promise<Task> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+    const [updated] = await tx
       .update(tasks)
       .set({ status })
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+      .where(and(eq(tasks.organizationId, organizationId), eq(tasks.id, id)))
       .returning();
     if (!updated) throw new Error(`tasks: unknown task ${id}`);
     return unpackTask(updated);
+    });
   }
 }

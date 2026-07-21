@@ -8,7 +8,7 @@ import type { CaptureEnvelope, SourceConnector, SourceQuery } from "../types.js"
 // "no tool-owned OAuth" rule.
 export interface EmailAlertConfig {
   id: string;
-  fetchMessages: (query: SourceQuery) => Promise<Array<{ subject: string; body: string }>>;
+  fetchMessages: (query: SourceQuery) => Promise<Array<{ id?: string; subject: string; body: string }>>;
   parse: (message: { subject: string; body: string }) => Record<string, unknown> | null;
   costPerMessage?: number;
 }
@@ -27,7 +27,8 @@ export function createEmailAlertConnector(config: EmailAlertConfig): SourceConne
         const payload = config.parse(message);
         if (!payload) continue; // unparseable messages are silently skipped, not fabricated
         envelopes.push({
-          sourceToolId: config.id,
+          sourceConnectorId: config.id,
+          ...(message.id ? { sourceRecordId: message.id } : {}),
           tier: "email",
           query,
           payload,

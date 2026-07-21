@@ -1,5 +1,5 @@
 /**
- * createModelRouter — resolves a @bridge/tool-kit `modelBinding` (the
+ * createModelRouter — resolves an executable manifest `modelBinding` (the
  * declarative slot every tool manifest already carries) to a live
  * ModelProvider, honoring the binding's `planeDefault`:
  *
@@ -15,10 +15,16 @@
  * Provider preference within a plane: only providers declaring the requested
  * cost/capability tier are eligible. The binding's `providers` hints
  * (`providers.local` id / `providers.cloud` id list) are honored first, then
- * registration order.
+ * a stable health-then-id order.
  */
-import { MODEL_TIERS, type ModelProvider, type ModelTier } from "@bridge/core";
-import type { ModelBinding } from "@bridge/tool-kit";
+import {
+  MODEL_PROVIDER_HEALTH,
+  MODEL_TIERS,
+  type ModelProvider,
+  type ModelProviderHealth,
+  type ModelTier,
+} from "@bridge/core";
+import type { ModelBinding } from "@bridge/capability-kit";
 
 export interface ModelRouter {
   /** All registered providers, by id. */
@@ -31,14 +37,36 @@ export interface ModelRouter {
 export function createModelRouter(providerList: ModelProvider[]): ModelRouter {
   const byId = new Map<string, ModelProvider>();
   for (const p of providerList) {
+    if (!p.id || p.id !== p.id.trim()) {
+      throw new Error("createModelRouter: provider id must be non-empty and normalized");
+    }
     if (byId.has(p.id)) throw new Error(`createModelRouter: duplicate provider id ${p.id}`);
     if (p.tiers.length === 0) throw new Error(`createModelRouter: provider ${p.id} declares no completion tiers`);
     for (const tier of p.tiers) {
       if (!MODEL_TIERS.includes(tier)) {
         throw new Error(`createModelRouter: provider ${p.id} declares unknown tier ${String(tier)}`);
       }
+      const model = p.models[tier];
+      if (model === undefined || model.length === 0 || model !== model.trim() || model.length > 256) {
+        throw new Error(`createModelRouter: provider ${p.id} declares an invalid model id for ${tier}`);
+      }
     }
     byId.set(p.id, p);
+  }
+
+  const healthRank: Readonly<Record<ModelProviderHealth, number>> = {
+    healthy: 0,
+    unknown: 1,
+    degraded: 2,
+    unavailable: 3,
+  };
+
+  function routingHealth(provider: ModelProvider): ModelProviderHealth {
+    const health = provider.routingHealth();
+    if (!MODEL_PROVIDER_HEALTH.includes(health)) {
+      throw new Error(`model router: provider ${provider.id} returned invalid routing health`);
+    }
+    return health;
   }
 
   function firstOnPlane(
@@ -46,14 +74,21 @@ export function createModelRouter(providerList: ModelProvider[]): ModelRouter {
     tier: ModelTier,
     preferredIds: string[],
   ): ModelProvider | undefined {
+    const eligible = [...byId.values()]
+      .filter((provider) => provider.plane === plane && provider.tiers.includes(tier))
+      .map((provider) => ({ provider, health: routingHealth(provider) }))
+      .filter(({ health }) => health !== "unavailable");
     for (const id of preferredIds) {
       const p = byId.get(id);
-      if (p && p.plane === plane && p.tiers.includes(tier)) return p;
+      const hinted = eligible.find(({ provider }) => provider === p);
+      if (hinted) return hinted.provider;
     }
-    for (const p of byId.values()) {
-      if (p.plane === plane && p.tiers.includes(tier)) return p;
-    }
-    return undefined;
+    eligible.sort(
+      (a, b) =>
+        healthRank[a.health] - healthRank[b.health] ||
+        a.provider.id.localeCompare(b.provider.id),
+    );
+    return eligible[0]?.provider;
   }
 
   return {

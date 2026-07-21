@@ -8,8 +8,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createLocalDb, DrizzleCapabilityStore, parseDependencies, parseEvidence, schema } from "../src/index.js";
 
-async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
-  const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_capability" }).returning({ id: schema.workspaces.id });
+async function seedOrganization(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
+  const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_capability" }).returning({ id: schema.organizations.id });
   assert.ok(ws);
   return ws.id;
 }
@@ -17,12 +17,12 @@ async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"]
 test("capability store: createManifest + getManifest round-trip, dependencies jsonb preserved", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleCapabilityStore(db);
 
     const created = await store.createManifest({
       id: "20000000-0000-4000-8000-000000000001",
-      workspaceId,
+      organizationId,
       capabilityType: "skill",
       name: "test_fixture_skill_alpha",
       version: "1.0.0",
@@ -48,12 +48,12 @@ test("capability store: createManifest + getManifest round-trip, dependencies js
 test("capability store: kind discriminator (REG-1) round-trips; absent kind reads back as null", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleCapabilityStore(db);
 
     const withKind = await store.createManifest({
       id: "21000000-0000-4000-8000-000000000001",
-      workspaceId,
+      organizationId,
       capabilityType: "skill",
       kind: "routing_rule",
       name: "test_fixture_kinded",
@@ -69,7 +69,7 @@ test("capability store: kind discriminator (REG-1) round-trips; absent kind read
 
     const noKind = await store.createManifest({
       id: "21000000-0000-4000-8000-000000000002",
-      workspaceId,
+      organizationId,
       capabilityType: "skill",
       name: "test_fixture_unkinded",
       version: "1.0.0",
@@ -86,17 +86,17 @@ test("capability store: kind discriminator (REG-1) round-trips; absent kind read
   }
 });
 
-test("capability store: listManifests paginates within a workspace", async () => {
+test("capability store: listManifests paginates within a organization", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleCapabilityStore(db);
     for (let i = 0; i < 3; i++) {
       await store.createManifest({
         id: `30000000-0000-4000-8000-00000000000${i}`,
-        workspaceId,
-        capabilityType: "tool",
-        name: `test_fixture_tool_${i}`,
+        organizationId,
+        capabilityType: "skill",
+        name: `test_fixture_skill_${i}`,
         version: "1.0.0",
         origin: "built_in",
         audience: "private",
@@ -105,7 +105,7 @@ test("capability store: listManifests paginates within a workspace", async () =>
         dependencies: [],
       });
     }
-    const page = await store.listManifests(workspaceId, { limit: 2, offset: 0 });
+    const page = await store.listManifests(organizationId, { limit: 2, offset: 0 });
     assert.equal(page.total, 3);
     assert.equal(page.items.length, 2);
   } finally {
@@ -113,14 +113,14 @@ test("capability store: listManifests paginates within a workspace", async () =>
   }
 });
 
-test("capability store: getManifestByNameVersion finds an existing manifest by its (workspace, name, version) natural key, null when absent (ADR-024 idempotency lookup)", async () => {
+test("capability store: getManifestByNameVersion finds an existing manifest by its (organization, name, version) natural key, null when absent (ADR-024 idempotency lookup)", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleCapabilityStore(db);
     const created = await store.createManifest({
       id: "25000000-0000-4000-8000-000000000001",
-      workspaceId,
+      organizationId,
       capabilityType: "skill",
       name: "test_fixture_shared_capability",
       version: "1.0.0",
@@ -131,14 +131,14 @@ test("capability store: getManifestByNameVersion finds an existing manifest by i
       dependencies: [],
     });
 
-    const found = await store.getManifestByNameVersion(workspaceId, "test_fixture_shared_capability", "1.0.0");
+    const found = await store.getManifestByNameVersion(organizationId, "test_fixture_shared_capability", "1.0.0");
     assert.ok(found);
     assert.equal(found.id, created.id);
 
-    const missingVersion = await store.getManifestByNameVersion(workspaceId, "test_fixture_shared_capability", "2.0.0");
+    const missingVersion = await store.getManifestByNameVersion(organizationId, "test_fixture_shared_capability", "2.0.0");
     assert.equal(missingVersion, null);
 
-    const missingName = await store.getManifestByNameVersion(workspaceId, "test_fixture_nonexistent", "1.0.0");
+    const missingName = await store.getManifestByNameVersion(organizationId, "test_fixture_nonexistent", "1.0.0");
     assert.equal(missingName, null);
   } finally {
     await close();
@@ -148,13 +148,13 @@ test("capability store: getManifestByNameVersion finds an existing manifest by i
 test("capability store: upsertState creates then updates the ONE current-state row per manifest (unique manifest_id)", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleCapabilityStore(db);
     const manifestRow = await store.createManifest({
       id: "40000000-0000-4000-8000-000000000001",
-      workspaceId,
-      capabilityType: "workflow",
-      name: "test_fixture_workflow",
+      organizationId,
+      capabilityType: "automation",
+      name: "test_fixture_automation",
       version: "1.0.0",
       origin: "ai_generated",
       audience: "private",
@@ -165,14 +165,14 @@ test("capability store: upsertState creates then updates the ONE current-state r
 
     const first = await store.upsertState({
       manifestId: manifestRow.id,
-      workspaceId,
+      organizationId,
       state: "draft",
       suspended: false,
       evidence: {},
     });
     const second = await store.upsertState({
       manifestId: manifestRow.id,
-      workspaceId,
+      organizationId,
       state: "trusted",
       trustedUntil: "2026-10-04T00:00:00.000Z",
       suspended: false,
@@ -192,13 +192,13 @@ test("capability store: upsertState creates then updates the ONE current-state r
 test("capability store: write-time — createManifest throws on malformed dependencies instead of persisting it", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     const store = new DrizzleCapabilityStore(db);
     await assert.rejects(
       () =>
         store.createManifest({
           id: "50000000-0000-4000-8000-000000000001",
-          workspaceId,
+          organizationId,
           capabilityType: "skill",
           name: "test_fixture_bad_deps",
           version: "1.0.0",
@@ -220,12 +220,12 @@ test("capability store: write-time — createManifest throws on malformed depend
 test("capability store: read-time — getManifest throws on a dependencies shape already-malformed in the row", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db);
+    const organizationId = await seedOrganization(db);
     // Insert directly, bypassing DrizzleCapabilityStore.createManifest entirely —
     // simulates a row written before this fix existed, or by a raw SQL path.
     await db.insert(schema.capabilityManifests).values({
       id: "60000000-0000-4000-8000-000000000001",
-      workspaceId,
+      organizationId,
       capabilityType: "skill",
       name: "test_fixture_malformed_row",
       version: "1.0.0",

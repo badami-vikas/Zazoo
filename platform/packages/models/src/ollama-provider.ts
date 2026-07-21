@@ -8,12 +8,20 @@
  */
 import {
   MODEL_TIERS,
+  assertModelCompletionRequest,
   type ModelCompletion,
   type ModelCompletionRequest,
   type ModelProvider,
 } from "@bridge/core";
 import { defaultFetch, type FetchLike } from "./fetch-types.js";
-import { asRecord, providerRequestError, requiredString, requiredTokenCount } from "./usage.js";
+import {
+  asRecord,
+  configuredModelId,
+  providerRequestError,
+  requiredString,
+  requiredTokenCount,
+  verifiedProviderModel,
+} from "./usage.js";
 
 export interface OllamaProviderOpts {
   /** Base URL for the Ollama daemon. Defaults to OLLAMA_URL env or the
@@ -32,6 +40,7 @@ export class OllamaProvider implements ModelProvider {
   readonly id = "ollama";
   readonly plane = "local" as const;
   readonly tiers = MODEL_TIERS;
+  readonly models: Readonly<Record<(typeof MODEL_TIERS)[number], string>>;
   readonly #baseUrl: string;
   readonly #model: string;
   readonly #embedModel: string;
@@ -39,12 +48,28 @@ export class OllamaProvider implements ModelProvider {
 
   constructor(opts: OllamaProviderOpts = {}) {
     this.#baseUrl = opts.baseUrl ?? process.env["OLLAMA_URL"] ?? DEFAULT_OLLAMA_URL;
-    this.#model = opts.model ?? process.env["OLLAMA_MODEL"] ?? "llama3.1";
-    this.#embedModel = opts.embedModel ?? process.env["OLLAMA_EMBED_MODEL"] ?? "nomic-embed-text";
+    this.#model = configuredModelId(
+      opts.model ?? process.env["OLLAMA_MODEL"] ?? "llama3.1",
+      "OllamaProvider model",
+    );
+    this.models = {
+      cheap: this.#model,
+      default: this.#model,
+      reasoning: this.#model,
+    };
+    this.#embedModel = configuredModelId(
+      opts.embedModel ?? process.env["OLLAMA_EMBED_MODEL"] ?? "nomic-embed-text",
+      "OllamaProvider embed model",
+    );
     this.#fetchImpl = opts.fetchImpl ?? defaultFetch;
   }
 
+  routingHealth() {
+    return "unknown" as const;
+  }
+
   async complete(req: ModelCompletionRequest): Promise<ModelCompletion> {
+    assertModelCompletionRequest(req, "OllamaProvider.complete");
     const body = {
       model: this.#model,
       prompt: req.prompt,
@@ -63,7 +88,11 @@ export class OllamaProvider implements ModelProvider {
     const json = asRecord(await res.json(), "OllamaProvider.complete response");
     return {
       text: requiredString(json["response"], "OllamaProvider.complete response.response"),
-      model: requiredString(json["model"], "OllamaProvider.complete response.model"),
+      model: verifiedProviderModel(
+        this.#model,
+        json["model"],
+        "OllamaProvider.complete response.model",
+      ),
       tier: req.tier,
       usage: {
         inputTokens: requiredTokenCount(

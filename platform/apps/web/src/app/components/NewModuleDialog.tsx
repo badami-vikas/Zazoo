@@ -1,7 +1,7 @@
 /**
  * "+ New" flow (v1 minimal, requests.md R-017..R-020):
- *   1. Pick an installed Module — REAL `packages.list` rows in `available`
- *      state that have a navigable surface (lib/moduleRoutes.ts). Honest empty
+ *   1. Pick an installed Module — REAL `modules.list` rows in `available`
+ *      state whose manifest declares a navigable surface. Honest empty
  *      state when nothing is installed; nothing is fabricated.
  *   2. Chief of Staff recommendation — calls the REAL `chiefOfStaff.converse`
  *      mutation with a new-vs-extend question and renders its ACTUAL reply
@@ -11,14 +11,12 @@
  */
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowLeft, ChevronRight, Package, Sparkles } from "lucide-react";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { MODULE_ROUTES } from "../lib/moduleRoutes";
-import { createInitiative, getInitiatives } from "../data/initiatives";
+import { ArrowLeft, ChevronRight, Boxes, Sparkles } from "lucide-react";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 
 interface ModuleOption {
-  packageName: string;
+  moduleName: string;
   version: string;
   to: string;
   label: string;
@@ -42,16 +40,24 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
     setPicked(null);
     setRecommendation(null);
     setConverseError(null);
-    trpc.packages.list
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
+    trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
       .then((res) => {
         setModules(
           res.items
-            .filter((r) => r.state === "available" && r.packageName in MODULE_ROUTES)
+            .filter(
+              (r) =>
+                r.state === "available" &&
+                r.status === "installed" &&
+                r.manifest.module !== undefined &&
+                r.moduleAttachment === undefined,
+            )
             .map((r) => ({
-              packageName: r.packageName,
-              version: r.packageVersion,
-              ...MODULE_ROUTES[r.packageName]!,
+              moduleName: r.moduleName,
+              version: r.moduleVersion,
+              to: r.manifest.module!.route,
+              label: r.manifest.module!.displayName,
+              desc: r.manifest.description,
             })),
         );
       })
@@ -65,10 +71,10 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
     setAsking(true);
     try {
       const res = await trpc.chiefOfStaff.converse.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         message:
           `I want to start something new with the ${m.label} module (${m.desc}). ` +
-          `Should this be a brand-new Initiative or an extension of an existing Initiative? ` +
+          `Should this be a brand-new Record or an extension of an existing Record? ` +
           `Please analyse new-vs-extend and recommend one.`,
       });
       setRecommendation(res);
@@ -81,15 +87,6 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
 
   function confirm() {
     if (!picked) return;
-    // Register this Module as a nav-visible Initiative so it actually shows up
-    // in the sidebar (requests.md follow-up — "+ New" previously only
-    // navigated without creating anything, so the list stayed empty). One
-    // Initiative per Module: reuse the existing entry on repeat launches
-    // instead of piling up duplicates.
-    const already = getInitiatives().some((i) => i.packageName === picked.packageName);
-    if (!already) {
-      createInitiative({ name: picked.label, goal: picked.desc, list: "Work", moduleTo: picked.to, packageName: picked.packageName });
-    }
     onOpenChange(false);
     navigate(picked.to);
   }
@@ -113,13 +110,13 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
             {modules !== null && modules.length > 0 && (
               <ul className="divide-y border rounded-md">
                 {modules.map((m) => (
-                  <li key={m.packageName}>
+                  <li key={m.moduleName}>
                     <button
                       type="button"
                       className="w-full flex items-center gap-3 p-3 text-left hover:bg-muted/50 transition-colors"
                       onClick={() => void pickModule(m)}
                     >
-                      <Package className="w-4 h-4 shrink-0 text-muted-foreground" />
+                      <Boxes className="w-4 h-4 shrink-0 text-muted-foreground" />
                       <span className="flex-1 min-w-0">
                         <span className="block text-sm font-medium truncate">{m.label}</span>
                         <span className="block text-xs text-muted-foreground truncate">{m.desc}</span>
@@ -138,7 +135,7 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
                 <Sparkles className="w-4 h-4 text-muted-foreground" />
                 Chief of Staff
               </DialogTitle>
-              <DialogDescription>New Initiative or extend an existing one — with {picked.label}?</DialogDescription>
+              <DialogDescription>New Record or extend an existing one — with {picked.label}?</DialogDescription>
             </DialogHeader>
 
             {asking && <div className="text-sm text-muted-foreground">Asking the Chief of Staff…</div>}

@@ -235,6 +235,14 @@ test("create/update/delete calendar events send the expected API payloads and ec
   assert.deepEqual(await gw.updateEvent("test_fixture_event_to_patch", { summary: "test_fixture_ Patched", end: "2026-07-12T11:00:00.000Z" }), {
     providerEventId: "test_fixture_event_to_patch",
   });
+  await gw.createEvent({
+    summary: "test_fixture_ All day",
+    start: "2026-07-13",
+    end: "2026-07-14",
+  });
+  await gw.updateEvent("test_fixture_offset_event", {
+    start: "2026-07-12T09:00:00+05:30",
+  });
   assert.deepEqual(await gw.deleteEvent("test_fixture_event_to_delete"), { providerEventId: "test_fixture_event_to_delete" });
 
   assert.deepEqual((calls[0] as { args: unknown }).args, {
@@ -253,5 +261,18 @@ test("create/update/delete calendar events send the expected API payloads and ec
     eventId: "test_fixture_event_to_patch",
     requestBody: { summary: "test_fixture_ Patched", end: { dateTime: "2026-07-12T11:00:00.000Z" } },
   });
-  assert.deepEqual((calls[2] as { args: unknown }).args, { calendarId: "primary", eventId: "test_fixture_event_to_delete" });
+  assert.deepEqual((calls[2] as { args: unknown }).args, {
+    calendarId: "primary",
+    requestBody: {
+      summary: "test_fixture_ All day",
+      start: { date: "2026-07-13" },
+      end: { date: "2026-07-14" },
+    },
+  });
+  assert.deepEqual((calls[3] as { args: unknown }).args, {
+    calendarId: "primary",
+    eventId: "test_fixture_offset_event",
+    requestBody: { start: { dateTime: "2026-07-12T09:00:00+05:30" } },
+  });
+  assert.deepEqual((calls[4] as { args: unknown }).args, { calendarId: "primary", eventId: "test_fixture_event_to_delete" });
 });

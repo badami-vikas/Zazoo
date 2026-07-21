@@ -2,36 +2,28 @@
  * Persistent avatar overlay — bottom-right, mounted once in <Layout> inside
  * the authed shell so it renders across every route (docs/raw/spec-
  * consolidation-2026-07.md section 3: "Avatar Day-1 — Operational Status
- * Surface, Personality Secondary").
+ * Surface").
  *
  * Operational status is the PRIMARY surface (idle/listening/reading_context/
- * drafting/awaiting_approval/blocked_by_policy/error) — the spirit-animal
- * shape is just the vessel it's rendered in, not the point. No image assets;
- * every animal is a small geometric SVG built from Bridge palette tokens.
+ * drafting/awaiting_approval/blocked_by_policy/error). Avatar style is visual
+ * only and never changes authority, tone, or behavior.
  */
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import {
   CAPTURE_EVENT,
   STATUS_LABEL,
   setAvatarStatus,
   useAvatarStatus,
   type AvatarStatus,
-  type GrowthStage,
-  type SpiritAnimal,
+  type AvatarStyle,
 } from "./avatar-store";
-import { ZazooCompact } from "./zazoo/ZazooCompact";
 
 export interface AvatarOverlayProps {
-  animal: SpiritAnimal;
+  style: AvatarStyle;
   avatarName?: string;
-  workspaceName?: string;
-  /** Growth stage computed from memory entry count + installed capability count.
-   *  Defaults to 'creature' when not provided (safe mid-state for existing users
-   *  whose counts haven't been fetched yet). Layout should pass this once tRPC
-   *  counts resolve; the overlay never fetches counts itself. */
-  growthStage?: GrowthStage;
+  organizationName?: string;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -59,19 +51,19 @@ const STATUS_COLOR: Record<AvatarStatus, string> = {
 };
 
 /**
- * Minimal geometric creature per spirit animal — simple shapes only (no path
+ * Minimal geometric Avatar figure — simple shapes only (no path
  * data lifted from icon libraries, so this can't collide with lucide exports
  * the way whole-word codemods have before). Eyes are the expressive part:
  * closed arcs for idle/meditating, open circles otherwise, wide for
  * listening, narrowed for drafting/reading.
  */
-export function Creature({
-  animal,
+export function AvatarFigure({
+  avatarStyle,
   status,
   blinking,
   reducedMotion,
 }: {
-  animal: SpiritAnimal;
+  avatarStyle: AvatarStyle;
   status: AvatarStatus;
   blinking: boolean;
   reducedMotion: boolean;
@@ -83,13 +75,12 @@ export function Creature({
   // existing "no image assets, geometric SVG only" architecture and adds a
   // glossy/extruded LOOK via a radial-gradient head fill + drop-shadow filter
   // — same shapes, genuinely more dimensional, not a fabricated 3D asset.
-  const gradientId = `bridge-avatar-body-${animal}`;
+  const gradientId = `bridge-avatar-body-${avatarStyle}`;
   const bodyFill = `url(#${gradientId})`;
   const strokeColor = "var(--color-navy)";
   const accent = STATUS_COLOR[status];
 
-  // Per-animal head/ear silhouette (body circle shared across all).
-  const earsByAnimal: Record<SpiritAnimal, React.ReactNode> = {
+  const earsByStyle: Record<AvatarStyle, React.ReactNode> = {
     owl: (
       <>
         <path d="M20 22 L26 8 L32 22 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
@@ -182,7 +173,7 @@ export function Creature({
     ),
   };
 
-  const snoutByAnimal: Record<SpiritAnimal, React.ReactNode> = {
+  const snoutByStyle: Record<AvatarStyle, React.ReactNode> = {
     owl: null,
     fox: <path d="M32 34 L28 40 L36 40 Z" fill="var(--color-amber-soft)" opacity="0.7" />,
     turtle: null,
@@ -216,10 +207,10 @@ export function Creature({
       {/* soft status halo */}
       <circle cx="32" cy="32" r="30" fill={accent} opacity="0.12" />
       <g filter="url(#bridge-avatar-shadow)">
-        {earsByAnimal[animal]}
+        {earsByStyle[avatarStyle]}
         {/* head */}
         <circle cx="32" cy="30" r="18" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
-        {snoutByAnimal[animal]}
+        {snoutByStyle[avatarStyle]}
       </g>
       {/* eyes */}
       <g>
@@ -254,15 +245,16 @@ export function Creature({
   );
 }
 
-/**
- * Small fixed-size avatar badge — always Zazoo (the companion identity),
- * used in chrome slots like the chat panel header.
- */
-export function AvatarIcon({ animal: _animal, size = 24 }: { animal: SpiritAnimal; size?: number }) {
-  return <ZazooCompact size={size} />;
+/** Small style-aware Avatar badge used in chrome slots. */
+export function AvatarIcon({ style, size = 24 }: { style: AvatarStyle; size?: number }) {
+  return (
+    <span className="inline-flex" style={{ width: size, height: size }}>
+      <AvatarFigure avatarStyle={style} status="idle" blinking={false} reducedMotion />
+    </span>
+  );
 }
 
-export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage = "creature" }: AvatarOverlayProps) {
+export function AvatarOverlay({ style: avatarStyle, avatarName, organizationName }: AvatarOverlayProps) {
   const status = useAvatarStatus();
   const reducedMotion = usePrefersReducedMotion();
   const navigate = useNavigate();
@@ -314,7 +306,7 @@ export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage =
       if (!open) {
         setPendingError(false);
         trpc.action.listPending
-          .query({ workspaceId: PILOT_WORKSPACE, limit: 1, offset: 0 })
+          .query({ organizationId: PILOT_ORGANIZATION, limit: 1, offset: 0 })
           .then((res) => setPendingCount(res.total))
           .catch(() => {
             setPendingCount(null);
@@ -333,7 +325,7 @@ export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage =
   }
 
   const label = STATUS_LABEL[status];
-  const name = avatarName || animal[0]!.toUpperCase() + animal.slice(1);
+  const name = avatarName || "Bridge Avatar";
 
   return (
     <div
@@ -361,7 +353,7 @@ export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage =
           <div className="space-y-1.5 text-[var(--color-navy-mid)]">
             <p>
               <span className="text-muted-foreground">Organization: </span>
-              {workspaceName || "Unnamed organization"}
+              {organizationName || "Unnamed organization"}
             </p>
             <p>
               <span className="text-muted-foreground">Route: </span>
@@ -393,7 +385,9 @@ export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage =
 
       {hovering && !open && (
         <div className="absolute bottom-[72px] right-0 rounded-[var(--radius-card)] border border-border bg-background shadow-lg p-3 flex flex-col items-center gap-1.5" style={{ minWidth: 80 }}>
-          <ZazooCompact size={48} />
+          <span className="block h-12 w-12">
+            <AvatarFigure avatarStyle={avatarStyle} status={status} blinking={blinking} reducedMotion={reducedMotion} />
+          </span>
           <span className="text-[11px] font-medium text-center" style={{ color: "var(--color-navy-mid)" }}>{label}</span>
         </div>
       )}
@@ -408,15 +402,8 @@ export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage =
           animation: reducedMotion || status !== "idle" ? undefined : "bridge-avatar-breathe 3.2s ease-in-out infinite",
         }}
       >
-        {/* Growth stage visual: always Zazoo (the companion).
-            egg/creature → normal size; mature → 10% larger (richer presence). */}
-        <div
-          className="flex items-center justify-center"
-          style={growthStage === "mature" ? { width: "2.875rem", height: "2.875rem", transform: "scale(1.1)" } : { width: "2.75rem", height: "2.75rem" }}
-          role="img"
-          aria-label={`Zazoo — ${label}`}
-        >
-          <ZazooCompact size={44} />
+        <div className="flex h-11 w-11 items-center justify-center" role="img" aria-label={`Avatar — ${label}`}>
+          <AvatarFigure avatarStyle={avatarStyle} status={status} blinking={blinking} reducedMotion={reducedMotion} />
         </div>
       </button>
 

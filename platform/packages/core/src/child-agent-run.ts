@@ -10,10 +10,10 @@
  * `RunContext`) onto those actions, not from minting a second Agent identity.
  *
  * This module is pure logic + an in-memory store, mirroring every other
- * primitive in @bridge/core (RitualExecutor, agent-scope.ts's
- * `validateRitualWithinAgents`). It does NOT itself call the pipeline — a
+ * primitive in @bridge/core (AutomationExecutor, agent-scope.ts's
+ * `validateAutomationWithinAgents`). It does NOT itself call the pipeline — a
  * caller (apps/api's router, or a future `ChildRunExecutor` mirroring
- * `InProcessRitualExecutor`) is expected to call `validateActionWithinChildRun`
+ * `InProcessAutomationExecutor`) is expected to call `validateActionWithinChildRun`
  * before proposing each of the child run's actions through the SAME governed
  * pipeline every other mutation uses; nothing here bypasses `propose`/`decide`.
  */
@@ -66,6 +66,59 @@ export class ChildRunAuthorityExceededError extends Error {
   }
 }
 
+/**
+ * Typed "this run is already terminal" race — TASK-011 remediation
+ * (2026-07-18 coordinator final review, issue 4). Distinct from a generic
+ * `Error` so callers that WANT to treat "already cancelled/completed/failed"
+ * as a benign, expected race (e.g. two concurrent transition attempts on the
+ * SAME child Run) can catch specifically this type and swallow ONLY it —
+ * every other failure (unknown run id, ledger append failure, etc.) must
+ * still surface/audit. Never swallow `Error` broadly at a
+ * `recordChildAgentRunTransition` call site; check `instanceof` this class.
+ */
+export class ChildRunAlreadyTerminalError extends Error {
+  constructor(
+    public readonly runId: string,
+    public readonly currentStatus: ChildAgentRunStatus,
+  ) {
+    super(`child-agent-run: run ${runId} is already "${currentStatus}"`);
+    this.name = "ChildRunAlreadyTerminalError";
+  }
+}
+
+/**
+ * The child Run's terminal status transition ITSELF succeeded (the
+ * `store.updateStatus` CAS committed) but the confirming outcome-audit
+ * ledger append did not, even after bounded retries — TASK-011
+ * remediation (coordinator central-merge review, issue 1). `store` and
+ * `ledger` are separate, independently-backed ports with no shared
+ * transaction boundary at this layer (in persistent mode they may even be
+ * different databases), so a crash/failure landing between the CAS and its
+ * confirming append cannot be rolled back — the run genuinely IS
+ * terminal. This error is distinct from `ChildRunAlreadyTerminalError`
+ * (which means "someone ELSE already won the CAS"): this means "THIS call
+ * won, but its own audit write is still pending." Never treat it as "the
+ * transition failed" — `currentStatus` already reflects the real,
+ * confirmed outcome. The missing audit row self-heals the NEXT time ANY
+ * caller touches this run with the SAME target status (any future
+ * cancel/complete/fail attempt observes the run already in that exact
+ * status and repairs the missing row before reporting
+ * `ChildRunAlreadyTerminalError` — see `recordChildAgentRunTransition`'s
+ * own doc comment and `ensureTerminalOutcomeAudit`).
+ */
+export class ChildRunTerminalAuditPendingError extends Error {
+  constructor(
+    public readonly runId: string,
+    public readonly currentStatus: ChildAgentRunStatus,
+    public override readonly cause: unknown,
+  ) {
+    super(
+      `child-agent-run: run ${runId} transitioned to "${currentStatus}" but its confirming audit append failed after retries — will self-heal the next time this run is touched`,
+    );
+    this.name = "ChildRunTerminalAuditPendingError";
+  }
+}
+
 export class ChildRunBudgetExceededError extends Error {
   constructor(public readonly reasonDetail: string) {
     super(`child-agent-run: ${reasonDetail}`);
@@ -79,7 +132,7 @@ export class ChildRunBudgetExceededError extends Error {
 export interface ParentRunEnvelope {
   runId: string;
   agentId: string;
-  workspaceId: string;
+  organizationId: string;
   authorityScope: readonly string[];
   eligibleSkills: readonly string[];
   dataScope: DataScope;
@@ -124,7 +177,7 @@ export interface ChildAgentRun {
   id: string;
   parentRunId: string;
   parentAgentId: string;
-  workspaceId: string;
+  organizationId: string;
   goalId: string;
   taskId: string;
   depth: number;
@@ -241,7 +294,7 @@ export function deriveChildAgentRun(
     id: ids.next(),
     parentRunId: parent.runId,
     parentAgentId: parent.agentId,
-    workspaceId: parent.workspaceId,
+    organizationId: parent.organizationId,
     goalId: req.goalId,
     taskId: req.taskId,
     depth,
@@ -275,15 +328,15 @@ function intersectRunDataScope(a: DataScope, b: DataScope): DataScope | "none" {
 
 export interface ChildAgentRunStore {
   create(run: ChildAgentRun): Promise<ChildAgentRun>;
-  get(workspaceId: string, id: string): Promise<ChildAgentRun | null>;
-  listByParentRun(workspaceId: string, parentRunId: string): Promise<ChildAgentRun[]>;
+  get(organizationId: string, id: string): Promise<ChildAgentRun | null>;
+  listByParentRun(organizationId: string, parentRunId: string): Promise<ChildAgentRun[]>;
   updateStatus(
-    workspaceId: string,
+    organizationId: string,
     id: string,
     expectedStatus: ChildAgentRunStatus,
     status: ChildAgentRunStatus,
   ): Promise<ChildAgentRun>;
-  consumeBudget(workspaceId: string, id: string, cost: number, nowISO: string): Promise<ChildAgentRun>;
+  consumeBudget(organizationId: string, id: string, cost: number, nowISO: string): Promise<ChildAgentRun>;
 }
 
 export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
@@ -295,40 +348,62 @@ export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
     return run;
   }
 
-  async get(workspaceId: string, id: string): Promise<ChildAgentRun | null> {
+  async get(organizationId: string, id: string): Promise<ChildAgentRun | null> {
     const run = this.runs.get(id);
-    return run?.workspaceId === workspaceId ? run : null;
+    return run?.organizationId === organizationId ? run : null;
   }
 
-  async listByParentRun(workspaceId: string, parentRunId: string): Promise<ChildAgentRun[]> {
+  async listByParentRun(organizationId: string, parentRunId: string): Promise<ChildAgentRun[]> {
     return [...this.runs.values()].filter(
-      (r) => r.workspaceId === workspaceId && r.parentRunId === parentRunId,
+      (r) => r.organizationId === organizationId && r.parentRunId === parentRunId,
     );
   }
 
   async updateStatus(
-    workspaceId: string,
+    organizationId: string,
     id: string,
     expectedStatus: ChildAgentRunStatus,
     status: ChildAgentRunStatus,
   ): Promise<ChildAgentRun> {
     const existing = this.runs.get(id);
-    if (!existing || existing.workspaceId !== workspaceId) {
+    if (!existing || existing.organizationId !== organizationId) {
       throw new Error(`child-agent-run: unknown run ${id}`);
     }
     if (existing.status !== expectedStatus) {
-      throw new Error(
-        `child-agent-run: run ${id} is "${existing.status}", expected "${expectedStatus}"`,
-      );
+      // TASK-011 remediation (2026-07-18 fresh review) — throw the TYPED
+      // error here too (this IS the real atomic compare-and-set boundary;
+      // `recordChildAgentRunTransition`'s own earlier `get()`-based check is
+      // a fast-path optimization, not the actual race guard). Two genuinely
+      // concurrent transitions on the SAME run both read "running" before
+      // either writes; the LOSER's mismatch is detected HERE, not in the
+      // caller's pre-check — so this is the branch that must throw
+      // `ChildRunAlreadyTerminalError` for every `instanceof` check
+      // throughout apps/api to actually swallow the expected race instead of
+      // incorrectly rethrowing a generic Error.
+      throw new ChildRunAlreadyTerminalError(id, existing.status);
     }
     const updated: ChildAgentRun = { ...existing, status };
     this.runs.set(id, updated);
     return updated;
   }
 
-  async consumeBudget(workspaceId: string, id: string, cost: number, nowISO: string): Promise<ChildAgentRun> {
-    const existing = await this.get(workspaceId, id);
-    if (!existing) throw new Error(`child-agent-run: unknown run ${id}`);
+  async consumeBudget(organizationId: string, id: string, cost: number, nowISO: string): Promise<ChildAgentRun> {
+    // TASK-011 remediation (2026-07-17 security review) — this MUST read
+    // synchronously (`this.runs.get`, never `await this.get(...)`). `await`ing
+    // a distinct async call — even one with no internal `await` of its own —
+    // still yields a microtask tick before the result is observed, opening a
+    // check-then-act race: two concurrent `consumeBudget` calls for the SAME
+    // run can both read the pre-write budget snapshot before either writes,
+    // and both pass validation, double-spending a `maxCalls: 1` budget.
+    // `updateStatus` above already reads synchronously for exactly this
+    // reason; this function previously did not, and was the one place that
+    // race was reachable (`reserveChildRunAction`'s atomicity claim depends
+    // on this). An `async` function with no internal `await` runs its whole
+    // body to completion before yielding to any other queued microtask, which
+    // is what makes this synchronous read-check-write a genuine atomic
+    // section in single-process JS.
+    const existing = this.runs.get(id);
+    if (!existing || existing.organizationId !== organizationId) throw new Error(`child-agent-run: unknown run ${id}`);
     if (
       existing.status !== "running" ||
       Date.parse(nowISO) >= Date.parse(existing.deadline) ||
@@ -350,6 +425,105 @@ export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
 }
 
 /**
+ * FNV-1a 32-bit, run four times with distinct seeds/salts to fill a 128-bit
+ * (32 hex char) output. `@bridge/core` is bundled into the web app (Vite),
+ * so a top-level `node:crypto` import here would break the browser build
+ * (confirmed by a real build failure during development — Rollup cannot
+ * externalize `createHash` for the browser); this is a dependency-free, pure
+ * function that works identically in Node and the browser. It is
+ * DELIBERATELY not cryptographically secure — the only requirement is that
+ * the SAME input always derives the SAME output (idempotent audit-row ids),
+ * not collision-resistance against an adversarial input. `childRunId` is
+ * always a real UUID and `status` a fixed enum — there is no
+ * attacker-controlled input here to engineer a collision against.
+ */
+function fnv1a32(input: string, seed: number): number {
+  let hash = seed >>> 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+function deterministicHex128(input: string): string {
+  return [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35]
+    .map((seed) => fnv1a32(input, seed).toString(16).padStart(8, "0"))
+    .join("");
+}
+
+/**
+ * Deterministic (NOT random) ledger-entry id for the SINGLE confirmed
+ * "outcome" audit row a terminal child-Run transition may ever produce for
+ * one (childRunId, status) pair — TASK-011 remediation (coordinator
+ * central-merge review, issue 1). The status CAS (`store.updateStatus`)
+ * and its confirming outcome-audit append are two SEPARATE,
+ * non-transactional writes against independently-backed ports (no shared
+ * DB transaction is expressible at this abstraction layer — `store`/
+ * `ledger` may even be different databases in persistent mode). If a
+ * crash or transient failure lands between them, the run is durably
+ * terminal in the STORE with only a phase-1 "attempt" audit row — no
+ * confirmed outcome row exists yet. A DETERMINISTIC id (never random) for
+ * that outcome row makes appending it idempotent: any later caller (a
+ * same-process retry, a genuinely different process, or the SAME
+ * transition simply being re-attempted after the run is already
+ * terminal) can safely check `ledger.get(id)` before ever calling
+ * `ledger.append` — never double-appends, and repairs a crash-orphaned
+ * audit row without needing a cross-store transaction.
+ */
+function terminalOutcomeAuditId(childRunId: string, status: ChildAgentRunStatus): string {
+  const hex = deterministicHex128(`child_run_terminal_outcome:${childRunId}:${status}`);
+  const versionNibble = "5"; // marks this as a derived/non-random id, not a real v4 uuid
+  const variantNibble = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${versionNibble}${hex.slice(13, 16)}-${variantNibble}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * Appends the confirmed-outcome audit row for a terminal child-Run
+ * transition IF one does not already exist for this exact
+ * (childRunId, status) pair — idempotent via `terminalOutcomeAuditId`.
+ * Returns `true` if THIS call performed a genuine repair (the row was
+ * missing), `false` if it already existed (nothing to do). Never throws
+ * "already exists" — a caller-visible failure here means the append
+ * itself failed (transient/durable), which the caller must handle.
+ */
+async function ensureTerminalOutcomeAudit(
+  deps: { ledger: LedgerStore },
+  run: ChildAgentRun,
+  event: string,
+  attemptId: string | null,
+  actor: Actor,
+  ctx: RunCtx,
+): Promise<boolean> {
+  const id = terminalOutcomeAuditId(run.id, run.status);
+  if (await deps.ledger.get(id)) return false; // already recorded — nothing to repair
+  await deps.ledger.append({
+    id,
+    organizationId: run.organizationId,
+    actorType: actor.type,
+    actorId: actor.id,
+    action: "archive",
+    resourceType: "agent",
+    resourceId: run.parentAgentId,
+    inputs: attemptId ? { childRunId: run.id, event, attemptRef: attemptId } : { childRunId: run.id, event, reconciled: true },
+    proposedOutput: { ...run },
+    userDecision: "auto",
+    policyResults: [],
+    context: { type: "child_agent_run", id: run.id, runId: run.parentRunId },
+    ...(run.taint ? { trustOrigin: run.taint } : {}),
+    createdAt: ctx.clock.nowISO(),
+  });
+  return true;
+}
+
+/** Bounded retries for the confirming outcome-audit append — guards against
+ * a purely transient failure right after a CAS has ALREADY committed
+ * (nothing to roll back; retrying the SAME idempotent write is always
+ * safe). Exhausting these still leaves the run correctly, durably
+ * terminal — only the audit row is pending, self-healed on next touch. */
+const TERMINAL_AUDIT_APPEND_RETRIES = 3;
+
+/**
  * Shared append-only audit for ANY child Run lifecycle transition (cancel,
  * complete, fail, stop — every `ChildAgentRunStatus` past "running"). TASK-007
  * closure requires the FULL lifecycle, not only the actions a child Run later
@@ -361,7 +535,7 @@ export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
  */
 async function recordChildAgentRunTransition(
   deps: { store: ChildAgentRunStore; ledger: LedgerStore },
-  workspaceId: string,
+  organizationId: string,
   id: string,
   status: ChildAgentRunStatus,
   event: string,
@@ -371,41 +545,120 @@ async function recordChildAgentRunTransition(
   if (status === "running") {
     throw new Error("child-agent-run: a terminal transition cannot target running");
   }
-  const before = await deps.store.get(workspaceId, id);
+  const before = await deps.store.get(organizationId, id);
   if (!before) throw new Error(`child-agent-run: unknown run ${id}`);
   if (before.status !== "running") {
-    throw new Error(`child-agent-run: run ${id} is already "${before.status}"`);
-  }
-  const transitioned = await deps.store.updateStatus(workspaceId, id, "running", status);
-  try {
-    await deps.ledger.append({
-      id: ctx.ids.next(),
-      workspaceId: before.workspaceId,
-      actorType: actor.type,
-      actorId: actor.id,
-      action: "archive",
-      resourceType: "agent",
-      resourceId: before.parentAgentId,
-      inputs: { childRunId: id, event },
-      proposedOutput: transitioned,
-      userDecision: "auto",
-      policyResults: [],
-      context: { type: "child_agent_run", id, runId: before.parentRunId },
-      ...(before.taint ? { trustOrigin: before.taint } : {}),
-      createdAt: ctx.clock.nowISO(),
-    });
-  } catch (auditError) {
-    try {
-      await deps.store.updateStatus(workspaceId, id, status, "running");
-    } catch (rollbackError) {
-      throw new AggregateError(
-        [auditError, rollbackError],
-        `child-agent-run: transition to "${status}" could not be audited or rolled back`,
-      );
+    // TASK-011 remediation (coordinator central-merge review, issue 1) —
+    // self-heal a MISSING confirmed-outcome audit row BEFORE ever reporting
+    // "already terminal". If the run is ALREADY in the exact status THIS
+    // call is attempting, a PRIOR attempt's CAS may have committed while its
+    // own confirming ledger append then crashed/failed before ever
+    // running — a durably terminal run with only a phase-1 "attempt" row.
+    // Repair it now (idempotent — see `ensureTerminalOutcomeAudit`), THEN
+    // throw the SAME `ChildRunAlreadyTerminalError` every existing caller
+    // throughout this codebase already treats as an expected, swallowable
+    // race — the audit trail is guaranteed complete by the time any caller
+    // (old or new) observes "already terminal", regardless of which
+    // attempt actually won the underlying race.
+    if (before.status === status) {
+      await ensureTerminalOutcomeAudit(deps, before, event, null, actor, ctx);
     }
-    throw auditError;
+    throw new ChildRunAlreadyTerminalError(id, before.status);
   }
-  return transitioned;
+  // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+  // review, issue 4; hardened again 2026-07-19 coordinator RE-review) —
+  // TWO-PHASE audit, not a single append that projects the target status
+  // before it is confirmed. An independent re-review correctly found the
+  // single-append design left a FALSE terminal-shaped audit row for a
+  // losing racer: BOTH concurrent attempts appended `proposedOutput.status
+  // = <their own target>` before the CAS ever ran, so a reader of the
+  // ledger ALONE (without cross-referencing `store.get()`) could not tell
+  // which attempt actually won — the loser's row looked identical to a
+  // real confirmed completion.
+  //
+  // Phase 1 (BEFORE the CAS): append an ATTEMPT entry that records intent
+  // ONLY — `proposedOutput.status` stays `before.status` ("running"), never
+  // the target — plus `inputs.attemptedStatus` naming what is being
+  // attempted. This preserves the original crash-safety guarantee (if the
+  // process dies before the CAS ever runs, there is still a durable record
+  // that an attempt was made) WITHOUT ever claiming an outcome that may not
+  // have happened.
+  const attemptId = ctx.ids.next();
+  await deps.ledger.append({
+    id: attemptId,
+    organizationId: before.organizationId,
+    actorType: actor.type,
+    actorId: actor.id,
+    action: "archive",
+    resourceType: "agent",
+    resourceId: before.parentAgentId,
+    inputs: { childRunId: id, event: `${event}:attempt`, attemptedStatus: status },
+    proposedOutput: { ...before }, // still "running" — an ATTEMPT, not a claimed outcome
+    userDecision: "auto",
+    policyResults: [],
+    context: { type: "child_agent_run", id, runId: before.parentRunId },
+    ...(before.taint ? { trustOrigin: before.taint } : {}),
+    createdAt: ctx.clock.nowISO(),
+  });
+  // Phase 2: the actual, authoritative CAS. A LOSER (a concurrent transition
+  // already won) is handled entirely within this try/catch — the CAS never
+  // committed for THIS attempt, so a "transition_attempt_failed" row (never
+  // terminal-shaped) is the correct, complete audit record.
+  let updated: ChildAgentRun;
+  try {
+    updated = await deps.store.updateStatus(organizationId, id, "running", status);
+  } catch (e) {
+    if (e instanceof ChildRunAlreadyTerminalError) {
+      await deps.ledger.append({
+        id: ctx.ids.next(),
+        organizationId: before.organizationId,
+        actorType: actor.type,
+        actorId: actor.id,
+        action: "archive",
+        resourceType: "agent",
+        resourceId: before.parentAgentId,
+        inputs: { childRunId: id, event: "transition_attempt_failed", attemptedStatus: status, attemptRef: attemptId, lostToStatus: e.currentStatus },
+        // Explicitly NEVER `status: status` here — this row must never be
+        // mistaken for a confirmed terminal outcome. It reflects the run's
+        // real current status (whatever the winner set), which this
+        // attempt did NOT cause.
+        proposedOutput: { ...before, status: e.currentStatus },
+        userDecision: "auto",
+        policyResults: [],
+        context: { type: "child_agent_run", id, runId: before.parentRunId },
+        ...(before.taint ? { trustOrigin: before.taint } : {}),
+        createdAt: ctx.clock.nowISO(),
+      });
+    }
+    throw e;
+  }
+  // The CAS WON — from this point on, the transition itself is DONE and
+  // durable; nothing below may ever be interpreted as "the transition
+  // failed". TASK-011 remediation (coordinator central-merge review, issue
+  // 1): the confirming outcome-audit append is best-effort confirmation of
+  // an ALREADY-committed fact, not a rollback boundary. Retry the
+  // idempotent (deterministic-id) append a bounded number of times against
+  // purely transient failures; if it still cannot complete, surface a
+  // DISTINCT, clearly-labeled `ChildRunTerminalAuditPendingError` (never
+  // the raw underlying error, and never silently swallowed) so callers can
+  // never mistake "audit write pending" for "the child Run transition
+  // failed" — the run's real, confirmed status is `updated.status`
+  // regardless. The missing row self-heals the next time ANY caller
+  // touches this run (see the `before.status === status` branch above).
+  let auditError: unknown;
+  for (let attempt = 0; attempt < TERMINAL_AUDIT_APPEND_RETRIES; attempt++) {
+    try {
+      await ensureTerminalOutcomeAudit(deps, updated, event, attemptId, actor, ctx);
+      auditError = undefined;
+      break;
+    } catch (e) {
+      auditError = e;
+    }
+  }
+  if (auditError) {
+    throw new ChildRunTerminalAuditPendingError(id, updated.status, auditError);
+  }
+  return updated;
 }
 
 /**
@@ -418,12 +671,12 @@ async function recordChildAgentRunTransition(
  */
 export function cancelChildAgentRun(
   deps: { store: ChildAgentRunStore; ledger: LedgerStore },
-  workspaceId: string,
+  organizationId: string,
   id: string,
   actor: Actor,
   ctx: RunCtx,
 ): Promise<ChildAgentRun> {
-  return recordChildAgentRunTransition(deps, workspaceId, id, "cancelled", "cancel", actor, ctx);
+  return recordChildAgentRunTransition(deps, organizationId, id, "cancelled", "cancel", actor, ctx);
 }
 
 /** A child Run's parent Agent (or an executor acting on its behalf) records
@@ -431,12 +684,12 @@ export function cancelChildAgentRun(
  * transition guarantee as `cancelChildAgentRun`. */
 export function completeChildAgentRun(
   deps: { store: ChildAgentRunStore; ledger: LedgerStore },
-  workspaceId: string,
+  organizationId: string,
   id: string,
   actor: Actor,
   ctx: RunCtx,
 ): Promise<ChildAgentRun> {
-  return recordChildAgentRunTransition(deps, workspaceId, id, "completed", "complete", actor, ctx);
+  return recordChildAgentRunTransition(deps, organizationId, id, "completed", "complete", actor, ctx);
 }
 
 /** A child Run's parent Agent (or an executor) records the run as failed
@@ -444,12 +697,12 @@ export function completeChildAgentRun(
  * transition guarantee as `cancelChildAgentRun`. */
 export function failChildAgentRun(
   deps: { store: ChildAgentRunStore; ledger: LedgerStore },
-  workspaceId: string,
+  organizationId: string,
   id: string,
   actor: Actor,
   ctx: RunCtx,
 ): Promise<ChildAgentRun> {
-  return recordChildAgentRunTransition(deps, workspaceId, id, "failed", "fail", actor, ctx);
+  return recordChildAgentRunTransition(deps, organizationId, id, "failed", "fail", actor, ctx);
 }
 
 /** One proposed action's shape, as far as this validator needs it — a subset
@@ -483,19 +736,33 @@ function scopeCoversActionToken(scope: readonly string[], action: string, resour
 }
 
 /**
- * Local, pre-pipeline check — mirrors `agent-scope.ts`'s `validateRitualWithinAgents`
- * shape (a ritual step ⊆ agent check performed BEFORE the step ever reaches the
+ * Local, pre-pipeline check — mirrors `agent-scope.ts`'s `validateAutomationWithinAgents`
+ * shape (an Automation step within Agent check performed BEFORE the step reaches the
  * pipeline). A caller orchestrating a child Run's steps (a future
- * `ChildRunExecutor`, mirroring `InProcessRitualExecutor`) calls this before each
+ * `ChildRunExecutor`, mirroring `InProcessAutomationExecutor`) calls this before each
  * `pipeline.propose` — an out-of-bounds step never reaches the pipeline/ledger at
- * all, matching how out-of-scope ritual steps are rejected locally today. Returns
+ * all, matching how out-of-scope Automation steps are rejected locally today. Returns
  * `null` when the action is within bounds, else the specific violation.
+ *
+ * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+ * RE-review, issue 2) — `options.reusingExistingReservation` lets a caller
+ * that already legitimately consumed this exact action's budget in an
+ * EARLIER (possibly crashed) attempt skip the budget-exhaustion check when
+ * re-validating a RECLAIMED attempt of the SAME logical action: budget was
+ * deliberately and correctly consumed once already, and `callsUsed >=
+ * maxCalls` is the EXPECTED, correct state at that point — it must not be
+ * misread as "no budget left for this retry". Every OTHER check (run
+ * active, authority/skill/data-scope, deadline) still applies unchanged;
+ * this flag narrows ONLY the budget-exhaustion condition. Default (unset)
+ * preserves the original, strict pre-reservation semantics for every
+ * existing caller.
  */
 export function validateActionWithinChildRun(
   check: ChildRunActionCheck,
   run: ChildAgentRun,
   nowISO: string,
   estimatedCost = 0,
+  options?: { reusingExistingReservation?: boolean },
 ): ChildRunViolation | null {
   if (run.status !== "running") {
     return { reason: "run-not-active", detail: `child run ${run.id} is "${run.status}", not "running"` };
@@ -525,9 +792,10 @@ export function validateActionWithinChildRun(
     };
   }
   if (
-    estimatedCost < 0 ||
-    run.callsUsed >= run.budget.maxCalls ||
-    run.costUsed + estimatedCost > run.budget.maxCost
+    !options?.reusingExistingReservation &&
+    (estimatedCost < 0 ||
+      run.callsUsed >= run.budget.maxCalls ||
+      run.costUsed + estimatedCost > run.budget.maxCost)
   ) {
     return {
       reason: "budget-exhausted",
@@ -543,20 +811,20 @@ export function validateActionWithinChildRun(
  */
 export async function reserveChildRunAction(
   store: ChildAgentRunStore,
-  workspaceId: string,
+  organizationId: string,
   childRunId: string,
   check: ChildRunActionCheck,
   estimatedCost: number,
   nowISO: string,
 ): Promise<ChildRunViolation | null> {
-  const run = await store.get(workspaceId, childRunId);
+  const run = await store.get(organizationId, childRunId);
   if (!run) {
-    return { reason: "run-not-active", detail: `child run ${childRunId} does not exist in this workspace` };
+    return { reason: "run-not-active", detail: `child run ${childRunId} does not exist in this organization` };
   }
   const violation = validateActionWithinChildRun(check, run, nowISO, estimatedCost);
   if (violation) return violation;
   try {
-    await store.consumeBudget(workspaceId, childRunId, estimatedCost, nowISO);
+    await store.consumeBudget(organizationId, childRunId, estimatedCost, nowISO);
     return null;
   } catch (error) {
     if (error instanceof ChildRunBudgetExceededError) {
@@ -591,7 +859,7 @@ export async function createChildAgentRun(
 
   const auditEntry: LedgerEntry = {
     id: ctx.ids.next(),
-    workspaceId: parent.workspaceId,
+    organizationId: parent.organizationId,
     actorType: "agent",
     actorId: parent.agentId,
     ...(parent.onBehalfOf ? { onBehalfOfType: parent.onBehalfOf.type, onBehalfOfId: parent.onBehalfOf.id } : {}),

@@ -20,6 +20,7 @@ Commons = signed registry of generalized Modules, Blueprints, Skills, Integratio
 - Approval: recheck root, dependencies, Module need, Agent, kind, tags. Then activate.
 - Veto: package stays private. Failed activation: explicit + idempotent reconcile.
 - Legacy exact install retries collapse with lineage preserved. Conflicting same-identity installs halt migration.
+- Pre-VOCAB3 signed entry: verify old bytes + hash + key first. Then canonical projection. Prior registry folder stays readable. Same identity in both folders halts.
 - Personal data/credentials rejected before storage. Runtime ownership metadata stays Local Plane.
 - Automation owner: one stored Agent + Plane. Server derives actor. Ambiguous legacy ownership blocks.
 - Legacy external/malformed/cross-workspace Automation stays unbound. Human must choose owner + Plane.

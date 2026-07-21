@@ -22,7 +22,7 @@ export function createApiClientConnector(config: ApiClientConfig): SourceConnect
     async fetch(query: SourceQuery): Promise<CaptureEnvelope[]> {
       const rows = await config.fetcher(query);
       return rows.map((payload) => ({
-        sourceToolId: config.id,
+        sourceConnectorId: config.id,
         tier: "free",
         query,
         payload,

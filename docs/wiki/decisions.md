@@ -4,6 +4,102 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-21 — Render = public cloud boundary only (ADR-137, AP-063)
+- Free API + free static site. Virginia. Sleep/wake accepted.
+- Supabase = Postgres/Auth.
+- Render: public scope only. Private operation → desktop required.
+- No disk. No vault. No credential key. Empty ephemeral scratch only.
+- Exact pilot + `bridge_app` RLS stay mandatory.
+- TASK-006 Google/Source-credential block unchanged.
+
+## 2026-07-20 — ModuleStore composes shell + Graph identity (ADR-132, AP-058)
+- Nav + Module Detail read active installations.
+- Full Graph = permission-pruned graph + installed Modules + manifest Agents. Compose at authenticated API boundary.
+- Source edge opens real Module/Record path. No guessed route.
+- Module Runs reuse attributable Automation recorder. Same Run clock in memory + DB.
+- Panels share collapsed/expanded/extended state. Organization-scoped persistence. Escape steps back one state.
+- Knowledge runtime = zero. Two old Tool strings = inspected-source paths only; delete with final directory rename.
+
+## 2026-07-20 — Supabase policyless tables stay server-only (ADR-134)
+- Auto-RLS without policy = deny-all runtime break, not safety.
+- Policyless catalog/junction table: revoke `PUBLIC`/`anon`/`authenticated`; server role only.
+- Policy-backed table: RLS stays on. Membership stays forced-RLS.
+- Never grant runtime BYPASSRLS. Never run as owner/service role.
+
+## 2026-07-19 — Hosted Supabase pilot boundary (ADR-128, AP-052)
+- Migration owner separate. Runtime only `bridge_app`. No owner. No BYPASSRLS.
+- RLS identity transaction-local. Pool reuse cannot carry old Human/Organization.
+- Production accepts one exact Supabase subject. Web shell waits for Auth + activation.
+- Source credentials encrypted. Keys from host secret manager.
+- Explicitly public roots → Supabase. Everything else → durable Local Plane.
+- Browser hosting requires explicit encrypted-volume residency. Otherwise boot fails.
+- One API replica until Local Plane ownership is shared.
+
+## 2026-07-18 — Exact private Commons Runs (ADR-121, AP-047)
+- Stored + current signed contract must match exactly. Drift = no binding, no Run.
+- Skill reads one approved private Signal. Writes one private Signal. No runtime egress.
+- Onboarding research owns the external fetch. Skill reuses its approved local citation.
+- Owning Relationship Module must match exact built-in version + manifest.
+- Shared private-row classifier. Never replace with a narrow Skill predicate.
+- Legacy proposal + linked rows migrate private.
+- Human correction cannot replace Commons hash/Module/Agent provenance.
+
+## 2026-07-18 — Organization rename moves local Files safely (ADR-122, AP-047)
+- Validate name. Rename before Blueprint.
+- DB row lock = cross-process authority.
+- Fsynced generation intent before move. Sync Files before DB commit.
+- Failure/crash = re-lock + reconcile to committed DB name.
+- Cleanup re-locks. Own generation only.
+- Two different roots = preserve intent + stop.
+- Conflict/symlink = stop. Case-only = exact casing.
+- Legacy startup uses same recovery path.
+- DB name + `Documents/Bridge/<Organization>` stay one state.
+
+## 2026-07-18 — Privileged webview boundary (ADR-120)
+- Tauri webviews stay on trusted Tauri origins. External top-level navigation denied.
+- Sidecar token only immutable main-webview global. Companion webviews get none.
+- Google consent opens in validated system browser. Helper reaped. Callback uses actual sidecar port.
+
+## 2026-07-18 — Google OAuth state (ADR-119)
+- Connect mints state + PKCE verifier after auth + membership.
+- URL gets raw state + S256 challenge. Local Plane gets hash + verifier + binding + expiry.
+- Callback consumes once. Token stays invisible until second membership check.
+- One Integration lock. Failure restores exact prior token. Refresh uses ordered CAS.
+
+## 2026-07-18 — Desktop sidecar launch capability (ADR-118)
+- Loopback not auth. Rust owns random port + fresh 256-bit capability.
+- Node inherits same listener. Rust keeps copy. Child crash cannot donate port.
+- Tokenless bootstrap first. Privileged webview only after authenticated health.
+- Child loss kills capture/topology, hides privileged windows, shows unavailable.
+- Auth shutdown drains active requests. Hard deadline catches hung orphan.
+- Header only. Never URL/storage/log. Non-Unix release without safe activation fails.
+- Typed + legacy Google clients share injected URL + bearer/sidecar headers.
+- Sidecar proves trusted client. Never proves Human re-auth.
+
+## 2026-07-18 — DealPilot local durability (ADR-117)
+- One Local Plane DB. One owning process. Drizzle + runtime state share client.
+- Client close fails = keep ownership. Never admit second live opener.
+- Organization aggregate updates atomic. Restart keeps Records, Relations, captures, Gmail recovery, spend, audit.
+- Old adapter Record table imports before Drizzle. Exact verify. No migration number.
+- Source secret only OS keyring. Opaque ref bound to Organization + Source.
+- Opaque create/revoke journal repairs crashes. Secret value never DB/file/log.
+- Server without durable storage + approved vault: fail boot. Memory adapters: tests only.
+- Adapter owns its tables. No numbered migration. RM4/TASK-010 numbers untouched.
+- macOS keychain + Tauri + 375px Chrome proven. Live Google + OS re-auth still missing.
+- No physical-mobile/signing claim. No fake DONE.
+
+## 2026-07-18 — Relationship continuity storage (ADR-115)
+- Memory stays Memory. Corrections append. Forget removes lineage.
+- Commitments + Introductions = private Event snapshots + evidence Relations.
+- Intro completes only after two recorded consents. No send.
+- Paths reuse pruned Relations. Bounded. No second Graph.
+- No migration. Automation/delegation/evals still open.
+
+## 2026-07-18 — Private Event detail stays on Relations (ADR-116, AP-042)
+- Shared Event row = safe lifecycle envelope.
+- Private detail = owner-filtered participant Relations.
+- Timeline rehydrates only after owner pruning.
+
 ## 2026-07-18 — Durable Relationship effects (ADR-112)
 - Decision first. Effect second. Never ask twice.
 - `ref_ledger_id` is truth. Caller JSON is not.

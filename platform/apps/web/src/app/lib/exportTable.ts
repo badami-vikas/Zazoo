@@ -1,5 +1,5 @@
 /**
- * exportTable.ts — CSV export helper for DataEngine tables.
+ * exportTable.ts — CSV export helper for tabular data surfaces.
  * Exports the full filtered+sorted set (not the current page).
  */
 

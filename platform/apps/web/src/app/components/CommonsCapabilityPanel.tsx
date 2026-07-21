@@ -1,22 +1,22 @@
 import { useState } from "react";
 import { CheckCircle, Download, Loader, Search, ShieldCheck } from "lucide-react";
-import { PILOT_WORKSPACE, trpc } from "../lib/trpc";
+import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
-type PackageRow = Awaited<ReturnType<typeof trpc.packages.list.query>>["items"][number];
-type ModuleManifest = NonNullable<NonNullable<PackageRow["manifest"]>["module"]>;
+type ModuleRow = Awaited<ReturnType<typeof trpc.modules.list.query>>["items"][number];
+type ModuleManifest = NonNullable<NonNullable<ModuleRow["manifest"]>["module"]>;
 type CommonsNeed = NonNullable<ModuleManifest["commonsNeeds"]>[number];
 type CommonsSummary = Awaited<ReturnType<typeof trpc.commons.list.query>>["items"][number];
 type CommonsDetail = Awaited<ReturnType<typeof trpc.commons.get.query>>;
 
 export function CommonsCapabilityPanel({
-  modulePackageName,
+  ownerModuleName,
   need,
   installed,
   onInstalled,
 }: {
-  modulePackageName: string;
+  ownerModuleName: string;
   need: CommonsNeed;
-  installed: PackageRow | undefined;
+  installed: ModuleRow | undefined;
   onInstalled: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -47,12 +47,12 @@ export function CommonsCapabilityPanel({
     }
   }
 
-  async function inspectPackage(name: string) {
+  async function inspectModule(name: string) {
     setMessage(null);
     try {
       setDetail(await trpc.commons.get.query({ name }));
     } catch (error) {
-      setMessage(`Could not inspect Commons package: ${String(error)}`);
+      setMessage(`Could not inspect Commons capability: ${String(error)}`);
     }
   }
 
@@ -62,10 +62,10 @@ export function CommonsCapabilityPanel({
     setMessage(null);
     try {
       const proposed = await trpc.commons.installPropose.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         name: detail.latest.name,
         version: detail.latest.version,
-        modulePackageName,
+        ownerModuleName,
         agentId: need.agentId,
         needId: need.id,
       });
@@ -75,22 +75,22 @@ export function CommonsCapabilityPanel({
         return;
       }
       if (proposed.installation.state === "promoted" && proposed.installation.status === "installed") {
-        await trpc.packages.promote.mutate({
-          workspaceId: PILOT_WORKSPACE,
+        await trpc.modules.promote.mutate({
+          organizationId: PILOT_ORGANIZATION,
           installationId: proposed.installation.id,
         });
         setMessage("Installed through governance and attached to the owning Module Agent.");
         onInstalled();
         return;
       }
-      const result = await trpc.packages.install.mutate({
-        workspaceId: PILOT_WORKSPACE,
+      const result = await trpc.modules.install.mutate({
+        organizationId: PILOT_ORGANIZATION,
         installationId: proposed.installation.id,
         todayKey: new Date().toISOString().slice(0, 10),
       });
       if (result.installed) {
-        await trpc.packages.promote.mutate({
-          workspaceId: PILOT_WORKSPACE,
+        await trpc.modules.promote.mutate({
+          organizationId: PILOT_ORGANIZATION,
           installationId: proposed.installation.id,
         });
         setMessage("Installed through governance and attached to the owning Module Agent.");
@@ -113,7 +113,7 @@ export function CommonsCapabilityPanel({
           {need.title} installed
         </div>
         <p className="mt-1 break-all text-xs" style={{ color: "var(--color-warm-gray)" }}>
-          {installed.packageName} v{installed.packageVersion} · {installed.moduleAttachment?.contentHash}
+          {installed.moduleName} v{installed.moduleVersion} · {installed.moduleAttachment?.contentHash}
         </p>
       </div>
     );
@@ -167,7 +167,7 @@ export function CommonsCapabilityPanel({
                 </div>
                 <button
                   type="button"
-                  onClick={() => void inspectPackage(result.name)}
+                  onClick={() => void inspectModule(result.name)}
                   className="shrink-0 rounded border px-2 py-1 text-xs"
                   style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}
                 >
@@ -206,7 +206,7 @@ export function CommonsCapabilityPanel({
             <div>
               <dt className="font-medium">Licenses</dt>
               <dd style={{ color: "var(--color-warm-gray)" }}>
-                repository {detail.latest.provenance.repositoryLicense} · artifact {detail.latest.provenance.artifactLicense}
+                source {detail.latest.provenance.repositoryLicense} · capability {detail.latest.provenance.contentLicense}
               </dd>
             </div>
             <div>

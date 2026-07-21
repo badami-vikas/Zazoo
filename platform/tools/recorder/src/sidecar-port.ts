@@ -2,7 +2,7 @@ import type { Recording, RecordingUpload, Summary, Transcript } from "./types.js
 
 // The engine surface: capture.record / capture.transcribe / capture.summarize from the manifest.
 // Implementations talk to the FastAPI sidecar over HTTP — never directly to Whisper/the model —
-// so composing external tools depend on this typed port, not on the Python process shape.
+// so composing Modules depend on this typed port, not on the Python process shape.
 export interface RecorderPort {
   record(input: RecordingUpload): Promise<Recording>;
   pasteTranscript(projectId: string, text: string): Promise<Recording>;

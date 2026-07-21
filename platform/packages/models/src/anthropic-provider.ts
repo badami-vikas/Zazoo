@@ -13,6 +13,7 @@
  */
 import {
   MODEL_TIERS,
+  assertModelCompletionRequest,
   type ModelCompletion,
   type ModelCompletionRequest,
   type ModelProvider,
@@ -22,10 +23,12 @@ import {
 import { defaultFetch, type FetchLike } from "./fetch-types.js";
 import {
   asRecord,
+  configuredModelId,
   nullableTokenCount,
   providerRequestError,
   requiredString,
   requiredTokenCount,
+  verifiedProviderModel,
 } from "./usage.js";
 
 export interface AnthropicProviderOpts {
@@ -41,7 +44,7 @@ export interface AnthropicProviderOpts {
 const ANTHROPIC_URL = "https://api.anthropic.com";
 const DEFAULT_MODEL = "claude-fable-5";
 const DEFAULT_MODELS: Record<ModelTier, string> = {
-  cheap: "claude-haiku-4-5",
+  cheap: "claude-haiku-4-5-20251001",
   default: DEFAULT_MODEL,
   reasoning: DEFAULT_MODEL,
 };
@@ -49,6 +52,12 @@ const PRICING_SOURCE = "https://platform.claude.com/docs/en/build-with-claude/pr
 const PRICING_AS_OF = "2026-07-18";
 const KNOWN_PRICING: Readonly<Record<string, Omit<ModelTokenPricing, "source" | "asOf">>> = {
   "claude-haiku-4-5": {
+    inputUsdPerMillion: 1,
+    outputUsdPerMillion: 5,
+    cacheCreationInputUsdPerMillion: 1.25,
+    cacheReadInputUsdPerMillion: 0.1,
+  },
+  "claude-haiku-4-5-20251001": {
     inputUsdPerMillion: 1,
     outputUsdPerMillion: 5,
     cacheCreationInputUsdPerMillion: 1.25,
@@ -66,9 +75,9 @@ export class AnthropicProvider implements ModelProvider {
   readonly id = "anthropic";
   readonly plane = "cloud" as const;
   readonly tiers = MODEL_TIERS;
+  readonly models: Readonly<Record<ModelTier, string>>;
   readonly pricing: Readonly<Partial<Record<ModelTier, ModelTokenPricing>>>;
   readonly #apiKey: string;
-  readonly #models: Readonly<Record<ModelTier, string>>;
   readonly #baseUrl: string;
   readonly #fetchImpl: FetchLike;
 
@@ -81,30 +90,47 @@ export class AnthropicProvider implements ModelProvider {
     }
     this.#apiKey = key;
     const globalModel = opts.model ?? process.env["ANTHROPIC_MODEL"];
-    this.#models = {
-      cheap: opts.models?.cheap ?? process.env["ANTHROPIC_CHEAP_MODEL"] ?? globalModel ?? DEFAULT_MODELS.cheap,
-      default: opts.models?.default ?? globalModel ?? DEFAULT_MODELS.default,
-      reasoning:
+    this.models = {
+      cheap: configuredModelId(
+        opts.models?.cheap ??
+          process.env["ANTHROPIC_CHEAP_MODEL"] ??
+          globalModel ??
+          DEFAULT_MODELS.cheap,
+        "AnthropicProvider cheap model",
+      ),
+      default: configuredModelId(
+        opts.models?.default ?? globalModel ?? DEFAULT_MODELS.default,
+        "AnthropicProvider default model",
+      ),
+      reasoning: configuredModelId(
         opts.models?.reasoning ??
-        process.env["ANTHROPIC_REASONING_MODEL"] ??
-        globalModel ??
-        DEFAULT_MODELS.reasoning,
+          process.env["ANTHROPIC_REASONING_MODEL"] ??
+          globalModel ??
+          DEFAULT_MODELS.reasoning,
+        "AnthropicProvider reasoning model",
+      ),
     };
     const pricing: Partial<Record<ModelTier, ModelTokenPricing>> = {};
     for (const tier of MODEL_TIERS) {
-      const rates = KNOWN_PRICING[this.#models[tier]];
+      const rates = KNOWN_PRICING[this.models[tier]];
       if (rates) pricing[tier] = { ...rates, source: PRICING_SOURCE, asOf: PRICING_AS_OF };
     }
+
     this.pricing = pricing;
     this.#baseUrl = opts.baseUrl ?? ANTHROPIC_URL;
     this.#fetchImpl = opts.fetchImpl ?? defaultFetch;
   }
 
+  routingHealth() {
+    return "unknown" as const;
+  }
+
   async complete(req: ModelCompletionRequest): Promise<ModelCompletion> {
+    assertModelCompletionRequest(req, "AnthropicProvider.complete");
     if (req.cache && req.system === undefined) {
       throw new Error("AnthropicProvider.complete: stable-system-prefix caching requires a system prompt");
     }
-    const model = this.#models[req.tier];
+    const model = this.models[req.tier];
     const system =
       req.system === undefined
         ? undefined
@@ -148,7 +174,11 @@ export class AnthropicProvider implements ModelProvider {
     const usage = asRecord(json["usage"], "AnthropicProvider.complete response.usage");
     return {
       text,
-      model: requiredString(json["model"], "AnthropicProvider.complete response.model"),
+      model: verifiedProviderModel(
+        model,
+        json["model"],
+        "AnthropicProvider.complete response.model",
+      ),
       tier: req.tier,
       usage: {
         inputTokens: requiredTokenCount(usage["input_tokens"], "AnthropicProvider.complete usage.input_tokens"),

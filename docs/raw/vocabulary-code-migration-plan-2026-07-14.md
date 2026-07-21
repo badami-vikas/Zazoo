@@ -2,10 +2,10 @@
 title: Canonical vocabulary and code migration plan
 type: raw
 doc_kind: plan
-status: active
+status: complete
 companions: [requirement-vocabulary-planes-relationship-taint-2026-07-14.md, requirement-bugs-2026-07-14-actionable-shell-second-brain.md, ../glossary.md, relationship-module-plan-2026-07.md, ui-architecture-rules-2026-07.md, repo-restructure-egg-commons-2026-07.md]
 related_wiki: ../wiki/ontology.md
-updated: 2026-07-14
+updated: 2026-07-20
 tags: [vocabulary, migration, code, schema, api, ui, cleanup, avatar, engines, modules]
 ---
 
@@ -137,7 +137,25 @@ migrations:
       - build one shared PanelControl component/state contract for left Sidebar and right Chat Panel expand, collapse, extend, width persistence, tooltips, keyboard controls, and responsive behavior
       - add Second Brain below Modules: cross-Module graph over Records, Relations, Events, Files, Agents, and source Modules; every node/edge opens source detail or a governed Action
       - enforce actionability contract: every non-decorative card, row, node, count, status, and recommendation opens detail, edit, filter, explanation, or governed Action; otherwise render it as plain text, not an affordance
+    compatibility_deleted_2026_07_20:
+      module_paths:
+        - platform/modules/dealpilot
+        - platform/modules/jobpilot
+      migration: 0024_task012_compatibility_deletion
+      removed:
+        - Avatar browser and API aliases
+        - culture Result read adapter
+        - dual Commons registry roots
+        - retired package provenance paths
+      retained_trust_boundary:
+        - immutable signed Commons source parser
+        - exact original bytes, hash, publication time, Ed25519 signature, and trusted key remain authoritative
+        - no legacy writes or dual source of truth
     exit: no Tools/Knowledge routes or visible copy; repository denylist clean outside migrations/history; all installed Modules drill down; Agent-only Skill invocation contract tested; symmetric panels proven; Second Brain cross-Module navigation and actions proven on desktop + 375px
 ```
 
 Every batch requires database backup/restore rehearsal, forward and rollback migration tests, API contract tests, RLS checks, browser evidence, and a repository search proving the retired identifiers remain only in historical records or explicitly time-boxed compatibility code.
+
+Final closure used forward recovery rather than destructive rollback: migration `0024` is idempotent,
+and its test restores a pre-migration filesystem backup before replaying the same data-preserving
+backfill. TASK-012 completed on 2026-07-20 under AP-059 and ADR-133.

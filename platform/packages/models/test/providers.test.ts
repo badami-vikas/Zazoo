@@ -105,7 +105,7 @@ test("AnthropicProvider shapes /v1/messages requests with headers", async () => 
 
 test("AnthropicProvider normalizes protocol-null cache counts but rejects omitted counts", async () => {
   const response = {
-    model: "claude-haiku-4-5",
+    model: "claude-haiku-4-5-20251001",
     content: [{ type: "text", text: "hi" }],
     usage: {
       input_tokens: 9,
@@ -136,6 +136,7 @@ function anthropicPromptCacheProtocol() {
   const cachedPrefixes = new Set<string>();
   const minimumTokens: Record<string, number> = {
     "claude-haiku-4-5": 4_096,
+    "claude-haiku-4-5-20251001": 4_096,
     "claude-fable-5": 512,
   };
   const impl: FetchLike = async (url, init) => {
@@ -280,5 +281,58 @@ test("providers fail loud when authoritative usage counts are absent", async () 
   await assert.rejects(
     () => provider.complete({ prompt: "q", tier: "default" }),
     /prompt_eval_count/,
+  );
+});
+
+test("providers reject a response that relabels the configured model", async () => {
+  const anthropic = recordingFetch({
+    model: "provider-spoof",
+    content: [{ type: "text", text: "answer" }],
+    usage: {
+      input_tokens: 1,
+      output_tokens: 1,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+  });
+  await assert.rejects(
+    () =>
+      new AnthropicProvider({
+        apiKey: "k-test",
+        model: "claude-fable-5",
+        fetchImpl: anthropic.impl,
+      }).complete({ prompt: "q", tier: "default" }),
+    /unexpected model identity/,
+  );
+
+  const groq = recordingFetch({
+    model: "provider-spoof",
+    choices: [{ message: { content: "answer" } }],
+    usage: { prompt_tokens: 1, completion_tokens: 1 },
+  });
+  await assert.rejects(
+    () =>
+      new GroqProvider({
+        apiKey: "k-test",
+        model: "llama-3.3-70b-versatile",
+        fetchImpl: groq.impl,
+      }).complete({ prompt: "q", tier: "cheap" }),
+    /unexpected model identity/,
+  );
+
+  const ollama = recordingFetch({
+    model: "provider-spoof",
+    response: "answer",
+    prompt_eval_count: 1,
+    eval_count: 1,
+  });
+  await assert.rejects(
+    () =>
+      new OllamaProvider({
+        baseUrl: "http://x",
+        model: "llama3.1",
+        fetchImpl: ollama.impl,
+      }).complete({ prompt: "q", tier: "default" }),
+    /unexpected model identity/,
   );
 });

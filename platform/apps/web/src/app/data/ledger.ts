@@ -4,7 +4,7 @@
 // Display fields live in the row's jsonb (`inputs.display`, `proposed_output.text`) so the UI doesn't
 // have to resolve actor_id/resource_id uuids — the same shape the real app would project server-side.
 import { useSyncExternalStore } from 'react';
-import { PILOT_WORKSPACE, trpc } from '../lib/trpc';
+import { PILOT_ORGANIZATION, trpc } from '../lib/trpc';
 import { pendingApprovals, allLedger, type LedgerEntry, type Decision } from './governance';
 
 export type LedgerSource = 'api' | 'local';
@@ -102,7 +102,10 @@ function historyRowToEntry(row: LedgerHistoryRow): LedgerEntry {
     ts: shortTs(row.createdAt),
     age: relAge(row.createdAt),
     actorKind: row.actorType === 'user' ? 'human' : 'agent',
-    actor: asString(display?.actor) ?? `${row.actorType} · ${row.actorId}`,
+    actor:
+      asString(display?.actor) ??
+      commonsAgentActorLabel(inputs, row.actorType, row.actorId) ??
+      `${row.actorType} · ${row.actorId}`,
     onBehalfOfType: row.onBehalfOfType === 'user' ? 'user' : null,
     onBehalfOf:
       asString(display?.onBehalfOf) ??
@@ -142,6 +145,24 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
+function commonsAgentActorLabel(
+  inputs: Record<string, unknown> | null,
+  actorType: string,
+  actorId: string,
+): string | null {
+  if (actorType !== 'agent') return null;
+  const invocation = asRecord(inputs?.commonsInvocation);
+  if (asString(invocation?.runtimeAgentId) !== actorId) return null;
+  const ownerModuleAgentId = asString(invocation?.ownerModuleAgentId);
+  if (!ownerModuleAgentId) return null;
+  const displayName = ownerModuleAgentId
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map(part => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+  return `${displayName} · ${actorId}`;
+}
+
 function canonicalDecisionPrecedes(
   candidate: LedgerHistoryRow,
   current: LedgerHistoryRow,
@@ -161,14 +182,15 @@ function canonicalDecisionPrecedes(
 function displayResourceType(value: PendingProposal['request']['resourceType']): LedgerEntry['resourceType'] {
   switch (value) {
     case 'person':
-    case 'initiative':
+    case 'record':
     case 'community':
     case 'relation':
-    case 'ritual':
+    case 'automation':
     case 'signal':
+    case 'event':
       return value;
     case 'file':
-    case 'tool':
+    case 'module':
     case 'skill':
     case 'agent':
     case 'role':
@@ -181,7 +203,6 @@ function displayResourceType(value: PendingProposal['request']['resourceType']):
     case 'external:fetch':
     case 'policy':
     case 'policy_param':
-    case 'touchpoint':
       return 'external';
   }
 }
@@ -218,7 +239,10 @@ function proposalToEntry(proposal: PendingProposal): LedgerEntry {
     ts: shortTs(createdAt),
     age: relAge(createdAt),
     actorKind: proposal.request.actor.type === 'agent' ? 'agent' : 'human',
-    actor: asString(display?.actor) ?? `${proposal.request.actor.type} · ${proposal.request.actor.id}`,
+    actor:
+      asString(display?.actor) ??
+      commonsAgentActorLabel(inputs, proposal.request.actor.type, proposal.request.actor.id) ??
+      `${proposal.request.actor.type} · ${proposal.request.actor.id}`,
     onBehalfOfType: proposal.request.onBehalfOf ? 'user' : null,
     onBehalfOf: proposal.request.onBehalfOf
       ? asString(display?.onBehalfOf) ?? proposal.request.onBehalfOf.id
@@ -279,7 +303,7 @@ export async function loadPendingApprovals(): Promise<{
   try {
     const window = await collectLedgerWindow((offset, limit) =>
       trpc.action.listPending.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         limit,
         offset,
       }),
@@ -321,7 +345,7 @@ export async function loadOutstandingRelationshipMaterializations(): Promise<{
     let cursor: { id: string } | undefined;
     do {
       const page = await trpc.relationship.outstandingMaterializations.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         limit: 100,
         ...(cursor ? { cursor } : {}),
       });
@@ -344,7 +368,7 @@ export async function loadOutstandingRelationshipMaterializations(): Promise<{
 
 export async function retryRelationshipMaterialization(proposalId: string) {
   return trpc.relationship.retryMaterialization.mutate({
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     proposalId,
   });
 }
@@ -362,6 +386,19 @@ function editedProposalOutput(
       throw new Error('Edited Relationship output must remain a Signal evidence Relation object.');
     }
     return parsed;
+  }
+  if (originalRecord?.kind === 'learning_recommendation') {
+    const parsed = asRecord(JSON.parse(nextText));
+    if (parsed?.kind !== 'learning_recommendation') {
+      throw new Error('Edited Learning output must remain a learning recommendation object.');
+    }
+    const canonical = { ...parsed };
+    if (originalRecord.commonsInvocation === undefined) {
+      delete canonical.commonsInvocation;
+    } else {
+      canonical.commonsInvocation = originalRecord.commonsInvocation;
+    }
+    return canonical;
   }
   if (originalRecord && 'text' in originalRecord) {
     return { ...originalRecord, text: nextText };
@@ -385,7 +422,7 @@ export async function loadLedger(): Promise<{
   try {
     const window = await collectLedgerWindow((offset, limit) =>
       trpc.action.listHistory.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         limit,
         offset,
       }),
@@ -412,7 +449,13 @@ export async function loadLedger(): Promise<{
         const entry = historyRowToEntry(row);
         const decision = appendByProposal.get(row.id);
         if (decision && entry.decision === null) {
-          entry.decision = normalizeDecision(decision.userDecision);
+          const normalizedDecision = normalizeDecision(decision.userDecision);
+          entry.decision = normalizedDecision;
+          if (normalizedDecision === 'edited_approved') {
+            const applied = historyRowToEntry(decision);
+            entry.proposed = applied.proposed;
+            entry.proposalOutput = applied.proposalOutput;
+          }
         }
         return entry;
       });
@@ -506,7 +549,7 @@ export async function recordDecisionAppend(
           try {
             const reconciliation =
               await trpc.relationship.reconcileApproved.mutate({
-                workspaceId: PILOT_WORKSPACE,
+                organizationId: PILOT_ORGANIZATION,
                 proposalId: entry.id,
               });
             return {
@@ -548,7 +591,7 @@ export async function recordDecisionAppend(
 }
 
 /**
- * Ask the server-owned Outreach Agent to stage a pending Touchpoint through the
+ * Ask the server-owned Outreach Agent to stage a pending Event through the
  * Action Pipeline. A failed or unavailable API never falls back to a browser ledger write.
  */
 export type StagedProposal =
@@ -558,7 +601,7 @@ export type StagedProposal =
 export async function proposeToLedger(entry: LedgerEntry): Promise<StagedProposal | null> {
   try {
     const proposal = await trpc.action.proposeOutreachDraft.mutate({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourceId: entry.id,
       label: entry.action,
       resource: entry.resource,

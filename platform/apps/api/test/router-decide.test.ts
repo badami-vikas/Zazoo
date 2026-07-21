@@ -7,7 +7,7 @@ import {
   buildWiring,
   OUTREACH_AGENT,
   PILOT_USER,
-  PILOT_WORKSPACE,
+  PILOT_ORGANIZATION,
   type Wiring,
 } from "../src/wiring.js";
 
@@ -29,23 +29,23 @@ function makeCaller(wiring: Wiring, identity: Actor = { type: "user", id: PILOT_
   });
 }
 
-function grantShareTouchpoint(wiring: Wiring) {
+function grantShareEvent(wiring: Wiring) {
   assert.ok(wiring.roles instanceof InMemoryRoleStore, "buildWiring test harness should use in-memory roles");
   wiring.roles.direct.set(`user:${PILOT_USER}`, [
-    { resourceType: "touchpoint", resourceId: null, action: "share", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "share", effect: "allow" },
   ]);
 }
 
 test("action.decide: a user can veto a pending share proposal through the router", async () => {
   const wiring = await buildWiring();
   try {
-    grantShareTouchpoint(wiring);
+    grantShareEvent(wiring);
     const caller = makeCaller(wiring);
     const proposed = await caller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
-      resourceType: "touchpoint",
+      resourceType: "event",
       inputs: { note: "test_fixture_router_decide_note" },
       skill: "stageMutation",
     });
@@ -81,13 +81,13 @@ test("action.decide: a user can veto a pending share proposal through the router
 test("action.decide: an agent identity is rejected with FORBIDDEN at the review gate", async () => {
   const wiring = await buildWiring();
   try {
-    grantShareTouchpoint(wiring);
+    grantShareEvent(wiring);
     const userCaller = makeCaller(wiring);
     const proposed = await userCaller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
-      resourceType: "touchpoint",
+      resourceType: "event",
       inputs: { note: "test_fixture_router_decide_note" },
       skill: "stageMutation",
     });
@@ -107,16 +107,16 @@ test("action.decide: an agent identity is rejected with FORBIDDEN at the review 
   }
 });
 
-test("action approvals reject authenticated users outside the proposal workspace", async () => {
+test("action approvals reject authenticated users outside the proposal organization", async () => {
   const wiring = await buildWiring();
   try {
-    grantShareTouchpoint(wiring);
+    grantShareEvent(wiring);
     const memberCaller = makeCaller(wiring);
     const proposed = await memberCaller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
-      resourceType: "touchpoint",
+      resourceType: "event",
       inputs: { note: "test_fixture_private_pending_proposal" },
       skill: "stageMutation",
     });
@@ -126,21 +126,21 @@ test("action approvals reject authenticated users outside the proposal workspace
     await assert.rejects(
       () =>
         nonMemberCaller.action.propose({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           actor: { type: "user", id: NON_MEMBER_USER_ID },
           action: "write",
-          resourceType: "touchpoint",
+          resourceType: "event",
           inputs: { note: "test_fixture_forged_proposal" },
           skill: "stageMutation",
         }),
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );
     await assert.rejects(
-      () => nonMemberCaller.action.listPending({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 }),
+      () => nonMemberCaller.action.listPending({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 }),
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );
     await assert.rejects(
-      () => nonMemberCaller.action.listHistory({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 }),
+      () => nonMemberCaller.action.listHistory({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 }),
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );
     await assert.rejects(
@@ -163,10 +163,10 @@ test("action.propose rejects browser-selected Agent identities", async () => {
     await assert.rejects(
       () =>
         caller.action.propose({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           actor: { type: "agent", id: "b0000000-0000-4000-a000-0000000000d1" },
           action: "write",
-          resourceType: "touchpoint",
+          resourceType: "event",
           inputs: { note: "test_fixture_forged_agent_proposal" },
           skill: "stageMutation",
         }),
@@ -182,7 +182,7 @@ test("rejection audit rows never enter Approvals or become approvable", async ()
   try {
     const caller = makeCaller(wiring);
     const rejected = await caller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "write",
       resourceType: "policy",
@@ -191,7 +191,7 @@ test("rejection audit rows never enter Approvals or become approvable", async ()
     });
     assert.equal(rejected.status, "rejected");
     assert.equal(
-      (await caller.action.listPending({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 })).total,
+      (await caller.action.listPending({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 })).total,
       0,
     );
     assert.deepEqual(await caller.action.resolution({ proposalId: rejected.id }), {
@@ -210,16 +210,16 @@ test("rejection audit rows never enter Approvals or become approvable", async ()
 test("action.decide reports post-decision effect failures without losing the recorded decision", async () => {
   const wiring = await buildWiring();
   try {
-    grantShareTouchpoint(wiring);
+    grantShareEvent(wiring);
     wiring.google.onApproved = async () => {
       throw new Error("test_fixture_provider_unavailable");
     };
     const caller = makeCaller(wiring);
     const proposed = await caller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actor: { type: "user", id: PILOT_USER },
       action: "share",
-      resourceType: "touchpoint",
+      resourceType: "event",
       inputs: { note: "test_fixture_effect_failure" },
       skill: "stageMutation",
     });
@@ -247,7 +247,7 @@ test("action.proposeOutreachDraft binds the server-owned Agent to the authentica
   try {
     const caller = makeCaller(wiring);
     const input = {
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourceId: "test_fixture_signal_server_owned_agent",
       label: "Draft follow-up",
       resource: "Test Person",
@@ -266,7 +266,7 @@ test("action.proposeOutreachDraft binds the server-owned Agent to the authentica
     assert.equal(proposed.status, "pending_review");
     assert.equal(duplicate.id, proposed.id);
     assert.equal(
-      (await caller.action.listPending({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 })).total,
+      (await caller.action.listPending({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 })).total,
       1,
     );
 
@@ -275,7 +275,7 @@ test("action.proposeOutreachDraft binds the server-owned Agent to the authentica
     assert.equal(ledgerEntry?.actorId, OUTREACH_AGENT);
     assert.equal(ledgerEntry?.onBehalfOfType, "user");
     assert.equal(ledgerEntry?.onBehalfOfId, PILOT_USER);
-    assert.equal(ledgerEntry?.resourceType, "touchpoint");
+    assert.equal(ledgerEntry?.resourceType, "event");
     assert.equal(ledgerEntry?.action, "write");
 
     await caller.action.decide({ proposalId: proposed.id, decision: "veto" });

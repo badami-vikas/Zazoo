@@ -1,5 +1,7 @@
 import type { ModelTier } from "@bridge/core";
 
+const MAX_PROVIDER_TOKEN_COUNT = 10_000_000;
+
 export function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${label}: expected an object`);
@@ -12,9 +14,21 @@ export function requiredString(value: unknown, label: string): string {
   return value;
 }
 
+export function configuredModelId(value: string, label: string): string {
+  const normalized = value.trim();
+  if (normalized.length === 0 || normalized.length > 256) {
+    throw new Error(`${label}: expected a bounded model id`);
+  }
+  return normalized;
+}
+
 export function requiredTokenCount(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0) {
-    throw new Error(`${label}: expected a non-negative integer`);
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) < 0 ||
+    (value as number) > MAX_PROVIDER_TOKEN_COUNT
+  ) {
+    throw new Error(`${label}: expected a bounded non-negative integer`);
   }
   return value as number;
 }
@@ -31,4 +45,16 @@ export function assertTierSupported(providerId: string, tiers: readonly ModelTie
   if (!tiers.includes(tier)) {
     throw new Error(`${providerId}: tier "${tier}" is not supported by this provider`);
   }
+}
+
+export function verifiedProviderModel(
+  expected: string,
+  value: unknown,
+  label: string,
+): string {
+  const reported = requiredString(value, label).trim();
+  if (reported.length === 0 || reported !== expected) {
+    throw new Error(`${label}: provider reported an unexpected model identity`);
+  }
+  return reported;
 }

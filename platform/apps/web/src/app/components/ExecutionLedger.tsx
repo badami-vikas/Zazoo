@@ -62,9 +62,9 @@ const DecisionPill = ({ d }: { d: Decision }) => (
 const ActorCell = ({ kind, name }: { kind: 'agent' | 'human'; name: string }) => {
   const Icon = kind === 'agent' ? Bot : User;
   return (
-    <span className="inline-flex items-center gap-1.5 text-sm" style={{ color: 'var(--color-navy)' }}>
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-sm" style={{ color: 'var(--color-navy)' }}>
       <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: kind === 'agent' ? 'var(--color-steel)' : 'var(--color-warm-gray)' }} />
-      <span className="font-medium">{name}</span>
+      <span className="min-w-0 break-all font-medium">{name}</span>
     </span>
   );
 };
@@ -76,7 +76,7 @@ export function ExecutionLedger() {
   const [lens, setLens] = useState(false); // delegation lens — group by on-behalf-of
   const [openId, setOpenId] = useState<string | null>(null);
 
-  // Append-only ledger, Supabase-first → local fallback (mirrors data/db.ts).
+  // Append-only ledger, API-first with an honest empty local fallback.
   const [entries, setEntries] = useState<LedgerEntry[]>(allLedger);
   const [source, setSource] = useState<LedgerSource>('local');
   const [truncated, setTruncated] = useState(false);
@@ -164,7 +164,7 @@ export function ExecutionLedger() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between">
         <div>
           <h2 className="text-lg font-bold mb-1" style={{ color: 'var(--color-navy)' }}>Execution Ledger</h2>
           <p className="text-sm" style={{ color: 'var(--color-navy-mid)' }}>Every action an agent or teammate took — what, on whose behalf, and why.</p>
@@ -175,9 +175,9 @@ export function ExecutionLedger() {
       </div>
 
       {/* tamper-evident banner */}
-      <div className="flex items-center gap-3 px-4 py-3 rounded-xl border" style={{ backgroundColor: 'color-mix(in srgb, var(--color-navy) 4%, transparent)', borderColor: 'var(--color-border)' }}>
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl border" style={{ backgroundColor: 'color-mix(in srgb, var(--color-navy) 4%, transparent)', borderColor: 'var(--color-border)' }}>
         <Lock className="w-4 h-4 shrink-0" style={{ color: 'var(--color-navy-mid)' }} />
-        <div className="text-xs flex-1" style={{ color: 'var(--color-navy-mid)' }}>
+        <div className="min-w-0 flex-[1_1_16rem] text-xs" style={{ color: 'var(--color-navy-mid)' }}>
           <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>Append-only · tamper-evident.</span> Entries cannot be edited or deleted — the database revokes UPDATE and DELETE on this table. Export for SOC 2 evidence.
         </div>
         <button onClick={() => download('bridge-ledger.csv', toCSV(rows), 'text/csv')} className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)', backgroundColor: 'white' }}>
@@ -193,7 +193,7 @@ export function ExecutionLedger() {
         <Filter className="w-4 h-4" style={{ color: 'var(--color-warm-gray)' }} />
         <Select value={actorFilter} onChange={setActorFilter} opts={[{ v: 'all', label: 'All actors' }, { v: 'agent', label: 'Agents' }, { v: 'human', label: 'Humans' }]} />
         <Select value={decisionFilter} onChange={setDecisionFilter} opts={[{ v: 'all', label: 'Any decision' }, { v: 'approved', label: 'Approved' }, { v: 'edited_approved', label: 'Edited + approved' }, { v: 'vetoed', label: 'Vetoed' }, { v: 'auto_approved', label: 'Auto-approved' }, { v: 'pending', label: 'Pending' }]} />
-        <Select value={resourceFilter} onChange={setResourceFilter} opts={[{ v: 'all', label: 'Any resource' }, { v: 'person', label: 'Person' }, { v: 'initiative', label: 'Initiative' }, { v: 'community', label: 'Community' }, { v: 'ritual', label: 'Workflow' }, { v: 'external', label: 'External' }]} />
+        <Select value={resourceFilter} onChange={setResourceFilter} opts={[{ v: 'all', label: 'Any resource' }, { v: 'person', label: 'Person' }, { v: 'record', label: 'Record' }, { v: 'community', label: 'Community' }, { v: 'automation', label: 'Automation' }, { v: 'external', label: 'External' }]} />
         <button
           onClick={() => setLens(l => !l)}
           className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors ml-auto"
@@ -205,7 +205,7 @@ export function ExecutionLedger() {
       </div>
 
       {/* table */}
-      <div className="rounded-xl border overflow-hidden shadow-sm" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white' }}>
+      <div className="rounded-xl border overflow-x-auto shadow-sm" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white' }}>
         {!lens ? (
           <table className="w-full">
             <TableHead />
@@ -242,24 +242,24 @@ export function ExecutionLedger() {
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpenId(null)} className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(26,43,60,0.35)' }} />
             <motion.div
               initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', bounce: 0, duration: 0.35 }}
-              className="fixed top-0 right-0 bottom-0 w-[460px] max-w-[92vw] z-50 overflow-y-auto shadow-2xl"
+              className="fixed top-0 right-0 bottom-0 w-[460px] max-w-[92vw] z-50 overflow-x-hidden overflow-y-auto shadow-2xl"
               style={{ backgroundColor: 'var(--color-background)' }}
             >
-              <div className="sticky top-0 z-10 px-5 py-4 border-b flex items-center justify-between" style={{ backgroundColor: 'white', borderColor: 'var(--color-border)' }}>
-                <div className="flex items-center gap-2">
-                  <GitCommitVertical className="w-4 h-4" style={{ color: 'var(--color-steel)' }} />
+              <div className="sticky top-0 z-10 px-4 py-4 sm:px-5 border-b flex items-start justify-between gap-2" style={{ backgroundColor: 'white', borderColor: 'var(--color-border)' }}>
+                <div className="flex min-w-0 flex-1 items-start gap-2">
+                  <GitCommitVertical className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--color-steel)' }} />
                   <span className="text-sm font-bold" style={{ color: 'var(--color-navy)' }}>Decision trace</span>
-                  <span className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-warm-gray)' }}>{open.id}</span>
+                  <span className="min-w-0 break-all text-xs font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-warm-gray)' }}>{open.id}</span>
                 </div>
-                <button onClick={() => setOpenId(null)} className="p-1.5 rounded-lg" style={{ color: 'var(--color-warm-gray)' }}><X className="w-4 h-4" /></button>
+                <button onClick={() => setOpenId(null)} className="shrink-0 p-1.5 rounded-lg" style={{ color: 'var(--color-warm-gray)' }}><X className="w-4 h-4" /></button>
               </div>
 
-              <div className="px-5 py-5 flex flex-col gap-5">
+              <div className="px-4 py-5 sm:px-5 flex flex-col gap-5">
                 {/* header line */}
                 <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <ActorCell kind={open.actorKind} name={open.actor} />
-                    {open.onBehalfOf && <><ArrowRight className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} /><span className="text-sm" style={{ color: 'var(--color-navy-mid)' }}>on behalf of <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{open.onBehalfOf}</span></span></>}
+                    {open.onBehalfOf && <><ArrowRight className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--color-warm-gray)' }} /><span className="min-w-0 break-all text-sm" style={{ color: 'var(--color-navy-mid)' }}>on behalf of <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{open.onBehalfOf}</span></span></>}
                   </div>
                   <div className="text-sm" style={{ color: 'var(--color-navy)' }}><span className="font-semibold">{open.action}</span> → {open.resource}</div>
                   <div><DecisionPill d={open.decision} /></div>
@@ -276,8 +276,16 @@ export function ExecutionLedger() {
                 </Section>
 
                 {/* proposed + diff */}
-                <Section title={open.prior ? 'Proposed · diff vs prior' : 'Proposed'}>
-                  <div className="text-xs whitespace-pre-wrap leading-relaxed font-sans">
+                <Section
+                  title={
+                    open.decision === 'edited_approved'
+                      ? 'Applied after correction'
+                      : open.prior
+                        ? 'Proposed · diff vs prior'
+                        : 'Proposed'
+                  }
+                >
+                  <div className="text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed font-sans">
                     {diffLines(open.prior, open.proposed).map((l, i) => (
                       <div key={i} className="px-1.5 -mx-1.5 rounded" style={{
                         backgroundColor: l.kind === 'add' ? 'color-mix(in srgb, var(--success) 12%, transparent)' : l.kind === 'del' ? 'color-mix(in srgb, var(--danger) 10%, transparent)' : 'transparent',
@@ -328,7 +336,7 @@ export function ExecutionLedger() {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-xl border p-3.5" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }}>
+    <div className="min-w-0 rounded-xl border p-3.5" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }}>
       <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--color-navy-mid)' }}>{title}</div>
       {children}
     </div>

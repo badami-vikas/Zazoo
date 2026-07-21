@@ -3,7 +3,7 @@
  *
  * Asserts the platform INVARIANTS from docs/wiki/architecture.md as a labeled,
  * runnable set. Each test maps to one stated invariant. This is the guardrail
- * that fails loudly if a refactor weakens the spine. (The home-workspace
+ * that fails loudly if a refactor weakens the spine. (The home-organization
  * invariant requires the live DB and is covered by the live-DB conformance run.)
  */
 import { test } from "node:test";
@@ -14,7 +14,8 @@ import {
   SeededRng,
   UuidGen,
   UniversalActionPipeline,
-  InProcessRitualExecutor,
+  InProcessAutomationExecutor,
+  InMemoryAutomationRegistry,
   InMemoryRoleStore,
   InMemoryAgentStore,
   InMemoryEphemeralStore,
@@ -58,7 +59,7 @@ function grantWrite(roles: InMemoryRoleStore, actorKey: string) {
   roles.direct.set(actorKey, [{ resourceType: "person", resourceId: null, action: "write", effect: "allow" }]);
 }
 const baseReq = {
-  workspaceId: WS,
+  organizationId: WS,
   actor: { type: "user" as const, id: "u1" },
   action: "write" as const,
   resourceType: "person" as const,
@@ -213,18 +214,24 @@ test("INVARIANT local-first gate: a CLOUD agent may NOT read the private/local t
   assert.match(p.rejectionReason ?? "", /data-scope/);
 });
 
-test("INVARIANT every ritual step is governed (a denied step halts the run)", async () => {
+test("INVARIANT every Automation step is governed (a denied step halts the Run)", async () => {
   const h = build();
   h.agents.assumed.set("a1", "r1");
   h.agents.scope.set("a1", ["person:write"]); // not community
   h.roles.roleGrants.set("r1", [{ resourceType: "person", resourceId: null, action: "write", effect: "allow" }]);
-  const exec = new InProcessRitualExecutor(h.pipeline);
-  const res = await exec.run(
+  const registry = new InMemoryAutomationRegistry().register({
+    id: "automation-1",
+    name: "Governed Automation",
+    organizationId: WS,
+    agentId: "a1",
+    agentPlane: "local",
+    steps: [{ skill: "echo", action: "write", resourceType: "community", inputs: {} }],
+  });
+  const exec = new InProcessAutomationExecutor(h.pipeline, { registry });
+  const res = await exec.runById(
     {
-      workspaceId: WS,
-      ritualId: "r",
-      actor: { type: "agent", id: "a1" },
-      steps: [{ skill: "echo", action: "write", resourceType: "community", inputs: {} }],
+      organizationId: WS,
+      automationId: "automation-1",
     },
     ctx(),
   );

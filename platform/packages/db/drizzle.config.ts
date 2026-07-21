@@ -2,7 +2,8 @@ import { defineConfig } from "drizzle-kit";
 
 /**
  * drizzle-kit config. `generate` is offline — it diffs the schema to SQL with no
- * DB connection. `migrate`/`push` need DATABASE_URL (the Supabase pooler URL).
+ * DB connection. `migrate`/`push` prefer the owner-only
+ * MIGRATION_DATABASE_URL; DATABASE_URL remains a local-development fallback.
  *
  * NOTE: RLS policies, the append-only REVOKEs, and the agent-floor DENY seed live
  * in the hand-written migration alongside the generated DDL — drizzle-kit emits
@@ -12,7 +13,12 @@ export default defineConfig({
   schema: "./src/schema.ts",
   out: "./migrations",
   dialect: "postgresql",
-  dbCredentials: { url: process.env.DATABASE_URL ?? "postgres://localhost:5432/bridge" },
+  dbCredentials: {
+    url:
+      process.env.MIGRATION_DATABASE_URL ??
+      process.env.DATABASE_URL ??
+      "postgres://localhost:5432/bridge",
+  },
   strict: true,
   verbose: true,
 });
