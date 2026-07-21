@@ -44,11 +44,12 @@ export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId:
 }
 
 const SOURCE_REPOSITORY = "https://github.com/badami-vikas/relationship-os";
-const INSPECTED_COMMIT = "cd0ad97286e7bad0cde6f68ca514e33d3918e167";
+const INSPECTED_COMMIT = "c7080173dc3c2383d2ddb0106b660be92315978d";
 const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   "deal-pilot": "platform/modules/dealpilot/src/manifest.ts",
   "job-pilot": "platform/modules/jobpilot/src/manifest.ts",
   relationship: "platform/apps/web/src/app/pages/RelationshipPage.tsx",
+  "task-manager": "platform/packages/core/src/task-manager.ts",
 };
 
 function builtInSourceRef(moduleName: string): string {
@@ -300,6 +301,81 @@ const relationshipCapabilities = [
   ),
 ];
 
+const taskManagerSkills = [
+  ["goal-outcome-framing", "Internal Strategist"],
+  ["candidate-task-generation", "Internal Strategist"],
+  ["premortem-scenario", "Internal Strategist"],
+  ["task-decomposition", "Internal Strategist"],
+  ["task-tree-restructure", "Internal Strategist"],
+  ["exit-test-authoring", "Internal Strategist"],
+  ["task-reconciliation", "Internal Strategist"],
+  ["queue-sequencing", "Internal Strategist"],
+  ["impact-fit-analysis", "Internal Strategist"],
+  ["agent-task-routing", "Chief of Staff"],
+  ["reschedule-confidence-calibration", "Learning Agent"],
+  ["proactive-opportunity-scan", "Internal Strategist"],
+  ["ledger-projection", "Internal Strategist"],
+  ["evidence-verification", "Internal Strategist"],
+  ["progress-synthesis", "Chief of Staff"],
+  ["habit-scaffolding", "Chief of Staff"],
+] as const;
+
+const taskManagerAgents = [
+  { id: "chief-of-staff", name: "Chief of Staff" },
+  { id: "internal-strategist", name: "Internal Strategist" },
+  { id: "learning-agent", name: "Learning Agent" },
+  { id: "governance-agent", name: "Governance Agent" },
+  { id: "capability-builder", name: "Capability Builder" },
+] as const;
+
+const taskManagerAutomations = [
+  ["task-created-impact-analysis", "Internal Strategist"],
+  ["agent-task-routing-on-assign", "Chief of Staff"],
+  ["reschedule-approval-gate", "Governance Agent"],
+  ["routing-approval-gate", "Governance Agent"],
+  ["task-tree-restructure-proposal", "Internal Strategist"],
+  ["target-change-reopen-prompt", "Internal Strategist"],
+  ["proactive-scan-cadence", "Internal Strategist"],
+  ["completed-bay-sweep", "Governance Agent"],
+  ["wip-breach-detector", "Governance Agent"],
+  ["unverified-done-challenger", "Governance Agent"],
+  ["dependency-unblock-notifier", "Chief of Staff"],
+  ["ledger-drift-detector", "Internal Strategist"],
+  ["stale-task-review", "Chief of Staff"],
+  ["goal-review-cadence", "Internal Strategist"],
+  ["standup-brief", "Chief of Staff"],
+] as const;
+
+const taskManagerCapabilities = [
+  capability("task-manager.tasks", "Tasks Database and Views", "view", [readAll("record"), writeAll("record")]),
+  ...taskManagerSkills.map(([id]) =>
+    capability(`task-manager.skill.${id}`, id.replaceAll("-", " "), "skill", [readAll("record"), writeAll("record")])
+  ),
+  ...taskManagerAgents.map((agent) =>
+    capability(
+      `task-manager.agent.${agent.id}`,
+      agent.name,
+      "agent",
+      [readAll("record"), writeAll("record")],
+      [],
+      taskManagerSkills
+        .filter(([, owner]) => owner === agent.name)
+        .map(([skillId]) => ({ manifestId: `task-manager.skill.${skillId}`, versionRange: "0.2.0" })),
+    )
+  ),
+  ...taskManagerAutomations.map(([id, agentName]) => {
+    const agent = taskManagerAgents.find((candidate) => candidate.name === agentName)!;
+    return capability(
+      `task-manager.automation.${id}`,
+      id.replaceAll("-", " "),
+      "automation",
+      [readAll("record"), writeAll("record")],
+      [],
+      [{ manifestId: `task-manager.agent.${agent.id}`, versionRange: "0.2.0" }],
+    );
+  }),
+];
+
 export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
   {
     computedRisk: "external",
@@ -494,6 +570,51 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
           kind: "skill",
           tags: ["need:cited-role-model-practice"],
         }],
+      },
+    },
+  },
+  {
+    computedRisk: "operational",
+    manifest: {
+      name: "task-manager",
+      version: "1.0.0",
+      kind: "organization_definition",
+      summary: "One governed execution queue over a recursive Task Database.",
+      description:
+        "Provides Task Table, Form, Tree, Record Detail, governed restructuring, evidence verification, planning proposals, guard Automations, and deterministic tasks.md projection.",
+      lineageManifestId: null,
+      dependencies: [],
+      capabilities: taskManagerCapabilities,
+      contextProviders: [],
+      organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      module: {
+        displayName: "Task Manager",
+        route: "/task-manager",
+        pages: [{
+          id: "queue",
+          name: "Queue",
+          route: "/task-manager",
+          databaseId: "task-manager.tasks",
+          capabilityId: "task-manager.tasks",
+        }],
+        agents: taskManagerAgents.map((agent) => ({
+          ...agent,
+          capabilityId: `task-manager.agent.${agent.id}`,
+          skillIds: taskManagerSkills
+            .filter(([, owner]) => owner === agent.name)
+            .map(([skillId]) => `task-manager.skill.${skillId}`),
+        })),
+        automations: taskManagerAutomations.map(([id, agentName]) => {
+          const agent = taskManagerAgents.find((candidate) => candidate.name === agentName)!;
+          return {
+            id,
+            name: id.replaceAll("-", " "),
+            capabilityId: `task-manager.automation.${id}`,
+            agentId: agent.id,
+            trigger: id.includes("cadence") || id.includes("brief") ? "Scheduled" : "Task Event",
+            procedure: `task-manager.${id}`,
+          };
+        }),
       },
     },
   },

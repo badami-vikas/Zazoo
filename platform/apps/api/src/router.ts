@@ -153,7 +153,14 @@ import {
   type CommonsListQuery,
   type CommonsModuleDetail,
   type LedgerEntry,
+  type TaskOutcome,
   uuidv7,
+  emitTasksMarkdown,
+  detectTaskProjectionDrift,
+  evaluateTaskGuards,
+  routeTaskByRequiredSkill,
+  classifyTaskChangeBand,
+  calibratedTaskChangeDecision,
 } from "@bridge/core";
 import { authUrl } from "@bridge/integrations-google";
 import {
@@ -3012,7 +3019,344 @@ async function retryApprovedRelationship(
   }
 }
 
+const taskOutcomeInput = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1),
+  measure: z.string().trim().min(1),
+  target: z.string().trim().min(1),
+  current: z.string().optional(),
+  indicatorKind: z.enum(["leading", "lagging"]),
+  northStar: z.boolean().optional(),
+});
+
+const taskRecordStatusInput = z.enum([
+  "candidate",
+  "committed",
+  "pending",
+  "in_progress",
+  "blocked",
+  "done",
+  "parked",
+  "abandoned",
+  "archived",
+]);
+
+function normalizeTaskOutcomes(outcomes: z.infer<typeof taskOutcomeInput>[]): TaskOutcome[] {
+  return outcomes.map((outcome) => ({
+    id: outcome.id,
+    title: outcome.title,
+    measure: outcome.measure,
+    target: outcome.target,
+    indicatorKind: outcome.indicatorKind,
+    ...(outcome.current !== undefined ? { current: outcome.current } : {}),
+    ...(outcome.northStar !== undefined ? { northStar: outcome.northStar } : {}),
+  }));
+}
+
+const taskRestructureInput = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("promote"), taskId: z.string().uuid() }),
+  z.object({ kind: z.literal("re_parent"), taskId: z.string().uuid(), parentTaskId: z.string().uuid() }),
+  z.object({ kind: z.literal("reorder"), taskId: z.string().uuid(), sortOrder: z.number().int().positive() }),
+  z.object({
+    kind: z.literal("insert_ancestor_above"),
+    taskId: z.string().uuid(),
+    ancestor: z.object({
+      id: z.string().uuid().optional(),
+      title: z.string().trim().min(1),
+      ownerType: z.enum(["human", "agent"]),
+      ownerId: z.string().uuid(),
+      isGoal: z.boolean().optional(),
+      outcomes: z.array(taskOutcomeInput).optional(),
+      exitTest: z.string().trim().min(1).optional(),
+    }),
+  }),
+]);
+
 export const appRouter = t.router({
+  taskManager: t.router({
+    list: authenticatedProcedure.input(z.object({ organizationId: z.string().uuid() })).query(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      return ctx.wiring.taskManager.list(input.organizationId);
+    }),
+    get: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      taskId: z.string().uuid(),
+    })).query(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const task = await ctx.wiring.taskManager.get(input.organizationId, input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: `unknown Task ${input.taskId}` });
+      return task;
+    }),
+    create: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      title: z.string().trim().min(1),
+      taskType: z.string().trim().min(1).optional(),
+      isGoal: z.boolean().optional(),
+      outcomes: z.array(taskOutcomeInput).default([]),
+      reviewCadence: z.string().trim().min(1).optional(),
+      exitTest: z.string().trim().min(1).optional(),
+      status: taskRecordStatusInput.optional(),
+      priority: z.string().trim().min(1).optional(),
+      ownerType: z.enum(["human", "agent"]),
+      ownerId: z.string().uuid(),
+      assignedAgentId: z.string().uuid().optional(),
+      requiredSkillId: z.string().trim().min(1).optional(),
+      parentTaskId: z.string().uuid().optional(),
+      scheduledFor: z.string().date().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const taskId = ctx.run.ids.next();
+      const taskInput = {
+        id: taskId,
+        organizationId: input.organizationId,
+        title: input.title,
+        outcomes: normalizeTaskOutcomes(input.outcomes),
+        ownerType: input.ownerType,
+        ownerId: input.ownerId,
+        ...(input.taskType ? { taskType: input.taskType } : {}),
+        ...(input.isGoal !== undefined ? { isGoal: input.isGoal } : {}),
+        ...(input.reviewCadence ? { reviewCadence: input.reviewCadence } : {}),
+        ...(input.exitTest ? { exitTest: input.exitTest } : {}),
+        ...(input.status ? { status: input.status } : {}),
+        ...(input.priority ? { priority: input.priority } : {}),
+        ...(input.assignedAgentId ? { assignedAgentId: input.assignedAgentId } : {}),
+        ...(input.requiredSkillId ? { requiredSkillId: input.requiredSkillId } : {}),
+        ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+        ...(input.scheduledFor ? { scheduledFor: input.scheduledFor } : {}),
+      };
+      const populated = (await ctx.wiring.taskManager.list(input.organizationId)).length > 0;
+      const governed = populated
+        ? await ctx.wiring.pipeline.propose({
+            organizationId: input.organizationId,
+            actor: ctx.identity,
+            action: "write",
+            resourceType: "record",
+            resourceId: taskId,
+            inputs: { kind: "task_created_impact_analysis", task: taskInput },
+            skill: KERNEL_PASSTHROUGH_SKILL,
+          }, ctx.run, { requireHumanReview: true })
+        : null;
+      if (governed && governed.status !== "pending_review") {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Task impact analysis did not halt for Human review (${governed.status}: ${governed.rejectionReason ?? "no reason"})`,
+        });
+      }
+      let proposalIdAvailable = Boolean(governed);
+      return ctx.wiring.taskManager.create(taskInput, {
+        nextId: () => {
+          if (governed && proposalIdAvailable) {
+            proposalIdAvailable = false;
+            return governed.id;
+          }
+          return ctx.run.ids.next();
+        },
+        nowISO: () => ctx.run.clock.nowISO(),
+      });
+    }),
+    transition: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      taskId: z.string().uuid(),
+      status: taskRecordStatusInput,
+    })).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      return ctx.wiring.taskManager.transition(input.organizationId, input.taskId, input.status, {
+        nextId: () => ctx.run.ids.next(),
+        nowISO: () => ctx.run.clock.nowISO(),
+      });
+    }),
+    verify: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      taskId: z.string().uuid(),
+      evidenceRefs: z.array(z.string().trim().min(1)).min(1),
+    })).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      return ctx.wiring.taskManager.verify(input.organizationId, input.taskId, {
+        verifiedAt: ctx.run.clock.nowISO(),
+        verifiedBy: ctx.identity.id,
+        evidenceRefs: input.evidenceRefs,
+        result: "passed",
+      }, { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() });
+    }),
+    updateOutcomeTarget: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      taskId: z.string().uuid(),
+      outcomeId: z.string().min(1),
+      target: z.string().trim().min(1),
+    })).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const result = await ctx.wiring.taskManager.updateOutcomeTarget(
+        input.organizationId,
+        input.taskId,
+        input.outcomeId,
+        input.target,
+        { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
+      );
+      if (result.reopenProposal) {
+        const governed = await ctx.wiring.pipeline.propose({
+          organizationId: input.organizationId,
+          actor: ctx.identity,
+          action: "write",
+          resourceType: "record",
+          resourceId: input.taskId,
+          inputs: { kind: "target_change_reopen", proposal: result.reopenProposal },
+          skill: KERNEL_PASSTHROUGH_SKILL,
+        }, ctx.run, { proposalId: result.reopenProposal.id, requireHumanReview: true });
+        if (governed.status !== "pending_review") {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Task reopen did not halt for Human review" });
+        }
+      }
+      return result;
+    }),
+    proposeRestructure: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      operation: taskRestructureInput,
+    })).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const operation = input.operation.kind === "insert_ancestor_above"
+        ? {
+            ...input.operation,
+            ancestor: {
+              id: input.operation.ancestor.id ?? ctx.run.ids.next(),
+              organizationId: input.organizationId,
+              title: input.operation.ancestor.title,
+              ownerType: input.operation.ancestor.ownerType,
+              ownerId: input.operation.ancestor.ownerId,
+              ...(input.operation.ancestor.isGoal !== undefined ? { isGoal: input.operation.ancestor.isGoal } : {}),
+              ...(input.operation.ancestor.outcomes ? { outcomes: normalizeTaskOutcomes(input.operation.ancestor.outcomes) } : {}),
+              ...(input.operation.ancestor.exitTest ? { exitTest: input.operation.ancestor.exitTest } : {}),
+            },
+          }
+        : input.operation;
+      const governed = await ctx.wiring.pipeline.propose({
+        organizationId: input.organizationId,
+        actor: ctx.identity,
+        action: "write",
+        resourceType: "record",
+        resourceId: input.operation.taskId,
+        inputs: { kind: "task_tree_restructure", operation },
+        skill: KERNEL_PASSTHROUGH_SKILL,
+      }, ctx.run, { requireHumanReview: true });
+      if (governed.status !== "pending_review") {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Task restructure did not halt for Human review (${governed.status}: ${governed.rejectionReason ?? "no reason"})`,
+        });
+      }
+      let proposalIdAvailable = true;
+      return ctx.wiring.taskManager.proposeRestructure(
+        input.organizationId,
+        operation,
+        INTERNAL_STRATEGIST_AGENT,
+        {
+          nextId: () => {
+            if (proposalIdAvailable) {
+              proposalIdAvailable = false;
+              return governed.id;
+            }
+            return ctx.run.ids.next();
+          },
+          nowISO: () => ctx.run.clock.nowISO(),
+        },
+      );
+    }),
+    decideProposal: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      proposalId: z.string().uuid(),
+      decision: z.enum(["approve", "veto"]),
+    })).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      if (ctx.identity.type !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "Only a Human may decide a Task proposal" });
+      try {
+        await ctx.wiring.pipeline.decide(input.proposalId, input.decision, ctx.identity, ctx.run);
+      } catch (error) {
+        if (!(error instanceof AlreadyResolvedError)) throw error;
+        if (error.existingDecision !== input.decision) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `Pipeline proposal was already resolved as ${error.existingDecision ?? "unknown"}`,
+          });
+        }
+      }
+      return ctx.wiring.taskManager.decideProposal(
+        input.organizationId,
+        input.proposalId,
+        input.decision,
+        ctx.identity.id,
+        { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
+      );
+    }),
+    projection: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      externalContent: z.string().optional(),
+    })).query(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const tasks = await ctx.wiring.taskManager.list(input.organizationId);
+      const projection = emitTasksMarkdown(tasks);
+      return {
+        projection,
+        ...(input.externalContent ? { drift: detectTaskProjectionDrift(projection, input.externalContent, tasks) } : {}),
+        guards: evaluateTaskGuards(tasks),
+      };
+    }),
+    route: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      requiredSkillId: z.string().trim().min(1),
+      candidateAgentIds: z.array(z.string().uuid()).min(1),
+    })).query(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const manifests = ctx.wiring.skillManifests.forSkill(input.organizationId, input.requiredSkillId);
+      const agents = await Promise.all(input.candidateAgentIds.map(async (id) => ({
+        id,
+        active: (await ctx.wiring.agents.organizationId(id)) === input.organizationId && await ctx.wiring.agents.isActive(id),
+        allowedSkills: await ctx.wiring.agents.allowedSkills(id),
+        capabilityScope: await ctx.wiring.agents.capabilityScope(id),
+        plane: "local" as const,
+        dataScope: await ctx.wiring.agents.dataScope(id),
+      })));
+      return routeTaskByRequiredSkill(input.requiredSkillId, agents, manifests.map((manifest) => ({
+        skillId: manifest.skillId,
+        permissions: manifest.permissions,
+        plane: manifest.plane,
+        dataScopes: manifest.dataScopes,
+      })));
+    }),
+    approvalBand: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      kind: z.enum(["route", "reschedule"]),
+      deltaDays: z.number().optional(),
+      candidateCount: z.number().int().nonnegative().optional(),
+      crossesModule: z.boolean().optional(),
+      approvals: z.number().int().nonnegative(),
+      vetoes: z.number().int().nonnegative(),
+    })).query(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const band = classifyTaskChangeBand({
+        kind: input.kind,
+        ...(input.deltaDays !== undefined ? { deltaDays: input.deltaDays } : {}),
+        ...(input.candidateCount !== undefined ? { candidateCount: input.candidateCount } : {}),
+        ...(input.crossesModule !== undefined ? { crossesModule: input.crossesModule } : {}),
+      });
+      return { band, decision: calibratedTaskChangeDecision({
+        band,
+        approvals: input.approvals,
+        vetoes: input.vetoes,
+        actorType: ctx.identity.type === "user" ? "human" : "agent",
+      }) };
+    }),
+  }),
+
   health: procedure.query(() => ({ ok: true, service: "bridge-api" })),
 
   view: t.router({

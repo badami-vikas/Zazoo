@@ -2,10 +2,10 @@
 title: Task Manager Module Plan — Design, Business, and Technical
 type: raw
 doc_kind: plan
-status: proposed
+status: active
 companions: [brd-taskmanager-2026-07.md, initiatives-taskade-research.md, productivity-app-research-2026.md, calendar-module-plan-2026-07.md, agent-goal-skill-orchestration-plan-2026-07.md, ui-architecture-rules-2026-07.md, clean-room-capability-research-protocol-2026-07.md]
 related_wiki: ../wiki/taskmanager.md
-updated: 2026-07-17
+updated: 2026-07-21
 tags: [taskmanager, module, tasks, planning, playbooks, agents, skills, automations, ledger, agent-first]
 ---
 
@@ -346,9 +346,9 @@ slices:
     deliverables:
       - Calendar adapters (task dates, Task-tree spans) via CAL3 contract; Second Brain nodes/edges; Person-ref owners/stakeholders
       - proactive-opportunity-scan Skill + proactive-scan-cadence Automation (Internal Strategist proposes candidate Tasks from cross-Module evidence)
-      - game-designs workspace live: tasks migrated (goal-flagged roots + trees), repo tasks.md linked via TM2 contract
+      - Corporate-training-sims workspace live: tasks migrated (goal-flagged roots + trees), repo tasks.md linked via TM2 contract
     exit_criteria:
-      - game-designs certification: its coding agent works a full task (orient → execute → evidence → done → sweep) against the Bridge-projected ledger with zero duplicate-queue artifacts
+      - Corporate-training-sims certification: its coding agent works a full task (orient → execute → evidence → done → sweep) against the Bridge-projected ledger with zero duplicate-queue artifacts
       - a Task's resolved goal-ancestor renders in Second Brain; task dates appear on Calendar with zero renderer changes
       - a scheduled proactive scan against real cross-Module data produces at least one honest candidate proposal (or an honest "nothing found" — never a fabricated one)
   TM6:

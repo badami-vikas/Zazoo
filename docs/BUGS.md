@@ -1600,3 +1600,6 @@ The broad `platform/apps/web/test/onboarding-learning.test.mjs` file expected a 
 
 ## RESOLVED 2026-07-20 — Graph View emitted React ref warnings on the exact prototype path
 Final 375px Second Brain certification exposed two console warnings: `DataViews` passed a ref to the function `Input`, and Radix `SlotClone` passed a ref through the function `Button`. Both shared primitives now forward their refs. A fresh Chrome process then completed Relationship, DealPilot, Second Brain, Signal, panel, and source-navigation paths with zero runtime or network errors.
+## RESOLVED 2026-07-21 — TASK-021 bounded review defects
+
+The changed-scope review found inherited anchors missing on new descendants, veto/approval split-brain, restructure lost-update risk, private Task overexposure, tied sibling reorder, stale parent after projection promotion, Graph `goal:`/`task:` ID divergence, lexicographic path order, and an invalid pre-source Commons provenance pin. TASK-021 fixes now inherit nearest goal-flagged anchors, require matching prior pipeline decisions, lock/version affected rows, enforce Human-owner private RLS, perform positional sibling renumbering, clear root parents, normalize Graph identities to Task, compare numeric path segments, and pin Commons provenance to source checkpoint `c708017`. Core/DB/API/Graph/RLS/migration regressions cover the fixes.

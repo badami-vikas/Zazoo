@@ -17,7 +17,6 @@ import {
   events,
   fileRefs,
   files,
-  goals,
   records,
   recordCommunities,
   recordParticipants,
@@ -140,6 +139,7 @@ function normalizeFullGraphNodeType(value: string): string | null {
     jobpilot_jobs: "job",
     jobpilot_application: "application",
     jobpilot_applications: "application",
+    goal: "task",
   };
   const nodeType = aliases[normalized] ?? normalized;
   return FULL_GRAPH_NODE_TYPES.has(nodeType) ? nodeType : null;
@@ -159,7 +159,6 @@ function fullGraphDatabase(nodeType: string): { id: string; label: string; modul
     file: { id: "files", label: "Files", moduleId: "files" },
     job: { id: "jobpilot.jobs", label: "Jobs", moduleId: "job-pilot" },
     application: { id: "jobpilot.applications", label: "Applications", moduleId: "job-pilot" },
-    goal: { id: "task-manager.goals", label: "Goals", moduleId: "task-manager" },
     task: { id: "task-manager.tasks", label: "Tasks", moduleId: "task-manager" },
     resource: { id: "resources", label: "Resources", moduleId: "resources" },
   };
@@ -1584,7 +1583,7 @@ export class DrizzleGraphStore {
       this.#db
         .select({
           id: tasks.id,
-          goalId: tasks.goalId,
+          anchorTaskId: tasks.anchorTaskId,
           createdAt: tasks.createdAt,
         })
         .from(tasks)
@@ -1666,14 +1665,15 @@ export class DrizzleGraphStore {
       });
     }
     for (const row of taskRows.slice(0, sourceLimit)) {
+      if (!row.anchorTaskId || row.anchorTaskId === row.id) continue;
       candidates.push({
-        id: `task-goal:${row.id}:${row.goalId}`,
+        id: `task-anchor:${row.id}:${row.anchorTaskId}`,
         sourceId: fullGraphNodeId("task", row.id),
-        targetId: fullGraphNodeId("goal", row.goalId),
+        targetId: fullGraphNodeId("task", row.anchorTaskId),
         label: "advances",
         relationType: "advances",
         sourceModule: "task-manager",
-        evidence: "Task Goal reference · source task-manager",
+        evidence: "Task anchor reference · source task-manager",
         sortAt: row.createdAt,
       });
     }
@@ -1725,9 +1725,10 @@ export class DrizzleGraphStore {
       this.#db.select({ id: jobpilotApplications.id }).from(jobpilotApplications).where(
         eq(jobpilotApplications.organizationId, organizationId),
       ).orderBy(desc(jobpilotApplications.updatedAt)).limit(nodeSourceLimit + 1),
-      this.#db.select({ id: goals.id }).from(goals).where(
-        eq(goals.organizationId, organizationId),
-      ).orderBy(desc(goals.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: tasks.id }).from(tasks).where(and(
+        eq(tasks.organizationId, organizationId),
+        eq(tasks.isGoal, true),
+      )).orderBy(desc(tasks.createdAt)).limit(nodeSourceLimit + 1),
       this.#db.select({ id: tasks.id }).from(tasks).where(
         eq(tasks.organizationId, organizationId),
       ).orderBy(desc(tasks.createdAt)).limit(nodeSourceLimit + 1),
@@ -1744,7 +1745,7 @@ export class DrizzleGraphStore {
       ...baseFiles.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "file", nodeId: row.id })),
       ...baseJobs.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "job", nodeId: row.id })),
       ...baseApplications.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "application", nodeId: row.id })),
-      ...baseGoals.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "goal", nodeId: row.id })),
+      ...baseGoals.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "task", nodeId: row.id })),
       ...baseTasks.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "task", nodeId: row.id })),
       ...baseResources.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "resource", nodeId: row.id })),
     ];
@@ -1822,10 +1823,11 @@ export class DrizzleGraphStore {
             inArray(jobpilotApplications.id, ids("application")),
           )),
       ids("goal").length === 0
-        ? Promise.resolve<Array<typeof goals.$inferSelect>>([])
-        : this.#db.select().from(goals).where(and(
-            eq(goals.organizationId, organizationId),
-            inArray(goals.id, ids("goal")),
+        ? Promise.resolve<Array<typeof tasks.$inferSelect>>([])
+        : this.#db.select().from(tasks).where(and(
+            eq(tasks.organizationId, organizationId),
+            eq(tasks.isGoal, true),
+            inArray(tasks.id, ids("goal")),
           )),
       ids("task").length === 0
         ? Promise.resolve<Array<typeof tasks.$inferSelect>>([])
@@ -1942,19 +1944,19 @@ export class DrizzleGraphStore {
         provenance: "Application · source job-pilot",
       });
     }
-    for (const goal of goalRows) {
-      addNode("goal", goal.id, {
-        label: goal.title,
-        subtitle: goal.type,
-        recordPath: "/task-manager",
-        provenance: "Goal · source task-manager",
+    for (const goalTask of goalRows) {
+      addNode("task", goalTask.id, {
+        label: goalTask.title,
+        subtitle: "Goal-flagged Task",
+        recordPath: `/task-manager/${goalTask.id}`,
+        provenance: "Task · source task-manager",
       });
     }
     for (const task of resolvedTasks) {
       addNode("task", task.id, {
-        label: task.type,
-        subtitle: task.status,
-        recordPath: "/task-manager",
+        label: task.title,
+        subtitle: `${task.path} · ${task.status}${task.isGoal ? " · goal-flagged" : ""}`,
+        recordPath: `/task-manager/${task.id}`,
         provenance: "Task · source task-manager",
       });
     }

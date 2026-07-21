@@ -50,6 +50,7 @@ import {
   InMemoryEvalStore,
   InMemoryPolicyParamStore,
   InMemoryGoalTaskStore,
+  InMemoryTaskManagerStore,
   InMemorySkillManifestRegistry,
   InMemoryChildAgentRunStore,
   EchoModelProvider,
@@ -77,6 +78,7 @@ import {
   type PolicyParamStore,
   type ResourceType,
   type GoalTaskStore,
+  type TaskManagerStore,
   type SkillManifestRegistry,
   type ChildAgentRunStore,
   type SkillManifest,
@@ -137,6 +139,7 @@ import {
   DrizzleLedgerStore,
   DrizzleRelationMaterializationStore,
   DrizzleGoalTaskStore,
+  DrizzleTaskManagerStore,
   DrizzleSkillManifestRegistry,
   DrizzleChildAgentRunStore,
   DrizzleIntegrationStore,
@@ -373,6 +376,7 @@ export interface Wiring {
    * dependency-free default); `buildPersistentPorts` binds the real,
    * restart-durable `DrizzleGoalTaskStore` instead. */
   goalTasks: GoalTaskStore;
+  taskManager: TaskManagerStore;
   /** AGS1 (TASK-007) — registered governed Skill manifests (`resolveSkillForTask`'s
    * candidate catalog). In-memory default; `buildPersistentPorts` binds the real
    * `DrizzleSkillManifestRegistry` (backed by `skill_manifests`, seeded from the
@@ -2733,6 +2737,41 @@ export const GOOGLE_SKILL_MANIFESTS = [
   googleSkillManifest(SKILL_STAGE, GOOGLE_STAGE_TASK_TYPE, "local", ["event:write", "signal:write"]),
 ];
 
+const TASK_MANAGER_SKILL_OWNERS: Readonly<Record<string, string>> = {
+  "task-manager.goal-outcome-framing": "internal-strategist",
+  "task-manager.candidate-task-generation": "internal-strategist",
+  "task-manager.premortem-scenario": "internal-strategist",
+  "task-manager.task-decomposition": "internal-strategist",
+  "task-manager.task-tree-restructure": "internal-strategist",
+  "task-manager.exit-test-authoring": "internal-strategist",
+  "task-manager.task-reconciliation": "internal-strategist",
+  "task-manager.queue-sequencing": "internal-strategist",
+  "task-manager.impact-fit-analysis": "internal-strategist",
+  "task-manager.agent-task-routing": "chief-of-staff",
+  "task-manager.reschedule-confidence-calibration": "learning",
+  "task-manager.proactive-opportunity-scan": "internal-strategist",
+  "task-manager.ledger-projection": "internal-strategist",
+  "task-manager.evidence-verification": "internal-strategist",
+  "task-manager.progress-synthesis": "chief-of-staff",
+  "task-manager.habit-scaffolding": "chief-of-staff",
+};
+
+export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.entries(TASK_MANAGER_SKILL_OWNERS)
+  .map(([skillId, owner]) => ({
+    organizationId: PILOT_ORGANIZATION,
+    skillId,
+    version: "1.0.0",
+    goalTypes: ["task-manager"],
+    taskTypes: ["task"],
+    permissions: ["record:read", "record:write"],
+    plane: "local",
+    dataScopes: ["all"],
+    riskBand: "advisory",
+    evalVersion: "1.0.0",
+    defaultAgents: [owner],
+    childRunPolicy: "forbidden",
+  }));
+
 /**
  * The FULL registered governed Skill manifest catalog — the single source of
  * truth both `buildInMemoryPorts` (registers these synchronously into an
@@ -2751,6 +2790,7 @@ export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
   STAGE_CAPTURE_SKILL_MANIFEST,
   JOBPILOT_RESEARCH_CULTURE_SOURCE_SKILL_MANIFEST,
   JOBPILOT_SYNTHESIZE_CULTURE_PROFILE_SKILL_MANIFEST,
+  ...TASK_MANAGER_SKILL_MANIFESTS,
   ...GOOGLE_SKILL_MANIFESTS,
 ];
 
@@ -2933,6 +2973,8 @@ function seedGovernance(
     { resourceType: "module", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "relation", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "relation", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "record", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "record", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
   ]);
@@ -2969,6 +3011,7 @@ export interface ModePorts {
    * default (dev/test); `buildPersistentPorts` binds the real, restart-durable
    * `DrizzleGoalTaskStore` instead. */
   goalTasks: GoalTaskStore;
+  taskManager: TaskManagerStore;
   /** AGS1 (TASK-007) — registered governed Skill manifests (`resolveSkillForTask`'s
    * candidate catalog). In-memory default; `buildPersistentPorts` binds the real
    * `DrizzleSkillManifestRegistry`, seeded via `ensureSkillManifestCatalog`. */
@@ -3042,6 +3085,7 @@ export function buildPersistentPorts(env: {
   // inside `ensureSkillManifestCatalog` below (called once at boot, before the
   // server serves traffic), not here — constructing it here just binds the db.
   const goalTaskStore = new DrizzleGoalTaskStore(db);
+  const taskManagerStore = new DrizzleTaskManagerStore(db, pilotUserId);
   const skillManifestRegistry = new DrizzleSkillManifestRegistry(
     db,
     PILOT_ORGANIZATION,
@@ -3077,6 +3121,7 @@ export function buildPersistentPorts(env: {
     // TASK-007 — real, restart-durable bindings (see the field's doc comment
     // on ModePorts for why these are no longer in-memory once DATABASE_URL is set).
     goalTasks: goalTaskStore,
+    taskManager: taskManagerStore,
     skillManifests: skillManifestRegistry,
     childAgentRuns: childAgentRunStore,
     // Real providers in persistent mode: Ollama is always registered (local plane,
@@ -3280,6 +3325,7 @@ export async function buildInMemoryPorts(env: {
     // seeds into `skill_manifests` is registered here synchronously — one
     // source of truth for what's governed, two durability backends.
     goalTasks: localDirDurable ? new DrizzleGoalTaskStore(localDb) : new InMemoryGoalTaskStore(),
+    taskManager: localDirDurable ? new DrizzleTaskManagerStore(localDb, pilotUserId) : new InMemoryTaskManagerStore(),
     skillManifests: (() => {
       const registry = new InMemorySkillManifestRegistry();
       for (const m of GOVERNED_SKILL_MANIFEST_CATALOG) registry.register(m);
@@ -3468,6 +3514,14 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     .register(stageOutreachDraft)
     .register(createResearchCultureSourceSkill())
     .register(stagePreferenceAdjustmentProposal);
+  for (const manifest of TASK_MANAGER_SKILL_MANIFESTS) {
+    skillRegistry.register({
+      name: manifest.skillId,
+      async run(inputs) {
+        return { proposedOutput: inputs, diff: { to: inputs } };
+      },
+    });
+  }
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
@@ -3641,6 +3695,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     moduleStore,
     memoryStore,
     goalTasks,
+    taskManager,
     skillManifests,
     childAgentRuns,
     modelProviders,
@@ -4076,6 +4131,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     commonsRegistry,
     onboardingProfileStore,
     goalTasks,
+    taskManager,
     skillManifests,
     childAgentRuns,
     cultureFetchStore,

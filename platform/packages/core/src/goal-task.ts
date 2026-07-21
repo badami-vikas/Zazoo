@@ -67,6 +67,7 @@ export interface CreateTaskInput {
   type: TaskType;
   assignedAgentId: string;
   status?: TaskStatus;
+  exitTest?: string;
 }
 
 /** Minimal determinism seam this store needs — mirrors `RunCtx`'s `ids`/`clock`

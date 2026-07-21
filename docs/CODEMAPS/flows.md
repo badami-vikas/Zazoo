@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-21 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,automation-executor,goal-task,skill-manifest,child-agent-run,ports}.ts, modules/manifests/src/index.ts, apps/api/src/{router,relationship-help-routing,relationship-materializer,built-in-modules,module-files,server,wiring}.ts, apps/web/src/app/{Layout,routes,pages/HomePage,pages/ModuleDetailPage,pages/SecondBrainPage,dataviews/views/GraphView,components/shared/PanelControl}.tsx, packages/local/src/ports.ts, packages/db/src/{schema,automation-stores,graph-store,helpdesk-store,ledger-store,relation-materialization-store}.ts, packages/db/migrations/0023_vocab4_event_result_file.sql | Token estimate: ~2450 -->
+<!-- Updated: 2026-07-21 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,automation-executor,goal-task,task-manager,skill-manifest,child-agent-run,ports}.ts, modules/manifests/src/index.ts, apps/api/src/{router,relationship-help-routing,relationship-materializer,built-in-modules,module-files,server,wiring}.ts, apps/web/src/app/{Layout,routes,pages/TaskManagerPage,pages/TaskRecordDetailPage,pages/ModuleDetailPage,pages/SecondBrainPage,dataviews/views/GraphView,components/shared/PanelControl}.tsx, packages/local/src/ports.ts, packages/db/src/{schema,task-manager-store,goal-task-store,automation-stores,graph-store,ledger-store}.ts, packages/db/migrations/0027_task021_task_manager.sql | Token estimate: ~2700 -->
 
 # Load-Bearing Flows + Schema ER
 
@@ -162,8 +162,9 @@ erDiagram
   files ||--o{ file_refs : "Module/Record/Event provenance"
   automations ||--o{ automation_runs : automation_id
   users ||--o{ agents : owner_user_id
-  organizations ||--o{ goals : organization_id
-  goals ||--o{ tasks : "same-Organization composite FK"
+  organizations ||--o{ tasks : "one recursive Task Database"
+  tasks ||--o{ tasks : "parent_task_id / anchor_task_id"
+  tasks ||--o{ task_change_proposals : "pipeline-linked governed proposal projection"
   agents ||--o{ tasks : "assigned Agent, same Organization"
   organizations ||--o{ skill_manifests : organization_id
   tasks ||--o{ child_agent_runs : "same-Organization composite FK"
