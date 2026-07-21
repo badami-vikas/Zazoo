@@ -8,6 +8,14 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { and, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import {
+  UNKNOWN_LABEL,
+  evaluateTaintSink,
+  hashTaintValue,
+  labelAtSource,
+  labelFromLegacyTrustOrigin,
+  type TaintLabel,
+} from "@bridge/core";
 import type { Database } from "./client.js";
 import {
   communities,
@@ -300,6 +308,7 @@ export interface CreateInteractionInput extends DecisionProvenance {
   participants: InteractionParticipantInput[];
   updatesPersonFreshness?: boolean;
   metadata?: Record<string, unknown>;
+  taintLabel?: TaintLabel;
 }
 
 export interface TimelineCursor {
@@ -449,6 +458,7 @@ export interface IndexModuleFileInput {
   path: string;
   size: number;
   modifiedAt: string;
+  taintLabel?: TaintLabel;
 }
 
 export type RelationVisibility = "private" | "organization" | "public";
@@ -3317,6 +3327,12 @@ export class DrizzleGraphStore {
           decisionSequence: input.decisionSequence,
           decisionAt: input.decisionAt.toISOString(),
         },
+        taintLabel: labelAtSource("system_generated", {
+          ref: `materialization:${input.decisionLedgerId}`,
+          valueHash: hashTaintValue(input.reason),
+          sensitivity: "organization",
+          instructionRisk: "none",
+        }),
       })
       .onConflictDoNothing();
     const receipt = await this.getEvent(input.organizationId, input.decisionLedgerId);
@@ -3466,6 +3482,7 @@ export class DrizzleGraphStore {
         entityType: "interaction",
         entityId: input.id,
         payload: storedPayload,
+        taintLabel: input.taintLabel ?? UNKNOWN_LABEL,
       })
       .onConflictDoNothing();
     const event = await this.getEvent(input.organizationId, input.id);
@@ -4410,6 +4427,16 @@ export class DrizzleGraphStore {
       size: input.size,
       modifiedAt: input.modifiedAt,
     };
+    const taintLabel = input.taintLabel ?? labelAtSource("system_generated", {
+      ref: storageRef,
+      valueHash: hashTaintValue(metadata),
+      sensitivity: "organization",
+      instructionRisk: "none",
+    });
+    const sinkTrace = evaluateTaintSink("file_write", [taintLabel]);
+    if (sinkTrace.policy !== "allow") {
+      throw new Error(`Canonical Module File taint sink denied: ${sinkTrace.reason}`);
+    }
     await this.#db
       .insert(files)
       .values({
@@ -4418,6 +4445,7 @@ export class DrizzleGraphStore {
         source: input.moduleName,
         storageRef,
         metadata,
+        taintLabel,
       })
       .onConflictDoUpdate({
         target: [files.organizationId, files.storageRef],
@@ -4425,6 +4453,7 @@ export class DrizzleGraphStore {
         set: {
           source: input.moduleName,
           metadata,
+          taintLabel,
         },
       });
     const rows = await this.#db
@@ -4600,6 +4629,12 @@ export class DrizzleGraphStore {
         userId: input.userId,
         verb: input.verb,
       },
+      taintLabel: labelAtSource("human_input", {
+        ref: `signal-action:${input.signalId}`,
+        valueHash: hashTaintValue(input.verb),
+        sensitivity: "private",
+        instructionRisk: "none",
+      }),
     });
   }
 
@@ -4612,6 +4647,7 @@ export class DrizzleGraphStore {
     taskId: string;
     moduleName: string;
     payload: Record<string, unknown>;
+    taintLabel?: TaintLabel;
   }): Promise<void> {
     if (!this.#hasRlsContext(input.organizationId, input.userId)) {
       return this.#withRlsContext(input.organizationId, input.userId, (store) =>
@@ -4633,6 +4669,12 @@ export class DrizzleGraphStore {
         moduleName: input.moduleName,
         trustOrigin: "untrusted_external",
       },
+      taintLabel:
+        input.taintLabel ??
+        labelFromLegacyTrustOrigin(
+          "untrusted_external",
+          `web-research-event:${input.resultId}`,
+        ),
     });
   }
 }

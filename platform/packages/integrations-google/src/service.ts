@@ -6,7 +6,15 @@
  * propose/decide stay generic; this orchestrates the Google-specific side effects
  * that run only AFTER the governed approval.
  */
-import type { GoalTaskStore, Proposal, ProposalStatus, RunCtx, UniversalActionPipeline } from "@bridge/core";
+import {
+  hashTaintValue,
+  labelAtSource,
+  type GoalTaskStore,
+  type Proposal,
+  type ProposalStatus,
+  type RunCtx,
+  type UniversalActionPipeline,
+} from "@bridge/core";
 import type { SecretStore } from "@bridge/local";
 import type { CalendarEvent, CreateEventEnvelope, SendEmailEnvelope } from "./contracts.js";
 import { EgressExecutor } from "./egress.js";
@@ -122,6 +130,12 @@ export class GoogleService {
         resourceType: "external:fetch",
         skill: SKILL_LIST_CALENDAR,
         dataScope: "public",
+        taintLabel: labelAtSource("system_generated", {
+          ref: `${this.integrationId}:calendar-list`,
+          valueHash: hashTaintValue(opts ?? {}),
+          sensitivity: "public",
+          instructionRisk: "none",
+        }),
         inputs: {
           integrationId: this.integrationId,
           ...(opts?.maxResults ? { maxResults: opts.maxResults } : {}),
@@ -187,6 +201,12 @@ export class GoogleService {
         resourceType: "external:send",
         skill,
         dataScope: "public",
+        taintLabel: labelAtSource("human_input", {
+          ref: `${this.integrationId}:${input.kind}:${action}`,
+          valueHash: hashTaintValue(skillInputs),
+          sensitivity: "public",
+          instructionRisk: "instruction_like",
+        }),
         inputs: {
           ...skillInputs,
           display: {

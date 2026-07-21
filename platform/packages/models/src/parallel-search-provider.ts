@@ -6,6 +6,9 @@ import { TextDecoder } from "node:util";
 import {
   SEARCH_PROVIDER_RESULT_LIMITS,
   SearchProviderError,
+  hashTaintValue,
+  evaluateTaintSink,
+  labelAtSource,
   normalizeSearchRequest,
   type SearchCitation,
   type SearchProvider,
@@ -429,6 +432,12 @@ function toCitation(
     retrievedAt,
     contentHash: sha256(JSON.stringify({ url: value.url, title, excerpts })),
     trustOrigin: "untrusted_external",
+    taintLabel: labelAtSource("web_search", {
+      ref: value.url,
+      valueHash: hashTaintValue({ title, excerpts }),
+      sensitivity: "public",
+      instructionRisk: "data",
+    }),
   };
 }
 
@@ -493,6 +502,15 @@ export class ParallelSearchProvider implements SearchProvider {
 
   async search(request: SearchRequest): Promise<SearchProviderResult> {
     const bounded = normalizeSearchRequest(request);
+    const sink = evaluateTaintSink("network_egress", [bounded.taintLabel]);
+    if (sink.policy !== "allow") {
+      throw new SearchProviderError({
+        providerId: this.id,
+        code: "access_blocked",
+        message: `Parallel Search MCP taint sink denied: ${sink.reason}`,
+        retryable: false,
+      });
+    }
     const deadline = this.#nowMs() + bounded.timeoutMs;
     let responseBytes = 0;
     const remainingTimeout = (): number => {
@@ -699,6 +717,12 @@ export class ParallelSearchProvider implements SearchProvider {
           rights: this.rights,
         },
         trustOrigin: "untrusted_external",
+        taintLabel: labelAtSource("mcp_result", {
+          ref: payload.search_id,
+          valueHash: contentHash,
+          sensitivity: "public",
+          instructionRisk: "data",
+        }),
       };
     } catch (error) {
       throw providerError(error, bounded.signal);

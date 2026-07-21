@@ -1,4 +1,5 @@
 import type { Plane } from "./types.js";
+import type { TaintLabel } from "./taint.js";
 
 export const SEARCH_PROVIDER_LIMITS = {
   maxObjectiveChars: 500,
@@ -47,6 +48,7 @@ export interface SearchRequest {
   requestId: string;
   requestedAt: string;
   signal?: AbortSignal;
+  taintLabel: TaintLabel;
 }
 
 export interface SearchCitation {
@@ -58,6 +60,7 @@ export interface SearchCitation {
   retrievedAt: string;
   contentHash: string;
   trustOrigin: "untrusted_external";
+  taintLabel?: TaintLabel;
 }
 
 export interface SearchProviderProvenance {
@@ -78,6 +81,7 @@ export interface SearchProviderResult {
   warnings: readonly string[];
   provenance: SearchProviderProvenance;
   trustOrigin: "untrusted_external";
+  taintLabel?: TaintLabel;
 }
 
 export interface SearchProviderRights {
@@ -266,6 +270,7 @@ export function normalizeSearchRequest(request: SearchRequest): SearchRequest {
     timeoutMs: request.timeoutMs,
     requestId,
     requestedAt: request.requestedAt,
+    taintLabel: request.taintLabel,
     ...(request.signal ? { signal: request.signal } : {}),
   };
 }

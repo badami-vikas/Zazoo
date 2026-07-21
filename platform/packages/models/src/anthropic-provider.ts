@@ -14,6 +14,7 @@
 import {
   MODEL_TIERS,
   assertModelCompletionRequest,
+  modelRequestTaint,
   type ModelCompletion,
   type ModelCompletionRequest,
   type ModelProvider,
@@ -193,6 +194,7 @@ export class AnthropicProvider implements ModelProvider {
         ),
         source: "provider",
       },
+      taintLabel: modelRequestTaint(req),
     };
   }
   // No embed(): the Messages API is completion-only; embeddings stay on the

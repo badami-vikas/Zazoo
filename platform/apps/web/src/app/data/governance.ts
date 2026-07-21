@@ -45,6 +45,20 @@ export interface LedgerEntry {
   prior?: string | null;
   trace: DecisionTrace;
   channel?: string;      // e.g. "Email", "Calendar"
+  taintLabel?: {
+    version: 1;
+    trust: string;
+    source: string;
+    sensitivity: string;
+    instructionRisk: string;
+    originChain: Array<{
+      source: string;
+      ref: string;
+      hash: string;
+      transform: string;
+    }>;
+    provenanceHash: string;
+  };
 }
 
 // ── PENDING (F2 Approvals inbox) — ledger rows where decision IS NULL ─────────────

@@ -1,4 +1,5 @@
 import type { CaptureEnvelope, SourceConnector, SourceQuery } from "../types.js";
+import { hashTaintValue, labelAtSource } from "@bridge/core";
 
 // Proof connector #2 — an email-alert parser, tier "email". Generalizes DealPilot's
 // BizBuySell-alert-email pattern: a saved-search service pushes matches into the user's Gmail
@@ -36,6 +37,12 @@ export function createEmailAlertConnector(config: EmailAlertConfig): SourceConne
           costUnits: costPerMessage,
           capturedAt: new Date().toISOString(),
           trustOrigin: "untrusted_external", // PI-1: parsed from an external email body — untrusted input
+          taintLabel: labelAtSource("email_google_intake", {
+            ref: `${config.id}:${message.id ?? hashTaintValue(message.subject)}`,
+            valueHash: hashTaintValue(payload),
+            sensitivity: "private",
+            instructionRisk: "instruction_like",
+          }),
         });
       }
       return envelopes;

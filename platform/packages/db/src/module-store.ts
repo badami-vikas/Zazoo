@@ -24,7 +24,12 @@
  */
 import { and, eq, count, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { canonicalizeJson, canonicalizeManifest, parseModuleManifest } from "@bridge/core";
+import {
+  canonicalizeJson,
+  canonicalizeManifest,
+  parseModuleManifest,
+  storedTaintLabelOrUnknown,
+} from "@bridge/core";
 import type {
   CommonsInstallationSource,
   ModuleAttachmentTarget,
@@ -71,13 +76,108 @@ const moduleAttachmentSchema = z.object({
   agentId: z.string().min(1),
   needId: z.string().min(1),
   contentHash: z.string().startsWith("sha256:"),
+  taintLabel: z.unknown().optional(),
 });
 
 const commonsSourceSchema = z.object({
   contentHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
   manifestHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-  entry: z.record(z.string(), z.unknown()),
+  entry: z.unknown(),
+  taintLabel: z.unknown().optional(),
 });
+
+const commonsEntrySchema = z.object({
+  name: z.string().min(1),
+  version: z.string().min(1),
+  kind: z.enum([
+    "skill",
+    "automation",
+    "agent",
+    "module",
+    "view",
+    "integration_bundle",
+    "organization_definition",
+  ]),
+  summary: z.string(),
+  tags: z.array(z.string()),
+  manifest: z.unknown(),
+  provenance: z.object({
+    sourceRepository: z.string(),
+    sourceRef: z.string(),
+    inspectedCommit: z.string(),
+    repositoryLicense: z.string(),
+    contentLicense: z.string(),
+    licenseVerified: z.boolean(),
+  }),
+  securityScan: z.object({
+    scanner: z.literal("bridge-commons-manifest"),
+    scannerVersion: z.literal("1.0.0"),
+    policyVersion: z.literal("CM1-2026-07"),
+    status: z.enum(["passed", "failed"]),
+    riskBand: z.enum([
+      "informational",
+      "advisory",
+      "transformational",
+      "operational",
+      "external",
+    ]),
+    lethalTrifecta: z.boolean(),
+    dependencyPins: z.array(z.object({
+      name: z.string(),
+      version: z.string(),
+      contentHash: z.string(),
+    })).optional(),
+    checks: z.array(z.object({
+      id: z.string(),
+      status: z.enum(["pass", "warning", "fail"]),
+      detail: z.string(),
+    })),
+  }),
+  integrity: z.object({
+    algorithm: z.literal("sha256"),
+    value: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  }),
+  publishedAt: z.string(),
+  signedSource: z.object({
+    vocabularyVersion: z.union([z.literal(2), z.literal(3)]),
+    canonicalContent: z.string(),
+  }).optional(),
+  signature: z.object({
+    signature: z.string(),
+    publicKey: z.string(),
+    algorithm: z.literal("ed25519"),
+    signedAt: z.string(),
+  }).optional(),
+});
+
+function parseCommonsEntry(raw: unknown): CommonsInstallationSource["entry"] {
+  const parsed = commonsEntrySchema.parse(raw);
+  return {
+    name: parsed.name,
+    version: parsed.version,
+    kind: parsed.kind,
+    summary: parsed.summary,
+    tags: parsed.tags,
+    manifest: parseModuleManifestRow(parsed.manifest),
+    provenance: parsed.provenance,
+    securityScan: {
+      scanner: parsed.securityScan.scanner,
+      scannerVersion: parsed.securityScan.scannerVersion,
+      policyVersion: parsed.securityScan.policyVersion,
+      status: parsed.securityScan.status,
+      riskBand: parsed.securityScan.riskBand,
+      lethalTrifecta: parsed.securityScan.lethalTrifecta,
+      checks: parsed.securityScan.checks,
+      ...(parsed.securityScan.dependencyPins
+        ? { dependencyPins: parsed.securityScan.dependencyPins }
+        : {}),
+    },
+    integrity: parsed.integrity,
+    publishedAt: parsed.publishedAt,
+    ...(parsed.signedSource ? { signedSource: parsed.signedSource } : {}),
+    ...(parsed.signature ? { signature: parsed.signature } : {}),
+  };
+}
 
 /**
  * Validate `module_installations.manifest` jsonb. Throws loudly on a
@@ -95,12 +195,36 @@ export function parseModuleManifestRow(raw: unknown): ModuleManifest {
 }
 
 function unpack(row: typeof moduleInstallations.$inferSelect): ModuleInstallationRow {
-  const moduleAttachment = row.moduleAttachment === null
+  const parsedModuleAttachment = row.moduleAttachment === null
     ? undefined
     : moduleAttachmentSchema.parse(row.moduleAttachment);
-  const commonsSource = row.commonsSource === null
+  const moduleAttachment =
+    parsedModuleAttachment === undefined
+      ? undefined
+      : {
+          source: parsedModuleAttachment.source,
+          ownerModuleName: parsedModuleAttachment.ownerModuleName,
+          agentId: parsedModuleAttachment.agentId,
+          needId: parsedModuleAttachment.needId,
+          contentHash: parsedModuleAttachment.contentHash,
+          taintLabel: storedTaintLabelOrUnknown(
+            parsedModuleAttachment.taintLabel,
+          ).label,
+        };
+  const parsedCommonsSource = row.commonsSource === null
     ? undefined
-    : commonsSourceSchema.parse(row.commonsSource) as unknown as CommonsInstallationSource;
+    : commonsSourceSchema.parse(row.commonsSource);
+  const commonsSource: CommonsInstallationSource | undefined =
+    parsedCommonsSource === undefined
+      ? undefined
+      : {
+          contentHash: parsedCommonsSource.contentHash,
+          manifestHash: parsedCommonsSource.manifestHash,
+          entry: parseCommonsEntry(parsedCommonsSource.entry),
+          taintLabel: storedTaintLabelOrUnknown(
+            parsedCommonsSource.taintLabel,
+          ).label,
+        };
   return {
     id: row.id,
     organizationId: row.organizationId,

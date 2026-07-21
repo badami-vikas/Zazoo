@@ -19,6 +19,11 @@
  * the kernel invariant recorded in ADR-066.
  */
 import type { PolicyFn } from "../memory/stores.js";
+import {
+  evaluateTaintSink,
+  labelFromLegacyTrustOrigin,
+  type TaintLabel,
+} from "../taint.js";
 import type { Action, PolicyResult, ResourceType, TrustOrigin } from "../types.js";
 
 export const TAINTED_EGRESS_POLICY_ID = "pi2-tainted-context-egress";
@@ -42,16 +47,20 @@ function isEgress(action: Action, resourceType: ResourceType): boolean {
 export function evaluateTaintedEgress(args: {
   action: Action;
   resourceType: ResourceType;
-  taint: TrustOrigin | undefined;
+  taintLabel?: TaintLabel | undefined;
+  taint?: TrustOrigin | undefined;
 }): PolicyResult | null {
-  if (args.taint !== "untrusted_external") return null;
   if (!isEgress(args.action, args.resourceType)) return null;
+  const decision = evaluateTaintSink("external_send", [
+    args.taintLabel ??
+      labelFromLegacyTrustOrigin(args.taint, "tainted-egress-v0"),
+  ]);
+  if (decision.policy === "allow") return null;
   return {
     policyId: TAINTED_EGRESS_POLICY_ID,
     phase: "runtime",
-    effect: "require_approval",
-    reason:
-      "egress on a turn carrying untrusted_external content requires human approval (PI-2 tainted-context data-flow gate)",
+    effect: decision.policy === "block" ? "block" : "require_approval",
+    reason: `${decision.reason} (trace ${decision.traceHash})`,
   };
 }
 
@@ -66,6 +75,7 @@ export const taintedEgressPolicy: PolicyFn = (input) => {
   return evaluateTaintedEgress({
     action: input.action,
     resourceType: input.resourceType,
+    taintLabel: input.taintLabel,
     taint: input.taint,
   });
 };

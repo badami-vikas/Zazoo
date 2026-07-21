@@ -88,17 +88,8 @@ export interface RunContext {
   runId?: string;
 }
 
-/**
- * Provenance / trust origin of an ingested artifact (PI-1). Tagged at the
- * ingestion edge and threaded through Memory entries, ledger rows, and RunCtx so
- * any agent run knows whether its context is tainted. This is the primitive every
- * other injection defense reads (PI-2 egress gating, PI-3 quarantine).
- *  - `operator`      — authored by the kernel/platform itself (fully trusted).
- *  - `user_content`  — authored by the organization's own user (trusted).
- *  - `untrusted_external` — anything from outside (email bodies, scraped pages,
- *    screen/AX/clipboard captures). Untrusted by default; this is the safe floor.
- * PI-1 only TAGS and PERSISTS — it does not gate behavior (that is PI-2). */
-export type TrustOrigin = "operator" | "user_content" | "untrusted_external";
+/** Legacy v0 compatibility only. Canonical runtime tracking uses `TaintLabel`. */
+export type TrustOrigin = import("./taint.js").LegacyTrustOrigin;
 
 /** A mutation request entering the pipeline. */
 export interface ActionRequest {
@@ -110,6 +101,10 @@ export interface ActionRequest {
   resourceId?: string;
   /** The proposed change payload, handed to the Skill that produces the output. */
   inputs: unknown;
+  /** Canonical server-derived label for `inputs`. Client payloads never supply it. */
+  /** Required for new runtime boundaries. Optional only for explicit v0 compatibility;
+   * the pipeline maps absence to UNKNOWN_LABEL, never trusted. */
+  taintLabel?: import("./taint.js").TaintLabel;
   /** Names the Skill/handler that produces the proposed output. */
   skill: string;
   /** Data tier this request asks to touch (the access dropdown). Absent = 'all'. */
@@ -178,6 +173,8 @@ export interface AuthorityDecision {
 /** The Skill's output before it is committed (draft-then-approve). */
 export interface SkillOutput {
   proposedOutput: unknown;
+  /** Output label joined by the pipeline with every input/context label. */
+  taintLabel?: import("./taint.js").TaintLabel;
   /** Structured before/after, surfaced in the Review inbox. */
   diff?: unknown;
   /** Provenance introduced by the Skill's output. External provider/tool output
@@ -256,6 +253,8 @@ export interface LedgerEntry {
    * unchanged on replay so the audit spine records whether a committed row
    * carries untrusted external content. */
   trustOrigin?: TrustOrigin;
+  /** Canonical versioned runtime taint. Never nullable; old rows backfill UNKNOWN. */
+  taintLabel?: import("./taint.js").TaintLabel;
   createdAt: string;
 }
 
@@ -267,5 +266,6 @@ export interface DomainEvent {
   entityType: ResourceType;
   entityId?: string;
   payload: Record<string, unknown>;
+  taintLabel?: import("./taint.js").TaintLabel;
   createdAt: string;
 }

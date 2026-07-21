@@ -121,6 +121,7 @@ function historyRowToEntry(row: LedgerHistoryRow): LedgerEntry {
     prior: asString(display?.prior),
     proposed,
     proposalOutput: proposedOutput,
+    taintLabel: asTaintLabel(row.taintLabel),
     trace: {
       signals: Array.isArray(trace?.signals)
         ? trace.signals.filter((signal): signal is string => typeof signal === 'string')
@@ -143,6 +144,45 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function asTaintLabel(value: unknown): LedgerEntry['taintLabel'] {
+  const label = asRecord(value);
+  if (
+    label?.version !== 1 ||
+    typeof label.trust !== 'string' ||
+    typeof label.source !== 'string' ||
+    typeof label.sensitivity !== 'string' ||
+    typeof label.instructionRisk !== 'string' ||
+    typeof label.provenanceHash !== 'string' ||
+    !Array.isArray(label.originChain)
+  ) {
+    return undefined;
+  }
+  const originChain = label.originChain.flatMap(origin => {
+    const parsed = asRecord(origin);
+    return parsed &&
+      typeof parsed.source === 'string' &&
+      typeof parsed.ref === 'string' &&
+      typeof parsed.hash === 'string' &&
+      typeof parsed.transform === 'string'
+      ? [{
+          source: parsed.source,
+          ref: parsed.ref,
+          hash: parsed.hash,
+          transform: parsed.transform,
+        }]
+      : [];
+  });
+  return {
+    version: 1,
+    trust: label.trust,
+    source: label.source,
+    sensitivity: label.sensitivity,
+    instructionRisk: label.instructionRisk,
+    originChain,
+    provenanceHash: label.provenanceHash,
+  };
 }
 
 function commonsAgentActorLabel(
@@ -265,6 +305,9 @@ function proposalToEntry(proposal: PendingProposal): LedgerEntry {
       reasoning: asString(trace?.reasoning) ?? policy,
     },
     proposalOutput: proposedOutput,
+    taintLabel: asTaintLabel(
+      output?.taintLabel ?? proposal.request.taintLabel,
+    ),
   };
 }
 

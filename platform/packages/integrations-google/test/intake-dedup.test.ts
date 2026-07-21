@@ -193,19 +193,30 @@ function ctx(): RunCtx {
 }
 
 test("pending source dedup survives an IntakeService restart", async () => {
-  const { google, localPlane, restart } = await build();
+  const { google, localPlane, ledger, restart } = await build();
   const c = ctx();
 
   const first = await google.syncGmail(c);
   assert.equal(first.proposals.length, 1);
   assert.equal(first.proposals[0]?.status, "pending_review");
   const firstProposalId = first.proposals[0]?.proposalId;
+  const firstEntry = firstProposalId
+    ? await ledger.get(firstProposalId)
+    : null;
+  assert.equal(firstEntry?.taintLabel?.trust, "untrusted");
 
   // Re-sync BEFORE the user has approved anything — same thread, still pending.
   const second = await restart().syncGmail(c);
   assert.equal(second.proposals.length, 1, "still only one proposal summary is returned for the same thread");
   assert.equal(second.proposals[0]?.proposalId, firstProposalId, "the second sync returns the SAME pending proposal, not a new one");
   assert.equal(second.proposals[0]?.status, "pending_review");
+  const secondEntry = firstProposalId
+    ? await ledger.get(firstProposalId)
+    : null;
+  assert.equal(
+    secondEntry?.taintLabel?.provenanceHash,
+    firstEntry?.taintLabel?.provenanceHash,
+  );
 
   // A third sync for good measure — still no duplicate.
   const third = await google.syncGmail(c);
@@ -261,11 +272,13 @@ test("Gmail intake tags Memory directives as untrusted external when manifest qu
 
   const proposal = await ledger.get(result.proposals[0]!.proposalId);
   assert.equal(proposal?.trustOrigin, "untrusted_external");
+  assert.equal(proposal?.taintLabel?.trust, "untrusted");
   const output = proposal?.proposedOutput as { directive?: IntakeDirective } | undefined;
   const memory = output?.directive?.entities.find((e) => e.kind === "memory");
 
   assert.ok(memory, "Gmail intake stages a Memory directive");
   assert.equal(memory.trustOrigin, "untrusted_external");
+  assert.equal(memory.taintLabel?.provenanceHash, proposal?.taintLabel?.provenanceHash);
 
   await localPlane.close();
 });

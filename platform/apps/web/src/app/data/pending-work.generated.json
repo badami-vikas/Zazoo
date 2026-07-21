@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T15:35:45.120Z",
+  "generatedAt": "2026-07-21T17:32:40.812Z",
   "items": [
     {
       "id": "TASK-001",
@@ -419,7 +419,7 @@
     {
       "id": "TASK-015",
       "title": "TASK-015 — End-to-end runtime taint tracking",
-      "status": "pending",
+      "status": "completed",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "Trust labels propagate monotonically across retrieval, prompts, models, Skills, Actions, Events, Results, Files, storage, serialization, caches, queues, retries, and governed declassification.",
@@ -429,24 +429,23 @@
         "docs/wiki/roadmap.md"
       ],
       "evidence": [
-        "root gap recorded ADR-088. Planning session (`docs/Progress from Manish/subagent-progress.md` TASK-015 row) confirmed this is not greenfield: PI-1/PI-2/PI-3 already ship a partial version — `TrustOrigin` 3-value tag (`packages/core/src/types.ts`), an equality-based tainted-egress gate (`packages/core/src/policy/taint-egress.ts`), and a quarantine `ContentGuard` (`packages/core/src/guard/content-guard.ts`). Concrete gaps a future RT0–RT4 implementation must close: `DomainEvent`/`events`/`signals`/`files` carry no taint field at all today",
-        "`SkillOutput`/`RitualStep` carry none, so an Automation/Ritual step seeded from a tainted Signal can silently lose its label",
-        "there is no lattice/join (today's check is a single equality test, not a monotonic combine)",
-        "no sink registry or CI coverage gate",
-        "no declassification audit trail",
-        "`packages/sourcing/src/types.ts` hand-duplicates the `TrustOrigin` union instead of importing it (drift risk)",
-        "cache/retry paths in `integrations-google` are untested for taint preservation. Post-TASK-007 landing, `ChildAgentRun.taint` (`packages/db/src/child-agent-run-store.ts`) already exists but is still typed as the legacy 3-value `TrustOrigin` — RT0's lattice must upgrade this field additively, not replace it out from under TASK-007's landed contract."
+        "AP-070/ADR-142 close RT0–RT4. `platform/packages/core/src/taint.ts` is the canonical v1 lattice/envelope/source-sink/declassification/replay contract",
+        "`TrustOrigin` remains only an explicit fail-closed v0 compatibility projection. Migration `0029_task015_runtime_taint` backfills Ledger, Memory, Event/Signal projection, File, Automation Run, and child Run labels",
+        "unlabeled/malformed rows become `UNKNOWN_LABEL`",
+        "immutable sink/declassification tables use forced Organization RLS. Server-owned Human/system/sensor/Google/web/MCP/signed-Commons edges derive labels",
+        "model, Skill, pipeline, Automation, child Run, Result, Memory, cache/queue/retry, Event, File, and restart paths join/persist them. Approval UI shows untrusted/unknown warning plus source trace. Targeted proof: 175 core/DB checks (one taint-coupled Memory regression fixed), 81 local/model/net-guard/sensor checks, 19 Google checks, 17 web-research/Agent checks, 8 approval/declassification checks, 38 culture-research/restart checks, migration fresh+upgrade+replay+RLS, one genuine file-backed A→B restart, and 3 UI trace checks",
+        "affected builds/typechecks/lint/vocabulary/no-dummy pass. GitHub Actions remain payment-blocked",
+        "no CI success is claimed."
       ],
       "requests": [
         "runtime taint directive 2026-07-14"
       ],
-      "approval": "AP-020 and AP-029 applied",
+      "approval": "AP-020, AP-029, and AP-070 applied",
       "dependencies": [
         "TASK-007 (done)",
-        "TASK-012 (now `in_progress` and remains the blocking gate",
-        "`ResourceType` in `packages/core/src/types.ts` still uses pre-pivot vocabulary, confirming RT-series work should not start authoring schema/types before TASK-012 renames it)"
+        "TASK-012 (done)"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 210,
@@ -480,7 +479,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 223,
+      "sourceLine": 224,
       "rank": 13
     },
     {
@@ -516,7 +515,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 236,
+      "sourceLine": 237,
       "rank": 14
     },
     {
@@ -544,7 +543,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 249,
+      "sourceLine": 250,
       "rank": 15
     },
     {
@@ -573,7 +572,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 264,
+      "sourceLine": 265,
       "rank": 16
     },
     {
@@ -608,7 +607,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 278,
+      "sourceLine": 279,
       "rank": 17
     },
     {
@@ -641,7 +640,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 292,
+      "sourceLine": 293,
       "rank": 18
     },
     {
@@ -672,7 +671,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 305,
+      "sourceLine": 306,
       "rank": 19
     },
     {
@@ -700,7 +699,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 318,
+      "sourceLine": 319,
       "rank": 20
     },
     {
@@ -727,7 +726,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 331,
+      "sourceLine": 332,
       "rank": 21
     },
     {
@@ -761,7 +760,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 344,
+      "sourceLine": 345,
       "rank": 22
     },
     {
@@ -792,7 +791,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 357,
+      "sourceLine": 358,
       "rank": 23
     },
     {
@@ -824,7 +823,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 370,
+      "sourceLine": 371,
       "rank": 24
     }
   ]

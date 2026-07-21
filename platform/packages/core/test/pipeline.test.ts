@@ -17,12 +17,15 @@ import {
   InMemoryAutomationRegistry,
   InMemoryAutomationRunRecorder,
   RecordingVarianceAdjuster,
+  labelFromLegacyTrustOrigin,
+  UNKNOWN_LABEL,
   intersectDataScope,
   AlreadyResolvedError,
   type PolicyFn,
   type RunCtx,
   type ActionRequest,
   type Skill,
+  type TaintAuditStore,
 } from "../src/index.js";
 
 const WS = "ws-1";
@@ -35,7 +38,7 @@ const echoSkill: Skill = {
   },
 };
 
-function harness(opts?: { policies?: PolicyFn[] }) {
+function harness(opts?: { policies?: PolicyFn[]; taintAudit?: TaintAuditStore }) {
   const roles = new InMemoryRoleStore();
   const agents = new InMemoryAgentStore();
   const ephemeral = new InMemoryEphemeralStore();
@@ -52,6 +55,7 @@ function harness(opts?: { policies?: PolicyFn[] }) {
     ledger,
     events,
     variance,
+    ...(opts?.taintAudit ? { taintAudit: opts.taintAudit } : {}),
   });
 
   return { roles, agents, ephemeral, policies, ledger, events, skills, variance, pipeline };
@@ -60,7 +64,12 @@ function harness(opts?: { policies?: PolicyFn[] }) {
 function freshCtx(startISO = "2026-06-01T00:00:00.000Z", seed = 42): RunCtx {
   const clock = new FixedClock(startISO);
   const rng = new SeededRng(seed);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
+  return {
+    clock,
+    rng,
+    ids: new UuidGen(clock, rng),
+    taintLabel: labelFromLegacyTrustOrigin("operator", "pipeline-test"),
+  };
 }
 
 function req(partial: Partial<ActionRequest>): ActionRequest {
@@ -153,9 +162,16 @@ test("request metadata cannot downgrade ambient untrusted context", async () => 
   ]);
   const proposal = await h.pipeline.propose(
     req({ trustOrigin: "operator" }),
-    { ...freshCtx(), taint: "untrusted_external" },
+    {
+      ...freshCtx(),
+      taint: "untrusted_external",
+      taintLabel: labelFromLegacyTrustOrigin(
+        "untrusted_external",
+        "ambient-external",
+      ),
+    },
   );
-  assert.equal(proposal.status, "applied");
+  assert.equal(proposal.status, "rejected");
   assert.equal(h.ledger.entries[0]?.trustOrigin, "untrusted_external");
 });
 
@@ -325,6 +341,38 @@ test("policy block rejects before the skill runs", async () => {
   const p = await h.pipeline.propose(req({}), freshCtx());
   assert.equal(p.status, "rejected");
   assert.match(p.rejectionReason ?? "", /policy\(pre\)/);
+});
+
+test("unknown File sink input is rejected before the authority-bearing Skill runs", async () => {
+  const h = harness();
+  let ran = false;
+  h.skills.register({
+    name: "write-file",
+    executionClass: "authority_bearing",
+    async run(inputs) {
+      ran = true;
+      return { proposedOutput: inputs };
+    },
+  });
+  h.roles.direct.set("user:u1", [
+    { resourceType: "file", resourceId: null, action: "write", effect: "allow" },
+  ]);
+  const proposal = await h.pipeline.propose(
+    req({
+      action: "write",
+      resourceType: "file",
+      skill: "write-file",
+      taintLabel: UNKNOWN_LABEL,
+    }),
+    freshCtx(),
+  );
+  assert.equal(proposal.status, "rejected");
+  assert.equal(ran, false);
+  assert.ok(
+    proposal.policyResults.some(
+      (result) => result.policyId === "runtime-taint-sink:file_write",
+    ),
+  );
 });
 
 test("approve a pending proposal: appends a decision row, commits, emits", async () => {
@@ -558,6 +606,44 @@ test("server-owned requireHumanReview keeps an otherwise auto-applicable Human p
   ]);
   const proposal = await h.pipeline.propose(req({}), freshCtx(), { requireHumanReview: true });
   assert.equal(proposal.status, "pending_review");
+  assert.equal(h.events.events.length, 0);
+});
+
+test("an audit-store failure cannot persist an auto-approved sink Action", async () => {
+  const taintAudit: TaintAuditStore = {
+    async appendSinkTrace() {
+      throw new Error("trace store unavailable");
+    },
+    async appendDeclassification() {},
+    async listSinkTraces() {
+      return [];
+    },
+    async listDeclassifications() {
+      return [];
+    },
+  };
+  const h = harness({ taintAudit });
+  h.roles.direct.set("user:u1", [
+    {
+      resourceType: "external:send",
+      resourceId: null,
+      action: "share",
+      effect: "allow",
+    },
+  ]);
+  await assert.rejects(
+    () =>
+      h.pipeline.propose(
+        req({
+          action: "share",
+          resourceType: "external:send",
+          trustOrigin: "user_content",
+        }),
+        freshCtx(),
+      ),
+    /trace store unavailable/,
+  );
+  assert.equal(h.ledger.entries.length, 0);
   assert.equal(h.events.events.length, 0);
 });
 

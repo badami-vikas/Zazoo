@@ -22,8 +22,16 @@
  * @bridge/models (LocalContentGuard); this module is transport-free (types + a
  * ModelProvider-backed default), matching @bridge/core's zero-runtime-deps rule.
  */
-import type { ModelProvider } from "../ports.js";
+import {
+  assertModelOutputTaint,
+  type ModelCompletionRequest,
+  type ModelProvider,
+} from "../ports.js";
 import type { TrustOrigin } from "../types.js";
+import {
+  hashTaintValue,
+  labelAtSource,
+} from "../taint.js";
 
 /** Explicit spotlighting delimiters. Distinctive, unlikely to occur in real content, and
  * paired so a privileged reader can see exactly where untrusted data starts/ends. */
@@ -156,13 +164,21 @@ export class QuarantinedContentGuard implements ContentGuard {
     let summary = "";
     let entities: string[] = [];
     try {
-      const res = await this.#model.complete({
+      const request: ModelCompletionRequest = {
         system,
         prompt: spotlightUntrusted(input.content),
         maxTokens: 300,
         tier: "cheap",
         cache: { strategy: "stable_system_prefix", ttl: "5m" },
-      });
+        taintLabel: labelAtSource("mcp_result", {
+          ref: "content-guard",
+          valueHash: hashTaintValue(input.content),
+          sensitivity: "private",
+          instructionRisk: "instruction_like",
+        }),
+      };
+      const res = await this.#model.complete(request);
+      assertModelOutputTaint(request, res);
       const obj = safeParseObject(res.text);
       if (obj) {
         parsed = true;

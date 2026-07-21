@@ -32,6 +32,8 @@ import {
   type MemoryStore,
   type Plane,
   type TrustOrigin,
+  hashTaintValue,
+  labelAtSource,
 } from "@bridge/core";
 import type { CaptureLedger, MemoryEntryRecord } from "./capture-ledger.js";
 import {
@@ -195,6 +197,21 @@ export class SensorHub {
   async ingest(emission: CaptureEmission): Promise<MemoryEntryRecord> {
     const { raw, observation } = emission;
     this.#raw.set(raw.id, raw);
+    const sourceId =
+      observation.kind === "screen"
+        ? "screen_capture"
+        : observation.kind === "clipboard"
+          ? "clipboard_capture"
+          : "sensor_capture";
+    const taintLabel = labelAtSource(sourceId, {
+      ref: raw.id,
+      valueHash: hashTaintValue({
+        summary: observation.summary,
+        payload: observation.payload,
+      }),
+      sensitivity: "private",
+      instructionRisk: "instruction_like",
+    });
 
     const entry = await this.#deps.ledger.record({
       id: this.#deps.ids(),
@@ -204,6 +221,7 @@ export class SensorHub {
       occurredAt: observation.occurredAt,
       createdBy: observation.providerId,
       trustOrigin: "untrusted_external" satisfies TrustOrigin,
+      taintLabel,
       refs: [],
       payload: observation.payload,
       redactions: observation.redactions ?? [],
@@ -220,6 +238,7 @@ export class SensorHub {
         sourceRefId: entry.id,
         confidence: 0.5,
         trustOrigin: "untrusted_external",
+        taintLabel,
         plane: "local",
         createdBy: observation.providerId,
         ownerUserId: this.#deps.userId ?? null,
@@ -235,6 +254,7 @@ export class SensorHub {
       entityType: "signal",
       entityId: entry.id,
       payload: { providerId: observation.providerId, kind: observation.kind, memoryEntryId: entry.id },
+      taintLabel,
       createdAt: this.#deps.nowISO(),
     });
 

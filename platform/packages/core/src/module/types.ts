@@ -141,6 +141,7 @@ export interface ModuleAttachment {
   agentId: string;
   needId: string;
   contentHash: string;
+  taintLabel?: import("../taint.js").TaintLabel;
 }
 
 export interface CommonsInstallationSource {
@@ -148,6 +149,7 @@ export interface CommonsInstallationSource {
   manifestHash: string;
   /** Exact verified generalized registry envelope; never Organization/user state. */
   entry: CommonsModuleEntry;
+  taintLabel?: import("../taint.js").TaintLabel;
 }
 
 /** module_installations row shape (or the equivalent ModuleStore row) — one

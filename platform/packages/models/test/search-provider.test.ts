@@ -10,6 +10,9 @@ import {
   type SearchProviderHealth,
   type SearchProviderResult,
   type SearchRequest,
+  hashTaintValue,
+  labelAtSource,
+  UNKNOWN_LABEL,
 } from "@bridge/core";
 import {
   ResponseTooLargeError,
@@ -33,6 +36,12 @@ const REQUEST: SearchRequest = {
   timeoutMs: 5_000,
   requestId: "request-1",
   requestedAt: "2026-07-18T00:00:00.000Z",
+  taintLabel: labelAtSource("human_input", {
+    ref: "request-1",
+    valueHash: hashTaintValue("Find current public documentation"),
+    sensitivity: "public",
+    instructionRisk: "instruction_like",
+  }),
 };
 
 function hash(value: string): string {
@@ -98,6 +107,23 @@ function provider(
     search,
   };
 }
+
+test("Parallel Search blocks unknown taint before network access", async () => {
+  let calls = 0;
+  const search = new ParallelSearchProvider({
+    fetch: async () => {
+      calls += 1;
+      throw new Error("network must not be reached");
+    },
+  });
+  await assert.rejects(
+    () => search.search({ ...REQUEST, taintLabel: UNKNOWN_LABEL }),
+    (error: unknown) =>
+      error instanceof SearchProviderError &&
+      error.code === "access_blocked",
+  );
+  assert.equal(calls, 0);
+});
 
 test("router selects deterministically by health then id and attributes failover", async () => {
   const called: string[] = [];

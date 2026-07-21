@@ -5,6 +5,13 @@
 import type { UniversalActionPipeline } from "./pipeline.js";
 import type { AutomationDefinition, AutomationRegistry, AutomationRunRecorder, RunCtx } from "./ports.js";
 import type { OnBehalfOf, Proposal, ResourceType } from "./types.js";
+import {
+  UNKNOWN_LABEL,
+  joinTaintLabels,
+  labelFromLegacyTrustOrigin,
+  legacyTrustOriginFromLabel,
+  type TaintLabel,
+} from "./taint.js";
 
 export interface AutomationStep {
   skill: string;
@@ -27,6 +34,7 @@ export interface AutomationRunResult {
   proposals: Proposal[];
   /** Set when status='halted' — the step index that stopped the run. */
   haltedAtStep?: number;
+  taintLabel: TaintLabel;
 }
 
 /** Run an Automation by id, loading its Agent and steps from the registry. */
@@ -115,9 +123,19 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
   ): Promise<AutomationRunResult> {
     await this.#recorder?.start({ runId, automationId, organizationId, agentId: agent.id }, ctx);
     const proposals: Proposal[] = [];
+    let runTaint =
+      ctx.taintLabel ??
+      (ctx.taint
+        ? labelFromLegacyTrustOrigin(ctx.taint, `automation-run:${runId}`)
+        : UNKNOWN_LABEL);
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i]!;
+      const stepCtx: RunCtx = {
+        ...ctx,
+        taintLabel: runTaint,
+        taint: legacyTrustOriginFromLabel(runTaint),
+      };
       const proposal = await this.#pipeline.propose(
         {
           organizationId,
@@ -133,10 +151,28 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
           ...(seed ? { seed } : {}),
           ...(step.goalTaskRef ? { goalTaskRef: step.goalTaskRef } : {}),
         },
-        ctx,
+        stepCtx,
         i === 0 && proposalId ? { proposalId } : {},
       );
       proposals.push(proposal);
+      const proposalLabel =
+        proposal.output?.taintLabel ??
+        proposal.request.taintLabel ??
+        (
+          proposal.output?.trustOrigin ?? proposal.request.trustOrigin
+            ? labelFromLegacyTrustOrigin(
+                proposal.output?.trustOrigin ??
+                  proposal.request.trustOrigin,
+                `automation-proposal:${proposal.id}`,
+              )
+            : runTaint
+        );
+      runTaint = joinTaintLabels(runTaint, proposalLabel);
+      const recorderCtx: RunCtx = {
+        ...ctx,
+        taintLabel: runTaint,
+        taint: legacyTrustOriginFromLabel(runTaint),
+      };
 
       if (proposal.status === "rejected") {
         const result: AutomationRunResult = {
@@ -145,16 +181,40 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
           status: "halted",
           proposals,
           haltedAtStep: i,
+          taintLabel: runTaint,
         };
-        await this.#recorder?.finish({ runId, organizationId, status: "halted", output: { haltedAtStep: i } }, ctx);
+        await this.#recorder?.finish(
+          {
+            runId,
+            organizationId,
+            status: "halted",
+            output: { haltedAtStep: i, taintLabel: runTaint },
+          },
+          recorderCtx,
+        );
         return result;
       }
     }
 
     await this.#recorder?.finish(
-      { runId, organizationId, status: "completed", output: { steps: proposals.length } },
-      ctx,
+      {
+        runId,
+        organizationId,
+        status: "completed",
+        output: { steps: proposals.length, taintLabel: runTaint },
+      },
+      {
+        ...ctx,
+        taintLabel: runTaint,
+        taint: legacyTrustOriginFromLabel(runTaint),
+      },
     );
-    return { runId, automationId, status: "completed", proposals };
+    return {
+      runId,
+      automationId,
+      status: "completed",
+      proposals,
+      taintLabel: runTaint,
+    };
   }
 }

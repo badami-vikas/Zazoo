@@ -16,13 +16,13 @@ export function DashboardRow({ metrics }: { metrics: DashboardMetric[] }) {
   if (metrics.length === 0) return null;
   return (
     <div
-      className="flex flex-wrap items-stretch gap-3 border-b px-4 py-3 sm:flex-nowrap sm:overflow-x-auto"
+      className="grid grid-cols-1 items-stretch gap-3 border-b px-4 py-3 sm:flex sm:flex-nowrap sm:overflow-x-auto"
       style={{ borderColor: "var(--color-border)", backgroundColor: "white" }}
     >
       {metrics.map((m) => (
         <div
           key={m.id}
-          className="flex flex-col gap-0.5 px-3 py-2 rounded-lg border shrink-0 min-w-[120px]"
+          className="flex min-w-0 w-full flex-col gap-0.5 rounded-lg border px-3 py-2 sm:w-auto sm:min-w-[120px] sm:shrink-0"
           style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}
         >
           <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>

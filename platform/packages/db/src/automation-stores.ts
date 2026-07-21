@@ -10,6 +10,10 @@ import type {
   RunCtx,
 } from "@bridge/core";
 import { canonicalizeJson } from "@bridge/core";
+import {
+  labelFromLegacyTrustOrigin,
+  storedTaintLabelOrUnknown,
+} from "@bridge/core";
 import type { Database } from "./client.js";
 import { agents, automationRuns, automations } from "./schema.js";
 import { withOrganizationOnly } from "./organization-context.js";
@@ -226,6 +230,9 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
       agentId: run.agentId,
       runId: run.runId,
       status: "running",
+      taintLabel:
+        ctx.taintLabel ??
+        labelFromLegacyTrustOrigin(ctx.taint, `automation-run:${run.runId}`),
       startedAt: new Date(ctx.clock.nowISO()),
       }).onConflictDoNothing().returning();
       if (inserted) return;
@@ -253,6 +260,9 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
       .set({
         status: run.status,
         output: run.output,
+        taintLabel:
+          ctx.taintLabel ??
+          labelFromLegacyTrustOrigin(ctx.taint, `automation-run:${run.runId}`),
         finishedAt: new Date(ctx.clock.nowISO()),
       })
       .where(
@@ -329,6 +339,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
           status: automationRuns.status,
           startedAt: automationRuns.startedAt,
           finishedAt: automationRuns.finishedAt,
+          taintLabel: automationRuns.taintLabel,
         })
         .from(automationRuns)
         .where(and(
@@ -349,6 +360,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
           status: row.status,
           startedAt: row.startedAt.toISOString(),
           ...(row.finishedAt ? { finishedAt: row.finishedAt.toISOString() } : {}),
+          taintLabel: storedTaintLabelOrUnknown(row.taintLabel).label,
         };
       });
     });

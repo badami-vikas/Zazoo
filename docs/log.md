@@ -2030,3 +2030,11 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Physical runtime A→B projection preserved proposal/Run identity, completed Human decisions, rejected races/stale/unknown/delete controls, preserved an untouched completed Task, and reparented root-swapped children correctly.
 - Cap and age sweep Automations preserved evidence and retry identity. Prior real Corporate TASK-013 retained Task/Run/Result/Event/File proof. Required-Skill routing selected only Internal Strategist; ambiguous/no-match required Human assignment; Capability Builder was never default.
 - External gate reports 148 exact Bridge tests plus zero-blocker physical certification. GitHub Actions remained billing-blocked; no CI success is claimed. AP-066 closes TASK-021 and the Task Manager plan as `done`.
+
+# 2026-07-21 — TASK-015 runtime taint RT0–RT4 (AP-070, ADR-142)
+- Added canonical v1 taint lattice/RuntimeValue, monotonic join, strict serialization, exhaustive source/sink registry, fail-closed unknown, prompt-free metrics/replay, and immutable validator/Human declassification.
+- Propagated labels through current model/Skill/pipeline/Automation/child Run/Ledger/Memory/Event/File/Google/sensor/web/MCP/signed-Commons/cache/queue/retry/restart seams while preserving Plane, ModelProvider, Task Manager, and governed research contracts.
+- Allocated migration `0029`: deterministic legacy backfill, unknown quarantine, canonical persisted labels, forced-RLS sink/declassification audit.
+- Added Approval untrusted/unknown warning + source trace and honest empty trace state.
+- Targeted core/DB/RLS/migration/local/model/Google/net-guard/sensor/API/research/culture/restart/red-team/UI tests, affected builds/typechecks, lint, vocabulary, no-dummy, and diff gates pass. GitHub Actions remain payment-blocked; no CI success claimed.
+- One bounded changed-scope review found nine sink/audit/Plane/legacy/web/Automation/model/trace/declassification defects; all were fixed with direct regressions. Exact CDP 375px proof found and fixed shared metrics/content overflow; final `innerWidth` and `scrollWidth` both equal 375.

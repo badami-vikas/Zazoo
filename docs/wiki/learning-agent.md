@@ -15,7 +15,7 @@ Skill + SearchProvider + shared net-guard + ContentGuard. Raw snippets stop
 at quarantine. Cited Result + private Memory + Event keep rights, hashes,
 provider attempts, `untrusted_external`. No research-to-prompt sink.
 Onboarding profile in-memory only. Embeddings exist, no retrieval. Full
-runtime taint still open.
+runtime taint RT0–RT4 DONE (TASK-015).
 
 **TASK-002 partial:** every onboarding question says why + effect. User may skip
 role model. Fixed-host Wikipedia research returns citation + separates documented
@@ -35,9 +35,9 @@ never egresses; raw capture local-plane only.
 repairs runtime or policy directly. Engine recovers operation; Governance
 remediates control failures; Builder changes capability.
 
-**Root taint gap:** metadata+egress check already exist, full runtime flow does
-not. RT0–RT4: label+lattice → prompt/model/Skill/Action propagation → source/sink
-instrumentation → quarantine/deny → backfill+trace. Unknown label fails closed.
+**Root taint gap CLOSED:** canonical v1 lattice/envelope → prompt/model/Skill/Action
+propagation → registered sources/sinks → quarantine/deny → backfill+trace/replay.
+Unknown label fails closed. Human/validator-only declassification is immutable.
 
 **Slices LA0–LA6**:
 - LA0 Memory primitive — MemoryPort + Mem0 adapter; MemoryEntry w/

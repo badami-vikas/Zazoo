@@ -21,6 +21,12 @@ import type { DataScope } from "./data-scope.js";
 import type { Actor, Plane, TrustOrigin } from "./types.js";
 import type { LedgerEntry } from "./types.js";
 import type { LedgerStore, RunCtx } from "./ports.js";
+import {
+  joinTaintLabels,
+  labelFromLegacyTrustOrigin,
+  legacyTrustOriginFromLabel,
+  type TaintLabel,
+} from "./taint.js";
 import type { ChildRunPolicy } from "./skill-manifest.js";
 
 /** Computed handling requirement (docs/glossary.md "Review Mode"). Ordered from
@@ -35,15 +41,19 @@ export function stricterReviewMode(a: ReviewMode, b: ReviewMode): ReviewMode {
   return REVIEW_MODE_ORDER.indexOf(a) >= REVIEW_MODE_ORDER.indexOf(b) ? a : b;
 }
 
-const TAINT_ORDER: readonly TrustOrigin[] = ["operator", "user_content", "untrusted_external"];
-
-/** The more-tainted (never-cleaner) of two taints — AGS2 inheritance rule
- * "runtime_taint: monotonic; inherited and propagated." Absent = untainted
- * (the safe/clean end), so `undefined` only wins when BOTH sides are absent. */
-export function stricterTaint(a: TrustOrigin | undefined, b: TrustOrigin | undefined): TrustOrigin | undefined {
+export function stricterTaint(
+  a: TrustOrigin | undefined,
+  b: TrustOrigin | undefined,
+): TrustOrigin | undefined {
+  if (!a && !b) return undefined;
   if (!a) return b;
   if (!b) return a;
-  return TAINT_ORDER.indexOf(a) >= TAINT_ORDER.indexOf(b) ? a : b;
+  return legacyTrustOriginFromLabel(
+    joinTaintLabels(
+      labelFromLegacyTrustOrigin(a, "child-run-parent-v0"),
+      labelFromLegacyTrustOrigin(b, "child-run-request-v0"),
+    ),
+  );
 }
 
 /** Hard delegation-depth cap (AGS2 prohibition: "no recursive delegation beyond
@@ -141,6 +151,7 @@ export interface ParentRunEnvelope {
   reviewMode: ReviewMode;
   /** The parent Skill must explicitly opt in to child delegation. */
   childRunPolicy: ChildRunPolicy;
+  taintLabel?: TaintLabel;
   taint?: TrustOrigin;
   /** 0 for a top-level (non-child) Run. */
   delegationDepth: number;
@@ -164,6 +175,7 @@ export interface ChildAgentRunRequest {
   stopCondition: string;
   requestedDataScope?: DataScope;
   requestedReviewMode?: ReviewMode;
+  requestedTaintLabel?: TaintLabel;
   requestedTaint?: TrustOrigin;
   /** Set when the child Run's purpose touches an "external" risk-band Skill —
    * forces reviewMode to at least "approve" regardless of parent/requested
@@ -194,9 +206,15 @@ export interface ChildAgentRun {
   deadline: string;
   stopCondition: string;
   reviewMode: ReviewMode;
+  taintLabel?: TaintLabel;
   taint?: TrustOrigin;
   status: ChildAgentRunStatus;
   createdAt: string;
+}
+
+function childRunTaintLabel(run: ChildAgentRun): TaintLabel {
+  return run.taintLabel ??
+    labelFromLegacyTrustOrigin(run.taint, `child-run:${run.id}`);
 }
 
 /**
@@ -288,7 +306,16 @@ export function deriveChildAgentRun(
     reviewMode = stricterReviewMode(reviewMode, "approve");
   }
 
-  const taint = stricterTaint(parent.taint, req.requestedTaint);
+  const taintLabel = joinTaintLabels(
+    parent.taintLabel ??
+      labelFromLegacyTrustOrigin(parent.taint, `parent-run:${parent.runId}`),
+    req.requestedTaintLabel ??
+      labelFromLegacyTrustOrigin(
+        req.requestedTaint,
+        `child-task:${req.taskId}`,
+      ),
+  );
+  const taint = legacyTrustOriginFromLabel(taintLabel);
 
   return {
     id: ids.next(),
@@ -309,7 +336,8 @@ export function deriveChildAgentRun(
     deadline: req.deadline,
     stopCondition: req.stopCondition,
     reviewMode,
-    ...(taint ? { taint } : {}),
+    taint,
+    taintLabel,
     status: "running",
     createdAt,
   };
@@ -511,6 +539,7 @@ async function ensureTerminalOutcomeAudit(
     policyResults: [],
     context: { type: "child_agent_run", id: run.id, runId: run.parentRunId },
     ...(run.taint ? { trustOrigin: run.taint } : {}),
+    taintLabel: childRunTaintLabel(run),
     createdAt: ctx.clock.nowISO(),
   });
   return true;
@@ -598,6 +627,7 @@ async function recordChildAgentRunTransition(
     policyResults: [],
     context: { type: "child_agent_run", id, runId: before.parentRunId },
     ...(before.taint ? { trustOrigin: before.taint } : {}),
+    taintLabel: childRunTaintLabel(before),
     createdAt: ctx.clock.nowISO(),
   });
   // Phase 2: the actual, authoritative CAS. A LOSER (a concurrent transition
@@ -627,6 +657,7 @@ async function recordChildAgentRunTransition(
         policyResults: [],
         context: { type: "child_agent_run", id, runId: before.parentRunId },
         ...(before.taint ? { trustOrigin: before.taint } : {}),
+        taintLabel: childRunTaintLabel(before),
         createdAt: ctx.clock.nowISO(),
       });
     }
@@ -881,6 +912,7 @@ export async function createChildAgentRun(
     policyResults: [],
     context: { type: "child_agent_run", id: run.id, runId: parent.runId },
     ...(run.taint ? { trustOrigin: run.taint } : {}),
+    taintLabel: childRunTaintLabel(run),
     createdAt: ctx.clock.nowISO(),
   };
   await deps.ledger.append(auditEntry);

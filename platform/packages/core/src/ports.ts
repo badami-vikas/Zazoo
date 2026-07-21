@@ -16,6 +16,12 @@ import type {
   SkillOutput,
   TrustOrigin,
 } from "./types.js";
+import type { TaintLabel } from "./taint.js";
+import {
+  UNKNOWN_LABEL,
+  joinTaintLabels,
+  taintFlowsTo,
+} from "./taint.js";
 
 /** Per-request execution context. Carries the determinism seams — nothing in
  * engine code reads the wall clock or a global RNG directly. */
@@ -28,6 +34,8 @@ export interface RunCtx {
   /** Provenance of the most-tainted input threaded into this run (PI-1). Present
    * when the run's context includes ingested content; lets a downstream policy
    * (PI-2) see that the turn is tainted. PI-1 only surfaces it — no gating yet. */
+  taintLabel?: TaintLabel;
+  /** Legacy compatibility projection. */
   taint?: TrustOrigin;
 }
 
@@ -89,6 +97,7 @@ export interface PolicyEvalInput {
    * carries untrusted_external content and gate egress accordingly. Absent =
    * no tagged/ingested content drove the turn (kernel/user-authored). */
   taint?: TrustOrigin;
+  taintLabel?: TaintLabel;
 }
 
 export interface PolicyStore {
@@ -197,6 +206,8 @@ export interface ModelCompletionRequest {
   /** Provider-neutral cache intent. Providers without prefix caching may
    * ignore it; Anthropic binds it to the stable system block. */
   cache?: ModelPromptCache;
+  /** Joined label for every system/user/context prompt segment. */
+  taintLabel?: TaintLabel;
 }
 
 export const MAX_MODEL_PROMPT_CHARS = 1_000_000;
@@ -248,6 +259,30 @@ export interface ModelCompletion {
   model: string;
   tier: ModelTier;
   usage: ModelUsage;
+  /** Must be at least as restrictive as the complete request context. */
+  taintLabel?: TaintLabel;
+}
+
+export function modelRequestTaint(
+  request: ModelCompletionRequest,
+  segmentLabels: readonly TaintLabel[] = [],
+): TaintLabel {
+  return joinTaintLabels(
+    request.taintLabel ?? UNKNOWN_LABEL,
+    ...segmentLabels,
+  );
+}
+
+export function assertModelOutputTaint(
+  request: ModelCompletionRequest,
+  completion: ModelCompletion,
+): TaintLabel {
+  const requestLabel = modelRequestTaint(request);
+  const outputLabel = completion.taintLabel ?? UNKNOWN_LABEL;
+  if (!taintFlowsTo(requestLabel, outputLabel)) {
+    throw new Error("model completion: output taint weakened prompt context");
+  }
+  return outputLabel;
 }
 
 export interface ModelTokenPricing {
@@ -427,6 +462,9 @@ export function createModelCallReceipt(
 /** A Skill is the atomic unit of work — produces a proposed output from inputs. */
 export interface Skill {
   name: string;
+  /** Pure-data Skills may carry inert typed data but cannot call models,
+   * Integrations, credentials, filesystem, schema, or other authority sinks. */
+  executionClass?: "pure_data" | "authority_bearing";
   run(inputs: unknown, ctx: RunCtx): Promise<SkillOutput>;
 }
 
@@ -495,6 +533,7 @@ export interface AutomationRunRecord {
   status: "running" | "completed" | "halted";
   startedAt: string;
   finishedAt?: string;
+  taintLabel?: TaintLabel;
 }
 
 export interface AutomationRunRecorder {

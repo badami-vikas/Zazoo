@@ -2,9 +2,13 @@ import {
   SearchProviderError,
   SearchRequestBoundsError,
   normalizeSearchRequest,
+  joinTaintLabels,
+  labelFromLegacyTrustOrigin,
+  labelAtSource,
   type ContentGuard,
   type SearchProviderRouter,
   type Skill,
+  type TaintLabel,
 } from "@bridge/core";
 
 export const WEB_RESEARCH_SKILL_ID = "web-research";
@@ -37,6 +41,7 @@ interface QuarantinedSearchCitation {
     reason: string;
   };
   trustOrigin: "untrusted_external";
+  taintLabel: TaintLabel;
 }
 
 function parseBudget(value: unknown): WebResearchBudget {
@@ -130,6 +135,9 @@ export function createWebResearchSkill(
         requestId: ctx.ids.next(),
         requestedAt: ctx.clock.nowISO(),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
+        taintLabel:
+          ctx.taintLabel ??
+          labelFromLegacyTrustOrigin(ctx.taint, `web-research:${input.objective}`),
       });
       const result = await providers.search(request);
       const citations: QuarantinedSearchCitation[] = [];
@@ -203,6 +211,14 @@ export function createWebResearchSkill(
             reason: verdict.reason,
           },
           trustOrigin: "untrusted_external" as const,
+          taintLabel:
+            citation.taintLabel ??
+            labelAtSource("web_search", {
+              ref: citation.url,
+              valueHash: citation.contentHash,
+              sensitivity: "public",
+              instructionRisk: "data",
+            }),
         });
       }
       if (citations.length === 0) {
@@ -223,6 +239,16 @@ export function createWebResearchSkill(
         );
       }
       return {
+        taintLabel: joinTaintLabels(
+          result.taintLabel ??
+            labelAtSource("mcp_result", {
+              ref: result.provenance.providerRequestId,
+              valueHash: result.provenance.contentHash,
+              sensitivity: "public",
+              instructionRisk: "data",
+            }),
+          ...citations.map((citation) => citation.taintLabel),
+        ),
         proposedOutput: {
           kind: "web_research",
           objective: request.objective,

@@ -18,6 +18,7 @@ export {
   type OrganizationContext,
 } from "./organization-context.js";
 export { DrizzleLedgerStore } from "./ledger-store.js";
+export { DrizzleTaintAuditStore } from "./taint-audit-store.js";
 export {
   DrizzleRelationMaterializationStore,
   type EnsureRelationMaterializationInput,

@@ -26,6 +26,8 @@ import {
   type MemoryWrite,
   type Plane,
   type TrustOrigin,
+  labelFromLegacyTrustOrigin,
+  storedTaintLabelOrUnknown,
 } from "@bridge/core";
 import type { Database } from "./client.js";
 import { memories } from "./schema.js";
@@ -73,6 +75,7 @@ function unpack(row: typeof memories.$inferSelect): MemoryEntry {
     confidence: Number(row.confidence),
     ...(row.supersedesId ? { supersedesId: row.supersedesId } : {}),
     trustOrigin: row.trustOrigin as TrustOrigin,
+    taintLabel: storedTaintLabelOrUnknown(row.taintLabel).label,
     plane: row.plane as Plane,
     createdBy: row.createdBy,
     ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
@@ -577,6 +580,9 @@ export class DrizzleMemoryStore implements MemoryStore {
         confidence: entry.confidence.toString(),
         supersedesId,
         trustOrigin: entry.trustOrigin,
+        taintLabel:
+          entry.taintLabel ??
+          labelFromLegacyTrustOrigin(entry.trustOrigin, `memory:${entry.id}`),
         plane: entry.plane,
         createdBy: entry.createdBy,
         ownerUserId: entry.ownerUserId ?? null,

@@ -14,6 +14,15 @@
 import { agentFloorDeny, resolveAuthority, type AuthorityDeps } from "./authority.js";
 import { isAgentFloorDenied } from "./agent-floor.js";
 import { evaluateTaintedEgress } from "./policy/taint-egress.js";
+import {
+  joinTaintLabels,
+  labelFromLegacyTrustOrigin,
+  legacyTrustOriginFromLabel,
+  evaluateTaintSink,
+  type TaintAuditStore,
+  type TaintLabel,
+  type TaintSinkId,
+} from "./taint.js";
 import type { GoalTaskStore } from "./goal-task.js";
 import { resolveSkillForTask, type SkillManifestRegistry } from "./skill-manifest.js";
 import type {
@@ -74,6 +83,8 @@ export interface PipelineDeps {
    * Required (alongside `skillManifests`) only for requests naming a skill
    * that HAS a registered manifest. */
   goalTasks?: GoalTaskStore;
+  /** Prompt-free immutable sink/declassification trace store. */
+  taintAudit?: TaintAuditStore;
 }
 
 export interface ProposeOptions {
@@ -81,6 +92,51 @@ export interface ProposeOptions {
   proposalId?: string;
   /** Server-owned floor for transitions whose domain contract always requires a Human decision. */
   requireHumanReview?: boolean;
+}
+
+function sinkForRequest(req: ActionRequest): TaintSinkId | null {
+  if (req.resourceType === "external:send" || req.action === "share") {
+    return "external_send";
+  }
+  if (req.resourceType === "external:fetch") return "network_egress";
+  if (req.resourceType === "file" && req.action !== "read") return "file_write";
+  if (req.resourceType === "integration" && req.action !== "write") {
+    return "credential_access";
+  }
+  if (
+    (
+      req.resourceType === "module" ||
+      req.resourceType === "policy" ||
+      req.resourceType === "policy_param" ||
+      req.resourceType === "role" ||
+      req.resourceType === "permission"
+    ) &&
+    req.action !== "read"
+  ) {
+    return "schema_mutation";
+  }
+  return null;
+}
+
+function sinkPolicyResult(
+  sink: TaintSinkId,
+  label: TaintLabel,
+): PolicyResult | null {
+  if (sink === "external_send") {
+    return evaluateTaintedEgress({
+      action: "share",
+      resourceType: "external:send",
+      taintLabel: label,
+    });
+  }
+  const trace = evaluateTaintSink(sink, [label]);
+  if (trace.policy === "allow") return null;
+  return {
+    policyId: `runtime-taint-sink:${sink}`,
+    phase: "runtime",
+    effect: trace.policy === "block" ? "block" : "require_approval",
+    reason: `${trace.reason} (trace ${trace.traceHash})`,
+  };
 }
 
 /**
@@ -196,21 +252,6 @@ function toPostCommitResults(results: PolicyResult[]): PostCommitPolicyResult[] 
   return out;
 }
 
-const TRUST_ORIGIN_RANK: Readonly<Record<TrustOrigin, number>> = {
-  operator: 0,
-  user_content: 1,
-  untrusted_external: 2,
-};
-
-function combineTrustOrigins(
-  first: TrustOrigin | undefined,
-  second: TrustOrigin | undefined,
-): TrustOrigin | undefined {
-  if (!first) return second;
-  if (!second) return first;
-  return TRUST_ORIGIN_RANK[first] >= TRUST_ORIGIN_RANK[second] ? first : second;
-}
-
 export class UniversalActionPipeline {
   #deps: PipelineDeps;
 
@@ -225,7 +266,22 @@ export class UniversalActionPipeline {
     // The turn's effective provenance (PI-2). Input and ambient context combine
     // monotonically so a caller cannot downgrade an already-tainted context.
     // Undefined = kernel/user authored, no tagged content in play.
-    const turnTaint = combineTrustOrigins(req.trustOrigin, ctx.taint);
+    const requestLabel = req.taintLabel ??
+      (req.trustOrigin
+        ? labelFromLegacyTrustOrigin(req.trustOrigin, `action:${req.skill}`)
+        : null);
+    const contextLabel = ctx.taintLabel ??
+      (ctx.taint
+        ? labelFromLegacyTrustOrigin(
+            ctx.taint,
+            `run:${req.context?.runId ?? "unknown"}`,
+          )
+        : null);
+    const turnTaint =
+      requestLabel && contextLabel
+        ? joinTaintLabels(requestLabel, contextLabel)
+        : requestLabel ?? contextLabel ??
+          labelFromLegacyTrustOrigin(undefined, `action:${req.skill}`);
 
     // 1) Authority (deny-default). nowISO injected for ephemeral expiry checks.
     const auth = await resolveAuthority(
@@ -254,7 +310,8 @@ export class UniversalActionPipeline {
       resourceId: req.resourceId,
       phase: "pre",
       inputs: req.inputs,
-      ...(turnTaint ? { taint: turnTaint } : {}),
+      taintLabel: turnTaint,
+      taint: legacyTrustOriginFromLabel(turnTaint),
     });
     const preBlock = blocked(pre);
     if (preBlock) return this.#reject(req, auth, pre, `policy(pre): ${preBlock.reason}`, ctx);
@@ -361,11 +418,58 @@ export class UniversalActionPipeline {
       }
     }
 
+    const requestSink = sinkForRequest(req);
+    const preSinkPolicy = requestSink
+      ? sinkPolicyResult(requestSink, turnTaint)
+      : null;
+    if (preSinkPolicy) {
+      pre.push(preSinkPolicy);
+      if (preSinkPolicy.effect === "block") {
+        return this.#reject(
+          req,
+          auth,
+          pre,
+          `taint sink: ${preSinkPolicy.reason}`,
+          ctx,
+          turnTaint,
+        );
+      }
+    }
+    if (skill.executionClass !== "pure_data") {
+      const skillPolicy = sinkPolicyResult("skill_execution", turnTaint);
+      if (skillPolicy) {
+        pre.push(skillPolicy);
+        if (skillPolicy.effect === "block") {
+          return this.#reject(
+            req,
+            auth,
+            pre,
+            `taint sink: ${skillPolicy.reason}`,
+            ctx,
+            turnTaint,
+          );
+        }
+      }
+    }
+
     const output = await skill.run(
       req.inputs,
-      turnTaint ? { ...ctx, taint: turnTaint } : ctx,
+      {
+        ...ctx,
+        taintLabel: turnTaint,
+        taint: legacyTrustOriginFromLabel(turnTaint),
+      },
     );
-    const effectiveTaint = combineTrustOrigins(turnTaint, output.trustOrigin);
+    const outputLabel = output.taintLabel ??
+      (output.trustOrigin
+        ? labelFromLegacyTrustOrigin(
+            output.trustOrigin,
+            `skill-output:${req.skill}`,
+          )
+        : null);
+    const effectiveTaint = outputLabel
+      ? joinTaintLabels(turnTaint, outputLabel)
+      : turnTaint;
 
     // 4) Policy(runtime) — evaluate the produced output.
     const runtime = await policies.evaluate({
@@ -377,7 +481,8 @@ export class UniversalActionPipeline {
       phase: "runtime",
       inputs: req.inputs,
       proposedOutput: output.proposedOutput,
-      ...(effectiveTaint ? { taint: effectiveTaint } : {}),
+      taintLabel: effectiveTaint,
+      taint: legacyTrustOriginFromLabel(effectiveTaint),
     });
     const all = [...pre, ...runtime];
     const rtBlock = blocked(runtime);
@@ -398,15 +503,38 @@ export class UniversalActionPipeline {
     // auto-applied — the RUNTIME data-flow half of the static lethal-trifecta manifest
     // audit (module/risk.ts::moduleHasLethalTrifecta). MCP/tool output is DATA: it can
     // taint a turn but never itself triggers a propose(). See ADR-066.
-    const egressGate = evaluateTaintedEgress({
-      action: req.action,
-      resourceType: req.resourceType,
-      taint: effectiveTaint,
-    });
-    if (egressGate) all.push(egressGate);
+    const runtimeSinkPolicy = requestSink && requestSink !== "network_egress"
+      ? sinkPolicyResult(requestSink, effectiveTaint)
+      : null;
+    if (runtimeSinkPolicy) {
+      if (
+        !all.some(
+          (result) =>
+            result.policyId === runtimeSinkPolicy.policyId &&
+            result.effect === runtimeSinkPolicy.effect &&
+            result.reason === runtimeSinkPolicy.reason,
+        )
+      ) {
+        all.push(runtimeSinkPolicy);
+      }
+      if (runtimeSinkPolicy.effect === "block") {
+        return this.#reject(
+          req,
+          auth,
+          all,
+          `taint sink: ${runtimeSinkPolicy.reason}`,
+          ctx,
+          effectiveTaint,
+        );
+      }
+    }
 
     // 5) Review gate — append ledger row, status by approval requirement.
+    const sinkTraceLabel =
+      requestSink === "network_egress" ? turnTaint : effectiveTaint;
     if (options.requireHumanReview === true || requiresApproval(req.actor.type, all)) {
+      const entryId = options.proposalId ?? ctx.ids.next();
+      await this.#recordSinkTrace(entryId, req, sinkTraceLabel, ctx);
       const entry = await this.#appendLedger(
         req,
         output,
@@ -414,7 +542,7 @@ export class UniversalActionPipeline {
         null,
         ctx,
         effectiveTaint,
-        options.proposalId,
+        entryId,
       );
       return {
         id: entry.id,
@@ -427,6 +555,8 @@ export class UniversalActionPipeline {
     }
 
     // Auto-approve path (human + allow policies): commit immediately.
+    const entryId = options.proposalId ?? ctx.ids.next();
+    await this.#recordSinkTrace(entryId, req, sinkTraceLabel, ctx);
     const entry = await this.#appendLedger(
       req,
       output,
@@ -434,7 +564,7 @@ export class UniversalActionPipeline {
       "auto",
       ctx,
       effectiveTaint,
-      options.proposalId,
+      entryId,
     );
     await this.#commit(entry, ctx);
     return {
@@ -464,6 +594,9 @@ export class UniversalActionPipeline {
         policyResults: entry.policyResults,
         output: {
           proposedOutput: entry.proposedOutput,
+          taintLabel:
+            entry.taintLabel ??
+            labelFromLegacyTrustOrigin(entry.trustOrigin, `ledger:${entry.id}`),
           ...(entry.diff !== undefined ? { diff: entry.diff } : {}),
           ...(entry.trustOrigin ? { trustOrigin: entry.trustOrigin } : {}),
         },
@@ -525,6 +658,9 @@ export class UniversalActionPipeline {
         ...(original.onBehalfOfId ? { onBehalfOfId: original.onBehalfOfId } : {}),
         ...(original.dataScope ? { dataScope: original.dataScope } : {}),
         createdAt: ctx.clock.nowISO(),
+        taintLabel:
+          original.taintLabel ??
+          labelFromLegacyTrustOrigin(original.trustOrigin, `ledger:${original.id}`),
       });
       throw new AgentFloorDeniedError(floor);
     }
@@ -578,6 +714,9 @@ export class UniversalActionPipeline {
       ...(original.dataScope ? { dataScope: original.dataScope } : {}),
       ...(original.context ? { context: original.context } : {}),
       ...(original.trustOrigin ? { trustOrigin: original.trustOrigin } : {}),
+      taintLabel:
+        original.taintLabel ??
+        labelFromLegacyTrustOrigin(original.trustOrigin, `ledger:${original.id}`),
       createdAt: ctx.clock.nowISO(),
     };
     // If a second concurrent decide() raced past the pre-check above, the store
@@ -612,6 +751,12 @@ export class UniversalActionPipeline {
       policyResults: original.policyResults,
       output: {
         proposedOutput: committedOutput,
+        taintLabel:
+          persisted.taintLabel ??
+          labelFromLegacyTrustOrigin(
+            persisted.trustOrigin,
+            `ledger:${persisted.id}`,
+          ),
         ...(persisted.diff ? { diff: persisted.diff } : {}),
         ...(persisted.trustOrigin
           ? { trustOrigin: persisted.trustOrigin }
@@ -641,6 +786,9 @@ export class UniversalActionPipeline {
       phase: "post",
       inputs: entry.inputs,
       proposedOutput: entry.proposedOutput,
+      taintLabel:
+        entry.taintLabel ??
+        labelFromLegacyTrustOrigin(entry.trustOrigin, `ledger:${entry.id}`),
       ...(entry.trustOrigin ? { taint: entry.trustOrigin } : {}),
     });
     const postCommitResults: PostCommitPolicyResult[] = toPostCommitResults(postResults);
@@ -659,6 +807,9 @@ export class UniversalActionPipeline {
           ? { trustOrigin: entry.trustOrigin }
           : {}),
       },
+      taintLabel:
+        entry.taintLabel ??
+        labelFromLegacyTrustOrigin(entry.trustOrigin, `ledger:${entry.id}`),
       createdAt: ctx.clock.nowISO(),
     });
   }
@@ -669,7 +820,7 @@ export class UniversalActionPipeline {
     policyResults: PolicyResult[],
     decision: LedgerEntry["userDecision"],
     ctx: RunCtx,
-    effectiveTaint: TrustOrigin | undefined,
+    effectiveTaint: TaintLabel,
     proposalId?: string,
   ): Promise<LedgerEntry> {
     const entry: LedgerEntry = {
@@ -690,10 +841,34 @@ export class UniversalActionPipeline {
       ...(req.seed ? { seed: req.seed } : {}),
       ...(req.dataScope ? { dataScope: req.dataScope } : {}),
       ...(req.context ? { context: req.context } : {}),
-      ...(effectiveTaint ? { trustOrigin: effectiveTaint } : {}),
+      trustOrigin: legacyTrustOriginFromLabel(effectiveTaint),
+      taintLabel: effectiveTaint,
       createdAt: ctx.clock.nowISO(),
     };
     return this.#deps.ledger.append(entry);
+  }
+
+  async #recordSinkTrace(
+    ledgerId: string,
+    req: ActionRequest,
+    label: TaintLabel,
+    ctx: RunCtx,
+  ): Promise<void> {
+    if (!this.#deps.taintAudit) return;
+    const sink = sinkForRequest(req);
+    if (!sink) return;
+    const trace = evaluateTaintSink(sink, [label]);
+    await this.#deps.taintAudit.appendSinkTrace({
+      ...trace,
+      id: ctx.ids.next(),
+      organizationId: req.organizationId,
+      ledgerId,
+      createdAt: ctx.clock.nowISO(),
+      plane:
+        req.actor.plane === "cloud" && req.dataScope === "public"
+          ? "cloud"
+          : "local",
+    });
   }
 
   async #reject(
@@ -702,13 +877,25 @@ export class UniversalActionPipeline {
     policyResults: PolicyResult[],
     reason: string,
     ctx: RunCtx,
-    outputTaint?: TrustOrigin,
+    outputTaint?: TaintLabel,
   ): Promise<Proposal> {
     // Even rejections are audited — append a ledger row with no commit.
-    const rejectionTaint = combineTrustOrigins(
-      combineTrustOrigins(req.trustOrigin, ctx.taint),
-      outputTaint,
-    );
+    const rejectionLabels = [
+      req.taintLabel ??
+        labelFromLegacyTrustOrigin(req.trustOrigin, `action:${req.skill}`),
+      ...(ctx.taintLabel
+        ? [ctx.taintLabel]
+        : ctx.taint
+          ? [
+              labelFromLegacyTrustOrigin(
+                ctx.taint,
+                `run:${req.context?.runId ?? "unknown"}`,
+              ),
+            ]
+          : []),
+      ...(outputTaint ? [outputTaint] : []),
+    ];
+    const rejectionTaint = joinTaintLabels(...rejectionLabels);
     const entry: LedgerEntry = {
       id: ctx.ids.next(),
       organizationId: req.organizationId,
@@ -725,9 +912,11 @@ export class UniversalActionPipeline {
       ...(req.seed ? { seed: req.seed } : {}),
       ...(req.dataScope ? { dataScope: req.dataScope } : {}),
       ...(req.context ? { context: req.context } : {}),
-      ...(rejectionTaint ? { trustOrigin: rejectionTaint } : {}),
+      trustOrigin: legacyTrustOriginFromLabel(rejectionTaint),
+      taintLabel: rejectionTaint,
       createdAt: ctx.clock.nowISO(),
     };
+    await this.#recordSinkTrace(entry.id, req, rejectionTaint, ctx);
     await this.#deps.ledger.append(entry);
     return {
       id: entry.id,
@@ -768,6 +957,9 @@ export class UniversalActionPipeline {
       ...(entry.dataScope ? { dataScope: entry.dataScope } : {}),
       ...(entry.context ? { context: entry.context } : {}),
       ...(entry.trustOrigin ? { trustOrigin: entry.trustOrigin } : {}),
+      taintLabel:
+        entry.taintLabel ??
+        labelFromLegacyTrustOrigin(entry.trustOrigin, `ledger:${entry.id}`),
     };
   }
 }
