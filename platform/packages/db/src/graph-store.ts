@@ -4602,4 +4602,37 @@ export class DrizzleGraphStore {
       },
     });
   }
+
+  async recordWebResearchResultEvent(input: {
+    organizationId: string;
+    userId: string;
+    eventId: string;
+    resultId: string;
+    memoryId: string;
+    taskId: string;
+    moduleName: string;
+    payload: Record<string, unknown>;
+  }): Promise<void> {
+    if (!this.#hasRlsContext(input.organizationId, input.userId)) {
+      return this.#withRlsContext(input.organizationId, input.userId, (store) =>
+        store.recordWebResearchResultEvent(input),
+      );
+    }
+    await this.#db.insert(events).values({
+      id: input.eventId,
+      organizationId: input.organizationId,
+      type: "learning.web_research.result_recorded",
+      entityType: "result",
+      entityId: input.resultId,
+      payload: {
+        ...input.payload,
+        kind: "web_research_result_event",
+        resultId: input.resultId,
+        memoryId: input.memoryId,
+        taskId: input.taskId,
+        moduleName: input.moduleName,
+        trustOrigin: "untrusted_external",
+      },
+    });
+  }
 }

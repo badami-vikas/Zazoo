@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Real ModelProvider implementations plus executable-manifest model binding resolution.",
+  "description": "Real ModelProvider and SearchProvider implementations plus governed provider routing.",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
@@ -17,7 +17,8 @@
   },
   "dependencies": {
     "@bridge/core": "workspace:*",
-    "@bridge/capability-kit": "workspace:*"
+    "@bridge/capability-kit": "workspace:*",
+    "@bridge/net-guard": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

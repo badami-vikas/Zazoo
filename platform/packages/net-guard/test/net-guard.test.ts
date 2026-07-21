@@ -32,6 +32,8 @@ import {
   RedirectLimitExceededError,
   RedirectOriginNotAllowedError,
   RedirectDowngradeError,
+  RequestBodyRedirectError,
+  RequestTooLargeError,
   ResponseTooLargeError,
   type UnsafeTestOverrides,
 } from "../src/index.js";
@@ -122,6 +124,76 @@ test("real DNS resolution is validated exactly once and pinned — a hostname un
   } finally {
     server.close();
   }
+});
+
+test("writes a bounded POST body through the pinned socket and rejects oversized requests before connecting", async () => {
+  let received = "";
+  let connected = 0;
+  const server = http.createServer((req, res) => {
+    connected += 1;
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      received += chunk;
+    });
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end('{"ok":true}');
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const overrides: UnsafeTestOverrides = {
+    isBlockedIp: (ip) => ip !== "127.0.0.1" && isBlockedIp(ip),
+  };
+  try {
+    const result = await guardedFetch(`http://127.0.0.1:${port}/mcp`, {
+      method: "POST",
+      body: '{"query":"public"}',
+      maxRequestBytes: 64,
+      maxRedirects: 0,
+      unsafeTestOverrides: overrides,
+    });
+    assert.equal(result.status, 200);
+    assert.equal(received, '{"query":"public"}');
+
+    await assert.rejects(
+      () => guardedFetch(`http://127.0.0.1:${port}/mcp`, {
+        method: "POST",
+        body: "x".repeat(65),
+        maxRequestBytes: 64,
+        maxRedirects: 0,
+        unsafeTestOverrides: overrides,
+      }),
+      RequestTooLargeError,
+    );
+    assert.equal(connected, 1, "oversized request must fail before opening a second connection");
+
+    await assert.rejects(
+      () => guardedFetch(`http://127.0.0.1:${port}/mcp`, {
+        method: "POST",
+        body: '{"query":"public"}',
+        maxRequestBytes: 64,
+        unsafeTestOverrides: overrides,
+      }),
+      RequestBodyRedirectError,
+    );
+    assert.equal(connected, 1, "redirect-capable body request must fail before opening a connection");
+  } finally {
+    server.close();
+  }
+});
+
+test("the timeout also bounds DNS resolution before a socket exists", async () => {
+  await assert.rejects(
+    () => guardedFetch("https://dns-timeout.invalid/", {
+      timeoutMs: 20,
+      unsafeTestOverrides: {
+        isBlockedHostname: () => false,
+        dnsLookup: () => new Promise(() => undefined),
+      },
+    }),
+    (error) => error instanceof DOMException && error.name === "TimeoutError",
+  );
 });
 
 test("follows a same-host redirect and returns the final body", async () => {

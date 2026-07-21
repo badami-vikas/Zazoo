@@ -99,6 +99,103 @@ test("human with allow grant + no policy auto-applies and emits an event", async
   assert.equal(h.ledger.entries[0]!.userDecision, "auto");
 });
 
+test("Skill output taint reaches runtime/post policy and persists before any later sink", async () => {
+  const observed: Array<{ phase: string; taint: string | undefined }> = [];
+  const h = harness({
+    policies: [
+      (input) => {
+        observed.push({ phase: input.phase, taint: input.taint });
+        return null;
+      },
+    ],
+  });
+  h.skills.register({
+    name: "externally-sourced",
+    async run() {
+      return {
+        proposedOutput: { citation: "https://example.com/source" },
+        trustOrigin: "untrusted_external",
+      };
+    },
+  });
+  h.roles.direct.set("user:u1", [
+    { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
+  ]);
+
+  const proposal = await h.pipeline.propose(
+    req({ skill: "externally-sourced", trustOrigin: "operator" }),
+    freshCtx(),
+    { requireHumanReview: true },
+  );
+
+  assert.equal(proposal.status, "pending_review");
+  assert.equal(proposal.output?.trustOrigin, "untrusted_external");
+  assert.equal(h.ledger.entries[0]?.trustOrigin, "untrusted_external");
+  const applied = await h.pipeline.decide(
+    proposal.id,
+    "approve",
+    { type: "user", id: "reviewer" },
+    freshCtx("2026-06-01T00:01:00.000Z", 43),
+  );
+  assert.equal(applied.status, "applied");
+  assert.equal(applied.output?.trustOrigin, "untrusted_external");
+  assert.deepEqual(observed, [
+    { phase: "pre", taint: "operator" },
+    { phase: "runtime", taint: "untrusted_external" },
+    { phase: "post", taint: "untrusted_external" },
+  ]);
+});
+
+test("request metadata cannot downgrade ambient untrusted context", async () => {
+  const h = harness();
+  h.roles.direct.set("user:u1", [
+    { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
+  ]);
+  const proposal = await h.pipeline.propose(
+    req({ trustOrigin: "operator" }),
+    { ...freshCtx(), taint: "untrusted_external" },
+  );
+  assert.equal(proposal.status, "applied");
+  assert.equal(h.ledger.entries[0]?.trustOrigin, "untrusted_external");
+});
+
+test("runtime rejection audits Skill-output taint", async () => {
+  const h = harness({
+    policies: [
+      (input) =>
+        input.phase === "runtime"
+          ? {
+              policyId: "block-external-output",
+              phase: "runtime",
+              effect: "block",
+              reason: "external output requires rejection",
+            }
+          : null,
+    ],
+  });
+  h.skills.register({
+    name: "externally-sourced",
+    async run() {
+      return {
+        proposedOutput: { citation: "https://example.com/source" },
+        trustOrigin: "untrusted_external",
+      };
+    },
+  });
+  h.roles.direct.set("user:u1", [
+    { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
+  ]);
+
+  const proposal = await h.pipeline.propose(
+    req({ skill: "externally-sourced" }),
+    freshCtx(),
+  );
+
+  assert.equal(proposal.status, "rejected");
+  assert.match(proposal.rejectionReason ?? "", /policy\(runtime\)/);
+  assert.equal(h.ledger.entries[0]?.trustOrigin, "untrusted_external");
+});
+
 test("agents always draft-then-approve even when authorized", async () => {
   const h = harness();
   h.agents.assumed.set("agent-1", "role-writer");

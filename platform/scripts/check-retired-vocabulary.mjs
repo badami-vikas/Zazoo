@@ -250,6 +250,13 @@ function isAllowedTechnicalUse(family, relativePath, value, kind) {
   }
   if (family === "tool") {
     if (
+      relativePath === "packages/models/src/parallel-search-provider.ts" &&
+      kind === "string" &&
+      value === "tools/call"
+    ) {
+      return true;
+    }
+    if (
       relativePath === "packages/core/src/capability/mcp-adapter.ts" &&
       kind === "identifier" &&
       value === "tools"

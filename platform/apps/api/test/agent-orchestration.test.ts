@@ -12,6 +12,11 @@ import {
   SystemClock,
   UuidGen,
   createChildAgentRun,
+  SearchProvidersUnavailableError,
+  type ContentGuard,
+  type SearchProviderOutcome,
+  type SearchProviderRouter,
+  type SearchRequest,
   type RunCtx,
 } from "@bridge/core";
 import { appRouter } from "../src/router.js";
@@ -25,8 +30,11 @@ import {
   CAPABILITY_BUILDER_AGENT,
   RELATIONSHIP_LEARNING_GOAL_TYPE,
   SYNTHESIZE_RECOMMENDATION_TASK_TYPE,
+  LEARNING_WEB_RESEARCH_GOAL_TYPE,
+  RESEARCH_PUBLIC_WEB_TASK_TYPE,
   type Wiring,
 } from "../src/wiring.js";
+import { WEB_RESEARCH_SKILL_ID } from "../src/web-research-skill.js";
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -60,6 +68,81 @@ async function seedGoalAndTask(caller: Awaited<ReturnType<typeof makeCaller>>, a
     assignedAgentId,
   });
   return { goal, task };
+}
+
+function researchFixture(): {
+  router: SearchProviderRouter;
+  contentGuard: ContentGuard;
+  calls: SearchRequest[];
+  inspections: string[];
+} {
+  const calls: SearchRequest[] = [];
+  const inspections: string[] = [];
+  const contentHash = `sha256:${"a".repeat(64)}`;
+  const router: SearchProviderRouter = {
+    providers: () => new Map(),
+    async search(request): Promise<SearchProviderOutcome> {
+      calls.push(request);
+      return {
+        citations: [
+          {
+            url: "https://example.com/evidence",
+            title: "RAW_TITLE_NEVER_PERSIST",
+            publishedAt: null,
+            excerpts: ["RAW_SNIPPET_NEVER_PERSIST"],
+            providerId: "test-fixture-search",
+            retrievedAt: request.requestedAt,
+            contentHash,
+            trustOrigin: "untrusted_external",
+          },
+        ],
+        warnings: [],
+        provenance: {
+          providerId: "test-fixture-search",
+          providerTier: 1,
+          providerAccess: "free_direct",
+          providerRequestId: "test-fixture-provider-request",
+          termsUrl: "https://example.com/terms",
+          searchedAt: request.requestedAt,
+          responseBytes: 512,
+          contentHash,
+          rights: {
+            status: "verified",
+            verifiedAt: "2026-07-18T00:00:00.000Z",
+            sourceUrl: "https://example.com/terms",
+            allowedDataScope: "public",
+            restrictions: ["public test fixture only"],
+          },
+        },
+        trustOrigin: "untrusted_external",
+        attempts: [
+          {
+            providerId: "test-fixture-search",
+            providerTier: 1,
+            providerAccess: "free_direct",
+            providerHealth: "healthy",
+            status: "succeeded",
+            detail: "deterministic test fixture",
+          },
+        ],
+      };
+    },
+  };
+  const contentGuard: ContentGuard = {
+    async inspect(input) {
+      inspections.push(input.content);
+      return {
+        safe: true,
+        categories: [],
+        extraction: {
+          summary: "Quarantined source finding",
+          entities: ["Example"],
+        },
+        reason: "deterministic test quarantine",
+      };
+    },
+  };
+  return { router, contentGuard, calls, inspections };
 }
 
 test("agentOrchestration: a Task assigned to a non-default eligible Agent (Internal Strategist) resolves the governed skill", async () => {
@@ -148,6 +231,327 @@ test("server-owned Agent runtime: an eligible assigned Agent invoking the govern
       goalTaskRef: { goalId: goal.id, taskId: task.id },
     }, makeRun());
     assert.equal(proposal.status, "pending_review");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("web-research runs as the server-selected Learning Agent through cloud/public Goal-Task authority and persists taint", async () => {
+  const fixture = researchFixture();
+  const wiring = await buildWiring({
+    searchProviders: fixture.router,
+    webResearchContentGuard: fixture.contentGuard,
+  });
+  try {
+    const caller = await makeCaller(wiring);
+    const memoriesBefore = await wiring.memoryStore.retrieve(
+      { limit: 100 },
+      { organizationId: PILOT_ORGANIZATION, userId: PILOT_USER },
+    );
+    const proposal = await caller.agentOrchestration.skill.webResearch({
+      organizationId: PILOT_ORGANIZATION,
+      objective: "Find current public evidence",
+      scope: "public_web",
+      searchQueries: ["current public evidence"],
+      budget: {
+        maxResults: 3,
+        maxResponseBytes: 64 * 1_024,
+        maxProviderAttempts: 1,
+        timeoutMs: 5_000,
+      },
+    });
+
+    assert.equal(proposal.status, "pending_review");
+    assert.deepEqual(proposal.request.actor, {
+      type: "agent",
+      id: LEARNING_AGENT,
+      plane: "cloud",
+    });
+    assert.deepEqual(proposal.request.onBehalfOf, {
+      type: "user",
+      id: PILOT_USER,
+    });
+    assert.equal(proposal.request.dataScope, "public");
+    assert.equal(proposal.request.skill, WEB_RESEARCH_SKILL_ID);
+    assert.equal(fixture.calls.length, 1);
+    assert.equal(fixture.calls[0]?.maxResults, 3);
+    assert.equal(fixture.calls[0]?.maxResponseBytes, 64 * 1_024);
+    assert.equal(fixture.calls[0]?.maxProviderAttempts, 1);
+    assert.equal(fixture.inspections.length, 1);
+    assert.match(fixture.inspections[0] ?? "", /RAW_SNIPPET_NEVER_PERSIST/);
+    const task = await wiring.goalTasks.getTask(
+      PILOT_ORGANIZATION,
+      proposal.request.goalTaskRef!.taskId,
+    );
+    const goal = await wiring.goalTasks.getGoal(
+      PILOT_ORGANIZATION,
+      proposal.request.goalTaskRef!.goalId,
+    );
+    assert.ok(task);
+    assert.ok(goal);
+    assert.equal(task.assignedAgentId, LEARNING_AGENT);
+    assert.equal(task.type, RESEARCH_PUBLIC_WEB_TASK_TYPE);
+    assert.equal(goal.type, LEARNING_WEB_RESEARCH_GOAL_TYPE);
+    const resolution = await caller.agentOrchestration.skill.resolve({
+      organizationId: PILOT_ORGANIZATION,
+      goalId: goal.id,
+      taskId: task.id,
+      agentId: LEARNING_AGENT,
+      skillId: WEB_RESEARCH_SKILL_ID,
+      requestedDataScope: "public",
+    });
+    assert.equal(resolution.ok, true);
+    assert.equal(resolution.manifest?.plane, "cloud");
+    assert.equal(proposal.output?.trustOrigin, "untrusted_external");
+    assert.equal(
+      (proposal.output?.proposedOutput as { trustOrigin?: string })
+        .trustOrigin,
+      "untrusted_external",
+    );
+    const ledger = await wiring.ledger.get(proposal.id);
+    assert.equal(ledger?.actorId, LEARNING_AGENT);
+    assert.equal(ledger?.trustOrigin, "untrusted_external");
+    assert.equal(ledger?.dataScope, "public");
+    const memoriesAfter = await wiring.memoryStore.retrieve(
+      { limit: 100 },
+      { organizationId: PILOT_ORGANIZATION, userId: PILOT_USER },
+    );
+    assert.equal(memoriesAfter.length, memoriesBefore.length + 1);
+    const memory = memoriesAfter.find(
+      (candidate) => candidate.id === proposal.resultEvidence.memoryId,
+    );
+    assert.ok(memory);
+    assert.equal(memory.trustOrigin, "untrusted_external");
+    assert.equal(memory.sourceRefType, "ledger");
+    assert.equal(memory.sourceRefId, proposal.resultEvidence.resultId);
+    assert.doesNotMatch(memory.content, /RAW_(TITLE|SNIPPET)_NEVER_PERSIST/);
+    assert.match(memory.content, /Quarantined source finding/);
+    const event = await wiring.graphStore.getEvent(
+      PILOT_ORGANIZATION,
+      proposal.resultEvidence.eventId,
+    );
+    assert.equal(event?.type, "learning.web_research.result_recorded");
+    assert.equal(event?.entityType, "result");
+    assert.equal(
+      (event?.payload as { trustOrigin?: string }).trustOrigin,
+      "untrusted_external",
+    );
+    assert.doesNotMatch(
+      JSON.stringify(event?.payload),
+      /RAW_(TITLE|SNIPPET)_NEVER_PERSIST/,
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("web-research surfaces attributable provider unavailability instead of returning an empty success", async () => {
+  const unavailable: SearchProviderRouter = {
+    providers: () => new Map(),
+    async search() {
+      throw new SearchProvidersUnavailableError([
+        {
+          providerId: "parallel-search-mcp",
+          providerTier: 1,
+          providerAccess: "free_direct",
+          providerHealth: "unavailable",
+          status: "unavailable",
+          code: "timeout",
+          detail: "provider parallel-search-mcp failed with timeout",
+        },
+      ]);
+    },
+  };
+  const wiring = await buildWiring({ searchProviders: unavailable });
+  try {
+    const caller = await makeCaller(wiring);
+    await assert.rejects(
+      () =>
+        caller.agentOrchestration.skill.webResearch({
+          organizationId: PILOT_ORGANIZATION,
+          objective: "Find current public evidence",
+          scope: "public_web",
+          searchQueries: ["current public evidence"],
+          budget: {
+            maxResults: 3,
+            maxResponseBytes: 64 * 1_024,
+            maxProviderAttempts: 1,
+            timeoutMs: 5_000,
+          },
+        }),
+      /web research unavailable \(parallel-search-mcp:unavailable\)/,
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("web-research rejects unsafe quarantine verdicts before Result or Memory persistence", async () => {
+  const fixture = researchFixture();
+  const unsafeGuard: ContentGuard = {
+    async inspect() {
+      return {
+        safe: false,
+        categories: ["prompt_injection"],
+        extraction: {
+          summary: "RAW_SNIPPET_NEVER_PERSIST",
+          entities: [],
+        },
+        reason: "external content attempted to instruct the Agent",
+      };
+    },
+  };
+  const wiring = await buildWiring({
+    searchProviders: fixture.router,
+    webResearchContentGuard: unsafeGuard,
+  });
+  try {
+    const caller = await makeCaller(wiring);
+    const memoriesBefore = await wiring.memoryStore.retrieve(
+      { limit: 100 },
+      { organizationId: PILOT_ORGANIZATION, userId: PILOT_USER },
+    );
+    const resultsBefore = await wiring.ledger.listPending(PILOT_ORGANIZATION, {
+      limit: 100,
+      offset: 0,
+      privateOwnerUserId: PILOT_USER,
+    });
+    await assert.rejects(
+      () =>
+        caller.agentOrchestration.skill.webResearch({
+          organizationId: PILOT_ORGANIZATION,
+          objective: "Find current public evidence",
+          scope: "public_web",
+          searchQueries: ["current public evidence"],
+          budget: {
+            maxResults: 3,
+            maxResponseBytes: 64 * 1_024,
+            maxProviderAttempts: 1,
+            timeoutMs: 5_000,
+          },
+        }),
+      /quarantine produced no persistable citations/,
+    );
+    const memoriesAfter = await wiring.memoryStore.retrieve(
+      { limit: 100 },
+      { organizationId: PILOT_ORGANIZATION, userId: PILOT_USER },
+    );
+    const resultsAfter = await wiring.ledger.listPending(PILOT_ORGANIZATION, {
+      limit: 100,
+      offset: 0,
+      privateOwnerUserId: PILOT_USER,
+    });
+    assert.equal(fixture.calls.length, 1);
+    assert.equal(memoriesAfter.length, memoriesBefore.length);
+    assert.equal(resultsAfter.total, resultsBefore.total);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("web-research fails before provider access when the installed Relationship Module binding is unavailable", async () => {
+  const fixture = researchFixture();
+  const wiring = await buildWiring({
+    searchProviders: fixture.router,
+    webResearchContentGuard: fixture.contentGuard,
+  });
+  try {
+    const versions = await wiring.moduleStore.listVersions(
+      PILOT_ORGANIZATION,
+      "relationship",
+    );
+    const installed = versions.find(
+      (row) => row.status === "installed" && row.state === "available",
+    );
+    assert.ok(installed);
+    await wiring.moduleStore.setState(installed.id, "legacy");
+    const caller = await makeCaller(wiring);
+    await assert.rejects(
+      () =>
+        caller.agentOrchestration.skill.webResearch({
+          organizationId: PILOT_ORGANIZATION,
+          objective: "Find current public evidence",
+          scope: "public_web",
+          searchQueries: ["current public evidence"],
+          budget: {
+            maxResults: 3,
+            maxResponseBytes: 64 * 1_024,
+            maxProviderAttempts: 1,
+            timeoutMs: 5_000,
+          },
+        }),
+      /does not bind web-research to the Learning Agent/,
+    );
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("web-research authority rejects local-plane and direct-Human invocation before provider access", async () => {
+  const fixture = researchFixture();
+  const wiring = await buildWiring({
+    searchProviders: fixture.router,
+    webResearchContentGuard: fixture.contentGuard,
+  });
+  try {
+    const caller = await makeCaller(wiring);
+    const goal = await caller.agentOrchestration.goal.create({
+      organizationId: PILOT_ORGANIZATION,
+      type: LEARNING_WEB_RESEARCH_GOAL_TYPE,
+      title: "test_fixture public research goal",
+    });
+
+    const task = await caller.agentOrchestration.task.create({
+      organizationId: PILOT_ORGANIZATION,
+      goalId: goal.id,
+      type: RESEARCH_PUBLIC_WEB_TASK_TYPE,
+      assignedAgentId: LEARNING_AGENT,
+    });
+    const common = {
+      organizationId: PILOT_ORGANIZATION,
+      action: "read" as const,
+      resourceType: "external:fetch" as const,
+      inputs: {
+        objective: "Find public evidence",
+        scope: "public_web",
+        searchQueries: ["public evidence"],
+        budget: {
+          maxResults: 3,
+          maxResponseBytes: 64 * 1_024,
+          maxProviderAttempts: 1,
+          timeoutMs: 5_000,
+        },
+      },
+      skill: WEB_RESEARCH_SKILL_ID,
+      dataScope: "public" as const,
+      goalTaskRef: { goalId: goal.id, taskId: task.id },
+    };
+    const run = makeRun();
+
+    const local = await wiring.pipeline.propose(
+      {
+        ...common,
+        actor: { type: "agent", id: LEARNING_AGENT, plane: "local" },
+      },
+      run,
+    );
+    assert.equal(local.status, "rejected");
+    assert.match(local.rejectionReason ?? "", /plane|external fetch/i);
+
+    const directHuman = await wiring.pipeline.propose(
+      {
+        ...common,
+        actor: { type: "user", id: PILOT_USER, plane: "cloud" },
+      },
+      run,
+    );
+    assert.equal(directHuman.status, "rejected");
+    assert.match(
+      directHuman.rejectionReason ?? "",
+      /may only be invoked by an eligible Agent Run/,
+    );
+    assert.equal(fixture.calls.length, 0);
   } finally {
     await wiring.close();
   }

@@ -188,26 +188,27 @@ PR #43 owns landing. After merge this worktree is historical; do not resume or m
 Canonical TASK-022 stays `blocked` under AP-067 until an authorized Anthropic credential plus
 explicit live spend runs two real public-safe CoS turns and the second receipt reports cache-read tokens.
 
-## TASK-023 candidate A
+## TASK-023 candidate A — SELECTED / LANDING OWNER
 
 - Session: `874ca9fc-1570-4d17-bf06-172298b0abc3`
 - Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-super-engine`
-- Branch/head: `manishsbhoopalam8498-build-governed-web-research` / `631aa9f`
-- Dirty snapshot: 21 tracked and 8 untracked files, approximately +614/-43.
+- Branch: `manishsbhoopalam8498-build-governed-web-research`
+- Preservation checkpoint: `458f747fdc1dbf432897ac5d4b799c6ea5c0799e`
+- Reconciliation base: normal merge of
+  `origin/main@5122695d8dbf3a9b74bebd79e89618771126af92`
 
 Implemented:
 
 - Core `SearchProvider`.
 - Tier-1-only attributable provider router.
-- DNS-pinned safe HTTP client.
+- Shared `@bridge/net-guard` POST/DNS/SSRF/redirect/size/time/cancellation path.
 - Parallel Search MCP adapter and policy-drift gate.
-- Governed Learning Agent `web-research` Skill and taint/provenance.
-
-Reported validation: full build/typecheck; core 425, models 34, DB 124, API 176; live bounded Parallel smoke; independent security review with no findings.
+- Signed Relationship/Learning-owned `web-research` Skill, ContentGuard
+  quarantine, and tainted Result/Memory/Event provenance.
 
 Rights verdict: Parallel anonymous MCP shipped; Jina keyless and DuckDuckGo Instant Answer blocked; no Tier-2/Tier-3/paid provider registered.
 
-## TASK-023 candidate B
+## TASK-023 candidate B — SUPERSEDED / KEEP IDLE
 
 - Session: `b44e7514-4f2d-4e57-a4c7-e2b9b06be88d`
 - Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-psychic-sniffle`
@@ -218,11 +219,17 @@ Implemented provider verification, core port/taint, a separate research package/
 
 Reported validation before final migration: research 24/24 with 92.29% line / 80% branch / 92.31% function coverage; focused API 4/4.
 
-Remaining: post-migration API/full gates, docs/evidence, independent security review, commit/push.
+Do not resume, delete, merge, or cherry-pick this dirty worktree. Its separate
+research/network package duplicates current Engine infrastructure; its
+DuckDuckGo registration lacks the required rights basis; its Onboarding
+migration was superseded by TASK-012. Only its non-overlapping attempt-budget
+and retrieval-metadata ideas were re-authored in candidate A.
 
 ### TASK-023 selection rule
 
-Compare candidate A and B feature-by-feature and choose one implementation. Candidate A has the stronger completed handoff; candidate B has a different package shape and the Onboarding migration. Do not merge both or cherry-pick overlapping security primitives without a deliberate reconciliation review.
+Candidate A selected after read-only feature comparison. It had stronger rights
+intake, policy-drift checks, network regressions, live evidence, and prior
+security review. Candidate B contributes no remaining non-overlapping behavior.
 
 ## TASK-008 Relationship continuation — MERGED 2026-07-19
 

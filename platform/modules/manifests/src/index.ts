@@ -266,6 +266,10 @@ const relationshipCapabilities = [
   capability("relationship.help-request.stage-offer", "Stage a Help Offer", "skill", [
     writePrivate("signal"),
   ]),
+  capability("web-research", "Governed public web research", "skill", [
+    readPublic("external:fetch"),
+    writePrivate("event"),
+  ]),
   capability(
     "relationship.agent.steward",
     "Relationship Steward",
@@ -298,7 +302,16 @@ const relationshipCapabilities = [
     "relationship.agent.learning",
     "Learning Agent",
     "agent",
-    [writePrivate("signal")],
+    [
+      writePrivate("signal"),
+      writePrivate("event"),
+      readPublic("external:fetch"),
+    ],
+    [],
+    [
+      { manifestId: "relationship.help-request.stage-offer", versionRange: "0.2.0" },
+      { manifestId: "web-research", versionRange: "0.2.0" },
+    ],
   ),
   capability(
     "relationship.automation.meeting-prep",
@@ -514,7 +527,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "external",
     manifest: {
       name: "relationship",
-      version: "0.2.2",
+      version: "0.2.3",
       kind: "organization_definition",
       summary: "Signals, People, Communities, and governed relationship continuity.",
       description:
@@ -574,7 +587,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
             id: "learning-agent",
             name: "Learning Agent",
             capabilityId: "relationship.agent.learning",
-            skillIds: ["relationship.help-request.stage-offer"],
+            skillIds: ["relationship.help-request.stage-offer", "web-research"],
           },
         ],
         automations: [{

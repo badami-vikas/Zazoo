@@ -58,6 +58,8 @@ import {
   STAGE_CAPTURE_TASK_TYPE,
   RELATIONSHIP_OUTREACH_GOAL_TYPE,
   DRAFT_OUTREACH_TASK_TYPE,
+  LEARNING_WEB_RESEARCH_GOAL_TYPE,
+  RESEARCH_PUBLIC_WEB_TASK_TYPE,
   JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE,
   RESEARCH_CULTURE_SOURCE_TASK_TYPE,
   SYNTHESIZE_CULTURE_PROFILE_TASK_TYPE,
@@ -143,6 +145,7 @@ import {
   InvalidModuleTransitionError,
   resolveSkillForTask,
   cancelChildAgentRun,
+  SearchProvidersUnavailableError,
   completeChildAgentRun,
   createChildAgentRun,
   validateActionWithinChildRun,
@@ -178,6 +181,7 @@ import {
   classifyTaskChangeBand,
   calibratedTaskChangeDecision,
 } from "@bridge/core";
+import { WEB_RESEARCH_SKILL_ID } from "./web-research-skill.js";
 import type { ModelBinding } from "@bridge/capability-kit";
 import { authUrl } from "@bridge/integrations-google";
 import {
@@ -911,6 +915,210 @@ async function provisionRoleModelRecommendationTask(
     PRODUCE_RECOMMENDATION_TASK_TYPE,
     LEARNING_AGENT,
   );
+}
+
+async function provisionWebResearchTask(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    organizationId,
+    LEARNING_WEB_RESEARCH_GOAL_TYPE,
+    "Rights-approved public web research",
+    RESEARCH_PUBLIC_WEB_TASK_TYPE,
+    LEARNING_AGENT,
+  );
+}
+
+const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const webResearchOutputSchema = z.object({
+  kind: z.literal("web_research"),
+  objective: z.string().min(1).max(500),
+  scope: z.object({
+    dataScope: z.literal("public"),
+    plane: z.literal("cloud"),
+    egress: z.literal("tier_1_free_direct_only"),
+  }).strict(),
+  budget: z.object({
+    maxQueries: z.number().int().min(1).max(3),
+    maxResults: z.number().int().min(1).max(10),
+    maxResponseBytes: z.number().int().min(1_024).max(512 * 1_024),
+    maxProviderAttempts: z.number().int().min(1).max(3),
+    timeoutMs: z.number().int().min(1_000).max(15_000),
+  }).strict(),
+  searchQueries: z.array(z.string().min(1).max(160)).min(1).max(3),
+  citations: z.array(z.object({
+    url: z.string().url().max(2_048),
+    publishedAt: z.string().datetime().nullable(),
+    summary: z.string().min(1).max(240),
+    entities: z.array(z.string().min(1).max(160)).max(32),
+    providerId: z.string().min(1).max(100),
+    retrievedAt: z.string().datetime(),
+    contentHash: sha256Schema,
+    quarantine: z.object({
+      safe: z.literal(true),
+      categories: z.array(z.string().min(1).max(100)).max(32),
+      reason: z.string().min(1).max(500),
+    }).strict(),
+    trustOrigin: z.literal("untrusted_external"),
+  }).strict()).min(1).max(10),
+  warnings: z.array(z.string().max(500)).max(10),
+  provenance: z.object({
+    providerId: z.string().min(1).max(100),
+    providerTier: z.literal(1),
+    providerAccess: z.literal("free_direct"),
+    providerRequestId: z.string().min(1).max(200),
+    termsUrl: z.string().url(),
+    privacyUrl: z.string().url().optional(),
+    searchedAt: z.string().datetime(),
+    responseBytes: z.number().int().nonnegative().max(512 * 1_024),
+    contentHash: sha256Schema,
+    rights: z.object({
+      status: z.literal("verified"),
+      verifiedAt: z.string().datetime(),
+      sourceUrl: z.string().url(),
+      allowedDataScope: z.literal("public"),
+      restrictions: z.array(z.string().max(500)).max(20),
+    }).strict(),
+  }).strict(),
+  providerAttempts: z.array(z.object({
+    providerId: z.string().min(1).max(100),
+    providerTier: z.literal(1),
+    providerAccess: z.literal("free_direct"),
+    providerHealth: z.enum(["healthy", "unknown", "degraded", "unavailable"]),
+    status: z.enum(["succeeded", "unavailable", "degraded"]),
+    code: z.enum([
+      "unavailable",
+      "timeout",
+      "rate_limited",
+      "degraded",
+      "invalid_response",
+      "access_blocked",
+      "cancelled",
+    ]).optional(),
+    detail: z.string().min(1).max(500),
+  }).strict()).min(1).max(3),
+  trustOrigin: z.literal("untrusted_external"),
+}).strict();
+
+async function assertWebResearchModuleBinding(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<void> {
+  const installed = await wiring.moduleStore.getAvailable(
+    organizationId,
+    "relationship",
+  );
+  const manifest = installed
+    ? parseModuleManifest({ module: installed.manifest })
+    : null;
+  const learningAgent = manifest?.module?.agents.find(
+    (agent) =>
+      resolveModuleAgentRuntimeId(manifest.name, agent.id) === LEARNING_AGENT,
+  );
+  const skill = manifest?.capabilities.find(
+    (capability) =>
+      capability.id === WEB_RESEARCH_SKILL_ID &&
+      capability.capabilityType === "skill",
+  );
+  if (
+    installed?.status !== "installed" ||
+    installed.moduleAttachment !== undefined ||
+    installed.moduleVersion !== SUPPORTED_RELATIONSHIP_CONTRACT.version ||
+    manifest === null ||
+    canonicalizeManifest(manifest) !==
+      SUPPORTED_RELATIONSHIP_CONTRACT.canonicalManifest ||
+    !learningAgent?.skillIds.includes(WEB_RESEARCH_SKILL_ID) ||
+    !skill ||
+    !skill.permissions.some(
+      (permission) =>
+        permission.resourceType === "external:fetch" &&
+        permission.action === "read" &&
+        permission.dataScope === "public" &&
+        permission.egress,
+    )
+  ) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "The installed Relationship Module does not bind web-research to the Learning Agent",
+    });
+  }
+}
+
+async function persistWebResearchOutcome(
+  wiring: Wiring,
+  run: ApiContext["run"],
+  identityId: string,
+  organizationId: string,
+  goalTaskRef: { goalId: string; taskId: string },
+  proposal: Proposal,
+): Promise<{
+  resultId: string;
+  memoryId: string;
+  eventId: string;
+  trustOrigin: "untrusted_external";
+}> {
+  const parsed = webResearchOutputSchema.safeParse(
+    proposal.output?.proposedOutput,
+  );
+  if (!parsed.success) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message:
+        "web research completed without a valid quarantined Result; nothing was persisted",
+      cause: parsed.error,
+    });
+  }
+  const resultId = proposal.id;
+  const memoryId = run.ids.next();
+  const eventId = run.ids.next();
+  const content = {
+    kind: "web_research_result_memory",
+    moduleName: "relationship",
+    resultId,
+    goalId: goalTaskRef.goalId,
+    taskId: goalTaskRef.taskId,
+    result: parsed.data,
+  };
+  await wiring.memoryStore.write({
+    id: memoryId,
+    organizationId,
+    type: "semantic",
+    subjectRecordId: goalTaskRef.taskId,
+    scope: "private",
+    content: JSON.stringify(content),
+    sourceRefType: "ledger",
+    sourceRefId: resultId,
+    confidence: 1,
+    trustOrigin: "untrusted_external",
+    plane: "local",
+    createdBy: LEARNING_AGENT,
+    ownerUserId: identityId,
+    createdAt: run.clock.nowISO(),
+  });
+  await wiring.graphStore.recordWebResearchResultEvent({
+    organizationId,
+    userId: identityId,
+    eventId,
+    resultId,
+    memoryId,
+    taskId: goalTaskRef.taskId,
+    moduleName: "relationship",
+    payload: {
+      objective: parsed.data.objective,
+      citations: parsed.data.citations,
+      provenance: parsed.data.provenance,
+      providerAttempts: parsed.data.providerAttempts,
+    },
+  });
+  return {
+    resultId,
+    memoryId,
+    eventId,
+    trustOrigin: "untrusted_external",
+  };
 }
 
 interface CommonsSkillInvocation {
@@ -11926,6 +12134,98 @@ export const appRouter = t.router({
     }),
 
     skill: t.router({
+      webResearch: authenticatedProcedure
+        .input(
+          z
+            .object({
+              organizationId: z.string().min(1),
+              objective: z.string().trim().min(1).max(500),
+              scope: z.literal("public_web"),
+              searchQueries: z
+                .array(z.string().trim().min(1).max(160))
+                .min(1)
+                .max(3),
+              budget: z.object({
+                maxResults: z.number().int().min(1).max(10),
+                maxResponseBytes: z
+                  .number()
+                  .int()
+                  .min(1_024)
+                  .max(512 * 1_024),
+                maxProviderAttempts: z.number().int().min(1).max(3),
+                timeoutMs: z.number().int().min(1_000).max(15_000),
+              }).strict(),
+            })
+            .strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          await assertWebResearchModuleBinding(
+            ctx.wiring,
+            input.organizationId,
+          );
+          const goalTaskRef = await provisionWebResearchTask(
+            ctx.wiring,
+            input.organizationId,
+          );
+          try {
+            const proposal = await ctx.wiring.pipeline.propose(
+              {
+                organizationId: input.organizationId,
+                actor: {
+                  type: "agent",
+                  id: LEARNING_AGENT,
+                  plane: "cloud",
+                },
+                onBehalfOf: { type: "user", id: ctx.identity.id },
+                action: "read",
+                resourceType: "external:fetch",
+                inputs: {
+                  objective: input.objective,
+                  scope: input.scope,
+                  searchQueries: input.searchQueries,
+                  budget: input.budget,
+                },
+                skill: WEB_RESEARCH_SKILL_ID,
+                dataScope: "public",
+                goalTaskRef,
+                context: {
+                  type: "record",
+                  id: goalTaskRef.taskId,
+                  runId: ctx.run.ids.next(),
+                },
+              },
+              ctx.run,
+            );
+            const resultEvidence = await persistWebResearchOutcome(
+              ctx.wiring,
+              ctx.run,
+              ctx.identity.id,
+              input.organizationId,
+              goalTaskRef,
+              proposal,
+            );
+            return { ...proposal, resultEvidence };
+          } catch (error) {
+            if (error instanceof SearchProvidersUnavailableError) {
+              const attempts = error.attempts
+                .map((attempt) => `${attempt.providerId}:${attempt.status}`)
+                .join(", ");
+              throw new TRPCError({
+                code: "BAD_GATEWAY",
+                message: `web research unavailable (${attempts})`,
+                cause: error,
+              });
+            }
+            throw error;
+          }
+        }),
+
       /** Read-only preview of AGS1 resolution — never invokes the Skill. Lets
        * the UI show WHY an Agent is (or is not) eligible before a real call. */
       resolve: authenticatedProcedure.input(resolveSkillInput).query(async ({ input, ctx }) => {
@@ -11945,6 +12245,9 @@ export const appRouter = t.router({
         const candidates = input.skillId
           ? ctx.wiring.skillManifests.forSkill(input.organizationId, input.skillId)
           : ctx.wiring.skillManifests.all(input.organizationId);
+        const candidatePlanes = new Set(candidates.map((candidate) => candidate.plane));
+        const intendedPlane =
+          candidatePlanes.size === 1 ? candidates[0]!.plane : "local";
         return resolveSkillForTask(candidates, {
           goal,
           task,
@@ -11953,7 +12256,9 @@ export const appRouter = t.router({
             organizationId: agentOrganizationId,
             active: agentActive,
             capabilityScope: agentScope,
-            plane: "local",
+            // Preview the server-owned workflow plane when the candidate set is
+            // unambiguous; actual invocation still enforces its runtime Actor plane.
+            plane: intendedPlane,
             dataScope: agentDataScope,
           },
           ...(input.skillId ? { skillId: input.skillId } : {}),

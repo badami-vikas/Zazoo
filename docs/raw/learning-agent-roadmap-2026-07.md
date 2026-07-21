@@ -5,7 +5,7 @@ doc_kind: plan
 status: proposed
 companions: [governance-agent-roadmap-2026-07.md, builder-agent-roadmap-2026-07.md, bridge-foundational-agents-onboarding-2026-07.md, roadmap-v2-universal-commons.md, undefined-elements-definitions-2026-07.md, security-audit-2026-07.md, desktop-companion-agent-roadmap-2026-07.md]
 related_wiki: ../wiki/learning-agent.md
-updated: 2026-07-17
+updated: 2026-07-21
 tags: [learning-agent, memory, mem0, rag, research, competitor-discovery, prompt-assembler, taint, injection, web-search, recon, search-provider]
 ---
 
@@ -377,11 +377,26 @@ LA3's research lane needs concrete web-search/extraction backends behind its SSR
 ```yaml
 search_provider_port:
   shape: "same port/adapter pattern as ModelProvider/MemoryStore/ContentGuard — one interface, swappable backends, no caller change on provider swap"
-  taint: "every result carries untrusted_external taint (PI-1/PI-2) before reaching Memory or a prompt — no new mechanism, reuse of the shipped pipeline"
+  taint: "every result carries untrusted_external before Result, Memory, Event, or prompt sinks; pipeline joins Skill output with ambient taint"
+  selection: "server-owned deterministic provider health/id order with explicit attempt budget; no caller-selected provider"
+  bounds: "query/result/request/response/time/provider-attempt caps plus AbortSignal cancellation"
+phase_1_implementation:
+  owner_module: relationship
+  consuming_agent: learning-agent
+  authority: "installed signed Module binding + active attributable Agent + Goal + Task + SkillManifest + public scope + cloud Plane + governed Run"
+  network: "@bridge/net-guard handles DNS validation/pinning, SSRF, manual redirect allowlist, request/response bytes, timeout, content type, and cancellation"
+  quarantine: "raw provider titles/excerpts enter local ContentGuard; only bounded typed summary/entities cross"
+  durable_evidence:
+    result: "append-only pipeline Ledger proposal/output"
+    memory: "private semantic Memory linked to Result ledger id"
+    event: "persistent learning.web_research.result_recorded Event"
+  retained_provenance: [source_url, provider_id, provider_request_id, retrieved_at, content_hash, citations, rights_metadata, provider_attempts, trust_origin]
 tier_1_free_direct_no_account:
-  - parallel_search_mcp: "https://search.parallel.ai/mcp — anonymous HTTP MCP, web_search/web_fetch, $0, verified working this session"
-  - jina_ai_search_foundation: "s.jina.ai / r.jina.ai — keyless HTTP GET works today; free key only raises rate ceiling"
-  - duckduckgo_instant_answer: "api.duckduckgo.com — public JSON, no key ever, narrower coverage"
+  approved_now:
+    - parallel_search_mcp: "https://search.parallel.ai/mcp — anonymous HTTP MCP, web_search, $0; official anonymous-access docs + live protocol/terms headers verified 2026-07-18"
+  rights_gated:
+    - jina_ai_search_foundation: "BLOCKED 2026-07-18 — current official access terms require registration/key and disallow the assumed generic keyless automated-client path; no adapter ships"
+    - duckduckgo_instant_answer: "BLOCKED 2026-07-18 — current automated/commercial permission could not be verified and API-domain robots policy disallows the assumed path; no adapter ships"
 tier_2_free_tier_signup_required:
   count: 33
   examples: [Exa, Tavily, You.com API, Brave Search API, SerpAPI, Serper, Firecrawl, Linkup, Apify, Browserbase, Steel.dev, ZenRows, ScrapingBee]
@@ -392,8 +407,11 @@ tier_3_paid_or_self_hosted_only:
   self_hosted_only_no_hosted_endpoint: [Crawl4AI, Scrapy, OrioSearch, Vane, SearXNG]
   infra_only: [Roundproxies]
 rollout:
-  phase_1: "$0 — wire the 3 Tier-1 providers behind the SearchProvider port; taint every result; ships first"
+  phase_1: "$0 — wire only rights-verified Parallel Search MCP behind the SearchProvider port; taint every result; fail explicitly if unavailable"
   phase_2: "$0 at eval volume — add 2-4 proven Tier-2 providers (not all 33) as fallback adapters once Tier-1 coverage proves insufficient for a real need"
   phase_3: "paid, evaluation-gated — Tier-3 only behind an explicit cost/ROI proposal + APPROVALS.md gate, never a silent default"
   non_goal: "self-hosted-only Tier-3 items deferred indefinitely — no hosting decision made for them yet"
+rights_review:
+  decision: "ADR-141 / AP-068 supersede only ADR-111's assumption that all three surveyed Tier-1 candidates were currently lawful direct-access adapters"
+  recheck_rule: "provider rights metadata expires after 90 days; changed Parallel terms/privacy headers stop execution pending review"
 ```

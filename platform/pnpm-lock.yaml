@@ -537,6 +537,9 @@ importers:
       '@bridge/core':
         specifier: workspace:*
         version: link:../core
+      '@bridge/net-guard':
+        specifier: workspace:*
+        version: link:../net-guard
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

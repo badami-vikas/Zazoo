@@ -244,6 +244,20 @@ export class ResponseTooLargeError extends Error {
   }
 }
 
+export class RequestTooLargeError extends Error {
+  constructor(maxBytes: number) {
+    super(`guardedFetch: request body exceeded max bytes (${maxBytes})`);
+    this.name = "RequestTooLargeError";
+  }
+}
+
+export class RequestBodyRedirectError extends Error {
+  constructor() {
+    super("guardedFetch: requests with a body must set maxRedirects to 0");
+    this.name = "RequestBodyRedirectError";
+  }
+}
+
 /** A redirect hop left the caller-supplied `allowedRedirectOrigins` allowlist
  * — TASK-011 remediation (2026-07-18 coordinator final review, issue 3). This
  * is a DIFFERENT failure mode from `SsrfBlockedError`: the target may be a
@@ -349,9 +363,16 @@ function assertLawfulUrl(url: URL): void {
 export interface GuardedFetchOptions {
   method?: string;
   headers?: Record<string, string>;
+  /** Optional request body. The shared guard writes these exact bytes only
+   * after URL/DNS validation and enforces `maxRequestBytes` before connecting. */
+  body?: string | Buffer;
+  /** Hard cap on request body bytes. */
+  maxRequestBytes?: number;
   /** Overall per-hop timeout (each redirect hop gets a fresh timeout budget). */
   timeoutMs?: number;
-  /** Max redirect hops to follow. 0 = never follow (reject on any 3xx). */
+  /** Max redirect hops to follow. 0 = never follow (reject on any 3xx).
+   * Requests with a body must set this to 0 so bytes can never be replayed to
+   * a redirect target. */
   maxRedirects?: number;
   /** Hard cap on response body bytes — enforced WHILE STREAMING, before the
    * body is ever fully buffered, and also pre-checked against a declared
@@ -391,13 +412,21 @@ export interface GuardedFetchResult {
 const DEFAULT_TIMEOUT_MS = 8_000;
 const DEFAULT_MAX_REDIRECTS = 3;
 const DEFAULT_MAX_BYTES = 2_000_000; // 2MB — generous for an HTML culture-research page, still bounded
+const DEFAULT_MAX_REQUEST_BYTES = 64_000;
 
 type NodeLookupCallback = (err: NodeJS.ErrnoException | null, address: string | ResolvedAddress[], family?: number) => void;
 
 function performOneRequest(
   url: URL,
   addresses: ResolvedAddress[],
-  options: { method: string; headers: Record<string, string>; timeoutMs: number; maxBytes: number; signal: AbortSignal },
+  options: {
+    method: string;
+    headers: Record<string, string>;
+    body?: Buffer;
+    timeoutMs: number;
+    maxBytes: number;
+    signal: AbortSignal;
+  },
 ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer; truncated: boolean }> {
   return new Promise((resolve, reject) => {
     const transport = url.protocol === "https:" ? https : http;
@@ -467,7 +496,25 @@ function performOneRequest(
     );
     req.on("timeout", () => req.destroy(new Error(`guardedFetch: timed out after ${options.timeoutMs}ms`)));
     req.on("error", (err) => reject(err));
-    req.end();
+    req.end(options.body);
+  });
+}
+
+function waitWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
   });
 }
 
@@ -482,8 +529,20 @@ function performOneRequest(
 export async function guardedFetch(url: string, options: GuardedFetchOptions = {}): Promise<GuardedFetchResult> {
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+  const maxRequestBytes = options.maxRequestBytes ?? DEFAULT_MAX_REQUEST_BYTES;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const method = options.method ?? "GET";
+  const body = options.body === undefined
+    ? undefined
+    : Buffer.isBuffer(options.body)
+      ? options.body
+      : Buffer.from(options.body, "utf8");
+  if (body && body.byteLength > maxRequestBytes) {
+    throw new RequestTooLargeError(maxRequestBytes);
+  }
+  if (body && maxRedirects !== 0) {
+    throw new RequestBodyRedirectError();
+  }
   const overrides = options.unsafeTestOverrides;
   const allowedRedirectOrigins = options.allowedRedirectOrigins ? new Set(options.allowedRedirectOrigins) : null;
 
@@ -516,15 +575,22 @@ export async function guardedFetch(url: string, options: GuardedFetchOptions = {
     }
     hopOrigins.push(origin);
 
-    const addresses = await resolveGuardedAddresses(currentUrl.hostname, overrides);
-
     const combinedSignal = options.signal
       ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)])
       : AbortSignal.timeout(timeoutMs);
+    const addresses = await waitWithAbort(
+      resolveGuardedAddresses(currentUrl.hostname, overrides),
+      combinedSignal,
+    );
 
     const result = await performOneRequest(currentUrl, addresses, {
       method,
-      headers: { ...currentHeaders, host: currentUrl.host },
+      headers: {
+        ...currentHeaders,
+        ...(body ? { "content-length": String(body.byteLength) } : {}),
+        host: currentUrl.host,
+      },
+      ...(body ? { body } : {}),
       timeoutMs,
       maxBytes,
       signal: combinedSignal,

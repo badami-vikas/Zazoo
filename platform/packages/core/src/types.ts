@@ -180,6 +180,10 @@ export interface SkillOutput {
   proposedOutput: unknown;
   /** Structured before/after, surfaced in the Review inbox. */
   diff?: unknown;
+  /** Provenance introduced by the Skill's output. External provider/tool output
+   * sets `untrusted_external` here at the ingestion edge; the pipeline combines
+   * it with input/context taint and persists the most restrictive origin. */
+  trustOrigin?: TrustOrigin;
 }
 
 /** Minimal execution snapshot fields the eval reducers read. */
@@ -248,9 +252,9 @@ export interface LedgerEntry {
   /** Original run context (Record/Community/Automation + runId) this action ran
    * under — audit completeness; threaded through unchanged on replay. */
   context?: RunContext;
-  /** Provenance of the input that drove this action (PI-1) — threaded through
+  /** Effective provenance of the input and Skill output (PI-1) — threaded
    * unchanged on replay so the audit spine records whether a committed row
-   * originated from untrusted external content. */
+   * carries untrusted external content. */
   trustOrigin?: TrustOrigin;
   createdAt: string;
 }

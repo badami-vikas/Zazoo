@@ -24,6 +24,27 @@ test("Task Manager is a signed installable Module with one Task Database and Age
   assert.deepEqual(normalized.module?.commonsNeeds, []);
 });
 
+test("Relationship exposes governed web research only through the Learning Agent", () => {
+  const relationship = requireBuiltInModule("relationship").manifest;
+  const webResearch = relationship.capabilities.find(
+    (capability) => capability.id === "web-research",
+  );
+  assert.equal(webResearch?.capabilityType, "skill");
+  assert.ok(
+    webResearch?.permissions.some(
+      (permission) =>
+        permission.resourceType === "external:fetch" &&
+        permission.action === "read" &&
+        permission.dataScope === "public" &&
+        permission.egress,
+    ),
+  );
+  const consumers = relationship.module?.agents.filter((agent) =>
+    agent.skillIds.includes("web-research"),
+  );
+  assert.deepEqual(consumers?.map((agent) => agent.id), ["learning-agent"]);
+});
+
 test("every built-in Module route is declared by its manifest", () => {
   for (const { manifest } of BUILT_IN_MODULES) {
     assert.ok(manifest.module);

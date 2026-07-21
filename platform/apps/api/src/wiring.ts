@@ -82,6 +82,8 @@ import {
   type SkillManifestRegistry,
   type ChildAgentRunStore,
   type SkillManifest,
+  type SearchProviderRouter,
+  type ContentGuard,
   type GeocodingProvider,
   type Actor,
   type RunCtx,
@@ -165,7 +167,16 @@ import {
   createPgliteLocalPlane,
   type LocalPlane,
 } from "@bridge/local";
-import { AnthropicProvider, GroqProvider, OllamaProvider, createModelRouter, type ModelRouter } from "@bridge/models";
+import {
+  AnthropicProvider,
+  FreeDirectSearchProviderRouter,
+  GroqProvider,
+  OllamaProvider,
+  ParallelSearchProvider,
+  createLocalContentGuard,
+  createModelRouter,
+  type ModelRouter,
+} from "@bridge/models";
 import {
   EgressExecutor,
   GoogleApiGatewayFactory,
@@ -217,6 +228,10 @@ import {
   defaultBridgeFilesRoot,
 } from "./module-files.js";
 import { isPublicCloudOnly } from "./deployment-boundary.js";
+import {
+  WEB_RESEARCH_SKILL_ID,
+  createWebResearchSkill,
+} from "./web-research-skill.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // organization + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -428,6 +443,11 @@ export interface Wiring {
    * registers Ollama (local) + Anthropic + Groq (cloud, only when their respective
    * API keys are set). */
   models: ModelRouter;
+  /** TASK-023 public-web SearchProvider router. Phase 1 accepts only
+   * rights-verified Tier-1 free-direct providers and has no paid escalation path. */
+  searchProviders: SearchProviderRouter;
+  /** Local-plane quarantine that reduces web results to typed data before any sink. */
+  webResearchContentGuard: ContentGuard;
   /** Explicitly configured Local Plane geocoder. `null` means place labels stay
    * local and Map plots only Records that already carry coordinates. */
   geocodingProvider: GeocodingProvider | null;
@@ -455,6 +475,10 @@ export interface BuildWiringOptions {
   /** Explicit provider set for composition tests or alternate deployments.
    * Omitted means the normal environment-bound providers for the selected mode. */
   modelProviders?: readonly ModelProvider[];
+  /** Explicit SearchProvider router for composition tests or deployments. */
+  searchProviders?: SearchProviderRouter;
+  /** Explicit local ContentGuard for composition tests or alternate deployments. */
+  webResearchContentGuard?: ContentGuard;
   /** Test-only adapter injection. Runtime defaults to the real OS keyring. */
   dealPilotCredentialVault?: SourceCredentialVault;
   /** Test-only opt-in; runtime must name a durable Local Plane directory. */
@@ -539,6 +563,8 @@ export const AGENT_ORCHESTRATION_SKILL_MANIFEST = {
  */
 export const LEARNING_ROLE_MODEL_GOAL_TYPE = "learning.role_model_recommendation";
 export const PRODUCE_RECOMMENDATION_TASK_TYPE = "produce_recommendation";
+export const LEARNING_WEB_RESEARCH_GOAL_TYPE = "learning.web_research";
+export const RESEARCH_PUBLIC_WEB_TASK_TYPE = "research_public_web";
 
 export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
   organizationId: PILOT_ORGANIZATION,
@@ -590,6 +616,21 @@ export const RED_FLAG_LEARNING_SKILL_MANIFEST = {
   permissions: ["signal:write"],
   plane: "local",
   dataScopes: ["all"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  defaultAgents: ["learning"],
+  childRunPolicy: "forbidden",
+} as const;
+
+export const WEB_RESEARCH_SKILL_MANIFEST = {
+  organizationId: PILOT_ORGANIZATION,
+  skillId: WEB_RESEARCH_SKILL_ID,
+  version: "1.0.0",
+  goalTypes: [LEARNING_WEB_RESEARCH_GOAL_TYPE],
+  taskTypes: [RESEARCH_PUBLIC_WEB_TASK_TYPE],
+  permissions: ["external:fetch:read"],
+  plane: "cloud",
+  dataScopes: ["public"],
   riskBand: "advisory",
   evalVersion: "1.0.0",
   defaultAgents: ["learning"],
@@ -2811,6 +2852,7 @@ export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.ent
 export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
   AGENT_ORCHESTRATION_SKILL_MANIFEST,
   LEARNING_RECOMMENDATION_SKILL_MANIFEST,
+  WEB_RESEARCH_SKILL_MANIFEST,
   RED_FLAG_LEARNING_SKILL_MANIFEST,
   RELATIONSHIP_HELP_OFFER_SKILL_MANIFEST,
   OUTREACH_DRAFT_SKILL_MANIFEST,
@@ -2954,6 +2996,7 @@ function seedGovernance(
     "stageStrategicRecommendation",
     "relationship.help-request.stage-offer",
     "stageCapture",
+    WEB_RESEARCH_SKILL_ID,
     "jobpilot.researchCultureSource",
     "learning.proposePreferenceAdjustment",
   ]);
@@ -3608,6 +3651,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const geocodingProvider =
     options.geocodingProvider ?? localGeocodingProviderFromEnv(process.env);
   const events = new InMemoryEventBus();
+  const searchProviders =
+    options.searchProviders ??
+    new FreeDirectSearchProviderRouter([new ParallelSearchProvider()]);
   const skillRegistry = new InMemorySkillRegistry()
     .register(stageMutation)
     .register(stageCapture)
@@ -3833,6 +3879,14 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // ModelProvider registry/router — resolves capability manifest modelBindings honoring
   // planeDefault (local-default bindings NEVER fall through to a cloud provider).
   const models = createModelRouter(modelProviders);
+  const webResearchContentGuard =
+    options.webResearchContentGuard ??
+    createLocalContentGuard(
+      models.resolve({ use: "other", planeDefault: "local" }, "cheap"),
+    );
+  skillRegistry.register(
+    createWebResearchSkill(searchProviders, webResearchContentGuard),
+  );
 
   // Capability Trust Model support ports (docs/wiki/vision.md): budgets + kill
   // switch stay in-memory in BOTH modes for now — no persistent implementation
@@ -4252,6 +4306,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     evalStore,
     policyParams,
     models,
+    searchProviders,
+    webResearchContentGuard,
     geocodingProvider,
     ...(memory ? { memory } : {}),
     close: closeResources,

@@ -25,6 +25,18 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-18 — TASK-023 SearchProvider/network/governance fixtures** (`platform/packages/net-guard/test/net-guard.test.ts`,
+  `platform/packages/models/test/{search-provider,local-content-guard}.test.ts`,
+  `platform/apps/api/test/agent-orchestration.test.ts`, `platform/packages/core/test/pipeline.test.ts`,
+  `platform/packages/db/test/{local-store,graph-store}.test.ts`, `platform/modules/manifests/test/catalog.test.ts`).
+  **Reason:** deterministic DNS rebinding, SSRF, redirect, timeout, size/content-type, provider degradation,
+  paid-escalation, taint, and Agent-authority regressions cannot depend on mutable internet/DNS/provider state
+  or write to a shared workspace.
+  **Real elements they stand in for:** DNS answers and sockets, Parallel MCP sessions/results, provider outages,
+  Learning Agent Goal/Task assignments, citations, and Ledger/Memory state.
+  **Removal condition:** retain as isolated security/governance regressions; pair them with bounded live
+  rights-approved provider smoke evidence for releases, never replace runtime data with these fixtures.
+
 - **2026-07-18 — TASK-022 model-provider protocol fixtures** (`platform/packages/models/test/{providers,router}.test.ts`,
   `platform/packages/models/test/local-content-guard.test.ts`, `platform/apps/api/test/chief-of-staff.test.ts`,
   `platform/packages/core/test/{agents-invoke,capability-registry,chief-of-staff,content-guard,eval-judge,model-provider}.test.ts`).

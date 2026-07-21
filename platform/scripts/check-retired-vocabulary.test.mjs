@@ -164,6 +164,12 @@ test("technical DOM and projection identifiers stay classified without allowing 
   );
   assert.equal(projection.project, undefined);
 
+  const parallelMcpMethod = inventoryForSource(
+    "packages/models/src/parallel-search-provider.ts",
+    `export const method = "tools/call";`,
+  );
+  assert.equal(parallelMcpMethod.tool, undefined);
+
   const forbidden = inventoryForSource(
     "packages/core/src/record.ts",
     `export interface ProjectElement { label: string }`,

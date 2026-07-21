@@ -150,7 +150,7 @@ test("local plane preserves an unsupported legacy external-record table", async 
   }
 });
 
-test("persistent governance provisions and verifies the attributable Learning Agent Signal grant", async () => {
+test("persistent governance provisions Learning Agent Signal and public-research authority", async () => {
   const organizationId = "b0000000-0000-4000-a000-000000000001";
   const userId = "e0f0053b-fc44-476e-be27-1371e179e958";
   const agentId = "b0000000-0000-4000-a000-0000000000d2";
@@ -172,13 +172,19 @@ test("persistent governance provisions and verifies the attributable Learning Ag
     assert.deepEqual(await ports.agents.capabilityScope(agentId), [
       "signal:write",
       "event:write",
-      // TASK-011 remediation (2026-07-19 coordinator distributed-defects
-      // review, issue 5) — persistent Learning Agent governance now also
-      // grants `external:fetch:read`, matching the in-memory wiring and
-      // required for `jobpilot.researchCultureSource`'s guarded fetch.
       "external:fetch:read",
-      "event:write",
     ]);
+    assert.ok(
+      (await ports.roles.grantsForRole(roleId)).some(
+        (grant) =>
+          grant.resourceType === "external:fetch" &&
+          grant.action === "read" &&
+          grant.effect === "allow",
+      ),
+    );
+    assert.ok(
+      (await ports.agents.allowedSkills(agentId)).includes("web-research"),
+    );
     assert.ok(
       (await ports.roles.grantsForRole(roleId)).some(
         (grant) =>
