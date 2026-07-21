@@ -1999,3 +1999,11 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Commons install now supports trusted signed `organization_definition` roots, validates each dependency-edge pin and shared privacy policy, preserves exact signed source, and normalizes built-in/published manifests identically. Existing Skill attachment flows remain green.
 - Changed manifest bytes are published as immutable `task-manager@1.0.1`, with source/provenance checkpoint `c32bc20`; prior `1.0.0` registry content is never overwritten.
 - Targeted Core/DB/API/Automation/Commons/manifest/web/migration/RLS/lint/vocabulary/no-dummy checks passed. GitHub Actions remain payment-blocked; no CI success is claimed. TASK-021 stays `in_progress` for Corporate re-certification.
+
+# 2026-07-21 — TASK-021 Local Plane restart remediation (AP-065, ADR-139)
+- Consumed Corporate-training-sims PR #103/merge `4d6ae1c`; attached four restart/identity/age defects before code changes.
+- File-backed Local Plane now binds canonical Drizzle Automation registry/Run recorder and ModuleStore. Proposal/Run finalization, exact signed source, lifecycle state, and version promotion survive close/reopen without in-memory or registry-refetch fallback.
+- Module installation IDs are UUID at both store boundaries. Legacy `pkginst_*` values map to a stable UUID ledger resource while remaining explicit proposal input; no schema weakening or cast. Migration `0029` was not allocated because persistent IDs/tables already satisfy the contract.
+- Projection reconcile versions/writes only semantic changes. Unchanged completed Tasks preserve exact timestamp/evidence/status; projected paths own parent resolution during root swaps.
+- Exact two-instance PGlite tests cover restart replay/decision, Commons source/install/promotion, cap+age sweep, and unchanged timestamps. Core/DB/local/API/Commons/manifest/RLS/build/type/lint/vocabulary/no-dummy gates pass. One bounded review found moved-root parent ambiguity; fixed with regression.
+- GitHub Actions remain payment-blocked; no CI claim. TASK-021 remains `in_progress` for external PASS.
