@@ -43,9 +43,14 @@ Design Bridge AI Interface (Copy)/src/app/data/reconStaging.ts
 Design Bridge AI Interface (Copy)/data/Invitations.csv
 Design Bridge AI Interface (Copy)/data/seed_canonical.sql
 
-# Claude internal session files
+# Claude internal session files — ignore ephemeral state, track config+skills
 .claude/
 **/.claude/
+# Track project-level Claude config and skills
+!.claude/settings.json
+!.claude/launch.json
+!.claude/skills/
+!.claude/skills/**
 
 # OS / editor
 .DS_Store

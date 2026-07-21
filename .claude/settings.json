@@ -1,0 +1,162 @@
+{
+  "env": {
+    "ECC_GATEGUARD": "off"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npx vite *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:3300/work)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:3300/intelligence)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:4100/api/health)"
+    ]
+  },
+  "enabledPlugins": {
+    "prompt-architect@prompt-architect-marketplace": true,
+    "superpowers@superpowers-dev": true,
+    "last30days@last30days-skill": true,
+    "ecc@ecc": false,
+    "skill-creator@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "prompt-architect-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "ckelsoe/prompt-architect"
+      }
+    },
+    "superpowers-dev": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/obra/superpowers.git"
+      }
+    },
+    "last30days-skill": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/mvanhorn/last30days-skill.git"
+      }
+    },
+    "ecc": {
+      "source": {
+        "source": "directory",
+        "path": "/tmp/everything-claude-code"
+      }
+    }
+  },
+  "effortLevel": "low",
+  "skipWorkflowUsageWarning": true,
+  "enableWorkflows": false,
+  "skillOverrides": {
+    "agent-payment-x402": "off",
+    "android-clean-architecture": "off",
+    "angular-developer": "off",
+    "apollo:enrich-lead": "off",
+    "apollo:prospect": "off",
+    "apollo:sequence-load": "off",
+    "brand-voice": "off",
+    "brand-voice:brand-voice-enforcement": "off",
+    "brand-voice:discover-brand": "off",
+    "brand-voice:generate-guidelines": "off",
+    "carrier-relationship-management": "off",
+    "cisco-ios-patterns": "off",
+    "compose-multiplatform-patterns": "off",
+    "content-engine": "off",
+    "cpp-coding-standards": "off",
+    "cpp-testing": "off",
+    "crosspost": "off",
+    "csharp-testing": "off",
+    "customer-billing-ops": "off",
+    "customs-trade-compliance": "off",
+    "dart-flutter-patterns": "off",
+    "data:build-dashboard": "off",
+    "data:sql-queries": "off",
+    "data:statistical-analysis": "off",
+    "defi-amm-security": "off",
+    "django-celery": "off",
+    "django-patterns": "off",
+    "energy-procurement": "off",
+    "evm-token-decimals": "off",
+    "finance:close-management": "off",
+    "finance:financial-statements": "off",
+    "finance:journal-entry": "off",
+    "finance:reconciliation": "off",
+    "finance:sox-testing": "off",
+    "finance:variance-analysis": "off",
+    "fsharp-testing": "off",
+    "golang-patterns": "off",
+    "harmonyos-app-resolver": "off",
+    "healthcare-cdss-patterns": "off",
+    "healthcare-emr-patterns": "off",
+    "healthcare-phi-compliance": "off",
+    "hipaa-compliance": "off",
+    "homelab-network-setup": "off",
+    "homelab-pihole-dns": "off",
+    "homelab-vlan-segmentation": "off",
+    "homelab-wireguard-vpn": "off",
+    "inventory-demand-planning": "off",
+    "investor-materials": "off",
+    "investor-outreach": "off",
+    "ito-basket-compare": "off",
+    "ito-data-atlas-agent": "off",
+    "ito-market-intelligence": "off",
+    "ito-trade-planner": "off",
+    "java-coding-standards": "off",
+    "jpa-patterns": "off",
+    "kotlin-coroutines-flows": "off",
+    "kotlin-patterns": "off",
+    "laravel-patterns": "off",
+    "laravel-security": "off",
+    "legal:compliance-check": "off",
+    "legal:review-contract": "off",
+    "legal:signature-request": "off",
+    "legal:triage-nda": "off",
+    "legal:vendor-check": "off",
+    "llm-trading-agent-security": "off",
+    "logistics-exception-management": "off",
+    "marketing-campaign": "off",
+    "marketing:campaign-plan": "off",
+    "marketing:content-creation": "off",
+    "marketing:email-sequence": "off",
+    "marketing:performance-report": "off",
+    "marketing:seo-audit": "off",
+    "nestjs-patterns": "off",
+    "netmiko-ssh-automation": "off",
+    "network-bgp-diagnostics": "off",
+    "network-config-validation": "off",
+    "nodejs-keccak256": "off",
+    "nuxt4-patterns": "off",
+    "perl-patterns": "off",
+    "perl-security": "off",
+    "pg-browser-verify-game": "off",
+    "pg-bug-tracker": "off",
+    "pg-game-design": "off",
+    "pg-game-integration": "off",
+    "pg-game-release-test": "off",
+    "prediction-market-oracle-research": "off",
+    "prediction-market-risk-review": "off",
+    "production-scheduling": "off",
+    "quality-nonconformance": "off",
+    "quarkus-patterns": "off",
+    "returns-reverse-logistics": "off",
+    "sales:account-research": "off",
+    "sales:daily-briefing": "off",
+    "sales:draft-outreach": "off",
+    "sales:forecast": "off",
+    "sales:pipeline-review": "off",
+    "scientific-db-pubmed-database": "off",
+    "scientific-db-uspto-database": "off",
+    "scientific-pkg-gget": "off",
+    "seo": "off",
+    "social-publisher": "off",
+    "springboot-patterns": "off",
+    "springboot-security": "off",
+    "superpowers:brainstorming": "off",
+    "superpowers:test-driven-development": "off",
+    "superpowers:using-superpowers": "off",
+    "swift-concurrency-6-2": "off",
+    "swiftui-patterns": "off",
+    "tinystruct-patterns": "off",
+    "ui-to-vue": "off",
+    "x-api": "off"
+  }
+}
