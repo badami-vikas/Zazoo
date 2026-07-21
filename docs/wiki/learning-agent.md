@@ -10,7 +10,7 @@ agent. `neverExecutes: true` — enforced in code, only firm thing built.
 prompt + one LLM call. Durable Memory runtime ABSENT
 (historical audit); MemoryStore + Drizzle binding now exist, and TASK-002 uses
 private Local Plane preference Memories with inspect/correct/delete. Mem0 decision ratified (ADR-010f), zero
-mem0 code. PromptAssembler unbuilt. LA3 Phase 1 now real: signed Relationship
+mem0 code. PromptAssembler unbuilt. LA3 Phase 1 DONE (TASK-023, AP-069): signed Relationship
 Skill + SearchProvider + shared net-guard + ContentGuard. Raw snippets stop
 at quarantine. Cited Result + private Memory + Event keep rights, hashes,
 provider attempts, `untrusted_external`. No research-to-prompt sink.
@@ -83,9 +83,10 @@ plane) — LA0–LA3 self-contained, deliver standalone.
 
 No sequencer reorder. LA0/LA1 refine P0–P1 tracks (ADR-031/034).
 
-**LA3 provider survey + rights gate (TASK-023, ADR-111/141):** 178
+**LA3 provider survey + rights gate (TASK-023 DONE, ADR-111/141):** 178
 candidates checked. Phase 1 ships only anonymous Parallel Search MCP.
 Jina keyless + DuckDuckGo IA blocked: current direct-access rights not
 verified. Tier2 still signup-gated. Tier3 still cost/ROI + approval-gated.
 No paid escalation code. Full list: `../raw/learning-agent-roadmap-2026-07.md`
-§7. Implementation: `../../outputs/2026-07-18-task023-governed-web-research.md`.
+§7. Real durable governed proof + landing:
+`../../outputs/2026-07-18-task023-governed-web-research.md`.
