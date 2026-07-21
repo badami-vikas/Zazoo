@@ -5,7 +5,7 @@ doc_kind: reference
 status: active
 companions: []
 related_wiki: ../wiki/decisions.md
-updated: 2026-07-20
+updated: 2026-07-21
 tags: [adr, decisions, governance, rationale]
 ---
 
@@ -3062,3 +3062,9 @@ Ollama/Anthropic call.
 - **Why**: the prior hosted-container contract required an encrypted private-data volume, but free Render provides only ephemeral storage and the user explicitly requires all private Local Plane data to stay on the device. Pretending ephemeral or in-memory storage is a Local Plane would create a success-shaped privacy failure.
 - **Alternatives rejected**: mount a paid Render disk; label Render ephemeral storage as encrypted-host residency; use an in-memory private fallback; send private/all/unscoped ledger roots or Source credentials to Supabase; run the API as owner/service role; deploy a second API implementation.
 - **Consequences**: one Docker image supports explicit full-host and public-cloud modes. Render free sleep/restart loses only empty scratch. Static web Auth/shell remains reachable; private Module operations explain that desktop is required. TASK-006 remains blocked only on its separate Google/Source credential evidence.
+
+## ADR-138 — External Task effects are durable proposals; signed root Modules retain their Commons envelope (2026-07-21)
+- **Decision**: projection reconcile and completed-bay sweep use stable UUID Task-effect rows keyed by Organization/kind/idempotency, produced by existing attributable Automation Agent Runs and the Universal Action Pipeline. Projection approval validates expiry, immutable decision, DB record versions, materialized projection hash, and actual `tasks.md` SHA-256; it installs the deterministic File through an exclusive compare/link protocol before the Task CAS and compensates the File if DB application fails. Sweep resolves an existing key before reevaluation and archives only version-matched done Tasks. Signed root Module install accepts only trusted `organization_definition` content with a real Module surface, stores the exact verified Commons entry in `commons_source`, and normalizes built-in/published manifests through the same parser.
+- **Why**: Corporate certification proved pure drift detection, manifest-only sweep declarations, and built-in-only Module activation cannot satisfy a real external Agent. An unpersisted hash ID is not governable; a DB-first File effect can report failure after mutating truth; a built-in row without the signed source cannot prove provenance equivalence.
+- **Alternatives rejected**: non-UUID pseudo-proposals; direct parser writes; a second scheduler; silent archive; DB-first File overwrite; holding the Organization DB row lock while opening independent transactions; accepting arbitrary Commons kinds; rewriting signed bytes; trusting root metadata without install-time privacy/pin revalidation.
+- **Consequences**: migration `0028` is required. Retries/restarts recover from pipeline/File/DB/Run boundaries using stable IDs and persisted results. Human veto changes neither File nor Tasks; stale/expired/racing input fails closed. Existing TASK-004/005 Skill attachments retain their need checks and runtime binding. Prior certification hashes remain historical evidence; recertification must derive new signed/normalized/built-in hashes from the landed canonical content.

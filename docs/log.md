@@ -1990,3 +1990,12 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Replaced the local projection-backed Task Manager with API-backed Queue/Table/Form/Tree/Record Detail and an honest disconnected/empty state. `/pending-work` redirects.
 - Targeted Core/DB/API/Graph/RLS/migration/parser/manifest/web checks and exact desktop/375px real-tree proof passed. GitHub Actions remain payment-blocked; no CI success is claimed.
 - TASK-021 stays `in_progress`. Exact remaining gate: separate `badami-vikas/Corporate-training-sims` full-flow certification using `outputs/2026-07-21-task021-task-manager-bridge.md`.
+
+# 2026-07-21 — TASK-021 external blocker remediation (AP-064, ADR-138)
+- Consumed Corporate-training-sims certification `d24e76b`/PR #102. Preserved its completed real Task evidence and attached all three Bridge blockers before implementation.
+- Added migration `0028`: durable proposal idempotency/expiry/result metadata plus exact `commons_source` envelope on root Module installations.
+- Projection drift now runs through the declared Internal Strategist Automation and pipeline, supports Human approve/edit/veto, performs File-first hash CAS plus Task-version CAS/compensation, and returns Event/Result/File/Run evidence.
+- Completed-bay sweep now runs through Governance Agent Automation, deterministic cap/age policy, stable Run/proposal IDs, and evidence-preserving archive effects.
+- Commons install now supports trusted signed `organization_definition` roots, validates each dependency-edge pin and shared privacy policy, preserves exact signed source, and normalizes built-in/published manifests identically. Existing Skill attachment flows remain green.
+- Changed manifest bytes are published as immutable `task-manager@1.0.1`, with source/provenance checkpoint `c32bc20`; prior `1.0.0` registry content is never overwritten.
+- Targeted Core/DB/API/Automation/Commons/manifest/web/migration/RLS/lint/vocabulary/no-dummy checks passed. GitHub Actions remain payment-blocked; no CI success is claimed. TASK-021 stays `in_progress` for Corporate re-certification.

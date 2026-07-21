@@ -1,6 +1,6 @@
 # Task Manager Module
 
-Full depth: [../raw/taskmanager-module-plan-2026-07.md](../raw/taskmanager-module-plan-2026-07.md) · BRD: [../raw/brd-taskmanager-2026-07.md](../raw/brd-taskmanager-2026-07.md). Status: `in_progress` 2026-07-21 (TASK-021, AP-062). Bridge TM0–TM6 implementation landed at source checkpoint `c708017`; only `badami-vikas/Corporate-training-sims` external certification remains.
+Full depth: [../raw/taskmanager-module-plan-2026-07.md](../raw/taskmanager-module-plan-2026-07.md) · BRD: [../raw/brd-taskmanager-2026-07.md](../raw/brd-taskmanager-2026-07.md). Status: `in_progress` 2026-07-21 (TASK-021, AP-064). Bridge TM0–TM6 implementation landed at `c708017`; external blockers found by Corporate-training-sims are fixed at `a0da415`; immutable signed package `task-manager@1.0.1` is checkpointed at `c32bc20`; only recertification remains.
 
 ## Core call
 
@@ -50,3 +50,5 @@ Second-queue creep · plausibly-done · methodology bloat · ledger drift · voc
 ## Local preview
 
 `/task-manager` now reads the canonical Task API. Shared View Grammar supplies Table/Form/Tree and Record Detail is `/task-manager/:taskId`. `/pending-work` redirects; generated `docs/TASKS.md` data no longer backs the Module. Real-data empty state remains when no API/rows exist. Module Detail, Files, Graph, Calendar-eligible date fields, Agents→Skills, Automations, and recent Runs come from the installed signed manifest.
+
+Recertification: drift detector now creates a UUID pipeline proposal from an attributable Internal Strategist Automation Run. Human approve/edit/veto drives File-hash CAS, Task-version CAS, deterministic re-emit, and Event/Result/File/Run evidence. Completed-bay sweep uses Governance Agent plus the same pipeline. Commons root install preserves exact signed source in `commons_source`; built-in and registry manifests share one normalizer.
