@@ -59,6 +59,13 @@ Resolved at `689fca0`: both authoritative stores now create UUID installation ID
 Corporate-training-sims recertification merge `4d6ae1c`/PR #103 proved an unrelated projection edit changed an untouched completed Task's `updatedAt` from `2026-07-16T10:00:00.000Z` to `2026-07-21T12:00:00.000Z`, postponing age-based completed-bay eligibility. `applyApprovedTaskProjectionReconciliation` updates every parsed row. TASK-021 must semantically diff creates/deletes/reorders/field changes and preserve exact version, `updatedAt`, evidence, and status on unchanged Tasks while retaining atomic reconciliation, deterministic re-emit, and File/record race controls. External ID: `BRIDGE-TM-PROJECTION-TOUCHES-UNCHANGED-DONE`.
 Resolved at `689fca0`: reconciliation compares title/status/path/level/order/parent identity and returns unchanged Task objects without a write, version bump, or timestamp change. Projected parent paths win over stale current paths during root swaps. Changed/reordered Tasks still version-CAS atomically; unknown creates fail closed and omitted projection rows cannot delete canonical Tasks; deterministic re-emit restores the complete capped projection.
 
+## RESOLVED 2026-07-22 — Render static build skipped workspace dependencies
+The first live static deploy (`dep-d9ft14n7f7vs739aqimg`) installed the full workspace but ran
+only `pnpm --filter @bridge/web build`. A clean environment had no prebuilt
+`@bridge/module-manifests` entry, so Vite failed while local builds passed against stale `dist`.
+The Blueprint now runs Turbo with `--filter=...@bridge/web`, which builds all 18 dependencies
+before web. A clean Git archive/install/build passed 19/19 tasks. Attached to TASK-006/AP-063.
+
 ## RESOLVED 2026-07-21 — Existing hosted API required forbidden cloud Local Plane storage
 The production container could boot only with `encrypted-host-volume` residency and an
 encrypted-file Source credential vault. Free Render has no persistent disk, and the approved

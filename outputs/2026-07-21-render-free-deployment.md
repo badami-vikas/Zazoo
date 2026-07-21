@@ -41,8 +41,8 @@ Render free spin-down loses only empty scratch. Desktop Local Plane behavior is 
 
 ## Provider status
 
-Repository configuration and Render authentication are ready. No Render resource or secret was
-created.
+Initial repository configuration and Render authentication completed without creating a resource
+or secret.
 
 Deployment is externally blocked before Blueprint creation: the authenticated GitHub collaborator
 has push/triage but no admin/maintain permission on the private repository. Installing the Render
@@ -52,3 +52,14 @@ reports no repositories and official validation cannot resolve `main`.
 Exact unblock: a `badami-vikas/relationship-os` repository owner/admin must configure the Render
 GitHub App for “Only select repositories” → `relationship-os`. Then refresh New Blueprint, enter
 the `sync: false` values directly, and continue the live deployment/certification.
+
+## Resumed provider deployment
+
+- Repository owner/admin access was confirmed and the Render GitHub App grant succeeded.
+- Blueprint validation passed and created free service IDs `srv-d9ft13n7f7vs739aqh1g` (API,
+  Virginia) and `srv-d9ft1477f7vs739aqi40` (static), with no disk/database/Key Value.
+- Initial deploys target canonical `main@ba8ccc1`.
+- API image clean build reached 18/18 dependency tasks and image export.
+- Static deploy `dep-d9ft14n7f7vs739aqimg` failed because the build skipped workspace dependency
+  outputs. The dependency-inclusive Turbo command passed 19/19 from a clean Git archive; live
+  redeploy follows after the focused fix lands.
