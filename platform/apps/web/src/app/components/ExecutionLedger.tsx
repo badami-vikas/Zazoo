@@ -76,7 +76,7 @@ export function ExecutionLedger() {
   const [lens, setLens] = useState(false); // delegation lens — group by on-behalf-of
   const [openId, setOpenId] = useState<string | null>(null);
 
-  // Append-only ledger, Supabase-first → local fallback (mirrors data/db.ts).
+  // Append-only ledger, API-first with an honest empty local fallback.
   const [entries, setEntries] = useState<LedgerEntry[]>(allLedger);
   const [source, setSource] = useState<LedgerSource>('local');
   const [truncated, setTruncated] = useState(false);

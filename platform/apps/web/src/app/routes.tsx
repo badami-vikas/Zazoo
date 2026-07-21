@@ -1,13 +1,10 @@
 import { createBrowserRouter } from "react-router";
+import { requireBuiltInModule } from "@bridge/module-manifests";
 import Layout from "./Layout";
 import { DealPilotPage } from "./pages/DealPilotPage";
-import { AgentCreate } from "./pages/AgentCreate";
-import { AgentDetail } from "./pages/AgentDetail";
-import { IntegrationDetail } from "./pages/IntegrationDetail";
 import { GoogleIntegrationPanel } from "./pages/GoogleIntegrationPanel";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { JobPilotPage } from "./pages/JobPilotPage";
-import { ResourcesPage } from "./pages/ResourcesPage";
 import { PublicHelpdesk } from "./pages/PublicHelpdesk";
 import { OrganizationPage } from "./pages/OrganizationPage";
 import { ChiefOfStaffPage } from "./pages/ChiefOfStaffPage";
@@ -16,10 +13,6 @@ import { PendingWorkPage } from "./pages/PendingWorkPage";
 import { TaskManagerPage } from "./pages/TaskManagerPage";
 // Ported prototype surface (faithful visual port, 2026-07-07)
 import { HomePage } from "./pages/HomePage";
-import { WorkPage } from "./pages/WorkPage";
-import { ItemDetail } from "./pages/ItemDetail";
-import { RecordDetail } from "./pages/RecordDetail";
-import { ControlPanelPage } from "./pages/ControlPanelPage";
 import { SecondBrainPage } from "./pages/SecondBrainPage";
 // TASK-001 / VOCAB6: manifest-driven Module Detail (§4b)
 import { ModuleDetailPage } from "./pages/ModuleDetailPage";
@@ -62,6 +55,30 @@ function RelationshipSourcesPage() {
   return <RelationshipSubmodulePage submodule="sources" />;
 }
 
+function childPath(route: string): string {
+  return route.replace(/^\//, "");
+}
+
+function parentRoute(route: string): string {
+  const segments = route.split("/").filter(Boolean);
+  return `/${segments.slice(0, -1).join("/")}`;
+}
+
+const dealPilotModule = requireBuiltInModule("deal-pilot").manifest.module!;
+const jobPilotModule = requireBuiltInModule("job-pilot").manifest.module!;
+const relationshipModule = requireBuiltInModule("relationship").manifest.module!;
+const dealPilotRoot = parentRoute(dealPilotModule.route);
+const relationshipSignalsRoute = relationshipModule.pages.find((page) => page.id === "signals")!.route;
+
+const dealPilotRoutes = dealPilotModule.pages.map((page) => ({
+  path: childPath(page.route),
+  element: (
+    <InstalledModuleBoundary moduleName="deal-pilot">
+      <DealPilotPage />
+    </InstalledModuleBoundary>
+  ),
+}));
+
 export const router = createBrowserRouter([
   // Public/unauthenticated — outside Layout's authenticated nav shell entirely
   // (frontend-migration-scoping.md gap #5: a genuinely different auth model).
@@ -86,24 +103,9 @@ export const router = createBrowserRouter([
       // HomePage is the index (prototype parity); DealPilot keeps /dealpilot.
       { index: true, Component: HomePage },
       { path: "home", Component: HomePage },
+      ...dealPilotRoutes,
       {
-        path: "dealpilot",
-        element: (
-          <InstalledModuleBoundary moduleName="deal-pilot">
-            <DealPilotPage />
-          </InstalledModuleBoundary>
-        ),
-      },
-      {
-        path: "dealpilot/:page",
-        element: (
-          <InstalledModuleBoundary moduleName="deal-pilot">
-            <DealPilotPage />
-          </InstalledModuleBoundary>
-        ),
-      },
-      {
-        path: "dealpilot/:page/:recordId",
+        path: `${childPath(dealPilotRoot)}/:page/:recordId`,
         element: (
           <InstalledModuleBoundary moduleName="deal-pilot">
             <DealPilotPage />
@@ -115,48 +117,33 @@ export const router = createBrowserRouter([
       // Route param = moduleName (e.g. "deal-pilot", "job-pilot"). Every
       // installed Module in the left nav links here.
       { path: "module/:moduleId", Component: ModuleDetailPage },
-      { path: "module/relationship/signals/:signalId/event", Component: SignalSourceEventPage },
-      { path: "module/relationship/signals/:signalId", Component: SignalDetailPage },
-      { path: "module/relationship/people/:recordId", element: <RelationshipRecordDetailPage kind="person" /> },
-      { path: "module/relationship/communities/:recordId", element: <RelationshipRecordDetailPage kind="community" /> },
-      { path: "module/relationship/helpdesk/:ticketId", Component: RelationshipHelpdeskThreadPage },
-      { path: "module/relationship/helpdesk", Component: RelationshipHelpdeskPage },
-      { path: "module/relationship/relations", Component: RelationshipRelationsPage },
-      { path: "module/relationship/interactions", Component: RelationshipInteractionsPage },
-      { path: "module/relationship/introductions", Component: RelationshipIntroductionsPage },
-      { path: "module/relationship/sources", Component: RelationshipSourcesPage },
-      { path: "module/relationship/:page", Component: RelationshipPage },
+      { path: `${childPath(relationshipSignalsRoute)}/:signalId/event`, Component: SignalSourceEventPage },
+      { path: `${childPath(relationshipSignalsRoute)}/:signalId`, Component: SignalDetailPage },
+      { path: `${childPath(relationshipModule.route)}/people/:recordId`, element: <RelationshipRecordDetailPage kind="person" /> },
+      { path: `${childPath(relationshipModule.route)}/communities/:recordId`, element: <RelationshipRecordDetailPage kind="community" /> },
+      { path: `${childPath(relationshipModule.route)}/helpdesk/:ticketId`, Component: RelationshipHelpdeskThreadPage },
+      { path: `${childPath(relationshipModule.route)}/helpdesk`, Component: RelationshipHelpdeskPage },
+      { path: `${childPath(relationshipModule.route)}/relations`, Component: RelationshipRelationsPage },
+      { path: `${childPath(relationshipModule.route)}/interactions`, Component: RelationshipInteractionsPage },
+      { path: `${childPath(relationshipModule.route)}/introductions`, Component: RelationshipIntroductionsPage },
+      { path: `${childPath(relationshipModule.route)}/sources`, Component: RelationshipSourcesPage },
+      { path: `${childPath(relationshipModule.route)}/:page`, Component: RelationshipPage },
 
       { path: "second-brain", Component: SecondBrainPage },
-      { path: "item/:id", Component: ItemDetail },
-      { path: "work", Component: WorkPage },
-      { path: "record/:id", Component: RecordDetail },
-      // Per-Record admin (ADR-029): platform admin = /settings, record
-      // admin = its Control Panel. Strictly scoped to the one :id.
-      { path: "record/:id/control-panel", Component: ControlPanelPage },
-      { path: "agent/create", Component: AgentCreate },
-      { path: "agent/:id", Component: AgentDetail },
-      { path: "integration/:id", Component: IntegrationDetail },
       { path: "task-manager", Component: TaskManagerPage },
 
       { path: "approvals", Component: ApprovalsPage },
 
-      { path: "agents/new", Component: AgentCreate },
-      { path: "agents/update", Component: AgentDetail },
-
-      { path: "integrations", Component: IntegrationDetail },
       { path: "integrations/google", Component: GoogleIntegrationPanel },
 
       {
-        path: "jobpilot",
+        path: childPath(jobPilotModule.route),
         element: (
           <InstalledModuleBoundary moduleName="job-pilot">
             <JobPilotPage />
           </InstalledModuleBoundary>
         ),
       },
-
-      { path: "resources", Component: ResourcesPage },
 
       { path: "organization", Component: OrganizationPage },
 

@@ -27,7 +27,7 @@ its real data source exists, and an empty state would hide the thing being revie
 
 - **2026-07-19 — Supabase deployment-boundary fixtures** (`platform/packages/db/test/rls.test.ts`,
   `platform/apps/api/test/{server,security-hardening,wiring,residency-ledger}.test.ts`,
-  `platform/tools/dealpilot/test/encrypted-file-credentials.test.ts`,
+  `platform/modules/dealpilot/test/encrypted-file-credentials.test.ts`,
   `.github/workflows/ci.yml`).
   **Reason:** deterministic runtime-role isolation, JWT/pilot admission, production fail-closed,
   Local/Cloud routing, encrypted-vault corruption/rotation/scope, and container smoke tests
@@ -60,7 +60,7 @@ its real data source exists, and an empty state would hide the thing being revie
   data for product demonstrations and future end-to-end child-executor evidence.
 
 - **2026-07-17 — TASK-011 JobPilot culture-research fixtures** (`platform/apps/api/test/jobpilot-culture-research.test.ts`,
-  `platform/packages/net-guard/test/net-guard.test.ts`, `platform/tools/jobpilot/test/culture-research.test.ts`,
+  `platform/packages/net-guard/test/net-guard.test.ts`, `platform/modules/jobpilot/test/culture-research.test.ts`,
   `platform/apps/api/test/agent-eligibility.test.ts`).
   **Reason (updated after the 2026-07-18 coordinator final-review remediation pass):** these tests must
   never make a real network call in CI, yet must exercise REAL redirect/byte-cap/abort/reservation/
@@ -80,11 +80,7 @@ its real data source exists, and an empty state would hide the thing being revie
   though it is plain string data, not a `dummy_` identifier.
   **Real elements they stand in for:** a real candidate company's official careers page fetch, a real
   Learning-Agent-owned bounded child Agent Run, and a real Internal-Strategist culture-evidence synthesis.
-  **Removal condition:** retain as the permanent deterministic regression suite for this Skill. The BCG
-  Application Record (`platform/apps/web/src/app/data/bcg-application.ts`) no longer carries ANY
-  hand-authored `cultureResearch` data as of 2026-07-18 — `JobPilotApplicationDetail.tsx`'s
-  `CultureResearchSection` now queries the live `jobpilot.cultureResearch.*` procedures directly, so
-  there is nothing left to remove from that file; this row is retained solely for the TEST fixtures above.
+  **Removal condition:** retain as the permanent deterministic regression suite for this Skill.
 
 - **2026-07-17 — TASK-004 migration compatibility fixtures** (`platform/packages/db/test/migration-0011.test.ts`,
   `platform/packages/db/test/migration-0013.test.ts`, `platform/packages/db/test/package-store.test.ts`).
@@ -131,14 +127,14 @@ its real data source exists, and an empty state would hide the thing being revie
   **Removal condition:** retain only as isolated parser fixtures; use signed real manifests for end-to-end
   Commons/install certification.
 
-- **2026-07-15 — JobPilot JP1 domain test fixtures** (`platform/tools/jobpilot/test/resume-schema.test.ts`,
+- **2026-07-15 — JobPilot JP1 domain test fixtures** (`platform/modules/jobpilot/test/resume-schema.test.ts`,
   `master-profile.test.ts`, `profile-approval.test.ts`).
   **Reason:** deterministic merge/conflict/approval tests cannot use private real resumes in the repository.
   **Real element they stand in for:** parsed user resumes and cover letters represented as JSON Resume records.
   **Removal condition:** retain only as isolated unit fixtures; replace exit-gate/eval evidence with a
   user-approved, local-only labeled real-document corpus when JP1 ingestion is exercised.
 
-- **2026-07-15 — DealPilot DP0 domain test fixtures** (`platform/tools/dealpilot/test/deal.test.ts`,
+- **2026-07-15 — DealPilot DP0 domain test fixtures** (`platform/modules/dealpilot/test/deal.test.ts`,
   `projections.test.ts`, `table.test.ts`, `domain.test.ts`, `credentials.test.ts`,
   `keyring-credentials.test.ts`, `runtime-store.test.ts`;
   `platform/apps/api/test/dealpilot-core.test.ts`, `dealpilot-durability.test.ts`;
@@ -173,42 +169,6 @@ its real data source exists, and an empty state would hide the thing being revie
   **Removal condition:** replace the source with a real ≥1024×1024 Bridge brand icon and re-run
   `tauri icon` (file names stay the same, so no `tauri.conf.json` change needed).
 
-- **2026-07-07 — ported prototype fixture data modules** (`platform/apps/web/src/app/data/`:
-  `actionQueue.ts`, `api.ts`, `associations.ts`, `brokerages.ts`, `db.ts`, `dealpilot.ts`,
-  `governance.ts`, `helpdesk.ts`, `helpdeskRemote.ts`, `initiatives.ts`, `integrations.ts`,
-  `jobpilot.ts`, `ledger.ts`, `localMedia.ts`, `network.ts`, `resources.generated.ts`,
-  `signals.ts`, `toolCaptures.ts`, `tools.ts`).
-  **Reason:** user-ordered faithful visual port of the prototype, 2026-07-07 — the full prototype
-  page surface (HomePage/WorkPage/ItemDetail/ToolsPage/SkillDetail + rich JobPilot/Helpdesk/
-  Approvals/Calendar/Rituals/Resources/Settings, DataEngine at /network) had to land visually
-  intact before real-data wiring; these modules are the fixture content those pages render.
-  **Real element each stands in for:** people/communities → `graph.listPeople` /
-  `graph.listCommunities` (exist today); approvals → `action.listPending` (exists); signals →
-  signal read procedures (pending schema v2); rituals/agents/skills/integrations/tools →
-  capability manifests + `packages.list` (packages.list exists; per-capability reads pending);
-  initiatives/work → Initiative procedures (pending); helpdesk/jobpilot/dealpilot → their
-  capability packages' backends (pending); ledger/governance → execution-ledger + trust-grant
-  reads (pending).
-  **Removal condition:** each page wired to real endpoints in the shell-v2 pass — a module's
-  entry moves to Resolved when its consuming page(s) read tRPC instead of the module.
-
-- **2026-07-17 — `JobPilotApplicationDetail.tsx`'s `BCG_APPLICATION` fixture**
-  (`platform/apps/web/src/app/data/bcg-application.ts`, pre-existing since commit `aa88865`,
-  discovered during TASK-010 round-4 while adding server-side red-flag anchor validation).
-  **Reason it can't be real yet:** the page is currently UNROUTED (no entry in `routes.tsx` —
-  only the real, real-data-backed `/jobpilot` list page (`JobPilotPage.tsx`) is reachable), so
-  it was never wired to `jobpilotStore`'s real application rows; its hardcoded `id:
-  'bcg-consultant-mba-2026'` and bullet content are display-only demo content.
-  **Real element it stands in for:** a real `jobpilotApplications` row (via
-  `jobpilotStore.getApplication`) and its persisted fit-recommendation bullets.
-  **Interaction with TASK-010:** round-5 removed the `RedFlagControl`/`RedFlagProvider` wiring
-  this page previously had (round 1-4) — the fixture bullets are no longer flaggable at all,
-  closing the round-4-noted `NOT_FOUND` risk outright rather than leaving a control that could
-  never actually succeed (AP-021: an interactive-looking control must work). If this page is
-  ever routed to real data, red-flag wiring should be re-added pointing at the real anchor.
-  **Removal condition:** either route this page to a real, `jobpilotStore`-backed application
-  detail view, or delete it if `JobPilotPage.tsx`'s own detail affordance supersedes it.
-
 - **2026-07-20 — signed pre-VOCAB3 Commons compatibility fixture**
   (`platform/services/commons/test/signing.test.ts`).
   **Reason it can't be real yet:** the regression must create a controlled historical signed entry
@@ -222,4 +182,14 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Resolved
 
-*(entries move here, struck through, once removed — none yet)*
+- ~~**2026-07-07 — ported prototype fixture data modules.**~~ **Resolved 2026-07-21:** TASK-013
+  deleted superseded prototype consumers and fixture-bearing modules. Home now reads installed
+  Modules from `modules.list`; canonical Module, Relationship, DealPilot, JobPilot, Approvals,
+  Task Manager, and Google surfaces use real API data or honest empty/error states. Remaining
+  `data/api.ts`, `data/governance.ts`, and `data/ledger.ts` files are typed API/empty-state
+  adapters, not seeded product data.
+
+- ~~**2026-07-17 — unrouted JobPilot application fixture.**~~ **Resolved 2026-07-21:** TASK-013
+  deleted the superseded page, its fixture module, and its fixture-only client tests. The routed
+  `JobPilotPage.tsx` continues to use persisted application Records and live culture-research
+  procedures.

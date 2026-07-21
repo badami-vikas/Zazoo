@@ -60,6 +60,10 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   Migration `0024` preserves stored Results; vocabulary baseline is zero; expired aliases and dual
   registry reads are deleted; signed Commons bytes remain verifiable; desktop and exact 375px
   certification pass. TASK is `done` under AP-059/ADR-133. Do not resume any VOCAB branch.
+- TASK-013 is complete under AP-061/ADR-135. Exact pre-cleanup `origin/main@7f37e17` is preserved
+  on verified private ref `archive/task-013-pre-cleanup-2026-07-21`; main has one production tree,
+  one built-in Module manifest catalog, no superseded runtime fixture pages, and no history rewrite.
+  Deterministic security/migration fixtures remain tracked. Do not restore archived legacy trees.
 - TASK-006 resumed fresh from `origin/main@922ca52` on
   `manishsbhoopalam8498-close-dealpilot-pilot`. One free `us-east-1` Supabase project, exact
   pilot Auth, 26 migrations, least-privilege `bridge_app`, policy-backed RLS, Local Plane restart,

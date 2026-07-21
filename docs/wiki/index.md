@@ -35,6 +35,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [resilience](resilience.md) — failure-class field guide → Engine/Governance/Learning/Builder/Human ownership.
 
 Historical wiki pages whose filenames preserve retired identifiers are migration evidence only; [glossary](../glossary.md) and [VOCAB0–VOCAB6](../raw/vocabulary-code-migration-plan-2026-07-14.md) govern implementation.
+- **TASK-013 cleanup (2026-07-21)** — one `platform/` production tree; legacy source private-archived, not history-scrubbed. Built-ins come from `platform/modules/manifests`; prototype fixture pages gone. Historical consolidation trio now lives under `docs/raw/`.
 - [security](security.md) — **2026-07-08 audit**: no CRITICAL; 4 HIGH (auth-by-default, dep CVEs, Tauri csp:null, no rate-limit) + prompt-injection verdict (MODERATE-HIGH social-eng, LOW exfil — root gap = no runtime taint) + defense plan. Bug rows in [BUGS](../BUGS.md).
 - [agent-eval](agent-eval.md) — **"what better means"** (2026-07-08): Agent Quality Vector (7 axes from existing ledger/snapshots) · two-gate promotion · eval-harness data model · thresholds as policy_params · build #1 = scoring reducer (ship first).
 - [undefined-elements](undefined-elements.md) — **2026-07-08**: ~21 gaps found, top-13 defined w/ competitor grounding (eval harness · Component Registry · Memory · Variance Adjuster · Blueprint · …).

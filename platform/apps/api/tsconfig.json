@@ -40,6 +40,9 @@
       "path": "../../modules/jobpilot"
     },
     {
+      "path": "../../modules/manifests"
+    },
+    {
       "path": "../../tools/company-sourcing"
     },
     {

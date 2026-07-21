@@ -2,20 +2,23 @@ import {
   parseExecutableManifest,
   type ModuleExecutableManifest,
 } from "@bridge/capability-kit";
+import { requireBuiltInModule } from "@bridge/module-manifests";
 
-// DealPilot is a surfaced Module that composes registered Skills. Add dependencies here as
-// capabilities become real; do not reimplement sourcing, deduplication, facts, or recording.
+const dealPilotDefinition = requireBuiltInModule("deal-pilot");
+const dealPilotModule = dealPilotDefinition.manifest.module;
+if (!dealPilotModule) throw new Error("DealPilot built-in manifest must declare its Module surface");
+
 export const dealPilotManifest: ModuleExecutableManifest = parseExecutableManifest({
   id: "dealpilot",
-  name: "DealPilot",
-  version: "0.1.0",
+  name: dealPilotModule.displayName,
+  version: dealPilotDefinition.manifest.version,
   kind: "module",
   runModes: ["account_bound"],
-  surfaces: [
-    { route: "/dealpilot/deals", nav: "Modules", icon: "briefcase" },
-    { route: "/dealpilot/sources", icon: "database" },
-    { route: "/dealpilot/theses", icon: "target" },
-  ],
+  surfaces: dealPilotModule.pages.map((page, index) => ({
+    route: page.route,
+    ...(index === 0 ? { nav: "Modules" as const } : {}),
+    icon: page.id === "sources" ? "database" : page.id === "theses" ? "target" : "briefcase",
+  })),
   skillDependencies: ["company-sourcing", "people-sourcing", "recorder"],
   capabilities: [{ resourceType: "external:fetch", action: "read", dataScope: "public", egress: true }],
   intakePolicy: { quarantine: true, commitVia: "pipeline_proposal", scope: "public", accountBoundOnly: true },

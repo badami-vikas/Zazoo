@@ -2,16 +2,23 @@ import {
   parseExecutableManifest,
   type ModuleExecutableManifest,
 } from "@bridge/capability-kit";
+import { requireBuiltInModule } from "@bridge/module-manifests";
 
-// JobPilot is a surfaced Module that composes registered Skills. Add dependencies here as
-// capabilities become real; do not reimplement sourcing, deduplication, or facts in the Module.
+const jobPilotDefinition = requireBuiltInModule("job-pilot");
+const jobPilotModule = jobPilotDefinition.manifest.module;
+if (!jobPilotModule) throw new Error("JobPilot built-in manifest must declare its Module surface");
+
 export const jobPilotManifest: ModuleExecutableManifest = parseExecutableManifest({
   id: "jobpilot",
-  name: "JobPilot",
-  version: "0.0.1",
+  name: jobPilotModule.displayName,
+  version: jobPilotDefinition.manifest.version,
   kind: "module",
   runModes: ["account_bound"],
-  surfaces: [{ route: "/jobpilot", nav: "Work", icon: "briefcase" }],
+  surfaces: jobPilotModule.pages.map((page) => ({
+    route: page.route,
+    nav: "Modules",
+    icon: "briefcase",
+  })),
   skillDependencies: ["company-sourcing", "people-sourcing"],
   capabilities: [{ resourceType: "external:fetch", action: "read", dataScope: "public", egress: true }],
   intakePolicy: { quarantine: true, commitVia: "pipeline_proposal", scope: "public", accountBoundOnly: true },

@@ -21,6 +21,7 @@
     "@bridge/people-sourcing": "workspace:*",
     "@bridge/dedupe": "workspace:*",
     "@bridge/facts": "workspace:*",
+    "@bridge/module-manifests": "workspace:*",
     "@bridge/sourcing": "workspace:*",
     "@bridge/tables": "workspace:*",
     "zod": "^3.24.1"

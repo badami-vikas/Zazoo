@@ -30,6 +30,9 @@ This file prevents a new session from re-merging historical branches or reusing 
 - VOCAB6 completes through PR #32 at implementation/evidence source `e657cc8`; no migration is added.
 - TASK-012 final compatibility deletion completes through PR #33 at source `cd0ad97` plus provenance
   pin `e139d88`, allocating migration `0024_task012_compatibility_deletion`.
+- TASK-013 completes through this PR under AP-061/ADR-135. Exact pre-cleanup main `7f37e17` is
+  preserved at verified private ref `archive/task-013-pre-cleanup-2026-07-21`; no migration and no
+  history rewrite were required.
 - Stalled Supabase deployment session `0f3e2f14-7fd2-4d07-8f3e-9c86c7c5480a` shared the
   central checkout and had no independent branch. Its completed tree was preserved at
   `6590c71`; this merge normally reconciles `origin/main@5ab4568`, retains canonical VOCAB3

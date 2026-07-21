@@ -17,6 +17,7 @@
   "dependencies": {
     "@bridge/api": "workspace:*",
     "@bridge/core": "workspace:*",
+    "@bridge/module-manifests": "workspace:*",
     "@bridge/tables": "workspace:*",
     "@glideapps/glide-data-grid": "^6.0.3",
     "@radix-ui/react-accordion": "1.2.3",

@@ -1967,3 +1967,11 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Applied the user-directed `in_progress` → `blocked` correction without changing the successful Supabase/Auth/RLS/desktop-local milestone.
 - Exact unblock: an authorized real Source credential plus configured/authorized Google OAuth, followed by live BizBuySell Deal discovery and credential reveal/copy/revoke/expiry/wrong-Human proof.
 - Preserved the security evidence that the terminal-exposed runtime password was immediately rotated to a generated Keychain-only value; no value is stored in committed evidence.
+
+# 2026-07-21 — TASK-013 repository and manifest cleanup (AP-061, ADR-135)
+- Preserved exact pre-cleanup `origin/main@7f37e17e1132ebbbee74f1c612f0e83b211139ef` on verified private ref `archive/task-013-pre-cleanup-2026-07-21`, then removed unopened legacy root trees from main without rewriting history.
+- Moved three root audit/plan docs under `docs/raw/` with canonical frontmatter and explicit deprecated status.
+- Established `platform/modules/manifests` as the one built-in Module catalog. API installation/Commons publication re-export it; DealPilot/JobPilot executable manifests and web routes derive identity, version, and paths from it.
+- Removed superseded Item Detail/Associations, standalone Work/Agent/Integration/Resource, local fixture datasets, and the unrouted JobPilot fixture detail. Home, Settings, and New now use installed manifest data; canonical runtime surfaces remain API-backed or honestly empty.
+- Reconciled BUGS and the dummy ledger while retaining deterministic security, migration, RLS, cryptography, and provider-isolation fixtures at current paths. Updated INDEX, CODEMAPS, wiki, Progress-from-Manish, TASKS, and the durable output.
+- Targeted duplicate/source/root scans, manifest/API/web tests, affected build/typecheck, vocabulary, no-runtime-dummy, migration-delta, and changed-file lint gates passed. One bounded review found only stale TASK evidence and capability-kit codemap naming; both were corrected before closure.

@@ -1,10 +1,11 @@
-<!-- Updated: 2026-07-18 | Files scanned: platform/apps/web/src/app/{routes,Layout,pages,components,data,dataviews} | Token estimate: ~500 -->
+<!-- Updated: 2026-07-21 | Files scanned: platform/apps/web/src/app/{routes,Layout,pages,components,data,dataviews}, platform/modules/manifests | Token estimate: ~550 -->
 
 # Frontend Codemap
 
 React + Vite thin client lives at `platform/apps/web`. `app/routes.tsx` owns routes;
 `app/Layout.tsx` owns the shared shell. Tauri desktop hosts this same build.
-`Design Bridge AI Interface (Copy)/` is historical reference, not the runtime entry point.
+Built-in route roots come from `@bridge/module-manifests`; installed navigation and Home come
+from `modules.list`. No second prototype build entrypoint remains on main.
 
 ## Main surfaces → governed data seams
 
@@ -21,9 +22,15 @@ DealPilotPage/detail      → dealpilot tRPC records, discovery, relation and cr
 ModuleDetailPage          → installed manifest inventory; Pages, Agents→Skills, Automations,
                             Integrations, Files/Results, settings
 
+HomePage                  → modules.list; installed Modules or honest load/empty/error state
+
 DataEngine/dataviews      → shared View registry; table/board/gallery/form/calendar/map/
                             graph/tree convergence remains TASK-014
 ```
+
+Legacy Item Detail, standalone Work/Agent/Integration/Resource pages, and the unrouted
+fixture-only JobPilot detail were removed by TASK-013. Canonical Record Detail and Module
+surfaces remain.
 
 ## Relationship decision recovery (RM4)
 

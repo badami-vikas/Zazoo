@@ -13,7 +13,6 @@ const [
   graphSource,
   mapSource,
   routeSource,
-  moduleRoutesSource,
 ] = await Promise.all([
   source("../src/app/dataviews/DataViews.tsx"),
   source("../src/app/dataviews/registry.ts"),
@@ -24,7 +23,6 @@ const [
   source("../src/app/dataviews/views/GraphView.tsx"),
   source("../src/app/dataviews/views/MapView.tsx"),
   source("../src/app/routes.tsx"),
-  source("../src/app/lib/moduleRoutes.ts"),
 ]);
 
 test("one registry owns all canonical View kinds and metadata eligibility", () => {
@@ -99,7 +97,6 @@ test("Map plots local coordinates without automatic public geocoding or tile egr
   assert.doesNotMatch(mapSource, /tile\.openstreetmap\.org/);
 });
 
-test("Calendar no longer owns a route, Module route, or standalone catalog identity", () => {
+test("Calendar no longer owns a route or standalone Module identity", () => {
   assert.doesNotMatch(routeSource, /path:\s*["']calendar(?:\/|["'])/);
-  assert.doesNotMatch(moduleRoutesSource, /\bcalendar\s*:/);
 });

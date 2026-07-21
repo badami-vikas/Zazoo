@@ -8,8 +8,7 @@ import type { CandidateProfile, FitResult, JobProfile } from "./types.js";
 //
 // AP-023 (2026-07-15) — the architecture doc's "green_flags/red_flags" naming predates the
 // platform Red Flag primitive (docs/glossary.md); renamed to `strengths`/`concerns` here to
-// remove that vocabulary collision and match the label `JobPilotApplicationDetail.tsx` already
-// renders (`fit.strengths`/`fit.concerns`) — same evidence-reason arrays, new names only.
+// remove that vocabulary collision while retaining the same evidence-reason arrays.
 export function scoreJobFit(job: JobProfile, candidate: CandidateProfile): FitResult {
   const strengths: string[] = [];
   const concerns: string[] = [];

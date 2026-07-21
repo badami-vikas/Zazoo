@@ -1,7 +1,7 @@
 /**
  * "+ New" flow (v1 minimal, requests.md R-017..R-020):
  *   1. Pick an installed Module — REAL `modules.list` rows in `available`
- *      state that have a navigable surface (lib/moduleRoutes.ts). Honest empty
+ *      state whose manifest declares a navigable surface. Honest empty
  *      state when nothing is installed; nothing is fabricated.
  *   2. Chief of Staff recommendation — calls the REAL `chiefOfStaff.converse`
  *      mutation with a new-vs-extend question and renders its ACTUAL reply
@@ -13,8 +13,6 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, ChevronRight, Boxes, Sparkles } from "lucide-react";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
-import { MODULE_ROUTES } from "../lib/moduleRoutes";
-import { createRecord, getRecords } from "../data/records";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 
 interface ModuleOption {
@@ -47,11 +45,19 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
       .then((res) => {
         setModules(
           res.items
-            .filter((r) => r.state === "available" && r.moduleName in MODULE_ROUTES)
+            .filter(
+              (r) =>
+                r.state === "available" &&
+                r.status === "installed" &&
+                r.manifest.module !== undefined &&
+                r.moduleAttachment === undefined,
+            )
             .map((r) => ({
               moduleName: r.moduleName,
               version: r.moduleVersion,
-              ...MODULE_ROUTES[r.moduleName]!,
+              to: r.manifest.module!.route,
+              label: r.manifest.module!.displayName,
+              desc: r.manifest.description,
             })),
         );
       })
@@ -81,15 +87,6 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
 
   function confirm() {
     if (!picked) return;
-    // Register this Module as a nav-visible Record so it actually shows up
-    // in the sidebar (requests.md follow-up — "+ New" previously only
-    // navigated without creating anything, so the list stayed empty). One
-    // Record per Module: reuse the existing entry on repeat launches
-    // instead of piling up duplicates.
-    const already = getRecords().some((i) => i.moduleName === picked.moduleName);
-    if (!already) {
-      createRecord({ name: picked.label, goal: picked.desc, list: "Work", moduleTo: picked.to, moduleName: picked.moduleName });
-    }
     onOpenChange(false);
     navigate(picked.to);
   }
