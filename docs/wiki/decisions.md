@@ -4,6 +4,14 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-21 — Render = public cloud boundary only (ADR-137, AP-063)
+- Free API + free static site. Virginia. Sleep/wake accepted.
+- Supabase = Postgres/Auth.
+- Render: public scope only. Private operation → desktop required.
+- No disk. No vault. No credential key. Empty ephemeral scratch only.
+- Exact pilot + `bridge_app` RLS stay mandatory.
+- TASK-006 Google/Source-credential block unchanged.
+
 ## 2026-07-20 — ModuleStore composes shell + Graph identity (ADR-132, AP-058)
 - Nav + Module Detail read active installations.
 - Full Graph = permission-pruned graph + installed Modules + manifest Agents. Compose at authenticated API boundary.

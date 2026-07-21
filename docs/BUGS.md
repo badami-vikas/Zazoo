@@ -18,6 +18,16 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-21 — Existing hosted API required forbidden cloud Local Plane storage
+The production container could boot only with `encrypted-host-volume` residency and an
+encrypted-file Source credential vault. Free Render has no persistent disk, and the approved
+deployment explicitly keeps private/all/unscoped roots plus credentials desktop-local; pointing
+those settings at ephemeral Render storage would have been a success-shaped privacy violation.
+`public-cloud` mode now requires scratch paths under `/tmp/bridge-public-only`, disables the vault
+and vault keys, blocks every private tRPC procedure plus Google OAuth token persistence, skips
+private Relation reconciliation, and allows only exact Auth/shell reads plus explicitly-public
+governed Actions. Attached to TASK-006; AP-063/ADR-137.
+
 ## RESOLVED 2026-07-20 — Source Form could not create a vault-backed credential
 Live TASK-006 certification reached the real Source Form and found that `userId`/`password`
 manifest columns were always locked and hidden. The API, OS-keyring adapter, re-authentication,

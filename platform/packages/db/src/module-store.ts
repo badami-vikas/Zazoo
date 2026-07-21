@@ -22,7 +22,7 @@
  * `lineageManifestId` chained back to the version it forked from, per
  * module/lifecycle.ts's append-only rollback invariant.
  */
-import { and, eq, count } from "drizzle-orm";
+import { and, eq, count, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { canonicalizeManifest } from "@bridge/core";
 import type {
@@ -225,9 +225,23 @@ export class DrizzleModuleStore implements ModuleStore {
     });
   }
 
-  async list(organizationId: string, opts: { limit: number; offset: number }): Promise<{ items: ModuleInstallationRow[]; total: number }> {
+  async list(
+    organizationId: string,
+    opts: {
+      limit: number;
+      offset: number;
+      installedRootsOnly?: boolean;
+    },
+  ): Promise<{ items: ModuleInstallationRow[]; total: number }> {
     return withOrganizationOnly(this.#db, organizationId, async (tx) => {
-    const where = eq(moduleInstallations.organizationId, organizationId);
+    const where = opts.installedRootsOnly
+      ? and(
+          eq(moduleInstallations.organizationId, organizationId),
+          eq(moduleInstallations.state, "available"),
+          eq(moduleInstallations.status, "installed"),
+          isNull(moduleInstallations.moduleAttachment),
+        )
+      : eq(moduleInstallations.organizationId, organizationId);
     const [rows, totalRows] = await Promise.all([
       tx
         .select()

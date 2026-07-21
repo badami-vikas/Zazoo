@@ -210,6 +210,7 @@ import {
   createOrganizationRenameLease,
   defaultBridgeFilesRoot,
 } from "./module-files.js";
+import { isPublicCloudOnly } from "./deployment-boundary.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // organization + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -302,6 +303,8 @@ export interface Wiring {
   localMedia: LocalMediaStore;
   /** True when any durable store is active (DATABASE_URL or file-backed Local Plane). */
   persistent: boolean;
+  /** Cloud-hosted API boundary: only explicit Supabase-backed shell procedures may run. */
+  publicCloudOnly: boolean;
   /** Local Files root; injectable so tests never touch the user's home directory. */
   moduleFilesBridgeRoot: string;
   /** The LOCAL plane (pglite) — private tier. */
@@ -3471,6 +3474,33 @@ export function encryptedCredentialVaultFromEnv(
   });
 }
 
+function publicCloudCredentialVault(): SourceCredentialVault {
+  const unavailable = () =>
+    new Error(
+      "Source credentials require the desktop Local Plane and are unavailable in public-cloud mode",
+    );
+  return {
+    reserve() {
+      throw unavailable();
+    },
+    async write() {
+      throw unavailable();
+    },
+    async put() {
+      throw unavailable();
+    },
+    async metadata() {
+      throw unavailable();
+    },
+    async read() {
+      throw unavailable();
+    },
+    async delete() {
+      throw unavailable();
+    },
+  };
+}
+
 export async function seedBuiltInModules(
   moduleStore: ModuleStore,
   organizationId: string,
@@ -3499,6 +3529,7 @@ function runningUnderNodeTest(): boolean {
   return process.env.NODE_TEST_CONTEXT !== undefined;
 }
 export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wiring> {
+  const publicCloudOnly = isPublicCloudOnly();
   const pilotUserId = process.env.BRIDGE_PILOT_USER_ID?.trim() || PILOT_USER;
   const pilotUserEmail =
     process.env.BRIDGE_PILOT_USER_EMAIL?.trim() || PILOT_USER_EMAIL;
@@ -3551,7 +3582,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   if (
     !options.dealPilotCredentialVault &&
     credentialProvider !== "os-keyring" &&
-    credentialProvider !== "encrypted-file"
+    credentialProvider !== "encrypted-file" &&
+    !(publicCloudOnly && credentialProvider === "disabled")
   ) {
     throw new Error(
       credentialProvider
@@ -3762,16 +3794,20 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   }
   const dealPilotCredentialVault =
     options.dealPilotCredentialVault ??
-    (credentialProvider === "encrypted-file"
+    (credentialProvider === "disabled"
+      ? publicCloudCredentialVault()
+      : credentialProvider === "encrypted-file"
       ? encryptedCredentialVaultFromEnv(
           join(credentialVaultRoot!, "credential-vault"),
         )
       : new KeyringSourceCredentialVault());
-  await reconcileCredentialOperations(
-    dealPilotStore,
-    dealPilotCredentialVault,
-    PILOT_ORGANIZATION,
-  );
+  if (!publicCloudOnly) {
+    await reconcileCredentialOperations(
+      dealPilotStore,
+      dealPilotCredentialVault,
+      PILOT_ORGANIZATION,
+    );
+  }
   const dealPilotCredentialAudit = dealPilotStore;
   const dealPilotCredentials = new SourceCredentialService(
     dealPilotCredentialVault,
@@ -4097,6 +4133,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     relationMaterializations,
     events,
     persistent: Boolean(url || localDir),
+    publicCloudOnly,
     moduleFilesBridgeRoot,
     localPlane,
     google,

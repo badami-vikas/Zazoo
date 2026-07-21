@@ -27,13 +27,13 @@ Repository-side Supabase pilot blockers are remediated:
   fail-closed production boot, liveness, and readiness probes.
 
 Supabase provides Postgres/Auth and optional Storage/Realtime. It does not host this
-repository's long-running Fastify process. The user-approved TASK-006 pilot topology is
-the desktop sidecar/local web client against one isolated Supabase project in Northern
-Virginia. Private Local Plane data and Source credentials stay on the device.
+repository's long-running Fastify process. AP-063 adds a free Render public API/static
+web boundary in Virginia while private Local Plane data and Source credentials stay on
+the device.
 
-The hosted-container topology below remains available only when the owner separately
-accepts an encrypted persistent cloud volume. That boundary is not approved for this
-TASK-006 certification.
+Render uses `public-cloud`: no disk, no vault, no credential keys, empty ephemeral
+scratch only, and private procedures fail closed as desktop-required. The prior
+encrypted-host-volume topology remains an unapproved paid alternative.
 
 ## Recovered session and integration
 
@@ -127,10 +127,8 @@ TASK-006 certification.
      platform
    ```
 
-   Mount one host-encrypted, durable volume at `/var/lib/bridge`; keep one replica. Use a
-   direct database URI for an IPv6-capable persistent host, or the shared Supavisor session
-   pooler on port 5432 for an IPv4-only persistent host. Transaction mode on port 6543 also
-   works because prepared statements are disabled and every RLS context is transaction-local.
+   Render free uses the repository `render.yaml`: one replica, no disk. Use the shared
+   Supavisor session pooler on port 5432. Every RLS context is transaction-local.
 
    Required API configuration:
 
@@ -138,32 +136,20 @@ TASK-006 certification.
    NODE_ENV=production
    API_HOST=0.0.0.0
    PORT=<host-assigned-port-or-4000>
-   API_ALLOWED_ORIGINS=https://<web-host>
+   BRIDGE_RENDER_WEB_HOST=<render-static-host>
 
    DATABASE_URL=postgresql://bridge_app[.<project-ref>]:<password>@<database-host>:<port>/postgres?sslmode=require
    SUPABASE_URL=https://<project-ref>.supabase.co
    BRIDGE_PILOT_USER_ID=<supabase-auth-user-uuid>
    BRIDGE_PILOT_USER_EMAIL=<pilot-email>
 
-   BRIDGE_LOCAL_DIR=/var/lib/bridge/local
-   BRIDGE_FILES_ROOT=/var/lib/bridge/files
-   BRIDGE_LOCAL_RESIDENCY=encrypted-host-volume
-
-   BRIDGE_DEALPILOT_CREDENTIAL_VAULT=encrypted-file
-   BRIDGE_CREDENTIAL_VAULT_KEY_ID=<current-key-id>
-   BRIDGE_CREDENTIAL_VAULT_KEY=<base64-encoded-32-byte-key>
+   BRIDGE_LOCAL_DIR=/tmp/bridge-public-only/local
+   BRIDGE_FILES_ROOT=/tmp/bridge-public-only/files
+   BRIDGE_LOCAL_RESIDENCY=public-cloud
+   BRIDGE_DEALPILOT_CREDENTIAL_VAULT=disabled
    ```
 
-   Generate the vault key directly into the host secret manager:
-
-   ```bash
-   openssl rand -base64 32
-   ```
-
-   During rotation, configure the new current pair and the former pair as
-   `BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID` and
-   `BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY`. Do not remove the previous pair until all
-   credential entries have been rewritten.
+   Do not configure a disk, vault key, or private Local Plane value on Render.
 
 7. **Build and deploy the web client.**
 
@@ -189,7 +175,7 @@ TASK-006 certification.
    - approved pilot sign-in, refresh, reset, activation, and logout;
    - a different valid Supabase account receives `403`;
    - one governed read and write;
-   - API restart preserves Local Plane data and encrypted Source credentials;
+   - API restart loses only empty scratch; desktop restart preserves Local Plane data;
    - Supabase owner/service roles are rejected as runtime identities;
    - cross-Organization RLS isolation;
    - volume backup and restore;
@@ -207,9 +193,8 @@ TASK-006 certification.
 Provide these non-secret decisions in chat:
 
 1. Existing Supabase project or a new project, plus project URL/ref and region.
-2. API host, static web host, final API/web domains, and DNS owner.
-3. Explicit approval that private Local Plane data may live on a host-encrypted cloud
-   volume, or a requirement to keep it desktop-local.
+2. Render-generated API/static hosts and any later DNS owner.
+3. Desktop-local residency (AP-063); no cloud private-data volume.
 4. Pilot email and Supabase Auth UUID.
 5. Direct, session-pooler, or transaction-pooler runtime connectivity from the chosen host.
 6. Whether Google, Commons, and external model providers are in the first release.
@@ -218,7 +203,6 @@ Enter these directly into Supabase or the hosting secret manager, not chat:
 
 - owner migration URI;
 - generated `bridge_app` password and runtime URI;
-- vault current key ID/key and any temporary previous rotation pair;
 - hosting/DNS credentials;
 - Google/model/Commons secrets when enabled.
 

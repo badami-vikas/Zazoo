@@ -181,6 +181,46 @@ test("module store: list paginates within a organization", async () => {
   }
 });
 
+test("module store: installedRootsOnly filters before pagination and totals", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const organizationId = await seedOrganization(db);
+    const store = new DrizzleModuleStore(db);
+    await store.create({
+      organizationId,
+      moduleName: "available-root",
+      moduleVersion: "1.0.0",
+      manifest: dummyManifest({ name: "available-root" }),
+      computedRisk: "informational",
+      state: "available",
+      status: "installed",
+      lineageManifestId: null,
+    });
+    await store.create({
+      organizationId,
+      moduleName: "private-root",
+      moduleVersion: "1.0.0",
+      manifest: dummyManifest({ name: "private-root" }),
+      computedRisk: "informational",
+      state: "private",
+      status: "pending_review",
+      lineageManifestId: null,
+    });
+
+    const page = await store.list(organizationId, {
+      limit: 1,
+      offset: 0,
+      installedRootsOnly: true,
+    });
+    assert.equal(page.total, 1);
+    assert.deepEqual(page.items.map((item) => item.moduleName), [
+      "available-root",
+    ]);
+  } finally {
+    await close();
+  }
+});
+
 test("module store: re-registering the SAME name+version is idempotent — returns the existing row, not a duplicate", async () => {
   const { db, close } = await createLocalDb();
   try {

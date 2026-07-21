@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T07:50:26.111Z",
+  "generatedAt": "2026-07-21T08:20:21.199Z",
   "items": [
     {
       "id": "TASK-001",
@@ -473,7 +473,8 @@
         "BUGS incomplete Drizzle metadata",
         "BUGS pglite invalid UUID",
         "BUGS concurrent DB flake",
-        "RESOLVED 2026-07-19 Supabase least-privilege runtime role and transaction-local Organization/user RLS context, migration `0022_supabase_runtime_role`, and focused recovery evidence in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)"
+        "RESOLVED 2026-07-19 Supabase least-privilege runtime role and transaction-local Organization/user RLS context, migration `0022_supabase_runtime_role`, and focused recovery evidence in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)",
+        "AP-063 public-cloud RLS/provider certification is TASK-006 evidence only and does not close this backlog"
       ],
       "requests": [],
       "approval": "AP-054 applied for the Supabase runtime-role/RLS slice; none for the remaining backlog",
@@ -508,7 +509,8 @@
         "BUGS 2026-07-16 baseline lint/typecheck failures",
         "BUGS 2026-07-15 sensor coverage floor",
         "BUGS 2026-07-19 paginated Relationship Views filter/sort only the loaded page",
-        "RESOLVED 2026-07-19 API container build/readiness and exact hosted Supabase Auth admission, documented in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)"
+        "RESOLVED 2026-07-19 API container build/readiness and exact hosted Supabase Auth admission, documented in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)",
+        "AP-063 Render Blueprint/public-cloud boundary is a landed slice only and does not close the remaining prototype"
       ],
       "requests": [],
       "approval": "AP-054 applied for the Supabase container/Auth slice; none for the remaining backlog",
@@ -539,7 +541,7 @@
       "requests": [
         "DealPilot requirements 2026-07-14–15"
       ],
-      "approval": "AP-023, AP-029, AP-044, AP-045, AP-054, and AP-060 applied",
+      "approval": "AP-023, AP-029, AP-044, AP-045, AP-054, AP-060, and AP-063 applied",
       "dependencies": [
         "TASK-001"
       ],
@@ -575,7 +577,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 262,
+      "sourceLine": 263,
       "rank": 16
     },
     {
@@ -610,7 +612,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 276,
+      "sourceLine": 277,
       "rank": 17
     },
     {
@@ -643,7 +645,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 290,
+      "sourceLine": 291,
       "rank": 18
     },
     {
@@ -674,7 +676,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 303,
+      "sourceLine": 304,
       "rank": 19
     },
     {
@@ -702,7 +704,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 316,
+      "sourceLine": 317,
       "rank": 20
     },
     {
@@ -729,7 +731,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 329,
+      "sourceLine": 330,
       "rank": 21
     },
     {
@@ -760,7 +762,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 342,
+      "sourceLine": 343,
       "rank": 22
     },
     {
@@ -787,7 +789,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 355,
+      "sourceLine": 356,
       "rank": 23
     },
     {
@@ -819,7 +821,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 368,
+      "sourceLine": 369,
       "rank": 24
     }
   ]

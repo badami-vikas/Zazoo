@@ -52,7 +52,14 @@ function assertSameImmutableContent(
 export interface ModuleStore {
   create(row: Omit<ModuleInstallationRow, "id" | "createdAt">): Promise<ModuleInstallationRow>;
   get(id: string): Promise<ModuleInstallationRow | null>;
-  list(organizationId: string, opts: { limit: number; offset: number }): Promise<{ items: ModuleInstallationRow[]; total: number }>;
+  list(
+    organizationId: string,
+    opts: {
+      limit: number;
+      offset: number;
+      installedRootsOnly?: boolean;
+    },
+  ): Promise<{ items: ModuleInstallationRow[]; total: number }>;
   /** All installation rows for one (organizationId, moduleName) — the population
    * promote/rollback reason over (to find the currently-`available` row). */
   listVersions(organizationId: string, moduleName: string): Promise<ModuleInstallationRow[]>;
@@ -93,9 +100,25 @@ export class InMemoryModuleStore implements ModuleStore {
     return this.rows.get(id) ?? null;
   }
 
-  async list(organizationId: string, opts: { limit: number; offset: number }): Promise<{ items: ModuleInstallationRow[]; total: number }> {
+  async list(
+    organizationId: string,
+    opts: {
+      limit: number;
+      offset: number;
+      installedRootsOnly?: boolean;
+    },
+  ): Promise<{ items: ModuleInstallationRow[]; total: number }> {
     const all = [...this.rows.values()]
       .filter((r) => r.organizationId === organizationId)
+      .filter(
+        (r) =>
+          !opts.installedRootsOnly ||
+          (
+            r.state === "available" &&
+            r.status === "installed" &&
+            r.moduleAttachment === undefined
+          ),
+      )
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     return { items: all.slice(opts.offset, opts.offset + opts.limit), total: all.length };
   }

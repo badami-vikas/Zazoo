@@ -1,0 +1,76 @@
+services:
+  - type: web
+    name: bridge-pilot-api
+    runtime: docker
+    plan: free
+    region: virginia
+    branch: main
+    autoDeploy: false
+    dockerfilePath: ./platform/Dockerfile
+    dockerContext: ./platform
+    healthCheckPath: /health/ready
+    envVars:
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: BRIDGE_LOCAL_DIR
+        value: /tmp/bridge-public-only/local
+      - key: BRIDGE_FILES_ROOT
+        value: /tmp/bridge-public-only/files
+      - key: BRIDGE_LOCAL_RESIDENCY
+        value: public-cloud
+      - key: BRIDGE_DEALPILOT_CREDENTIAL_VAULT
+        value: disabled
+      - key: BRIDGE_RENDER_WEB_HOST
+        fromService:
+          type: web
+          name: bridge-pilot-web
+          property: host
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: BRIDGE_PILOT_USER_ID
+        sync: false
+      - key: BRIDGE_PILOT_USER_EMAIL
+        sync: false
+
+  - type: web
+    name: bridge-pilot-web
+    runtime: static
+    branch: main
+    autoDeploy: false
+    buildCommand: >-
+      test -n "$BRIDGE_RENDER_API_HOST" &&
+      corepack enable &&
+      corepack prepare pnpm@10.33.3 --activate &&
+      cd platform &&
+      pnpm install --frozen-lockfile &&
+      VITE_API_URL="https://${BRIDGE_RENDER_API_HOST}" pnpm --filter @bridge/web build
+    staticPublishPath: platform/apps/web/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+    envVars:
+      - key: BRIDGE_RENDER_API_HOST
+        fromService:
+          type: web
+          name: bridge-pilot-api
+          property: host
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+
+previews:
+  generation: "off"
