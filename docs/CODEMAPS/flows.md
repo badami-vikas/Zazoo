@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-21 | Files scanned: packages/core/src/{pipeline,authority,automation-executor,task-manager,skill-manifest,module/{manifest,ports,privacy,commons-trust}}.ts, modules/manifests/src/index.ts, apps/api/src/{router,built-in-modules,module-files,wiring,commons-client}.ts, apps/web/src/app/{Layout,routes,pages/TaskManagerPage,pages/TaskRecordDetailPage,pages/ModuleDetailPage}.tsx, packages/db/src/{schema,task-manager-store,module-store,automation-stores,graph-store,ledger-store}.ts, packages/db/migrations/0028_task021_recertification.sql | Token estimate: ~2900 -->
+<!-- Updated: 2026-07-21 | Files scanned: packages/core/src/{pipeline,authority,automation-executor,task-manager,skill-manifest,module/{manifest,ports,privacy,commons-trust}}.ts, modules/manifests/src/index.ts, apps/api/src/{router,built-in-modules,module-files,wiring,commons-client}.ts, apps/web/src/app/{Layout,routes,pages/TaskManagerPage,pages/TaskRecordDetailPage,pages/ModuleDetailPage}.tsx, packages/db/src/{schema,task-manager-store,module-store,automation-stores,graph-store,ledger-store}.ts, packages/local/src/stores/pglite.ts | Token estimate: ~3000 -->
 
 # Load-Bearing Flows + Schema ER
 
@@ -204,3 +204,5 @@ sequenceDiagram
 ```
 
 Left Sidebar/right Chat Panel use one `PanelControl` mode (`collapsed|expanded|extended`), Organization-scoped persisted width/state, shared collapse/extend controls, keyboard resize, narrow overlay controls, and Escape extended→expanded→collapsed.
+
+Runtime Local Plane (`BRIDGE_LOCAL_DIR`) binds Automation definitions/Runs, Module installations/signed `commons_source`, Task proposals, and ledger to one Drizzle/PGlite directory. In-memory Automation/Module adapters are test-only when no durable directory exists. Module installation primary/resource identity is UUID; legacy process-local IDs map deterministically at the ledger boundary.

@@ -9,6 +9,7 @@ import type {
   AutomationStepDef,
   RunCtx,
 } from "@bridge/core";
+import { canonicalizeJson } from "@bridge/core";
 import type { Database } from "./client.js";
 import { agents, automationRuns, automations } from "./schema.js";
 import { withOrganizationOnly } from "./organization-context.js";
@@ -97,6 +98,13 @@ export function parseAutomationSteps(raw: unknown): AutomationStepDef[] {
     throw new Error(`Invalid Automation skill_pipeline jsonb: ${result.error.message}`);
   }
   return result.data.map(normalizeStep);
+}
+
+function isPreliminaryCompletedOutput(output: unknown): boolean {
+  if (typeof output !== "object" || output === null || Array.isArray(output)) return false;
+  const keys = Object.keys(output);
+  return keys.length === 1 && keys[0] === "steps" &&
+    typeof (output as { steps?: unknown }).steps === "number";
 }
 
 export class DrizzleAutomationRegistry implements AutomationRegistry {
@@ -240,7 +248,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
     ctx: RunCtx,
   ): Promise<void> {
     await withOrganizationOnly(this.#db, run.organizationId, async (tx) => {
-    const rows = await tx
+    const [updated] = await tx
       .update(automationRuns)
       .set({
         status: run.status,
@@ -251,12 +259,53 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
         and(
           eq(automationRuns.id, run.runId),
           eq(automationRuns.organizationId, run.organizationId),
+          eq(automationRuns.status, "running"),
         ),
       )
       .returning();
-    if (rows.length !== 1) {
+    if (updated) return;
+
+    const [existing] = await tx
+      .select({
+        status: automationRuns.status,
+        output: automationRuns.output,
+      })
+      .from(automationRuns)
+      .where(
+        and(
+          eq(automationRuns.id, run.runId),
+          eq(automationRuns.organizationId, run.organizationId),
+        ),
+      )
+      .for("update")
+      .limit(1);
+    if (!existing) {
       throw new Error(
         `AutomationRunRecorder.finish: Run ${run.runId} not found in organization ${run.organizationId}`,
+      );
+    }
+    if (existing.status === "completed" && run.status === "completed" &&
+      isPreliminaryCompletedOutput(existing.output) &&
+      !isPreliminaryCompletedOutput(run.output)) {
+      await tx
+        .update(automationRuns)
+        .set({
+          output: run.output,
+          finishedAt: new Date(ctx.clock.nowISO()),
+        })
+        .where(
+          and(
+            eq(automationRuns.id, run.runId),
+            eq(automationRuns.organizationId, run.organizationId),
+            eq(automationRuns.status, "completed"),
+          ),
+        );
+      return;
+    }
+    if (existing.status !== run.status ||
+      canonicalizeJson(existing.output) !== canonicalizeJson(run.output)) {
+      throw new Error(
+        `AutomationRunRecorder.finish: Run ${run.runId} conflicts with existing terminal result`,
       );
     }
     });

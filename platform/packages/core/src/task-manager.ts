@@ -603,19 +603,36 @@ export function applyApprovedTaskProjectionReconciliation(
   return currentTasks.map((task) => {
     const external = byId.get(task.id);
     if (!external) return task;
-    assertTaskTransition(task, external.status);
     const segments = external.path.split(".");
     const parentPath = external.path.includes(".") ? external.path.slice(0, external.path.lastIndexOf(".")) : undefined;
     const parent = parentPath
-      ? currentTasks.find((candidate) => byId.get(candidate.id)?.path === parentPath || candidate.path === parentPath)
+      ? currentTasks.find((candidate) => {
+          const projected = byId.get(candidate.id);
+          return projected ? projected.path === parentPath : candidate.path === parentPath;
+        })
       : undefined;
+    if (parentPath && !parent) {
+      throw new Error(`task-manager: external projection parent path ${parentPath} is missing`);
+    }
+    const level = segments.length - 1;
+    const sortOrder = Number.parseInt(segments[segments.length - 1]!, 10);
+    const parentTaskId = parent?.id;
+    const changed =
+      task.title !== external.title ||
+      task.status !== external.status ||
+      task.path !== external.path ||
+      task.level !== level ||
+      task.sortOrder !== sortOrder ||
+      task.parentTaskId !== parentTaskId;
+    if (!changed) return task;
+    assertTaskTransition(task, external.status);
     const base = {
       ...task,
       title: external.title,
       status: external.status,
       path: external.path,
-      level: segments.length - 1,
-      sortOrder: Number.parseInt(segments[segments.length - 1]!, 10),
+      level,
+      sortOrder,
       version: task.version + 1,
       updatedAt: now,
     };

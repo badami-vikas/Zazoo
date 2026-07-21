@@ -46,3 +46,16 @@ Corporate PR #102 correctly blocked on three Bridge defects. They are fixed; rer
 6. Negative controls: tamper, untrusted key, failed scan, personal/Organization data, changed dependency pin, signed-source drift, and immutable same-version content conflict all fail closed. Re-run existing Skill attachment/need tests.
 
 Return source/merge/PR, derived hashes, installation and commonsSource evidence, Task proposal/decision/Run/Event/Result/File IDs, projection hashes, sweep policy/result, restart/replay outcomes, and the duplicate-queue scan. TASK-021 remains `in_progress` until that evidence lands.
+
+## Second recertification update — Bridge source `689fca0`
+
+Corporate PR #103 proved same-process behavior and exposed four Local Plane defects. Bridge fixes them in signed `task-manager@1.0.2`. Run this exact external contract:
+
+1. Start runtime A with a fresh file-backed `BRIDGE_LOCAL_DIR`, Files root, and trusted Commons registry. Assert its Automation registry/Run recorder and ModuleStore are durable adapters, not in-memory.
+2. Emit and physically edit `tasks.md`. Create a drift proposal, capture UUID proposal/Run plus File/record hashes, close runtime A, start runtime B on the same directory, replay the same key, and assert identical IDs. Human veto once and Human edit/approve once must complete with durable decision/Event/Result/File/Run evidence. Conflicting terminal decision, stale DB version, stale File hash, unexpected writer, expiry, and concurrent replay fail closed.
+3. Before the edit, retain one verified completed Task and capture exact version, `updatedAt`, status, evidence, parent, and path. Edit another Task/reorder roots. After reconcile, assert the untouched row is byte-for-byte unchanged; changed rows alone increment; moved-child parent follows the projected parent path; unknown create and omission never silently create/delete canonical Tasks.
+4. Run completed-bay cap policy and age policy separately through Governance Automation proposals. Approve both, preserve evidence, then retry each key with different inputs and recover original Run/proposal/result.
+5. Install/reconcile signed `task-manager@1.0.2`; stage, approve, and promote a separately signed `1.0.3`; close/reopen before reading state. Recover exact installation IDs/state plus both `commonsSource` envelopes without registry refetch. IDs and ledger resources must be UUID. Exercise one legacy `pkginst_*` compatibility proposal and prove deterministic UUID ledger mapping plus successful approval/promotion.
+6. Derive registry content, normalized signed manifest, and normalized built-in hashes. Re-run tamper, untrusted key, failed scan, personal/Organization data, dependency-pin drift, Agent-need drift, signed-source drift, immutable same-version conflict, cross-Organization/RLS, and existing Skill attachment controls.
+
+Return Corporate commit/PR, Bridge source/merge, derived hashes, proposal/decision/Run/Event/Result/File IDs, both runtime-instance evidence, exact before/after unchanged-Task fields, cap+age plans/results, installation/version/source rows, legacy mapping evidence, and duplicate-queue scan. Only an external PASS moves TASK-021 to done.

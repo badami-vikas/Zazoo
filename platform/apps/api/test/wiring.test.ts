@@ -11,17 +11,29 @@ import test from "node:test";
 import {
   createLocalDb,
   DrizzleAgentStore,
+  DrizzleAutomationRegistry,
+  DrizzleAutomationRunRecorder,
   InMemoryCanonicalIdentityStore,
   DrizzleCanonicalIdentityStore,
   DrizzleGoalTaskStore,
   DrizzleSkillManifestRegistry,
   DrizzleChildAgentRunStore,
   DrizzleLedgerStore,
+  DrizzleModuleStore,
   ensureInternalStrategistGovernance,
   ensureLearningAgentGovernance,
   schema,
 } from "@bridge/db";
-import { InMemoryLedger, InMemoryRoleStore, InMemoryGoalTaskStore, InMemorySkillManifestRegistry, InMemoryChildAgentRunStore } from "@bridge/core";
+import {
+  InMemoryAutomationRegistry,
+  InMemoryAutomationRunRecorder,
+  InMemoryChildAgentRunStore,
+  InMemoryGoalTaskStore,
+  InMemoryLedger,
+  InMemoryModuleStore,
+  InMemoryRoleStore,
+  InMemorySkillManifestRegistry,
+} from "@bridge/core";
 import { createPgliteLocalPlane } from "@bridge/local";
 import {
   buildInMemoryPorts,
@@ -58,6 +70,9 @@ test("buildInMemoryPorts: returns a fully in-memory, seeded port set with no DB 
   try {
     assert.ok(ports.roles instanceof InMemoryRoleStore, "roles should be the in-memory store");
     assert.ok(ports.ledger instanceof InMemoryLedger, "ledger should be the in-memory ledger");
+    assert.ok(ports.automationRegistry instanceof InMemoryAutomationRegistry);
+    assert.ok(ports.automationRunRecorder instanceof InMemoryAutomationRunRecorder);
+    assert.ok(ports.moduleStore instanceof InMemoryModuleStore);
     assert.ok(
       ports.canonical instanceof InMemoryCanonicalIdentityStore,
       "canonical identity should be the in-memory fake in this mode",
@@ -98,6 +113,9 @@ test("buildInMemoryPorts: file-backed relational and private Local Plane stores 
       true,
     );
     assert.equal(typeof ports.organizationStore.createOrganization, "function");
+    assert.ok(ports.automationRegistry instanceof DrizzleAutomationRegistry);
+    assert.ok(ports.automationRunRecorder instanceof DrizzleAutomationRunRecorder);
+    assert.ok(ports.moduleStore instanceof DrizzleModuleStore);
   } finally {
     await ports?.closeDb();
     await plane.close();
@@ -340,11 +358,16 @@ test("persistent governance provisioning grants culture-research authority to Le
     assert.equal(await agents.dataScope(LEARNING_AGENT), "all");
     assert.ok((await agents.allowedSkills(LEARNING_AGENT)).includes("jobpilot.researchCultureSource"));
 
-    assert.deepEqual(await agents.capabilityScope(INTERNAL_STRATEGIST_AGENT), ["signal:write"]);
+    assert.deepEqual(await agents.capabilityScope(INTERNAL_STRATEGIST_AGENT), [
+      "signal:write",
+      "record:read",
+      "record:write",
+    ]);
     assert.equal(await agents.dataScope(INTERNAL_STRATEGIST_AGENT), "all");
     assert.deepEqual(await agents.allowedSkills(INTERNAL_STRATEGIST_AGENT), [
       "stageStrategicRecommendation",
       "jobpilot.synthesizeCultureProfile",
+      "task-manager.ledger-projection",
     ]);
   } finally {
     await close();

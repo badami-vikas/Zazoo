@@ -140,6 +140,8 @@ import {
   DrizzleMemoryStore,
   DrizzleLedgerStore,
   DrizzleRelationMaterializationStore,
+  DrizzleAutomationRegistry,
+  DrizzleAutomationRunRecorder,
   DrizzleGoalTaskStore,
   DrizzleTaskManagerStore,
   DrizzleSkillManifestRegistry,
@@ -3324,9 +3326,12 @@ export async function buildInMemoryPorts(env: {
     policyStore: new InMemoryPolicyStore(policies),
     ledger,
     relationMaterializations: new DrizzleRelationMaterializationStore(localDb),
-    // Definitions start empty. Real Automations are created with an owning Agent.
-    automationRegistry: new InMemoryAutomationRegistry(),
-    automationRunRecorder: new InMemoryAutomationRunRecorder(),
+    automationRegistry: localDirDurable
+      ? new DrizzleAutomationRegistry(localDb)
+      : new InMemoryAutomationRegistry(),
+    automationRunRecorder: localDirDurable
+      ? new DrizzleAutomationRunRecorder(localDb)
+      : new InMemoryAutomationRunRecorder(),
     canonical: new InMemoryCanonicalIdentityStore(),
     organizationStore: new DrizzleOrganizationStore(localDb, env.organizationRenameCoordinator),
     graphStore,
@@ -3338,9 +3343,9 @@ export async function buildInMemoryPorts(env: {
       localDb,
       PILOT_ORGANIZATION,
     ),
-    // In-memory mode keeps modules in-memory (no persistent backing store needed
-    // for zero-infra dev/test) — persistent mode uses the real DrizzleModuleStore.
-    moduleStore: new InMemoryModuleStore(),
+    moduleStore: localDirDurable
+      ? new DrizzleModuleStore(localDb, PILOT_ORGANIZATION)
+      : new InMemoryModuleStore(),
     memoryStore: new DrizzleMemoryStore(localDb),
     // TASK-007 — dependency-free in-memory default (dev/test). The SAME
     // GOVERNED_SKILL_MANIFEST_CATALOG code-declared list `buildPersistentPorts`

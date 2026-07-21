@@ -128,6 +128,8 @@ test("tasks.md projection is deterministic and external drift becomes reconcilia
   const reconciled = applyApprovedTaskProjectionReconciliation(tree, edited, NOW);
   assert.equal(reconciled.find((task) => task.id === "child")?.title, "Build governed queue");
   assert.equal(reconciled.find((task) => task.id === "child")?.version, 2);
+  assert.equal(reconciled.find((task) => task.id === "root"), tree.find((task) => task.id === "root"));
+  assert.equal(reconciled.find((task) => task.id === "leaf"), tree.find((task) => task.id === "leaf"));
   assert.throws(
     () => applyApprovedTaskProjectionReconciliation(reconciled, edited, NOW),
     /version conflict/,
@@ -135,6 +137,18 @@ test("tasks.md projection is deterministic and external drift becomes reconcilia
   const promotedProjection = projection.content.replace("## 1.1.1 — Verify tree", "## 3 — Verify tree");
   const promoted = applyApprovedTaskProjectionReconciliation(tree, promotedProjection, NOW);
   assert.equal(promoted.find((task) => task.id === "leaf")?.parentTaskId, undefined);
+  const secondRoot = draftTaskCreate(input("second-root", "Second root"), tree, NOW, "impact-2").task;
+  const swappedProjection = emitTasksMarkdown([...tree, secondRoot]).content
+    .replace("## 1 — Ship Task Manager", "## swap — Ship Task Manager")
+    .replace("## 2 — Second root", "## 1 — Second root")
+    .replace("## swap — Ship Task Manager", "## 2 — Ship Task Manager");
+  const swapped = applyApprovedTaskProjectionReconciliation(
+    [...tree, secondRoot],
+    swappedProjection,
+    NOW,
+  );
+  assert.equal(swapped.find((task) => task.id === "child")?.parentTaskId, secondRoot.id);
+  assert.equal(swapped.find((task) => task.id === "child")?.version, 2);
   assert.throws(
     () => applyApprovedTaskProjectionReconciliation(
       tree,

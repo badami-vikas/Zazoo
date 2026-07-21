@@ -67,7 +67,7 @@ export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId:
 }
 
 const SOURCE_REPOSITORY = "https://github.com/badami-vikas/relationship-os";
-const INSPECTED_COMMIT = "c32bc20b700f127fe42f7fb294cee276beaa88ee";
+const INSPECTED_COMMIT = "689fca0ca742cfa01eae8e3785b00c50c5e3ca5b";
 const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   "deal-pilot": "platform/modules/dealpilot/src/manifest.ts",
   "job-pilot": "platform/modules/jobpilot/src/manifest.ts",
@@ -601,7 +601,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "operational",
     manifest: {
       name: "task-manager",
-      version: "1.0.1",
+      version: "1.0.2",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:

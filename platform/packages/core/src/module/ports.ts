@@ -12,6 +12,7 @@ import type {
 } from "./types.js";
 import { canonicalizeJson, canonicalizeManifest } from "./signing.js";
 import { parseModuleManifest } from "./manifest.js";
+import { uuidv7 } from "../determinism.js";
 
 export type ModuleAttachmentTarget = Pick<ModuleAttachment, "ownerModuleName" | "agentId" | "needId">;
 
@@ -85,7 +86,6 @@ export interface ModuleStore {
 /** In-memory `ModuleStore` — dev/test default, mirrors InMemoryCapabilityStore's shape. */
 export class InMemoryModuleStore implements ModuleStore {
   readonly rows = new Map<string, ModuleInstallationRow>();
-  #idCounter = 0;
 
   async create(row: Omit<ModuleInstallationRow, "id" | "createdAt">): Promise<ModuleInstallationRow> {
     const existing = [...this.rows.values()].find(
@@ -99,7 +99,7 @@ export class InMemoryModuleStore implements ModuleStore {
       assertSameImmutableContent(existing, row);
       return existing;
     }
-    const id = `pkginst_${++this.#idCounter}`;
+    const id = uuidv7();
     const full: ModuleInstallationRow = { ...row, id, createdAt: new Date().toISOString() };
     this.rows.set(id, full);
     return full;
