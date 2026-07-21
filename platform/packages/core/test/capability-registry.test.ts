@@ -131,8 +131,16 @@ test("degrades gracefully when semantic comparison is inconclusive but embedding
   const modelWithoutEmbed: ModelProvider = {
     id: "fixture-no-embed",
     plane: "local",
-    async complete() {
-      return { text: "" };
+    tiers: ["default"],
+    models: { default: "fixture-no-embed" },
+    routingHealth: () => "unknown",
+    async complete(req) {
+      return {
+        text: "",
+        model: "fixture-no-embed",
+        tier: req.tier,
+        usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, source: "estimated" },
+      };
     },
   };
 
@@ -231,8 +239,16 @@ function embeddingModel(embed: (texts: string[]) => number[][]): ModelProvider {
   return {
     id: "fixture-embed",
     plane: "local",
-    async complete() {
-      return { text: "" };
+    tiers: ["default"],
+    models: { default: "fixture-embed" },
+    routingHealth: () => "unknown",
+    async complete(req) {
+      return {
+        text: "",
+        model: "fixture-embed",
+        tier: req.tier,
+        usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, source: "estimated" },
+      };
     },
     embed: async (texts) => embed(texts),
   };

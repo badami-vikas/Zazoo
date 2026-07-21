@@ -451,6 +451,22 @@ export interface Wiring {
   close(): Promise<void>;
 }
 
+export interface BuildWiringOptions {
+  /** Explicit provider set for composition tests or alternate deployments.
+   * Omitted means the normal environment-bound providers for the selected mode. */
+  modelProviders?: readonly ModelProvider[];
+  /** Test-only adapter injection. Runtime defaults to the real OS keyring. */
+  dealPilotCredentialVault?: SourceCredentialVault;
+  /** Test-only opt-in; runtime must name a durable Local Plane directory. */
+  allowEphemeralLocalPlane?: boolean;
+  localDir?: string;
+  /** Test or host injection. Runtime only auto-binds BRIDGE_LOCAL_GEOCODER_URL,
+   * which is restricted to loopback by the adapter. */
+  geocodingProvider?: GeocodingProvider;
+  /** Local Files root; injectable so tests never touch the user's home directory. */
+  moduleFilesBridgeRoot?: string;
+}
+
 /** A first skill: stage an entity mutation (echo inputs as the proposed change). */
 /** The kernel's reserved passthrough — see @bridge/core's `KERNEL_PASSTHROUGH_SKILL`
  * doc comment (pipeline.ts) for exactly why Human-authored mutations may use it
@@ -2807,6 +2823,45 @@ export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
 ];
 
 const policies: PolicyFn[] = [
+  (i) => {
+    if (
+      i.phase !== "pre" ||
+      typeof i.inputs !== "object" ||
+      i.inputs === null ||
+      (i.inputs as { operation?: unknown }).operation !== "model_completion"
+    ) {
+      return null;
+    }
+    const input = i.inputs as {
+      providerPlane?: unknown;
+      dataScope?: unknown;
+      cloudEgressConfirmed?: unknown;
+    };
+    const cloudAllowed =
+      input.providerPlane === "cloud" &&
+      input.dataScope === "public" &&
+      input.cloudEgressConfirmed === true &&
+      i.actor.type === "agent" &&
+      i.actor.plane === "cloud" &&
+      i.resourceType === "external:fetch" &&
+      i.action === "read" &&
+      i.taint !== "untrusted_external";
+    const localAllowed =
+      input.providerPlane === "local" &&
+      input.dataScope === "all" &&
+      (i.actor.plane ?? "local") === "local" &&
+      i.resourceType === "module" &&
+      i.action === "read";
+    return {
+      policyId: "pol-model-execution-plane",
+      phase: "pre",
+      effect: cloudAllowed || localAllowed ? "allow" : "block",
+      reason:
+        cloudAllowed || localAllowed
+          ? "model execution matches its Authority-approved Plane and data scope"
+          : "model execution Plane, data scope, actor, or trust provenance is not permitted",
+    };
+  },
   (i) =>
     i.phase === "pre" &&
     typeof i.inputs === "object" &&
@@ -3457,19 +3512,6 @@ export async function buildInMemoryPorts(env: {
   };
 }
 
-export interface BuildWiringOptions {
-  /** Test-only adapter injection. Runtime defaults to the real OS keyring. */
-  dealPilotCredentialVault?: SourceCredentialVault;
-  /** Test-only opt-in; runtime must name a durable Local Plane directory. */
-  allowEphemeralLocalPlane?: boolean;
-  localDir?: string;
-  /** Test or host injection. Runtime only auto-binds BRIDGE_LOCAL_GEOCODER_URL,
-   * which is restricted to loopback by the adapter. */
-  geocodingProvider?: GeocodingProvider;
-  /** Local Files root; injectable so tests never touch the user's home directory. */
-  moduleFilesBridgeRoot?: string;
-}
-
 export function encryptedCredentialVaultFromEnv(
   directory: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -3760,7 +3802,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     taskManager,
     skillManifests,
     childAgentRuns,
-    modelProviders,
+    modelProviders: modeModelProviders,
     memory,
   } = modePorts;
   const ledger: LedgerStore = url
@@ -3772,6 +3814,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         modeLedger,
       )
     : modeLedger;
+  const modelProviders = options.modelProviders ? [...options.modelProviders] : modeModelProviders;
   // Kernel policies are deployment-invariant safety rules. Persistent mode also
   // evaluates organization policies from Postgres; it must not replace these rules.
   const staticPolicyStore = new InMemoryPolicyStore(policies);

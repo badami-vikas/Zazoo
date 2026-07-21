@@ -342,16 +342,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Inference cost optimization: prompt caching + model tiering
 - ID: TASK-022
-- Status: ready
+- Status: blocked
 - Priority: P2
 - Horizon: Core Modules
 - Outcome: ModelProvider calls use Anthropic prompt caching on the stable prefix, model selection routes by cost/capability tier (cheap/default/reasoning) instead of first-registered-provider, and complete() returns usage token counts enabling cost receipts — all preserving the local-plane-never-falls-to-cloud rule.
 - Prototype test: A repeated CoS turn shows non-zero cache_read_input_tokens on the second call; CoS intent classification runs on the cheap tier while a reasoning-tagged call runs on a higher tier; complete() usage is logged for at least one call site.
 - Scope: platform/packages/models/src/anthropic-provider.ts; platform/packages/models/src/router.ts; platform/packages/core/src/ports.ts; platform/packages/core/src/run-context.ts; platform/packages/core/src/chief-of-staff.ts; platform/apps/api/src/router.ts (~4573); docs/raw/optimizations-memory-vm-dealpilot-plan-2026-07.md (phase 1 slice)
-- Evidence: outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0])
+- Evidence: outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0]); outputs/2026-07-18-task-022-inference-cost-optimization.md implements tier/Plane/health routing, stable Anthropic system-prefix caching, exact provider usage/model identity, bounded prompt-free Run/Agent/Organization receipts, Local-default CoS inference, and explicit public-data confirmation before cloud egress. Deterministic affected checks and independent correctness/security review pass. Status is `blocked` under AP-067: exact unblock requires an already-authorized Anthropic credential plus explicit live-test spend authorization, then two sequential real public-safe CoS turns proving non-zero `cache_read_input_tokens` on the second persisted receipt. No credential, spend authorization, or live provider claim exists in this environment.
 - Requests: LLM prompt/infra optimization audit directive 2026-07-17
-- Approval: AP-038 applied
-- Dependencies: none
+- Approval: AP-038 and AP-067 applied
+- Dependencies: external authorized Anthropic credential + live-test spend authorization
 
 ## Learning Agent governed web-research/recon Skill
 - ID: TASK-023

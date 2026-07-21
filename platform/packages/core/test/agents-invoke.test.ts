@@ -10,23 +10,39 @@ import {
   type ModelProvider,
 } from "../src/index.js";
 
-/** A minimal in-test ModelProvider double — returns a fixed text, records the
+/** A minimal in-test ModelProvider adapter — returns fixed text, records the
  * system prompt it was called with. No network, deterministic. */
-function fakeModel(reply: string): ModelProvider & { lastSystem: string | undefined } {
-  const m: ModelProvider & { lastSystem: string | undefined } = {
-    id: "fake",
+function testModel(reply: string): ModelProvider & { lastSystem: string | undefined; lastTier: string | undefined } {
+  const m: ModelProvider & { lastSystem: string | undefined; lastTier: string | undefined } = {
+    id: "test-model",
     plane: "local",
+    tiers: ["reasoning"],
+    models: { reasoning: "test-model-v1" },
+    routingHealth: () => "unknown",
     lastSystem: undefined,
-    async complete(req: { system?: string; prompt: string; maxTokens?: number }) {
+    lastTier: undefined,
+    async complete(req) {
       m.lastSystem = req.system;
-      return { text: reply };
+      m.lastTier = req.tier;
+      return {
+        text: reply,
+        model: "test-model-v1",
+        tier: req.tier,
+        usage: {
+          inputTokens: 3,
+          outputTokens: 2,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          source: "provider",
+        },
+      };
     },
   };
   return m;
 }
 
 test("AGENTS-1: invokeAgent(learning) yields information — a neverExecutes agent never drafts", async () => {
-  const result = await invokeAgent({ agentId: "learning", message: "what did you learn?", model: fakeModel("insight X") });
+  const result = await invokeAgent({ agentId: "learning", message: "what did you learn?", model: testModel("insight X") });
   assert.equal(result.kind, "information");
   assert.equal(result.agentId, "learning");
   assert.equal(result.text, "insight X");
@@ -34,12 +50,12 @@ test("AGENTS-1: invokeAgent(learning) yields information — a neverExecutes age
 });
 
 test("AGENTS-1: invokeAgent(governance) yields information", async () => {
-  const result = await invokeAgent({ agentId: "governance", message: "assess this", model: fakeModel("risk: low") });
+  const result = await invokeAgent({ agentId: "governance", message: "assess this", model: testModel("risk: low") });
   assert.equal(result.kind, "information");
 });
 
 test("AGENTS-1: invokeAgent(capability_builder) yields exactly one governed draft, never an execution", async () => {
-  const result = await invokeAgent({ agentId: "capability_builder", message: "build a skill", model: fakeModel("here is a clean draft") });
+  const result = await invokeAgent({ agentId: "capability_builder", message: "build a skill", model: testModel("here is a clean draft") });
   assert.equal(result.kind, "draft");
   assert.equal(result.agentId, "capability_builder");
   // Structural "no independent write": the union has no "executed" variant, so
@@ -52,7 +68,7 @@ test("AGENTS-1: the design-constraint check surfaces on a draft (flag, not gate 
   const result = await invokeAgent({
     agentId: "capability_builder",
     message: "build it",
-    model: fakeModel("this uses dummy data to fill the table"),
+    model: testModel("this uses dummy data to fill the table"),
   });
   assert.equal(result.kind, "draft");
   assert.ok(result.kind === "draft" && result.constraintViolations.length > 0, "dummy-data language should be flagged for the approver");
@@ -68,17 +84,18 @@ test("AGENTS-1: offline (no model) still returns a well-formed result with sourc
 test("AGENTS-1: invokeAgent result is one of exactly two kinds (structural — no executed variant)", async () => {
   const kinds = new Set<AgentInvocationResult["kind"]>();
   for (const id of ["learning", "governance", "capability_builder"] as const) {
-    const r = await invokeAgent({ agentId: id, message: "x", model: fakeModel("ok") });
+    const r = await invokeAgent({ agentId: id, message: "x", model: testModel("ok") });
     kinds.add(r.kind);
   }
   for (const k of kinds) assert.ok(k === "information" || k === "draft", `unexpected invocation kind ${k}`);
 });
 
 test("AGENTS-1: the assembled system prompt carries the non-omittable kernel-invariants layer (layer 1)", async () => {
-  const model = fakeModel("ok");
+  const model = testModel("ok");
   await invokeAgent({ agentId: "governance", message: "x", model });
   assert.ok(model.lastSystem, "model should have been called with a system prompt");
   assert.match(model.lastSystem ?? "", /Kernel invariants \(non-negotiable\)/);
+  assert.equal(model.lastTier, "reasoning");
   // Every KERNEL_INVARIANT line is present — layer 1 is prepended in full.
   for (const inv of KERNEL_INVARIANTS) assert.ok((model.lastSystem ?? "").includes(inv));
 });

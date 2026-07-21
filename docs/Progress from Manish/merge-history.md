@@ -42,6 +42,9 @@ This file prevents a new session from re-merging historical branches or reusing 
   keeps policyless catalogs server-only while every RLS-enabled table retains a tracked policy.
 - AP-063/ADR-137 adds the free Render Blueprint/public-cloud boundary. Live deployment is blocked
   before resource creation on repository-owner Render GitHub App authorization.
+- TASK-022 recovery source `61e85c3` normally merges preservation checkpoint `85474fa` with
+  `origin/main@2325cc5`; PR #43 owns landing under AP-067/ADR-140. The code milestone is complete,
+  but canonical status remains blocked on authorized live Anthropic cache-read evidence.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -161,6 +164,7 @@ Next new migration allocates `0027`; do not reuse `0016` through `0026`.
 - AP-032: TASK-007.
 - AP-037: Graph scope/Second Brain convergence.
 - AP-038: TASK-022.
+- AP-067: TASK-022 recovered implementation milestone, external live-cache blocker, and landing.
 - AP-039: TASK-023.
 - AP-042: TASK-008 central-review hardening.
 - AP-043: validated TASK-008 continuation integration.
@@ -178,13 +182,11 @@ Next new migration allocates `0027`; do not reuse `0016` through `0026`.
   least privilege and explicit Local/Cloud residency.
 - ADR-134: Supabase policyless catalogs stay server-only; policy-backed tables remain RLS.
 
-Known current branch-local collision:
+Resolved branch-local collision:
 
-- TASK-022 output claims ADR-113.
-- TASK-023 candidate A output also claims ADR-113.
-- Current `main` includes Relationship ADR-115/ADR-116. During later integration, assign distinct
-  next-free ADRs and update every companion reference atomically; TASK-006 has already reserved
-  ADR-117–ADR-120 on its ready branch.
+- TASK-022 moved from paused branch-local ADR-113 to current next-free ADR-140.
+- TASK-023 candidate A still claims branch-local ADR-113. If selected, compare against current
+  main before integration and update all companion references atomically if the number is no longer free.
 
 ## Central merge protocol
 

@@ -67,7 +67,13 @@ export class JudgeScorer implements Scorer {
       `Pinned judge model version: ${this.modelVersion}`,
     ].join("\n\n");
 
-    const response = await this.model.complete({ system, prompt, maxTokens: 64 });
+    const response = await this.model.complete({
+      system,
+      prompt,
+      maxTokens: 64,
+      tier: "reasoning",
+      cache: { strategy: "stable_system_prefix", ttl: "5m" },
+    });
     return { quality: parseFirstScore(response.text) };
   }
 }

@@ -11,24 +11,73 @@
  * from env at construction (credential-broker territory later), consistent
  * with "tools never own OAuth/secrets".
  */
-import type { ModelProvider } from "@bridge/core";
+import {
+  MODEL_TIERS,
+  assertModelCompletionRequest,
+  type ModelCompletion,
+  type ModelCompletionRequest,
+  type ModelProvider,
+  type ModelTier,
+  type ModelTokenPricing,
+} from "@bridge/core";
 import { defaultFetch, type FetchLike } from "./fetch-types.js";
+import {
+  asRecord,
+  configuredModelId,
+  nullableTokenCount,
+  providerRequestError,
+  requiredString,
+  requiredTokenCount,
+  verifiedProviderModel,
+} from "./usage.js";
 
 export interface AnthropicProviderOpts {
   apiKey?: string;
+  /** Backward-compatible global override: when set, every tier uses this model. */
   model?: string;
+  /** Tier-specific overrides take precedence over `model`. */
+  models?: Partial<Record<ModelTier, string>>;
   baseUrl?: string;
   fetchImpl?: FetchLike;
 }
 
 const ANTHROPIC_URL = "https://api.anthropic.com";
 const DEFAULT_MODEL = "claude-fable-5";
+const DEFAULT_MODELS: Record<ModelTier, string> = {
+  cheap: "claude-haiku-4-5-20251001",
+  default: DEFAULT_MODEL,
+  reasoning: DEFAULT_MODEL,
+};
+const PRICING_SOURCE = "https://platform.claude.com/docs/en/build-with-claude/prompt-caching";
+const PRICING_AS_OF = "2026-07-18";
+const KNOWN_PRICING: Readonly<Record<string, Omit<ModelTokenPricing, "source" | "asOf">>> = {
+  "claude-haiku-4-5": {
+    inputUsdPerMillion: 1,
+    outputUsdPerMillion: 5,
+    cacheCreationInputUsdPerMillion: 1.25,
+    cacheReadInputUsdPerMillion: 0.1,
+  },
+  "claude-haiku-4-5-20251001": {
+    inputUsdPerMillion: 1,
+    outputUsdPerMillion: 5,
+    cacheCreationInputUsdPerMillion: 1.25,
+    cacheReadInputUsdPerMillion: 0.1,
+  },
+  "claude-fable-5": {
+    inputUsdPerMillion: 10,
+    outputUsdPerMillion: 50,
+    cacheCreationInputUsdPerMillion: 12.5,
+    cacheReadInputUsdPerMillion: 1,
+  },
+};
 
 export class AnthropicProvider implements ModelProvider {
   readonly id = "anthropic";
   readonly plane = "cloud" as const;
+  readonly tiers = MODEL_TIERS;
+  readonly models: Readonly<Record<ModelTier, string>>;
+  readonly pricing: Readonly<Partial<Record<ModelTier, ModelTokenPricing>>>;
   readonly #apiKey: string;
-  readonly #model: string;
   readonly #baseUrl: string;
   readonly #fetchImpl: FetchLike;
 
@@ -40,16 +89,66 @@ export class AnthropicProvider implements ModelProvider {
       throw new Error("AnthropicProvider requires an API key (ANTHROPIC_API_KEY)");
     }
     this.#apiKey = key;
-    this.#model = opts.model ?? process.env["ANTHROPIC_MODEL"] ?? DEFAULT_MODEL;
+    const globalModel = opts.model ?? process.env["ANTHROPIC_MODEL"];
+    this.models = {
+      cheap: configuredModelId(
+        opts.models?.cheap ??
+          process.env["ANTHROPIC_CHEAP_MODEL"] ??
+          globalModel ??
+          DEFAULT_MODELS.cheap,
+        "AnthropicProvider cheap model",
+      ),
+      default: configuredModelId(
+        opts.models?.default ?? globalModel ?? DEFAULT_MODELS.default,
+        "AnthropicProvider default model",
+      ),
+      reasoning: configuredModelId(
+        opts.models?.reasoning ??
+          process.env["ANTHROPIC_REASONING_MODEL"] ??
+          globalModel ??
+          DEFAULT_MODELS.reasoning,
+        "AnthropicProvider reasoning model",
+      ),
+    };
+    const pricing: Partial<Record<ModelTier, ModelTokenPricing>> = {};
+    for (const tier of MODEL_TIERS) {
+      const rates = KNOWN_PRICING[this.models[tier]];
+      if (rates) pricing[tier] = { ...rates, source: PRICING_SOURCE, asOf: PRICING_AS_OF };
+    }
+
+    this.pricing = pricing;
     this.#baseUrl = opts.baseUrl ?? ANTHROPIC_URL;
     this.#fetchImpl = opts.fetchImpl ?? defaultFetch;
   }
 
-  async complete(req: { system?: string; prompt: string; maxTokens?: number }): Promise<{ text: string }> {
+  routingHealth() {
+    return "unknown" as const;
+  }
+
+  async complete(req: ModelCompletionRequest): Promise<ModelCompletion> {
+    assertModelCompletionRequest(req, "AnthropicProvider.complete");
+    if (req.cache && req.system === undefined) {
+      throw new Error("AnthropicProvider.complete: stable-system-prefix caching requires a system prompt");
+    }
+    const model = this.models[req.tier];
+    const system =
+      req.system === undefined
+        ? undefined
+        : req.cache
+          ? [
+              {
+                type: "text",
+                text: req.system,
+                cache_control: {
+                  type: "ephemeral",
+                },
+              },
+            ]
+          : req.system;
     const body = {
-      model: this.#model,
+      model,
       max_tokens: req.maxTokens ?? 1024,
-      ...(req.system !== undefined ? { system: req.system } : {}),
+      ...(system !== undefined ? { system } : {}),
       messages: [{ role: "user", content: req.prompt }],
     };
     const res = await this.#fetchImpl(`${this.#baseUrl}/v1/messages`, {
@@ -62,14 +161,39 @@ export class AnthropicProvider implements ModelProvider {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      throw new Error(`AnthropicProvider.complete: ${res.status} ${await res.text()}`);
+      throw providerRequestError("AnthropicProvider.complete", res.status);
     }
-    const json = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
-    const text = (json.content ?? [])
-      .filter((b) => b.type === "text")
-      .map((b) => b.text ?? "")
+    const json = asRecord(await res.json(), "AnthropicProvider.complete response");
+    const content = json["content"];
+    if (!Array.isArray(content)) throw new Error("AnthropicProvider.complete response.content: expected an array");
+    const text = content
+      .map((block) => asRecord(block, "AnthropicProvider.complete response.content block"))
+      .filter((block) => block["type"] === "text")
+      .map((block) => requiredString(block["text"], "AnthropicProvider.complete response.content.text"))
       .join("");
-    return { text };
+    const usage = asRecord(json["usage"], "AnthropicProvider.complete response.usage");
+    return {
+      text,
+      model: verifiedProviderModel(
+        model,
+        json["model"],
+        "AnthropicProvider.complete response.model",
+      ),
+      tier: req.tier,
+      usage: {
+        inputTokens: requiredTokenCount(usage["input_tokens"], "AnthropicProvider.complete usage.input_tokens"),
+        outputTokens: requiredTokenCount(usage["output_tokens"], "AnthropicProvider.complete usage.output_tokens"),
+        cacheCreationInputTokens: nullableTokenCount(
+          usage["cache_creation_input_tokens"],
+          "AnthropicProvider.complete usage.cache_creation_input_tokens",
+        ),
+        cacheReadInputTokens: nullableTokenCount(
+          usage["cache_read_input_tokens"],
+          "AnthropicProvider.complete usage.cache_read_input_tokens",
+        ),
+        source: "provider",
+      },
+    };
   }
   // No embed(): the Messages API is completion-only; embeddings stay on the
   // local plane (Ollama nomic-embed) per the embedding_models registry default.

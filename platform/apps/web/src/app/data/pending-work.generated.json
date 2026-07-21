@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T13:20:21.393Z",
+  "generatedAt": "2026-07-21T14:17:00.448Z",
   "items": [
     {
       "id": "TASK-001",
@@ -733,7 +733,7 @@
     {
       "id": "TASK-022",
       "title": "TASK-022 — Inference cost optimization: prompt caching + model tiering",
-      "status": "pending",
+      "status": "blocked",
       "priority": "P2",
       "horizon": "Core Modules",
       "outcome": "ModelProvider calls use Anthropic prompt caching on the stable prefix, model selection routes by cost/capability tier (cheap/default/reasoning) instead of first-registered-provider, and complete() returns usage token counts enabling cost receipts — all preserving the local-plane-never-falls-to-cloud rule.",
@@ -748,14 +748,17 @@
         "docs/raw/optimizations-memory-vm-dealpilot-plan-2026-07.md (phase 1 slice)"
       ],
       "evidence": [
-        "outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0])"
+        "outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0])",
+        "outputs/2026-07-18-task-022-inference-cost-optimization.md implements tier/Plane/health routing, stable Anthropic system-prefix caching, exact provider usage/model identity, bounded prompt-free Run/Agent/Organization receipts, Local-default CoS inference, and explicit public-data confirmation before cloud egress. Deterministic affected checks and independent correctness/security review pass. Status is `blocked` under AP-067: exact unblock requires an already-authorized Anthropic credential plus explicit live-test spend authorization, then two sequential real public-safe CoS turns proving non-zero `cache_read_input_tokens` on the second persisted receipt. No credential, spend authorization, or live provider claim exists in this environment."
       ],
       "requests": [
         "LLM prompt/infra optimization audit directive 2026-07-17"
       ],
-      "approval": "AP-038 applied",
-      "dependencies": [],
-      "canonicalStatus": "ready",
+      "approval": "AP-038 and AP-067 applied",
+      "dependencies": [
+        "external authorized Anthropic credential + live-test spend authorization"
+      ],
+      "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 344,

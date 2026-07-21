@@ -167,21 +167,26 @@ worktree is historical after merge; do not resume or merge it again.
 
 - Session: `87f7fbd1-a6a4-47fa-bc67-bb8a5a20bd1a`
 - Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-turbo-carnival`
-- Branch/head: `manishsbhoopalam8498-implement-task-022` / `631aa9f`
-- Dirty snapshot: 31 staged/unstaged paths.
+- Branch/head: `manishsbhoopalam8498-implement-task-022` / source `61e85c3`; PR #43
+- Recovery: preserved old-base work at `85474fa`, normally merged `origin/main@2325cc5`, and
+  resolved nine conflicts without rebase/stash/reset/force.
 
 Implemented:
 
 - Explicit `cheap/default/reasoning` provider tiers.
-- Plane/tier/provider-hint routing.
+- Plane/tier/health/provider-hint routing with exact model identity.
 - Stable Anthropic system-block caching.
-- Normalized usage and cache receipt fields.
-- Governed CoS model calls with prompt-free append-only receipts.
-- Local Plane fail-closed routing and bounded cost/error handling.
+- Normalized bounded usage/cost receipt fields.
+- Governed CoS calls with prompt-free Run/Agent/Organization receipts.
+- CoS Local default; explicit authenticated public-data confirmation before cloud.
 
-Reported validation: core/models/API 623/623, changed-file ESLint, no-dummy, and whitespace checks.
+Landing validation: core 59, models 27, API 13 passed; one secure live test skipped; three
+builds/typechecks, 23-file ESLint, vocabulary, no-dummy, diff integrity, correctness re-review,
+and separate security review passed.
 
-Remaining: central diff review, reconcile staged versus unstaged changes, confirm no canonical status overclaim, resolve ADR number collision, then commit/push.
+PR #43 owns landing. After merge this worktree is historical; do not resume or merge it again.
+Canonical TASK-022 stays `blocked` under AP-067 until an authorized Anthropic credential plus
+explicit live spend runs two real public-safe CoS turns and the second receipt reports cache-read tokens.
 
 ## TASK-023 candidate A
 

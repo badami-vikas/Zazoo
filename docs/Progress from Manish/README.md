@@ -99,7 +99,9 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - TASK-008's validated Relationship continuation from candidate A is merged through `905aee9`.
   Candidate B is a superseded historical dirty worktree; do not merge either candidate again.
 - TASK-023 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
-- TASK-022 and one TASK-023 candidate both currently claim ADR-113 in branch-local docs. Renumber one during central integration.
+- TASK-022's paused ADR-113 collision is resolved as ADR-140 at source `61e85c3`/PR #43.
+  TASK-022 remains blocked only on authorized live Anthropic cache-read evidence. Re-evaluate
+  TASK-023 candidate A's branch-local ADR-113 against current main if that candidate is selected.
 - TASK-003 completed after human physical-input certification on 2026-07-18. TASK-005 completed
   its separate combined certification under AP-047; do not resume or re-merge its historical
   worktree. External provider/keychain/device evidence for other tasks remains honestly blocked.

@@ -15,7 +15,15 @@ function modelReturning(text: string): ModelProvider {
   return {
     id: "judge-local",
     plane: "local",
-    complete: async () => ({ text }),
+    tiers: ["reasoning"],
+    models: { reasoning: "judge-local-v1" },
+    routingHealth: () => "unknown",
+    complete: async (req) => ({
+      text,
+      model: "judge-local-v1",
+      tier: req.tier,
+      usage: { inputTokens: 8, outputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, source: "provider" },
+    }),
   };
 }
 
@@ -68,6 +76,9 @@ test("JudgeScorer propagates model failures", async () => {
   const model: ModelProvider = {
     id: "judge-local",
     plane: "local",
+    tiers: ["reasoning"],
+    models: { reasoning: "judge-local-v1" },
+    routingHealth: () => "unknown",
     complete: async () => {
       throw failure;
     },
@@ -81,11 +92,20 @@ test("JudgeScorer prompt uses case rubric before constructor rubric", async () =
   const model: ModelProvider = {
     id: "judge-local",
     plane: "local",
+    tiers: ["reasoning"],
+    models: { reasoning: "judge-local-v1" },
+    routingHealth: () => "unknown",
     complete: async (req) => {
       seenPrompt = req.prompt;
       assert.match(req.system ?? "", /0 to 1/);
       assert.equal(req.maxTokens, 64);
-      return { text: "0.5" };
+      assert.equal(req.tier, "reasoning");
+      return {
+        text: "0.5",
+        model: "judge-local-v1",
+        tier: req.tier,
+        usage: { inputTokens: 8, outputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, source: "provider" },
+      };
     },
   };
   const scorer = new JudgeScorer({ model, modelVersion: "judge-v1", rubric: "constructor rubric" });
@@ -102,9 +122,17 @@ test("JudgeScorer uses the constructor rubric and stringifies circular Results",
   const model: ModelProvider = {
     id: "judge-local",
     plane: "local",
+    tiers: ["reasoning"],
+    models: { reasoning: "judge-local-v1" },
+    routingHealth: () => "unknown",
     complete: async (req) => {
       seenPrompt = req.prompt;
-      return { text: "0.6" };
+      return {
+        text: "0.6",
+        model: "judge-local-v1",
+        tier: req.tier,
+        usage: { inputTokens: 8, outputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, source: "provider" },
+      };
     },
   };
   const circular: Record<string, unknown> = { kind: "result" };
