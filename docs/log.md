@@ -2007,3 +2007,10 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Projection reconcile versions/writes only semantic changes. Unchanged completed Tasks preserve exact timestamp/evidence/status; projected paths own parent resolution during root swaps.
 - Exact two-instance PGlite tests cover restart replay/decision, Commons source/install/promotion, cap+age sweep, and unchanged timestamps. Core/DB/local/API/Commons/manifest/RLS/build/type/lint/vocabulary/no-dummy gates pass. One bounded review found moved-root parent ambiguity; fixed with regression.
 - GitHub Actions remain payment-blocked; no CI claim. TASK-021 remains `in_progress` for external PASS.
+
+# 2026-07-21 — TASK-021 externally certified and closed (AP-066)
+- Corporate-training-sims PR #104/evidence `123e72b`/merge `f3443acc` returned PASS against Bridge PR #41/merge `0087f89`; its durable certification artifact supersedes PRs #102/#103.
+- Signed `task-manager@1.0.2` normalized to built-in bytes; separately signed `1.0.3` installed, approved, promoted, and survived restart with exact Commons source. Trust, privacy, dependency, immutable-content, attachment, and cross-Organization controls failed closed.
+- Physical runtime A→B projection preserved proposal/Run identity, completed Human decisions, rejected races/stale/unknown/delete controls, preserved an untouched completed Task, and reparented root-swapped children correctly.
+- Cap and age sweep Automations preserved evidence and retry identity. Prior real Corporate TASK-013 retained Task/Run/Result/Event/File proof. Required-Skill routing selected only Internal Strategist; ambiguous/no-match required Human assignment; Capability Builder was never default.
+- External gate reports 148 exact Bridge tests plus zero-blocker physical certification. GitHub Actions remained billing-blocked; no CI success is claimed. AP-066 closes TASK-021 and the Task Manager plan as `done`.

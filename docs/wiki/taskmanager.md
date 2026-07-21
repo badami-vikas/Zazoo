@@ -1,6 +1,6 @@
 # Task Manager Module
 
-Full depth: [../raw/taskmanager-module-plan-2026-07.md](../raw/taskmanager-module-plan-2026-07.md) · BRD: [../raw/brd-taskmanager-2026-07.md](../raw/brd-taskmanager-2026-07.md). Status: `in_progress` 2026-07-21 (TASK-021, AP-065). Bridge implementation `c708017`; first blockers `a0da415`; restart blockers `689fca0`; signed package now `task-manager@1.0.2`. Only external PASS remains.
+Full depth: [../raw/taskmanager-module-plan-2026-07.md](../raw/taskmanager-module-plan-2026-07.md) · BRD: [../raw/brd-taskmanager-2026-07.md](../raw/brd-taskmanager-2026-07.md). Status: **DONE** 2026-07-21 (TASK-021, AP-066). Bridge PR #41 + Corporate PR #104. Signed `task-manager@1.0.2`. External two-instance PASS. Zero blockers.
 
 ## Core call
 
@@ -37,7 +37,7 @@ One installable Module. Owns **single execution queue** per workspace. Agent-fir
 
 ## Slices
 
-TM0 schema+vocab (ONE Database, migration `0027`) → TM1 Queue/Table/Form/Tree/Record Detail → TM2 deterministic `tasks.md` emit/parse/hash/drift/reconcile + repo parser projection → TM3 planning Skills/5 Playbooks + governed impact/restructure/reopen → TM4 guards + no-default routing + calibrated reschedule/routing → TM5 Calendar/Graph/proactive candidate + **Corporate-training-sims certification pending** → TM6 signed Commons packaging/provenance.
+TM0 schema+vocab (ONE Database, migration `0027`) → TM1 Queue/Table/Form/Tree/Record Detail → TM2 deterministic `tasks.md` emit/parse/hash/drift/reconcile + repo parser projection → TM3 planning Skills/5 Playbooks + governed impact/restructure/reopen → TM4 guards + no-default routing + calibrated reschedule/routing → TM5 Calendar/Graph/proactive candidate + Corporate certification → TM6 signed Commons packaging/provenance. **All passed.**
 
 ## Reuse
 
@@ -54,3 +54,5 @@ Second-queue creep · plausibly-done · methodology bloat · ledger drift · voc
 Recertification: drift detector now creates a UUID pipeline proposal from an attributable Internal Strategist Automation Run. Human approve/edit/veto drives File-hash CAS, Task-version CAS, deterministic re-emit, and Event/Result/File/Run evidence. Completed-bay sweep uses Governance Agent plus the same pipeline. Commons root install preserves exact signed source in `commons_source`; built-in and registry manifests share one normalizer.
 
 Durable Local Plane: file-backed mode uses Drizzle/PGlite Automation registry, Run recorder, and Module store. Run + signed source + promotion survive restart. Module installation identity = UUID; legacy text ID maps to stable ledger UUID. Projection writes only semantic changes. Unchanged done Task keeps version/time/evidence. Root swaps resolve parent from projected path.
+
+External proof: Corporate runtime A→B kept proposal + Run. Physical File edits reconciled. `1.0.2`→signed `1.0.3` installed, approved, promoted, restarted. Cap + age sweep passed. Real Corporate coding Task stayed evidenced/done. Skill routing picked Internal Strategist only. Ambiguous/no match stopped for Human. Full artifact: Corporate-training-sims `docs/verification/task-manager-bridge-certification.md` at merge `f3443acc`.

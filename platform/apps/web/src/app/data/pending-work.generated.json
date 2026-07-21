@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T12:56:34.242Z",
+  "generatedAt": "2026-07-21T13:20:21.393Z",
   "items": [
     {
       "id": "TASK-001",
@@ -382,7 +382,7 @@
     {
       "id": "TASK-021",
       "title": "TASK-021 — Task Manager Module",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Core Modules",
       "outcome": "One installable Task Manager Module owning the single governed execution queue per workspace as ONE self-referential, dot-path-leveled Task type (no separate Goal/Initiative/Outcome Record types — `is_goal` is a field, not a type), with full tree restructuring (promote/insert-ancestor-above/re-parent) as governed proposals, exit-test verification with reopenable done/archived/parked status, planning Playbooks as draft-then-approve proposals, no-default agent-task routing owned by Chief of Staff, confidence-graduated reschedule and routing approval, proactive cross-Module opportunity scanning, guard Automations, and an agent-first `tasks.md` ledger projection consumable by external coding agents.",
@@ -394,20 +394,15 @@
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "docs/TASKS.md + Task Manager UI already prove the ledger model in production (AP-024/025)",
-        "Bridge implementation checkpoint `c708017` adds one recursive Task Database and migration `0027`. Corporate PR #102/merge `d24e76b` completed a real queue-integrity Task and found three Bridge blockers",
-        "source `a0da415`, signed `task-manager@1.0.1` package `c32bc20`, and migration `0028` resolve them. Stricter file-backed recertification at Corporate PR #103/merge `4d6ae1c` proved same-process projection/sweep/signed install/trust controls/routing, then found four restart/identity/age blockers. Source checkpoint `689fca0` resolves all four: durable-local Drizzle Automation definitions/Runs and Module installations/`commonsSource`",
-        "UUID installation identity plus explicit stable UUID ledger mapping for legacy `pkginst_*`",
-        "and semantic projection updates preserving unchanged completed Task version/timestamp/evidence, including root-swap parent resolution from projected paths. Exact two-instance PGlite tests recover proposal/Run and complete Human decision, recover signed root plus approved/promoted next version without registry refetch, execute cap and age sweeps, and retain untouched completed timestamps. No migration `0029`: existing durable schema already stores UUID installation IDs and both affected durable tables. Targeted Core/DB/local/API/Commons/manifest/RLS/build/type/lint/policy checks pass",
-        "one bounded review's moved-root finding is fixed. GitHub Actions remain payment-blocked and no CI success is claimed. Exact remaining gate: rerun the external PASS contract in `outputs/2026-07-21-task021-task-manager-bridge.md`",
-        "do not mark done from Bridge-only evidence."
+        "Bridge implementation `c708017`, recertification fixes `a0da415`/`689fca0`, migrations `0027`/`0028`, signed package `task-manager@1.0.2`, and PR #41 merge `0087f89`. External PASS: `badami-vikas/Corporate-training-sims` PR #104, evidence `123e72b`, merge `f3443acc3ce34fdce29ed2147fe3d608b861a696`, durable artifact `docs/verification/task-manager-bridge-certification.md`. It supersedes PRs #102/#103 and reports 148 exact Bridge tests plus a zero-blocker physical two-instance certifier. GitHub Actions remained billing-blocked",
+        "no CI success is claimed."
       ],
       "requests": [
         "R-035",
         "R-036 (2026-07-16 revision: collapse Initiative/Outcome into Goal+Task, agent routing, calibrated reschedule, proactive scan, reorder after TASK-014)",
         "R-037 (2026-07-17 revision: collapse Goal into a Task field entirely, full tree restructuring, no-default CoS-owned routing, reopenable done status)"
       ],
-      "approval": "AP-033 applied (plan+roadmap addition); AP-034 applied (revision 1); AP-035 applied (revision 2); AP-062 applied (Bridge implementation milestone and Corporate-training-sims remaining gate); AP-064 applied (first external-blocker remediation); AP-065 applied (Local Plane restart remediation and recertification landing); ADR-106 records Goal collapse; ADR-107 no-default routing; ADR-136 storage/governance/projection; ADR-138 durable effects/signed root install; ADR-139 durable-local composition, Module UUID identity, and semantic projection reconciliation.",
+      "approval": "AP-033 applied (plan+roadmap addition); AP-034 applied (revision 1); AP-035 applied (revision 2); AP-062 applied (Bridge implementation milestone and Corporate-training-sims remaining gate); AP-064 applied (first external-blocker remediation); AP-065 applied (Local Plane restart remediation); AP-066 applied (external PASS and canonical closure); ADR-106 records Goal collapse; ADR-107 no-default routing; ADR-136 storage/governance/projection; ADR-138 durable effects/signed root install; ADR-139 durable-local composition, Module UUID identity, and semantic projection reconciliation.",
       "dependencies": [
         "TASK-001",
         "TASK-012 (VOCAB2 tree migration)",
@@ -415,7 +410,7 @@
         "TASK-004 line for TM6 only",
         "TASK-007 (ADR-104 SkillManifest/eligible-Agent resolution — reused by agent-task-routing)"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 196,
@@ -454,7 +449,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 209,
+      "sourceLine": 210,
       "rank": 12
     },
     {
@@ -485,7 +480,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 222,
+      "sourceLine": 223,
       "rank": 13
     },
     {
@@ -521,7 +516,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 235,
+      "sourceLine": 236,
       "rank": 14
     },
     {
@@ -549,7 +544,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 248,
+      "sourceLine": 249,
       "rank": 15
     },
     {
@@ -578,7 +573,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 263,
+      "sourceLine": 264,
       "rank": 16
     },
     {
@@ -613,7 +608,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 277,
+      "sourceLine": 278,
       "rank": 17
     },
     {
@@ -646,7 +641,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 291,
+      "sourceLine": 292,
       "rank": 18
     },
     {
@@ -677,7 +672,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 304,
+      "sourceLine": 305,
       "rank": 19
     },
     {
@@ -705,7 +700,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 317,
+      "sourceLine": 318,
       "rank": 20
     },
     {
@@ -732,7 +727,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 330,
+      "sourceLine": 331,
       "rank": 21
     },
     {
@@ -763,7 +758,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 343,
+      "sourceLine": 344,
       "rank": 22
     },
     {
@@ -790,7 +785,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 356,
+      "sourceLine": 357,
       "rank": 23
     },
     {
@@ -822,7 +817,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 369,
+      "sourceLine": 370,
       "rank": 24
     }
   ]
