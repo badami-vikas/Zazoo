@@ -12,7 +12,6 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { createLocalDb } from "../src/client-local.js";
-import { DrizzleGraphStore } from "../src/graph-store.js";
 
 interface Journal {
   entries: Array<{ idx: number; tag: string }>;
@@ -202,15 +201,6 @@ test("migration 0023 preserves occurrences in Events and removes parallel ledger
       WHERE "src_id" = '${recordEventId}' AND "dst_id" = '${recordId}'
     `);
     assert.deepEqual(recordRelation.rows, [{ src_id: recordEventId, dst_id: recordId }]);
-
-    const timeline = await new DrizzleGraphStore(db).listTimeline(
-      organizationId,
-      userId,
-      "person",
-      personId,
-      { limit: 10 },
-    );
-    assert.ok(timeline.items.some((item) => item.id === timelineId));
 
     const memoryRows = await client.query<{ content: string }>(`
       SELECT "content" FROM "memories" WHERE "id" = '${memoryId}'

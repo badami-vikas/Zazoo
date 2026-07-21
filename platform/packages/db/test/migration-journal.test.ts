@@ -61,7 +61,9 @@ test("TASK-012 migrations stay ordered before TASK-006 Supabase root-catalog har
     readFileSync(resolve(here, "../../migrations/meta/_journal.json"), "utf8"),
   ) as { entries: Array<{ idx: number; tag: string }> };
   assert.deepEqual(
-    journal.entries.slice(-7).map(({ idx, tag }) => ({ idx, tag })),
+    journal.entries
+      .filter(({ idx }) => idx >= 20 && idx <= 26)
+      .map(({ idx, tag }) => ({ idx, tag })),
     [
       { idx: 20, tag: "0020_vocab2_automation_engine" },
       { idx: 21, tag: "0021_vocab3_organization_module_record" },

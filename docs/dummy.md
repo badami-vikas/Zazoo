@@ -25,6 +25,11 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-21 — TASK-016 database/migration fixtures** (`platform/packages/db/test/{canonical-store,uuid-boundary,migration-0030,migration-concurrency,migration-metadata,organization-definition-store,schema-hardening}.test.ts`, `platform/apps/api/test/{blueprint,graph-people-communities}.test.ts`).
+  **Reason:** partial-index races, null-key multiplicity, malformed UUID failure-before-SQL, migration replay/generation, RLS isolation, and Location-definition persistence must be deterministic and cannot mutate a Human's database or real identities.
+  **Real elements they stand in for:** canonical People identities, Organizations/Humans, Relationship Records, Organization definitions, and fresh/upgraded Local Plane databases.
+  **Removal condition:** retain as isolated correctness/security regressions; certify releases against owner-approved Postgres/Supabase separately without copying personal data into fixtures.
+
 - **2026-07-18 — TASK-023 SearchProvider/network/governance fixtures** (`platform/packages/net-guard/test/net-guard.test.ts`,
   `platform/packages/models/test/{search-provider,local-content-guard}.test.ts`,
   `platform/apps/api/test/agent-orchestration.test.ts`, `platform/packages/core/test/pipeline.test.ts`,

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { parseDatabaseUuid } from "./uuid.js";
 
 export interface OrganizationContext {
   organizationId: string;
@@ -44,14 +45,20 @@ export async function withOrganizationContext<T>(
   context: OrganizationContext,
   operation: (tx: Database) => Promise<T>,
 ): Promise<T> {
+  const validatedContext: OrganizationContext = {
+    organizationId: parseDatabaseUuid(context.organizationId, "organizationId"),
+    ...(context.userId !== undefined
+      ? { userId: parseDatabaseUuid(context.userId, "userId") }
+      : {}),
+  };
   const active = activeContext(db);
   if (active) {
-    assertCompatibleContext(active, context);
-    if (context.userId !== undefined && active.userId === undefined) {
+    assertCompatibleContext(active, validatedContext);
+    if (validatedContext.userId !== undefined && active.userId === undefined) {
       await db.execute(
-        sql`SELECT set_config('app.user_id', ${context.userId}, true)`,
+        sql`SELECT set_config('app.user_id', ${validatedContext.userId}, true)`,
       );
-      active.userId = context.userId;
+      active.userId = validatedContext.userId;
     }
     return operation(db);
   }
@@ -59,11 +66,11 @@ export async function withOrganizationContext<T>(
   return db.transaction(async (tx) => {
     await tx.execute(sql`
       SELECT
-        set_config('app.organization_id', ${context.organizationId}, true),
-        set_config('app.user_id', ${context.userId ?? ""}, true)
+        set_config('app.organization_id', ${validatedContext.organizationId}, true),
+        set_config('app.user_id', ${validatedContext.userId ?? ""}, true)
     `);
     const scopedDb = tx as Database;
-    activeContexts.set(scopedDb as object, { ...context });
+    activeContexts.set(scopedDb as object, validatedContext);
     return operation(scopedDb);
   });
 }

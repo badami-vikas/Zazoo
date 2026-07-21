@@ -38,6 +38,7 @@ import {
   tasks,
 } from "./schema.js";
 import type { RelationEvidenceRef } from "./schema.js";
+import { isDatabaseUuid, parseDatabaseUuid } from "./uuid.js";
 
 export interface PageOpts {
   limit: number;
@@ -520,7 +521,6 @@ interface AccessibleNodes {
   eventIds: Set<string>;
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_RELATION_EVIDENCE_REFS = 100;
 const MAX_RELATION_PAGE_SIZE = 100;
 const MAX_SIGNAL_RELATIONS = 200;
@@ -570,7 +570,7 @@ function isRelationEvidenceRef(value: unknown): value is RelationEvidenceRef {
     typeof ref.entityType === "string" &&
     ref.entityType.trim().length > 0 &&
     typeof ref.entityId === "string" &&
-    UUID_PATTERN.test(ref.entityId) &&
+    isDatabaseUuid(ref.entityId) &&
     (ref.source === undefined || typeof ref.source === "string")
   );
 }
@@ -580,7 +580,7 @@ function relationEvidenceCandidates(relation: RelationRecord): RelationEvidenceR
   const candidates: RelationEvidenceRef[] = [];
   if (!Array.isArray(relation.evidenceRefs)) return candidates;
   for (const value of relation.evidenceRefs) {
-    if (!isRelationEvidenceRef(value) || !UUID_PATTERN.test(value.entityId)) continue;
+    if (!isRelationEvidenceRef(value) || !isDatabaseUuid(value.entityId)) continue;
     const key = `${value.entityType}:${value.entityId.toLowerCase()}:${value.source ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -592,10 +592,10 @@ function relationEvidenceCandidates(relation: RelationRecord): RelationEvidenceR
 
 function assertRelationInput(input: UpsertRelationInput): void {
   if (
-    !UUID_PATTERN.test(input.organizationId) ||
-    !UUID_PATTERN.test(input.ownerUserId) ||
-    !UUID_PATTERN.test(input.srcId) ||
-    !UUID_PATTERN.test(input.dstId)
+    !isDatabaseUuid(input.organizationId) ||
+    !isDatabaseUuid(input.ownerUserId) ||
+    !isDatabaseUuid(input.srcId) ||
+    !isDatabaseUuid(input.dstId)
   ) {
     throw new Error("Relation organization, owner, and endpoints must be UUIDs");
   }
@@ -633,7 +633,7 @@ function assertRelationInput(input: UpsertRelationInput): void {
     hasDecisionProvenance &&
     (
       !input.decisionLedgerId ||
-      !UUID_PATTERN.test(input.decisionLedgerId) ||
+      !isDatabaseUuid(input.decisionLedgerId) ||
       !Number.isSafeInteger(input.decisionSequence) ||
       (input.decisionSequence ?? 0) < 0 ||
       !input.decisionAt ||
@@ -746,12 +746,9 @@ export class DrizzleGraphStore {
     operation: (store: DrizzleGraphStore) => Promise<T>,
   ): Promise<T> {
     const context = {
-      organizationId: organizationId.toLowerCase(),
-      userId: userId.toLowerCase(),
+      organizationId: parseDatabaseUuid(organizationId, "organizationId"),
+      userId: parseDatabaseUuid(userId, "userId"),
     };
-    if (!UUID_PATTERN.test(context.organizationId) || !UUID_PATTERN.test(context.userId)) {
-      throw new Error("Graph request organization and user must be UUIDs");
-    }
     return this.#db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
@@ -1140,7 +1137,7 @@ export class DrizzleGraphStore {
     let accepted = 0;
     for (const reference of references) {
       if (
-        !UUID_PATTERN.test(reference.nodeId) ||
+        !isDatabaseUuid(reference.nodeId) ||
         !Object.hasOwn(grouped, reference.nodeType)
       ) {
         continue;
@@ -2281,15 +2278,15 @@ export class DrizzleGraphStore {
       recordId: participant.recordId.toLowerCase(),
     }));
     if (
-      !UUID_PATTERN.test(organizationId) ||
-      !UUID_PATTERN.test(ownerUserId) ||
-      !UUID_PATTERN.test(signalId) ||
-      !UUID_PATTERN.test(sourceEventId)
+      !isDatabaseUuid(organizationId) ||
+      !isDatabaseUuid(ownerUserId) ||
+      !isDatabaseUuid(signalId) ||
+      !isDatabaseUuid(sourceEventId)
     ) {
       throw new Error("Signal evidence organization, owner, Signal, and Event must be UUIDs");
     }
     if (
-      !UUID_PATTERN.test(decisionLedgerId) ||
+      !isDatabaseUuid(decisionLedgerId) ||
       !Number.isSafeInteger(input.decisionSequence) ||
       input.decisionSequence <= 0 ||
       Number.isNaN(input.decisionAt.getTime())
@@ -2536,9 +2533,10 @@ export class DrizzleGraphStore {
     viewerUserId: string,
     id: string,
   ): Promise<PersonDetail | null> {
+    const personId = parseDatabaseUuid(id, "personId");
     if (!this.#hasRlsContext(organizationId, viewerUserId)) {
       return this.#withRlsContext(organizationId, viewerUserId, (store) =>
-        store.getPerson(organizationId, viewerUserId, id),
+        store.getPerson(organizationId, viewerUserId, personId),
       );
     }
     const rows = await this.#db
@@ -2574,7 +2572,7 @@ export class DrizzleGraphStore {
       .where(
         and(
           eq(people.organizationId, organizationId),
-          eq(people.id, id),
+          eq(people.id, personId),
           or(
             eq(people.visibility, "organization"),
             and(
@@ -2758,9 +2756,10 @@ export class DrizzleGraphStore {
     viewerUserId: string,
     id: string,
   ): Promise<CommunityDetail | null> {
+    const communityId = parseDatabaseUuid(id, "communityId");
     if (!this.#hasRlsContext(organizationId, viewerUserId)) {
       return this.#withRlsContext(organizationId, viewerUserId, (store) =>
-        store.getCommunity(organizationId, viewerUserId, id),
+        store.getCommunity(organizationId, viewerUserId, communityId),
       );
     }
     const rows = await this.#db
@@ -2807,7 +2806,7 @@ export class DrizzleGraphStore {
       .where(
         and(
           eq(communities.organizationId, organizationId),
-          eq(communities.id, id),
+          eq(communities.id, communityId),
           or(
             eq(communities.visibility, "organization"),
             and(
@@ -2828,6 +2827,7 @@ export class DrizzleGraphStore {
     communityId: string,
     opts: PageOpts,
   ): Promise<Page<CommunityMemberRecord>> {
+    parseDatabaseUuid(communityId, "communityId");
     if (!this.#hasRlsContext(organizationId, viewerUserId)) {
       return this.#withRlsContext(organizationId, viewerUserId, (store) =>
         store.listCommunityMembers(
@@ -2911,6 +2911,7 @@ export class DrizzleGraphStore {
   }
 
   async createPerson(input: CreatePersonInput): Promise<PersonDetail> {
+    parseDatabaseUuid(input.id, "personId");
     if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
       return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.createPerson(input),
@@ -2947,6 +2948,7 @@ export class DrizzleGraphStore {
   }
 
   async updatePerson(input: UpdatePersonInput): Promise<PersonDetail | null> {
+    parseDatabaseUuid(input.id, "personId");
     if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
       return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.updatePerson(input),
@@ -3023,6 +3025,7 @@ export class DrizzleGraphStore {
   }
 
   async archivePerson(input: ArchiveRelationshipRecordInput): Promise<boolean> {
+    parseDatabaseUuid(input.id, "personId");
     if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
       return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.archivePerson(input),
@@ -3092,6 +3095,7 @@ export class DrizzleGraphStore {
   }
 
   async createCommunity(input: CreateCommunityInput): Promise<CommunityDetail> {
+    parseDatabaseUuid(input.id, "communityId");
     if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
       return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.createCommunity(input),
@@ -3127,6 +3131,7 @@ export class DrizzleGraphStore {
   }
 
   async updateCommunity(input: UpdateCommunityInput): Promise<CommunityDetail | null> {
+    parseDatabaseUuid(input.id, "communityId");
     if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
       return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.updateCommunity(input),
@@ -3202,6 +3207,7 @@ export class DrizzleGraphStore {
   }
 
   async archiveCommunity(input: ArchiveRelationshipRecordInput): Promise<boolean> {
+    parseDatabaseUuid(input.id, "communityId");
     if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
       return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.archiveCommunity(input),
@@ -3405,10 +3411,10 @@ export class DrizzleGraphStore {
     options: { recordMutationLifecycle?: boolean } = {},
   ): Promise<TimelineItem> {
     if (
-      !UUID_PATTERN.test(input.id) ||
-      !UUID_PATTERN.test(input.organizationId) ||
-      !UUID_PATTERN.test(input.ownerUserId) ||
-      !UUID_PATTERN.test(input.decisionLedgerId)
+      !isDatabaseUuid(input.id) ||
+      !isDatabaseUuid(input.organizationId) ||
+      !isDatabaseUuid(input.ownerUserId) ||
+      !isDatabaseUuid(input.decisionLedgerId)
     ) {
       throw new Error("Interaction identifiers must be UUIDs");
     }
@@ -4404,8 +4410,8 @@ export class DrizzleGraphStore {
       );
     }
     if (
-      !UUID_PATTERN.test(input.organizationId) ||
-      !UUID_PATTERN.test(input.ownerUserId) ||
+      !isDatabaseUuid(input.organizationId) ||
+      !isDatabaseUuid(input.ownerUserId) ||
       !input.moduleId.trim() ||
       !input.path.trim() ||
       !Number.isSafeInteger(input.size) ||
@@ -4414,7 +4420,7 @@ export class DrizzleGraphStore {
     ) {
       throw new Error("Canonical Module File metadata is invalid");
     }
-    const moduleRefId = UUID_PATTERN.test(input.moduleId)
+    const moduleRefId = isDatabaseUuid(input.moduleId)
       ? input.moduleId.toLowerCase()
       : stableReferenceUuid(
           `${input.organizationId}:${input.moduleId}:${input.moduleName}`,
