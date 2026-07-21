@@ -52,6 +52,7 @@ export * from "./memory/stores.js";
 export * from "./memory/memory-store.js";
 export * from "./skills.js";
 export * from "./goal-task.js";
+export * from "./task-manager.js";
 export * from "./skill-manifest.js";
 export * from "./child-agent-run.js";
 

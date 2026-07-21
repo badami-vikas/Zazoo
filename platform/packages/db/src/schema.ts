@@ -1174,57 +1174,94 @@ export const moduleInstallations = pgTable(
 );
 
 // =====================================================================
-// LAYER 8 — GOAL/TASK/SKILL-MANIFEST/CHILD-AGENT-RUN (TASK-007, AGS1/AGS2,
+// LAYER 8 — TASK/SKILL-MANIFEST/CHILD-AGENT-RUN (TASK-007/TASK-021, AGS1/AGS2,
 // docs/raw/agent-goal-skill-orchestration-plan-2026-07.md). Restart-durable
-// backing for @bridge/core's goal-task.ts/skill-manifest.ts/child-agent-run.ts
+// backing for @bridge/core's Task contracts, skill-manifest.ts, and child-agent-run.ts
 // in-memory ports — the in-process Maps those ports shipped with are correct
 // as the dependency-free default (mirrors every other in-memory port in this
-// codebase), but production/persistent mode must not lose live Goals, Tasks,
+// codebase), but production/persistent mode must not lose live Tasks,
 // registered Skill manifests, or running child Agent Runs across a restart.
 // =====================================================================
-
-export const goals = pgTable(
-  "goals",
-  {
-    id: uuidPk(),
-    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
-    type: text("type").notNull(),
-    title: text("title").notNull(),
-    createdAt: now(),
-  },
-  (t) => [
-    index("goals_org_type_idx").on(t.organizationId, t.type),
-    unique("goals_organization_id_id_uq").on(t.organizationId, t.id),
-  ],
-);
 
 export const tasks = pgTable(
   "tasks",
   {
     id: uuidPk(),
     organizationId: uuid("organization_id").notNull().references(() => organizations.id),
-    goalId: uuid("goal_id").notNull(),
+    anchorTaskId: uuid("anchor_task_id"),
+    parentTaskId: uuid("parent_task_id"),
+    path: text("path").notNull(),
+    level: integer("level").notNull().default(0),
+    sortOrder: integer("sort_order").notNull().default(1),
+    title: text("title").notNull(),
     type: text("type").notNull(),
+    isGoal: boolean("is_goal").notNull().default(false),
+    outcomes: jsonb("outcomes").notNull().default([]),
+    anchor: boolean("anchor").notNull().default(false),
+    reviewCadence: text("review_cadence"),
+    lastReviewedAt: timestamp("last_reviewed_at", { withTimezone: true }),
+    exitTest: text("exit_test"),
+    priority: text("priority").notNull().default("P2"),
+    ownerType: text("owner_type").notNull().default("human"),
+    ownerId: uuid("owner_id"),
+    requiredSkillId: text("required_skill_id"),
+    scheduledFor: date("scheduled_for"),
+    evidenceRefs: jsonb("evidence_refs").notNull().default([]),
+    verification: jsonb("verification"),
+    visibility: text("visibility").notNull().default("organization"),
+    version: integer("version").notNull().default(1),
     /** The ONLY thing that authorizes an eligible Agent to invoke a matching
      * governed Skill for this Task (@bridge/core's goal-task.ts doc comment) —
      * references `agents.id`, never a client-asserted string. */
-    assignedAgentId: uuid("assigned_agent_id").notNull(),
-    status: text("status").notNull().default("open"), // open | in_progress | done | blocked | cancelled
+    assignedAgentId: uuid("assigned_agent_id"),
+    status: text("status").notNull().default("pending"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: now(),
   },
   (t) => [
-    index("tasks_goal_idx").on(t.goalId),
+    index("tasks_anchor_idx").on(t.anchorTaskId),
+    index("tasks_parent_idx").on(t.organizationId, t.parentTaskId, t.sortOrder),
     index("tasks_assigned_agent_idx").on(t.assignedAgentId),
+    unique("tasks_organization_path_uq").on(t.organizationId, t.path),
     unique("tasks_organization_id_id_uq").on(t.organizationId, t.id),
     foreignKey({
-      columns: [t.organizationId, t.goalId],
-      foreignColumns: [goals.organizationId, goals.id],
-      name: "tasks_organization_goal_fk",
+      columns: [t.organizationId, t.anchorTaskId],
+      foreignColumns: [t.organizationId, t.id],
+      name: "tasks_organization_anchor_fk",
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.parentTaskId],
+      foreignColumns: [t.organizationId, t.id],
+      name: "tasks_organization_parent_fk",
     }),
     foreignKey({
       columns: [t.organizationId, t.assignedAgentId],
       foreignColumns: [agents.organizationId, agents.id],
       name: "tasks_organization_agent_fk",
+    }),
+  ],
+);
+
+export const taskChangeProposals = pgTable(
+  "task_change_proposals",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    kind: text("kind").notNull(),
+    taskId: uuid("task_id").notNull(),
+    actorId: text("actor_id").notNull(),
+    payload: jsonb("payload").notNull(),
+    status: text("status").notNull().default("pending_review"),
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: now(),
+  },
+  (t) => [
+    index("task_change_proposals_org_status_idx").on(t.organizationId, t.status, t.createdAt),
+    foreignKey({
+      columns: [t.organizationId, t.taskId],
+      foreignColumns: [tasks.organizationId, tasks.id],
+      name: "task_change_proposals_organization_task_fk",
     }),
   ],
 );
@@ -1281,7 +1318,7 @@ export const childAgentRuns = pgTable(
     parentRunId: uuid("parent_run_id").notNull(),
     parentAgentId: uuid("parent_agent_id").notNull(),
     organizationId: uuid("organization_id").notNull().references(() => organizations.id),
-    goalId: uuid("goal_id").notNull(),
+    anchorTaskId: uuid("anchor_task_id").notNull(),
     taskId: uuid("task_id").notNull(),
     depth: integer("depth").notNull(),
     authorityScope: jsonb("authority_scope").notNull().default([]),
@@ -1307,9 +1344,9 @@ export const childAgentRuns = pgTable(
       name: "child_agent_runs_organization_agent_fk",
     }),
     foreignKey({
-      columns: [t.organizationId, t.goalId],
-      foreignColumns: [goals.organizationId, goals.id],
-      name: "child_agent_runs_organization_goal_fk",
+      columns: [t.organizationId, t.anchorTaskId],
+      foreignColumns: [tasks.organizationId, tasks.id],
+      name: "child_agent_runs_organization_anchor_fk",
     }),
     foreignKey({
       columns: [t.organizationId, t.taskId],

@@ -21,6 +21,7 @@ export function parseCanonicalTasks(document) {
         task = { id: legacyTaskHeading[1], title: legacyTaskHeading[2].trim() };
         tasks.push(task);
       }
+
       continue;
     }
     const field = line.match(/^- ([^:]+):\s*(.*)$/);
@@ -45,4 +46,44 @@ export function parseCanonicalTasks(document) {
   if (!explicitOrder) return tasks;
   const ranks = new Map(explicitOrder[1].split(',').map((id, index) => [id.trim(), index]));
   return tasks.slice().sort((a, b) => (ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+}
+
+function stableHash(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/** Bridge's legacy docs/TASKS.md is a deterministic projection input: TASK-nnn
+ * remains stable Record identity while its numeric component maps to the root
+ * dot path. Database ingestion still requires governed reconciliation. */
+export function projectCanonicalTasks(document) {
+  const tasks = parseCanonicalTasks(document).map((task) => ({
+    ...task,
+    recordId: task.id,
+    path: String(Number.parseInt(task.id.slice('TASK-'.length), 10)),
+    level: 0,
+    isGoal: false,
+    outcomes: task.outcome
+      ? [{
+          id: `${task.id}:outcome`,
+          title: task.outcome,
+          measure: 'prototype test',
+          target: task.prototypeTest ?? task.outcome,
+          indicatorKind: 'lagging',
+        }]
+      : [],
+    exitTest: task.prototypeTest ?? null,
+  }));
+  return {
+    contentHash: stableHash(document),
+    recordVersions: Object.fromEntries(tasks.map((task) => [
+      task.recordId,
+      stableHash(JSON.stringify(task)),
+    ])),
+    tasks,
+  };
 }

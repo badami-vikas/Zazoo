@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import { requireBuiltInModule } from "@bridge/module-manifests";
 import Layout from "./Layout";
 import { DealPilotPage } from "./pages/DealPilotPage";
@@ -9,8 +9,8 @@ import { PublicHelpdesk } from "./pages/PublicHelpdesk";
 import { OrganizationPage } from "./pages/OrganizationPage";
 import { ChiefOfStaffPage } from "./pages/ChiefOfStaffPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { PendingWorkPage } from "./pages/PendingWorkPage";
 import { TaskManagerPage } from "./pages/TaskManagerPage";
+import { TaskRecordDetailPage } from "./pages/TaskRecordDetailPage";
 // Ported prototype surface (faithful visual port, 2026-07-07)
 import { HomePage } from "./pages/HomePage";
 import { SecondBrainPage } from "./pages/SecondBrainPage";
@@ -131,6 +131,7 @@ export const router = createBrowserRouter([
 
       { path: "second-brain", Component: SecondBrainPage },
       { path: "task-manager", Component: TaskManagerPage },
+      { path: "task-manager/:taskId", Component: TaskRecordDetailPage },
 
       { path: "approvals", Component: ApprovalsPage },
 
@@ -150,7 +151,7 @@ export const router = createBrowserRouter([
       { path: "chief-of-staff", Component: ChiefOfStaffPage },
 
       { path: "settings", Component: SettingsPage },
-      { path: "pending-work", Component: PendingWorkPage },
+      { path: "pending-work", element: <Navigate to="/task-manager" replace /> },
     ],
   },
 ]);

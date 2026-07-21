@@ -78,7 +78,13 @@ test("goal-task store: create Task, reassign, and update status round-trip; list
     const seam = testSeam();
 
     const goal = await store.createGoal({ organizationId, type: "relationship.learning", title: "Learn" }, seam);
-    const task = await store.createTask({ organizationId, goalId: goal.id, type: "relationship.learning.recommend", assignedAgentId: agentId }, seam);
+    const task = await store.createTask({
+      organizationId,
+      goalId: goal.id,
+      type: "relationship.learning.recommend",
+      assignedAgentId: agentId,
+      exitTest: "stored Task reaches in_progress",
+    }, seam);
     assert.equal(task.status, "open");
     assert.equal(task.assignedAgentId, agentId);
 

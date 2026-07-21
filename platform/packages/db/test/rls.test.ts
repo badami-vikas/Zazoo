@@ -28,6 +28,49 @@ async function useRlsAppRole(db: Awaited<ReturnType<typeof createLocalDb>>["db"]
   await db.execute(sql`set role bridge_rls_member`);
 }
 
+test("RLS: private Tasks are visible only to their Human owner", async () => {
+  const { db, close } = await createLocalDb();
+  const organizationId = "10000000-0000-4000-8000-000000000127";
+  const ownerId = "20000000-0000-4000-8000-000000000127";
+  const otherId = "20000000-0000-4000-8000-000000000128";
+  try {
+    await db.insert(schema.users).values([
+      { id: ownerId, email: "test_fixture_task_owner@example.com" },
+      { id: otherId, email: "test_fixture_task_other@example.com" },
+    ]);
+    await db.insert(schema.organizations).values({ id: organizationId, name: "Task visibility" });
+    await useRlsAppRole(db);
+    await setRlsContext(db, organizationId, ownerId);
+    const [privateTask] = await db.insert(schema.tasks).values({
+      organizationId,
+      path: "1",
+      title: "Private Task",
+      type: "task",
+      isGoal: true,
+      ownerType: "human",
+      ownerId,
+      visibility: "private",
+    }).returning({ id: schema.tasks.id });
+    const [organizationTask] = await db.insert(schema.tasks).values({
+      organizationId,
+      path: "2",
+      title: "Organization Task",
+      type: "task",
+      isGoal: true,
+      ownerType: "human",
+      ownerId,
+      visibility: "organization",
+    }).returning({ id: schema.tasks.id });
+    assert.ok(privateTask);
+    assert.ok(organizationTask);
+    await setRlsContext(db, organizationId, otherId);
+    const visible = await db.select({ id: schema.tasks.id }).from(schema.tasks);
+    assert.deepEqual(visible.map((task) => task.id), [organizationTask.id]);
+  } finally {
+    await close();
+  }
+});
+
 test("RLS: Events stay append-only and Events/Files remain Organization-isolated", async () => {
   const { db, close } = await createLocalDb();
   const organizationA = "10000000-0000-4000-8000-000000000123";
@@ -239,9 +282,9 @@ test("RLS: organization-scoped reads are isolated by app.organization_id", async
       .returning({ id: schema.resources.id });
     assert.ok(resourceA);
     const [goalA] = await db
-      .insert(schema.goals)
-      .values({ organizationId: tenantA.id, type: "test.goal", title: "Tenant A goal" })
-      .returning({ id: schema.goals.id });
+      .insert(schema.tasks)
+      .values({ organizationId: tenantA.id, type: "test", title: "Tenant A goal Task", path: "1", isGoal: true })
+      .returning({ id: schema.tasks.id });
     assert.ok(goalA);
 
     await setRlsContext(db, tenantB.id);
@@ -251,16 +294,16 @@ test("RLS: organization-scoped reads are isolated by app.organization_id", async
       .returning({ id: schema.resources.id });
     assert.ok(resourceB);
     const [goalB] = await db
-      .insert(schema.goals)
-      .values({ organizationId: tenantB.id, type: "test.goal", title: "Tenant B goal" })
-      .returning({ id: schema.goals.id });
+      .insert(schema.tasks)
+      .values({ organizationId: tenantB.id, type: "test", title: "Tenant B goal Task", path: "1", isGoal: true })
+      .returning({ id: schema.tasks.id });
     assert.ok(goalB);
 
     await setRlsContext(db, tenantA.id);
     const rows = await db.select({ id: schema.resources.id }).from(schema.resources);
     assert.deepEqual(rows.map((row) => row.id), [resourceA.id]);
     assert.equal(rows.some((row) => row.id === resourceB.id), false);
-    const goals = await db.select({ id: schema.goals.id }).from(schema.goals);
+    const goals = await db.select({ id: schema.tasks.id }).from(schema.tasks);
     assert.deepEqual(goals.map((row) => row.id), [goalA.id]);
     assert.equal(goals.some((row) => row.id === goalB.id), false);
   } finally {

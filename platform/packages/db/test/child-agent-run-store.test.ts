@@ -17,13 +17,32 @@ async function seedOrganizationGoalTaskAgent(db: Awaited<ReturnType<typeof creat
   const [agent] = await db.insert(schema.agents).values({ organizationId: ws!.id, name: "test_fixture_parent_agent" }).returning({ id: schema.agents.id });
   assert.ok(agent);
   const [goal] = await db
-    .insert(schema.goals)
-    .values({ organizationId: ws!.id, type: "relationship.learning", title: "test fixture goal" })
-    .returning({ id: schema.goals.id });
+    .insert(schema.tasks)
+    .values({
+      organizationId: ws!.id,
+      type: "relationship.learning",
+      title: "test fixture goal",
+      path: "1",
+      isGoal: true,
+      ownerType: "human",
+    })
+    .returning({ id: schema.tasks.id });
   assert.ok(goal);
   const [task] = await db
     .insert(schema.tasks)
-    .values({ organizationId: ws!.id, goalId: goal!.id, type: "relationship.learning.recommend", assignedAgentId: agent!.id })
+    .values({
+      organizationId: ws!.id,
+      anchorTaskId: goal!.id,
+      parentTaskId: goal!.id,
+      path: "1.1",
+      level: 1,
+      title: "test fixture task",
+      type: "relationship.learning.recommend",
+      exitTest: "round-trip",
+      assignedAgentId: agent!.id,
+      ownerType: "agent",
+      ownerId: agent!.id,
+    })
     .returning({ id: schema.tasks.id });
   assert.ok(task);
   return { organizationId: ws!.id, agentId: agent!.id, goalId: goal!.id, taskId: task!.id };

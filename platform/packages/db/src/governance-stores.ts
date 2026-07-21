@@ -397,6 +397,8 @@ export async function ensureRelationshipUserGovernance(
     { resourceType: "community", action: "archive" },
     { resourceType: "event", action: "read" },
     { resourceType: "event", action: "write" },
+    { resourceType: "record", action: "read" },
+    { resourceType: "record", action: "write" },
   ] as const;
   await withOrganizationContext(
     db,

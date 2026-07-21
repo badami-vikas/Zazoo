@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Network, Home, Boxes, Plus, Settings, Check, ListChecks, LogOut, MessageSquare } from "lucide-react";
+import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare } from "lucide-react";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -194,7 +194,6 @@ export default function Layout() {
 
   const homeActive = location.pathname === "/" || isActive("/home");
   const settingsActive = isActive("/settings");
-  const pendingWorkActive = isActive("/task-manager") || isActive("/pending-work");
   const secondBrainActive = isActive("/second-brain");
 
   return (
@@ -394,7 +393,7 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Bottom section — Settings + Pending work.
+        {/* Bottom section — Settings.
             TASK-001 VOCAB6: Knowledge and Intelligence removed from primary nav
             (deprecated surfaces: Tools, Knowledge, Projects). */}
         <div
@@ -405,11 +404,6 @@ export default function Layout() {
             {settingsActive && <ActiveBar />}
             <Settings className="w-5 h-5 shrink-0" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Settings</span>
-          </Link>
-          <Link to="/task-manager" className={navItemClass(pendingWorkActive)} title="Task Manager">
-            {pendingWorkActive && <ActiveBar />}
-            <ListChecks className="w-5 h-5 shrink-0" style={{ color: pendingWorkActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            <span className={navLabelClass()}>Task Manager</span>
           </Link>
           {auth.configured && (
             <button
@@ -495,15 +489,6 @@ export default function Layout() {
                 <Plus className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
                 New module or record
               </button>
-              <Link
-                to="/task-manager"
-                onClick={() => setMobileModulesOpen(false)}
-                className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
-                style={{ color: "var(--color-navy)" }}
-              >
-                <ListChecks className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
-                Task Manager
-              </Link>
             </div>
           </nav>
         </div>

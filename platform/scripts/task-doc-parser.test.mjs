@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseCanonicalTasks } from './task-doc-parser.mjs';
+import { parseCanonicalTasks, projectCanonicalTasks } from './task-doc-parser.mjs';
 
 test('one canonical task absorbs roadmap, bug, request, and approval references', () => {
   const document = `
@@ -26,6 +26,22 @@ test('one canonical task absorbs roadmap, bug, request, and approval references'
     scope: ['docs/raw/ui.md'], evidence: ['BUGS#tools', 'BUGS#panels'], requests: ['R-019'],
     approval: 'AP-021 applied', dependencies: [],
   });
+});
+
+test('docs/TASKS.md projection separates stable Record identity from materialized root path', () => {
+  const projection = projectCanonicalTasks(`
+## Task Manager Module
+- ID: TASK-021
+- Status: in_progress
+- Outcome: One governed queue.
+- Prototype test: Real Task flow completes with evidence.
+`);
+  assert.equal(projection.tasks[0].recordId, 'TASK-021');
+  assert.equal(projection.tasks[0].path, '21');
+  assert.equal(projection.tasks[0].exitTest, 'Real Task flow completes with evidence.');
+  assert.equal(projection.tasks[0].outcomes[0].target, 'Real Task flow completes with evidence.');
+  assert.match(projection.contentHash, /^[0-9a-f]{8}$/);
+  assert.match(projection.recordVersions['TASK-021'], /^[0-9a-f]{8}$/);
 });
 
 test('a non-task section heading (no immediately-following "- ID:" line) is never mistaken for a task, and does not leak its own fields onto the preceding task', () => {
