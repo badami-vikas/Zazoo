@@ -49,9 +49,9 @@ test("computeRisk: read-only, no-egress permission is informational", () => {
   assert.equal(computeRisk(m, () => undefined), "informational");
 });
 
-test("computeRisk: a write to ordinary workspace data is transformational", () => {
+test("computeRisk: a write to ordinary organization data is transformational", () => {
   const m = manifest({
-    permissions: [{ resourceType: "touchpoint", action: "write", dataScope: "private", egress: false }],
+    permissions: [{ resourceType: "event", action: "write", dataScope: "private", egress: false }],
   });
   assert.equal(computeRisk(m, () => undefined), "transformational");
 });
@@ -100,7 +100,7 @@ test("computeRisk: cycle-safe — a dependency cycle does not infinite-loop", ()
   const a = manifest({ id: "test_fixture_cycle_a", dependencies: [{ manifestId: "test_fixture_cycle_b", versionRange: "*" }] });
   const b = manifest({
     id: "test_fixture_cycle_b",
-    permissions: [{ resourceType: "touchpoint", action: "write", dataScope: "private", egress: false }],
+    permissions: [{ resourceType: "event", action: "write", dataScope: "private", egress: false }],
     dependencies: [{ manifestId: "test_fixture_cycle_a", versionRange: "*" }],
   });
   const registry = new Map([
@@ -237,13 +237,13 @@ test("approvals: a revoked trust grant does not lower the requirement", () => {
 test("approvals budgets: 21st informational auto-activation of the day requires approval (budget exhausted)", async () => {
   const budgets = new InMemoryAutoActivationBudgetStore();
   const killSwitch = new InMemoryKillSwitch();
-  const workspaceId = "test_fixture_ws_budget";
+  const organizationId = "test_fixture_ws_budget";
   const today = "2026-07-06";
 
   let lastDecision;
   for (let i = 0; i < AUTO_ACTIVATION_BUDGETS.informational + 1; i++) {
     lastDecision = await resolveActivationApproval({
-      workspaceId,
+      organizationId,
       riskBand: "informational",
       audience: "private",
       trustGrants: [],
@@ -252,22 +252,22 @@ test("approvals budgets: 21st informational auto-activation of the day requires 
       todayKey: today,
     });
     if (lastDecision.requirement === "auto") {
-      await budgets.recordAutoActivation(workspaceId, "informational", today);
+      await budgets.recordAutoActivation(organizationId, "informational", today);
     }
   }
   // The 21st call (index 20, budget = 20) must not be auto.
   assert.equal(lastDecision!.requirement, "user_pref");
-  assert.equal(await budgets.countToday(workspaceId, "informational", today), 20);
+  assert.equal(await budgets.countToday(organizationId, "informational", today), 20);
 });
 
 test("approvals kill switch: forces explicit_human regardless of risk band or trust grants", async () => {
   const budgets = new InMemoryAutoActivationBudgetStore();
   const killSwitch = new InMemoryKillSwitch();
-  const workspaceId = "test_fixture_ws_killswitch";
-  killSwitch.engage(workspaceId);
+  const organizationId = "test_fixture_ws_killswitch";
+  killSwitch.engage(organizationId);
 
   const decision = await resolveActivationApproval({
-    workspaceId,
+    organizationId,
     riskBand: "informational",
     audience: "private",
     trustGrants: [{ capabilityClass: "test_fixture_class", riskBand: "informational", autoActivate: true }],
@@ -278,7 +278,7 @@ test("approvals kill switch: forces explicit_human regardless of risk band or tr
   assert.equal(decision.requirement, "explicit_human");
 });
 
-test("approvals: distinct workspaces/bands have independent budgets", async () => {
+test("approvals: distinct organizations/bands have independent budgets", async () => {
   const budgets = new InMemoryAutoActivationBudgetStore();
   await budgets.recordAutoActivation("test_fixture_ws_a", "informational", "2026-07-06");
   assert.equal(await budgets.countToday("test_fixture_ws_b", "informational", "2026-07-06"), 0);
@@ -330,7 +330,7 @@ test("InMemoryCapabilityStore: createManifest rejects a duplicate id (append-lik
   const store = new InMemoryCapabilityStore();
   const row = {
     id: "test_fixture_manifest_dup",
-    workspaceId: "test_fixture_ws_1",
+    organizationId: "test_fixture_ws_1",
     capabilityType: "skill" as const,
     name: "test_fixture_skill",
     version: "1.0.0",
@@ -344,11 +344,11 @@ test("InMemoryCapabilityStore: createManifest rejects a duplicate id (append-lik
   await assert.rejects(() => store.createManifest(row));
 });
 
-test("InMemoryCapabilityStore: getManifestByNameVersion finds an existing manifest by its (workspace, name, version) natural key, null when absent (ADR-024 idempotency lookup)", async () => {
+test("InMemoryCapabilityStore: getManifestByNameVersion finds an existing manifest by its (organization, name, version) natural key, null when absent (ADR-024 idempotency lookup)", async () => {
   const store = new InMemoryCapabilityStore();
   const row = {
     id: "test_fixture_manifest_natural_key",
-    workspaceId: "test_fixture_ws_1",
+    organizationId: "test_fixture_ws_1",
     capabilityType: "skill" as const,
     name: "test_fixture_shared_capability",
     version: "1.0.0",
@@ -373,14 +373,14 @@ test("InMemoryCapabilityStore: upsertState creates then updates the ONE current-
   const manifestId = "test_fixture_manifest_state";
   const first = await store.upsertState({
     manifestId,
-    workspaceId: "test_fixture_ws_1",
+    organizationId: "test_fixture_ws_1",
     state: "draft",
     suspended: false,
     evidence: {},
   });
   const second = await store.upsertState({
     manifestId,
-    workspaceId: "test_fixture_ws_1",
+    organizationId: "test_fixture_ws_1",
     state: "validated",
     suspended: false,
     evidence: { activeRunCount: 1 },

@@ -4,7 +4,7 @@ import { InMemoryLedger, type LedgerEntry } from "../src/index.js";
 
 function row(overrides: Partial<LedgerEntry> & { id: string }): LedgerEntry {
   return {
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     actorType: "agent",
     actorId: "test_fixture_actor",
     action: "write",
@@ -38,7 +38,7 @@ test("in-memory ledger lists only unresolved root proposals", async () => {
     }),
   );
 
-  assert.deepEqual(await ledger.listPending(proposal.workspaceId, { limit: 50, offset: 0 }), {
+  assert.deepEqual(await ledger.listPending(proposal.organizationId, { limit: 50, offset: 0 }), {
     items: [proposal],
     total: 1,
   });
@@ -52,13 +52,13 @@ test("in-memory ledger lists only unresolved root proposals", async () => {
       userDecision: "approve",
     }),
   );
-  assert.deepEqual(await ledger.listPending(proposal.workspaceId, { limit: 50, offset: 0 }), {
+  assert.deepEqual(await ledger.listPending(proposal.organizationId, { limit: 50, offset: 0 }), {
     items: [],
     total: 0,
   });
 });
 
-test("in-memory ledger resumes append order and owner-filters Relation history", async () => {
+test("in-memory ledger owner-filters legacy Relationship rows and explicit private history", async () => {
   const ledger = new InMemoryLedger(40);
   const ownRelation = await ledger.append(
     row({
@@ -76,18 +76,109 @@ test("in-memory ledger resumes append order and owner-filters Relation history",
       resourceType: "relation",
     }),
   );
+  const ownEvent = await ledger.append(
+    row({
+      id: "test_fixture_own_event",
+      actorType: "user",
+      actorId: "test_fixture_owner",
+      resourceType: "event",
+    }),
+  );
+  await ledger.append(
+    row({
+      id: "test_fixture_other_event",
+      actorType: "user",
+      actorId: "test_fixture_other_owner",
+      resourceType: "event",
+    }),
+  );
   const sharedSignal = await ledger.append(row({ id: "test_fixture_shared_signal" }));
+  const ownPrivateSignal = await ledger.append(
+    row({
+      id: "test_fixture_own_private_signal",
+      actorType: "user",
+      actorId: "test_fixture_owner",
+      dataScope: "private",
+    }),
+  );
+  await ledger.append(
+    row({
+      id: "test_fixture_other_private_signal",
+      actorType: "user",
+      actorId: "test_fixture_other_owner",
+      dataScope: "private",
+    }),
+  );
 
   assert.equal(ownRelation.appendSequence, 41);
-  assert.equal(sharedSignal.appendSequence, 43);
-  const history = await ledger.listHistory("test_fixture_workspace", {
+  assert.equal(ownEvent.appendSequence, 43);
+  assert.equal(sharedSignal.appendSequence, 45);
+  assert.equal(ownPrivateSignal.appendSequence, 46);
+  const history = await ledger.listHistory("test_fixture_organization", {
     limit: 10,
     offset: 0,
     privateOwnerUserId: "test_fixture_owner",
   });
-  assert.equal(history.total, 2);
+  assert.equal(history.total, 4);
   assert.deepEqual(
     history.items.map((entry) => entry.id),
-    ["test_fixture_shared_signal", "test_fixture_own_relation"],
+    [
+      "test_fixture_own_private_signal",
+      "test_fixture_shared_signal",
+      "test_fixture_own_event",
+      "test_fixture_own_relation",
+    ],
+  );
+  const otherPending = await ledger.listPending("test_fixture_organization", {
+    limit: 10,
+    offset: 0,
+    privateOwnerUserId: "test_fixture_unrelated_owner",
+  });
+  assert.deepEqual(otherPending.items.map((entry) => entry.id), ["test_fixture_shared_signal"]);
+});
+
+test("in-memory ledger treats legacy Learning recommendations and linked rows as owner-private", async () => {
+  const ledger = new InMemoryLedger();
+  const legacy = await ledger.append(
+    row({
+      id: "test_fixture_legacy_learning",
+      onBehalfOfType: "user",
+      onBehalfOfId: "test_fixture_owner",
+      inputs: { kind: "learning_recommendation" },
+    }),
+  );
+  await ledger.append(
+    row({
+      id: "test_fixture_legacy_learning_decision",
+      refLedgerId: legacy.id,
+      action: "approve",
+      resourceType: "ledger",
+      inputs: { proposalId: legacy.id },
+      userDecision: "approve",
+    }),
+  );
+  await ledger.append(row({ id: "test_fixture_shared_after_legacy" }));
+
+  const otherHistory = await ledger.listHistory("test_fixture_organization", {
+    limit: 10,
+    offset: 0,
+    privateOwnerUserId: "test_fixture_other",
+  });
+  assert.deepEqual(
+    otherHistory.items.map((entry) => entry.id),
+    ["test_fixture_shared_after_legacy"],
+  );
+  const ownerHistory = await ledger.listHistory("test_fixture_organization", {
+    limit: 10,
+    offset: 0,
+    privateOwnerUserId: "test_fixture_owner",
+  });
+  assert.deepEqual(
+    ownerHistory.items.map((entry) => entry.id),
+    [
+      "test_fixture_shared_after_legacy",
+      "test_fixture_legacy_learning_decision",
+      "test_fixture_legacy_learning",
+    ],
   );
 });

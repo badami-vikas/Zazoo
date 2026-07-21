@@ -1,3 +1,0 @@
-# SPA fallback — client-side routing (react-router). Cloudflare Pages serves this from
-# the build output root so deep links like /help/:slug resolve to the app shell.
-/*    /index.html   200

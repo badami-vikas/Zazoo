@@ -1,5 +1,5 @@
 /**
- * SandboxProvider — the execution-isolation port `toolbelt.ts`'s `shell:execute`
+ * SandboxProvider — the execution-isolation port `builder-primitives.ts`'s `shell:execute`
  * and `code:exec`-shaped resource tokens run through (Track F2, execution-plan
  * 2026-07 + ADR-027 "External-review adaptations"). ADR-027's sandbox doctrine,
  * verbatim: "isolated-vm = narrow no-network JS transforms ONLY; shell:execute/
@@ -38,7 +38,7 @@ export type SandboxIsolationTier = "in-process-js" | "container" | "microvm";
 
 /** The two request shapes a `SandboxProvider` may be asked to run. Kept as a
  * discriminated union (not two separate methods) so a single `run()` call site
- * in `toolbelt.ts` can dispatch on `.kind` and so an adapter's accepted-request
+ * in `builder-primitives.ts` can dispatch on `.kind` and so an adapter's accepted-request
  * type can be narrowed at the type level (see `InProcessJsSandboxProvider`). */
 export type SandboxRunRequest =
   | {
@@ -57,8 +57,8 @@ export type SandboxRunRequest =
       command: string;
       args?: string[];
       /** Working directory scoped by the caller's resource-token constraints
-       * (toolbelt.ts) — the provider trusts this is already sandboxed, it does
-       * not itself re-derive workspace scoping. */
+       * (builder-primitives.ts) — the provider trusts this is already sandboxed, it does
+       * not itself re-derive organization scoping. */
       cwd?: string;
       timeoutMs: number;
     };
@@ -89,7 +89,7 @@ export interface SandboxProvider {
 /**
  * Thrown by any adapter asked to run a request kind it does not support at its
  * isolation tier — e.g. `shell:execute` presented to an "in-process-js"
- * provider. Distinct from a generic Error so callers (toolbelt.ts's
+ * provider. Distinct from a generic Error so callers (builder-primitives.ts's
  * `shellExecute`) can catch it specifically and translate it into a policy
  * denial rather than an unhandled crash.
  */
@@ -197,7 +197,7 @@ export class InProcessJsSandboxProvider implements SandboxProvider {
  * "container"` (satisfying the port's type) but every `run()` call throws
  * immediately with a clear "requires container/E2B runtime" message. This lets
  * kernel wiring reference a container-tier `SandboxProvider` (e.g. for
- * `shell:execute` request routing in `toolbelt.ts`) in dev/test WITHOUT ever
+ * `shell:execute` request routing in `builder-primitives.ts`) in dev/test WITHOUT ever
  * silently executing on the host — the absence of a real adapter is loud, not
  * silent. A real implementation (E2B, per ADR-027/execution-plan Track F2)
  * replaces this class; it does not extend it.

@@ -62,12 +62,18 @@ export class JudgeScorer implements Scorer {
       `Rubric:\n${caseRubric}`,
       `Case input:\n${stableStringify(caseInput.input)}`,
       `Reference:\n${stableStringify(caseInput.reference)}`,
-      `Produced artifact:\n${stableStringify(produced)}`,
+      `Produced Result:\n${stableStringify(produced)}`,
       `Execution snapshot:\n${stableStringify(snapshotForJudge(snapshot))}`,
       `Pinned judge model version: ${this.modelVersion}`,
     ].join("\n\n");
 
-    const response = await this.model.complete({ system, prompt, maxTokens: 64 });
+    const response = await this.model.complete({
+      system,
+      prompt,
+      maxTokens: 64,
+      tier: "reasoning",
+      cache: { strategy: "stable_system_prefix", ttl: "5m" },
+    });
     return { quality: parseFirstScore(response.text) };
   }
 }

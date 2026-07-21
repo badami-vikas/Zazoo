@@ -1,11 +1,11 @@
 /**
- * BLUEPRINT-1 (Month-6) — a WorkspaceBlueprint round-trips as a versioned,
+ * BLUEPRINT-1 (Month-6) — a OrganizationBlueprint round-trips as a versioned,
  * Commons-publishable manifest through the real apps/api transport seam:
- *   blueprint -> workspaceBlueprintToPackageManifest (kind workspace_definition,
+ *   blueprint -> organizationBlueprintToModuleManifest (kind organization_definition,
  *   capabilities composed by reference) -> sign -> served over the (mocked)
  *   Commons HTTP contract -> HttpCommonsClient.getVersion VERIFIES the signature
- *   (PKG-2) -> workspaceBlueprintFromPackageManifest re-runs the declarative gate
- *   -> compileBlueprint produces the generated workspace.
+ *   (PKG-2) -> organizationBlueprintFromModuleManifest re-runs the declarative gate
+ *   -> compileBlueprint produces the generated organization.
  * Also asserts the declarative gate rejects a non-declarative payload at the
  * install boundary. Signing uses node:crypto with the Commons signer's exact
  * conventions (see pkg2-commons-signing.test.ts).
@@ -14,13 +14,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { generateKeyPairSync } from "node:crypto";
 import {
+  BLUEPRINT_SCHEMA_VERSION,
   BlueprintValidationError,
   compileBlueprint,
-  parseWorkspaceBlueprint,
-  workspaceBlueprintFromPackageManifest,
-  workspaceBlueprintToPackageManifest,
-  type PackageManifest,
-  type WorkspaceBlueprint,
+  parseOrganizationBlueprint,
+  organizationBlueprintFromModuleManifest,
+  organizationBlueprintToModuleManifest,
+  type ModuleManifest,
+  type OrganizationBlueprint,
 } from "@bridge/core";
 import { HttpCommonsClient } from "../src/commons-client.js";
 import { signCommonsEntryForTest } from "./commons-fixtures.js";
@@ -37,7 +38,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-const SAMPLE_BLUEPRINT: WorkspaceBlueprint = {
+const SAMPLE_BLUEPRINT: OrganizationBlueprint = {
   vocabulary: { Person: "Contact" },
   entities: [
     {
@@ -55,23 +56,23 @@ const SAMPLE_BLUEPRINT: WorkspaceBlueprint = {
 
 test("BLUEPRINT-1: a blueprint round-trips manifest -> transport(verify) -> extract -> compile", async (t) => {
   const keyPair = makeKeyPair();
-  const manifest = workspaceBlueprintToPackageManifest(SAMPLE_BLUEPRINT, { name: "test-fixture-people-ws", version: "1.0.0" });
+  const manifest = organizationBlueprintToModuleManifest(SAMPLE_BLUEPRINT, { name: "test-fixture-people-ws", version: "1.0.0" });
 
-  // A workspace_definition composes capabilities by reference — its own
+  // A organization_definition composes capabilities by reference — its own
   // top-level capabilities[] is empty; the payload lives in manifest.blueprint.
-  assert.equal(manifest.kind, "workspace_definition");
+  assert.equal(manifest.kind, "organization_definition");
   assert.equal(manifest.capabilities.length, 0);
   assert.ok(manifest.blueprint);
-  assert.equal(manifest.blueprint?.schemaVersion, 1);
+  assert.equal(manifest.blueprint?.schemaVersion, BLUEPRINT_SCHEMA_VERSION);
 
   const entry = signCommonsEntryForTest(manifest, keyPair);
   t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
 
   const client = new HttpCommonsClient("http://localhost:4780", { trustedPublicKeys: [keyPair.publicKeyPem] });
   const fetched = await client.getVersion("test-fixture-people-ws", "1.0.0");
-  assert.ok(fetched, "signed workspace_definition entry passes verify-on-install");
+  assert.ok(fetched, "signed organization_definition entry passes verify-on-install");
 
-  const extracted = workspaceBlueprintFromPackageManifest(fetched.manifest);
+  const extracted = organizationBlueprintFromModuleManifest(fetched.manifest);
   const compiled = compileBlueprint(extracted, ["person"], ["relationship"]);
   assert.equal(compiled.tableSpecs.length, 1);
   assert.equal(compiled.tableSpecs[0]?.columns.length, 2);
@@ -82,23 +83,23 @@ test("BLUEPRINT-1: a blueprint round-trips manifest -> transport(verify) -> extr
 
 test("BLUEPRINT-1: the declarative gate rejects a non-declarative payload (smuggled code key)", () => {
   assert.throws(
-    () => parseWorkspaceBlueprint({ vocabulary: {}, entities: [], views: [], capabilities: [], handler: "() => {}" }),
+    () => parseOrganizationBlueprint({ vocabulary: {}, entities: [], views: [], capabilities: [], handler: "() => {}" }),
     BlueprintValidationError,
   );
 });
 
-test("BLUEPRINT-1: extraction re-validates — a non-workspace_definition manifest yields no blueprint", () => {
-  const notABlueprint: PackageManifest = {
-    name: "test-fixture-plain-tool",
+test("BLUEPRINT-1: extraction re-validates — a non-organization_definition manifest yields no blueprint", () => {
+  const notABlueprint: ModuleManifest = {
+    name: "test-fixture-plain-module",
     version: "1.0.0",
-    kind: "tool",
-    summary: "plain tool",
-    description: "plain tool",
+    kind: "module",
+    summary: "plain module",
+    description: "plain module",
     lineageManifestId: null,
     dependencies: [],
     capabilities: [],
     contextProviders: [],
-    workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+    organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
   };
-  assert.throws(() => workspaceBlueprintFromPackageManifest(notABlueprint), BlueprintValidationError);
+  assert.throws(() => organizationBlueprintFromModuleManifest(notABlueprint), BlueprintValidationError);
 });

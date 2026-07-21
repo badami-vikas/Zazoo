@@ -1,7 +1,7 @@
 /**
  * Month 4 (Batch 6) router wiring — EVAL-3 (capability.approve's Validated->Active
  * baseline-vs-candidate gate) and GOV-1 (capability.governanceAutoApprove +
- * capability.orgHealth). Mirrors packages.test.ts's harness (buildWiring() +
+ * capability.orgHealth). Mirrors modules.test.ts's harness (buildWiring() +
  * appRouter.createCaller). Seeds manifests/states/eval-runs through the SAME
  * in-memory ports the router reads, then drives the real procedures.
  */
@@ -21,7 +21,7 @@ import {
   type RunCtx,
 } from "@bridge/core";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import { buildWiring, PILOT_ORGANIZATION, type Wiring } from "../src/wiring.js";
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -53,7 +53,7 @@ async function seedManifest(
   const id = randomUUID();
   const manifest = await wiring.capabilityStore.createManifest({
     id,
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     capabilityType: "skill",
     name: `cap-${id.slice(0, 8)}`,
     version: "1.0.0",
@@ -66,7 +66,7 @@ async function seedManifest(
   });
   await wiring.capabilityStore.upsertState({
     manifestId: id,
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     state: opts.state,
     suspended: false,
     ...(opts.trustedUntil ? { trustedUntil: opts.trustedUntil } : {}),
@@ -206,7 +206,7 @@ test("GOV-1: governanceAutoApprove refuses a moderate-band capability (ai_genera
   }
 });
 
-test("GOV-1: orgHealth renders a rollup over a workspace's real capabilities", async () => {
+test("GOV-1: orgHealth renders a rollup over a organization's real capabilities", async () => {
   const wiring = await buildWiring();
   try {
     const caller = await makeCaller(wiring);
@@ -215,7 +215,7 @@ test("GOV-1: orgHealth renders a rollup over a workspace's real capabilities", a
     // A validated capability => a pending approval (risk-typed by computedRisk).
     await seedManifest(wiring, { state: "validated", risk: "advisory" });
 
-    const rollup = await caller.capability.orgHealth({ workspaceId: PILOT_WORKSPACE });
+    const rollup = await caller.capability.orgHealth({ organizationId: PILOT_ORGANIZATION });
 
     assert.ok(rollup.autonomyPressure.manifestIds.includes(struggling.id), "the failing active cap is flagged");
     assert.equal(rollup.approvalLoad.total, 1, "one validated cap awaiting a decision");

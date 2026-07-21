@@ -11,25 +11,40 @@ import { createMemoryLocalPlane } from "../src/index.js";
 test("memory local plane: commitEntity is idempotent on retry with the same id", async () => {
   const plane = createMemoryLocalPlane();
 
-  await plane.graph.upsertPerson({ id: "p1", workspaceId: "ws-1", fullName: "Priya", emails: ["priya@x.example"] });
+  await plane.graph.upsertPerson({ id: "p1", organizationId: "ws-1", fullName: "Priya", emails: ["priya@x.example"] });
 
   const entry = {
     id: "tp1",
-    workspaceId: "ws-1",
-    kind: "touchpoint" as const,
+    organizationId: "ws-1",
+    kind: "event" as const,
     personId: "p1",
-    payload: { touchpointKind: "email" },
+    payload: { eventKind: "email" },
     source: "gmail",
     sourceRecordId: "thread_1",
     createdAt: "2026-06-20T00:00:00.000Z",
   };
 
   await plane.graph.commitEntity(entry);
-  assert.equal((await plane.graph.listEntities("ws-1", "touchpoint")).length, 1);
+  assert.equal((await plane.graph.listEntities("ws-1", "event")).length, 1);
 
   // Retry with the SAME id: previously threw "duplicate entity id"; must now no-op.
   await assert.doesNotReject(() => plane.graph.commitEntity(entry));
-  assert.equal((await plane.graph.listEntities("ws-1", "touchpoint")).length, 1, "no duplicate row after retry");
+  assert.equal((await plane.graph.listEntities("ws-1", "event")).length, 1, "no duplicate row after retry");
 
   await plane.close();
+});
+
+test("memory local state serializes concurrent organization-scoped updates", async () => {
+  const plane = createMemoryLocalPlane();
+  await Promise.all(
+    Array.from({ length: 50 }, () =>
+      plane.state.update("organization-a", "counter", { count: 0 }, (current) => {
+        const state = current as { count: number };
+        return { state: { count: state.count + 1 }, result: undefined };
+      }),
+    ),
+  );
+
+  assert.deepEqual(await plane.state.read("organization-a", "counter"), { count: 50 });
+  assert.equal(await plane.state.read("organization-b", "counter"), null);
 });

@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import {
   ShieldCheck, Check, X, PencilLine, Bot, User, ArrowRight, Sparkles,
-  CornerDownRight, Inbox, FileText, GitCompareArrows, Info, List as ListIcon,
+  CornerDownRight, Inbox, FileText, GitCompareArrows, Info,
   AlertTriangle, RotateCw,
 } from 'lucide-react';
 import { Header } from '../components/shared/Header';
@@ -23,7 +23,6 @@ import {
   type LedgerSource,
   type OutstandingRelationshipMaterialization,
 } from '../data/ledger';
-import { materializeApprovedCapture } from '../data/toolCaptures';
 
 // crude line-diff for the drawer — marks removed (prior-only) and added (proposed-only) lines
 function lineDiff(prior: string | null | undefined, proposed: string) {
@@ -41,18 +40,18 @@ function ActorChip({ kind, name }: { kind: 'agent' | 'human'; name: string }) {
   const Icon = kind === 'agent' ? Bot : User;
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium"
+      className="inline-flex min-w-0 max-w-full items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium"
       style={{
         backgroundColor: kind === 'agent' ? 'color-mix(in srgb, var(--color-steel) 12%, transparent)' : 'var(--color-surface)',
         color: kind === 'agent' ? 'var(--color-steel)' : 'var(--color-navy-mid)',
       }}
     >
-      <Icon className="w-3 h-3" /> {name}
+      <Icon className="w-3 h-3 shrink-0" /> <span className="min-w-0 break-all">{name}</span>
     </span>
   );
 }
 
-// "Drafted by Agent on behalf of User · ritual run" — provenance on every AI action
+// "Drafted by Agent on behalf of User · Automation Run" — provenance on every AI action
 function Provenance({ e }: { e: LedgerEntry }) {
   const dlg = e.delegationId ? delegations[e.delegationId] : null;
   return (
@@ -239,8 +238,6 @@ export function ApprovalsPage() {
     );
     if (localAlias) resolveAction(localAlias.id);
     setLive(items => items.filter(item => item.id !== proposalEntry.id));
-    const materializationEntry = entry.sourceId ? { ...entry, id: entry.sourceId } : entry;
-    await materializeApprovedCapture(materializationEntry, recordedDecision);
     setResolved(null);
     setResolvingId(null);
     setEditing(false);
@@ -280,12 +277,8 @@ export function ApprovalsPage() {
       <StandardToolbar
         insightsExpanded={insightsOpen}
         onToggleInsights={() => setInsightsOpen(o => !o)}
-        view="list"
-        views={[{ id: 'list', label: 'List', icon: ListIcon }]}
-        onViewChange={() => {}}
         search={search}
         onSearchChange={setSearch}
-        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
       />
       <CollapsibleInsights
         expanded={insightsOpen}
@@ -362,9 +355,9 @@ export function ApprovalsPage() {
           </p>
         </div>
       ) : (
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-y-auto sm:flex-row sm:overflow-hidden">
           {/* List */}
-          <div className="w-[380px] shrink-0 border-r overflow-y-auto" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
+          <div className="w-full shrink-0 border-b sm:w-[380px] sm:border-b-0 sm:border-r sm:overflow-y-auto" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
             {visibleQueue.map(e => {
               const active = e.id === selectedId;
               return (
@@ -395,19 +388,19 @@ export function ApprovalsPage() {
           </div>
 
           {/* Detail / diff drawer */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="w-full shrink-0 sm:w-auto sm:min-w-0 sm:flex-1 sm:overflow-y-auto">
             {selected && (
-              <div className="max-w-3xl mx-auto px-8 py-8 flex flex-col gap-7">
+              <div className="max-w-3xl mx-auto px-4 py-5 sm:px-8 sm:py-8 flex flex-col gap-7">
                 {/* title + provenance */}
                 <div className="flex flex-col gap-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy-mid)' }}>{selected.channel}</span>
                     <h2 className="text-xl font-bold" style={{ color: 'var(--color-navy)', fontFamily: 'var(--font-editorial)' }}>
                       {selected.action}
                     </h2>
                   </div>
                   <Provenance e={selected} />
-                  <div className="flex items-center gap-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
                     <span style={{ color: 'var(--color-warm-gray)' }}>Target:</span>
                     <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{selected.resource}</span>
                     <span style={{ color: 'var(--color-border)' }}>·</span>
@@ -441,7 +434,7 @@ export function ApprovalsPage() {
                       style={{ color: 'var(--color-navy)', backgroundColor: 'white' }}
                     />
                   ) : (
-                    <div className="p-4 text-sm whitespace-pre-wrap leading-relaxed font-sans">
+                    <div className="p-4 text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed font-sans">
                       {diff.map((l, i) => (
                         <div
                           key={i}
@@ -507,7 +500,7 @@ export function ApprovalsPage() {
                 </AnimatePresence>
 
                 {/* Actions */}
-                <div className="flex items-center gap-3 sticky bottom-0 py-4 -mb-8" style={{ background: 'linear-gradient(to top, var(--color-background) 70%, transparent)' }}>
+                <div className="flex flex-wrap items-center gap-3 sticky bottom-0 py-4 -mb-8" style={{ background: 'linear-gradient(to top, var(--color-background) 70%, transparent)' }}>
                   <button
                     disabled={resolvingId === selected.id}
                     onClick={() => void advance(selected.id, editing ? 'edited_approved' : 'approved')}

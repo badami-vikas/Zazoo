@@ -6,20 +6,32 @@
 // holds DATABASE_URL pointing at the same Supabase project, proposals/decisions land in the
 // SAME `ledger` the prototype reads — so the loop is fully governed end-to-end.
 //
-// Default OFF: with no VITE_API_URL the integration helpers report "unavailable".
+// Default OFF: with no configured browser or desktop transport the integration
+// helpers report "unavailable".
+import {
+  API_TRANSPORT_CONFIGURED,
+  API_URL,
+  trpcAuthorizationHeaders,
+} from '../lib/trpc';
 
-const API_URL = import.meta.env.VITE_API_URL || ''; // e.g. http://localhost:4000
-export const API_ENABLED = Boolean(API_URL);
+export const API_ENABLED = API_TRANSPORT_CONFIGURED;
 const TRPC = `${API_URL}/trpc`;
 
-const PILOT_WORKSPACE = 'b0000000-0000-4000-a000-000000000001';
+const PILOT_ORGANIZATION = 'b0000000-0000-4000-a000-000000000001';
+
+async function requestHeaders(): Promise<Record<string, string>> {
+  return {
+    'content-type': 'application/json',
+    ...(await trpcAuthorizationHeaders()),
+  };
+}
 
 // One unbatched tRPC mutation. No data transformer is configured server-side, so input is sent
 // raw and the result rides at `result.data`. Throws on transport or procedure error.
 async function mutate<T = unknown>(path: string, input: unknown): Promise<T> {
   const res = await fetch(`${TRPC}/${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: await requestHeaders(),
     body: JSON.stringify(input),
   });
   const body = await res.json().catch(() => ({}));
@@ -31,7 +43,7 @@ async function mutate<T = unknown>(path: string, input: unknown): Promise<T> {
 // One unbatched tRPC query (GET). Input rides as a urlencoded `?input=` param; result at `result.data`.
 async function query<T = unknown>(path: string, input?: unknown): Promise<T> {
   const qs = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
-  const res = await fetch(`${TRPC}/${path}${qs}`, { headers: { 'content-type': 'application/json' } });
+  const res = await fetch(`${TRPC}/${path}${qs}`, { headers: await requestHeaders() });
   const body = await res.json().catch(() => ({}));
   if (body?.error) throw new Error(body.error?.message || body.error?.json?.message || `trpc ${path} error`);
   if (!res.ok) throw new Error(`trpc ${path} HTTP ${res.status}`);
@@ -52,7 +64,7 @@ export interface ApiScopeGrant {
 /** Active (non-revoked) standing grants held by an integration. */
 export async function apiListScopes(integrationId: string): Promise<ApiScopeGrant[] | null> {
   if (!API_ENABLED) return null;
-  return query<ApiScopeGrant[]>('integration.listScopes', { workspaceId: PILOT_WORKSPACE, integrationId });
+  return query<ApiScopeGrant[]>('integration.listScopes', { organizationId: PILOT_ORGANIZATION, integrationId });
 }
 
 /** Grant a standing Bridge capability. The server refuses agent-floor DENY scopes (FORBIDDEN). */
@@ -62,13 +74,13 @@ export async function apiGrantScope(a: {
   action: string;
 }): Promise<ApiScopeGrant | null> {
   if (!API_ENABLED) return null;
-  return mutate<ApiScopeGrant>('integration.grantScope', { workspaceId: PILOT_WORKSPACE, ...a });
+  return mutate<ApiScopeGrant>('integration.grantScope', { organizationId: PILOT_ORGANIZATION, ...a });
 }
 
 /** Narrow access: revoke a single standing grant (append-only — sets revoked_at server-side). */
 export async function apiRevokeScope(permissionId: string): Promise<boolean> {
   if (!API_ENABLED) return false;
-  await mutate('integration.revokeScope', { workspaceId: PILOT_WORKSPACE, permissionId });
+  await mutate('integration.revokeScope', { organizationId: PILOT_ORGANIZATION, permissionId });
   return true;
 }
 
@@ -126,7 +138,7 @@ export async function apiDisconnectGoogle(): Promise<boolean> {
   return true;
 }
 
-/** Source Gmail through the gate → returns the Touchpoint/Memory/Signal proposals. */
+/** Source Gmail through the gate → returns the Event/Memory/Signal proposals. */
 export async function apiSyncGmail(maxResults?: number): Promise<IntakeResult | null> {
   if (!API_ENABLED) return null;
   return mutate<IntakeResult>('google.syncGmail', maxResults ? { maxResults } : {});
@@ -196,12 +208,12 @@ export async function apiApproveProposal(proposalId: string): Promise<{ sent: bo
   return { sent: Boolean(r?.effects?.sent) };
 }
 
-// ── Agent + Ritual authoring (layered, gated permissions) ──────────────────────
+// ── Agent + Automation authoring (layered, gated permissions) ─────────────────
 // All default OFF (no VITE_API_URL → null), so the create/edit pages fall back to local
 // state and stay demoable. When the API is up, these route through the governed pipeline,
-// which is the only writer of agent authority + ritual definitions.
+// which is the only writer of Agent authority and Automation definitions.
 //
-// agent-floor (external:send DENY, action:approve DENY) and the ritual ⊆ agent scope
+// Agent floor (external:send DENY, action:approve DENY) and Automation-within-Agent scope
 // constraint are re-enforced server-side regardless of what the UI sends.
 
 export type AgentDataScope = 'all' | 'public' | 'private';
@@ -224,24 +236,24 @@ export interface AgentRecord {
   egressTier: AgentEgressTier;
 }
 
-export interface RitualStepInput {
+export interface AutomationStepInput {
   skill: string;
   action: string;
   resourceType: string;
   dataScope: AgentDataScope;
 }
 
-export interface RitualRecord {
-  ritualId: string;
+export interface AutomationRecord {
+  automationId: string;
   name: string;
-  agentIds: string[];
-  steps: RitualStepInput[];
+  agentId: string;
+  steps: AutomationStepInput[];
 }
 
 /** Create an agent with its layered authority. null when API disabled (caller keeps local state). */
 export async function apiCreateAgent(input: AgentPermissionInput): Promise<AgentRecord | null> {
   if (!API_ENABLED) return null;
-  return mutate<AgentRecord>('agent.create', { workspaceId: PILOT_WORKSPACE, ...input });
+  return mutate<AgentRecord>('agent.create', { organizationId: PILOT_ORGANIZATION, ...input });
 }
 
 /** Update an existing agent's layered authority. null when API disabled. */
@@ -253,14 +265,14 @@ export async function apiUpdateAgent(
   return mutate<AgentRecord>('agent.update', { agentId, ...input });
 }
 
-/** Create a ritual bound to its agents. Server re-checks ritual scope ⊆ agent scope. */
-export async function apiCreateRitual(input: {
+/** Create an Automation bound to its owning Agent. */
+export async function apiCreateAutomation(input: {
   name: string;
-  agentIds: string[];
-  steps: RitualStepInput[];
-}): Promise<RitualRecord | null> {
+  agentId: string;
+  steps: AutomationStepInput[];
+}): Promise<AutomationRecord | null> {
   if (!API_ENABLED) return null;
-  return mutate<RitualRecord>('ritual.create', { workspaceId: PILOT_WORKSPACE, ...input });
+  return mutate<AutomationRecord>('automation.create', { organizationId: PILOT_ORGANIZATION, ...input });
 }
 
 // ── DealPilot (the first tool on the generic manifest intake seam) ─────────────
@@ -299,7 +311,7 @@ export async function apiDealPilotSource(): Promise<DealPilotSourceResult | null
     id: string;
     status: 'pending_review' | 'applied' | 'rejected';
     output?: { proposedOutput?: { count?: number; captureIds?: string[]; sample?: DealPilotCapturePreview[] } };
-  }>('dealpilot.source', { workspaceId: PILOT_WORKSPACE });
+  }>('dealpilot.source', { organizationId: PILOT_ORGANIZATION });
   return {
     proposalId: r.id,
     status: r.status,
@@ -329,23 +341,23 @@ export async function apiDealPilotList(): Promise<DealPilotCandidateDTO[] | null
   return page?.items ?? null;
 }
 
-// ── Workspace + Team (real backend, authenticated CRUD — not a governed pipeline action) ───────
-export interface WorkspaceDTO { id: string; name: string; createdAt: string }
-export interface WorkspaceMemberDTO { userId: string; email: string; name: string | null }
+// ── Organization + Team (real backend, authenticated CRUD — not a governed pipeline action) ───────
+export interface OrganizationDTO { id: string; name: string; createdAt: string }
+export interface OrganizationMemberDTO { userId: string; email: string; name: string | null }
 
-export async function apiListWorkspaces(): Promise<WorkspaceDTO[] | null> {
+export async function apiListOrganizations(): Promise<OrganizationDTO[] | null> {
   if (!API_ENABLED) return null;
-  return query<WorkspaceDTO[]>('workspace.list');
+  return query<OrganizationDTO[]>('organization.list');
 }
-export async function apiCreateWorkspace(name: string): Promise<WorkspaceDTO | null> {
+export async function apiCreateOrganization(name: string): Promise<OrganizationDTO | null> {
   if (!API_ENABLED) return null;
-  return mutate<WorkspaceDTO>('workspace.create', { name });
+  return mutate<OrganizationDTO>('organization.create', { name });
 }
-export async function apiListMembers(workspaceId: string): Promise<WorkspaceMemberDTO[] | null> {
+export async function apiListMembers(organizationId: string): Promise<OrganizationMemberDTO[] | null> {
   if (!API_ENABLED) return null;
-  return query<WorkspaceMemberDTO[]>('workspace.listMembers', { workspaceId });
+  return query<OrganizationMemberDTO[]>('organization.listMembers', { organizationId });
 }
-export async function apiInviteMember(workspaceId: string, email: string): Promise<WorkspaceMemberDTO | null> {
+export async function apiInviteMember(organizationId: string, email: string): Promise<OrganizationMemberDTO | null> {
   if (!API_ENABLED) return null;
-  return mutate<WorkspaceMemberDTO>('workspace.inviteMember', { workspaceId, email });
+  return mutate<OrganizationMemberDTO>('organization.inviteMember', { organizationId, email });
 }

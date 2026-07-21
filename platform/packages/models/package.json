@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Real ModelProvider and SearchProvider implementations plus governed provider routers. @bridge/core keeps the ports types-only; network adapters and safe HTTP live here.",
+  "description": "Real ModelProvider and SearchProvider implementations plus governed provider routing.",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
@@ -17,8 +17,8 @@
   },
   "dependencies": {
     "@bridge/core": "workspace:*",
-    "@bridge/tool-kit": "workspace:*",
-    "ipaddr.js": "^2.4.0"
+    "@bridge/capability-kit": "workspace:*",
+    "@bridge/net-guard": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

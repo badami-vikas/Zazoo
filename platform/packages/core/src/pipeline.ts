@@ -60,7 +60,7 @@ export interface PipelineDeps {
    * unconditionally), then requiring an Agent+Task to perform it is
    * nonsensical — the action is definitionally a Human-only governance
    * decision (e.g. `capability.approve`, `blueprint.activate`,
-   * `packages.install` all propose `action:"approve"`/`"execute"` on
+   * `modules.install` all propose `action:"approve"`/`"execute"` on
    * resourceType `"skill"`, which agent-floor already forbids ANY agent from
    * touching). Everything else — any skill on a NON-floor-protected
    * resourceType/action — must have a real manifest or is rejected, EXCEPT
@@ -94,7 +94,7 @@ export interface ProposeOptions {
  * `propose()` call, including calls that are pure Human-authored mutations
  * already fully gated by the ordinary authority/policy layers (Layers 0-2 of
  * `resolveAuthority`) and that have NO bounded Agent capability behind them
- * at all — e.g. a Human sharing/exporting their OWN touchpoint, or any other
+ * at all — e.g. a Human sharing/exporting their own Event, or any other
  * mutation not yet bound to a dedicated named Skill. Forcing these through an
  * Agent+Task would misrepresent a Human's own already-authorized action as a
  * delegated Agent capability, and — since `resolveSkillForTask` requires an
@@ -230,7 +230,7 @@ export class UniversalActionPipeline {
     // 1) Authority (deny-default). nowISO injected for ephemeral expiry checks.
     const auth = await resolveAuthority(
       {
-        workspaceId: req.workspaceId,
+        organizationId: req.organizationId,
         actor: req.actor,
         action: req.action,
         resourceType: req.resourceType,
@@ -247,7 +247,7 @@ export class UniversalActionPipeline {
 
     // 2) Policy(pre)
     const pre = await policies.evaluate({
-      workspaceId: req.workspaceId,
+      organizationId: req.organizationId,
       actor: req.actor,
       action: req.action,
       resourceType: req.resourceType,
@@ -283,7 +283,7 @@ export class UniversalActionPipeline {
     // harnesses and any other embedding that hasn't opted into AGS1
     // governance yet — see PipelineDeps.skillManifests).
     if (this.#deps.skillManifests) {
-      const manifests = this.#deps.skillManifests.forSkill(req.workspaceId, req.skill);
+      const manifests = this.#deps.skillManifests.forSkill(req.organizationId, req.skill);
       const structurallyExempt =
         isAgentFloorDenied(req.action, req.resourceType) ||
         (req.actor.type !== "agent" && req.skill === KERNEL_PASSTHROUGH_SKILL);
@@ -318,8 +318,8 @@ export class UniversalActionPipeline {
             ctx,
           );
         }
-        const goal = await this.#deps.goalTasks.getGoal(req.workspaceId, req.goalTaskRef.goalId);
-        const task = await this.#deps.goalTasks.getTask(req.workspaceId, req.goalTaskRef.taskId);
+        const goal = await this.#deps.goalTasks.getGoal(req.organizationId, req.goalTaskRef.goalId);
+        const task = await this.#deps.goalTasks.getTask(req.organizationId, req.goalTaskRef.taskId);
         if (!goal || !task || task.goalId !== goal.id) {
           return this.#reject(
             req,
@@ -331,8 +331,8 @@ export class UniversalActionPipeline {
         }
         const agentScope = await authority.agents.capabilityScope(req.actor.id);
         const agentDataScope = await authority.agents.dataScope(req.actor.id);
-        const [agentWorkspaceId, agentActive] = await Promise.all([
-          authority.agents.workspaceId(req.actor.id),
+        const [agentOrganizationId, agentActive] = await Promise.all([
+          authority.agents.organizationId(req.actor.id),
           authority.agents.isActive(req.actor.id),
         ]);
         const resolution = await resolveSkillForTask(manifests, {
@@ -340,7 +340,7 @@ export class UniversalActionPipeline {
           task,
           agent: {
             id: req.actor.id,
-            workspaceId: agentWorkspaceId,
+            organizationId: agentOrganizationId,
             active: agentActive,
             capabilityScope: agentScope,
             plane: req.actor.plane ?? "local",
@@ -369,7 +369,7 @@ export class UniversalActionPipeline {
 
     // 4) Policy(runtime) — evaluate the produced output.
     const runtime = await policies.evaluate({
-      workspaceId: req.workspaceId,
+      organizationId: req.organizationId,
       actor: req.actor,
       action: req.action,
       resourceType: req.resourceType,
@@ -396,7 +396,7 @@ export class UniversalActionPipeline {
     // a deployment-configurable policy): when this turn carries untrusted_external
     // content, external:send/share is forced to human review (pending_review), never
     // auto-applied — the RUNTIME data-flow half of the static lethal-trifecta manifest
-    // audit (package/risk.ts::packageHasLethalTrifecta). MCP/tool output is DATA: it can
+    // audit (module/risk.ts::moduleHasLethalTrifecta). MCP/tool output is DATA: it can
     // taint a turn but never itself triggers a propose(). See ADR-066.
     const egressGate = evaluateTaintedEgress({
       action: req.action,
@@ -450,11 +450,11 @@ export class UniversalActionPipeline {
   /** Proposals awaiting a human decision — backs the Approvals inbox. Paginated
    * passthrough to the ledger's `listPending` (see `LedgerStore.listPending` doc). */
   async listPending(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: Array<Proposal & { createdAt: string }>; total: number }> {
     const { ledger } = this.#deps;
-    const { items, total } = await ledger.listPending(workspaceId, opts);
+    const { items, total } = await ledger.listPending(organizationId, opts);
     return {
       items: items.map((entry) => ({
         id: entry.id,
@@ -510,7 +510,7 @@ export class UniversalActionPipeline {
     if (floor) {
       await ledger.append({
         id: ctx.ids.next(),
-        workspaceId: original.workspaceId,
+        organizationId: original.organizationId,
         actorType: decider.type,
         actorId: decider.id,
         action: "approve",
@@ -521,6 +521,9 @@ export class UniversalActionPipeline {
         policyResults: [],
         diff: { rejected: floor },
         refLedgerId: original.id,
+        ...(original.onBehalfOfType ? { onBehalfOfType: original.onBehalfOfType } : {}),
+        ...(original.onBehalfOfId ? { onBehalfOfId: original.onBehalfOfId } : {}),
+        ...(original.dataScope ? { dataScope: original.dataScope } : {}),
         createdAt: ctx.clock.nowISO(),
       });
       throw new AgentFloorDeniedError(floor);
@@ -546,7 +549,7 @@ export class UniversalActionPipeline {
     // Append a NEW decision row referencing the proposal (never mutate the original).
     const decisionRow: LedgerEntry = {
       id: ctx.ids.next(),
-      workspaceId: original.workspaceId,
+      organizationId: original.organizationId,
       actorType: original.actorType,
       actorId: original.actorId,
       ...(original.onBehalfOfType ? { onBehalfOfType: original.onBehalfOfType } : {}),
@@ -630,7 +633,7 @@ export class UniversalActionPipeline {
    */
   async #commit(entry: LedgerEntry, ctx: RunCtx): Promise<void> {
     const postResults = await this.#deps.policies.evaluate({
-      workspaceId: entry.workspaceId,
+      organizationId: entry.organizationId,
       actor: { type: entry.actorType, id: entry.actorId },
       action: entry.action,
       resourceType: entry.resourceType,
@@ -645,11 +648,17 @@ export class UniversalActionPipeline {
     await this.#deps.variance.observe(entry, ctx);
     await this.#deps.events.emit({
       id: ctx.ids.next(),
-      workspaceId: entry.workspaceId,
+      organizationId: entry.organizationId,
       type: `${entry.resourceType}.${entry.action}`,
       entityType: entry.resourceType,
       ...(entry.resourceId ? { entityId: entry.resourceId } : {}),
-      payload: { ledgerId: entry.id, decision: entry.userDecision },
+      payload: {
+        ledgerId: entry.id,
+        decision: entry.userDecision,
+        ...(entry.trustOrigin
+          ? { trustOrigin: entry.trustOrigin }
+          : {}),
+      },
       createdAt: ctx.clock.nowISO(),
     });
   }
@@ -665,7 +674,7 @@ export class UniversalActionPipeline {
   ): Promise<LedgerEntry> {
     const entry: LedgerEntry = {
       id: proposalId ?? ctx.ids.next(),
-      workspaceId: req.workspaceId,
+      organizationId: req.organizationId,
       actorType: req.actor.type,
       actorId: req.actor.id,
       ...(req.onBehalfOf ? { onBehalfOfType: req.onBehalfOf.type, onBehalfOfId: req.onBehalfOf.id } : {}),
@@ -702,7 +711,7 @@ export class UniversalActionPipeline {
     );
     const entry: LedgerEntry = {
       id: ctx.ids.next(),
-      workspaceId: req.workspaceId,
+      organizationId: req.organizationId,
       actorType: req.actor.type,
       actorId: req.actor.id,
       ...(req.onBehalfOf ? { onBehalfOfType: req.onBehalfOf.type, onBehalfOfId: req.onBehalfOf.id } : {}),
@@ -734,7 +743,7 @@ export class UniversalActionPipeline {
    * Reconstruct the ActionRequest a decision's Proposal echoes back. This used to
    * synthesize `skill: "(replayed)"` and silently drop `context`/`dataScope` from
    * the original ledger entry — breaking audit completeness (you couldn't tell
-   * which ritual produced a decision or what data tier it touched, since neither
+   * which Automation produced a decision or what data tier it touched, since neither
    * the skill name nor the original context/dataScope were persisted anywhere).
    * Both are now real `LedgerEntry` fields (see schema.ts's `ledger.dataScope`/
    * `ledger.context`), threaded through here unchanged. The skill name itself was
@@ -745,7 +754,7 @@ export class UniversalActionPipeline {
    */
   #requestFromEntry(entry: LedgerEntry): ActionRequest {
     return {
-      workspaceId: entry.workspaceId,
+      organizationId: entry.organizationId,
       actor: { type: entry.actorType, id: entry.actorId },
       ...(entry.onBehalfOfType && entry.onBehalfOfId
         ? { onBehalfOf: { type: entry.onBehalfOfType, id: entry.onBehalfOfId } }

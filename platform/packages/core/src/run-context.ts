@@ -14,7 +14,7 @@
  * store, no I/O, no model call performed here.
  *
  * Naming note: `types.ts` already exports a `RunContext` interface (ephemeral-grant
- * context: `{ type: "initiative" | "community" | "ritual" | "child_agent_run", id, runId }`,
+ * context: `{ type: "record" | "community" | "automation" | "child_agent_run", id, runId }`,
  * used by the
  * Authority resolver / EphemeralQuery). This module's `ModelRunContext` is a DIFFERENT,
  * much larger concept (everything a model run needs) — deliberately named to avoid
@@ -70,22 +70,19 @@ export interface RunPersona {
    * distinct from the run-invariant, never-omitted `KERNEL_INVARIANTS` (layer 1)
    * every persona carries regardless. Additive/optional. */
   guardrails?: readonly string[];
-  /** Free-text tone/register descriptor — the spirit-animal tone card for Chief
-   * of Staff / a persona built from an onboarding profile (undefined-elements
-   * #11). Additive: omit and the projection carries no tone line, unchanged
-   * (same graceful default as an unset animal). Never affects authority, only
-   * register (primitive spec: "personality never touches authority"). */
+  /** Optional run-scoped writing register. Visual Avatar choices never feed it,
+   * and it never affects authority. */
   tone?: string;
 }
 
 /** A reference to the object/page/surface the run is scoped to — "selected object/page/
  * surface reference" per ADR-027's framing. Kept generic (kind + id + optional label)
  * rather than importing `ResourceType` directly: a run's selected surface can be a UI
- * surface ("workspace_view", "chat_panel") that is not itself a governed `ResourceType`,
- * as well as a governed resource (`person`, `initiative`, ...) that is. */
+ * surface ("organization_view", "chat_panel") that is not itself a governed `ResourceType`,
+ * as well as a governed resource (`person`, `record`, ...) that is. */
 export interface RunSurfaceReference {
   /** e.g. a `ResourceType` string (types.ts) when the surface is a governed resource, or
-   * a UI-only surface kind (e.g. "workspace_view", "chat_panel") when it is not. */
+   * a UI-only surface kind (e.g. "organization_view", "chat_panel") when it is not. */
   kind: string;
   id: string;
   label?: string;
@@ -93,7 +90,7 @@ export interface RunSurfaceReference {
 
 /** One entry in the progressively-disclosed capability set — "disclosed capabilities
  * (progressive disclosure — only relevant subset)" per ADR-027. A typed REFERENCE into
- * `CapabilityManifest`/package types (capability/types.ts), never a duplicated manifest:
+ * `CapabilityManifest`/module types (capability/types.ts), never a duplicated manifest:
  * callers resolve `manifestId` back to the full `CapabilityManifest` via `CapabilityStore`
  * (capability/ports.ts) only when they need the full permission/connector detail: the run
  * context itself only needs enough to disclose the capability's existence + why it's here. */
@@ -119,7 +116,7 @@ export interface RunGovernanceState {
    * through for audit/explainability, not re-evaluated by this module. */
   trustGrants: TrustGrantView[];
   /** The existing ephemeral-grant `RunContext` (types.ts) this run executes under, when
-   * one applies (initiative/community/ritual/child_agent_run + runId) — composed in
+   * one applies (Record/Community/Automation/Child Agent Run + runId) — composed in
    * unchanged, never redefined; see this module's header comment on the naming
    * collision this avoids. */
   ephemeralContext?: EphemeralRunContext;
@@ -179,8 +176,8 @@ export interface ModelRunContext {
    * `chiefOfStaff.converse`'s `message` field today. */
   request: string;
   /** The object/page/surface this run is scoped to, when one applies (e.g. a specific
-   * Person record, a specific workspace view) — absent for a surface-less run
-   * (e.g. a background ritual step with no single selected object). */
+   * Person record, a specific organization view) — absent for a surface-less run
+   * (e.g. a background Automation step with no single selected object). */
   surface?: RunSurfaceReference;
   /** Sensor SPI packs collected for this run (context-provider.ts) — already
    * permission-gated at collection time; this module does not re-check permissions. */

@@ -1,29 +1,29 @@
 import {
-  computePackageRisk,
+  computeModuleRisk,
   evaluateSandboxRequirement,
   type CommonsDependencyPin,
   type CommonsProvenance,
   type CommonsSecurityCheck,
   type CommonsSecurityScan,
-  type PackageManifest,
+  type ModuleManifest,
 } from "@bridge/core";
 
 function check(id: string, status: CommonsSecurityCheck["status"], detail: string): CommonsSecurityCheck {
   return { id, status, detail };
 }
 
-type ResolvedPackageDependency = { manifest: PackageManifest; contentHash: string };
-type ResolvePackageDependency = (manifestId: string, version: string) => ResolvedPackageDependency | undefined;
+type ResolvedModuleDependency = { manifest: ModuleManifest; contentHash: string };
+type ResolveModuleDependency = (manifestId: string, version: string) => ResolvedModuleDependency | undefined;
 
 function resolveClosure(
-  manifest: PackageManifest,
-  resolveDependency: ResolvePackageDependency,
-): { manifests: PackageManifest[]; pins: CommonsDependencyPin[]; unresolved: string[] } {
+  manifest: ModuleManifest,
+  resolveDependency: ResolveModuleDependency,
+): { manifests: ModuleManifest[]; pins: CommonsDependencyPin[]; unresolved: string[] } {
   const manifests = [manifest];
   const pins: CommonsDependencyPin[] = [];
   const unresolved: string[] = [];
   const visited = new Set([`${manifest.name}@${manifest.version}`]);
-  function visit(current: PackageManifest): void {
+  function visit(current: ModuleManifest): void {
     for (const dependency of current.dependencies) {
       const key = `${dependency.manifestId}@${dependency.version}`;
       const resolved = resolveDependency(dependency.manifestId, dependency.version);
@@ -52,24 +52,24 @@ function resolveClosure(
   return { manifests, pins, unresolved };
 }
 
-/** Deterministic CM1 publish gate over the normalized declarative artifact. */
-export function scanCommonsPackage(
-  manifest: PackageManifest,
+/** Deterministic CM1 publish gate over normalized declarative Module content. */
+export function scanCommonsModule(
+  manifest: ModuleManifest,
   provenance: CommonsProvenance,
   privacyPaths: readonly string[],
-  resolveDependency: ResolvePackageDependency = () => undefined,
+  resolveDependency: ResolveModuleDependency = () => undefined,
 ): CommonsSecurityScan {
   const closure = resolveClosure(manifest, resolveDependency);
-  const risk = computePackageRisk(manifest, () => undefined, (name, version) => resolveDependency(name, version)?.manifest);
+  const risk = computeModuleRisk(manifest, () => undefined, (name, version) => resolveDependency(name, version)?.manifest);
   const unpinnedBlueprintCapabilities = manifest.blueprint?.capabilities ?? [];
   const sandboxFailures = closure.manifests.flatMap((item) => item.capabilities)
     .map((capability) => ({ capability, gate: evaluateSandboxRequirement(capability) }))
     .filter(({ gate }) => !gate.satisfied);
 
   const checks: CommonsSecurityCheck[] = [
-    check("manifest-schema", "pass", "Package manifest passed the canonical parser."),
+    check("manifest-schema", "pass", "Capability manifest passed the canonical parser."),
     privacyPaths.length === 0
-      ? check("generalized-content", "pass", "No workspace, user, credential, or personal-data indicators found.")
+      ? check("generalized-content", "pass", "No Organization, user, credential, or personal-data indicators found.")
       : check("generalized-content", "fail", `Private-data paths: ${privacyPaths.join(", ")}`),
     /^https:\/\//.test(provenance.sourceRepository)
       ? check("source-repository", "pass", `Pinned source uses HTTPS: ${provenance.sourceRepository}`)
@@ -78,27 +78,27 @@ export function scanCommonsPackage(
       ? check("inspected-commit", "pass", `Inspected commit ${provenance.inspectedCommit}.`)
       : check("inspected-commit", "fail", "Inspected commit must be a full 40-character Git SHA."),
     provenance.repositoryLicense === "NOASSERTION"
-      ? check("repository-license", "warning", "Repository has no declared license; artifact terms remain independently explicit.")
+      ? check("repository-license", "warning", "Repository has no declared license; capability terms remain independently explicit.")
       : check("repository-license", "pass", `Repository license: ${provenance.repositoryLicense}.`),
-    provenance.licenseVerified && provenance.artifactLicense !== "NOASSERTION"
-      ? check("artifact-license", "pass", `Artifact license verified: ${provenance.artifactLicense}.`)
-      : check("artifact-license", "fail", "Artifact license must be explicit and verified."),
+    provenance.licenseVerified && provenance.contentLicense !== "NOASSERTION"
+      ? check("content-license", "pass", `Capability license verified: ${provenance.contentLicense}.`)
+      : check("content-license", "fail", "Capability license must be explicit and verified."),
     closure.unresolved.length > 0
-      ? check("dependency-pins", "fail", `Unresolved exact package dependencies: ${closure.unresolved.join(", ")}.`)
+      ? check("dependency-pins", "fail", `Unresolved exact capability dependencies: ${closure.unresolved.join(", ")}.`)
       : check(
           "dependency-pins",
           "pass",
           closure.pins.length === 0
-            ? "No package dependencies."
+            ? "No capability dependencies."
             : `${closure.pins.length} exact content-hash dependency pin(s) resolved and verified.`,
         ),
     unpinnedBlueprintCapabilities.length > 0
       ? check(
           "blueprint-capability-pins",
           "fail",
-          `Workspace Blueprint capability references lack exact signed package pins: ${unpinnedBlueprintCapabilities.join(", ")}.`,
+          `Organization Blueprint references lack exact signed capability pins: ${unpinnedBlueprintCapabilities.join(", ")}.`,
         )
-      : check("blueprint-capability-pins", "pass", "No unpinned Workspace Blueprint capability references."),
+      : check("blueprint-capability-pins", "pass", "No unpinned Organization Blueprint capability references."),
     sandboxFailures.length > 0
       ? check(
           "execution-policy",
@@ -106,7 +106,7 @@ export function scanCommonsPackage(
           `Sandbox floor failed for: ${sandboxFailures.map(({ capability }) => capability.id).join(", ")}.`,
         )
       : risk.trifectaEscalated
-        ? check("execution-policy", "fail", "Package capability union forms the lethal trifecta.")
+        ? check("execution-policy", "fail", "Capability union forms the lethal trifecta.")
         : check("execution-policy", "pass", "Executable isolation and lethal-trifecta union checks passed."),
   ];
 

@@ -10,9 +10,30 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
+import {
+  SeededRng,
+  SystemClock,
+  UuidGen,
+  type ModelCompletionRequest,
+  type ModelProvider,
+  type ModelTier,
+  type ModelTokenPricing,
+  type RunCtx,
+} from "@bridge/core";
+import { AnthropicProvider } from "@bridge/models";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import {
+  buildWiring,
+  EGRESS_AGENT,
+  PILOT_ORGANIZATION,
+  PILOT_USER,
+  type Wiring,
+} from "../src/wiring.js";
+
+const PUBLIC_CLOUD_MODEL_EGRESS = {
+  dataScope: "public",
+  userConfirmed: true,
+} as const;
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -20,25 +41,124 @@ function makeRun(): RunCtx {
   return { clock, rng, ids: new UuidGen(clock, rng) };
 }
 
-async function makeCaller(wiring: Wiring) {
+async function makeCaller(wiring: Wiring, userId = PILOT_USER) {
   return appRouter.createCaller({
     wiring,
     run: makeRun(),
-    identity: { type: "user", id: "test_fixture_chief_of_staff_user" },
+    identity: { type: "user", id: userId },
     authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
     verifying: false,
   });
 }
+
+class TierTrackingModel implements ModelProvider {
+  readonly plane = "cloud" as const;
+  readonly calls: ModelCompletionRequest[] = [];
+  readonly pricing: Readonly<Partial<Record<ModelTier, ModelTokenPricing>>>;
+  readonly models: Readonly<Partial<Record<ModelTier, string>>>;
+
+  constructor(
+    readonly id: string,
+    readonly tiers: readonly ModelTier[],
+    readonly reply: string,
+    pricing: Readonly<Partial<Record<ModelTier, ModelTokenPricing>>> = {},
+  ) {
+    this.pricing = pricing;
+    this.models = Object.fromEntries(
+      tiers.map((tier) => [tier, `${id}-v1`]),
+    );
+  }
+
+  routingHealth() {
+    return "healthy" as const;
+  }
+
+  async complete(req: ModelCompletionRequest) {
+    this.calls.push(req);
+    return {
+      text: this.reply,
+      model: `${this.id}-v1`,
+      tier: req.tier,
+      usage: {
+        inputTokens: 100,
+        outputTokens: 4,
+        cacheCreationInputTokens: 20,
+        cacheReadInputTokens: 0,
+        source: "provider" as const,
+      },
+    };
+  }
+}
+
+test(
+  "chiefOfStaff.converse live Anthropic gate: repeated stable Agent prefix records a cache read",
+  { skip: process.env["BRIDGE_RUN_LIVE_ANTHROPIC_CACHE_TEST"] !== "1" },
+  async () => {
+    if (!process.env["ANTHROPIC_API_KEY"]) {
+      throw new Error(
+        "BRIDGE_RUN_LIVE_ANTHROPIC_CACHE_TEST=1 requires an authorized ANTHROPIC_API_KEY",
+      );
+    }
+    const wiring = await buildWiring({
+      modelProviders: [new AnthropicProvider()],
+    });
+    try {
+      const caller = await makeCaller(wiring);
+      const first = await caller.chiefOfStaff.converse({
+        organizationId: PILOT_ORGANIZATION,
+        message: "@builder Draft a governed capability for reviewing a Module change.",
+        chainDepth: 0,
+        cloudModelEgress: PUBLIC_CLOUD_MODEL_EGRESS,
+      });
+      const second = await caller.chiefOfStaff.converse({
+        organizationId: PILOT_ORGANIZATION,
+        message: "@builder Draft a governed capability for reviewing an Automation change.",
+        chainDepth: 0,
+        cloudModelEgress: PUBLIC_CLOUD_MODEL_EGRESS,
+      });
+      assert.ok(first.modelReceiptLedgerId);
+      assert.ok(second.modelReceiptLedgerId);
+      const firstEntry = await wiring.ledger.get(first.modelReceiptLedgerId);
+      const secondEntry = await wiring.ledger.get(second.modelReceiptLedgerId);
+      const firstReceipt = firstEntry?.proposedOutput as
+        | {
+            receipt?: {
+              usage?: {
+                cacheCreationInputTokens?: number;
+                cacheReadInputTokens?: number;
+              };
+            };
+          }
+        | undefined;
+      const secondReceipt = secondEntry?.proposedOutput as
+        | { receipt?: { usage?: { cacheReadInputTokens?: number } } }
+        | undefined;
+      assert.ok(
+        (firstReceipt?.receipt?.usage?.cacheCreationInputTokens ?? 0) +
+          (firstReceipt?.receipt?.usage?.cacheReadInputTokens ?? 0) >
+          0,
+        "the first real turn must create or reuse a cache entry",
+      );
+      assert.ok(
+        (secondReceipt?.receipt?.usage?.cacheReadInputTokens ?? 0) > 0,
+        "the second real Anthropic turn must read the identical stable prefix",
+      );
+    } finally {
+      await wiring.close();
+    }
+  },
+);
 
 test("chiefOfStaff.converse: a message matching a registered capability's keywords routes to it and creates a governed proposal, not a direct execution", async () => {
   const wiring = await buildWiring();
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "can you check my job applications for any interview updates",
       chainDepth: 0,
     });
+
     assert.equal(result.decision.kind, "route");
     assert.equal(result.decision.route, "jobpilot");
     assert.equal(result.decision.source, "keyword_fallback");
@@ -49,12 +169,146 @@ test("chiefOfStaff.converse: a message matching a registered capability's keywor
   }
 });
 
+test("chiefOfStaff.converse: tier routing ignores registration order and persists an attributable cost/usage receipt", async () => {
+  const pricing: ModelTokenPricing = {
+    inputUsdPerMillion: 1,
+    outputUsdPerMillion: 2,
+    cacheCreationInputUsdPerMillion: 1.25,
+    cacheReadInputUsdPerMillion: 0.1,
+    source: "test protocol price catalog",
+    asOf: "2026-07-18",
+  };
+  const reasoning = new TierTrackingModel("reasoning-cloud", ["reasoning"], "reasoned answer");
+  const defaultModel = new TierTrackingModel("default-cloud", ["default"], "drafted response");
+  const cheap = new TierTrackingModel("cheap-cloud", ["cheap"], "jobpilot", { cheap: pricing });
+  const wiring = await buildWiring({ modelProviders: [reasoning, defaultModel, cheap] });
+  try {
+    await wiring.onboardingProfileStore.save({
+      organizationId: PILOT_ORGANIZATION,
+      avatarStyle: "owl",
+      answers: { working_style_notes: "PRIVATE_STYLE_SENTINEL" },
+      phoneVerified: false,
+      verificationMethod: null,
+      connectedSourceIds: [],
+      updatedAtISO: new Date().toISOString(),
+    });
+    const caller = await makeCaller(wiring);
+    const routed = await caller.chiefOfStaff.converse({
+      organizationId: PILOT_ORGANIZATION,
+      message: "check my job applications",
+      chainDepth: 0,
+      cloudModelEgress: PUBLIC_CLOUD_MODEL_EGRESS,
+    });
+
+    assert.equal(cheap.calls.length, 1);
+    assert.equal(reasoning.calls.length, 0);
+    assert.equal(cheap.calls[0]?.tier, "cheap");
+    assert.deepEqual(cheap.calls[0]?.cache, { strategy: "stable_system_prefix", ttl: "5m" });
+    assert.ok(routed.modelReceiptLedgerId);
+
+    const history = await wiring.ledger.listHistory(PILOT_ORGANIZATION, {
+      limit: 20,
+      offset: 0,
+      privateOwnerUserId: PILOT_USER,
+    });
+    const receiptEntry = history.items.find((entry) => entry.id === routed.modelReceiptLedgerId);
+    assert.ok(receiptEntry);
+    assert.equal(receiptEntry.actorType, "agent");
+    assert.equal(receiptEntry.actorId, EGRESS_AGENT);
+    assert.equal(receiptEntry.onBehalfOfType, "user");
+    assert.equal(receiptEntry.onBehalfOfId, PILOT_USER);
+    assert.equal(receiptEntry.resourceType, "external:fetch");
+    assert.equal(receiptEntry.resourceId, undefined);
+    assert.equal(receiptEntry.dataScope, "public");
+    assert.deepEqual(
+      receiptEntry.policyResults.map((result) => [result.policyId, result.effect]),
+      [["pol-model-execution-plane", "allow"]],
+    );
+    assert.equal((receiptEntry.inputs as { promptStored?: unknown }).promptStored, false);
+    assert.equal(
+      (receiptEntry.inputs as { cloudEgressConfirmed?: unknown }).cloudEgressConfirmed,
+      true,
+    );
+    assert.equal(
+      (receiptEntry.inputs as { modelCallRunId?: unknown }).modelCallRunId,
+      routed.modelReceiptLedgerId,
+    );
+    assert.doesNotMatch(JSON.stringify(receiptEntry), /check my job applications/);
+    const proposedOutput = receiptEntry.proposedOutput as {
+      receipt: { tier: string; usage: { inputTokens: number }; cost: { status: string; estimatedUsd: number | null } };
+    };
+    assert.equal(proposedOutput.receipt.tier, "cheap");
+    assert.equal(proposedOutput.receipt.usage.inputTokens, 100);
+    assert.equal(proposedOutput.receipt.cost.status, "estimated");
+    assert.ok((proposedOutput.receipt.cost.estimatedUsd ?? 0) > 0);
+
+    const addressed = await caller.chiefOfStaff.converse({
+      organizationId: PILOT_ORGANIZATION,
+      message: "@learning identify the important pattern",
+      chainDepth: 0,
+      cloudModelEgress: PUBLIC_CLOUD_MODEL_EGRESS,
+    });
+    assert.equal(addressed.agent, "learning");
+    assert.ok(addressed.modelReceiptLedgerId);
+    assert.equal(reasoning.calls.length, 1);
+    assert.equal(reasoning.calls[0]?.tier, "reasoning");
+    assert.doesNotMatch(
+      reasoning.calls[0]?.system ?? "",
+      /PRIVATE_STYLE_SENTINEL/,
+      "profile-derived context must not enter a cloud prompt",
+    );
+    const addressedReceipt = await wiring.ledger.get(addressed.modelReceiptLedgerId);
+    assert.equal(addressedReceipt?.actorId, EGRESS_AGENT);
+    assert.equal(addressedReceipt?.onBehalfOfId, PILOT_USER);
+
+    const drafted = await caller.chiefOfStaff.converse({
+      organizationId: PILOT_ORGANIZATION,
+      message: "@communications draft a short update",
+      chainDepth: 0,
+      cloudModelEgress: PUBLIC_CLOUD_MODEL_EGRESS,
+    });
+    assert.ok(drafted.modelReceiptLedgerId);
+    assert.equal(defaultModel.calls.length, 1);
+    assert.equal(defaultModel.calls[0]?.tier, "default");
+    assert.doesNotMatch(
+      defaultModel.calls[0]?.system ?? "",
+      /PRIVATE_STYLE_SENTINEL/,
+      "profile-derived context must not enter a cloud prompt",
+    );
+    const draftedReceipt = await wiring.ledger.get(drafted.modelReceiptLedgerId);
+    assert.equal(draftedReceipt?.actorId, EGRESS_AGENT);
+    assert.equal(draftedReceipt?.onBehalfOfId, PILOT_USER);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("chiefOfStaff.converse: cloud providers are never a fallback for a turn without explicit public-data egress", async () => {
+  const cheap = new TierTrackingModel("cheap-cloud", ["cheap"], "jobpilot");
+  const wiring = await buildWiring({ modelProviders: [cheap] });
+  try {
+    const caller = await makeCaller(wiring);
+    await assert.rejects(
+      () =>
+        caller.chiefOfStaff.converse({
+          organizationId: PILOT_ORGANIZATION,
+          message: "check my job applications PRIVATE_SENTINEL",
+          chainDepth: 0,
+        }),
+      /LOCAL-plane/,
+    );
+    assert.equal(cheap.calls.length, 0);
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("chiefOfStaff.converse: an unmatched message clarifies instead of guessing a route", async () => {
   const wiring = await buildWiring();
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "tell me about the weather today",
       chainDepth: 0,
     });
@@ -70,7 +324,7 @@ test("chiefOfStaff.converse: chain depth at the hard cap falls back to a direct 
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "can you check my job applications for any interview updates",
       chainDepth: 3, // MAX_CHAIN_DEPTH
     });
@@ -86,7 +340,7 @@ test("chiefOfStaff.converse: an @mention addresses a foundational agent directly
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "@learning what patterns have you noticed in my week?",
       chainDepth: 0,
     });
@@ -104,7 +358,7 @@ test("chiefOfStaff.converse: @builder (Capability Builder) always drafts through
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "@builder create a weekly digest automation",
       chainDepth: 0,
     });
@@ -121,7 +375,7 @@ test("chiefOfStaff.converse: an unrecognized @word is treated as ordinary text, 
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "@nobody can you check my job applications",
       chainDepth: 0,
     });
@@ -132,17 +386,71 @@ test("chiefOfStaff.converse: an unrecognized @word is treated as ordinary text, 
   }
 });
 
-test("chiefOfStaff.converse: a non-pilot workspaceId is rejected with FORBIDDEN (single-tenant guard applies here too)", async () => {
+test("chiefOfStaff.converse: a non-pilot organizationId is rejected with FORBIDDEN (single-tenant guard applies here too)", async () => {
   const wiring = await buildWiring();
   try {
     const caller = await makeCaller(wiring);
     await assert.rejects(() =>
       caller.chiefOfStaff.converse({
-        workspaceId: "d0000000-0000-4000-a000-00000000dead",
+        organizationId: "d0000000-0000-4000-a000-00000000dead",
         message: "anything",
         chainDepth: 0,
       }),
     );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("chiefOfStaff.converse: a non-member is rejected before any model call", async () => {
+  const cheap = new TierTrackingModel("cheap-cloud", ["cheap"], "jobpilot");
+  const wiring = await buildWiring({ modelProviders: [cheap] });
+  try {
+    const caller = await makeCaller(wiring, "d0000000-0000-4000-a000-00000000cafe");
+    await assert.rejects(
+      () =>
+        caller.chiefOfStaff.converse({
+          organizationId: PILOT_ORGANIZATION,
+          message: "check my job applications",
+          chainDepth: 0,
+          cloudModelEgress: PUBLIC_CLOUD_MODEL_EGRESS,
+        }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code: unknown }).code === "FORBIDDEN",
+    );
+    assert.equal(cheap.calls.length, 0);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("chiefOfStaff.converse: Organization membership without model-egress authority fails before provider access", async () => {
+  const cheap = new TierTrackingModel("cheap-cloud", ["cheap"], "jobpilot");
+  const wiring = await buildWiring({ modelProviders: [cheap] });
+  try {
+    const member = await wiring.organizationStore.inviteMember(
+      PILOT_ORGANIZATION,
+      "test-fixture-task-022-no-egress@example.invalid",
+    );
+    const caller = await makeCaller(wiring, member.userId);
+    await assert.rejects(
+      () =>
+        caller.chiefOfStaff.converse({
+          organizationId: PILOT_ORGANIZATION,
+          message: "check my job applications",
+          chainDepth: 0,
+          cloudModelEgress: PUBLIC_CLOUD_MODEL_EGRESS,
+        }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code: unknown }).code === "FORBIDDEN",
+    );
+    assert.equal(cheap.calls.length, 0);
   } finally {
     await wiring.close();
   }
@@ -153,42 +461,41 @@ test("chiefOfStaff.converse: the CoS persona is resolved server-side from the st
   try {
     const caller = await makeCaller(wiring);
     await wiring.onboardingProfileStore.save({
-      workspaceId: PILOT_WORKSPACE,
-      animal: "owl",
+      organizationId: PILOT_ORGANIZATION,
+      avatarStyle: "owl",
       answers: { role: "investor" },
       phoneVerified: false,
       verificationMethod: null,
       connectedSourceIds: [],
       updatedAtISO: new Date().toISOString(),
     });
-    const owl = await caller.chiefOfStaff.converse({ workspaceId: PILOT_WORKSPACE, message: "tell me about the weather today", chainDepth: 0 });
-    assert.equal(owl.persona.id, "chief_of_staff");
-    assert.ok(owl.persona.tone && /wise and calm/.test(owl.persona.tone), "owl profile should yield the owl tone");
+    const first = await caller.chiefOfStaff.converse({ organizationId: PILOT_ORGANIZATION, message: "tell me about the weather today", chainDepth: 0 });
+    assert.equal(first.persona.id, "chief_of_staff");
+    assert.equal(first.persona.tone, undefined);
 
     await wiring.onboardingProfileStore.save({
-      workspaceId: PILOT_WORKSPACE,
-      animal: "fox",
+      organizationId: PILOT_ORGANIZATION,
+      avatarStyle: "fox",
       answers: { role: "recruiter" },
       phoneVerified: false,
       verificationMethod: null,
       connectedSourceIds: [],
       updatedAtISO: new Date().toISOString(),
     });
-    const fox = await caller.chiefOfStaff.converse({ workspaceId: PILOT_WORKSPACE, message: "tell me about the weather today", chainDepth: 0 });
-    assert.ok(fox.persona.tone && /clever and playful/.test(fox.persona.tone), "fox profile should yield the fox tone");
-    assert.notEqual(owl.persona.tone, fox.persona.tone, "two profiles must produce two distinct persona cards");
+    const second = await caller.chiefOfStaff.converse({ organizationId: PILOT_ORGANIZATION, message: "tell me about the weather today", chainDepth: 0 });
+    assert.equal(second.persona.tone, undefined);
   } finally {
     await wiring.close();
   }
 });
 
-test("chiefOfStaff.converse: a stored profile's animal overrides the client-supplied input.animal (server-side wins)", async () => {
+test("chiefOfStaff.converse: stored Avatar style does not alter Agent tone", async () => {
   const wiring = await buildWiring();
   try {
     const caller = await makeCaller(wiring);
     await wiring.onboardingProfileStore.save({
-      workspaceId: PILOT_WORKSPACE,
-      animal: "owl",
+      organizationId: PILOT_ORGANIZATION,
+      avatarStyle: "owl",
       answers: {},
       phoneVerified: false,
       verificationMethod: null,
@@ -196,12 +503,11 @@ test("chiefOfStaff.converse: a stored profile's animal overrides the client-supp
       updatedAtISO: new Date().toISOString(),
     });
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "tell me about the weather today",
       chainDepth: 0,
-      animal: "fox",
     });
-    assert.ok(result.persona.tone && /wise and calm/.test(result.persona.tone), "stored owl must win over client-supplied fox");
+    assert.equal(result.persona.tone, undefined);
   } finally {
     await wiring.close();
   }

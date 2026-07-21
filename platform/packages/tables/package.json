@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Notion-parity table engine — schema-driven columns, views-as-data, and a swappable PersistencePort. Extracted from the prototype's DataEngine (docs/raw/tool-standardization-plan.md, Phase 1). The prototype itself cuts over once it joins this workspace (Phase 5); until then this package is the tested contract other consumers (and eventually DataEngine) build against.",
+  "description": "Schema-driven columns, canonical views-as-data, and a swappable PersistencePort for every Database surface.",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",

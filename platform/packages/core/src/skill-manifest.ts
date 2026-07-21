@@ -40,8 +40,8 @@ export type ChildRunPolicy = "forbidden" | "allowed";
  * cannot regress any existing ungoverned skill.
  */
 export interface SkillManifest {
-  /** Owning workspace; a manifest never authorizes work across tenant boundaries. */
-  workspaceId: string;
+  /** Owning organization; a manifest never authorizes work across tenant boundaries. */
+  organizationId: string;
   skillId: string;
   version: string;
   goalTypes: readonly GoalType[];
@@ -67,28 +67,28 @@ export interface SkillManifest {
 
 export interface SkillManifestRegistry {
   /** All manifest versions registered under one skill id (empty = ungoverned skill). */
-  forSkill(workspaceId: string, skillId: string): readonly SkillManifest[];
+  forSkill(organizationId: string, skillId: string): readonly SkillManifest[];
   /** The full registered catalog — used for Goal/Task-driven discovery when no
    * skill id is pre-named (`resolveSkillForTask` with `ctx.skillId` omitted). */
-  all(workspaceId: string): readonly SkillManifest[];
+  all(organizationId: string): readonly SkillManifest[];
 }
 
 export class InMemorySkillManifestRegistry implements SkillManifestRegistry {
   readonly byId = new Map<string, SkillManifest[]>();
 
   register(manifest: SkillManifest): void {
-    const key = `${manifest.workspaceId}:${manifest.skillId}`;
+    const key = `${manifest.organizationId}:${manifest.skillId}`;
     const existing = this.byId.get(key) ?? [];
     existing.push(manifest);
     this.byId.set(key, existing);
   }
 
-  forSkill(workspaceId: string, skillId: string): readonly SkillManifest[] {
-    return this.byId.get(`${workspaceId}:${skillId}`) ?? [];
+  forSkill(organizationId: string, skillId: string): readonly SkillManifest[] {
+    return this.byId.get(`${organizationId}:${skillId}`) ?? [];
   }
 
-  all(workspaceId: string): readonly SkillManifest[] {
-    const prefix = `${workspaceId}:`;
+  all(organizationId: string): readonly SkillManifest[] {
+    const prefix = `${organizationId}:`;
     return [...this.byId.entries()]
       .filter(([key]) => key.startsWith(prefix))
       .flatMap(([, manifests]) => manifests);
@@ -131,7 +131,7 @@ function compareVersions(a: string, b: string): number {
 
 export type SkillResolutionFailureReason =
   | "no-registered-manifest"
-  | "workspace-mismatch"
+  | "organization-mismatch"
   | "task-inactive"
   | "agent-inactive"
   | "goal-type-mismatch"
@@ -166,7 +166,7 @@ export interface SkillResolutionResult {
 
 export interface SkillResolutionAgentView {
   id: string;
-  workspaceId: string | null;
+  organizationId: string | null;
   active: boolean;
   capabilityScope: readonly string[];
   plane: Plane;
@@ -235,14 +235,14 @@ export async function resolveSkillForTask(
     };
 
     if (
-      ctx.goal.workspaceId !== ctx.task.workspaceId ||
+      ctx.goal.organizationId !== ctx.task.organizationId ||
       ctx.task.goalId !== ctx.goal.id ||
-      ctx.agent.workspaceId !== ctx.goal.workspaceId ||
-      manifest.workspaceId !== ctx.goal.workspaceId
+      ctx.agent.organizationId !== ctx.goal.organizationId ||
+      manifest.organizationId !== ctx.goal.organizationId
     ) {
       fail(
-        "workspace-mismatch",
-        `Goal ${ctx.goal.id}, Task ${ctx.task.id}, Agent ${ctx.agent.id}, and Skill manifest must belong to one workspace`,
+        "organization-mismatch",
+        `Goal ${ctx.goal.id}, Task ${ctx.task.id}, Agent ${ctx.agent.id}, and Skill manifest must belong to one organization`,
       );
       continue;
     }

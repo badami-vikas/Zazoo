@@ -8,6 +8,5 @@ export { GroqProvider, type GroqProviderOpts } from "./groq-provider.js";
 export { createModelRouter, type ModelRouter } from "./router.js";
 export { createLocalContentGuard, CloudContentGuardError } from "./local-content-guard.js";
 export { defaultFetch, type FetchLike } from "./fetch-types.js";
-export * from "./safe-http-client.js";
 export * from "./search-provider-router.js";
 export * from "./parallel-search-provider.js";

@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "types": ["node"],
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../../packages/capability-kit" },
+    { "path": "../../tools/company-sourcing" },
+    { "path": "../../tools/people-sourcing" },
+    { "path": "../../packages/dedupe" },
+    { "path": "../../packages/facts" },
+    { "path": "../../packages/sourcing" },
+    { "path": "../../packages/tables" }
+    ,{ "path": "../manifests" }
+  ],
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

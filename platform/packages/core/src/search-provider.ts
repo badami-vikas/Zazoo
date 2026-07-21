@@ -5,6 +5,9 @@ export const SEARCH_PROVIDER_LIMITS = {
   maxQueries: 3,
   maxQueryChars: 160,
   maxResults: 10,
+  minResponseBytes: 1_024,
+  maxResponseBytes: 512 * 1_024,
+  maxProviderAttempts: 3,
   minTimeoutMs: 1_000,
   maxTimeoutMs: 15_000,
   maxRequestIdChars: 100,
@@ -21,6 +24,13 @@ export const SEARCH_PROVIDER_RESULT_LIMITS = {
 } as const;
 
 export type SearchProviderTier = 1 | 2 | 3;
+export const SEARCH_PROVIDER_HEALTH = [
+  "healthy",
+  "unknown",
+  "degraded",
+  "unavailable",
+] as const;
+export type SearchProviderHealth = (typeof SEARCH_PROVIDER_HEALTH)[number];
 export type SearchProviderAccess =
   | "free_direct"
   | "free_credentialed"
@@ -31,9 +41,12 @@ export interface SearchRequest {
   objective: string;
   searchQueries: readonly string[];
   maxResults: number;
+  maxResponseBytes: number;
+  maxProviderAttempts: number;
   timeoutMs: number;
   requestId: string;
   requestedAt: string;
+  signal?: AbortSignal;
 }
 
 export interface SearchCitation {
@@ -41,6 +54,9 @@ export interface SearchCitation {
   title: string | null;
   publishedAt: string | null;
   excerpts: readonly string[];
+  providerId: string;
+  retrievedAt: string;
+  contentHash: string;
   trustOrigin: "untrusted_external";
 }
 
@@ -52,6 +68,9 @@ export interface SearchProviderProvenance {
   termsUrl: string;
   privacyUrl?: string;
   searchedAt: string;
+  responseBytes: number;
+  contentHash: string;
+  rights: SearchProviderRights;
 }
 
 export interface SearchProviderResult {
@@ -77,6 +96,7 @@ export interface SearchProvider {
   termsUrl: string;
   privacyUrl?: string;
   rights: SearchProviderRights;
+  health(): SearchProviderHealth;
   search(request: SearchRequest): Promise<SearchProviderResult>;
 }
 
@@ -89,6 +109,7 @@ export interface SearchProviderAttempt {
   providerId: string;
   providerTier: SearchProviderTier;
   providerAccess: SearchProviderAccess;
+  providerHealth: SearchProviderHealth;
   status: SearchProviderAttemptStatus;
   code?: SearchProviderErrorCode;
   detail: string;
@@ -109,7 +130,8 @@ export type SearchProviderErrorCode =
   | "rate_limited"
   | "degraded"
   | "invalid_response"
-  | "access_blocked";
+  | "access_blocked"
+  | "cancelled";
 
 export class SearchRequestBoundsError extends Error {
   constructor(message: string) {
@@ -195,6 +217,24 @@ export function normalizeSearchRequest(request: SearchRequest): SearchRequest {
     );
   }
   if (
+    !Number.isInteger(request.maxResponseBytes) ||
+    request.maxResponseBytes < SEARCH_PROVIDER_LIMITS.minResponseBytes ||
+    request.maxResponseBytes > SEARCH_PROVIDER_LIMITS.maxResponseBytes
+  ) {
+    throw new SearchRequestBoundsError(
+      `maxResponseBytes must be an integer from ${SEARCH_PROVIDER_LIMITS.minResponseBytes}-${SEARCH_PROVIDER_LIMITS.maxResponseBytes}`,
+    );
+  }
+  if (
+    !Number.isInteger(request.maxProviderAttempts) ||
+    request.maxProviderAttempts < 1 ||
+    request.maxProviderAttempts > SEARCH_PROVIDER_LIMITS.maxProviderAttempts
+  ) {
+    throw new SearchRequestBoundsError(
+      `maxProviderAttempts must be an integer from 1-${SEARCH_PROVIDER_LIMITS.maxProviderAttempts}`,
+    );
+  }
+  if (
     !Number.isInteger(request.timeoutMs) ||
     request.timeoutMs < SEARCH_PROVIDER_LIMITS.minTimeoutMs ||
     request.timeoutMs > SEARCH_PROVIDER_LIMITS.maxTimeoutMs
@@ -221,8 +261,11 @@ export function normalizeSearchRequest(request: SearchRequest): SearchRequest {
     objective,
     searchQueries,
     maxResults: request.maxResults,
+    maxResponseBytes: request.maxResponseBytes,
+    maxProviderAttempts: request.maxProviderAttempts,
     timeoutMs: request.timeoutMs,
     requestId,
     requestedAt: request.requestedAt,
+    ...(request.signal ? { signal: request.signal } : {}),
   };
 }

@@ -6,15 +6,16 @@ full: [../raw/learning-agent-roadmap-2026-07.md](../raw/learning-agent-roadmap-2
 corrections, connected systems, docs; runs research; feeds every other
 agent. `neverExecutes: true` — enforced in code, only firm thing built.
 
-**Ground truth (updated 2026-07-18): early substrate now real.** @learning =
+**Ground truth (updated 2026-07-21): early substrate now real.** @learning =
 prompt + one LLM call. Durable Memory runtime ABSENT
 (historical audit); MemoryStore + Drizzle binding now exist, and TASK-002 uses
 private Local Plane preference Memories with inspect/correct/delete. Mem0 decision ratified (ADR-010f), zero
-mem0 code. PromptAssembler unbuilt. LA3 Phase 1 research Result path now real:
-governed `web-research` Skill + SearchProvider + safe HTTP + citations +
-output taint. No research-to-Memory/prompt sink yet. Onboarding profile
-in-memory only. Signals tables exist, no producer. Embeddings tables exist,
-no retrieval. Quarantine/full runtime taint flow still open.
+mem0 code. PromptAssembler unbuilt. LA3 Phase 1 now real: signed Relationship
+Skill + SearchProvider + shared net-guard + ContentGuard. Raw snippets stop
+at quarantine. Cited Result + private Memory + Event keep rights, hashes,
+provider attempts, `untrusted_external`. No research-to-prompt sink.
+Onboarding profile in-memory only. Embeddings exist, no retrieval. Full
+runtime taint still open.
 
 **TASK-002 partial:** every onboarding question says why + effect. User may skip
 role model. Fixed-host Wikipedia research returns citation + separates documented
@@ -52,10 +53,10 @@ instrumentation → quarantine/deny → backfill+trace. Unknown label fails clos
   (batched, annoyance-capped); Gmail/Docs ingestion taint-tiered;
   Signals producer wired; decay + dedupe; trivial-fact auto-accept behind
   receipted grant (GA2 mechanism).
-- LA3 research lane — SSRF-hardened client FIRST (RFC-1918/metadata
-  block, rebinding guard), THEN crawlers; competitor-discovery skill →
+- LA3 research lane — shared net-guard FIRST (SSRF/DNS/redirect/bytes/time),
+  then rights-approved providers; competitor-discovery skill →
   CompetitorBrief (cited, dated, no hardcoded competitors — ADR-012e);
-  dual-LLM quarantine; all fetches via pipeline external:fetch.
+  local ContentGuard quarantine; all fetches via pipeline external:fetch.
 - LA4 integration-over-build — installed-software discovery (explicit
   permission, logged); overlap detect vs Registry + Commons; research
   handoff Builder consumes ("install instead?" evidence). Exit:
@@ -82,7 +83,7 @@ plane) — LA0–LA3 self-contained, deliver standalone.
 
 No sequencer reorder. LA0/LA1 refine P0–P1 tracks (ADR-031/034).
 
-**LA3 provider survey + rights gate (TASK-023, ADR-111/113):** 178
+**LA3 provider survey + rights gate (TASK-023, ADR-111/141):** 178
 candidates checked. Phase 1 ships only anonymous Parallel Search MCP.
 Jina keyless + DuckDuckGo IA blocked: current direct-access rights not
 verified. Tier2 still signup-gated. Tier3 still cost/ROI + approval-gated.

@@ -38,7 +38,12 @@ export {
 } from "./intake.js";
 export { EgressExecutor, type EgressExecutorDeps, type EgressOutcome } from "./egress.js";
 export { GoogleService, type GoogleServiceDeps, type ProposeSendInput, type CalendarWriteAction } from "./service.js";
-export { GOOGLE_MANIFEST, type ToolManifest, type ToolCapability, type ToolOutputMapping } from "./manifest.js";
+export {
+  GOOGLE_MANIFEST,
+  type IntegrationManifest,
+  type IntegrationCapability,
+  type IntegrationOutputMapping,
+} from "./manifest.js";
 export {
   oauthConfigFromEnv,
   buildOAuthClient,

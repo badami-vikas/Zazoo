@@ -16,7 +16,7 @@ export function DashboardRow({ metrics }: { metrics: DashboardMetric[] }) {
   if (metrics.length === 0) return null;
   return (
     <div
-      className="flex items-stretch gap-3 px-4 py-3 border-b overflow-x-auto shrink-0"
+      className="flex flex-wrap items-stretch gap-3 border-b px-4 py-3 sm:flex-nowrap sm:overflow-x-auto"
       style={{ borderColor: "var(--color-border)", backgroundColor: "white" }}
     >
       {metrics.map((m) => (

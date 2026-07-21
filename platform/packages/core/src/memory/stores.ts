@@ -2,27 +2,32 @@
  * In-memory port implementations. Let core run + be tested with no database.
  * The Drizzle/Supabase implementations in `@bridge/db` bind the same interfaces.
  */
-import type {
-  AgentQuery,
-  EphemeralQuery,
-  EventBus,
-  LedgerStore,
-  LocalMediaStore,
-  MediaCaptureRecord,
-  MediaKind,
-  MediaStatus,
-  ModelProvider,
-  PolicyEvalInput,
-  PolicyStore,
-  RitualDefinition,
-  RitualRegistry,
-  RitualRunRecorder,
-  ToolRegistry,
-  RoleQuery,
-  RunCtx,
-  Skill,
-  SkillRegistry,
-  VarianceAdjuster,
+import {
+  MODEL_TIERS,
+  assertModelCompletionRequest,
+  type ModelCompletion,
+  type ModelCompletionRequest,
+  type ModelTier,
+  type AgentQuery,
+  type EphemeralQuery,
+  type EventBus,
+  type LedgerStore,
+  type LocalMediaStore,
+  type MediaCaptureRecord,
+  type MediaKind,
+  type MediaStatus,
+  type ModelProvider,
+  type PolicyEvalInput,
+  type PolicyStore,
+  type AutomationDefinition,
+  type AutomationRegistry,
+  type AutomationRunRecord,
+  type AutomationRunRecorder,
+  type RoleQuery,
+  type RunCtx,
+  type Skill,
+  type SkillRegistry,
+  type VarianceAdjuster,
 } from "../ports.js";
 import type {
   Actor,
@@ -59,15 +64,33 @@ export class InMemoryRoleStore implements RoleQuery {
 export class InMemoryAgentStore implements AgentQuery {
   readonly assumed = new Map<string, string | null>();
   readonly scope = new Map<string, string[]>();
-  readonly workspaces = new Map<string, string>();
+  /** Owning organization per agent (AgentQuery.organizationId — added alongside
+   * relationship-module trust boundaries; unset = unknown, never guessed). */
+  readonly organizations = new Map<string, string>();
+  /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review) — a fail-closed Agent status vocabulary (`active` | `paused`
+   * | `retired`), not a narrower ad hoc `active`/`inactive` pair. Unset
+   * defaults to effectively-inactive (fail closed — an agent must be
+   * explicitly seeded `active`, mirrors `DrizzleAgentStore.isActive`'s
+   * real-row-or-false shape, never assumes). This branch and `origin/main`
+   * independently added the same `organizations`/`statuses`/`organizationId`/
+   * `isActive` members off the same shared ancestor (this branch's own
+   * `"active" | "inactive"` version vs. `origin/main`'s `212e65f`
+   * `"active" | "paused" | "retired"` version) — a merge that auto-resolved
+   * without conflict markers but left BOTH duplicated in the file. Kept
+   * `origin/main`'s richer three-value vocabulary here as authoritative
+   * (this repo has no other file currently keying off this exact union, so
+   * "canonical" only means "the one kept," not an existing multi-file
+   * contract): `assumedRole` existing must never, by itself, make an
+   * unknown/unseeded/paused/retired agent look active. */
   readonly statuses = new Map<string, "active" | "paused" | "retired">();
   /** Per-agent data-tier ceiling. Default 'all' when unset. */
   readonly tiers = new Map<string, DataScope>();
   /** Per-agent skill allow-list. Empty/unset = unrestricted. */
   readonly skills = new Map<string, string[]>();
 
-  async workspaceId(agentId: string): Promise<string | null> {
-    return this.workspaces.get(agentId) ?? null;
+  async organizationId(agentId: string): Promise<string | null> {
+    return this.organizations.get(agentId) ?? null;
   }
   async isActive(agentId: string): Promise<boolean> {
     return this.statuses.get(agentId) === "active";
@@ -174,15 +197,58 @@ export class InMemoryPolicyStore implements PolicyStore {
   }
 }
 
+function hasRelationshipDirective(entry: LedgerEntry): boolean {
+  return (
+    typeof entry.inputs === "object" &&
+    entry.inputs !== null &&
+    !Array.isArray(entry.inputs) &&
+    "directive" in entry.inputs
+  );
+}
+
+/** Owner-scopes every private/Relationship shape, including rows created before
+ * dataScope and legacy Learning recommendations. */
+export function isOwnerScopedLedgerEntry(entry: LedgerEntry): boolean {
+  const inputs =
+    typeof entry.inputs === "object" &&
+    entry.inputs !== null &&
+    !Array.isArray(entry.inputs)
+      ? entry.inputs as Record<string, unknown>
+      : null;
+  return (
+    entry.dataScope === "private" ||
+    entry.resourceType === "relation" ||
+    entry.resourceType === "person" ||
+    entry.resourceType === "community" ||
+    entry.resourceType === "event" ||
+    hasRelationshipDirective(entry) ||
+    inputs?.visibility === "private" ||
+    (
+      entry.dataScope === undefined &&
+      entry.resourceType === "signal" &&
+      inputs?.kind === "learning_recommendation"
+    )
+  );
+}
+
 function ledgerEntryVisibleToPrivateOwner(
   entry: LedgerEntry,
   privateOwnerUserId: string | undefined,
+  entries: readonly LedgerEntry[],
 ): boolean {
-  if (!privateOwnerUserId || entry.resourceType !== "relation") return true;
-  if (entry.onBehalfOfType === "user") {
-    return entry.onBehalfOfId === privateOwnerUserId;
+  if (!privateOwnerUserId) return true;
+  const referenced = entry.refLedgerId
+    ? entries.find((candidate) => candidate.id === entry.refLedgerId)
+    : undefined;
+  const privateEntry = [entry, referenced].find(
+    (candidate): candidate is LedgerEntry =>
+      candidate !== undefined && isOwnerScopedLedgerEntry(candidate),
+  );
+  if (!privateEntry) return true;
+  if (privateEntry.onBehalfOfType === "user") {
+    return privateEntry.onBehalfOfId === privateOwnerUserId;
   }
-  return entry.actorType === "user" && entry.actorId === privateOwnerUserId;
+  return privateEntry.actorType === "user" && privateEntry.actorId === privateOwnerUserId;
 }
 
 export class InMemoryLedger implements LedgerStore {
@@ -236,13 +302,13 @@ export class InMemoryLedger implements LedgerStore {
     return this.entries.find((e) => e.refLedgerId === proposalId && e.userDecision !== null) ?? null;
   }
   async listPending(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
     const pending = this.entries
       .filter(
         (entry) =>
-          entry.workspaceId === workspaceId &&
+          entry.organizationId === organizationId &&
           entry.userDecision === null &&
           entry.refLedgerId === undefined &&
           !(
@@ -251,7 +317,7 @@ export class InMemoryLedger implements LedgerStore {
             !Array.isArray(entry.diff) &&
             "rejected" in entry.diff
           ) &&
-          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId) &&
+          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId, this.entries) &&
           !this.#resolved.has(entry.id),
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -259,14 +325,14 @@ export class InMemoryLedger implements LedgerStore {
   }
 
   async listHistory(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
     const items = this.entries
       .filter(
         (entry) =>
-          entry.workspaceId === workspaceId &&
-          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId),
+          entry.organizationId === organizationId &&
+          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId, this.entries),
       )
       .sort((left, right) => (right.appendSequence ?? 0) - (left.appendSequence ?? 0));
     return {
@@ -325,11 +391,11 @@ export class InMemoryMediaStore implements LocalMediaStore {
   async getBlob(id: string): Promise<Uint8Array | null> {
     return this.blobs.get(id) ?? null;
   }
-  async list(filter?: { status?: MediaStatus; kind?: MediaKind; workspaceId?: string }): Promise<MediaCaptureRecord[]> {
+  async list(filter?: { status?: MediaStatus; kind?: MediaKind; organizationId?: string }): Promise<MediaCaptureRecord[]> {
     return [...this.records.values()]
       .filter((r) => (filter?.status ? r.status === filter.status : true))
       .filter((r) => (filter?.kind ? r.kind === filter.kind : true))
-      .filter((r) => (filter?.workspaceId ? r.workspaceId === filter.workspaceId : true))
+      .filter((r) => (filter?.organizationId ? r.organizationId === filter.organizationId : true))
       .map((r) => ({ ...r }));
   }
   async update(id: string, patch: Partial<MediaCaptureRecord>): Promise<MediaCaptureRecord> {
@@ -340,7 +406,7 @@ export class InMemoryMediaStore implements LocalMediaStore {
       ...r,
       ...patch,
       id: r.id,
-      workspaceId: r.workspaceId,
+      organizationId: r.organizationId,
       kind: r.kind,
       mimeType: r.mimeType,
       byteSize: r.byteSize,
@@ -366,12 +432,42 @@ export class InMemoryMediaStore implements LocalMediaStore {
 export class EchoModelProvider implements ModelProvider {
   readonly id: string;
   readonly plane: "local" | "cloud";
-  constructor(id = "echo", plane: "local" | "cloud" = "local") {
+  readonly tiers: readonly ModelTier[];
+  readonly models: Readonly<Partial<Record<ModelTier, string>>>;
+  constructor(
+    id = "echo",
+    plane: "local" | "cloud" = "local",
+    tiers: readonly ModelTier[] = MODEL_TIERS,
+  ) {
     this.id = id;
     this.plane = plane;
+    this.tiers = [...tiers];
+    const models: Partial<Record<ModelTier, string>> = {};
+    for (const tier of this.tiers) models[tier] = id;
+    this.models = models;
   }
-  async complete(req: { system?: string; prompt: string; maxTokens?: number }): Promise<{ text: string }> {
-    return { text: req.system ? `${req.system}\n${req.prompt}` : req.prompt };
+  routingHealth() {
+    return "unknown" as const;
+  }
+  async complete(req: ModelCompletionRequest): Promise<ModelCompletion> {
+    assertModelCompletionRequest(req, "EchoModelProvider.complete");
+    if (!this.tiers.includes(req.tier)) {
+      throw new Error(`EchoModelProvider.complete: tier "${req.tier}" is not supported`);
+    }
+    const text = req.system ? `${req.system}\n${req.prompt}` : req.prompt;
+    const estimatedTokens = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
+    return {
+      text,
+      model: this.id,
+      tier: req.tier,
+      usage: {
+        inputTokens: estimatedTokens(text),
+        outputTokens: estimatedTokens(text),
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        source: "estimated",
+      },
+    };
   }
   async embed(texts: string[]): Promise<number[][]> {
     // Deterministic pseudo-embedding: vector of char-code sums, fixed length 8.
@@ -402,58 +498,75 @@ export class RecordingVarianceAdjuster implements VarianceAdjuster {
   }
 }
 
-export class InMemoryRitualRegistry implements RitualRegistry {
-  readonly rituals = new Map<string, RitualDefinition>();
-  register(def: RitualDefinition): this {
-    this.rituals.set(`${def.workspaceId}:${def.id}`, def);
+export class InMemoryAutomationRegistry implements AutomationRegistry {
+  readonly automations = new Map<string, AutomationDefinition>();
+  register(def: AutomationDefinition): this {
+    this.automations.set(`${def.organizationId}:${def.id}`, def);
     return this;
   }
-  async save(def: RitualDefinition): Promise<void> {
-    if (!def.agentId) throw new Error("RitualRegistry.save: owning agentId is required");
-    if (!def.agentPlane) throw new Error("RitualRegistry.save: owning agentPlane is required");
+  async save(def: AutomationDefinition): Promise<void> {
     this.register(def);
   }
-  async load(workspaceId: string, ritualId: string): Promise<RitualDefinition | null> {
-    return this.rituals.get(`${workspaceId}:${ritualId}`) ?? null;
+  async load(organizationId: string, automationId: string): Promise<AutomationDefinition | null> {
+    return this.automations.get(`${organizationId}:${automationId}`) ?? null;
   }
 }
 
-export class InMemoryToolRegistry implements ToolRegistry {
-  readonly tools = new Map<string, RitualDefinition>();
-  register(def: RitualDefinition): this {
-    this.tools.set(`${def.workspaceId}:${def.id}`, def);
-    return this;
-  }
-  async load(workspaceId: string, toolId: string): Promise<RitualDefinition | null> {
-    return this.tools.get(`${workspaceId}:${toolId}`) ?? null;
-  }
-}
-
-interface RunRecord {
+interface RunRecord extends AutomationRunRecord {
   runId: string;
-  ritualId: string;
-  workspaceId: string;
-  actorId: string;
+  automationId: string;
+  organizationId: string;
+  agentId: string;
   status: "running" | "completed" | "halted";
   output: unknown;
 }
 
-export class InMemoryRitualRunRecorder implements RitualRunRecorder {
+export class InMemoryAutomationRunRecorder implements AutomationRunRecorder {
   readonly runs = new Map<string, RunRecord>();
   async start(
-    run: { runId: string; ritualId: string; workspaceId: string; actorId: string },
-    _ctx: RunCtx,
-  ): Promise<void> {
-    this.runs.set(run.runId, { ...run, status: "running", output: null });
-  }
-  async finish(
-    run: { runId: string; status: "completed" | "halted"; output: unknown },
-    _ctx: RunCtx,
+    run: { runId: string; automationId: string; organizationId: string; agentId: string },
+    ctx: RunCtx,
   ): Promise<void> {
     const existing = this.runs.get(run.runId);
     if (existing) {
-      existing.status = run.status;
-      existing.output = run.output;
+      if (
+        existing.automationId !== run.automationId ||
+        existing.organizationId !== run.organizationId ||
+        existing.agentId !== run.agentId
+      ) {
+        throw new Error(`AutomationRunRecorder.start: Run ${run.runId} conflicts with existing attribution`);
+      }
+      return;
     }
+    this.runs.set(run.runId, {
+      ...run,
+      status: "running",
+      output: null,
+      startedAt: ctx.clock.nowISO(),
+    });
+  }
+  async finish(
+    run: { runId: string; organizationId: string; status: "completed" | "halted"; output: unknown },
+    ctx: RunCtx,
+  ): Promise<void> {
+    const existing = this.runs.get(run.runId);
+    if (!existing || existing.organizationId !== run.organizationId) {
+      throw new Error(`AutomationRunRecorder.finish: Run ${run.runId} not found in organization ${run.organizationId}`);
+    }
+    existing.status = run.status;
+    existing.output = run.output;
+    existing.finishedAt = ctx.clock.nowISO();
+  }
+  async list(
+    organizationId: string,
+    automationIds: string[],
+    opts: { limit: number },
+  ): Promise<AutomationRunRecord[]> {
+    const allowed = new Set(automationIds);
+    return [...this.runs.values()]
+      .filter((run) => run.organizationId === organizationId && allowed.has(run.automationId))
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+      .slice(0, Math.min(50, Math.max(1, opts.limit)))
+      .map(({ output: _output, ...run }) => run);
   }
 }

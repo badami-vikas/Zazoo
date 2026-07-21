@@ -4,7 +4,7 @@
  * blueprint's non-tabular view surface, docs/wiki/vision.md "View grammar":
  * "table · chatbot · dashboard · canvas"). Not @bridge/tables-backed (no
  * ViewConfig["kind"] === "dashboard" exists — @bridge/tables' grammar is table/
- * gallery/kanban/calendar/map/network only), so this lives OUTSIDE
+ * gallery/board/calendar/map/graph only), so this lives OUTSIDE
  * VIEW_COMPONENT_REGISTRY and is rendered directly by <DataViews> when a
  * compiled view's kind is "dashboard".
  *

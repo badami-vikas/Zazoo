@@ -4,7 +4,7 @@
  * (default: global `fetch`) so request-SHAPING is unit-testable with no
  * network call, and so callers can point at a proxy/mock in tests without
  * reaching for nock/msw. Only the narrow surface actually used is typed here
- * (not the full DOM `fetch` signature) to keep this package dependency-light.
+ * (not the full DOM `fetch` signature) to keep this module dependency-light.
  */
 export interface FetchLike {
   (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<{

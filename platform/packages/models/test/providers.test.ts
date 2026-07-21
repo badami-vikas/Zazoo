@@ -5,8 +5,8 @@ import { AnthropicProvider } from "../src/anthropic-provider.js";
 import { GroqProvider } from "../src/groq-provider.js";
 import type { FetchLike } from "../src/fetch-types.js";
 
-/** Records requests, returns a canned JSON body. No network ever. */
-function fakeFetch(responseBody: unknown) {
+/** Records requests, returns a caller-supplied protocol response. No network. */
+function recordingFetch(responseBody: unknown) {
   const calls: Array<{ url: string; init?: Parameters<FetchLike>[1] }> = [];
   const impl: FetchLike = async (url, init) => {
     calls.push({ url, ...(init !== undefined ? { init } : {}) });
@@ -21,12 +21,24 @@ function fakeFetch(responseBody: unknown) {
 }
 
 test("OllamaProvider shapes /api/generate requests and parses response", async () => {
-  const { impl, calls } = fakeFetch({ response: "the answer" });
+  const { impl, calls } = recordingFetch({
+    model: "m1",
+    response: "the answer",
+    prompt_eval_count: 7,
+    eval_count: 3,
+  });
   const p = new OllamaProvider({ baseUrl: "http://ollama.test:11434", model: "m1", fetchImpl: impl });
   assert.equal(p.plane, "local");
 
-  const out = await p.complete({ system: "sys", prompt: "q", maxTokens: 42 });
+  const out = await p.complete({ system: "sys", prompt: "q", maxTokens: 42, tier: "default" });
   assert.equal(out.text, "the answer");
+  assert.deepEqual(out.usage, {
+    inputTokens: 7,
+    outputTokens: 3,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    source: "provider",
+  });
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.url, "http://ollama.test:11434/api/generate");
   const body = JSON.parse(calls[0]!.init!.body!);
@@ -38,16 +50,21 @@ test("OllamaProvider shapes /api/generate requests and parses response", async (
 });
 
 test("OllamaProvider omits system/options when absent", async () => {
-  const { impl, calls } = fakeFetch({ response: "" });
+  const { impl, calls } = recordingFetch({
+    model: "llama3.1",
+    response: "",
+    prompt_eval_count: 1,
+    eval_count: 0,
+  });
   const p = new OllamaProvider({ baseUrl: "http://x", fetchImpl: impl });
-  await p.complete({ prompt: "q" });
+  await p.complete({ prompt: "q", tier: "cheap" });
   const body = JSON.parse(calls[0]!.init!.body!);
   assert.equal("system" in body, false);
   assert.equal("options" in body, false);
 });
 
 test("OllamaProvider shapes /api/embed requests", async () => {
-  const { impl, calls } = fakeFetch({ embeddings: [[1, 2], [3, 4]] });
+  const { impl, calls } = recordingFetch({ embeddings: [[1, 2], [3, 4]] });
   const p = new OllamaProvider({ baseUrl: "http://x", embedModel: "emb", fetchImpl: impl });
   const vecs = await p.embed(["a", "b"]);
   assert.deepEqual(vecs, [[1, 2], [3, 4]]);
@@ -58,12 +75,23 @@ test("OllamaProvider shapes /api/embed requests", async () => {
 });
 
 test("AnthropicProvider shapes /v1/messages requests with headers", async () => {
-  const { impl, calls } = fakeFetch({ content: [{ type: "text", text: "hi " }, { type: "text", text: "there" }] });
+  const { impl, calls } = recordingFetch({
+    model: "claude-fable-5",
+    content: [{ type: "text", text: "hi " }, { type: "text", text: "there" }],
+    usage: {
+      input_tokens: 9,
+      output_tokens: 2,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+  });
   const p = new AnthropicProvider({ apiKey: "k-test", model: "claude-fable-5", fetchImpl: impl });
   assert.equal(p.plane, "cloud");
 
-  const out = await p.complete({ system: "sys", prompt: "q" });
+  const out = await p.complete({ system: "sys", prompt: "q", tier: "reasoning" });
   assert.equal(out.text, "hi there");
+  assert.equal(out.model, "claude-fable-5");
+  assert.equal(out.usage.inputTokens, 9);
   assert.equal(calls[0]!.url, "https://api.anthropic.com/v1/messages");
   const headers = calls[0]!.init!.headers!;
   assert.equal(headers["x-api-key"], "k-test");
@@ -73,6 +101,105 @@ test("AnthropicProvider shapes /v1/messages requests with headers", async () => 
   assert.equal(body.system, "sys");
   assert.equal(body.max_tokens, 1024);
   assert.deepEqual(body.messages, [{ role: "user", content: "q" }]);
+});
+
+test("AnthropicProvider normalizes protocol-null cache counts but rejects omitted counts", async () => {
+  const response = {
+    model: "claude-haiku-4-5-20251001",
+    content: [{ type: "text", text: "hi" }],
+    usage: {
+      input_tokens: 9,
+      output_tokens: 2,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+    },
+  };
+  const nullable = recordingFetch(response);
+  const provider = new AnthropicProvider({ apiKey: "k-test", fetchImpl: nullable.impl });
+  const completion = await provider.complete({ prompt: "q", tier: "cheap" });
+  assert.equal(completion.usage.cacheCreationInputTokens, 0);
+  assert.equal(completion.usage.cacheReadInputTokens, 0);
+
+  const omitted = recordingFetch({
+    ...response,
+    usage: { input_tokens: 9, output_tokens: 2, cache_read_input_tokens: null },
+  });
+  const invalidProvider = new AnthropicProvider({ apiKey: "k-test", fetchImpl: omitted.impl });
+  await assert.rejects(
+    () => invalidProvider.complete({ prompt: "q", tier: "cheap" }),
+    /cache_creation_input_tokens/,
+  );
+});
+
+function anthropicPromptCacheProtocol() {
+  const calls: Array<{ url: string; init?: Parameters<FetchLike>[1] }> = [];
+  const cachedPrefixes = new Set<string>();
+  const minimumTokens: Record<string, number> = {
+    "claude-haiku-4-5": 4_096,
+    "claude-haiku-4-5-20251001": 4_096,
+    "claude-fable-5": 512,
+  };
+  const impl: FetchLike = async (url, init) => {
+    calls.push({ url, ...(init !== undefined ? { init } : {}) });
+    const body = JSON.parse(init?.body ?? "{}") as Record<string, unknown>;
+    const model = typeof body.model === "string" ? body.model : "";
+    const system = Array.isArray(body.system) ? body.system : [];
+    const cachedBlock = system.find(
+      (block): block is { type: string; text: string; cache_control: { type: string; ttl?: string } } =>
+        typeof block === "object" &&
+        block !== null &&
+        (block as Record<string, unknown>)["type"] === "text" &&
+        typeof (block as Record<string, unknown>)["text"] === "string" &&
+        typeof (block as Record<string, unknown>)["cache_control"] === "object",
+    );
+    const prefixTokens = cachedBlock?.text.trim().split(/\s+/).filter(Boolean).length ?? 0;
+    const cacheEligible = Boolean(cachedBlock) && prefixTokens >= (minimumTokens[model] ?? Number.POSITIVE_INFINITY);
+    const prefixKey = JSON.stringify({ model, system });
+    const cacheHit = cacheEligible && cachedPrefixes.has(prefixKey);
+    if (cacheEligible) cachedPrefixes.add(prefixKey);
+
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model,
+        content: [{ type: "text", text: "jobpilot" }],
+        usage: {
+          input_tokens: 3,
+          output_tokens: 1,
+          cache_creation_input_tokens: cacheEligible && !cacheHit ? prefixTokens : 0,
+          cache_read_input_tokens: cacheHit ? prefixTokens : 0,
+        },
+      }),
+      text: async () => "",
+    };
+  };
+  return { impl, calls };
+}
+
+test("AnthropicProvider caches only the stable system prefix and reports a second-call cache read", async () => {
+  const { impl, calls } = anthropicPromptCacheProtocol();
+  const provider = new AnthropicProvider({ apiKey: "k-test", fetchImpl: impl });
+  const stablePrefix = Array.from({ length: 4_096 }, (_, index) => `policy-${index}`).join(" ");
+  const request = {
+    system: stablePrefix,
+    prompt: "classify the first CoS turn",
+    tier: "cheap" as const,
+    cache: { strategy: "stable_system_prefix" as const, ttl: "5m" as const },
+  };
+
+  const first = await provider.complete(request);
+  const second = await provider.complete({ ...request, prompt: "classify the second CoS turn" });
+
+  assert.ok(first.usage.cacheCreationInputTokens > 0);
+  assert.equal(first.usage.cacheReadInputTokens, 0);
+  assert.ok(second.usage.cacheReadInputTokens > 0);
+  assert.equal(second.usage.cacheCreationInputTokens, 0);
+  const firstBody = JSON.parse(calls[0]!.init!.body!);
+  const secondBody = JSON.parse(calls[1]!.init!.body!);
+  assert.deepEqual(firstBody.system, secondBody.system, "the cache breakpoint must stay byte-identical");
+  assert.notDeepEqual(firstBody.messages, secondBody.messages, "the volatile turn must remain outside the cached prefix");
+  assert.deepEqual(firstBody.system[0].cache_control, { type: "ephemeral" });
 });
 
 test("AnthropicProvider fails loud without an API key", () => {
@@ -86,12 +213,18 @@ test("AnthropicProvider fails loud without an API key", () => {
 });
 
 test("GroqProvider shapes /chat/completions requests with bearer auth", async () => {
-  const { impl, calls } = fakeFetch({ choices: [{ message: { content: "hi there" } }] });
+  const { impl, calls } = recordingFetch({
+    model: "llama-3.3-70b-versatile",
+    choices: [{ message: { content: "hi there" } }],
+    usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+  });
   const p = new GroqProvider({ apiKey: "k-test", model: "llama-3.3-70b-versatile", fetchImpl: impl });
   assert.equal(p.plane, "cloud");
 
-  const out = await p.complete({ system: "sys", prompt: "q" });
+  const out = await p.complete({ system: "sys", prompt: "q", tier: "cheap" });
   assert.equal(out.text, "hi there");
+  assert.equal(out.usage.inputTokens, 5);
+  assert.equal(out.usage.outputTokens, 2);
   assert.equal(calls[0]!.url, "https://api.groq.com/openai/v1/chat/completions");
   const headers = calls[0]!.init!.headers!;
   assert.equal(headers["authorization"], "Bearer k-test");
@@ -114,13 +247,92 @@ test("GroqProvider fails loud without an API key", () => {
   }
 });
 
-test("provider errors surface status + body", async () => {
+test("provider errors surface status without retaining provider response content", async () => {
+  let bodyReads = 0;
   const impl: FetchLike = async () => ({
     ok: false,
-    status: 500,
+    status: 503,
     json: async () => ({}),
-    text: async () => "boom",
+    text: async () => {
+      bodyReads += 1;
+      return "sensitive-provider-response";
+    },
   });
-  const p = new OllamaProvider({ baseUrl: "http://x", fetchImpl: impl });
-  await assert.rejects(() => p.complete({ prompt: "q" }), /500 boom/);
+  const providers = [
+    new AnthropicProvider({ apiKey: "k-test", fetchImpl: impl }),
+    new GroqProvider({ apiKey: "k-test", fetchImpl: impl }),
+    new OllamaProvider({ baseUrl: "http://x", fetchImpl: impl }),
+  ];
+  for (const provider of providers) {
+    await assert.rejects(
+      () => provider.complete({ prompt: "q", tier: "cheap" }),
+      (error: unknown) =>
+        error instanceof Error &&
+        error.message.includes("status 503") &&
+        !error.message.includes("sensitive-provider-response"),
+    );
+  }
+  assert.equal(bodyReads, 0);
+});
+
+test("providers fail loud when authoritative usage counts are absent", async () => {
+  const { impl } = recordingFetch({ model: "llama3.1", response: "answer" });
+  const provider = new OllamaProvider({ baseUrl: "http://x", fetchImpl: impl });
+  await assert.rejects(
+    () => provider.complete({ prompt: "q", tier: "default" }),
+    /prompt_eval_count/,
+  );
+});
+
+test("providers reject a response that relabels the configured model", async () => {
+  const anthropic = recordingFetch({
+    model: "provider-spoof",
+    content: [{ type: "text", text: "answer" }],
+    usage: {
+      input_tokens: 1,
+      output_tokens: 1,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+  });
+  await assert.rejects(
+    () =>
+      new AnthropicProvider({
+        apiKey: "k-test",
+        model: "claude-fable-5",
+        fetchImpl: anthropic.impl,
+      }).complete({ prompt: "q", tier: "default" }),
+    /unexpected model identity/,
+  );
+
+  const groq = recordingFetch({
+    model: "provider-spoof",
+    choices: [{ message: { content: "answer" } }],
+    usage: { prompt_tokens: 1, completion_tokens: 1 },
+  });
+  await assert.rejects(
+    () =>
+      new GroqProvider({
+        apiKey: "k-test",
+        model: "llama-3.3-70b-versatile",
+        fetchImpl: groq.impl,
+      }).complete({ prompt: "q", tier: "cheap" }),
+    /unexpected model identity/,
+  );
+
+  const ollama = recordingFetch({
+    model: "provider-spoof",
+    response: "answer",
+    prompt_eval_count: 1,
+    eval_count: 1,
+  });
+  await assert.rejects(
+    () =>
+      new OllamaProvider({
+        baseUrl: "http://x",
+        model: "llama3.1",
+        fetchImpl: ollama.impl,
+      }).complete({ prompt: "q", tier: "default" }),
+    /unexpected model identity/,
+  );
 });

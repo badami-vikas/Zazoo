@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T08:50:33.375Z",
+  "generatedAt": "2026-07-21T15:17:45.014Z",
   "items": [
     {
       "id": "TASK-001",
@@ -38,7 +38,7 @@
     {
       "id": "TASK-003",
       "title": "TASK-003 — Movable cross-screen Avatar desktop prototype",
-      "status": "blocked",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.",
@@ -48,10 +48,11 @@
         "docs/raw/egg-commons-feature-roadmap-2026-07.md AV0"
       ],
       "evidence": [
-        "BUGS 2026-07-14 companion mobility",
-        "BUGS 2026-07-14 desktop chrome",
+        "RESOLVED BUGS 2026-07-14 companion mobility and desktop chrome",
+        "RESOLVED BUGS 2026-07-18 physical Avatar drag inert",
         "`outputs/2026-07-16-task-003-avatar-drag-persistence.md`",
-        "`outputs/2026-07-16-task-003-macos-avatar.md` (live NSPanel, single-display Space/fullscreen, pointer/keyboard/Accessibility controls, and deterministic topology evidence — physical drag/relaunch, VoiceOver, and extended-display matrix still unavailable)"
+        "`outputs/2026-07-16-task-003-macos-avatar.md`",
+        "`outputs/2026-07-18-task-003-avatar-certification.md` (the user confirmed physical pointer drag/relaunch restoration, VoiceOver control activation, and external-display detach/reconnect)"
       ],
       "requests": [
         "R-001",
@@ -59,9 +60,9 @@
         "R-016",
         "desktop overlay/chrome directive 2026-07-14"
       ],
-      "approval": "AP-020 applied",
+      "approval": "AP-020, AP-026, AP-040, and AP-041 applied",
       "dependencies": [],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 70,
@@ -95,13 +96,13 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 84,
+      "sourceLine": 83,
       "rank": 3
     },
     {
       "id": "TASK-005",
       "title": "TASK-005 — Avatar + Commons end-to-end demo certification",
-      "status": "blocked",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "A short, repeatable demo proves the combined product rather than isolated screens.",
@@ -111,29 +112,30 @@
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md",
-        "outstanding live-browser evidence in docs/raw/progress-archive-2026-07.md"
+        "`outputs/2026-07-18-task-005-demo-certification.md`",
+        "TASK-003 physical Avatar certification in `outputs/2026-07-18-task-003-avatar-certification.md`",
+        "clean isolated final-code `task005-final10-desktop-*` and `task005-final11-mobile-*` evidence covers Onboarding, Owl Avatar, Relationship Module, cited recommendation, signed Commons discovery/install, Learning Agent invocation, immutable package/hash/Agent provenance, correction, veto, no-downstream-event audit, preference deletion, and physically reachable mobile Settings/Approvals controls"
       ],
       "requests": [
         "user prototype-priority directives 2026-07-13–15"
       ],
-      "approval": "AP-031 applied for the bounded gate-glue implementation only; no DONE approval",
+      "approval": "AP-031 applied for bounded gate glue; AP-047 applied for exact TASK-005 certification and closure",
       "dependencies": [
         "TASK-001",
         "TASK-002",
         "TASK-003",
         "TASK-004"
       ],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 97,
+      "sourceLine": 96,
       "rank": 4
     },
     {
       "id": "TASK-013",
       "title": "TASK-013 — Repository and manifest cleanup",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "Duplicate prototypes, deprecated data/code paths, stale dummy records, and non-manifest built-ins are removed or explicitly retained with one reason and owner.",
@@ -143,27 +145,32 @@
         "docs/dummy.md"
       ],
       "evidence": [
-        "BUGS duplicate prototype/Tools copies",
-        "BUGS dummy-prefix conflict"
+        "`outputs/2026-07-21-task013-repository-manifest-cleanup.md`",
+        "exact pre-cleanup `origin/main@7f37e17e1132ebbbee74f1c612f0e83b211139ef` preserved at verified private ref `archive/task-013-pre-cleanup-2026-07-21`",
+        "duplicate legacy roots removed from main without history rewrite or private-content inspection",
+        "root audit docs moved under `docs/raw/` with frontmatter",
+        "`platform/modules/manifests` is the one built-in catalog",
+        "API/executable/web routes derive from it",
+        "legacy Item Detail/Associations and unrouted JobPilot fixture BUGS/dummy rows resolved"
       ],
       "requests": [
         "cleanup directives 2026-07-14"
       ],
-      "approval": "AP-029 applied for planning; archive/deletion substep still requires a dedicated approval before destructive removal",
+      "approval": "AP-029 applied for planning; AP-061 applied for private archive, destructive cleanup, exact closure, and main landing",
       "dependencies": [
         "TASK-005",
         "TASK-012"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 112,
+      "sourceLine": 111,
       "rank": 5
     },
     {
       "id": "TASK-012",
       "title": "TASK-012 — Complete vocabulary migration",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "Product copy, code, schema, API, Events, persisted payloads, routes, errors, and tests use the canonical glossary with time-boxed compatibility removed.",
@@ -177,17 +184,27 @@
         "BUGS API error strings",
         "BUGS package.yaml filename mismatch",
         "BUGS Initiative-scoped API legacy",
-        "deprecated Tools/Knowledge/Workflows evidence attached to TASK-001"
+        "deprecated Tools/Knowledge/Workflows evidence attached to TASK-001",
+        "RESOLVED BUGS Module File writes indexed into canonical `files`/`file_refs` for Graph/File provenance",
+        "OPEN BUGS stale pre-VOCAB4 Signal-view write fixtures and stale pre-VOCAB3 Onboarding vocabulary assertions",
+        "[VOCAB0 inventory](raw/vocabulary-code-inventory-2026-07-19.md)",
+        "[VOCAB0–VOCAB1 implementation](../outputs/2026-07-19-task012-vocab0-vocab1.md), integrated through PR #26 at source checkpoints `dd51797` and `bd7de18`",
+        "VOCAB2 source `88be310`, integrated through PR #27 at `f6c4376`",
+        "partial VOCAB3 checkpoint `58573ba` with migration `0021_vocab3_organization_module_record`",
+        "[VOCAB3 completion](../outputs/2026-07-20-task012-vocab3.md) under AP-055/ADR-129",
+        "[VOCAB4 completion](../outputs/2026-07-20-task012-vocab4.md) under AP-056/ADR-130 with migration `0023_vocab4_event_result_file`",
+        "[VOCAB5 completion](../outputs/2026-07-20-task012-vocab5.md) under AP-057/ADR-131",
+        "[VOCAB6 residual completion](../outputs/2026-07-20-task012-vocab6.md) under AP-058/ADR-132"
       ],
       "requests": [
         "R-020",
         "vocabulary/glossary directives 2026-07-14"
       ],
-      "approval": "AP-020 and AP-029 applied",
+      "approval": "AP-020, AP-029, AP-050, AP-057, and AP-059 applied",
       "dependencies": [
         "TASK-005"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 125,
@@ -196,7 +213,7 @@
     {
       "id": "TASK-010",
       "title": "TASK-010 — Platform red-flag correction feedback",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Any eligible data cell or bullet supports one subtle, scoped, reversible red-flag correction that feeds governed learning.",
@@ -206,26 +223,51 @@
         "docs/raw/agent-goal-skill-orchestration-plan-2026-07.md"
       ],
       "evidence": [
-        "user feedback-mechanism correction 2026-07-15"
+        "user feedback-mechanism correction 2026-07-15",
+        "RESOLVED BUGS 2026-07-19 JobPilot table cells lacked Red Flag controls",
+        "[TASK-010 live-certification output](../outputs/2026-07-19-task010-live-certification.md)",
+        "[TASK-010 round-1 output](../outputs/2026-07-17-task010-red-flag-feedback.md), [round-2/3 remediation](../outputs/2026-07-17-task010-review-remediation.md), [round-4 remediation](../outputs/2026-07-17-task010-round4-remediation.md), [round-5 remediation](../outputs/2026-07-17-task010-round5-remediation.md) — shared `RedFlagControl` primitive wired into TableView.tsx (data cells), JobPilotPage.tsx card view (real, persisted-application-backed rendered bullets), plus a Settings > Learning \"Red flags\" audit section",
+        "DealPilot/JobPilot green/yellow/red flag semantics removed (AP-023). Four coordinator-directed independent reviews found defects, all now remediated: round 1's auth/IDOR, ledger-privacy, saga/idempotency, CAS/lineage, anchor-identity, pagination, N+1, and touch-detection gaps (round 2)",
+        "round 2's own idempotency-check and CAS `.cause`-unwrap bugs (round 3)",
+        "round 4's 11-item list (governed-learning substance, private-proposal ownership, replay-safe create, durable clear/reopen, forget-across-lineage, canonical anchors, DB-pushed filtering, keyset pagination, hybrid touch, JobPilot flag-column normalization)",
+        "and round 5's 11-item list — **legacy API containment** (CRITICAL): `onboarding.learningState`/`forgetMemory` were unauthenticated/owner-unscoped with no kind filter, leaking (and allowing deletion of) private red-flag/preference-adjustment content — now authenticated, owner-scoped, kind-whitelisted",
+        "**owner-aware DB RLS** (CRITICAL) — investigated and documented (not fabricated): the ledger's workspace-wide RLS lets a direct-Supabase client bypass tRPC's private-proposal filter (bounded existence/metadata leak, not raw content — round 4 already made the ledger payload opaque)",
+        "the ONE offending client read path (`apps/web/src/app/data/ledger.ts`'s `loadLedger()`) and the exact fix (new RLS policy + a new paginated/filtered ledger-listing tRPC procedure) are tracked in `docs/BUGS.md`, both blocked on RM4",
+        "**shipped enactment** — the UI now checks `action.resolution` on-demand and calls `enactCorrection`, so no approved correction is stranded without a trigger",
+        "**proposal-ID correctness** — a thrown (not merely rejected) governed-learning attempt no longer persists an unconfirmed `proposalId`, and clear/forget now treat a confirmed-absent ledger entry as already-withdrawn",
+        "**saga hardening** — a genuine concurrent `updateReason`-vs-`clear` race is now CAS-protected and tested",
+        "**canonical anchor registry finished** — a single shared `canonicalModuleId` alias-normalizer feeds BOTH hashing and validation (an alias can never fork a lineage), the unrouted fixture-only `JobPilotApplicationDetail.tsx` had its red-flag wiring removed entirely (would always fail-closed), `TableView.tsx` gates on a new client-side supported-module allowlist (excludes `signal`, which has no existence-check store yet), and `JobPilotPage.tsx`'s Card view now ships the REQUIRED real, persisted-application-backed rendered-bullet surface (`Stage`/`Fit` bullets)",
+        "**durable lineage ordering** — the process-local monotonic-timestamp limitation (cross-instance/restart) is now explicitly documented with the exact planned DB-backed fix, blocked on RM4",
+        "**safe structured filtering** — a confirmed-reproducible `content::jsonb` cast failure (Postgres doesn't guarantee AND-clause evaluation order) fixed via a SQL-standard-guaranteed `CASE WHEN content IS JSON` construct",
+        "**status-predicate-before-limit** pushed into the store query",
+        "**cross-process idempotency** — the shared workspace Goal's provisioning is now deterministic/race-safe (was a check-then-act race with a random id), and `casSupersede` now also catches a genuine `23505` unique-violation (a deterministic-id collision under real concurrency, distinct from the `40001` serialization-failure case it already caught) as a CAS loss, not an unhandled 500",
+        "**provider state integrity** — `RedFlagProvider` now distinguishes loading/error/empty (a failed refresh preserves last-good rows instead of clearing them), guards against out-of-order overlapping refresh responses via a generation counter, and disables `create()` until the first successful load. Round 6 (independent review of round 5 + reconciliation with TASK-008 RM4's now-landed migration `0015`): a fresh review verified all 11 round-5 items and flagged 2 non-blocking follow-ups (a docs/BUGS.md accuracy correction",
+        "`RedFlagProvider`'s `error` state gained a `retryLoad()` affordance), both fixed. RM4 landed with its own relation-proposal privacy mechanism (`assertRelationshipProposalOwner`, a new `action.listHistory` endpoint, `privateOwnerUserId`-based store-level filtering) — reconciled surgically: TASK-010's own `inputs.visibility === \"private\"` red-flag privacy check now composes alongside RM4's relation-specific check rather than duplicating it, and the underlying store-level filter is being widened (not replaced) to cover both. Re-verified: core 426, DB 121, API 211 (54 red-flag/security tests across all rounds), JobPilot 94, DealPilot 72, Commons 22, integrations-google 35, web 64 tests, full monorepo build (20/20) and typecheck (37/37) clean, full serialized test run 36/37 green (the one failure is `@bridge/sensors`'s pre-existing, already-documented, unrelated coverage-floor gap), lint clean on every session-touched file (2 pre-existing unrelated repo-wide findings untouched), no-dummy-runtime clean. A pre-existing, unrelated dummy-data instance (`JobPilotApplicationDetail.tsx`'s unrouted `BCG_APPLICATION` fixture) was discovered and logged to `docs/dummy.md`, and its red-flag wiring removed since the page is unreachable. Outstanding before this task can close: live desktop+375px browser evidence of the actual hover/focus/click/touch interaction, and the post-RM4 migration (owner-aware RLS, DB-backed lineage revision, JobPilot flag backfill) now in progress. Round 7 (post-TASK-008-RM4, [round-7 output](../outputs/2026-07-18-task010-round7-post-rm4-migration.md)): merged `origin/main` (`590cca6`) and reconciled surgically with RM4's own relation-proposal privacy mechanism, finding and fixing a genuine post-merge leak (RM4's new endpoints would have exposed red-flag proposals to every workspace member — widened the shared private-proposal filter to cover both privacy markers) and a merge-tool duplicate-member bug. Implemented the reserved migration `0016_new_ink`: JobPilot flag backfill+CHECK constraint",
+        "owner-aware RLS for `memories` (mirroring the existing app-side scope split)",
+        "`memories.lineage_revision` WIRED end-to-end (atomically allocated per-lineage inside `casSupersede`'s own CAS transaction in both adapters",
+        "`redFlag.history` now orders by it). `ledger`'s own RLS deliberately left unchanged, matching RM4's own considered precedent (no caller-identity parameter on its read ports, broad call surface) — reported as an open, scoped gap, not silently deferred. Also fixed two build-tooling bugs surfaced by full-build verification: RM4's TASKS.md reformat had silently broken the Task Manager's `pending-work` generator (now fixed + regenerated, 22 records)",
+        "a commons test wrote temp fixtures inside the repo tree instead of the OS tmpdir (fixed). Re-verified: core 430, DB 143, API 214, web 64, commons 22 tests, full monorepo typecheck (22/22)/build (23/23) clean, lint clean (2 pre-existing unrelated findings untouched), no-dummy-runtime clean, migration 0016 fresh+upgrade/no-drift tests pass. Outstanding unchanged: live desktop+375px browser evidence",
+        "additionally now open: `ledger`'s own RLS (deliberately deferred) and a dedicated two-member RLS test for the new `memories` policy. A fresh independent review verdict was **merge-ready** with 2 non-blocking findings, both fixed same day: a dangling `docs/BUGS.md` cross-reference (\"see the NEW entry below\" pointing to a never-added entry) corrected",
+        "and the flagged missing two-member RLS test for `memories` added (`packages/db/test/rls.test.ts`, using the existing `bridge_rls_member` restricted-role pattern) — proves public/workspace/team/private/restricted scope visibility AND that UPDATE/DELETE (not just SELECT) are RLS-narrowed by real ownership under Postgres itself, re-verified: DB 144/144 (+1)."
       ],
       "requests": [
         "red-flag directive 2026-07-15"
       ],
-      "approval": "AP-023 and AP-029 applied",
+      "approval": "AP-023, AP-029, and AP-046 applied",
       "dependencies": [
         "TASK-001",
         "TASK-007"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 138,
+      "sourceLine": 142,
       "rank": 7
     },
     {
       "id": "TASK-008",
       "title": "TASK-008 — Relationship Module consolidation",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.",
@@ -235,26 +277,32 @@
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "RM0 prototype and RM4 Relation persistence/materialization are integrated on `main` at `590cca6`: `outputs/2026-07-16-task-008-relationship-module-consolidation.md`",
-        "desktop + 375px live evidence",
-        "migration `0015_task008_relation_contract`",
-        "owner-isolated Relation/effect RLS",
-        "deterministic bounded Relation reads",
-        "durable approval-effect retry/reconciliation",
-        "core 422, DB 123, API 164, web 43, and desktop 28 tests",
-        "monorepo build/typecheck, web production build, migration fresh/upgrade/no-drift, changed-file lint, runtime no-dummy, and final independent central-merge review. Remaining exact plan scope: RM1 governed Person/Community CRUD/search/detail, RM2 unified Timeline/intake/identity queue, RM3 Memory/commitment/prep lifecycle, RM4 governed Map/path finder, RM5 introductions/recommendations/user Automations, and RM6 team permission/delegation/evolution work. TASK-014/TASK-009 own RM6's cross-Module Graph renderer."
+        "The exact installed Relationship → Signals/People/Communities → Signal → Person/Community participants → source Event → governed Action prototype is integrated on `main`, with no global Knowledge route or surface. RM0 and RM4 landed at `590cca6` with `outputs/2026-07-16-task-008-relationship-module-consolidation.md`, desktop + 375px live evidence, migration `0015_task008_relation_contract`, owner-isolated Relation/effect RLS, deterministic bounded Relation reads, and durable approval-effect retry/reconciliation. The validated RM1–RM5 continuation and central trust-boundary hardening landed through `bab32ea`: owner-safe Person/Community CRUD/search/detail",
+        "participant Timeline and bounded Google/capture identity review",
+        "Memory correction/forget, commitment Event snapshots, meeting prep/follow-up",
+        "visibility-pruned paths and Community composition",
+        "double-consent Introduction Event snapshots with private decline handling and no send",
+        "self-only Local browser authority",
+        "owner-scoped private PII/Event detail",
+        "replay-safe durable staging/materialization",
+        "serialized Introduction/Memory transitions",
+        "explicit clears, canonical datetime input, and route-safe snapshot pagination. Final evidence: `outputs/2026-07-18-task-008-relationship-continuity.md`",
+        "post-main-merge core 430, DB 154, Google 39, API 218, web 69 (910 affected tests)",
+        "monorepo typecheck/build",
+        "changed-file lint, no-dummy, migration no-drift, diff integrity, and independent correctness/security reviews with no blocker. Historical RM4 worktree reconciliation landed at `3741a41`, confirming `ff98c20` and `905aee9` were already ancestors and regenerating fresh-session Task Manager evidence without re-merging code. TASK-014/TASK-009 retain the separate cross-Module Graph renderer",
+        "advanced RM6/evaluation capabilities remain future plan scope, not blockers for this completed TASK-008 prototype."
       ],
       "requests": [
         "Relationship alignment directive 2026-07-14"
       ],
-      "approval": "AP-020, AP-021, AP-029, and AP-030 applied",
+      "approval": "AP-020, AP-021, AP-029, AP-030, AP-042, and AP-043 applied",
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 151,
+      "sourceLine": 156,
       "rank": 8
     },
     {
@@ -292,13 +340,13 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 164,
+      "sourceLine": 169,
       "rank": 9
     },
     {
       "id": "TASK-014",
       "title": "TASK-014 — Full standard Module UI rollout",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "Every Module receives the compiler-owned Page/View/Record Detail, toolbar, context-menu, Files, and Control Panel grammar proven in the shell prototype, consuming ONE canonical View Grammar registry (table/board/gallery/form/calendar/map/graph/tree) with no informal per-Page hardcoded view lists, no View kind owning a dedicated Module/Tool/route/nav identity, and no Integration determining which View kinds a Page offers.",
@@ -308,39 +356,37 @@
         "docs/raw/brd-dataengine-views-2026-07.md (full View Grammar BRD — canonical 8 View kinds, eligibility rules, feature list per kind, Calendar/Integration decoupling rule, Second-Brain-vs-Page-Graph distinction, code audit of the 2026-07-17 duplicate-implementation state)"
       ],
       "evidence": [
-        "BUGS map view is not a map",
-        "BUGS pin persistence only local",
-        "BUGS Initiative resource scoping",
-        "existing partial table implementation",
-        "BUGS 2026-07-17 `/calendar` route resolves to Task Manager instead of Calendar (routes.tsx:87) and Calendar modeled as an installed Module/Tool in 3+ places instead of a View kind",
-        "BUGS 2026-07-17 four independent, non-shared calendar renderers (DataEngine.tsx, CalendarPage.tsx, dataviews/CalendarView.tsx, InitiativeDetail.tsx/WorkPage.tsx local hardcodes)",
-        "BUGS 2026-07-17 GraphView.tsx is a table-with-banner placeholder, not a real node/edge renderer",
-        "BUGS 2026-07-17 `ViewConfig[\"kind\"]` code says `network`, glossary canon says `graph` — vocabulary mismatch"
+        "RESOLVED BUGS 2026-07-17 Calendar Module/Tool route identity, four independent Calendar renderers, placeholder Graph renderer, `network` vocabulary mismatch, grouped-list Map fallback, divergent migration high-water, and concurrent Organization rename/File upload",
+        "one metadata-gated registry now owns table/board/gallery/form/calendar/map/graph/tree",
+        "`DataViews` is the only renderer path",
+        "Map uses a bundled local basemap plus stored coordinate contract and an opt-in Local Plane geocoder port with no automatic public geocoding/tile egress",
+        "DealPilot, JobPilot, Relationship, Work, Initiative, and Task Manager consume the shared grammar",
+        "[TASK-014/TASK-009 implementation and live evidence](../outputs/2026-07-19-task009-task014-view-grammar-graph.md)"
       ],
       "requests": [
         "table/actionability directives 2026-07-14–15",
         "R-038 (2026-07-17: Calendar/Graph-as-view confirmation, View Grammar BRD)"
       ],
-      "approval": "AP-010/AP-011, AP-021, and AP-029 applied; AP-036 applied (View Grammar BRD + this scope update); ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call; AP-037 applied (Graph view scope selector + Second Brain collapse into Graph at full scope); ADR-110 supersedes ADR-108's Second-Brain-vs-Page-Graph distinction",
+      "approval": "AP-010/AP-011, AP-021, AP-029, AP-036, AP-037, AP-050, and AP-051 applied; ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call; ADR-110 supersedes ADR-108's Second-Brain-vs-Page-Graph distinction; ADR-124 records Map's Local Plane privacy boundary",
       "dependencies": [
         "TASK-001",
         "TASK-006",
         "TASK-008"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 177,
+      "sourceLine": 182,
       "rank": 10
     },
     {
       "id": "TASK-021",
       "title": "TASK-021 — Task Manager Module",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Core Modules",
       "outcome": "One installable Task Manager Module owning the single governed execution queue per workspace as ONE self-referential, dot-path-leveled Task type (no separate Goal/Initiative/Outcome Record types — `is_goal` is a field, not a type), with full tree restructuring (promote/insert-ancestor-above/re-parent) as governed proposals, exit-test verification with reopenable done/archived/parked status, planning Playbooks as draft-then-approve proposals, no-default agent-task routing owned by Chief of Staff, confidence-graduated reschedule and routing approval, proactive cross-Module opportunity scanning, guard Automations, and an agent-first `tasks.md` ledger projection consumable by external coding agents.",
-      "prototypeTest": "In a real workspace, create a goal-flagged Task (`is_goal=true`) with outcomes[] and a 3-level Task tree under it (paths e.g. `1`, `1.1`, `1.1.1`) with exit tests via UI; creating a new Task against a populated queue produces an Internal-Strategist impact-fit/resequence proposal before it settles; promoting `1.1.1` to a new root (path recomputes, old ancestor untouched) and inserting a new ancestor above an existing branch both round-trip as approved proposals with correct path recomputation; an agent-assigned Task routes to whichever eligible Agent owns its required Skill (Chief of Staff resolves, no default — Capability Builder only when genuinely a capability/code Task) and an ambiguous Task escalates to explicit Human assignment; a human reschedule proposal requires approval, then a minor-banded reschedule auto-applies only after calibration while a significant one still requires approval; a done Task is reopened to pending after its outcome target changes; the projected tasks.md round-trips an external edit through drift-detect→reconcile without silent overwrite; a done-without-evidence task is reopened by the challenger; the game-designs instance's coding agent works one full task (orient→execute→evidence→done→sweep) from the projected ledger.",
+      "prototypeTest": "In a real workspace, create a goal-flagged Task (`is_goal=true`) with outcomes[] and a 3-level Task tree under it (paths e.g. `1`, `1.1`, `1.1.1`) with exit tests via UI; creating a new Task against a populated queue produces an Internal-Strategist impact-fit/resequence proposal before it settles; promoting `1.1.1` to a new root (path recomputes, old ancestor untouched) and inserting a new ancestor above an existing branch both round-trip as approved proposals with correct path recomputation; an agent-assigned Task routes to whichever eligible Agent owns its required Skill (Chief of Staff resolves, no default — Capability Builder only when genuinely a capability/code Task) and an ambiguous Task escalates to explicit Human assignment; a human reschedule proposal requires approval, then a minor-banded reschedule auto-applies only after calibration while a significant one still requires approval; a done Task is reopened to pending after its outcome target changes; the projected tasks.md round-trips an external edit through drift-detect→reconcile without silent overwrite; a done-without-evidence task is rejected/reopened by the challenger; the `badami-vikas/Corporate-training-sims` instance's coding agent works one full task (orient→execute→evidence→done→sweep) from the projected ledger.",
       "scope": [
         "docs/raw/taskmanager-module-plan-2026-07.md TM0–TM6",
         "docs/raw/brd-taskmanager-2026-07.md",
@@ -348,17 +394,15 @@
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "docs/TASKS.md + Task Manager UI already prove the ledger model in production (AP-024/025), live at `/task-manager` with a working Status column (verified 2026-07-17)",
-        "user's game-designs repo independently converged on the identical format (2026-07-16 report)",
-        "RESOLVED BUGS 2026-07-18 canonical title+ID parser regression that made prebuild generate zero rows",
-        "BUGS.md 2026-07-17 pre-existing `@bridge/core` build break (unrelated, blocks a from-scratch worktree preview, not this Module's scope)"
+        "Bridge implementation `c708017`, recertification fixes `a0da415`/`689fca0`, migrations `0027`/`0028`, signed package `task-manager@1.0.2`, and PR #41 merge `0087f89`. External PASS: `badami-vikas/Corporate-training-sims` PR #104, evidence `123e72b`, merge `f3443acc3ce34fdce29ed2147fe3d608b861a696`, durable artifact `docs/verification/task-manager-bridge-certification.md`. It supersedes PRs #102/#103 and reports 148 exact Bridge tests plus a zero-blocker physical two-instance certifier. GitHub Actions remained billing-blocked",
+        "no CI success is claimed."
       ],
       "requests": [
         "R-035",
         "R-036 (2026-07-16 revision: collapse Initiative/Outcome into Goal+Task, agent routing, calibrated reschedule, proactive scan, reorder after TASK-014)",
         "R-037 (2026-07-17 revision: collapse Goal into a Task field entirely, full tree restructuring, no-default CoS-owned routing, reopenable done status)"
       ],
-      "approval": "AP-033 applied (plan+roadmap addition); AP-034 applied (revision 1); AP-035 applied (revision 2); ADR-106 records the Goal-collapse vocabulary call (supersedes ADR-105's two-Database call), ADR-107 records the no-default CoS-owned routing call (renumbered chain: this session's original AP-030/AP-031/ADR-099 → AP-033/034/ADR-105 during merge-integration → AP-035/ADR-106/ADR-107 for the further collapse and routing revision)",
+      "approval": "AP-033 applied (plan+roadmap addition); AP-034 applied (revision 1); AP-035 applied (revision 2); AP-062 applied (Bridge implementation milestone and Corporate-training-sims remaining gate); AP-064 applied (first external-blocker remediation); AP-065 applied (Local Plane restart remediation); AP-066 applied (external PASS and canonical closure); ADR-106 records Goal collapse; ADR-107 no-default routing; ADR-136 storage/governance/projection; ADR-138 durable effects/signed root install; ADR-139 durable-local composition, Module UUID identity, and semantic projection reconciliation.",
       "dependencies": [
         "TASK-001",
         "TASK-012 (VOCAB2 tree migration)",
@@ -366,10 +410,10 @@
         "TASK-004 line for TM6 only",
         "TASK-007 (ADR-104 SkillManifest/eligible-Agent resolution — reused by agent-task-routing)"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 190,
+      "sourceLine": 196,
       "rank": 11
     },
     {
@@ -385,20 +429,27 @@
         "docs/wiki/roadmap.md"
       ],
       "evidence": [
-        "root gap recorded ADR-088"
+        "root gap recorded ADR-088. Planning session (`docs/Progress from Manish/subagent-progress.md` TASK-015 row) confirmed this is not greenfield: PI-1/PI-2/PI-3 already ship a partial version — `TrustOrigin` 3-value tag (`packages/core/src/types.ts`), an equality-based tainted-egress gate (`packages/core/src/policy/taint-egress.ts`), and a quarantine `ContentGuard` (`packages/core/src/guard/content-guard.ts`). Concrete gaps a future RT0–RT4 implementation must close: `DomainEvent`/`events`/`signals`/`files` carry no taint field at all today",
+        "`SkillOutput`/`RitualStep` carry none, so an Automation/Ritual step seeded from a tainted Signal can silently lose its label",
+        "there is no lattice/join (today's check is a single equality test, not a monotonic combine)",
+        "no sink registry or CI coverage gate",
+        "no declassification audit trail",
+        "`packages/sourcing/src/types.ts` hand-duplicates the `TrustOrigin` union instead of importing it (drift risk)",
+        "cache/retry paths in `integrations-google` are untested for taint preservation. Post-TASK-007 landing, `ChildAgentRun.taint` (`packages/db/src/child-agent-run-store.ts`) already exists but is still typed as the legacy 3-value `TrustOrigin` — RT0's lattice must upgrade this field additively, not replace it out from under TASK-007's landed contract."
       ],
       "requests": [
         "runtime taint directive 2026-07-14"
       ],
       "approval": "AP-020 and AP-029 applied",
       "dependencies": [
-        "TASK-007",
-        "TASK-012"
+        "TASK-007 (done)",
+        "TASK-012 (now `in_progress` and remains the blocking gate",
+        "`ResourceType` in `packages/core/src/types.ts` still uses pre-pivot vocabulary, confirming RT-series work should not start authoring schema/types before TASK-012 renames it)"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 203,
+      "sourceLine": 210,
       "rank": 12
     },
     {
@@ -417,17 +468,19 @@
         "BUGS partial dedup conflict",
         "BUGS incomplete Drizzle metadata",
         "BUGS pglite invalid UUID",
-        "BUGS concurrent DB flake"
+        "BUGS concurrent DB flake",
+        "RESOLVED 2026-07-19 Supabase least-privilege runtime role and transaction-local Organization/user RLS context, migration `0022_supabase_runtime_role`, and focused recovery evidence in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)",
+        "AP-063 public-cloud RLS/provider certification is TASK-006 evidence only and does not close this backlog"
       ],
       "requests": [],
-      "approval": "none",
+      "approval": "AP-054 applied for the Supabase runtime-role/RLS slice; none for the remaining backlog",
       "dependencies": [
         "TASK-012"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 216,
+      "sourceLine": 223,
       "rank": 13
     },
     {
@@ -450,23 +503,26 @@
         "BUGS client-only pin persistence",
         "BUGS post-decision effect retry",
         "BUGS 2026-07-16 baseline lint/typecheck failures",
-        "BUGS 2026-07-15 sensor coverage floor"
+        "BUGS 2026-07-15 sensor coverage floor",
+        "BUGS 2026-07-19 paginated Relationship Views filter/sort only the loaded page",
+        "RESOLVED 2026-07-19 API container build/readiness and exact hosted Supabase Auth admission, documented in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)",
+        "AP-063 Render Blueprint/public-cloud boundary is a landed slice only and does not close the remaining prototype"
       ],
       "requests": [],
-      "approval": "none",
+      "approval": "AP-054 applied for the Supabase container/Auth slice; none for the remaining backlog",
       "dependencies": [
         "TASK-012"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 229,
+      "sourceLine": 236,
       "rank": 14
     },
     {
       "id": "TASK-006",
       "title": "TASK-006 — DealPilot ETA core prototype",
-      "status": "in-progress",
+      "status": "blocked",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "DealPilot supports ETA work through only Deals, Sources, and Theses as default Pages, with correct many-to-many relations, secure Source credential projection, Record Detail, rights/spend gates, and thesis→source→deal discovery.",
@@ -481,20 +537,20 @@
       "requests": [
         "DealPilot requirements 2026-07-14–15"
       ],
-      "approval": "AP-023 and AP-029 applied",
+      "approval": "AP-023, AP-029, AP-044, AP-045, AP-054, AP-060, and AP-063 applied",
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 242,
+      "sourceLine": 249,
       "rank": 15
     },
     {
       "id": "TASK-011",
       "title": "TASK-011 — JobPilot culture-research slice",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "JobPilot uses permitted public evidence to improve cover letters and interview preparation without inventing insider claims or bypassing access terms.",
@@ -504,25 +560,26 @@
         "docs/raw/jobpilot-module-plan-2026-07.md JP3B"
       ],
       "evidence": [
-        "BCG application workspace live-evidence gap"
+        "BCG application workspace live-evidence gap",
+        "`outputs/2026-07-17-jobpilot-culture-research-task011.md` (full round-by-round evidence: two-phase intent-then-approve-then-fetch lifecycle, pinned-DNS/manual-redirect SSRF guard, server-owned source registry, cross-instance CAS/distributed cancellation/lease-recovery, grounding DAG with quote/hash verification, artifact taint/expiry/retention, and the final central-merge-review closure — durable child-Run terminal-audit repair plus full-lineage artifact purge/redaction, in-memory and Drizzle parity, restart-durability proof)"
       ],
       "requests": [
         "JobPilot culture-research directive 2026-07-15"
       ],
-      "approval": "AP-023 and AP-029 applied",
+      "approval": "AP-023, AP-029, and AP-049 applied",
       "dependencies": [
         "TASK-007"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 256,
+      "sourceLine": 264,
       "rank": 16
     },
     {
       "id": "TASK-009",
       "title": "TASK-009 — Actionable Second Brain graph (converged into TASK-014 Graph renderer)",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Second Brain IS the Graph view (§3, `docs/raw/brd-dataengine-views-2026-07.md`) at `scope: full` — every permitted Database across all installed Modules, permission-filtered, same renderer as a single-Page graph. The \"Second Brain\" nav entry is a named preset opening Graph view at full scope. Building the real Graph renderer with scope-selector support (TASK-014) delivers this simultaneously; no separate build.",
@@ -533,22 +590,25 @@
         "docs/raw/relationship-module-plan-2026-07.md RM6"
       ],
       "evidence": [
-        "BUGS 2026-07-14 no Second Brain graph",
-        "ADR-110 (Second Brain collapses into Graph view at full scope, supersedes ADR-108's \"never merge\" stance)"
+        "RESOLVED BUGS 2026-07-14 no Second Brain graph and 2026-07-17 placeholder Graph renderer",
+        "ADR-110",
+        "`DrizzleGraphStore.listFullGraph` projects permission-pruned Record/Relation/Event/File nodes with provenance",
+        "authenticated `/second-brain` uses the shared Graph renderer at full scope",
+        "[TASK-014/TASK-009 implementation and live evidence](../outputs/2026-07-19-task009-task014-view-grammar-graph.md)"
       ],
       "requests": [
         "Second Brain directive 2026-07-14",
         "R-039 (2026-07-17 cross-module scope + collapse)"
       ],
-      "approval": "AP-021 and AP-029 applied; AP-037 applied (convergence with TASK-014 Graph renderer)",
+      "approval": "AP-021, AP-029, AP-037, and AP-047 applied",
       "dependencies": [
         "TASK-008",
         "TASK-014 (Graph renderer with scope selector delivers this)"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 269,
+      "sourceLine": 278,
       "rank": 17
     },
     {
@@ -581,7 +641,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 282,
+      "sourceLine": 292,
       "rank": 18
     },
     {
@@ -612,7 +672,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 295,
+      "sourceLine": 305,
       "rank": 19
     },
     {
@@ -640,7 +700,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 308,
+      "sourceLine": 318,
       "rank": 20
     },
     {
@@ -667,13 +727,13 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 321,
+      "sourceLine": 331,
       "rank": 21
     },
     {
       "id": "TASK-022",
       "title": "TASK-022 — Inference cost optimization: prompt caching + model tiering",
-      "status": "pending",
+      "status": "blocked",
       "priority": "P2",
       "horizon": "Core Modules",
       "outcome": "ModelProvider calls use Anthropic prompt caching on the stable prefix, model selection routes by cost/capability tier (cheap/default/reasoning) instead of first-registered-provider, and complete() returns usage token counts enabling cost receipts — all preserving the local-plane-never-falls-to-cloud rule.",
@@ -688,17 +748,20 @@
         "docs/raw/optimizations-memory-vm-dealpilot-plan-2026-07.md (phase 1 slice)"
       ],
       "evidence": [
-        "outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0])"
+        "outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0])",
+        "outputs/2026-07-18-task-022-inference-cost-optimization.md implements tier/Plane/health routing, stable Anthropic system-prefix caching, exact provider usage/model identity, bounded prompt-free Run/Agent/Organization receipts, Local-default CoS inference, and explicit public-data confirmation before cloud egress. Deterministic affected checks and independent correctness/security review pass. Status is `blocked` under AP-067: exact unblock requires an already-authorized Anthropic credential plus explicit live-test spend authorization, then two sequential real public-safe CoS turns proving non-zero `cache_read_input_tokens` on the second persisted receipt. No credential, spend authorization, or live provider claim exists in this environment."
       ],
       "requests": [
         "LLM prompt/infra optimization audit directive 2026-07-17"
       ],
-      "approval": "AP-038 applied",
-      "dependencies": [],
-      "canonicalStatus": "ready",
+      "approval": "AP-038 and AP-067 applied",
+      "dependencies": [
+        "external authorized Anthropic credential + live-test spend authorization"
+      ],
+      "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 334,
+      "sourceLine": 344,
       "rank": 22
     },
     {
@@ -707,27 +770,59 @@
       "status": "pending",
       "priority": "P2",
       "horizon": "Convergence",
-      "outcome": "Learning Agent's LA3 research lane gains a governed `web-research` Skill backed by a provider-agnostic `SearchProvider` port (same shape as `ModelProvider`/`MemoryStore`/`ContentGuard`), wired first to $0 Tier-1 direct-access sources (Parallel Search MCP, Jina AI keyless, DuckDuckGo Instant Answer API) with a pre-vetted Tier-2 (signup-gated free tier) and Tier-3 (paid/self-hosted-only) expansion path, and every fetched result tagged `untrusted_external` taint per PI-1/PI-2 before reaching a Memory or prompt.",
-      "prototypeTest": "From a real workspace, Learning Agent runs a `web-research` Skill call for a bounded research objective, returns cited results sourced from at least one Tier-1 provider with provenance/taint recorded on the resulting Memory/Result, degrades gracefully if a provider is unavailable, and never silently escalates to a paid Tier-3 provider without a prior `docs/APPROVALS.md` cost/ROI gate.",
+      "outcome": "Learning Agent's LA3 research lane gains a governed `web-research` Skill backed by a provider-agnostic `SearchProvider` port (same shape as `ModelProvider`/`MemoryStore`/`ContentGuard`), wired only to current-rights-verified $0 Tier-1 direct access (currently anonymous Parallel Search MCP) with pre-vetted Tier-2 and Tier-3 expansion held behind fresh rights and cost/ROI gates, and every fetched result quarantined and tagged `untrusted_external` before Result, Memory, Event, or prompt sinks.",
+      "prototypeTest": "From a real Organization, Learning Agent runs a governed `web-research` Skill for an explicit bounded public objective, returns cited results from at least one permitted Tier-1 provider with provenance/taint recorded on Result, Memory, and Event, degrades explicitly if the provider is unavailable, and never silently escalates to credentialed, paid, Tier-2, Tier-3, or self-hosted access.",
       "scope": [
         "docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)"
       ],
       "evidence": [
         "outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning",
-        "outputs/2026-07-18-task023-governed-web-research.md — implementation, live Parallel verification, security/rights gates, and test evidence (status/order unchanged)"
+        "outputs/2026-07-18-task023-governed-web-research.md — candidate-A selection, current-main reconciliation, shared net-guard/ContentGuard/Module-authority implementation, durable Result/Memory/Event provenance, bounded Parallel evidence, targeted validation, and changed-scope security review (status/order unchanged)"
       ],
       "requests": [
         "user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)"
       ],
-      "approval": "AP-039 applied",
+      "approval": "AP-039 and AP-068 applied",
       "dependencies": [
         "TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 347,
+      "sourceLine": 357,
       "rank": 23
+    },
+    {
+      "id": "TASK-024",
+      "title": "TASK-024 — Zazoo public website cinematic implementation",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Public Brand",
+      "outcome": "The public Zazoo homepage is one continuous, accessible day-in-the-life film that shows Aeva and the Zazoo crew working, coordinating, respecting permission, supporting the owner's progress, resting privately, and returning the next morning, with displayed copy strictly separated from visual, animation, interaction, emotion, and transition direction.",
+      "prototypeTest": "At desktop and 375px widths, play the homepage from hero through final morning; confirm every mandatory scene and transition in the storyboard occurs in order, every interaction works by pointer and keyboard/touch, reduced-motion preserves the narrative without continuous locomotion, only approved Copy text is visible, the dictionary contains no Origin entry and uses the approved AI-companion definition, and no rejected-PDF composition or invented CTA/service copy appears.",
+      "scope": [
+        "outputs/2026-07-19-zazoo-website-storyboard/README.md",
+        "outputs/2026-07-19-zazoo-website-storyboard/00-global-build-contract.md",
+        "outputs/2026-07-19-zazoo-website-storyboard/01-hero-working-world.md through 10-morning-and-final-invitation.md"
+      ],
+      "evidence": [
+        "user-supplied intended brief and rejected five-page PDF audit summarized in outputs/2026-07-19-zazoo-website-storyboard/README.md",
+        "implementation, exact verification, publication, and rollback evidence in outputs/2026-07-19-task024-zazoo-website-implementation.md",
+        "source `relationship-os@932ed80` remains merged, while user-directed Pages revert `badami-vikas/badami-vikas.github.io@6b76466` restored the pre-TASK-024 homepage at `https://zazoo.me` through successful run `29683837490`"
+      ],
+      "requests": [
+        "user website/brand storyboard directive 2026-07-19",
+        "dictionary-copy correction and task-update directive 2026-07-19",
+        "GitHub Pages publication directive 2026-07-19",
+        "GitHub Pages rollback directive 2026-07-19"
+      ],
+      "approval": "AP-048 applied; AP-052 applied; AP-053 applied",
+      "dependencies": [],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 370,
+      "rank": 24
     }
   ]
 }

@@ -10,7 +10,7 @@
  * that as a small explicit decision graph (`next(answers)`), not a fixed list,
  * so "domain of work" can steer which questions appear later without a big
  * if/else scattered through the component. Every question has a real effect
- * on the compiled WorkspaceBlueprint (entities/views/vocabulary) — no filler
+ * on the compiled OrganizationBlueprint (entities/views/vocabulary) — no filler
  * questions asked just to hit a minimum count.
  *
  * E1 (2026-07-09): LinkedIn login and phone OTP verification REJECTED — removed
@@ -18,14 +18,14 @@
  * user's role so that downstream questions (domain, vocab) can be contextualised.
  *
  * E2 (2026-07-10, user correction): the "solo or team?" question REJECTED —
- * every workspace is a team workspace (solo = a team of one), so asking never
+ * every organization is a team organization (solo = a team of one), so asking never
  * added information; `mode`/`team_size` never fed the compiled blueprint
  * anyway (confirmed: pure UI gating, no downstream consumer). Removed both
  * questions rather than defaulting them silently, since a removed question
  * leaves no dead branch to maintain.
  */
-import type { WorkspaceBlueprint } from "@bridge/core";
-import { SPIRIT_ANIMALS } from "../avatar/avatar-store";
+import type { OrganizationBlueprint } from "@bridge/core";
+import { AVATAR_STYLES } from "../avatar/avatar-store";
 
 export type QuestionKind = "single_select" | "multi_select" | "text";
 
@@ -88,7 +88,6 @@ const Q_WATCH_FIRST: OnboardingQuestion = {
   options: [
     { value: "track_stage", label: "Track stage/status changes" },
     { value: "surface_signals", label: "Surface signals that need a response" },
-    { value: "log_touchpoints", label: "Log meetings/calls/emails as touchpoints" },
     { value: "calendar", label: "Keep an eye on my calendar" },
   ],
 };
@@ -111,34 +110,28 @@ const Q_VIEW_STYLE: OnboardingQuestion = {
   consequence: "What changes: Bridge proposes a list or board as the starting layout. You can switch later.",
   options: [
     { value: "table", label: "List / table" },
-    { value: "kanban", label: "Board (kanban)" },
+    { value: "board", label: "Board" },
   ],
 };
 
 const Q_NAME: OnboardingQuestion = {
-  id: "workspace_name",
+  id: "organization_name",
   kind: "text",
   prompt: "Last thing — what should we call your Organization?",
   placeholder: "e.g. My Deals",
   why: "A clear Organization name helps you recognize its scope.",
-  consequence: "What changes: this name appears in your sidebar. You can rename it later.",
+  consequence: "What changes: this name appears in your sidebar. You can change it by re-entering Onboarding later.",
 };
 
-/** Spirit animal picker (docs/raw/spec-consolidation-2026-07.md section 3 +
- * build brief item 2): a curated set of six, matching avatar-store.ts's
- * `SPIRIT_ANIMALS`. This answer has NO effect on the compiled blueprint
- * (unlike every other question here) — it only selects which creature the
- * avatar overlay renders as after hatching. Asked early (right after
- * profession) so the egg has something to visually anticipate for the rest
- * of the flow. */
-const Q_SPIRIT_ANIMAL: OnboardingQuestion = {
-  id: "spirit_animal",
+/** Visual-only Avatar choice. It never changes authority, tone, or behavior. */
+const Q_AVATAR_STYLE: OnboardingQuestion = {
+  id: "avatar_style",
   kind: "single_select",
-  prompt: "Pick your avatar's spirit animal.",
+  prompt: "Choose your Avatar style.",
   helpText: "Purely cosmetic — you can change this later in Settings.",
   why: "A familiar visual makes the companion easier to spot.",
   consequence: "What changes: only the avatar's appearance. Permissions, authority, and communication style do not change.",
-  options: SPIRIT_ANIMALS.map((a) => ({ value: a.value, label: a.label })),
+  options: AVATAR_STYLES.map((option) => ({ value: option.value, label: option.label })),
 };
 
 const Q_ROLE_MODEL: OnboardingQuestion = {
@@ -170,14 +163,14 @@ const Q_ROLE_MODEL_WHY: OnboardingQuestion = {
  *
  * Question order (E2 2026-07-10 — dropped "solo or team?"):
  *   1. profession (text, always first — context for everything downstream)
- *   2. spirit_animal (cosmetic, stays per spec-avatar.md Day-1 requirement)
+ *   2. avatar_style (visual only)
  *   3. role_model (optional public figure)
  *   4. role_model_why (only when a figure was supplied)
  *   5. domain (select; profession answer can inform default pre-selection in UI)
  *   6. watch_first (multi-select)
  *   7. vocab_name (only if domain ≠ relationships)
  *   8. view_style
- *   9. workspace_name (auto-populated from email in dialog, still shown for confirmation)
+ *   9. organization_name (auto-populated from email in dialog, still shown for confirmation)
  *
  * Bounded to 5-12 questions per docs/wiki/roadmap.md: the shortest real path
  * (role model skipped + relationships domain) asks 7; the longest (role model
@@ -185,50 +178,46 @@ const Q_ROLE_MODEL_WHY: OnboardingQuestion = {
  */
 export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | null {
   if (answers.profession === undefined) return Q_PROFESSION;
-  if (answers.spirit_animal === undefined) return Q_SPIRIT_ANIMAL;
+  if (answers.avatar_style === undefined) return Q_AVATAR_STYLE;
   if (answers.role_model === undefined) return Q_ROLE_MODEL;
   if (answers.role_model && answers.role_model_why === undefined) return Q_ROLE_MODEL_WHY;
   if (answers.domain === undefined) return Q_DOMAIN;
   if (answers.watch_first === undefined) return Q_WATCH_FIRST;
   if (answers.domain !== "relationships" && answers.vocab_name === undefined) return Q_VOCAB;
   if (answers.view_style === undefined) return Q_VIEW_STYLE;
-  if (answers.workspace_name === undefined) return Q_NAME;
+  if (answers.organization_name === undefined) return Q_NAME;
   return null;
 }
 
-/** Total number of questions in the LONGEST real path. Used only as the denominator for
- * egg-growth progress, never for branching logic itself (that stays in
- * `nextQuestion`). */
+/** Longest real path, used only as the setup-progress denominator. */
 export const MAX_QUESTIONS = 9;
 
-/** How many questions have been answered so far — the egg's "questions
- * answered" progress input (spec section 4, Stage 1-2: egg grows with real
- * step completion, not a fake timer). */
+/** Number of completed answers used by the real setup-progress indicator. */
 export function answeredCount(answers: OnboardingAnswers): number {
   return Object.values(answers).filter((v) => v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0))
     .length;
 }
 
 /**
- * Derives a default workspace name from an email address per spec-workspace-naming.md:
+ * Derives a default organization name from an email address per spec-organization-naming.md:
  * - Extract domain after @
  * - Strip common TLDs and generic free-mail providers (gmail, yahoo, hotmail,
  *   outlook, icloud, me, mac, proton, protonmail)
- * - Titlecase the remainder → workspace name
- * - Fallback: "<FirstName>'s Workspace" using the local part before @
+ * - Titlecase the remainder → Organization name
+ * - Fallback: "<FirstName>'s Organization" using the local part before @
  *
  * Examples:
  *   alice@acmecorp.com  → "Acmecorp"
  *   bob@stripe.com      → "Stripe"
- *   carol@gmail.com     → "Carol's Workspace"
+ *   carol@gmail.com     → "Carol's Organization"
  */
-export function workspaceNameFromEmail(email: string): string {
+export function organizationNameFromEmail(email: string): string {
   const [local, domain] = email.split('@');
-  if (!domain) return `${toTitleCase(local ?? 'My')}'s Workspace`;
+  if (!domain) return `${toTitleCase(local ?? 'My')}'s Organization`;
   const genericDomains = ['gmail', 'yahoo', 'hotmail', 'outlook', 'icloud', 'me', 'mac', 'proton', 'protonmail'];
   const domainBase = domain.split('.')[0] ?? '';
   if (genericDomains.includes(domainBase.toLowerCase())) {
-    return `${toTitleCase(local ?? 'My')}'s Workspace`;
+    return `${toTitleCase(local ?? 'My')}'s Organization`;
   }
   return toTitleCase(domainBase);
 }
@@ -237,32 +226,32 @@ function toTitleCase(s: string): string {
   return s.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Node type + starter fields per domain — the entities a fresh workspace
+/** Node type + starter fields per domain — the entities a fresh organization
  * starts with. Kept to kernel-registered node types only (compileBlueprint
  * rejects anything else) — vocabulary overrides (not new node types) are how
  * a domain's own naming shows through. */
-// "label" is display-only text (R-020 vocab sweep: canonical default label is
-// "Initiative", matching the kernel nodeType — CLAUDE.md's two-scope vocab rule).
-// A user's own `vocab_name` answer still overrides this default via `vocabulary` below.
+// Display labels use the domain's canonical Record name while legacy nodeType
+// identifiers remain time-boxed under VOCAB2.
 const DOMAIN_ENTITY: Record<string, { nodeType: string; label: string }> = {
-  sales_deals: { nodeType: "initiative", label: "Initiative" },
-  job_search: { nodeType: "initiative", label: "Initiative" },
-  support: { nodeType: "touchpoint", label: "Touchpoint" },
+  sales_deals: { nodeType: "record", label: "Deal" },
+  job_search: { nodeType: "record", label: "Application" },
+  support: { nodeType: "event", label: "Support Event" },
   relationships: { nodeType: "person", label: "Person" },
 };
 
 /**
- * Compile the collected answers into a `WorkspaceBlueprint` — the exact shape
- * `workspace.blueprint.propose` accepts (packages/core/src/blueprint.ts). Pure
+ * Compile the collected answers into a `OrganizationBlueprint` — the exact shape
+ * `organization.blueprint.propose` accepts (packages/core/src/blueprint.ts). Pure
  * function, no I/O; the caller (OnboardingDialog) is responsible for calling
- * compileBlueprint() to preview it and workspace.blueprint.propose to submit
+ * compileBlueprint() to preview it and organization.blueprint.propose to submit
  * it as a governed draft.
  */
-export function buildBlueprintFromAnswers(answers: OnboardingAnswers): WorkspaceBlueprint {
+export function buildBlueprintFromAnswers(answers: OnboardingAnswers): OrganizationBlueprint {
   const domain = (answers.domain as string | undefined) ?? "relationships";
   const entityDef = DOMAIN_ENTITY[domain] ?? DOMAIN_ENTITY.relationships!;
   const watchFirst = (answers.watch_first as string[] | undefined) ?? [];
-  const viewStyle = (answers.view_style as string | undefined) === "kanban" ? "kanban" : "table";
+  const requestedViewStyle = answers.view_style as string | undefined;
+  const viewStyle = requestedViewStyle === "board" || requestedViewStyle === "kanban" ? "board" : "table";
   const vocabName = (answers.vocab_name as string | undefined)?.trim();
   // profession is a secondary hint for vocabulary: if the user named their work explicitly
   // via vocab_name, that wins. If not, profession is available for future smart-mapping
@@ -270,10 +259,11 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
   const profession = (answers.profession as string | undefined)?.trim();
 
   const wantsCalendar = watchFirst.includes("calendar");
+  const wantsSignals = watchFirst.includes("surface_signals");
 
   const fields = [
     { id: "name", label: "Name", kind: "text" as const },
-    ...(watchFirst.includes("track_stage")
+    ...(watchFirst.includes("track_stage") || viewStyle === "board"
       ? [{ id: "stage", label: "Stage", kind: "select" as const, options: ["new", "active", "closed"] }]
       : []),
     // "Keep an eye on my calendar" (watch_first: "calendar") was collected but
@@ -295,24 +285,34 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
 
   return {
     vocabulary,
-    entities: [{ nodeType: entityDef.nodeType, label: entityDef.label, fields }],
+    entities: [
+      { nodeType: entityDef.nodeType, label: entityDef.label, fields },
+      ...(wantsSignals && entityDef.nodeType !== "event"
+        ? [{
+            nodeType: "event",
+            label: "Signal Event",
+            fields: [
+              { id: "name", label: "Name", kind: "text" as const },
+              { id: "occurred_at", label: "Occurred at", kind: "date" as const },
+            ],
+          }]
+        : []),
+    ],
     views: [
       {
         entity: entityDef.nodeType,
         kind: viewStyle,
-        // "onboarding kanban never sets groupBy" (docs/BUGS.md): when the
-        // generated entity has a stage field AND the user picked the kanban
+        // When the generated entity has a stage field and the user picked the Board
         // view style, group by it so the board renders grouped instead of
         // one flat unlabeled column. Lives under `config.groupBy`, per
         // blueprint.ts's BlueprintViewSpec shape (mirrors CompiledViewConfig).
-        ...(viewStyle === "kanban" && watchFirst.includes("track_stage")
+        ...(viewStyle === "board"
           ? { config: { groupBy: "stage" } }
           : {}),
       },
       ...(wantsCalendar ? [{ entity: entityDef.nodeType, kind: "calendar" as const }] : []),
-      ...(watchFirst.includes("surface_signals") ? [{ entity: "signal", kind: "table" as const }] : []),
-      ...(watchFirst.includes("log_touchpoints") && entityDef.nodeType !== "touchpoint"
-        ? [{ entity: "touchpoint", kind: "table" as const }]
+      ...(wantsSignals && entityDef.nodeType !== "event"
+        ? [{ entity: "event", kind: "table" as const }]
         : []),
     ],
     capabilities: [],

@@ -1,17 +1,14 @@
 /**
- * Settings — PLATFORM-WIDE admin only (ADR-029: platform admin lives here;
- * per-Initiative admin lives at /initiative/:id/control-panel). User-facing
- * vocabulary: Organization (never "Workspace"), Module (never "package"),
- * Initiative / Assistant / Skill / Automation / Workflow. Code identifiers and
- * tRPC procedure names are unchanged.
+ * Settings — platform-wide administration. User-facing copy follows canonical
+ * Organization, Module, Agent, Skill, Capability, and Automation vocabulary;
+ * legacy route and tRPC identifiers remain time-boxed under VOCAB2.
  *
  * Ten sections (requests.md R-017..R-020). Real data where endpoints exist:
- *   Organization        → workspace.list (name/id; no rename endpoint yet)
- *   Team & Permissions  → workspace.listMembers + workspace.inviteMember
- *   Knowledge           → google.list + integration.list (connected sources)
- *                         + progressive-disclosure link to /knowledge-base
- *   Intelligence        → packages.list (installed Modules)
- *                         + progressive-disclosure link to /intelligence
+ *   Organization        → organization.list (name/id; onboarding owns rename UX)
+ *   Team & Permissions  → organization.listMembers + organization.inviteMember
+ *   Sources             → google.list + integration.list (connected sources)
+ *   Capabilities        → modules.list (installed Modules)
+ *                         + links to manifest-driven Module Detail
  *   Governance          → action.listPending (approvals) + ExecutionLedger
  * Notifications / Billing & Plan / Security / API Keys have NO backend yet —
  * they render honest "nothing configured" states, never fabricated toggles.
@@ -19,20 +16,19 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import {
-  Settings, Users, CreditCard, Bell, Shield, Key, Building2, Brain, BookOpen, HelpCircle,
+  Settings, Users, CreditCard, Bell, Shield, Key, Building2, Sparkles, BookOpen, HelpCircle,
   MessageCircle, Keyboard, Zap, ExternalLink, Plus,
 } from "lucide-react";
 import clsx from "clsx";
 import { ExecutionLedger } from "../components/ExecutionLedger";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { MODULE_ROUTES } from "../lib/moduleRoutes";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 
 const navItems = [
   { id: "organization", label: "Organization", icon: Building2 },
-  { id: "learning", label: "Learning", icon: Brain },
+  { id: "learning", label: "Learning", icon: Sparkles },
   { id: "team", label: "Team & Permissions", icon: Users },
-  { id: "knowledge", label: "Knowledge", icon: BookOpen },
-  { id: "intelligence", label: "Intelligence", icon: Brain },
+  { id: "sources", label: "Sources", icon: BookOpen },
+  { id: "intelligence", label: "Capabilities", icon: Sparkles },
   { id: "governance", label: "Governance", icon: Shield },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "billing", label: "Billing & Plan", icon: CreditCard },
@@ -43,17 +39,34 @@ const navItems = [
 
 type LearningState = Awaited<ReturnType<typeof trpc.onboarding.learningState.query>>;
 
+type RedFlagState = Awaited<ReturnType<typeof trpc.redFlag.listAll.query>>;
+
 function LearningSection() {
   const [state, setState] = useState<LearningState | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [flagState, setFlagState] = useState<RedFlagState | null>(null);
 
   function refresh() {
     trpc.onboarding.learningState
-      .query({ workspaceId: PILOT_WORKSPACE })
+      .query({ organizationId: PILOT_ORGANIZATION })
       .then(setState)
       .catch((error) => setMessage(String(error)));
   }
+  function refreshFlags() {
+    trpc.redFlag.listAll
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 20 })
+      .then(setFlagState)
+      .catch((error) => setMessage(String(error)));
+  }
+  function loadMoreFlags() {
+    if (!flagState?.nextCursor) return;
+    trpc.redFlag.listAll
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 20, cursor: flagState.nextCursor })
+      .then((next) => setFlagState((prev) => (prev ? { flags: [...prev.flags, ...next.flags], nextCursor: next.nextCursor } : next)))
+      .catch((error) => setMessage(String(error)));
+  }
   useEffect(refresh, []);
+  useEffect(refreshFlags, []);
 
   const preference = state?.memories.find((item) => item.value.kind === "onboarding_preference");
   const reflection = state?.memories.find((item) => item.value.kind === "reflection_schedule");
@@ -65,7 +78,7 @@ function LearningSection() {
     const next = window.prompt("What should Bridge remember instead?", preference.value.admiredFor);
     if (!next?.trim()) return;
     await trpc.onboarding.correctMemory.mutate({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       memoryId: preference.row.id,
       content: next.trim(),
     });
@@ -76,7 +89,7 @@ function LearningSection() {
   async function forget() {
     if (!preference || !window.confirm("Delete this learned preference from Bridge?")) return;
     await trpc.onboarding.forgetMemory.mutate({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       memoryId: preference.row.id,
     });
     setMessage("Preference deleted.");
@@ -86,7 +99,7 @@ function LearningSection() {
   async function forgetTrustCapture(memoryId: string) {
     if (!window.confirm("Delete this one-time observation from Bridge?")) return;
     await trpc.onboarding.forgetMemory.mutate({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       memoryId,
     });
     setMessage("One-time observation deleted.");
@@ -96,12 +109,31 @@ function LearningSection() {
   async function updateReflection(action: "snooze" | "pause" | "resume" | "skip") {
     if (!reflection) return;
     await trpc.onboarding.setReflection.mutate({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       memoryId: reflection.row.id,
       action,
     });
     setMessage(`Reflection ${action === "resume" ? "resumed" : action === "skip" ? "skipped" : `${action}d`}.`);
     refresh();
+  }
+
+  async function clearFlag(flagId: string) {
+    await trpc.redFlag.clear.mutate({ organizationId: PILOT_ORGANIZATION, flagId });
+    setMessage("Flag cleared.");
+    refreshFlags();
+  }
+
+  async function reopenFlag(flagId: string) {
+    await trpc.redFlag.reopen.mutate({ organizationId: PILOT_ORGANIZATION, flagId });
+    setMessage("Flag reopened.");
+    refreshFlags();
+  }
+
+  async function forgetFlag(flagId: string) {
+    if (!window.confirm("Permanently delete this flag's history? Clearing (reversible) is usually the better choice.")) return;
+    await trpc.redFlag.forget.mutate({ organizationId: PILOT_ORGANIZATION, flagId });
+    setMessage("Flag permanently deleted.");
+    refreshFlags();
   }
 
   return (
@@ -188,6 +220,41 @@ function LearningSection() {
           {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
         </div>
       </Card>
+      <Card>
+        <div className="p-6 space-y-3">
+          <div className="font-semibold text-sm text-[var(--color-navy)]">Red flags</div>
+          <p className="text-xs text-[var(--color-navy-mid)]">
+            Every scoped correction you've flagged across the platform — the audit evidence for TASK-010's red-flag
+            control. Clearing is reversible; deleting is permanent.
+          </p>
+          {!flagState && <p className="text-xs text-[var(--color-warm-gray)]">Loading…</p>}
+          {flagState && flagState.flags.length === 0 && <p className="text-xs text-[var(--color-warm-gray)]">No red flags recorded yet.</p>}
+          {flagState?.flags.map(({ row, value }) => (
+            <div key={row.id} className="rounded-lg border p-3 space-y-1">
+              <p className="text-sm">
+                {value.anchor.moduleId}
+                {value.anchor.kind === "cell" ? ` · ${value.anchor.databaseId} · ${value.anchor.fieldId}` : ` · ${value.anchor.bulletPath}`}
+                {" — \u201c"}{value.renderedValue}{"\u201d"}
+              </p>
+              {value.reason && <p className="text-xs text-[var(--color-navy-mid)]">Reason: {value.reason}</p>}
+              <p className="text-xs text-[var(--color-warm-gray)]">
+                {value.status} · learning: {value.learningStatus} · {row.createdBy} · {new Date(row.createdAt).toLocaleString()}
+              </p>
+              <div className="flex gap-2">
+                {value.status === "open" ? (
+                  <button type="button" onClick={() => void clearFlag(row.id)} className="text-xs font-semibold px-3 py-2 rounded-lg border">Clear</button>
+                ) : (
+                  <button type="button" onClick={() => void reopenFlag(row.id)} className="text-xs font-semibold px-3 py-2 rounded-lg border">Reopen</button>
+                )}
+                <button type="button" onClick={() => void forgetFlag(row.id)} className="text-xs font-semibold px-3 py-2 rounded-lg border text-red-600">Delete</button>
+              </div>
+            </div>
+          ))}
+          {flagState?.nextCursor && (
+            <button type="button" onClick={loadMoreFlags} className="text-xs font-semibold px-3 py-2 rounded-lg border">Load more</button>
+          )}
+        </div>
+      </Card>
     </div>
   );
 }
@@ -220,9 +287,9 @@ function OrganizationSection() {
   const [org, setOrg] = useState<{ id: string; name: string; createdAt: string } | null | undefined>(undefined);
 
   useEffect(() => {
-    trpc.workspace.list
+    trpc.organization.list
       .query()
-      .then((rows) => setOrg(rows.find((w) => w.id === PILOT_WORKSPACE) ?? null))
+      .then((rows) => setOrg(rows.find((w) => w.id === PILOT_ORGANIZATION) ?? null))
       .catch(() => setOrg(null));
   }, []);
 
@@ -239,11 +306,11 @@ function OrganizationSection() {
           </div>
           <div>
             <div className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wider mb-1">Organization ID</div>
-            <code className="text-xs bg-[var(--color-surface)] px-2 py-1 rounded text-[var(--color-navy-mid)]">{PILOT_WORKSPACE}</code>
+            <code className="text-xs bg-[var(--color-surface)] px-2 py-1 rounded text-[var(--color-navy-mid)]">{PILOT_ORGANIZATION}</code>
           </div>
           {org !== undefined && (
             <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
-              Renaming isn't available yet — there's no update endpoint on the platform.
+              To change this name, open Learning and re-enter Onboarding.
             </p>
           )}
         </div>
@@ -260,8 +327,8 @@ function TeamSection() {
   const [inviteNote, setInviteNote] = useState<string | null>(null);
 
   function refresh() {
-    trpc.workspace.listMembers
-      .query({ workspaceId: PILOT_WORKSPACE })
+    trpc.organization.listMembers
+      .query({ organizationId: PILOT_ORGANIZATION })
       .then(setMembers)
       .catch((e) => setError(String(e)));
   }
@@ -272,7 +339,7 @@ function TeamSection() {
     setInviting(true);
     setInviteNote(null);
     try {
-      const res = await trpc.workspace.inviteMember.mutate({ workspaceId: PILOT_WORKSPACE, email: inviteEmail.trim() });
+      const res = await trpc.organization.inviteMember.mutate({ organizationId: PILOT_ORGANIZATION, email: inviteEmail.trim() });
       setInviteNote(`Invited ${res.email}.`);
       setInviteEmail("");
       refresh();
@@ -343,13 +410,13 @@ function TeamSection() {
 type GoogleInfo = Awaited<ReturnType<typeof trpc.google.list.query>>;
 type IntegrationsResult = Awaited<ReturnType<typeof trpc.integration.list.query>>;
 
-function KnowledgeSection() {
+function SourcesSection() {
   const [google, setGoogle] = useState<GoogleInfo | null>(null);
   const [connected, setConnected] = useState<IntegrationsResult | null>(null);
 
   useEffect(() => {
     trpc.google.list.query().then(setGoogle).catch(() => {});
-    trpc.integration.list.query({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 }).then(setConnected).catch(() => {});
+    trpc.integration.list.query({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 }).then(setConnected).catch(() => {});
   }, []);
 
   const sources: { name: string; status: string; to?: string }[] = [
@@ -365,7 +432,7 @@ function KnowledgeSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="Knowledge" desc="What does the platform know? Connected sources feeding your organization's shared knowledge." />
+      <SectionHeader title="Sources" desc="Connected sources Bridge can use for your Organization." />
 
       <Card>
         <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
@@ -400,46 +467,54 @@ function KnowledgeSection() {
   );
 }
 
-type PackagesResult = Awaited<ReturnType<typeof trpc.packages.list.query>>;
+type ModulesResult = Awaited<ReturnType<typeof trpc.modules.list.query>>;
 
 function IntelligenceSection() {
-  const [result, setResult] = useState<PackagesResult | null>(null);
+  const [result, setResult] = useState<ModulesResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    trpc.packages.list
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
+    trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
       .then(setResult)
       .catch((e) => setError(String(e)));
   }, []);
 
+  const installedModules = result?.items.filter(
+    (row) =>
+      row.state === "available"
+      && row.status === "installed"
+      && row.manifest.module !== undefined
+      && row.moduleAttachment === undefined,
+  ) ?? [];
+
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="Intelligence" desc="What can the platform do with what it knows? Installed Modules and the shared Assistants, Skills, Automations, and Workflows they bring." />
+      <SectionHeader title="Capabilities" desc="Installed Modules and the governed Agents, Skills, and Automations they provide." />
 
       <Card>
-        <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-[var(--color-border)]">
           <h3 className="font-semibold text-[var(--color-navy)] text-sm">Installed Modules</h3>
-          <Link to="/intelligence" className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-steel)] no-underline hover:underline">
-            Open Intelligence <ExternalLink className="w-3.5 h-3.5" />
-          </Link>
         </div>
         {error && <div className="px-6 py-4 text-sm text-red-600 break-words">{error}</div>}
         {!error && result === null && <div className="px-6 py-4 text-sm text-[var(--color-warm-gray)]">Loading…</div>}
-        {result !== null && result.items.length === 0 && (
+        {result !== null && installedModules.length === 0 && (
           <div className="px-6 py-8 text-center text-sm text-[var(--color-warm-gray)]">
-            No Modules installed yet. Shared Assistants, Skills, Automations, and Workflows will appear here once one is.
+            No Modules installed yet. Shared Agents, Skills, and Automations will appear here once one is.
           </div>
         )}
-        {result !== null && result.items.length > 0 && (
+        {result !== null && installedModules.length > 0 && (
           <div className="divide-y divide-[var(--color-border)]">
-            {result.items.map((row) => (
+            {installedModules.map((row) => (
               <div key={row.id} className="flex items-center justify-between gap-3 px-6 py-3.5">
                 <div>
-                  <span className="text-sm font-medium text-[var(--color-navy)]">
-                    {MODULE_ROUTES[row.packageName]?.label ?? row.packageName}
-                  </span>
-                  <span className="text-xs text-[var(--color-warm-gray)]"> · v{row.packageVersion}</span>
+                  <Link
+                    to={`/module/${encodeURIComponent(row.moduleName)}`}
+                    className="text-sm font-medium text-[var(--color-navy)] no-underline hover:text-[var(--color-steel)] hover:underline"
+                  >
+                    {row.manifest.module?.displayName ?? row.manifest.name}
+                  </Link>
+                  <span className="text-xs text-[var(--color-warm-gray)]"> · v{row.moduleVersion}</span>
                 </div>
                 <span className="text-xs border border-[var(--color-border)] rounded px-1.5 py-0.5 text-[var(--color-navy-mid)]">{row.state}</span>
               </div>
@@ -457,7 +532,7 @@ function GovernanceSection() {
   const [pending, setPending] = useState<PendingResult | null>(null);
 
   useEffect(() => {
-    trpc.action.listPending.query({ workspaceId: PILOT_WORKSPACE, limit: 5, offset: 0 }).then(setPending).catch(() => {});
+    trpc.action.listPending.query({ organizationId: PILOT_ORGANIZATION, limit: 5, offset: 0 }).then(setPending).catch(() => {});
   }, []);
 
   return (
@@ -465,7 +540,7 @@ function GovernanceSection() {
       <SectionHeader title="Governance" desc="Every consequential action is proposed, reviewed, and ledgered." />
 
       <Card>
-        <div className="px-6 py-4 flex items-center justify-between">
+        <div className="px-4 py-4 sm:px-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm font-semibold text-[var(--color-navy)]">Pending approvals</div>
             <div className="text-xs text-[var(--color-warm-gray)] mt-0.5">
@@ -490,7 +565,7 @@ function HelpSection() {
 
       <div className="grid sm:grid-cols-2 gap-4">
         {[
-          { icon: BookOpen, title: "Documentation", desc: "Concepts, vocabulary, and how Workflows, Signals, and governance fit together." },
+          { icon: BookOpen, title: "Documentation", desc: "Concepts, vocabulary, and how Automations, Signals, and governance fit together." },
           { icon: MessageCircle, title: "Contact support", desc: "Reach the Bridge team for setup, billing, or anything urgent." },
           { icon: Keyboard, title: "Keyboard shortcuts", desc: "Move faster across the network, work, and approvals surfaces." },
           { icon: Zap, title: "What's new", desc: "Recent releases — approvals inbox, execution ledger, two-tier profiles." },
@@ -532,8 +607,8 @@ export function SettingsPage() {
         return <LearningSection />;
       case "team":
         return <TeamSection />;
-      case "knowledge":
-        return <KnowledgeSection />;
+      case "sources":
+        return <SourcesSection />;
       case "intelligence":
         return <IntelligenceSection />;
       case "governance":
@@ -588,9 +663,21 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col sm:flex-row overflow-hidden">
+        <div className="sm:hidden shrink-0 bg-white border-b border-[var(--color-border)] p-3">
+          <label htmlFor="settings-section" className="sr-only">Settings section</label>
+          <select
+            id="settings-section"
+            value={activeSection}
+            onChange={(event) => setActiveSection(event.target.value)}
+            className="w-full rounded-lg border border-[var(--color-border)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--color-navy)]"
+          >
+            {navItems.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+        </div>
+
         {/* Left section nav */}
-        <div className="w-56 shrink-0 bg-white border-r border-[var(--color-border)] flex flex-col overflow-y-auto">
+        <div className="hidden sm:flex w-56 shrink-0 bg-white border-r border-[var(--color-border)] flex-col overflow-y-auto">
           <nav className="p-3 flex flex-col gap-1">
             {navItems.map((item) => (
               <button
@@ -612,7 +699,7 @@ export function SettingsPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-8">
           <div className={clsx("mx-auto", activeSection === "governance" ? "max-w-5xl" : "max-w-2xl")}>{renderContent()}</div>
         </div>
       </div>

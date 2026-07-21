@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-18 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,ritual-executor,goal-task,skill-manifest,child-agent-run}.ts, apps/api/src/{router,relationship-materializer,server,wiring}.ts, packages/local/src/ports.ts, packages/db/src/{schema,graph-store,ledger-store,relation-materialization-store}.ts | Token estimate: ~2000 -->
+<!-- Updated: 2026-07-21 | Files scanned: packages/core/src/{pipeline,authority,automation-executor,task-manager,skill-manifest,module/{manifest,ports,privacy,commons-trust}}.ts, modules/manifests/src/index.ts, apps/api/src/{router,built-in-modules,module-files,wiring,commons-client}.ts, apps/web/src/app/{Layout,routes,pages/TaskManagerPage,pages/TaskRecordDetailPage,pages/ModuleDetailPage}.tsx, packages/db/src/{schema,task-manager-store,module-store,automation-stores,graph-store,ledger-store}.ts, packages/local/src/stores/pglite.ts | Token estimate: ~3000 -->
 
 # Load-Bearing Flows + Schema ER
 
@@ -71,6 +71,12 @@ Reads page by `(observed_at, created_at, id)`, deduplicate evidence authorizatio
 prune inaccessible endpoints/evidence for the authenticated owner. Caller JSON never chooses
 proposal linkage; runtime trusts `ref_ledger_id`.
 
+Help Request public token threads, authenticated inbox, capability routing, and governed Offer
+drafts live only at `relationship.helpdesk.*`. Routing reads accessible Person Records through
+`GraphStore`; tickets remain in the owner/RLS-safe Helpdesk store; Offer drafts use the attributable
+Relationship Skill and Action pipeline. No standalone Helpdesk package, top-level API, browser
+store, occurrence store, or graph exists.
+
 ## 3. Goal/Task Skill + bounded child Agent Run
 
 ```mermaid
@@ -111,7 +117,7 @@ sequenceDiagram
   CA->>CDB: writes public/identity-grade facts only (CanonicalIdentityStore)
 ```
 
-Residency invariant (local/src/ports.ts:1-13): OAuth tokens (SecretStore), raw Gmail/Calendar bodies (BodyStore, structurally private), derived Touchpoints/Memories/Signals/warmth (LocalGraphStore) live ONLY local (pglite) — never cross. DataScope lattice (data-scope.ts): all/public/private, intersect = narrowest, public∩private = none ⇒ deny. Separate DB axis: `node_types.plane` mirror|operational|infra + whitelisted cross-plane edge types (SCHEMA.sql:93-107).
+Residency invariant (local/src/ports.ts:1-13): OAuth tokens (SecretStore), raw Gmail/Calendar bodies (BodyStore, structurally private), derived Events/Memories/Signals/warmth (LocalGraphStore) live ONLY local (pglite) — never cross. DataScope lattice (data-scope.ts): all/public/private, intersect = narrowest, public∩private = none ⇒ deny. Separate DB axis: `node_types.plane` mirror|operational|infra + whitelisted cross-plane edge types (SCHEMA.sql:93-107).
 
 ## 5. Ritual run (ritual-executor.ts — InProcessRitualExecutor; Hatchet/Temporal deferred behind same interface)
 
@@ -136,38 +142,67 @@ sequenceDiagram
   E->>Rec: finish(completed, steps) [168]
 ```
 
-## 6. Schema ER sketch (db/src/schema.ts, 59 tables — top slice)
+## 6. Schema ER sketch (db/src/schema.ts — top slice)
 
 ```mermaid
 erDiagram
-  workspaces ||--o{ people : "workspace_id (RLS boundary on ~every operational table)"
+  organizations ||--o{ people : "organization_id (RLS boundary)"
   users ||--o{ people : user_id
   people_canonical ||--o{ people : "canonical_person_id (nullable)"
   communities_canonical ||--o{ communities : canonical_community_id
   communities ||--o{ people : current_community_id
-  workspaces ||--o{ edges : "unified graph fabric"
+  organizations ||--o{ edges : "unified Relation fabric"
   users ||--o{ edges : "private owner (nullable legacy rows)"
   ledger ||--o{ edges : "winning decision provenance"
   ledger ||--o{ relation_materialization_effects : "proposal + decision"
   users ||--o{ relation_materialization_effects : "owner retry scope"
-  initiatives ||--o{ touchpoints : "initiative_id (nullable)"
-  initiatives ||--o{ rituals : supports_initiative
-  rituals ||--o{ ritual_runs : ritual_id
+  organizations ||--o{ events : "one append-only occurrence ledger"
+  events ||--o{ edges : "participant/evidence Relations"
+  organizations ||--o{ files : "canonical File index"
+  files ||--o{ file_refs : "Module/Record/Event provenance"
+  automations ||--o{ automation_runs : automation_id
   users ||--o{ agents : owner_user_id
-  workspaces ||--o{ goals : workspace_id
-  goals ||--o{ tasks : "same-workspace composite FK"
-  agents ||--o{ tasks : "assigned Agent, same workspace"
-  workspaces ||--o{ skill_manifests : workspace_id
-  tasks ||--o{ child_agent_runs : "same-workspace composite FK"
-  agents ||--o{ child_agent_runs : "parent Agent, same workspace"
+  organizations ||--o{ tasks : "one recursive Task Database"
+  tasks ||--o{ tasks : "parent_task_id / anchor_task_id"
+  tasks ||--o{ task_change_proposals : "pipeline-linked governed proposal projection"
+  organizations ||--o{ module_installations : "commons_source signed root envelope"
+  agents ||--o{ tasks : "assigned Agent, same Organization"
+  organizations ||--o{ skill_manifests : organization_id
+  tasks ||--o{ child_agent_runs : "same-Organization composite FK"
+  agents ||--o{ child_agent_runs : "parent Agent, same Organization"
   ledger ||--o{ ledger : "ref_ledger_id (decision→proposal, append-only spine)"
   ledger ||--o{ decision_traces : ledger_id
   delegations ||--o{ ledger : delegation_id
-  signals ||--o{ signal_actions : signal_id
   roles ||--o{ role_permissions : role_id
   policies ||--o{ policy_params : policy_id
   capability_manifests ||--o{ capability_states : manifest_id
   integrations ||--o{ integration_sync_state : integration_id
 ```
 
-Tiers: **global/public** = `*_canonical`, `node_types`, `embedding_models` · **local/private** = `people`, `communities`, owner-scoped Relations/effects + Local Plane tokens/bodies/derived data · **operational** = workspace-scoped tables protected by RLS-as-code. Production boot rejects superuser/BYPASSRLS app roles; pglite tests need synthetic non-superuser roles to exercise policies. Governance cluster: roles/permissions/ephemeral grants/delegations/policies + capability manifests/states/trust grants + Goal/Task/SkillManifest/child Run contracts.
+Signal is the `signals` security-invoker view over participant-linked Events, not a table. Timeline is an Event read projection. Tiers: **global/public** = `*_canonical`, `node_types`, `embedding_models` · **local/private** = `people`, `communities`, owner-scoped Relations/effects + Local Plane tokens/bodies/derived data · **operational** = Organization-scoped tables protected by RLS-as-code. Production boot rejects superuser/BYPASSRLS app roles; pglite tests need synthetic non-superuser roles to exercise policies. Governance cluster: roles/permissions/ephemeral grants/delegations/policies + capability manifests/states/trust grants + Goal/Task/SkillManifest/child Run contracts.
+
+## 7. Installation-driven Module shell + full Graph composition
+
+```mermaid
+sequenceDiagram
+  participant UI as Layout / Module Detail
+  participant API as authenticated tRPC
+  participant M as ModuleStore
+  participant R as AutomationRunRecorder
+  participant G as GraphStore
+  participant V as shared GraphView
+  UI->>API: modules.list / modules.recentRuns(Module)
+  Note over UI,M: Built-in identity/routes originate in modules/manifests; API only re-exports
+  API->>M: active installed root Modules + manifests
+  API->>R: Runs for runtime Automation IDs resolved from active manifest
+  UI-->>UI: Skills nested under consuming Agent; no standalone route
+  UI->>API: graph.full
+  API->>G: permission-pruned Records/Relations/Events/Files
+  API->>M: page all installations; keep active installed roots
+  API-->>V: graph + Module nodes + manifest Agent nodes + real source paths
+  V-->>UI: same node/edge renderer for full and single-Database scopes
+```
+
+Left Sidebar/right Chat Panel use one `PanelControl` mode (`collapsed|expanded|extended`), Organization-scoped persisted width/state, shared collapse/extend controls, keyboard resize, narrow overlay controls, and Escape extended→expanded→collapsed.
+
+Runtime Local Plane (`BRIDGE_LOCAL_DIR`) binds Automation definitions/Runs, Module installations/signed `commons_source`, Task proposals, and ledger to one Drizzle/PGlite directory. In-memory Automation/Module adapters are test-only when no durable directory exists. Module installation primary/resource identity is UUID; legacy process-local IDs map deterministically at the ledger boundary.

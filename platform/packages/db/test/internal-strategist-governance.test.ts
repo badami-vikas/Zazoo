@@ -13,23 +13,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createLocalDb, ensureInternalStrategistGovernance, ensureGovernanceAgentGovernance, ensureCapabilityBuilderGovernance, DrizzleAgentStore, DrizzleRoleStore, schema } from "../src/index.js";
 
-async function seedWorkspaceAndUser(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
-  const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_internal_strategist" }).returning({ id: schema.workspaces.id });
+async function seedOrganizationAndUser(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
+  const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_internal_strategist" }).returning({ id: schema.organizations.id });
   assert.ok(ws);
   const [user] = await db
     .insert(schema.users)
     .values({ email: `test_fixture_internal_strategist_owner_${crypto.randomUUID()}@example.com` })
     .returning({ id: schema.users.id });
   assert.ok(user);
-  return { workspaceId: ws!.id, userId: user!.id };
+  return { organizationId: ws!.id, userId: user!.id };
 }
 
 test("ensureInternalStrategistGovernance: provisions a real, usable Internal Strategist authority (role + agent + role grant + principal grant)", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { workspaceId, userId } = await seedWorkspaceAndUser(db);
+    const { organizationId, userId } = await seedOrganizationAndUser(db);
     const config = {
-      workspaceId,
+      organizationId,
       userId,
       agentId: crypto.randomUUID(),
       roleId: crypto.randomUUID(),
@@ -44,7 +44,7 @@ test("ensureInternalStrategistGovernance: provisions a real, usable Internal Str
     assert.ok((await agentStore.capabilityScope(config.agentId)).includes("signal:write"));
     const roleGrants = await roleStore.grantsForRole(config.roleId);
     assert.ok(roleGrants.some((g) => g.resourceType === "signal" && g.action === "write" && g.effect === "allow"));
-    const principalGrants = await roleStore.directGrants(workspaceId, { type: "user", id: userId });
+    const principalGrants = await roleStore.directGrants(organizationId, { type: "user", id: userId });
     assert.ok(principalGrants.some((g) => g.resourceType === "signal" && g.action === "write" && g.effect === "allow"));
   } finally {
     await close();
@@ -54,9 +54,9 @@ test("ensureInternalStrategistGovernance: provisions a real, usable Internal Str
 test("ensureInternalStrategistGovernance: idempotent — calling it twice does not duplicate grants or error", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { workspaceId, userId } = await seedWorkspaceAndUser(db);
+    const { organizationId, userId } = await seedOrganizationAndUser(db);
     const config = {
-      workspaceId,
+      organizationId,
       userId,
       agentId: crypto.randomUUID(),
       roleId: crypto.randomUUID(),
@@ -75,29 +75,29 @@ test("ensureInternalStrategistGovernance: idempotent — calling it twice does n
   }
 });
 
-test("ensureInternalStrategistGovernance: reuses the SAME agentId across two different workspaces without cross-contaminating grants", async () => {
+test("ensureInternalStrategistGovernance: reuses the SAME agentId across two different organizations without cross-contaminating grants", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { workspaceId: ws1, userId: user1 } = await seedWorkspaceAndUser(db);
-    const { workspaceId: ws2, userId: user2 } = await seedWorkspaceAndUser(db);
+    const { organizationId: ws1, userId: user1 } = await seedOrganizationAndUser(db);
+    const { organizationId: ws2, userId: user2 } = await seedOrganizationAndUser(db);
     const sharedAgentId = crypto.randomUUID();
 
     await ensureInternalStrategistGovernance(db, {
-      workspaceId: ws1,
+      organizationId: ws1,
       userId: user1,
       agentId: sharedAgentId,
       roleId: crypto.randomUUID(),
       permissionId: crypto.randomUUID(),
     });
-    // Re-provisioning under a different workspace/user/role updates the SAME
-    // agent row's workspaceId/assumesRoleId — this mirrors how a single
+    // Re-provisioning under a different organization/user/role updates the SAME
+    // agent row's organizationId/assumesRoleId — this mirrors how a single
     // physical Internal Strategist identity is reused per this task's design
     // (LEARNING_AGENT/INTERNAL_STRATEGIST_AGENT are singleton ids, not
-    // per-workspace), and proves the upsert doesn't silently no-op on an
+    // per-organization), and proves the upsert doesn't silently no-op on an
     // existing row.
     const secondRoleId = crypto.randomUUID();
     await ensureInternalStrategistGovernance(db, {
-      workspaceId: ws2,
+      organizationId: ws2,
       userId: user2,
       agentId: sharedAgentId,
       roleId: secondRoleId,
@@ -114,8 +114,8 @@ test("ensureInternalStrategistGovernance: reuses the SAME agentId across two dif
 test("ensureGovernanceAgentGovernance: provisions a real, usable Governance authority (AGS3 durable boundary)", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { workspaceId, userId } = await seedWorkspaceAndUser(db);
-    const config = { workspaceId, userId, agentId: crypto.randomUUID(), roleId: crypto.randomUUID(), permissionId: crypto.randomUUID() };
+    const { organizationId, userId } = await seedOrganizationAndUser(db);
+    const config = { organizationId, userId, agentId: crypto.randomUUID(), roleId: crypto.randomUUID(), permissionId: crypto.randomUUID() };
 
     await ensureGovernanceAgentGovernance(db, config);
 
@@ -130,8 +130,8 @@ test("ensureGovernanceAgentGovernance: provisions a real, usable Governance auth
 test("ensureCapabilityBuilderGovernance: provisions a real, usable Capability Builder authority (AGS3 durable boundary)", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { workspaceId, userId } = await seedWorkspaceAndUser(db);
-    const config = { workspaceId, userId, agentId: crypto.randomUUID(), roleId: crypto.randomUUID(), permissionId: crypto.randomUUID() };
+    const { organizationId, userId } = await seedOrganizationAndUser(db);
+    const config = { organizationId, userId, agentId: crypto.randomUUID(), roleId: crypto.randomUUID(), permissionId: crypto.randomUUID() };
 
     await ensureCapabilityBuilderGovernance(db, config);
 

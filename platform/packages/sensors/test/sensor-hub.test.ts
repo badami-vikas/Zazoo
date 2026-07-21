@@ -22,7 +22,7 @@ function makeHub(surface: SensorHubDeps["surface"] = "desktop") {
     capabilities,
     ledger,
     events,
-    workspaceId: WS,
+    organizationId: WS,
     surface,
     ids: () => `id-${++n}`,
     nowISO: () => "2026-07-06T00:00:00.000Z",

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Bot } from "lucide-react";
 import { Header } from "../components/shared/Header";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
@@ -46,7 +46,7 @@ export function ChiefOfStaffPage() {
     setError(null);
     setTurns((prev) => [...prev, { role: "user", text: message }]);
     try {
-      const result = await trpc.chiefOfStaff.converse.mutate({ workspaceId: PILOT_WORKSPACE, message, chainDepth });
+      const result = await trpc.chiefOfStaff.converse.mutate({ organizationId: PILOT_ORGANIZATION, message, chainDepth });
       setTurns((prev) => [
         ...prev,
         { role: "assistant", text: result.reply, decision: result.decision, proposalId: result.proposal?.id },

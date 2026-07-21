@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import {
@@ -20,6 +20,8 @@ export function GoogleIntegrationPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [sync, setSync] = useState<IntakeResult | null>(null);
   const [draft, setDraft] = useState({ to: '', subject: '', body: '' });
+  const awaitingDesktopOAuth = useRef(false);
+  const desktopOAuthExpiresAt = useRef(0);
 
   const flash = (m: string) => { setToast(m); window.setTimeout(() => setToast(null), 3600); };
 
@@ -33,15 +35,50 @@ export function GoogleIntegrationPanel() {
     const err = params.get('error');
     if (err) flash(`Connect failed: ${err}`);
     void refresh();
+    const refreshAfterDesktopOAuth = () => {
+      if (!awaitingDesktopOAuth.current) return;
+      void apiIntegrationList()
+        .then((result) => {
+          setData(result);
+          if (result?.connection.connected) {
+            awaitingDesktopOAuth.current = false;
+            flash('Google connected — tokens stored in the local plane.');
+          } else if (Date.now() >= desktopOAuthExpiresAt.current) {
+            awaitingDesktopOAuth.current = false;
+            flash('Google authorization expired before the connection completed.');
+          } else {
+            flash('Google authorization is still pending in the system browser.');
+          }
+        })
+        .catch((error: unknown) => {
+          flash(`Could not refresh Google connection status: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    };
+    window.addEventListener('focus', refreshAfterDesktopOAuth);
+    return () => window.removeEventListener('focus', refreshAfterDesktopOAuth);
   }, []);
 
   async function connect() {
     setBusy('connect');
     try {
       const r = await apiConnectGoogle();
-      if (r?.url) { window.location.href = r.url; return; }
+      if (r?.url) {
+        if (window.__BRIDGE_DESKTOP__ && window.__TAURI_INTERNALS__?.invoke) {
+          awaitingDesktopOAuth.current = true;
+          desktopOAuthExpiresAt.current = Date.now() + 10 * 60 * 1000;
+          await window.__TAURI_INTERNALS__.invoke('open_google_oauth', { url: r.url });
+          flash('Continue the Google connection in your system browser, then return to Bridge.');
+        } else {
+          window.location.assign(r.url);
+        }
+        return;
+      }
       if (r?.error === 'oauth_not_configured') flash('Set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET on the API to connect.');
       else flash('Connect a platform API first (set VITE_API_URL).');
+    } catch (error) {
+      awaitingDesktopOAuth.current = false;
+      desktopOAuthExpiresAt.current = 0;
+      flash(`Could not open Google authorization: ${error instanceof Error ? error.message : String(error)}`);
     } finally { setBusy(null); }
   }
 
@@ -123,7 +160,7 @@ export function GoogleIntegrationPanel() {
               <h1 className="text-2xl font-bold text-[var(--color-navy)] mb-1">Gmail + Google Calendar</h1>
               <p className="text-[var(--color-navy-mid)] text-sm max-w-2xl">
                 Real OAuth, read <span className="font-semibold">and</span> write. Emails &amp; meetings become
-                {' '}<span className="font-semibold">Touchpoints, Memories &amp; Signals</span> — sourced through the gate, fed to the graph
+                {' '}<span className="font-semibold">Events, Memories &amp; Signals</span> — sourced through the gate, fed to the graph
                 {' '}by your approval. Sending is draft-then-approve. Bodies &amp; tokens live in the local plane; nothing private crosses to the cloud.
               </p>
             </div>
@@ -166,7 +203,7 @@ export function GoogleIntegrationPanel() {
           <Card title="Read · source → propose (by approval)" icon={Inbox}>
             <p className="text-sm text-[var(--color-navy-mid)] mb-4">
               An egress agent sources threads &amp; events through the gate; bodies land in the local plane. Matches become
-              {' '}Touchpoint/Memory proposals; uncertain matches file a <span className="font-medium">possible-duplicate Signal</span> (never auto-linked).
+              {' '}Event/Memory proposals; uncertain matches file a <span className="font-medium">possible-duplicate Signal</span> (never auto-linked).
             </p>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => runSync('gmail')} disabled={!!busy}

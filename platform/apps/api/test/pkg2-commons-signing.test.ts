@@ -12,7 +12,7 @@ import test from "node:test";
 import { generateKeyPairSync } from "node:crypto";
 import {
   CommonsInsecureTransportError,
-  type PackageManifest,
+  type ModuleManifest,
 } from "@bridge/core";
 import { CommonsResponseMismatchError, HttpCommonsClient, CommonsSignatureError } from "../src/commons-client.js";
 import {
@@ -29,13 +29,13 @@ function makeKeyPair(): { privateKeyPem: string; publicKeyPem: string } {
   };
 }
 
-function fixtureManifest(): PackageManifest {
+function fixtureManifest(): ModuleManifest {
   return {
     name: "test-fixture-signed-pkg",
     version: "1.0.0",
-    kind: "tool",
-    summary: "test fixture signed package",
-    description: "test fixture signed package",
+    kind: "module",
+    summary: "test fixture signed module",
+    description: "test fixture signed module",
     lineageManifestId: null,
     dependencies: [],
     capabilities: [
@@ -43,7 +43,7 @@ function fixtureManifest(): PackageManifest {
         id: "cap",
         name: "cap",
         version: "1.0.0",
-        capabilityType: "tool",
+        capabilityType: "skill",
         origin: "community",
         audience: "private",
         permissions: [],
@@ -52,7 +52,7 @@ function fixtureManifest(): PackageManifest {
       },
     ],
     contextProviders: [],
-    workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+    organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
   };
 }
 
@@ -78,7 +78,7 @@ test("HttpCommonsClient.getVersion: accepts a validly-signed entry (verify-on-in
   assert.equal(fetched?.name, "test-fixture-signed-pkg");
 });
 
-test("HttpCommonsClient rejects substitution of another validly signed package", async (t) => {
+test("HttpCommonsClient rejects substitution of another validly signed module", async (t) => {
   const keyPair = makeKeyPair();
   const substitutedManifest = { ...fixtureManifest(), name: "test-fixture-other-pkg" };
   const entry = signCommonsEntryForTest(substitutedManifest, keyPair);
@@ -91,7 +91,7 @@ test("HttpCommonsClient rejects substitution of another validly signed package",
   );
 });
 
-test("HttpCommonsClient.get rejects substitution in package detail responses", async (t) => {
+test("HttpCommonsClient.get rejects substitution in module detail responses", async (t) => {
   const keyPair = makeKeyPair();
   const substitutedManifest = { ...fixtureManifest(), name: "test-fixture-other-pkg" };
   const latest = signCommonsEntryForTest(substitutedManifest, keyPair);
@@ -208,7 +208,7 @@ test("HttpCommonsClient.getVersion: rejects an entry whose deterministic scan di
       status: "failed",
       riskBand: "informational",
       lethalTrifecta: false,
-      checks: [{ id: "artifact-license", status: "fail", detail: "license absent" }],
+      checks: [{ id: "content-license", status: "fail", detail: "license absent" }],
     },
   );
   t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
@@ -221,7 +221,7 @@ test("HttpCommonsClient.getVersion: rejects an entry whose deterministic scan di
   });
 });
 
-test("HttpCommonsClient sends generalized publish metadata and no workspace or personal identifiers", async (t) => {
+test("HttpCommonsClient sends generalized publish metadata and no organization or personal identifiers", async (t) => {
   let requestBody = "";
   let authorization = "";
   t.mock.method(globalThis, "fetch", async (_url: string | URL | Request, init?: RequestInit) => {
@@ -237,7 +237,7 @@ test("HttpCommonsClient sends generalized publish metadata and no workspace or p
 
   const body = JSON.parse(requestBody) as Record<string, unknown>;
   assert.equal(authorization, "Bearer test-commons-publisher-token-00000001");
-  assert.equal("workspaceId" in body, false);
+  assert.equal("organizationId" in body, false);
   assert.equal("userId" in body, false);
   assert.equal("email" in body, false);
   assert.equal(requestBody.includes("b0000000-0000-4000-a000-000000000001"), false);

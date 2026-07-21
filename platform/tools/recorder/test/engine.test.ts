@@ -6,7 +6,7 @@ import { createHttpRecorderPort, type SidecarFetch } from "../src/sidecar-port.j
 import { captureAndProcess } from "../src/engine.js";
 
 test("manifest: kind internal, no surfaces, private scope (single-party capture)", () => {
-  assert.equal(recorderManifest.kind, "internal");
+  assert.equal(recorderManifest.kind, "skill");
   assert.equal(recorderManifest.intakePolicy.scope, "private");
   assert.ok(recorderManifest.provides.some((p) => p.id === "capture.transcribe"));
 });
@@ -27,14 +27,14 @@ test("captureAndProcess: paste -> transcribe -> summarize, each stage recorded a
   const port = createHttpRecorderPort("http://sidecar.local", fetchImpl);
   const facts = createFactStore();
 
-  const { recording, transcript, summary } = await captureAndProcess(port, facts, "touchpoint_1", "proj_1", "hello world");
+  const { recording, transcript, summary } = await captureAndProcess(port, facts, "event_1", "proj_1", "hello world");
 
   assert.equal(recording.id, "rec_1");
   assert.equal(transcript.text, "hello world");
   assert.equal(summary.text, "short summary");
   assert.equal(calls.length, 3);
 
-  const profile = facts.livingProfile("touchpoint_1");
+  const profile = facts.livingProfile("event_1");
   assert.equal(profile.transcript?.value, "hello world");
   assert.equal(profile.summary?.provenance, "ai_inferred");
 });

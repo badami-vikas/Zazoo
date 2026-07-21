@@ -5,7 +5,7 @@
  *   - Source skills (external:fetch) READ from Google and CACHE raw bodies to the
  *     LOCAL BodyStore (capture ≠ commit; bodies are private, local-only). Their
  *     proposedOutput is a light manifest — the audit trail rides the LOCAL ledger.
- *   - Stage skill echoes a typed local-graph directive for review (touchpoint /
+ *   - Stage skill echoes a typed local-graph directive for review (Event /
  *     memory / signal / person). Materialization happens post-approval.
  *   - Compose skills VALIDATE an outbound envelope and return it as a draft —
  *     they DO NOT send. The real send/create runs in the EgressExecutor only after
@@ -19,7 +19,7 @@ import type { GoogleGatewayFactory } from "./gateway.js";
 export const SKILL_SOURCE_GMAIL = "google.sourceGmail";
 export const SKILL_SOURCE_CALENDAR = "google.sourceCalendar";
 /** Read-only projection: fetch full Calendar events for DISPLAY (no caching, no
- * Touchpoint proposals). Distinct from sourceCalendar, which feeds the graph. */
+ * Event proposals). Distinct from sourceCalendar, which feeds the graph. */
 export const SKILL_LIST_CALENDAR = "google.listCalendarEvents";
 export const SKILL_STAGE = "google.stage";
 export const SKILL_COMPOSE_EMAIL = "google.composeEmail";
@@ -34,13 +34,13 @@ export interface GoogleSkillDeps {
 
 interface SourceGmailInputs {
   integrationId: string;
-  workspaceId: string;
+  organizationId: string;
   maxResults?: number;
   query?: string;
 }
 interface SourceCalendarInputs {
   integrationId: string;
-  workspaceId: string;
+  organizationId: string;
   maxResults?: number;
   timeMin?: string;
   timeMax?: string;
@@ -85,7 +85,7 @@ function sourceGmailSkill(deps: GoogleSkillDeps): Skill {
       // Capture raw private bodies to the LOCAL plane (inert until adopted).
       for (const t of threads) {
         await deps.bodies.put({
-          workspaceId: i.workspaceId,
+          organizationId: i.organizationId,
           source: GMAIL_SOURCE,
           sourceRecordId: t.threadId,
           dataScope: "private",
@@ -121,7 +121,7 @@ function sourceCalendarSkill(deps: GoogleSkillDeps): Skill {
       });
       for (const e of events) {
         await deps.bodies.put({
-          workspaceId: i.workspaceId,
+          organizationId: i.organizationId,
           source: CALENDAR_SOURCE,
           sourceRecordId: e.eventId,
           dataScope: "private",
@@ -146,7 +146,7 @@ function sourceCalendarSkill(deps: GoogleSkillDeps): Skill {
 
 /**
  * Read-only projection for the Calendar surface: fetch FULL events for display.
- * Unlike sourceCalendar it does not cache bodies or propose Touchpoints — it just
+ * Unlike sourceCalendar it does not cache bodies or propose Events — it just
  * returns events. Still an external:fetch (gated); the user's own view authorizes it.
  */
 function listCalendarSkill(deps: GoogleSkillDeps): Skill {

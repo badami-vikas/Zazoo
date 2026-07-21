@@ -22,7 +22,7 @@
       "path": "../../packages/integrations-google"
     },
     {
-      "path": "../../packages/tool-kit"
+      "path": "../../packages/capability-kit"
     },
     {
       "path": "../../packages/facts"
@@ -31,13 +31,16 @@
       "path": "../../packages/dedupe"
     },
     {
-      "path": "../../tools/dealpilot"
+      "path": "../../packages/net-guard"
     },
     {
-      "path": "../../tools/jobpilot"
+      "path": "../../modules/dealpilot"
     },
     {
-      "path": "../../tools/helpdesk"
+      "path": "../../modules/jobpilot"
+    },
+    {
+      "path": "../../modules/manifests"
     },
     {
       "path": "../../tools/company-sourcing"

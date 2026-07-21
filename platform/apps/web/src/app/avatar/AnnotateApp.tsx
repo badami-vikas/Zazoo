@@ -33,7 +33,7 @@ const MARKS_EVENT = "annotate.marks";
  * Minimal Tauri v2 event listener — reimplements the ONE call
  * @tauri-apps/api's `listen()` makes (`invoke('plugin:event|listen', ...)`
  * with a `transformCallback`-registered handler) rather than adding the
- * package, matching this codebase's existing browser-first / raw-internals
+ * module, matching this codebase's existing browser-first / raw-internals
  * approach (see OverlayApp.tsx's `tauriInvoke` and desktop-shell.d.ts).
  * No-ops outside Tauri (internals absent) — the component just never
  * receives marks, an honest empty state, same graceful-degrade pattern as

@@ -91,7 +91,7 @@ create table community_members (
 
 -- Unified graph fabric: person<->person (KNOWS/INTRODUCED) + cross-plane links. ONE traversable graph.
 create table node_types (                         -- v2: registry powering plane separation
-  type text primary key,                          -- person | community | initiative | touchpoint | ritual | tool | agent | skill | file | signal | integration
+  type text primary key,                          -- person | community | initiative | touchpoint | automation | module | agent | skill | file | signal | integration
   plane text not null                             -- mirror | operational | infra
 );
 create table edges (
@@ -186,25 +186,27 @@ create table agents (
   id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
   name text not null, identity_type text not null default 'service_principal', owner_user_id uuid references users(id),
   assumes_role_id uuid,                            -- v2: agent INHERITS from this role
-  goal text, allowed_skills uuid[] not null default '{}', allowed_tools uuid[] not null default '{}',
+  goal text, allowed_skills uuid[] not null default '{}',
   capability_scope jsonb not null default '{}',    -- v2: a CEILING; effective authority = role_grants INTERSECT capability_scope
   status text not null default 'active'
 );
-create table rituals (                            -- the ONE execution primitive (Workflow & Playbook dropped -> Ritual)
+create table automations (                        -- stored Agent-owned execution definition
   id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
-  name text not null, trigger jsonb not null, cadence text, agent_ids uuid[] not null default '{}',
+  name text not null, trigger jsonb not null, cadence text,
+  agent_id uuid not null, agent_plane text not null check (agent_plane in ('local', 'cloud')),
   skill_pipeline jsonb not null default '[]', policy_scope_id uuid, output_surface text,
-  supports_initiative uuid references initiatives(id), is_template boolean not null default false,  -- template = former "playbook"
-  status text not null default 'active', archived_at timestamptz
+  supports_initiative uuid references initiatives(id), is_template boolean not null default false,
+  status text not null default 'active', archived_at timestamptz,
+  unique (workspace_id, id), unique (workspace_id, id, agent_id),
+  foreign key (workspace_id, agent_id) references agents(workspace_id, id)
 );
-create table ritual_runs (                        -- v2: execution record (feeds the ledger)
+create table automation_runs (                    -- attributable Agent Run (feeds the ledger)
   id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
-  ritual_id uuid not null references rituals(id), run_id text, status text not null default 'running',
-  started_at timestamptz not null default now(), finished_at timestamptz, output jsonb, ledger_id uuid
-);
-create table tools (
-  id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
-  name text not null, surface text not null, composition jsonb not null default '{}', status text not null default 'active'
+  automation_id uuid not null, agent_id uuid not null, run_id text,
+  status text not null default 'running',
+  started_at timestamptz not null default now(), finished_at timestamptz, output jsonb, ledger_id uuid,
+  foreign key (workspace_id, automation_id, agent_id)
+    references automations(workspace_id, id, agent_id)
 );
 create table integrations (
   id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
@@ -242,7 +244,7 @@ create unique index role_permissions_uq on role_permissions
 create table permissions (                        -- direct CBAC grants; deny-by-default
   id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
   actor_type text not null, actor_id uuid not null,
-  resource_type text not null,                    -- v2 expanded: person|community|initiative|ritual|tool|file | policy|skill|agent|role|permission|ledger|delegation
+  resource_type text not null,                    -- person|community|initiative|automation|module|file | policy|skill|agent|role|permission|ledger|delegation
   resource_id uuid, action text not null,
   effect text not null default 'deny',             -- v2: default DENY (was allow). explicit deny always wins.
   granted_by uuid, expires_at timestamptz, revoked_at timestamptz,  -- v2: revocation hygiene
@@ -324,7 +326,7 @@ create table signal_actions (                     -- v2: append-only user reacti
 -- yet mirrored here either; this pass only adds LAYER 8's new tables in the same
 -- terse style as the layers above.
 -- =====================================================================
-create table capability_manifests (              -- one row per registered capability (skill|workflow|agent|tool|integration|view|dashboard)
+create table capability_manifests (              -- one row per registered capability (skill|automation|agent|integration|view|dashboard)
   id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
   capability_type text not null, name text not null, version text not null default '1.0.0',
   origin text not null default 'user_code',       -- built_in | template | community | ai_generated | user_code

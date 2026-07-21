@@ -7,5 +7,5 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
-  "references": [{ "path": "../core" }, { "path": "../tool-kit" }]
+  "references": [{ "path": "../core" }, { "path": "../capability-kit" }]
 }

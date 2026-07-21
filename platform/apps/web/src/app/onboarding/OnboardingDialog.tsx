@@ -1,30 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
-import { compileBlueprint, type CompiledWorkspace } from "@bridge/core";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { compileBlueprint, type CompiledOrganization } from "@bridge/core";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Badge } from "../components/ui/badge";
-import { nextQuestion, buildBlueprintFromAnswers, isComplete, answeredCount, MAX_QUESTIONS, workspaceNameFromEmail, type OnboardingAnswers } from "./questions";
-import { EggHatcher, type EggStage } from "../avatar/EggHatcher";
+import { nextQuestion, buildBlueprintFromAnswers, isComplete, answeredCount, MAX_QUESTIONS, organizationNameFromEmail, type OnboardingAnswers } from "./questions";
+import { AvatarSetupProgress, type AvatarSetupState } from "../avatar/AvatarSetupProgress";
 import {
   dispatchCaptureEvent,
   updateAvatarPrefs,
   type AvatarPrefs,
-  type SpiritAnimal,
+  type AvatarStyle,
 } from "../avatar/avatar-store";
 
 /** Mirrors apps/api/src/router.ts's BLUEPRINT_NODE_TYPE_REGISTRY /
- * WorkspacePage.tsx's REGISTERED_NODE_TYPES — same hand-kept-in-sync caveat
+ * OrganizationPage.tsx's REGISTERED_NODE_TYPES — same hand-kept-in-sync caveat
  * documented there (no shared runtime registry endpoint yet). Kept local to
  * the preview compile only; the server independently re-validates on propose. */
 const REGISTERED_NODE_TYPES = [
   "person",
   "community",
-  "initiative",
-  "touchpoint",
-  "ritual",
-  "tool",
+  "record",
+  "event",
+  "automation",
+  "module",
   "file",
   "signal",
   "policy",
@@ -46,22 +46,19 @@ export interface OnboardingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called after a successful propose — lets the caller (App shell) refresh
-   * its "does an active workspace exist" check without a full page reload.
+   * its "does an active organization exist" check without a full page reload.
    * MUST NOT close the dialog itself (that was the cause of the "dialog
    * auto-closes before the success message can be read" cosmetic bug,
    * docs/BUGS.md 2026-07-06): this component is `open`-controlled, so if the
    * caller's `onProposed` flips `open` to false, the "submitted" step's
    * message never gets a render. The dialog now only closes via the explicit
    * "Done" button (`resetAndClose`) or the user dismissing it. */
-  onProposed?: () => void;
-  /** Called once the egg's hatch animation resolves with real, saved avatar
-   * prefs — lets the caller (Layout) mount <AvatarOverlay> immediately
-   * without waiting for a remount/localStorage re-read (spec section 4 Stage
-   * 6: "hatch animation, set eggHatched: true, overlay appears"). */
-  onHatched?: (prefs: AvatarPrefs) => void;
-  /** User's email address — used to pre-populate the workspace_name question
-   * via workspaceNameFromEmail() per spec-workspace-naming.md. Optional: if
-   * absent, the workspace_name field starts empty for the user to fill in. */
+  onProposed?: (organization: { id: string; name: string }) => void;
+  /** Called after activation with persisted visual preferences. */
+  onAvatarReady?: (prefs: AvatarPrefs) => void;
+  /** User's email address — used to pre-populate the organization_name question
+   * via organizationNameFromEmail() per spec-organization-naming.md. Optional: if
+   * absent, the organization_name field starts empty for the user to fill in. */
   userEmail?: string;
 }
 
@@ -100,7 +97,7 @@ async function desktopInvoke<T>(command: string, args?: Record<string, unknown>)
  * page/app" — user decision 2026-07-06). Runs the adaptive question set from
  * ./questions.ts, compiles a live preview with the SAME compileBlueprint()
  * apps/api validates against server-side, and submits via
- * workspace.blueprint.propose followed by workspace.blueprint.activate — the
+ * organization.blueprint.propose followed by organization.blueprint.activate — the
  * activation is itself a governed pipeline proposal (ledgered; parks in
  * Approvals when policy requires human review), so chaining them never skips
  * governance, it just makes the outcome visible. The pre-apply preview +
@@ -110,16 +107,16 @@ async function desktopInvoke<T>(command: string, args?: Record<string, unknown>)
  * Dismissible + re-openable: this component is purely controlled (`open`/
  * `onOpenChange`) so the sidebar can reopen it at any time; it does not track
  * "has onboarding ever run" itself — App.tsx's mount-time
- * workspace.blueprint.get check owns that decision.
+ * organization.blueprint.get check owns that decision.
  */
-export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, userEmail }: OnboardingDialogProps) {
+export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady, userEmail }: OnboardingDialogProps) {
   const [answers, setAnswers] = useState<OnboardingAnswers>({});
   const [step, setStep] = useState<Step>("trust");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [textDraft, setTextDraft] = useState("");
+  const [multiDrafts, setMultiDrafts] = useState<Record<string, string[]>>({});
   const [outcome, setOutcome] = useState<SubmitOutcome>(null);
-  const [eggStage, setEggStage] = useState<EggStage>("incubating");
   const [recommendationResult, setRecommendationResult] = useState<RecommendationResult | null>(null);
   const [recommendationDecision, setRecommendationDecision] = useState<RecommendationDecision>("pending");
   const [learningError, setLearningError] = useState<string | null>(null);
@@ -134,12 +131,12 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
 
   const question = useMemo(() => nextQuestion(answers), [answers]);
   const blueprint = useMemo(() => buildBlueprintFromAnswers(answers), [answers]);
-  const spiritAnimal = (answers.spirit_animal as SpiritAnimal | undefined) ?? "owl";
+  const avatarStyle = (answers.avatar_style as AvatarStyle | undefined) ?? "owl";
 
-  // Egg progress maps to REAL setup state, never a fake timer (spec section 4):
+  // Setup progress maps to real state, never a fake timer:
   //   questions answered -> 0..~0.7 of the way there
   //   preview reached (blueprint compiled, about to be proposed) -> ~0.9
-  //   activated/hatching -> 1.0
+  //   activated -> 1.0
   const answered = answeredCount(answers);
   const progress =
     step === "trust"
@@ -150,12 +147,12 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
         ? 0.9
         : 1;
 
-  const eggStatusText =
+  const setupStatusText =
     step === "trust"
       ? "Nothing observes your work until you choose a visible check"
       : step === "questions"
       ? answered === 0
-        ? "Your Organization is hatching…"
+        ? "Your Organization is getting ready…"
         : `✓ ${answered} of ${Math.min(answered + 1, MAX_QUESTIONS)} questions answered`
       : step === "preview"
         ? "✓ Your proposed setup is ready"
@@ -163,35 +160,23 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
           ? "✓ Ready to proceed"
           : "✓ Proposed — awaiting approval";
 
-  // Egg stage derives from step + outcome, not a separate tracked value, so
-  // it can never drift out of sync with what actually happened. Deliberately
-  // keyed on [step, outcome] only — spiritAnimal/answered/onHatched are read
-  // at fire time (via closure), not re-triggers: re-running this effect on
-  // every keystroke of unrelated answers would restart the hatch timer.
-  useEffect(() => {
-    if (step === "submitted" && outcome === "activated") {
-      setEggStage("hatching");
-      // Hatch animation capped well under 3s (spec: "<3s") and NEVER blocks
-      // the Done button — this only flips the visual to "hatched" and saves
-      // prefs; the user can already click Done at any point.
-      const t = setTimeout(() => {
-        setEggStage("hatched");
-        const saved = updateAvatarPrefs({ animal: spiritAnimal, eggHatched: true });
-        onHatched?.(saved);
-      }, 1400);
-      return () => clearTimeout(t);
-    }
-    if (step === "preview") setEggStage("ready");
-    else if (step === "questions") setEggStage(answered > 0 ? "growing" : "incubating");
-    return undefined;
-  }, [step, outcome]);
+  const setupState: AvatarSetupState =
+    step === "trust"
+      ? "starting"
+      : step === "questions"
+        ? "answering"
+        : step === "preview"
+          ? "reviewing"
+          : outcome === "activated"
+            ? "ready"
+            : "saving";
 
-  // Pre-populate the workspace_name text field with the email-derived name
-  // (spec-workspace-naming.md) when that question becomes active. Only seeds
+  // Pre-populate the organization_name text field with the email-derived name
+  // (spec-organization-naming.md) when that question becomes active. Only seeds
   // the draft once — the user can freely edit it before pressing Next.
   useEffect(() => {
-    if (question?.id === "workspace_name" && textDraft === "" && userEmail) {
-      setTextDraft(workspaceNameFromEmail(userEmail));
+    if (question?.id === "organization_name" && textDraft === "" && userEmail) {
+      setTextDraft(organizationNameFromEmail(userEmail));
     }
   }, [question?.id]);
 
@@ -217,7 +202,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
     };
   }, [open, step]);
 
-  const compiled: CompiledWorkspace | { error: string } | null = useMemo(() => {
+  const compiled: CompiledOrganization | { error: string } | null = useMemo(() => {
     if (step !== "preview") return null;
     try {
       return compileBlueprint(blueprint, REGISTERED_NODE_TYPES, ["edge"]);
@@ -231,8 +216,8 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
     setStep("trust");
     setError(null);
     setTextDraft("");
+    setMultiDrafts({});
     setOutcome(null);
-    setEggStage("incubating");
     setRecommendationResult(null);
     setRecommendationDecision("pending");
     setLearningError(null);
@@ -246,6 +231,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
     setStep("questions");
     setError(null);
     setTextDraft("");
+    setMultiDrafts({});
     setOutcome(null);
     setRecommendationResult(null);
     setRecommendationDecision("pending");
@@ -263,7 +249,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
       if (!observation?.fields.app_name) throw new Error("No foreground app observation arrived. Try the check once more.");
       const capturedAt = new Date(observation.ts).toISOString();
       const { memory } = await trpc.onboarding.recordTrustCapture.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         appName: observation.fields.app_name,
         ...(observation.fields.bundle_id ? { bundleId: observation.fields.bundle_id } : {}),
         capturedAt,
@@ -304,34 +290,51 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
   }
 
   function toggleMulti(id: string, value: string) {
-    const current = (answers[id] as string[] | undefined) ?? [];
-    const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
-    setAnswers({ ...answers, [id]: next });
+    setMultiDrafts((currentDrafts) => {
+      const current = currentDrafts[id] ?? [];
+      const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+      return { ...currentDrafts, [id]: next };
+    });
   }
 
   async function submit() {
     setSubmitting(true);
     setError(null);
     try {
+      const organizationName =
+        typeof answers.organization_name === "string" ? answers.organization_name.trim() : "";
+      if (!organizationName) throw new Error("An Organization name is required to finish setup.");
+      if (organizationName.length > 120) {
+        throw new Error("Organization names must be 120 characters or fewer.");
+      }
+      const organization = await trpc.organization.rename.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        name: organizationName,
+      });
+
       // propose writes the draft; activate is the governed step (pipeline
       // round-trip, ledgered). Without chaining them the draft was orphaned:
-      // Approvals showed nothing and /workspace stayed empty (BUGS.md
+      // Approvals showed nothing and /organization stayed empty (BUGS.md
       // 2026-07-06 "onboarding leaves an orphaned draft").
-      const { definition } = await trpc.workspace.blueprint.propose.mutate({
-        workspaceId: PILOT_WORKSPACE,
+      const { definition } = await trpc.organization.blueprint.propose.mutate({
+        organizationId: PILOT_ORGANIZATION,
         blueprint,
       });
-      const result = await trpc.workspace.blueprint.activate.mutate({
-        workspaceId: PILOT_WORKSPACE,
+      const result = await trpc.organization.blueprint.activate.mutate({
+        organizationId: PILOT_ORGANIZATION,
         definitionId: definition.id,
       });
       setOutcome(result.activated ? "activated" : "pending_review");
       setStep("submitted");
-      onProposed?.();
+      onProposed?.(organization);
+      if (result.activated) {
+        const saved = updateAvatarPrefs({ style: avatarStyle, avatarReady: true });
+        onAvatarReady?.(saved);
+      }
       try {
         await trpc.onboarding.saveProfile.mutate({
-          workspaceId: PILOT_WORKSPACE,
-          animal: spiritAnimal,
+          organizationId: PILOT_ORGANIZATION,
+          avatarStyle,
           answers: Object.fromEntries(
             Object.entries(answers).filter((e): e is [string, string | string[]] => e[1] !== undefined)
           ),
@@ -347,7 +350,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
         try {
           setRecommendationResult(
             await trpc.onboarding.recommendFromRoleModel.mutate({
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               figure,
               admiredFor,
             }),
@@ -374,7 +377,12 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
           </DialogDescription>
         </DialogHeader>
 
-        <EggHatcher progress={progress} stage={eggStage} animal={spiritAnimal} statusText={eggStatusText} />
+        <AvatarSetupProgress
+          progress={progress}
+          state={setupState}
+          avatarStyle={avatarStyle}
+          statusText={setupStatusText}
+        />
 
         {step === "trust" && (
           <div className="space-y-4">
@@ -468,7 +476,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
                   {question.options?.map((opt) => {
-                    const selected = ((answers[question.id] as string[] | undefined) ?? []).includes(opt.value);
+                    const selected = (multiDrafts[question.id] ?? []).includes(opt.value);
                     return (
                       <Badge
                         key={opt.value}
@@ -481,7 +489,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
                     );
                   })}
                 </div>
-                <Button size="sm" onClick={() => answer(question.id, (answers[question.id] as string[] | undefined) ?? [])}>
+                <Button size="sm" onClick={() => answer(question.id, multiDrafts[question.id] ?? [])}>
                   Continue
                 </Button>
               </div>
@@ -492,6 +500,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
                 <Input
                   autoFocus
                   placeholder={question.placeholder}
+                  maxLength={question.id === "organization_name" ? 120 : undefined}
                   value={textDraft}
                   onChange={(e) => setTextDraft(e.target.value)}
                   onKeyDown={(e) => {
@@ -530,7 +539,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
                 <div>
                   <span className="text-muted-foreground">Starting layouts: </span>
                   {compiled && "viewConfigs" in compiled
-                    ? compiled.viewConfigs.map((v) => v.kind === "table" ? "List" : v.kind === "kanban" ? "Board" : "Calendar").join(", ")
+                    ? compiled.viewConfigs.map((v) => v.kind === "table" ? "List" : v.kind === "board" ? "Board" : v.kind[0].toUpperCase() + v.kind.slice(1)).join(", ")
                     : "—"}
                 </div>
                 <div className="text-xs text-muted-foreground pt-1">
@@ -555,7 +564,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
           <div className="space-y-3">
             {outcome === "activated" ? (
               <p className="text-sm">
-                Your Organization is live, and your avatar has hatched — look for it in the corner from now on. Every
+                Your Organization and Avatar are ready — look for the Avatar in the corner from now on. Every
                 capture it notices becomes an inspectable Memory entry. Open the <strong>Organization</strong> page to see
                 it — every change from here on goes through the same propose-and-approve flow you just used.
               </p>

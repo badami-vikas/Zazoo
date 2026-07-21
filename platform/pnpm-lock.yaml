@@ -23,6 +23,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
       '@bridge/company-sourcing':
         specifier: workspace:*
         version: link:../../tools/company-sourcing
@@ -34,31 +37,31 @@ importers:
         version: link:../../packages/db
       '@bridge/dealpilot':
         specifier: workspace:*
-        version: link:../../tools/dealpilot
+        version: link:../../modules/dealpilot
       '@bridge/dedupe':
         specifier: workspace:*
         version: link:../../packages/dedupe
       '@bridge/facts':
         specifier: workspace:*
         version: link:../../packages/facts
-      '@bridge/helpdesk':
-        specifier: workspace:*
-        version: link:../../tools/helpdesk
       '@bridge/integrations-google':
         specifier: workspace:*
         version: link:../../packages/integrations-google
       '@bridge/jobpilot':
         specifier: workspace:*
-        version: link:../../tools/jobpilot
+        version: link:../../modules/jobpilot
       '@bridge/local':
         specifier: workspace:*
         version: link:../../packages/local
       '@bridge/models':
         specifier: workspace:*
         version: link:../../packages/models
-      '@bridge/tool-kit':
+      '@bridge/module-manifests':
         specifier: workspace:*
-        version: link:../../packages/tool-kit
+        version: link:../../modules/manifests
+      '@bridge/net-guard':
+        specifier: workspace:*
+        version: link:../../packages/net-guard
       '@fastify/cors':
         specifier: ^10.0.1
         version: 10.1.0
@@ -99,6 +102,9 @@ importers:
       '@bridge/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@bridge/module-manifests':
+        specifier: workspace:*
+        version: link:../../modules/manifests
       '@bridge/tables':
         specifier: workspace:*
         version: link:../../packages/tables
@@ -240,10 +246,19 @@ importers:
       tesseract.js:
         specifier: ^5.1.1
         version: 5.1.1
+      topojson-client:
+        specifier: 3.1.0
+        version: 3.1.0
+      world-atlas:
+        specifier: 2.0.2
+        version: 2.0.2
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.0.0
         version: 4.3.2(vite@6.4.3(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1))
+      '@types/geojson':
+        specifier: 7946.0.16
+        version: 7946.0.16
       '@types/leaflet':
         specifier: ^1.9.21
         version: 1.9.21
@@ -256,6 +271,12 @@ importers:
       '@types/react-dom':
         specifier: ^18.3.1
         version: 18.3.7(@types/react@18.3.31)
+      '@types/topojson-client':
+        specifier: 3.1.5
+        version: 3.1.5
+      '@types/topojson-specification':
+        specifier: 1.0.5
+        version: 1.0.5
       '@vitejs/plugin-react':
         specifier: ^4.3.4
         version: 4.7.0(vite@6.4.3(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1))
@@ -268,6 +289,143 @@ importers:
       vite:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)
+
+  apps/website:
+    dependencies:
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+    devDependencies:
+      '@types/react':
+        specifier: 18.3.12
+        version: 18.3.12
+      '@types/react-dom':
+        specifier: 18.3.1
+        version: 18.3.1
+      '@vitejs/plugin-react':
+        specifier: ^4.3.4
+        version: 4.7.0(vite@6.4.3(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1))
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vite:
+        specifier: ^6.0.0
+        version: 6.4.3(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)
+
+  modules/dealpilot:
+    dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
+      '@bridge/company-sourcing':
+        specifier: workspace:*
+        version: link:../../tools/company-sourcing
+      '@bridge/dedupe':
+        specifier: workspace:*
+        version: link:../../packages/dedupe
+      '@bridge/facts':
+        specifier: workspace:*
+        version: link:../../packages/facts
+      '@bridge/integrations-google':
+        specifier: workspace:*
+        version: link:../../packages/integrations-google
+      '@bridge/module-manifests':
+        specifier: workspace:*
+        version: link:../manifests
+      '@bridge/people-sourcing':
+        specifier: workspace:*
+        version: link:../../tools/people-sourcing
+      '@bridge/recorder':
+        specifier: workspace:*
+        version: link:../../tools/recorder
+      '@bridge/sourcing':
+        specifier: workspace:*
+        version: link:../../packages/sourcing
+      '@bridge/tables':
+        specifier: workspace:*
+        version: link:../../packages/tables
+      '@napi-rs/keyring':
+        specifier: 1.3.0
+        version: 1.3.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  modules/jobpilot:
+    dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
+      '@bridge/company-sourcing':
+        specifier: workspace:*
+        version: link:../../tools/company-sourcing
+      '@bridge/dedupe':
+        specifier: workspace:*
+        version: link:../../packages/dedupe
+      '@bridge/facts':
+        specifier: workspace:*
+        version: link:../../packages/facts
+      '@bridge/module-manifests':
+        specifier: workspace:*
+        version: link:../manifests
+      '@bridge/people-sourcing':
+        specifier: workspace:*
+        version: link:../../tools/people-sourcing
+      '@bridge/sourcing':
+        specifier: workspace:*
+        version: link:../../packages/sourcing
+      '@bridge/tables':
+        specifier: workspace:*
+        version: link:../../packages/tables
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  modules/manifests:
+    dependencies:
+      '@bridge/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/capability-kit:
+    dependencies:
+      '@bridge/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bridge/sourcing':
+        specifier: workspace:*
+        version: link:../sourcing
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
 
   packages/core:
     devDependencies:
@@ -283,6 +441,9 @@ importers:
       '@bridge/core':
         specifier: workspace:*
         version: link:../core
+      '@bridge/jobpilot':
+        specifier: workspace:*
+        version: link:../../modules/jobpilot
       '@electric-sql/pglite':
         specifier: ^0.2.17
         version: 0.2.17
@@ -335,6 +496,9 @@ importers:
       '@bridge/local':
         specifier: workspace:*
         version: link:../local
+      google-auth-library:
+        specifier: ^9.15.1
+        version: 9.15.1
       googleapis:
         specifier: ^144.0.0
         version: 144.0.0
@@ -351,6 +515,12 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.2.17
         version: 0.2.17
+      '@ster5/global-mutex':
+        specifier: ^3.3.0
+        version: 3.3.0(proper-lockfile@4.1.2)
+      proper-lockfile:
+        specifier: ^4.1.2
+        version: 4.1.2
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -361,15 +531,24 @@ importers:
 
   packages/models:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../capability-kit
       '@bridge/core':
         specifier: workspace:*
         version: link:../core
-      '@bridge/tool-kit':
+      '@bridge/net-guard':
         specifier: workspace:*
-        version: link:../tool-kit
-      ipaddr.js:
-        specifier: ^2.4.0
-        version: 2.4.0
+        version: link:../net-guard
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/net-guard:
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -409,25 +588,6 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
-  packages/tool-kit:
-    dependencies:
-      '@bridge/core':
-        specifier: workspace:*
-        version: link:../core
-      '@bridge/sourcing':
-        specifier: workspace:*
-        version: link:../sourcing
-      zod:
-        specifier: ^3.24.1
-        version: 3.25.76
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.19.19
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-
   services/commons:
     dependencies:
       '@bridge/core':
@@ -446,6 +606,9 @@ importers:
 
   tools/company-sourcing:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
       '@bridge/dedupe':
         specifier: workspace:*
         version: link:../../packages/dedupe
@@ -458,46 +621,6 @@ importers:
       '@bridge/sourcing':
         specifier: workspace:*
         version: link:../../packages/sourcing
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../../packages/tool-kit
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.19.19
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-
-  tools/dealpilot:
-    dependencies:
-      '@bridge/company-sourcing':
-        specifier: workspace:*
-        version: link:../company-sourcing
-      '@bridge/dedupe':
-        specifier: workspace:*
-        version: link:../../packages/dedupe
-      '@bridge/facts':
-        specifier: workspace:*
-        version: link:../../packages/facts
-      '@bridge/integrations-google':
-        specifier: workspace:*
-        version: link:../../packages/integrations-google
-      '@bridge/people-sourcing':
-        specifier: workspace:*
-        version: link:../people-sourcing
-      '@bridge/recorder':
-        specifier: workspace:*
-        version: link:../recorder
-      '@bridge/sourcing':
-        specifier: workspace:*
-        version: link:../../packages/sourcing
-      '@bridge/tables':
-        specifier: workspace:*
-        version: link:../../packages/tables
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../../packages/tool-kit
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -508,51 +631,11 @@ importers:
 
   tools/eslint-rules: {}
 
-  tools/helpdesk:
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.19.19
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-
-  tools/jobpilot:
-    dependencies:
-      '@bridge/company-sourcing':
-        specifier: workspace:*
-        version: link:../company-sourcing
-      '@bridge/dedupe':
-        specifier: workspace:*
-        version: link:../../packages/dedupe
-      '@bridge/facts':
-        specifier: workspace:*
-        version: link:../../packages/facts
-      '@bridge/people-sourcing':
-        specifier: workspace:*
-        version: link:../people-sourcing
-      '@bridge/sourcing':
-        specifier: workspace:*
-        version: link:../../packages/sourcing
-      '@bridge/tables':
-        specifier: workspace:*
-        version: link:../../packages/tables
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../../packages/tool-kit
-      zod:
-        specifier: ^3.24.1
-        version: 3.25.76
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.19.19
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-
   tools/people-sourcing:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
       '@bridge/dedupe':
         specifier: workspace:*
         version: link:../../packages/dedupe
@@ -562,9 +645,6 @@ importers:
       '@bridge/sourcing':
         specifier: workspace:*
         version: link:../../packages/sourcing
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../../packages/tool-kit
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -575,12 +655,12 @@ importers:
 
   tools/recorder:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
       '@bridge/facts':
         specifier: workspace:*
         version: link:../../packages/facts
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../../packages/tool-kit
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -1308,6 +1388,87 @@ packages:
   '@lukeed/ms@2.0.2':
     resolution: {integrity: sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA==}
     engines: {node: '>=8'}
+
+  '@napi-rs/keyring-darwin-arm64@1.3.0':
+    resolution: {integrity: sha512-pl76hJvdYUBn6I24bXiOBMA9nbDapo3I5B+f3OorjDU4dUMSypXeKbOVehJe8fhgTiH24flMyTS3aAIy43xegQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@napi-rs/keyring-darwin-x64@1.3.0':
+    resolution: {integrity: sha512-YcJtEV5LA3cvA4z3BurgxH5IhTsW1JfIvcAAcqcecwk06Si9F9NqkxbZVIfDwQ8oRHgaBmT3zZJnLAotCrVahw==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@napi-rs/keyring-freebsd-x64@1.3.0':
+    resolution: {integrity: sha512-vlLf31TGhfRAaxLDBhg8b89ss0HHD/lyNmL5F3UjSaz5CUXElsJmKYq9fqA/B+cZKUEUcLHHGhF0I/CqcFdaVw==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [freebsd]
+
+  '@napi-rs/keyring-linux-arm-gnueabihf@1.3.0':
+    resolution: {integrity: sha512-KiWdMMu/Inz/bHHIAGrnF7r54FZDYXuHO6UFF/rhIrshUsxbMG1Rl9lEymNtqqsVo927G0VYcb02FzWQ3iBQRQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm]
+    os: [linux]
+
+  '@napi-rs/keyring-linux-arm64-gnu@1.3.0':
+    resolution: {integrity: sha512-eyKGpY40lm9Jvs1aD294XRH4y7+TlJM0YVAryZeXA6TX0mb4gMkxVXwSQv7MCwgah7raeUd0dKUb4BPAYIgcMg==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@napi-rs/keyring-linux-arm64-musl@1.3.0':
+    resolution: {integrity: sha512-iIK6JWHXAJqDrEyLY3TmswwloVyt2vj+04TZnew+uSJ9gnDO8EwRbp3/iw3LpWaXiDO7VomGO6y8I0Id8uBZSw==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@napi-rs/keyring-linux-riscv64-gnu@1.3.0':
+    resolution: {integrity: sha512-/PGqrwn6EwgtK6vccASSXJRfOSP4vN1F4ASsIQ+7MdrK6hNvAJ1FZPrIuD5gGGdxezo3F++To2Wq7DbuGIeuNQ==}
+    engines: {node: '>= 10'}
+    cpu: [riscv64]
+    os: [linux]
+    libc: [glibc]
+
+  '@napi-rs/keyring-linux-x64-gnu@1.3.0':
+    resolution: {integrity: sha512-2PDK1WKWTu9lBGq9VvNEkSlQD3O7YwVpmnyN2M3cy4v7NJ/8gDMd9GXv3G+FVXN13uhp4gnnPBS+ScefmEeD2A==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@napi-rs/keyring-linux-x64-musl@1.3.0':
+    resolution: {integrity: sha512-oJ2HkX8YUo46QBkn0pG+HuIKQNqr523q6vBobCn+P95s4C4K6/kLBqHY/1bg5J4ap31DzsznhnFKcfBNBsjCnw==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@napi-rs/keyring-win32-arm64-msvc@1.3.0':
+    resolution: {integrity: sha512-tOd3c/uAaeoE4ycVlmAdSvygz0Zt3zdca6Y7gokBeIbaRDWpjDIUOpU3MvML59XAaqyuKGsVVu0F/DZb1lHPmw==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@napi-rs/keyring-win32-ia32-msvc@1.3.0':
+    resolution: {integrity: sha512-sPSqeAFZMGqP1R++M2JTza7GQJJ/TpCo6JU6Vcd4jnebvOaEDs9b7eipakU1PJdSvhpC2yXMCNRk9gXfrhuwHQ==}
+    engines: {node: '>= 10'}
+    cpu: [ia32]
+    os: [win32]
+
+  '@napi-rs/keyring-win32-x64-msvc@1.3.0':
+    resolution: {integrity: sha512-4DnCWXwDc0HRKwyRlG5y0VhKZW2tNRQfKKfyj6IX/KWfDNyq9hn4n+GL1auyDcOO/v8PwnhmYo2+rOOqCkvvOg==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [win32]
+
+  '@napi-rs/keyring@1.3.0':
+    resolution: {integrity: sha512-WrOw/bcXm0f9qHkumlT1QlArXSTWqaY9sunsDpOk+yCCorCKMxvWT/a3xko4EYHVdeZoh00yI2TydXn6eyICDA==}
+    engines: {node: '>= 10'}
 
   '@petamoriken/float16@3.9.3':
     resolution: {integrity: sha512-8awtpHXCx/bNpFt4mt2xdkgtgVvKqty8VbjHI/WWWQuEw+KLzFot3f4+LkQY9YmOtq7A5GdOnqoIC8Pdygjk2g==}
@@ -2099,6 +2260,15 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@ster5/global-mutex@3.3.0':
+    resolution: {integrity: sha512-uiGJTiE0ZiQ6z9VMOHVT3RNrErCi3pZh1bGbfb27GAXCAsvCyLz61pLfBYq8uzsf6Y2qdybhoTwHy7UGtK6MYw==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      proper-lockfile: '*'
+    peerDependenciesMeta:
+      proper-lockfile:
+        optional: true
+
   '@supabase/auth-js@2.110.1':
     resolution: {integrity: sha512-8EJUoRoqzAYWkieHrLCrGrxs3cBbRB94xK8GzHe0aSLlSa4mt1enYLCiMgLiKJOF8GNYeX6PLTBNef0XAhILgw==}
     engines: {node: '>=22.0.0'}
@@ -2378,13 +2548,25 @@ packages:
   '@types/prop-types@15.7.15':
     resolution: {integrity: sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==}
 
+  '@types/react-dom@18.3.1':
+    resolution: {integrity: sha512-qW1Mfv8taImTthu4KoXgDfLuk4bydU6Q/TkADnDWWHwi4NX4BR+LWfTp2sVmTqRrsHvyDDTelgelxJ+SsejKKQ==}
+
   '@types/react-dom@18.3.7':
     resolution: {integrity: sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ==}
     peerDependencies:
       '@types/react': ^18.0.0
 
+  '@types/react@18.3.12':
+    resolution: {integrity: sha512-D2wOSq/d6Agt28q7rSI3jhU7G6aiuzljDGZ2hTZHIkrTLUI+AF3WMeKkEZ9nN2fkBAlcktT6vcZjDFiIhMYEQw==}
+
   '@types/react@18.3.31':
     resolution: {integrity: sha512-vfEqpXTvwT91yhmwdfouStN2hSKwTvyRs8qpLfADyrq/kxDw0hZM7Wk9Ug1FELj8hIby+S/+kQCSRFF32nv2Qw==}
+
+  '@types/topojson-client@3.1.5':
+    resolution: {integrity: sha512-C79rySTyPxnQNNguTZNI1Ct4D7IXgvyAs3p9HPecnl6mNrJ5+UhvGNYcZfpROYV2lMHI48kJPxwR+F9C6c7nmw==}
+
+  '@types/topojson-specification@1.0.5':
+    resolution: {integrity: sha512-C7KvcQh+C2nr6Y2Ub4YfgvWvWCgP2nOQMtfhlnwsRL4pYmmwzBS7HclGiS87eQfDOU/DLQpX6GEscviaz4yLIQ==}
 
   '@typescript-eslint/eslint-plugin@8.62.1':
     resolution: {integrity: sha512-4EQM77WgVNxj7OkL/5b/D/xZsw00G577+UriYTC7JF5opcF3T2AuoeY7ueLaZgSVjSgCS6yOAJB5bRGLPSJUzA==}
@@ -2595,6 +2777,9 @@ packages:
 
   color-name@1.1.4:
     resolution: {integrity: sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==}
+
+  commander@2.20.3:
+    resolution: {integrity: sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ==}
 
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
@@ -3386,6 +3571,9 @@ packages:
   prop-types@15.8.1:
     resolution: {integrity: sha512-oj87CgZICdulUohogVAR7AjlC0327U4el4L6eAvOqCeudMDVU0NThNaV+b9Df4dXgSP1gXMTnPdhfe/2qDH5cg==}
 
+  proper-lockfile@4.1.2:
+    resolution: {integrity: sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==}
+
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
@@ -3494,6 +3682,10 @@ packages:
     resolution: {integrity: sha512-I1XxrZSQ+oErkRR4jYbAyEEu2I0avBvvMM5JN+6EBprOGRCs63ENqZ3vjavq8fBw2+62G5LF5XelKwuJpcvcxw==}
     engines: {node: '>=10'}
 
+  retry@0.12.0:
+    resolution: {integrity: sha512-9LkiTwjUh6rT555DtE9rTX+BKByPfrMzEAtnlEtdEwr3Nkffwiihqe2bWADg+OQRjt9gl6ICdmB/ZFDCGAtSow==}
+    engines: {node: '>= 4'}
+
   reusify@1.1.0:
     resolution: {integrity: sha512-g6QUff04oZpHs0eG5p83rFLhHeV00ug/Yf9nZM6fLeUrPguBTkTQOdpAWWspMh55TZfVQDPaN3NQJfbVRAxdIw==}
     engines: {iojs: '>=1.0.0', node: '>=0.10.0'}
@@ -3563,6 +3755,9 @@ packages:
     resolution: {integrity: sha512-6x6dK6zJdpTzF4sQeNYxwtvBzf6Eg4GtlesS94HOvTudUeyK2WXAaIfmDgsyslYrRBeFIlsi54AYsFGUuhmvrQ==}
     engines: {node: '>= 0.4'}
 
+  signal-exit@3.0.7:
+    resolution: {integrity: sha512-wnD2ZE+l+SPC/uoS0vXeE9L1+0wuaMqKlfz9AMUo38JsyLSBWSFcHR1Rri62LZc12vLr1gb3jl7iwQhgwpAbGQ==}
+
   sonic-boom@4.2.1:
     resolution: {integrity: sha512-w6AxtubXa2wTXAUsZMMWERrsIRAdrK0Sc+FUytWvYAhBJLyuI4llrMIC1DtlNSdI99EI86KZum2MMq3EAZlF9Q==}
 
@@ -3616,6 +3811,10 @@ packages:
   toad-cache@3.7.1:
     resolution: {integrity: sha512-5DXWzE4Vz7xNHsv+xQ+MGfJYyC78Aok3tEr0MNwHoRf7vZnga1mQXZ4/Nsodld4VR6Wd+VhfmqnNrsRJyYPfrQ==}
     engines: {node: '>=20'}
+
+  topojson-client@3.1.0:
+    resolution: {integrity: sha512-605uxS6bcYxGXw9qi62XyrV6Q3xwbndjachmNxu8HWTtVPxZfEJN9fd/SZS1Q54Sn2y0TMyMxFj/cJINqGHrKw==}
+    hasBin: true
 
   tr46@0.0.3:
     resolution: {integrity: sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==}
@@ -3762,6 +3961,9 @@ packages:
   word-wrap@1.2.5:
     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
     engines: {node: '>=0.10.0'}
+
+  world-atlas@2.0.2:
+    resolution: {integrity: sha512-IXfV0qwlKXpckz1FhwXVwKRjiIhOnWttOskm5CtxMsjgE/MXAYRHWJqgXOpM8IkcPBoXnyTU5lFHcYa5ChG0LQ==}
 
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
@@ -4355,6 +4557,57 @@ snapshots:
       - supports-color
 
   '@lukeed/ms@2.0.2': {}
+
+  '@napi-rs/keyring-darwin-arm64@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring-darwin-x64@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring-freebsd-x64@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring-linux-arm-gnueabihf@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring-linux-arm64-gnu@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring-linux-arm64-musl@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring-linux-riscv64-gnu@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring-linux-x64-gnu@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring-linux-x64-musl@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring-win32-arm64-msvc@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring-win32-ia32-msvc@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring-win32-x64-msvc@1.3.0':
+    optional: true
+
+  '@napi-rs/keyring@1.3.0':
+    optionalDependencies:
+      '@napi-rs/keyring-darwin-arm64': 1.3.0
+      '@napi-rs/keyring-darwin-x64': 1.3.0
+      '@napi-rs/keyring-freebsd-x64': 1.3.0
+      '@napi-rs/keyring-linux-arm-gnueabihf': 1.3.0
+      '@napi-rs/keyring-linux-arm64-gnu': 1.3.0
+      '@napi-rs/keyring-linux-arm64-musl': 1.3.0
+      '@napi-rs/keyring-linux-riscv64-gnu': 1.3.0
+      '@napi-rs/keyring-linux-x64-gnu': 1.3.0
+      '@napi-rs/keyring-linux-x64-musl': 1.3.0
+      '@napi-rs/keyring-win32-arm64-msvc': 1.3.0
+      '@napi-rs/keyring-win32-ia32-msvc': 1.3.0
+      '@napi-rs/keyring-win32-x64-msvc': 1.3.0
 
   '@petamoriken/float16@3.9.3':
     optional: true
@@ -5110,6 +5363,10 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.62.2':
     optional: true
 
+  '@ster5/global-mutex@3.3.0(proper-lockfile@4.1.2)':
+    optionalDependencies:
+      proper-lockfile: 4.1.2
+
   '@supabase/auth-js@2.110.1':
     dependencies:
       tslib: 2.8.1
@@ -5327,14 +5584,32 @@ snapshots:
 
   '@types/prop-types@15.7.15': {}
 
+  '@types/react-dom@18.3.1':
+    dependencies:
+      '@types/react': 18.3.12
+
   '@types/react-dom@18.3.7(@types/react@18.3.31)':
     dependencies:
       '@types/react': 18.3.31
+
+  '@types/react@18.3.12':
+    dependencies:
+      '@types/prop-types': 15.7.15
+      csstype: 3.2.3
 
   '@types/react@18.3.31':
     dependencies:
       '@types/prop-types': 15.7.15
       csstype: 3.2.3
+
+  '@types/topojson-client@3.1.5':
+    dependencies:
+      '@types/geojson': 7946.0.16
+      '@types/topojson-specification': 1.0.5
+
+  '@types/topojson-specification@1.0.5':
+    dependencies:
+      '@types/geojson': 7946.0.16
 
   '@typescript-eslint/eslint-plugin@8.62.1(@typescript-eslint/parser@8.62.1(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)':
     dependencies:
@@ -5577,6 +5852,8 @@ snapshots:
       color-name: 1.1.4
 
   color-name@1.1.4: {}
+
+  commander@2.20.3: {}
 
   concat-map@0.0.1: {}
 
@@ -6330,6 +6607,12 @@ snapshots:
       object-assign: 4.1.1
       react-is: 16.13.1
 
+  proper-lockfile@4.1.2:
+    dependencies:
+      graceful-fs: 4.2.11
+      retry: 0.12.0
+      signal-exit: 3.0.7
+
   punycode@2.3.1: {}
 
   qs@6.15.2:
@@ -6419,6 +6702,8 @@ snapshots:
   resolve-pkg-maps@1.0.0: {}
 
   ret@0.5.0: {}
+
+  retry@0.12.0: {}
 
   reusify@1.1.0: {}
 
@@ -6512,6 +6797,8 @@ snapshots:
       side-channel-map: 1.0.1
       side-channel-weakmap: 1.0.2
 
+  signal-exit@3.0.7: {}
+
   sonic-boom@4.2.1:
     dependencies:
       atomic-sleep: 1.0.0
@@ -6566,6 +6853,10 @@ snapshots:
       picomatch: 4.0.5
 
   toad-cache@3.7.1: {}
+
+  topojson-client@3.1.0:
+    dependencies:
+      commander: 2.20.3
 
   tr46@0.0.3: {}
 
@@ -6678,6 +6969,8 @@ snapshots:
     optional: true
 
   word-wrap@1.2.5: {}
+
+  world-atlas@2.0.2: {}
 
   yallist@3.1.1: {}
 

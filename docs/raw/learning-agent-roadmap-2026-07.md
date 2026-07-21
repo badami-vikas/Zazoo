@@ -5,7 +5,7 @@ doc_kind: plan
 status: proposed
 companions: [governance-agent-roadmap-2026-07.md, builder-agent-roadmap-2026-07.md, bridge-foundational-agents-onboarding-2026-07.md, roadmap-v2-universal-commons.md, undefined-elements-definitions-2026-07.md, security-audit-2026-07.md, desktop-companion-agent-roadmap-2026-07.md]
 related_wiki: ../wiki/learning-agent.md
-updated: 2026-07-18
+updated: 2026-07-21
 tags: [learning-agent, memory, mem0, rag, research, competitor-discovery, prompt-assembler, taint, injection, web-search, recon, search-provider]
 ---
 
@@ -377,7 +377,20 @@ LA3's research lane needs concrete web-search/extraction backends behind its SSR
 ```yaml
 search_provider_port:
   shape: "same port/adapter pattern as ModelProvider/MemoryStore/ContentGuard — one interface, swappable backends, no caller change on provider swap"
-  taint: "every result carries untrusted_external taint (PI-1/PI-2) before reaching Memory or a prompt — no new mechanism, reuse of the shipped pipeline"
+  taint: "every result carries untrusted_external before Result, Memory, Event, or prompt sinks; pipeline joins Skill output with ambient taint"
+  selection: "server-owned deterministic provider health/id order with explicit attempt budget; no caller-selected provider"
+  bounds: "query/result/request/response/time/provider-attempt caps plus AbortSignal cancellation"
+phase_1_implementation:
+  owner_module: relationship
+  consuming_agent: learning-agent
+  authority: "installed signed Module binding + active attributable Agent + Goal + Task + SkillManifest + public scope + cloud Plane + governed Run"
+  network: "@bridge/net-guard handles DNS validation/pinning, SSRF, manual redirect allowlist, request/response bytes, timeout, content type, and cancellation"
+  quarantine: "raw provider titles/excerpts enter local ContentGuard; only bounded typed summary/entities cross"
+  durable_evidence:
+    result: "append-only pipeline Ledger proposal/output"
+    memory: "private semantic Memory linked to Result ledger id"
+    event: "persistent learning.web_research.result_recorded Event"
+  retained_provenance: [source_url, provider_id, provider_request_id, retrieved_at, content_hash, citations, rights_metadata, provider_attempts, trust_origin]
 tier_1_free_direct_no_account:
   approved_now:
     - parallel_search_mcp: "https://search.parallel.ai/mcp — anonymous HTTP MCP, web_search, $0; official anonymous-access docs + live protocol/terms headers verified 2026-07-18"
@@ -399,6 +412,6 @@ rollout:
   phase_3: "paid, evaluation-gated — Tier-3 only behind an explicit cost/ROI proposal + APPROVALS.md gate, never a silent default"
   non_goal: "self-hosted-only Tier-3 items deferred indefinitely — no hosting decision made for them yet"
 rights_review:
-  decision: "ADR-113 / AP-040 supersede only ADR-111's assumption that all three surveyed Tier-1 candidates were currently lawful direct-access adapters"
+  decision: "ADR-141 / AP-068 supersede only ADR-111's assumption that all three surveyed Tier-1 candidates were currently lawful direct-access adapters"
   recheck_rule: "provider rights metadata expires after 90 days; changed Parallel terms/privacy headers stop execution pending review"
 ```

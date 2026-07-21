@@ -28,6 +28,16 @@ Keep kernel vocabulary small. Product terms and code identifiers converge; no di
 - Signal = surfaced Relationship Event with Person/Community participants, reason, safe Action. Event storage; no parallel occurrence table.
 - Second Brain = cross-Module graph surface only. Engine never called brain.
 
+## Migration state
+
+- TASK-012 done 2026-07-20. Runtime + tests guard live. Baseline zero:
+  [vocabulary inventory](../raw/vocabulary-code-inventory-2026-07-19.md).
+- Avatar style visual only. Old browser/API aliases gone.
+- One Event ledger. Signal/Timeline projections. One Module shell. One full Graph.
+- DealPilot + JobPilot live under `platform/modules/`.
+- Signed old Commons bytes still verify. Old registry files move once into canonical root. No dual read.
+- Migration `0024` preserves stored culture Results. Backup → restore → replay proven.
+
 ## Failure ownership
 
 - Engine detects immediate runtime faults and performs bounded retry, timeout, idempotency, rollback/compensation, circuit-break, or safe-stop behavior.

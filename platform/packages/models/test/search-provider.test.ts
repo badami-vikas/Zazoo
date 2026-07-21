@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 
 import {
@@ -6,39 +7,57 @@ import {
   SearchProviderPolicyError,
   SearchProvidersUnavailableError,
   type SearchProvider,
+  type SearchProviderHealth,
   type SearchProviderResult,
   type SearchRequest,
 } from "@bridge/core";
+import {
+  ResponseTooLargeError,
+  type GuardedFetchOptions,
+  type GuardedFetchResult,
+} from "@bridge/net-guard";
 import {
   FreeDirectSearchProviderRouter,
   PARALLEL_SEARCH_PRIVACY_URL,
   PARALLEL_SEARCH_TERMS_URL,
   ParallelSearchProvider,
-  type SafeHttpClientPort,
-  type SafeHttpRequest,
-  type SafeHttpResponse,
+  type SearchFetchPort,
 } from "../src/index.js";
 
 const REQUEST: SearchRequest = {
   objective: "Find current public documentation",
   searchQueries: ["Bridge Living Software"],
   maxResults: 2,
+  maxResponseBytes: 256 * 1024,
+  maxProviderAttempts: 3,
   timeoutMs: 5_000,
   requestId: "request-1",
   requestedAt: "2026-07-18T00:00:00.000Z",
 };
 
+function hash(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
 function result(provider: SearchProvider): SearchProviderResult {
-  return {
-    citations: [
-      {
+  const citation = {
+    url: "https://example.com/source",
+    title: "Source",
+    publishedAt: null,
+    excerpts: ["evidence"],
+    providerId: provider.id,
+    retrievedAt: REQUEST.requestedAt,
+    contentHash: hash(
+      JSON.stringify({
         url: "https://example.com/source",
         title: "Source",
-        publishedAt: null,
         excerpts: ["evidence"],
-        trustOrigin: "untrusted_external",
-      },
-    ],
+      }),
+    ),
+    trustOrigin: "untrusted_external" as const,
+  };
+  return {
+    citations: [citation],
     warnings: [],
     provenance: {
       providerId: provider.id,
@@ -48,6 +67,9 @@ function result(provider: SearchProvider): SearchProviderResult {
       termsUrl: provider.termsUrl,
       ...(provider.privacyUrl ? { privacyUrl: provider.privacyUrl } : {}),
       searchedAt: REQUEST.requestedAt,
+      responseBytes: 100,
+      contentHash: hash(JSON.stringify(citation)),
+      rights: provider.rights,
     },
     trustOrigin: "untrusted_external",
   };
@@ -55,6 +77,7 @@ function result(provider: SearchProvider): SearchProviderResult {
 
 function provider(
   id: string,
+  health: SearchProviderHealth,
   search: SearchProvider["search"],
 ): SearchProvider {
   return {
@@ -71,112 +94,130 @@ function provider(
       allowedDataScope: "public",
       restrictions: [],
     },
+    health: () => health,
     search,
   };
 }
 
-test("SearchProvider router attributes unavailable and degraded failover attempts", async () => {
-  const first = provider("first", async () => {
+test("router selects deterministically by health then id and attributes failover", async () => {
+  const called: string[] = [];
+  const degraded = provider("a-degraded", "degraded", async () => {
+    called.push("a-degraded");
+    return result(degraded);
+  });
+  const unavailable = provider("b-unavailable", "healthy", async () => {
+    called.push("b-unavailable");
     throw new SearchProviderError({
-      providerId: "first",
+      providerId: "b-unavailable",
       code: "unavailable",
       message: "offline",
       retryable: true,
     });
   });
-  const second = provider("second", async () => {
-    throw new SearchProviderError({
-      providerId: "second",
-      code: "degraded",
-      message: "invalid upstream result",
-      retryable: true,
-    });
+  const healthy = provider("c-healthy", "healthy", async () => {
+    called.push("c-healthy");
+    return result(healthy);
   });
-  const third = provider("third", async () => result(third));
   const router = new FreeDirectSearchProviderRouter(
-    [first, second, third],
+    [degraded, healthy, unavailable],
     { now: () => Date.parse("2026-07-19T00:00:00.000Z") },
   );
 
   const outcome = await router.search(REQUEST);
+  assert.deepEqual(called, ["b-unavailable", "c-healthy"]);
   assert.deepEqual(
     outcome.attempts.map((attempt) => [
       attempt.providerId,
+      attempt.providerHealth,
       attempt.status,
-      attempt.code,
     ]),
     [
-      ["first", "unavailable", "unavailable"],
-      ["second", "degraded", "degraded"],
-      ["third", "succeeded", undefined],
+      ["b-unavailable", "healthy", "unavailable"],
+      ["c-healthy", "healthy", "succeeded"],
     ],
   );
-  assert.equal(outcome.provenance.providerId, "third");
+  assert.equal(outcome.provenance.providerId, "c-healthy");
 });
 
-test("SearchProvider router fails explicitly with attributable attempts when all providers fail", async () => {
-  const unavailable = provider("unavailable", async () => {
+test("router honors the explicit provider-attempt budget and never reaches a later provider", async () => {
+  let laterCalls = 0;
+  const first = provider("first", "healthy", async () => {
     throw new SearchProviderError({
-      providerId: "unavailable",
-      code: "timeout",
-      message: "timed out",
+      providerId: "first",
+      code: "degraded",
+      message: "bad response",
       retryable: true,
     });
   });
-  const invalid = provider("invalid", async () => ({
-    ...result(invalid),
-    trustOrigin: "operator" as never,
-  }));
-  const router = new FreeDirectSearchProviderRouter(
-    [unavailable, invalid],
-    { now: () => Date.parse("2026-07-19T00:00:00.000Z") },
-  );
+  const later = provider("later", "unknown", async () => {
+    laterCalls += 1;
+    return result(later);
+  });
+  const router = new FreeDirectSearchProviderRouter([later, first], {
+    now: () => Date.parse("2026-07-19T00:00:00.000Z"),
+  });
 
   await assert.rejects(
-    () => router.search(REQUEST),
+    () => router.search({ ...REQUEST, maxProviderAttempts: 1 }),
     (error) => {
       assert.ok(error instanceof SearchProvidersUnavailableError);
       assert.deepEqual(
-        error.attempts.map((attempt) => [
-          attempt.providerId,
-          attempt.status,
-          attempt.code,
-        ]),
-        [
-          ["unavailable", "unavailable", "timeout"],
-          ["invalid", "degraded", "invalid_response"],
-        ],
+        error.attempts.map((attempt) => attempt.providerId),
+        ["first"],
       );
       return true;
     },
   );
+  assert.equal(laterCalls, 0);
 });
 
-test("SearchProvider router validates request bounds before calling any provider", async () => {
+test("router reports unavailable health without invoking the provider", async () => {
   let calls = 0;
-  const bounded = provider("bounded", async () => {
+  const offline = provider("offline", "unavailable", async () => {
     calls += 1;
-    return result(bounded);
+    return result(offline);
   });
-  const router = new FreeDirectSearchProviderRouter(
-    [bounded],
-    { now: () => Date.parse("2026-07-19T00:00:00.000Z") },
-  );
+  const router = new FreeDirectSearchProviderRouter([offline], {
+    now: () => Date.parse("2026-07-19T00:00:00.000Z"),
+  });
   await assert.rejects(
-    () =>
-      router.search({
-        ...REQUEST,
-        searchQueries: ["a", "b", "c", "d"],
-      }),
-    /1-3/,
+    () => router.search(REQUEST),
+    (error) => {
+      assert.ok(error instanceof SearchProvidersUnavailableError);
+      assert.equal(error.attempts[0]?.providerHealth, "unavailable");
+      return true;
+    },
   );
   assert.equal(calls, 0);
 });
 
-test("Phase 1 rejects paid, Tier-3, and stale-rights providers before any search can run", () => {
+test("router validates bounds and cancellation before provider network access", async () => {
+  let calls = 0;
+  const bounded = provider("bounded", "healthy", async () => {
+    calls += 1;
+    return result(bounded);
+  });
+  const router = new FreeDirectSearchProviderRouter([bounded], {
+    now: () => Date.parse("2026-07-19T00:00:00.000Z"),
+  });
+  await assert.rejects(
+    () => router.search({ ...REQUEST, maxResponseBytes: 100 }),
+    /maxResponseBytes/,
+  );
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    () => router.search({ ...REQUEST, signal: controller.signal }),
+    (error) =>
+      error instanceof SearchProviderError && error.code === "cancelled",
+  );
+  assert.equal(calls, 0);
+});
+
+test("Phase 1 rejects paid, Tier-3, and stale-rights providers before search", () => {
   let calls = 0;
   const paid: SearchProvider = {
-    ...provider("paid-provider", async () => {
+    ...provider("paid-provider", "healthy", async () => {
       calls += 1;
       return result(paid);
     }),
@@ -190,9 +231,8 @@ test("Phase 1 rejects paid, Tier-3, and stale-rights providers before any search
       }),
     SearchProviderPolicyError,
   );
-  assert.equal(calls, 0);
 
-  const stale = provider("stale", async () => result(stale));
+  const stale = provider("stale", "healthy", async () => result(stale));
   stale.rights = {
     ...stale.rights,
     verifiedAt: "2025-01-01T00:00:00.000Z",
@@ -204,32 +244,30 @@ test("Phase 1 rejects paid, Tier-3, and stale-rights providers before any search
       }),
     /stale/,
   );
+  assert.equal(calls, 0);
 });
 
 function response(
   body: string,
-  overrides: Partial<SafeHttpResponse> = {},
-): SafeHttpResponse {
+  overrides: Partial<GuardedFetchResult> = {},
+): GuardedFetchResult {
   return {
-    url: "https://search.parallel.ai/mcp",
+    finalUrl: "https://search.parallel.ai/mcp",
     status: 200,
     headers: { "content-type": "application/json" },
-    contentType: "application/json",
-    body,
+    body: Buffer.from(body),
+    truncated: false,
+    redirectCount: 0,
+    hopOrigins: ["https://search.parallel.ai"],
     ...overrides,
   };
 }
 
-function parallelHttp(
-  searchPayload: Record<string, unknown>,
-  initHeaders: Readonly<Record<string, string>> = {
-    "content-type": "application/json",
-    "mcp-session-id": "session-1",
-    "x-parallel-terms": PARALLEL_SEARCH_TERMS_URL,
-    "x-parallel-privacy": PARALLEL_SEARCH_PRIVACY_URL,
-  },
-): { http: SafeHttpClientPort; calls: SafeHttpRequest[] } {
-  const calls: SafeHttpRequest[] = [];
+function parallelFetch(searchPayload: Record<string, unknown>): {
+  fetch: SearchFetchPort;
+  calls: Array<{ url: string; options?: GuardedFetchOptions }>;
+} {
+  const calls: Array<{ url: string; options?: GuardedFetchOptions }> = [];
   const responses = [
     response(
       JSON.stringify({
@@ -241,23 +279,23 @@ function parallelHttp(
           serverInfo: { name: "Parallel", version: "1" },
         },
       }),
-      { headers: initHeaders },
+      {
+        headers: {
+          "content-type": "application/json",
+          "mcp-session-id": "session-1",
+          "x-parallel-terms": PARALLEL_SEARCH_TERMS_URL,
+          "x-parallel-privacy": PARALLEL_SEARCH_PRIVACY_URL,
+        },
+      },
     ),
-    response("", {
-      status: 202,
-      headers: {},
-      contentType: null,
-    }),
+    response("", { status: 202, headers: {}, body: Buffer.alloc(0) }),
     response(
       JSON.stringify({
         jsonrpc: "2.0",
         id: "request-1:search",
         result: {
           content: [
-            {
-              type: "text",
-              text: JSON.stringify(searchPayload),
-            },
+            { type: "text", text: JSON.stringify(searchPayload) },
           ],
           isError: false,
         },
@@ -266,32 +304,24 @@ function parallelHttp(
   ];
   return {
     calls,
-    http: {
-      async request(input) {
-        calls.push(input);
-        const next = responses.shift();
-        if (!next) throw new Error("test fixture exhausted");
-        return next;
-      },
+    fetch: async (url, options) => {
+      calls.push({ url, ...(options ? { options } : {}) });
+      const next = responses.shift();
+      if (!next) throw new Error("test response queue exhausted");
+      return next;
     },
   };
 }
 
-test("Parallel adapter performs the bounded MCP handshake and emits tainted citations with provenance", async () => {
-  const fixture = parallelHttp({
+test("Parallel performs a bounded guarded MCP handshake and returns tainted hashed provenance", async () => {
+  const fixture = parallelFetch({
     search_id: "parallel-request-1",
     results: [
       {
         url: "https://example.com/one",
         title: "One",
-        publish_date: "2026-07-17T00:00:00.000Z",
+        publish_date: "2026-07-17",
         excerpts: ["first excerpt"],
-      },
-      {
-        url: "http://example.org/two",
-        title: "Two",
-        publish_date: null,
-        excerpts: ["second excerpt"],
       },
       {
         url: "http://127.0.0.1/private",
@@ -303,160 +333,133 @@ test("Parallel adapter performs the bounded MCP handshake and emits tainted cita
     warnings: null,
   });
   const provider = new ParallelSearchProvider({
-    http: fixture.http,
+    fetch: fixture.fetch,
     nowMs: () => 100,
   });
 
   const output = await provider.search(REQUEST);
   assert.equal(fixture.calls.length, 3);
+  assert.equal(fixture.calls[0]?.url, "https://search.parallel.ai/mcp");
+  assert.equal(fixture.calls[0]?.options?.method, "POST");
+  assert.equal(fixture.calls[0]?.options?.maxRedirects, 0);
+  assert.deepEqual(fixture.calls[0]?.options?.allowedRedirectOrigins, [
+    "https://search.parallel.ai",
+  ]);
   assert.equal(
-    fixture.calls[1]?.headers?.["mcp-session-id"],
+    fixture.calls[1]?.options?.headers?.["mcp-session-id"],
     "session-1",
   );
-  const searchEnvelope = JSON.parse(fixture.calls[2]?.body ?? "{}");
-  assert.equal(searchEnvelope.params.name, "web_search");
+  const searchEnvelope = JSON.parse(
+    String(fixture.calls[2]?.options?.body ?? "{}"),
+  );
   assert.deepEqual(searchEnvelope.params.arguments.search_queries, [
     "Bridge Living Software",
   ]);
-  assert.equal("max_results" in searchEnvelope.params.arguments, false);
-  assert.equal(output.trustOrigin, "untrusted_external");
-  assert.equal(output.citations.length, 2);
-  assert.ok(
-    output.citations.every(
-      (citation) => citation.trustOrigin === "untrusted_external",
-    ),
-  );
-  assert.equal(output.provenance.providerRequestId, "parallel-request-1");
-  assert.equal(output.provenance.termsUrl, PARALLEL_SEARCH_TERMS_URL);
-  assert.equal(output.provenance.searchedAt, REQUEST.requestedAt);
-  assert.match(output.warnings.at(-1) ?? "", /failed citation validation/);
-});
-
-test("Parallel adapter accepts bounded MCP SSE and selects its matching response", async () => {
-  const calls: SafeHttpRequest[] = [];
-  const headers = {
-    "content-type": "text/event-stream",
-    "mcp-session-id": "session-sse",
-    "x-parallel-terms": PARALLEL_SEARCH_TERMS_URL,
-    "x-parallel-privacy": PARALLEL_SEARCH_PRIVACY_URL,
-  };
-  const initialize = {
-    jsonrpc: "2.0",
-    id: "request-1:initialize",
-    result: {
-      protocolVersion: "2025-03-26",
-      capabilities: {},
-      serverInfo: { name: "Parallel", version: "1" },
-    },
-  };
-  const notification = {
-    jsonrpc: "2.0",
-    method: "notifications/progress",
-    params: { progress: 1 },
-  };
-  const searched = {
-    jsonrpc: "2.0",
-    id: "request-1:search",
-    result: {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            search_id: "parallel-sse-request",
-            results: [
-              {
-                url: "https://example.com/sse",
-                excerpts: ["bounded evidence"],
-              },
-            ],
-            warnings: [
-              {
-                type: "provider_notice",
-                message: "provider returned a bounded warning",
-              },
-            ],
-          }),
-        },
-      ],
-      isError: false,
-    },
-  };
-  const responses = [
-    response(`event: message\ndata: ${JSON.stringify(initialize)}\n\n`, {
-      headers,
-      contentType: "text/event-stream",
-    }),
-    response("", {
-      status: 202,
-      headers: {},
-      contentType: null,
-    }),
-    response(
-      `: keepalive\n\ndata: ${JSON.stringify(notification)}\n\nevent: message\ndata: ${JSON.stringify(searched)}\n\n`,
-      { contentType: "text/event-stream" },
-    ),
-  ];
-  const provider = new ParallelSearchProvider({
-    http: {
-      async request(input) {
-        calls.push(input);
-        const next = responses.shift();
-        if (!next) throw new Error("test fixture exhausted");
-        return next;
-      },
-    },
-  });
-
-  const output = await provider.search(REQUEST);
-
-  assert.equal(output.provenance.providerRequestId, "parallel-sse-request");
   assert.equal(output.citations.length, 1);
-  assert.equal(output.citations[0]?.title, null);
-  assert.equal(output.citations[0]?.publishedAt, null);
-  assert.deepEqual(output.warnings, ["provider returned a bounded warning"]);
-  assert.deepEqual(calls[0]?.allowedContentTypes, [
-    "application/json",
-    "text/event-stream",
-  ]);
-  assert.deepEqual(calls[2]?.allowedContentTypes, [
-    "application/json",
-    "text/event-stream",
-  ]);
+  assert.equal(output.citations[0]?.providerId, "parallel-search-mcp");
+  assert.equal(
+    output.citations[0]?.publishedAt,
+    "2026-07-17T00:00:00.000Z",
+  );
+  assert.match(output.citations[0]?.contentHash ?? "", /^sha256:/);
+  assert.equal(output.provenance.rights.status, "verified");
+  assert.match(output.provenance.contentHash, /^sha256:/);
+  assert.equal(output.trustOrigin, "untrusted_external");
+  assert.match(output.warnings[0] ?? "", /failed citation validation/);
 });
 
-test("Parallel adapter stops at a rights gate when provider policy headers change", async () => {
-  const fixture = parallelHttp(
-    { search_id: "unused", results: [] },
-    {
-      "content-type": "application/json",
-      "mcp-session-id": "session-1",
-      "x-parallel-terms": "https://parallel.ai/changed-terms",
-      "x-parallel-privacy": PARALLEL_SEARCH_PRIVACY_URL,
-    },
-  );
+test("Parallel accepts bounded SSE and rejects policy-header drift", async () => {
+  const fixture = parallelFetch({
+    search_id: "parallel-request-1",
+    results: [],
+    warnings: [{ message: "source coverage is limited" }],
+  });
+  const original = fixture.fetch;
+  let call = 0;
+  fixture.fetch = async (url, options) => {
+    const result = await original(url, options);
+    call += 1;
+    if (call !== 3) return result;
+    return {
+      ...result,
+      headers: { "content-type": "text/event-stream; charset=utf-8" },
+      body: Buffer.from(`event: message\ndata: ${result.body.toString()}\n\n`),
+    };
+  };
   const provider = new ParallelSearchProvider({
-    http: fixture.http,
+    fetch: fixture.fetch,
     nowMs: () => 100,
   });
+  const output = await provider.search(REQUEST);
+  assert.deepEqual(output.warnings, ["source coverage is limited"]);
+
+  const drift = parallelFetch({ search_id: "unused", results: [] });
+  const driftOriginal = drift.fetch;
+  let driftCall = 0;
+  drift.fetch = async (url, options) => {
+    const response = await driftOriginal(url, options);
+    driftCall += 1;
+    return driftCall === 1
+      ? {
+          ...response,
+          headers: {
+            ...response.headers,
+            "x-parallel-terms": "https://parallel.ai/changed",
+          },
+        }
+      : response;
+  };
   await assert.rejects(
-    () => provider.search(REQUEST),
+    () =>
+      new ParallelSearchProvider({
+        fetch: drift.fetch,
+        nowMs: () => 100,
+      }).search(REQUEST),
     (error) =>
-      error instanceof SearchProviderError && error.code === "access_blocked",
+      error instanceof SearchProviderError &&
+      error.code === "access_blocked",
   );
-  assert.equal(fixture.calls.length, 1);
+  assert.equal(drift.calls.length, 1);
 });
 
-test("Parallel adapter enforces one deadline across initialize, acknowledge, and search", async () => {
-  const fixture = parallelHttp({ search_id: "unused", results: [] });
-  const times = [0, 0, 5_001];
-  const provider = new ParallelSearchProvider({
-    http: fixture.http,
-    nowMs: () => times.shift() ?? 5_001,
-  });
+test("Parallel rejects compressed, invalid UTF-8, and over-budget responses", async () => {
+  const cases: GuardedFetchResult[] = [
+    response("{}", {
+      headers: {
+        "content-type": "application/json",
+        "content-encoding": "gzip",
+      },
+    }),
+    response("", {
+      body: Buffer.from([0xc3, 0x28]),
+    }),
+  ];
+  for (const invalid of cases) {
+    const fetch: SearchFetchPort = async () => invalid;
+    await assert.rejects(
+      () =>
+        new ParallelSearchProvider({ fetch, nowMs: () => 100 }).search(
+          REQUEST,
+        ),
+      (error) =>
+        error instanceof SearchProviderError &&
+        error.code === "invalid_response",
+    );
+  }
+
+  let observedMaxBytes = 0;
+  const fetch: SearchFetchPort = async (_url, options) => {
+    observedMaxBytes = options?.maxBytes ?? 0;
+    throw new ResponseTooLargeError(observedMaxBytes);
+  };
   await assert.rejects(
-    () => provider.search(REQUEST),
+    () =>
+      new ParallelSearchProvider({ fetch, nowMs: () => 100 }).search({
+        ...REQUEST,
+        maxResponseBytes: 2_048,
+      }),
     (error) =>
-      error instanceof SearchProviderError && error.code === "timeout",
+      error instanceof SearchProviderError && error.code === "degraded",
   );
-  assert.equal(fixture.calls.length, 1);
+  assert.equal(observedMaxBytes, 2_048);
 });

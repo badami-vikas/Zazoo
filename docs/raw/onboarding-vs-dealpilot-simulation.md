@@ -5,7 +5,7 @@ doc_kind: audit
 status: complete
 companions:
   - dealpilot-architecture-requirement.md
-  - capability-package-format.md
+  - capability-module-format.md
   - tool-standardization-plan.md
 related_wiki: ../wiki/roadmap.md
 updated: 2026-07-06
@@ -187,7 +187,7 @@ generator):**
 - #5 (sourcing/connectors/waterfall), #4's scoring logic itself, #10 (investor updates/funnel
   dashboard). These are exactly the kind of package-specific behavior CLAUDE.md's package model
   says belongs in `platform/tools/dealpilot/` (or its future `package.yaml` repackaging per
-  `capability-package-format.md` §4), not in `buildBlueprintFromAnswers`. Onboarding correctly
+  `capability-module-format.md` §4), not in `buildBlueprintFromAnswers`. Onboarding correctly
   produces `capabilities: []` and leaves connector wiring alone — this boundary is healthy and
   should be defended, not eroded, as onboarding gets richer.
 

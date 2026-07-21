@@ -2,13 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createBudgetLedger, createApiClientConnector } from "@bridge/sourcing";
 import { createFactStore } from "@bridge/facts";
-import { buildToolRegistry } from "@bridge/tool-kit";
+import { buildExecutableRegistry } from "@bridge/capability-kit";
 import { companySourcingManifest } from "../src/manifest.js";
 import { sourceCompany, matchCompany } from "../src/engine.js";
 import { peopleSourcingManifest } from "@bridge/people-sourcing";
 
 test("manifest: kind internal, provides source.company", () => {
-  assert.equal(companySourcingManifest.kind, "internal");
+  assert.equal(companySourcingManifest.kind, "skill");
   assert.ok(companySourcingManifest.provides.some((p) => p.id === "source.company"));
 });
 
@@ -28,18 +28,18 @@ test("matchCompany: delegates to shared dedupe with domain+industry as corrobora
   assert.equal(result.tier, "strong");
 });
 
-test("cross-tool registry: both sourcing tools register clean and a DealPilot-shaped external composes both", () => {
+test("cross-Module registry: both sourcing Engines register clean and a DealPilot-shaped external composes both", () => {
   const dealpilot = {
     id: "dealpilot",
     name: "DealPilot",
     version: "0.1.0",
-    kind: "external" as const,
+    kind: "module" as const,
     runModes: ["account_bound" as const],
     surfaces: [{ route: "/dealpilot", nav: "Work" }],
-    composes: ["people-sourcing", "company-sourcing"],
+    skillDependencies: ["people-sourcing", "company-sourcing"],
     intakePolicy: { quarantine: true as const, commitVia: "pipeline_proposal" as const, scope: "public" as const },
   };
-  const registry = buildToolRegistry([peopleSourcingManifest, companySourcingManifest, dealpilot]);
-  assert.equal(registry.internal().length, 2);
+  const registry = buildExecutableRegistry([peopleSourcingManifest, companySourcingManifest, dealpilot]);
+  assert.equal(registry.skills().length, 2);
   assert.equal(registry.get("dealpilot")?.id, "dealpilot");
 });

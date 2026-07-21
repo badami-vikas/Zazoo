@@ -80,11 +80,16 @@ pub fn create_annotate_windows(app: &AppHandle, init_script: &str) -> tauri::Res
     let mut first_err: Option<tauri::Error> = None;
     for (index, monitor) in monitors.iter().enumerate() {
         if let Err(err) = create_one_annotate_window(app, init_script, index, Some(monitor)) {
-            eprintln!("[bridge-desktop] failed to create annotate window for monitor {index}: {err}");
+            eprintln!(
+                "[bridge-desktop] failed to create annotate window for monitor {index}: {err}"
+            );
             first_err.get_or_insert(err);
         }
     }
-    let any_created = app.webview_windows().keys().any(|l| l.starts_with(ANNOTATE_LABEL));
+    let any_created = app
+        .webview_windows()
+        .keys()
+        .any(|l| l.starts_with(ANNOTATE_LABEL));
     if let Some(err) = first_err {
         if !any_created {
             return Err(err);
@@ -157,7 +162,10 @@ pub fn annotate_show(app: AppHandle, marks: Vec<AnnotationMark>) -> Result<(), A
     if marks.len() > MAX_MARKS {
         return Err(AnnotateError {
             code: "ANNOTATE_TOO_MANY",
-            message: format!("annotate_show given {} marks, max is {MAX_MARKS}", marks.len()),
+            message: format!(
+                "annotate_show given {} marks, max is {MAX_MARKS}",
+                marks.len()
+            ),
         });
     }
     for m in &marks {
@@ -188,8 +196,10 @@ pub fn annotate_show(app: AppHandle, marks: Vec<AnnotationMark>) -> Result<(), A
             let _ = win.show();
         }
     }
-    app.emit(MARKS_EVENT, &marks)
-        .map_err(|e| AnnotateError { code: "ANNOTATE_EMIT_FAILED", message: e.to_string() })
+    app.emit(MARKS_EVENT, &marks).map_err(|e| AnnotateError {
+        code: "ANNOTATE_EMIT_FAILED",
+        message: e.to_string(),
+    })
 }
 
 /// Clear all marks and hide every annotate window (never leaves a stale
@@ -203,7 +213,10 @@ pub fn annotate_clear(app: AppHandle) -> Result<(), AnnotateError> {
         }
     }
     app.emit(MARKS_EVENT, Vec::<AnnotationMark>::new())
-        .map_err(|e| AnnotateError { code: "ANNOTATE_EMIT_FAILED", message: e.to_string() })
+        .map_err(|e| AnnotateError {
+            code: "ANNOTATE_EMIT_FAILED",
+            message: e.to_string(),
+        })
 }
 
 #[cfg(test)]
@@ -212,13 +225,26 @@ mod tests {
 
     #[test]
     fn mark_kind_serializes_snake_case() {
-        assert_eq!(serde_json::to_string(&MarkKind::Highlight).unwrap(), "\"highlight\"");
-        assert_eq!(serde_json::to_string(&MarkKind::Spotlight).unwrap(), "\"spotlight\"");
+        assert_eq!(
+            serde_json::to_string(&MarkKind::Highlight).unwrap(),
+            "\"highlight\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MarkKind::Spotlight).unwrap(),
+            "\"spotlight\""
+        );
     }
 
     #[test]
     fn annotation_mark_roundtrips_without_label() {
-        let mark = AnnotationMark { kind: MarkKind::Arrow, x: 1.0, y: 2.0, width: 3.0, height: 4.0, label: None };
+        let mark = AnnotationMark {
+            kind: MarkKind::Arrow,
+            x: 1.0,
+            y: 2.0,
+            width: 3.0,
+            height: 4.0,
+            label: None,
+        };
         let json = serde_json::to_string(&mark).unwrap();
         let back: AnnotationMark = serde_json::from_str(&json).unwrap();
         assert_eq!(back.kind, MarkKind::Arrow);

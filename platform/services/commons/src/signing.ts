@@ -9,10 +9,10 @@ import { dirname } from "node:path";
 import {
   canonicalizeCommonsSignedPayload,
   canonicalizeManifest,
-  commonsPackageContent,
-  type CommonsPackageEntry,
+  commonsModuleContent,
+  type CommonsModuleEntry,
   type ManifestSignature,
-  type PackageManifest,
+  type ModuleManifest,
   type SignatureVerifier,
 } from "@bridge/core";
 
@@ -91,7 +91,7 @@ export function resolveCommonsSigningKeyPair(
   return generated;
 }
 
-export function signManifest(manifest: PackageManifest, keyPair: CommonsSigningKeyPair): ManifestSignature {
+export function signManifest(manifest: ModuleManifest, keyPair: CommonsSigningKeyPair): ManifestSignature {
   const data = canonicalizeManifest(manifest);
   return {
     signature: crypto.sign(null, Buffer.from(data, "utf8"), crypto.createPrivateKey(keyPair.privateKeyPem)).toString("base64"),
@@ -102,10 +102,10 @@ export function signManifest(manifest: PackageManifest, keyPair: CommonsSigningK
 }
 
 export function signCommonsEntry(
-  entry: Omit<CommonsPackageEntry, "signature">,
+  entry: Omit<CommonsModuleEntry, "signature">,
   keyPair: CommonsSigningKeyPair,
 ): ManifestSignature {
-  const data = canonicalizeCommonsSignedPayload(commonsPackageContent(entry), entry.integrity, entry.publishedAt);
+  const data = canonicalizeCommonsSignedPayload(commonsModuleContent(entry), entry.integrity, entry.publishedAt);
   return {
     signature: crypto.sign(null, Buffer.from(data, "utf8"), crypto.createPrivateKey(keyPair.privateKeyPem)).toString("base64"),
     publicKey: keyPair.publicKeyPem,

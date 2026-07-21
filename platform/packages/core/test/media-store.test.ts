@@ -6,12 +6,12 @@ const WS = "ws-1";
 function rec(partial: Partial<MediaCaptureRecord> = {}): MediaCaptureRecord {
   return {
     id: "m1",
-    workspaceId: WS,
+    organizationId: WS,
     kind: "photo",
     mimeType: "image/jpeg",
     byteSize: 3,
     status: "pending",
-    provenance: { tool: "camera", version: "1.0.0" },
+    provenance: { skill: "camera.capture", version: "1.0.0" },
     capturedAt: "2026-06-20T00:00:00.000Z",
     ...partial,
   };

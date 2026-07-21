@@ -34,7 +34,7 @@
  * so the offline fallback is not a lesser code path — it is the SAME contract
  * with a different signal source.
  */
-import type { ModelProvider } from "./ports.js";
+import { createModelCallReceipt, type ModelCallReceipt, type ModelProvider } from "./ports.js";
 
 /** A downstream capability Chief of Staff can route a single turn to. Kept as
  * a closed, caller-supplied registry (mirrors compileBlueprint's registered-
@@ -100,6 +100,9 @@ export interface RoutingDecision {
   /** Which path produced this decision — surfaced so the UI/tests can tell a
    * real model classification from the offline keyword fallback. */
   source: "model" | "keyword_fallback";
+  /** Present only when a real provider classified the turn. Callers may persist
+   * this receipt without retaining the prompt or response body. */
+  modelReceipt?: ModelCallReceipt;
 }
 
 /** Structured input to `classifyIntent` — one user message plus the closed
@@ -206,13 +209,15 @@ export async function classifyIntent(args: ClassifyIntentArgs): Promise<RoutingD
     return classifyByKeyword(args.message, args.registry);
   }
   const { system, prompt } = classificationPrompt(args.message, args.registry);
-  try {
-    const result = await args.model.complete({ system, prompt, maxTokens: 32 });
-    return parseModelResponse(result.text, args.registry);
-  } catch {
-    // A live provider call that throws (network error, etc.) degrades to the
-    // deterministic fallback rather than surfacing a hard failure for what is,
-    // at worst, a routing miss — the conversation still gets an answer.
-    return classifyByKeyword(args.message, args.registry);
-  }
+  const result = await args.model.complete({
+    system,
+    prompt,
+    maxTokens: 32,
+    tier: "cheap",
+    cache: { strategy: "stable_system_prefix", ttl: "5m" },
+  });
+  return {
+    ...parseModelResponse(result.text, args.registry),
+    modelReceipt: createModelCallReceipt(args.model, result, "cheap"),
+  };
 }

@@ -1,36 +1,33 @@
 /**
- * DrizzleGraphStore — READ-only surface for Bridge's core vocabulary nouns
- * (Initiative/Touchpoint/Signal/Person/Community) that had zero tRPC coverage
- * (frontend-migration-scoping.md Phase 3). WRITES to `initiatives`/`touchpoints`
- * already flow through the governed pipeline generically (`action.propose` with
- * `resourceType: "initiative" | "touchpoint"`, see router.ts's `resourceTypeEnum`)
- * — this store exists only because the pipeline has no query-back path, the same
- * reason `dealpilot.list`/`integration.list` needed their own read stores.
- * `listPeople`/`listCommunities` were added later (KnowledgeBasePage's People/
- * Communities tabs) to the same store rather than a new one, since it's already
- * the generic home for workspace-scoped node reads.
+ * DrizzleGraphStore — bounded Relationship Record/Relation/Event access over the
+ * existing shared graph tables. Mutating methods are called only after the
+ * Universal Action Pipeline has applied a Human request or recorded approval.
  *
- * `signal_actions` (act/dismiss/save) is the one exception: it's the user's
- * reaction bookkeeping to a Signal, not a mutation of Person/Relationship data,
- * so it's a direct authenticated write here (same tier as workspace membership
- * CRUD — see workspace-store.ts's header comment) rather than routed through
- * UniversalActionPipeline.propose(). See docs/raw/decisions-log.md.
+ * Signal reactions are append-only Events. They are direct authenticated
+ * bookkeeping writes; the safe Action itself still uses the governed pipeline.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
   communities,
   communitiesCanonical,
+  communityMembers,
   edges,
   events,
-  initiatives,
+  fileRefs,
+  files,
+  records,
+  recordCommunities,
+  recordParticipants,
+  jobpilotApplications,
+  jobpilotJobs,
   nodeTypes,
   people,
   peopleCanonical,
-  signalActions,
+  resources,
   signals,
-  touchpoints,
+  tasks,
 } from "./schema.js";
 import type { RelationEvidenceRef } from "./schema.js";
 
@@ -55,12 +52,137 @@ export interface RelationPage {
   nextCursor: RelationCursor | null;
 }
 
+export interface GraphRelationPage {
+  items: RelationRecord[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface FullGraphNodeRecord {
+  id: string;
+  recordId: string;
+  recordType: string;
+  label: string;
+  databaseId: string;
+  databaseLabel: string;
+  moduleId: string;
+  subtitle?: string;
+  recordPath?: string;
+  actionKind?: "signal";
+  provenance: string;
+}
+
+export interface FullGraphEdgeRecord {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  label: string;
+  relationType: string;
+  sourceModule: string;
+  evidence: string;
+}
+
+export interface FullGraphPage {
+  nodes: FullGraphNodeRecord[];
+  edges: FullGraphEdgeRecord[];
+  databases: Array<{ id: string; label: string; moduleId: string }>;
+  hasMore: boolean;
+}
+
+export interface RelationshipPathNode {
+  nodeType: string;
+  nodeId: string;
+}
+
+export interface RelationshipPathStep {
+  from: RelationshipPathNode;
+  to: RelationshipPathNode;
+  relation: RelationRecord;
+}
+
+export interface RelationshipPath {
+  nodes: RelationshipPathNode[];
+  steps: RelationshipPathStep[];
+  confidence: number;
+}
+
+export interface RelationshipPathResult {
+  paths: RelationshipPath[];
+  visited: number;
+  truncated: boolean;
+}
+
+interface FullGraphEdgeCandidate extends FullGraphEdgeRecord {
+  sortAt: Date;
+}
+
+const FULL_GRAPH_NODE_TYPES = new Set([
+  "person",
+  "community",
+  "signal",
+  "event",
+  "record",
+  "file",
+  "job",
+  "application",
+  "goal",
+  "task",
+  "resource",
+]);
+
+function normalizeFullGraphNodeType(value: string): string | null {
+  const normalized = value.trim().toLowerCase().replaceAll("-", "_");
+  const aliases: Record<string, string> = {
+    people: "person",
+    communities: "community",
+    jobpilot_job: "job",
+    jobpilot_jobs: "job",
+    jobpilot_application: "application",
+    jobpilot_applications: "application",
+    goal: "task",
+  };
+  const nodeType = aliases[normalized] ?? normalized;
+  return FULL_GRAPH_NODE_TYPES.has(nodeType) ? nodeType : null;
+}
+
+function fullGraphNodeId(nodeType: string, recordId: string): string {
+  return `${nodeType}:${recordId}`;
+}
+
+function fullGraphDatabase(nodeType: string): { id: string; label: string; moduleId: string } {
+  const databases: Record<string, { id: string; label: string; moduleId: string }> = {
+    person: { id: "people", label: "People", moduleId: "relationship" },
+    community: { id: "communities", label: "Communities", moduleId: "relationship" },
+    signal: { id: "signals", label: "Signals", moduleId: "relationship" },
+    event: { id: "events", label: "Events", moduleId: "relationship" },
+    record: { id: "records", label: "Records", moduleId: "record" },
+    file: { id: "files", label: "Files", moduleId: "files" },
+    job: { id: "jobpilot.jobs", label: "Jobs", moduleId: "job-pilot" },
+    application: { id: "jobpilot.applications", label: "Applications", moduleId: "job-pilot" },
+    task: { id: "task-manager.tasks", label: "Tasks", moduleId: "task-manager" },
+    resource: { id: "resources", label: "Resources", moduleId: "resources" },
+  };
+  return databases[nodeType] ?? { id: nodeType, label: nodeType, moduleId: nodeType };
+}
+
+function graphMetadataLabel(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const values = metadata as Record<string, unknown>;
+  for (const key of ["name", "fileName", "title"]) {
+    if (typeof values[key] === "string" && values[key].trim()) return values[key].trim();
+  }
+  return null;
+}
+
 export interface PersonRecord {
   id: string;
-  workspaceId: string;
+  organizationId: string;
+  ownerUserId: string;
+  isOwner: boolean;
   visibility: string;
   displayName: string | null;
   currentTitle: string | null;
+  location?: string | null;
   currentCommunityId: string | null;
   source: string | null;
   lastInteractionAt: Date | null;
@@ -70,13 +192,229 @@ export interface PersonRecord {
 
 export interface CommunityRecord {
   id: string;
-  workspaceId: string;
+  organizationId: string;
+  ownerUserId: string;
+  isOwner: boolean;
   visibility: string;
   displayName: string | null;
   description: string | null;
   kind: string | null;
+  location?: string | null;
   source: string;
   isUserConfirmed: boolean;
+  memberCount: number;
+}
+
+export interface PersonDetail extends PersonRecord {
+  bio: string | null;
+  avatarUrl: string | null;
+  emails: string[];
+}
+
+export interface CommunityDetail extends CommunityRecord {}
+
+export interface CommunityMemberRecord extends PersonRecord {
+  role: string | null;
+  confidence: number | null;
+}
+
+export type RelationshipRecordVisibility = "private" | "organization";
+
+export interface DecisionProvenance {
+  decisionLedgerId: string;
+  decisionSequence: number;
+  decisionAt: Date;
+}
+
+export interface CreatePersonInput extends DecisionProvenance {
+  id: string;
+  organizationId: string;
+  ownerUserId: string;
+  displayName: string;
+  currentTitle?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  emails?: string[];
+  visibility: RelationshipRecordVisibility;
+  source: string;
+}
+
+export interface UpdatePersonInput extends DecisionProvenance {
+  id: string;
+  organizationId: string;
+  ownerUserId: string;
+  displayName?: string;
+  currentTitle?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  emails?: string[];
+  visibility?: RelationshipRecordVisibility;
+}
+
+export interface CreateCommunityInput extends DecisionProvenance {
+  id: string;
+  organizationId: string;
+  ownerUserId: string;
+  displayName: string;
+  description?: string | null;
+  location?: string | null;
+  kind?: string | null;
+  visibility: RelationshipRecordVisibility;
+  source: string;
+}
+
+export interface UpdateCommunityInput extends DecisionProvenance {
+  id: string;
+  organizationId: string;
+  ownerUserId: string;
+  displayName?: string;
+  description?: string | null;
+  location?: string | null;
+  kind?: string | null;
+  visibility?: RelationshipRecordVisibility;
+}
+
+export interface ArchiveRelationshipRecordInput extends DecisionProvenance {
+  id: string;
+  organizationId: string;
+  ownerUserId: string;
+}
+
+export interface InteractionParticipantInput {
+  recordType: "person" | "community";
+  recordId: string;
+  role?: string;
+  attendanceState?: string;
+}
+
+export interface CreateInteractionInput extends DecisionProvenance {
+  id: string;
+  organizationId: string;
+  ownerUserId: string;
+  kind: string;
+  occurredAt: Date;
+  summary: string;
+  source: string;
+  sourceRecordId?: string | null;
+  visibility: RelationshipRecordVisibility;
+  participants: InteractionParticipantInput[];
+  updatesPersonFreshness?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TimelineCursor {
+  occurredAt: Date;
+  id: string;
+}
+
+export interface TimelineParticipant {
+  relationId: string;
+  recordType: "person" | "community";
+  recordId: string;
+  displayName: string | null;
+  role: string | null;
+  attendanceState: string | null;
+}
+
+export interface TimelineItem {
+  id: string;
+  type: string;
+  kind: string;
+  summary: string | null;
+  source: string;
+  sourceRecordId: string | null;
+  visibility: RelationVisibility;
+  occurredAt: Date;
+  createdAt: Date;
+  participants: TimelineParticipant[];
+  provenance: {
+    eventId: string;
+    relationIds: string[];
+    evidenceRefs: RelationEvidenceRef[];
+    decisionLedgerIds: string[];
+  };
+}
+
+export interface TimelinePage {
+  items: TimelineItem[];
+  nextCursor: TimelineCursor | null;
+}
+
+export type CommitmentStatus = "pending" | "completed" | "cancelled" | "archived";
+
+export interface CommitmentRecord {
+  id: string;
+  personId: string;
+  text: string;
+  dueAt: Date | null;
+  status: CommitmentStatus;
+  sourceEventId: string | null;
+  transitionEventId: string;
+  occurredAt: Date;
+  createdAt: Date;
+  provenance: {
+    decisionLedgerId: string;
+    decisionSequence: number;
+    relationId: string;
+    evidenceRefs: RelationEvidenceRef[];
+  };
+}
+
+export interface CommitmentPage extends Page<CommitmentRecord> {}
+
+export interface MaterializeCommitmentInput extends DecisionProvenance {
+  operation: "create" | "update" | "archive";
+  commitmentId: string;
+  transitionEventId: string;
+  organizationId: string;
+  ownerUserId: string;
+  personId: string;
+  text: string;
+  dueAt?: Date | null;
+  status: CommitmentStatus;
+  sourceEventId?: string | null;
+}
+
+export type IntroductionStatus =
+  | "awaiting_consents"
+  | "ready"
+  | "declined"
+  | "cancelled"
+  | "introduced";
+
+export interface IntroductionRecord {
+  id: string;
+  sourcePersonId: string;
+  targetPersonId: string;
+  initiatorConsent: boolean;
+  recipientConsent: boolean;
+  status: IntroductionStatus;
+  declineReasonRecorded: boolean;
+  transitionEventId: string;
+  occurredAt: Date;
+  createdAt: Date;
+  provenance: {
+    decisionLedgerId: string;
+    decisionSequence: number;
+    relationIds: string[];
+    evidenceRefs: RelationEvidenceRef[];
+  };
+}
+
+export interface IntroductionPage extends Page<IntroductionRecord> {}
+
+export interface MaterializeIntroductionInput extends DecisionProvenance {
+  operation: "create" | "consent" | "cancel" | "complete";
+  introductionId: string;
+  transitionEventId: string;
+  organizationId: string;
+  ownerUserId: string;
+  sourcePersonId: string;
+  targetPersonId: string;
+  initiatorConsent: boolean;
+  recipientConsent: boolean;
+  status: IntroductionStatus;
+  privateDeclineReason?: string | null;
 }
 
 export interface SignalParticipant {
@@ -103,11 +441,21 @@ export interface SignalEvidenceAnchor {
   sourceEvent: typeof events.$inferSelect;
 }
 
-export type RelationVisibility = "private" | "workspace" | "public";
+export interface IndexModuleFileInput {
+  organizationId: string;
+  ownerUserId: string;
+  moduleId: string;
+  moduleName: string;
+  path: string;
+  size: number;
+  modifiedAt: string;
+}
+
+export type RelationVisibility = "private" | "organization" | "public";
 export type RelationRecord = typeof edges.$inferSelect;
 
 export interface UpsertRelationInput {
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   srcType: string;
   srcId: string;
@@ -124,6 +472,9 @@ export interface UpsertRelationInput {
   visibility: RelationVisibility;
   source: string;
   sourceModule: string;
+  decisionLedgerId?: string;
+  decisionSequence?: number;
+  decisionAt?: Date;
 }
 
 export interface SignalParticipantRelationInput {
@@ -134,7 +485,7 @@ export interface SignalParticipantRelationInput {
 }
 
 export interface MaterializeSignalEvidenceInput {
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   signalId: string;
   sourceEventId: string;
@@ -164,6 +515,17 @@ const MAX_RELATION_EVIDENCE_REFS = 100;
 const MAX_RELATION_PAGE_SIZE = 100;
 const MAX_SIGNAL_RELATIONS = 200;
 const MAX_BATCH_NODE_REFS = 10_000;
+const MAX_TIMELINE_PAGE_SIZE = 50;
+const MAX_INTERACTION_PARTICIPANTS = 100;
+
+function stableReferenceUuid(value: string): string {
+  const hex = createHash("sha256").update(value).digest("hex").slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20)}`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
 
 function compareRelationPreference(
   left: RelationRecord,
@@ -220,12 +582,12 @@ function relationEvidenceCandidates(relation: RelationRecord): RelationEvidenceR
 
 function assertRelationInput(input: UpsertRelationInput): void {
   if (
-    !UUID_PATTERN.test(input.workspaceId) ||
+    !UUID_PATTERN.test(input.organizationId) ||
     !UUID_PATTERN.test(input.ownerUserId) ||
     !UUID_PATTERN.test(input.srcId) ||
     !UUID_PATTERN.test(input.dstId)
   ) {
-    throw new Error("Relation workspace, owner, and endpoints must be UUIDs");
+    throw new Error("Relation organization, owner, and endpoints must be UUIDs");
   }
   if (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1) {
     throw new Error("Relation confidence must be between 0 and 1");
@@ -253,6 +615,73 @@ function assertRelationInput(input: UpsertRelationInput): void {
   if (input.validFrom && input.validTo && input.validTo < input.validFrom) {
     throw new Error("Relation validTo cannot precede validFrom");
   }
+  const hasDecisionProvenance =
+    input.decisionLedgerId !== undefined ||
+    input.decisionSequence !== undefined ||
+    input.decisionAt !== undefined;
+  if (
+    hasDecisionProvenance &&
+    (
+      !input.decisionLedgerId ||
+      !UUID_PATTERN.test(input.decisionLedgerId) ||
+      !Number.isSafeInteger(input.decisionSequence) ||
+      (input.decisionSequence ?? 0) < 0 ||
+      !input.decisionAt ||
+      Number.isNaN(input.decisionAt.getTime())
+    )
+  ) {
+    throw new Error("Relation decision provenance must include a ledger UUID, sequence, and timestamp");
+  }
+}
+
+function payloadRecord(payload: unknown): Record<string, unknown> {
+  return typeof payload === "object" && payload !== null && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : {};
+}
+
+function eventPayloadForProjection(
+  eventPayload: unknown,
+  relations: RelationRecord[],
+): Record<string, unknown> {
+  const stored = payloadRecord(eventPayload);
+  for (const relation of relations) {
+    const privatePayload = payloadRecord(
+      payloadRecord(relation.properties).privateEventPayload,
+    );
+    if (Object.keys(privatePayload).length > 0) {
+      return { ...stored, ...privatePayload };
+    }
+  }
+  return stored;
+}
+
+function payloadString(
+  payload: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function payloadDate(
+  payload: Record<string, unknown>,
+  key: string,
+  fallback: Date,
+): Date {
+  const value = payloadString(payload, key);
+  if (!value) return fallback;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+}
+
+function normalizeEmails(values: string[] | undefined): string[] {
+  if (!values) return [];
+  return [...new Set(
+    values
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  )];
 }
 
 function sourceEventIdFromPayload(payload: unknown): string | null {
@@ -284,39 +713,39 @@ function signalReason(
 
 export class DrizzleGraphStore {
   #db: Database;
-  #rlsContext: { workspaceId: string; userId: string } | null;
+  #rlsContext: { organizationId: string; userId: string } | null;
 
   constructor(
     db: Database,
-    rlsContext: { workspaceId: string; userId: string } | null = null,
+    rlsContext: { organizationId: string; userId: string } | null = null,
   ) {
     this.#db = db;
     this.#rlsContext = rlsContext;
   }
 
-  #hasRlsContext(workspaceId: string, userId: string): boolean {
+  #hasRlsContext(organizationId: string, userId: string): boolean {
     return (
-      this.#rlsContext?.workspaceId === workspaceId.toLowerCase() &&
+      this.#rlsContext?.organizationId === organizationId.toLowerCase() &&
       this.#rlsContext.userId === userId.toLowerCase()
     );
   }
 
   async #withRlsContext<T>(
-    workspaceId: string,
+    organizationId: string,
     userId: string,
     operation: (store: DrizzleGraphStore) => Promise<T>,
   ): Promise<T> {
     const context = {
-      workspaceId: workspaceId.toLowerCase(),
+      organizationId: organizationId.toLowerCase(),
       userId: userId.toLowerCase(),
     };
-    if (!UUID_PATTERN.test(context.workspaceId) || !UUID_PATTERN.test(context.userId)) {
-      throw new Error("Graph request workspace and user must be UUIDs");
+    if (!UUID_PATTERN.test(context.organizationId) || !UUID_PATTERN.test(context.userId)) {
+      throw new Error("Graph request organization and user must be UUIDs");
     }
     return this.#db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
-          set_config('app.workspace_id', ${context.workspaceId}, true),
+          set_config('app.organization_id', ${context.organizationId}, true),
           set_config('app.user_id', ${context.userId}, true)
       `);
       return operation(new DrizzleGraphStore(tx, context));
@@ -362,143 +791,64 @@ export class DrizzleGraphStore {
   }
 
   async #getAccessibleSignal(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     signalId: string,
   ): Promise<typeof signals.$inferSelect | null> {
     const rows = await this.#db
       .select()
       .from(signals)
-      .where(and(eq(signals.workspaceId, workspaceId), eq(signals.id, signalId)))
+      .where(and(eq(signals.organizationId, organizationId), eq(signals.id, signalId)))
       .limit(1);
     const signal = rows[0];
     if (!signal) return null;
     const subject =
       signal.subjectType === "person"
-        ? await this.getPerson(workspaceId, viewerUserId, signal.subjectId)
+        ? await this.getPerson(organizationId, viewerUserId, signal.subjectId)
         : signal.subjectType === "community"
-          ? await this.getCommunity(workspaceId, viewerUserId, signal.subjectId)
+          ? await this.getCommunity(organizationId, viewerUserId, signal.subjectId)
           : null;
     return subject ? signal : null;
   }
 
   async getSignalEvidenceAnchor(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     signalId: string,
     sourceEventId?: string,
   ): Promise<SignalEvidenceAnchor | null> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.getSignalEvidenceAnchor(workspaceId, viewerUserId, signalId, sourceEventId),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.getSignalEvidenceAnchor(organizationId, viewerUserId, signalId, sourceEventId),
       );
     }
-    const signal = await this.#getAccessibleSignal(workspaceId, viewerUserId, signalId);
+    const signal = await this.#getAccessibleSignal(organizationId, viewerUserId, signalId);
     if (!signal) return null;
-    if (sourceEventId) {
-      const sourceEvent = await this.getEvent(workspaceId, sourceEventId);
-      return sourceEvent?.entityType === "signal" && sourceEvent.entityId === signal.id
-        ? { signal, sourceEvent }
-        : null;
-    }
-    const approvedSourceEvent = await this.#getApprovedSourceEvent(
-      workspaceId,
-      viewerUserId,
-      signal.id,
-    );
-    if (approvedSourceEvent) return { signal, sourceEvent: approvedSourceEvent };
-    const payloadEventId = sourceEventIdFromPayload(signal.payload);
-    const payloadEvent = payloadEventId ? await this.getEvent(workspaceId, payloadEventId) : null;
-    if (payloadEvent?.entityType === "signal" && payloadEvent.entityId === signal.id) {
-      return { signal, sourceEvent: payloadEvent };
-    }
-    const eventRows = await this.#db
-      .select()
-      .from(events)
-      .where(
-        and(
-          eq(events.workspaceId, workspaceId),
-          eq(events.entityType, "signal"),
-          eq(events.entityId, signal.id),
-        ),
-      )
-      .orderBy(desc(events.createdAt))
-      .limit(1);
-    const sourceEvent = eventRows[0];
+    if (sourceEventId && sourceEventId !== signal.id) return null;
+    const sourceEvent = await this.getEvent(organizationId, signal.id);
     return sourceEvent ? { signal, sourceEvent } : null;
   }
 
-  async #getApprovedSourceEvent(
-    workspaceId: string,
-    viewerUserId: string,
-    signalId: string,
-  ): Promise<typeof events.$inferSelect | null> {
-    const rows = await this.#db
-      .select()
-      .from(edges)
-      .where(
-        and(
-          eq(edges.workspaceId, workspaceId),
-          eq(edges.edgeType, "source_event"),
-          isNotNull(edges.decisionSequence),
-          or(
-            eq(edges.ownerUserId, viewerUserId),
-            inArray(edges.visibility, ["workspace", "public"]),
-          ),
-          or(
-            and(
-              eq(edges.srcType, "signal"),
-              eq(edges.srcId, signalId),
-              eq(edges.dstType, "event"),
-              sql<boolean>`EXISTS (
-                SELECT 1
-                FROM "events" AS "approved_source_event"
-                WHERE "approved_source_event"."workspace_id" = ${workspaceId}
-                  AND "approved_source_event"."id" = ${edges.dstId}
-                  AND "approved_source_event"."entity_type" = 'signal'
-                  AND "approved_source_event"."entity_id" = ${signalId}
-              )`,
-            ),
-            and(
-              eq(edges.dstType, "signal"),
-              eq(edges.dstId, signalId),
-              eq(edges.srcType, "event"),
-              sql<boolean>`EXISTS (
-                SELECT 1
-                FROM "events" AS "approved_source_event"
-                WHERE "approved_source_event"."workspace_id" = ${workspaceId}
-                  AND "approved_source_event"."id" = ${edges.srcId}
-                  AND "approved_source_event"."entity_type" = 'signal'
-                  AND "approved_source_event"."entity_id" = ${signalId}
-              )`,
-            ),
-          ),
-        ),
-      )
-      .orderBy(...this.#relationPreferenceOrder(viewerUserId))
-      .limit(1);
-    const relation = rows[0];
-    if (!relation) return null;
-    const eventId = relation.srcType === "event" ? relation.srcId : relation.dstId;
-    const sourceEvent = await this.getEvent(workspaceId, eventId);
-    return sourceEvent?.entityType === "signal" && sourceEvent.entityId === signalId
-      ? sourceEvent
-      : null;
-  }
-
   async #canReadNode(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     nodeType: string,
     nodeId: string,
   ): Promise<boolean> {
-    if (nodeType === "person") return (await this.getPerson(workspaceId, viewerUserId, nodeId)) !== null;
-    if (nodeType === "community") return (await this.getCommunity(workspaceId, viewerUserId, nodeId)) !== null;
-    if (nodeType === "signal") return (await this.#getAccessibleSignal(workspaceId, viewerUserId, nodeId)) !== null;
+    if (nodeType === "person") return (await this.getPerson(organizationId, viewerUserId, nodeId)) !== null;
+    if (nodeType === "community") return (await this.getCommunity(organizationId, viewerUserId, nodeId)) !== null;
+    if (nodeType === "signal") return (await this.#getAccessibleSignal(organizationId, viewerUserId, nodeId)) !== null;
     if (nodeType === "event") {
-      const event = await this.getEvent(workspaceId, nodeId);
-      if (!event || event.entityType !== "signal") return false;
-      return (await this.#getAccessibleSignal(workspaceId, viewerUserId, event.entityId)) !== null;
+      const event = await this.getEvent(organizationId, nodeId);
+      if (!event) return false;
+      if (event.entityType === "interaction") {
+        const payload = payloadRecord(event.payload);
+        return (
+          payloadString(payload, "ownerUserId") === viewerUserId ||
+          payloadString(payload, "visibility") === "organization"
+        );
+      }
+      return (await this.#getAccessibleSignal(organizationId, viewerUserId, event.id)) !== null;
     }
     return false;
   }
@@ -506,18 +856,18 @@ export class DrizzleGraphStore {
   #accessibleNodeCondition(
     nodeType: typeof edges.srcType | typeof edges.dstType,
     nodeId: typeof edges.srcId | typeof edges.dstId,
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
   ) {
     return sql<boolean>`(
       (${nodeType} = 'person' AND EXISTS (
         SELECT 1
         FROM "people" AS "relation_person"
-        WHERE "relation_person"."workspace_id" = ${workspaceId}
+        WHERE "relation_person"."organization_id" = ${organizationId}
           AND "relation_person"."id" = ${nodeId}
           AND "relation_person"."archived_at" IS NULL
           AND (
-            "relation_person"."visibility" = 'workspace'
+            "relation_person"."visibility" = 'organization'
             OR (
               "relation_person"."visibility" IN ('private', 'team')
               AND "relation_person"."user_id" = ${viewerUserId}
@@ -527,11 +877,11 @@ export class DrizzleGraphStore {
       OR (${nodeType} = 'community' AND EXISTS (
         SELECT 1
         FROM "communities" AS "relation_community"
-        WHERE "relation_community"."workspace_id" = ${workspaceId}
+        WHERE "relation_community"."organization_id" = ${organizationId}
           AND "relation_community"."id" = ${nodeId}
           AND "relation_community"."archived_at" IS NULL
           AND (
-            "relation_community"."visibility" = 'workspace'
+            "relation_community"."visibility" = 'organization'
             OR (
               "relation_community"."visibility" IN ('private', 'team')
               AND "relation_community"."user_id" = ${viewerUserId}
@@ -541,17 +891,17 @@ export class DrizzleGraphStore {
       OR (${nodeType} = 'signal' AND EXISTS (
         SELECT 1
         FROM "signals" AS "relation_signal"
-        WHERE "relation_signal"."workspace_id" = ${workspaceId}
+        WHERE "relation_signal"."organization_id" = ${organizationId}
           AND "relation_signal"."id" = ${nodeId}
           AND (
             ("relation_signal"."subject_type" = 'person' AND EXISTS (
               SELECT 1
               FROM "people" AS "relation_signal_person"
-              WHERE "relation_signal_person"."workspace_id" = ${workspaceId}
+              WHERE "relation_signal_person"."organization_id" = ${organizationId}
                 AND "relation_signal_person"."id" = "relation_signal"."subject_id"
                 AND "relation_signal_person"."archived_at" IS NULL
                 AND (
-                  "relation_signal_person"."visibility" = 'workspace'
+                  "relation_signal_person"."visibility" = 'organization'
                   OR (
                     "relation_signal_person"."visibility" IN ('private', 'team')
                     AND "relation_signal_person"."user_id" = ${viewerUserId}
@@ -561,11 +911,11 @@ export class DrizzleGraphStore {
             OR ("relation_signal"."subject_type" = 'community' AND EXISTS (
               SELECT 1
               FROM "communities" AS "relation_signal_community"
-              WHERE "relation_signal_community"."workspace_id" = ${workspaceId}
+              WHERE "relation_signal_community"."organization_id" = ${organizationId}
                 AND "relation_signal_community"."id" = "relation_signal"."subject_id"
                 AND "relation_signal_community"."archived_at" IS NULL
                 AND (
-                  "relation_signal_community"."visibility" = 'workspace'
+                  "relation_signal_community"."visibility" = 'organization'
                   OR (
                     "relation_signal_community"."visibility" IN ('private', 'team')
                     AND "relation_signal_community"."user_id" = ${viewerUserId}
@@ -577,56 +927,67 @@ export class DrizzleGraphStore {
       OR (${nodeType} = 'event' AND EXISTS (
         SELECT 1
         FROM "events" AS "relation_event"
-        JOIN "signals" AS "relation_event_signal"
-          ON "relation_event_signal"."workspace_id" = "relation_event"."workspace_id"
-         AND "relation_event_signal"."id" = "relation_event"."entity_id"
-        WHERE "relation_event"."workspace_id" = ${workspaceId}
+        LEFT JOIN "signals" AS "relation_event_signal"
+          ON "relation_event_signal"."organization_id" = "relation_event"."organization_id"
+         AND "relation_event_signal"."id" = "relation_event"."id"
+        WHERE "relation_event"."organization_id" = ${organizationId}
           AND "relation_event"."id" = ${nodeId}
-          AND "relation_event"."entity_type" = 'signal'
           AND (
-            ("relation_event_signal"."subject_type" = 'person' AND EXISTS (
-              SELECT 1
-              FROM "people" AS "relation_event_person"
-              WHERE "relation_event_person"."workspace_id" = ${workspaceId}
-                AND "relation_event_person"."id" = "relation_event_signal"."subject_id"
-                AND "relation_event_person"."archived_at" IS NULL
-                AND (
-                  "relation_event_person"."visibility" = 'workspace'
-                  OR (
-                    "relation_event_person"."visibility" IN ('private', 'team')
-                    AND "relation_event_person"."user_id" = ${viewerUserId}
-                  )
-                )
-            ))
-            OR ("relation_event_signal"."subject_type" = 'community' AND EXISTS (
-              SELECT 1
-              FROM "communities" AS "relation_event_community"
-              WHERE "relation_event_community"."workspace_id" = ${workspaceId}
-                AND "relation_event_community"."id" = "relation_event_signal"."subject_id"
-                AND "relation_event_community"."archived_at" IS NULL
-                AND (
-                  "relation_event_community"."visibility" = 'workspace'
-                  OR (
-                    "relation_event_community"."visibility" IN ('private', 'team')
-                    AND "relation_event_community"."user_id" = ${viewerUserId}
-                  )
-                )
-            ))
+            (
+              "relation_event"."entity_type" = 'interaction'
+              AND (
+                "relation_event"."payload" ->> 'ownerUserId' = ${viewerUserId}
+                OR "relation_event"."payload" ->> 'visibility' = 'organization'
+              )
+            )
+            OR (
+              "relation_event_signal"."id" IS NOT NULL
+              AND (
+                ("relation_event_signal"."subject_type" = 'person' AND EXISTS (
+                  SELECT 1
+                  FROM "people" AS "relation_event_person"
+                  WHERE "relation_event_person"."organization_id" = ${organizationId}
+                    AND "relation_event_person"."id" = "relation_event_signal"."subject_id"
+                    AND "relation_event_person"."archived_at" IS NULL
+                    AND (
+                      "relation_event_person"."visibility" = 'organization'
+                      OR (
+                        "relation_event_person"."visibility" IN ('private', 'team')
+                        AND "relation_event_person"."user_id" = ${viewerUserId}
+                      )
+                    )
+                ))
+                OR ("relation_event_signal"."subject_type" = 'community' AND EXISTS (
+                  SELECT 1
+                  FROM "communities" AS "relation_event_community"
+                  WHERE "relation_event_community"."organization_id" = ${organizationId}
+                    AND "relation_event_community"."id" = "relation_event_signal"."subject_id"
+                    AND "relation_event_community"."archived_at" IS NULL
+                    AND (
+                      "relation_event_community"."visibility" = 'organization'
+                      OR (
+                        "relation_event_community"."visibility" IN ('private', 'team')
+                        AND "relation_event_community"."user_id" = ${viewerUserId}
+                      )
+                    )
+                ))
+              )
+            )
           )
       ))
     )`;
   }
 
-  #readableSignalSubjectCondition(workspaceId: string, viewerUserId: string) {
+  #readableSignalSubjectCondition(organizationId: string, viewerUserId: string) {
     return sql<boolean>`(
       (${signals.subjectType} = 'person' AND EXISTS (
         SELECT 1
         FROM "people" AS "signal_list_person"
-        WHERE "signal_list_person"."workspace_id" = ${workspaceId}
+        WHERE "signal_list_person"."organization_id" = ${organizationId}
           AND "signal_list_person"."id" = ${signals.subjectId}
           AND "signal_list_person"."archived_at" IS NULL
           AND (
-            "signal_list_person"."visibility" = 'workspace'
+            "signal_list_person"."visibility" = 'organization'
             OR (
               "signal_list_person"."visibility" IN ('private', 'team')
               AND "signal_list_person"."user_id" = ${viewerUserId}
@@ -636,11 +997,11 @@ export class DrizzleGraphStore {
       OR (${signals.subjectType} = 'community' AND EXISTS (
         SELECT 1
         FROM "communities" AS "signal_list_community"
-        WHERE "signal_list_community"."workspace_id" = ${workspaceId}
+        WHERE "signal_list_community"."organization_id" = ${organizationId}
           AND "signal_list_community"."id" = ${signals.subjectId}
           AND "signal_list_community"."archived_at" IS NULL
           AND (
-            "signal_list_community"."visibility" = 'workspace'
+            "signal_list_community"."visibility" = 'organization'
             OR (
               "signal_list_community"."visibility" IN ('private', 'team')
               AND "signal_list_community"."user_id" = ${viewerUserId}
@@ -650,124 +1011,37 @@ export class DrizzleGraphStore {
     )`;
   }
 
-  #signalHasReadableDetailCondition(workspaceId: string, viewerUserId: string) {
+  #signalHasReadableDetailCondition(organizationId: string, viewerUserId: string) {
     return sql<boolean>`EXISTS (
       SELECT 1
       FROM "events" AS "signal_list_event"
-      WHERE "signal_list_event"."workspace_id" = ${workspaceId}
-        AND "signal_list_event"."entity_type" = 'signal'
-        AND "signal_list_event"."entity_id" = ${signals.id}
-        AND "signal_list_event"."id" = COALESCE(
-          (
-            SELECT CASE
-              WHEN "signal_list_source_relation"."src_type" = 'event'
-                THEN "signal_list_source_relation"."src_id"
-              ELSE "signal_list_source_relation"."dst_id"
-            END
-            FROM "edges" AS "signal_list_source_relation"
-            WHERE "signal_list_source_relation"."workspace_id" = ${workspaceId}
-              AND "signal_list_source_relation"."edge_type" = 'source_event'
-              AND "signal_list_source_relation"."decision_sequence" IS NOT NULL
-              AND (
-                "signal_list_source_relation"."owner_user_id" = ${viewerUserId}
-                OR "signal_list_source_relation"."visibility" IN ('workspace', 'public')
-              )
-              AND (
-                (
-                  "signal_list_source_relation"."src_type" = 'signal'
-                  AND "signal_list_source_relation"."src_id" = ${signals.id}
-                  AND "signal_list_source_relation"."dst_type" = 'event'
-                  AND EXISTS (
-                    SELECT 1
-                    FROM "events" AS "signal_list_approved_event"
-                    WHERE "signal_list_approved_event"."workspace_id" = ${workspaceId}
-                      AND "signal_list_approved_event"."id" = "signal_list_source_relation"."dst_id"
-                      AND "signal_list_approved_event"."entity_type" = 'signal'
-                      AND "signal_list_approved_event"."entity_id" = ${signals.id}
-                  )
-                )
-                OR (
-                  "signal_list_source_relation"."dst_type" = 'signal'
-                  AND "signal_list_source_relation"."dst_id" = ${signals.id}
-                  AND "signal_list_source_relation"."src_type" = 'event'
-                  AND EXISTS (
-                    SELECT 1
-                    FROM "events" AS "signal_list_approved_event"
-                    WHERE "signal_list_approved_event"."workspace_id" = ${workspaceId}
-                      AND "signal_list_approved_event"."id" = "signal_list_source_relation"."src_id"
-                      AND "signal_list_approved_event"."entity_type" = 'signal'
-                      AND "signal_list_approved_event"."entity_id" = ${signals.id}
-                  )
-                )
-              )
-            ORDER BY
-              CASE
-                WHEN "signal_list_source_relation"."owner_user_id" = ${viewerUserId}
-                  THEN 0
-                ELSE 1
-              END,
-              "signal_list_source_relation"."decision_sequence" DESC,
-              "signal_list_source_relation"."decision_at" DESC,
-              "signal_list_source_relation"."observed_at" DESC,
-              "signal_list_source_relation"."created_at" DESC
-            LIMIT 1
-          ),
-          (
-            SELECT "signal_list_payload_event"."id"
-            FROM "events" AS "signal_list_payload_event"
-            WHERE "signal_list_payload_event"."workspace_id" = ${workspaceId}
-              AND "signal_list_payload_event"."entity_type" = 'signal'
-              AND "signal_list_payload_event"."entity_id" = ${signals.id}
-              AND lower("signal_list_payload_event"."id"::text) = lower(
-                COALESCE(
-                  ${signals.payload}->>'sourceEventId',
-                  ${signals.payload}->>'eventId'
-                )
-              )
-            LIMIT 1
-          ),
-          (
-            SELECT "signal_list_latest_event"."id"
-            FROM "events" AS "signal_list_latest_event"
-            WHERE "signal_list_latest_event"."workspace_id" = ${workspaceId}
-              AND "signal_list_latest_event"."entity_type" = 'signal'
-              AND "signal_list_latest_event"."entity_id" = ${signals.id}
-            ORDER BY "signal_list_latest_event"."created_at" DESC
-            LIMIT 1
-          )
-        )
+      WHERE "signal_list_event"."organization_id" = ${organizationId}
+        AND "signal_list_event"."id" = ${signals.id}
+        AND "signal_list_event"."payload" ? 'relationshipSignal'
         AND EXISTS (
           SELECT 1
           FROM "edges" AS "signal_list_participant"
-          WHERE "signal_list_participant"."workspace_id" = ${workspaceId}
+          WHERE "signal_list_participant"."organization_id" = ${organizationId}
             AND "signal_list_participant"."edge_type" = 'participant'
             AND (
               "signal_list_participant"."owner_user_id" = ${viewerUserId}
-              OR "signal_list_participant"."visibility" IN ('workspace', 'public')
+              OR "signal_list_participant"."visibility" IN ('organization', 'public')
             )
             AND (
               (
-                (
-                  (
-                    "signal_list_participant"."src_type" = 'signal'
-                    AND "signal_list_participant"."src_id" = ${signals.id}
-                  )
-                  OR (
-                    "signal_list_participant"."src_type" = 'event'
-                    AND "signal_list_participant"."src_id" = "signal_list_event"."id"
-                  )
-                )
+                "signal_list_participant"."src_type" = 'event'
+                AND "signal_list_participant"."src_id" = "signal_list_event"."id"
                 AND (
                   (
                     "signal_list_participant"."dst_type" = 'person'
                     AND EXISTS (
                       SELECT 1
                       FROM "people" AS "signal_list_participant_person"
-                      WHERE "signal_list_participant_person"."workspace_id" = ${workspaceId}
+                      WHERE "signal_list_participant_person"."organization_id" = ${organizationId}
                         AND "signal_list_participant_person"."id" = "signal_list_participant"."dst_id"
                         AND "signal_list_participant_person"."archived_at" IS NULL
                         AND (
-                          "signal_list_participant_person"."visibility" = 'workspace'
+                          "signal_list_participant_person"."visibility" = 'organization'
                           OR (
                             "signal_list_participant_person"."visibility" IN ('private', 'team')
                             AND "signal_list_participant_person"."user_id" = ${viewerUserId}
@@ -780,11 +1054,11 @@ export class DrizzleGraphStore {
                     AND EXISTS (
                       SELECT 1
                       FROM "communities" AS "signal_list_participant_community"
-                      WHERE "signal_list_participant_community"."workspace_id" = ${workspaceId}
+                      WHERE "signal_list_participant_community"."organization_id" = ${organizationId}
                         AND "signal_list_participant_community"."id" = "signal_list_participant"."dst_id"
                         AND "signal_list_participant_community"."archived_at" IS NULL
                         AND (
-                          "signal_list_participant_community"."visibility" = 'workspace'
+                          "signal_list_participant_community"."visibility" = 'organization'
                           OR (
                             "signal_list_participant_community"."visibility" IN ('private', 'team')
                             AND "signal_list_participant_community"."user_id" = ${viewerUserId}
@@ -796,14 +1070,8 @@ export class DrizzleGraphStore {
               )
               OR (
                 (
-                  (
-                    "signal_list_participant"."dst_type" = 'signal'
-                    AND "signal_list_participant"."dst_id" = ${signals.id}
-                  )
-                  OR (
-                    "signal_list_participant"."dst_type" = 'event'
-                    AND "signal_list_participant"."dst_id" = "signal_list_event"."id"
-                  )
+                  "signal_list_participant"."dst_type" = 'event'
+                  AND "signal_list_participant"."dst_id" = "signal_list_event"."id"
                 )
                 AND (
                   (
@@ -811,11 +1079,11 @@ export class DrizzleGraphStore {
                     AND EXISTS (
                       SELECT 1
                       FROM "people" AS "signal_list_participant_person"
-                      WHERE "signal_list_participant_person"."workspace_id" = ${workspaceId}
+                      WHERE "signal_list_participant_person"."organization_id" = ${organizationId}
                         AND "signal_list_participant_person"."id" = "signal_list_participant"."src_id"
                         AND "signal_list_participant_person"."archived_at" IS NULL
                         AND (
-                          "signal_list_participant_person"."visibility" = 'workspace'
+                          "signal_list_participant_person"."visibility" = 'organization'
                           OR (
                             "signal_list_participant_person"."visibility" IN ('private', 'team')
                             AND "signal_list_participant_person"."user_id" = ${viewerUserId}
@@ -828,11 +1096,11 @@ export class DrizzleGraphStore {
                     AND EXISTS (
                       SELECT 1
                       FROM "communities" AS "signal_list_participant_community"
-                      WHERE "signal_list_participant_community"."workspace_id" = ${workspaceId}
+                      WHERE "signal_list_participant_community"."organization_id" = ${organizationId}
                         AND "signal_list_participant_community"."id" = "signal_list_participant"."src_id"
                         AND "signal_list_participant_community"."archived_at" IS NULL
                         AND (
-                          "signal_list_participant_community"."visibility" = 'workspace'
+                          "signal_list_participant_community"."visibility" = 'organization'
                           OR (
                             "signal_list_participant_community"."visibility" IN ('private', 'team')
                             AND "signal_list_participant_community"."user_id" = ${viewerUserId}
@@ -848,7 +1116,7 @@ export class DrizzleGraphStore {
   }
 
   async #loadAccessibleNodes(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     references: Array<{ nodeType: string; nodeId: string }>,
     seed: { signalIds?: string[]; eventIds?: string[] } = {},
@@ -889,10 +1157,19 @@ export class DrizzleGraphStore {
         : this.#db
             .select({
               id: people.id,
-              workspaceId: people.workspaceId,
+              organizationId: people.organizationId,
+              ownerUserId: people.userId,
+              isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
               visibility: people.visibility,
               displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
-              currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
+              currentTitle: sql<string | null>`CASE
+                WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+                ELSE nullif(${people.currentTitleOverride}, '')
+              END`,
+              location: sql<string | null>`CASE
+                WHEN ${people.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${peopleCanonical.locationCity}, ${peopleCanonical.locationCountry}), '')
+                ELSE nullif(${people.locationOverride}, '')
+              END`,
               currentCommunityId: people.currentCommunityId,
               source: people.source,
               lastInteractionAt: people.lastInteractionAt,
@@ -906,10 +1183,10 @@ export class DrizzleGraphStore {
             )
             .where(
               and(
-                eq(people.workspaceId, workspaceId),
+                eq(people.organizationId, organizationId),
                 inArray(people.id, [...grouped.person]),
                 or(
-                  eq(people.visibility, "workspace"),
+                  eq(people.visibility, "organization"),
                   and(
                     inArray(people.visibility, ["private", "team"]),
                     eq(people.userId, viewerUserId),
@@ -923,13 +1200,22 @@ export class DrizzleGraphStore {
         : this.#db
             .select({
               id: communities.id,
-              workspaceId: communities.workspaceId,
+              organizationId: communities.organizationId,
+              ownerUserId: communities.userId,
+              isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
               visibility: communities.visibility,
               displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
-              description: sql<string | null>`coalesce(${communities.descriptionOverride}, ${communitiesCanonical.description})`,
-              kind: sql<string | null>`coalesce(${communities.kind}, ${communitiesCanonical.kind})`,
+              description: sql<string | null>`CASE
+                WHEN ${communities.descriptionOverride} IS NULL THEN ${communitiesCanonical.description}
+                ELSE nullif(${communities.descriptionOverride}, '')
+              END`,
+              kind: sql<string | null>`CASE
+                WHEN ${communities.kind} IS NULL THEN ${communitiesCanonical.kind}
+                ELSE nullif(${communities.kind}, '')
+              END`,
               source: communities.source,
               isUserConfirmed: communities.isUserConfirmed,
+              memberCount: sql<number>`0`,
             })
             .from(communities)
             .leftJoin(
@@ -938,10 +1224,10 @@ export class DrizzleGraphStore {
             )
             .where(
               and(
-                eq(communities.workspaceId, workspaceId),
+                eq(communities.organizationId, organizationId),
                 inArray(communities.id, [...grouped.community]),
                 or(
-                  eq(communities.visibility, "workspace"),
+                  eq(communities.visibility, "organization"),
                   and(
                     inArray(communities.visibility, ["private", "team"]),
                     eq(communities.userId, viewerUserId),
@@ -957,10 +1243,10 @@ export class DrizzleGraphStore {
             .from(signals)
             .where(
               and(
-                eq(signals.workspaceId, workspaceId),
+                eq(signals.organizationId, organizationId),
                 inArray(signals.id, [...grouped.signal]),
                 this.#readableSignalSubjectCondition(
-                  workspaceId,
+                  organizationId,
                   viewerUserId,
                 ),
               ),
@@ -970,21 +1256,32 @@ export class DrizzleGraphStore {
         : this.#db
             .select({ id: events.id })
             .from(events)
-            .innerJoin(
+            .leftJoin(
               signals,
               and(
-                eq(signals.workspaceId, events.workspaceId),
-                eq(signals.id, events.entityId),
+                eq(signals.organizationId, events.organizationId),
+                eq(signals.id, events.id),
               ),
             )
             .where(
               and(
-                eq(events.workspaceId, workspaceId),
+                eq(events.organizationId, organizationId),
                 inArray(events.id, [...grouped.event]),
-                eq(events.entityType, "signal"),
-                this.#readableSignalSubjectCondition(
-                  workspaceId,
-                  viewerUserId,
+                or(
+                  and(
+                    eq(events.entityType, "interaction"),
+                    sql<boolean>`(
+                      ${events.payload} ->> 'ownerUserId' = ${viewerUserId}
+                      OR ${events.payload} ->> 'visibility' = 'organization'
+                    )`,
+                  ),
+                  and(
+                    isNotNull(signals.id),
+                    this.#readableSignalSubjectCondition(
+                      organizationId,
+                      viewerUserId,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1029,17 +1326,17 @@ export class DrizzleGraphStore {
   }
 
   async areRelationshipRecordsAccessible(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     references: Array<{
       recordType: "person" | "community";
       recordId: string;
     }>,
   ): Promise<boolean> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
         store.areRelationshipRecordsAccessible(
-          workspaceId,
+          organizationId,
           viewerUserId,
           references,
         ),
@@ -1057,7 +1354,7 @@ export class DrizzleGraphStore {
     );
     if (unique.size !== references.length) return false;
     const accessible = await this.#loadAccessibleNodes(
-      workspaceId,
+      organizationId,
       viewerUserId,
       [...unique.values()],
     );
@@ -1069,37 +1366,38 @@ export class DrizzleGraphStore {
   }
 
   async listRelations(
-    workspaceId: string,
+    organizationId: string,
     viewerUserId: string,
     anchor: { nodeType: string; nodeId: string },
     opts: { limit: number; cursor?: RelationCursor | null },
   ): Promise<RelationPage> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listRelations(workspaceId, viewerUserId, anchor, opts),
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listRelations(organizationId, viewerUserId, anchor, opts),
       );
     }
-    if (!(await this.#canReadNode(workspaceId, viewerUserId, anchor.nodeType, anchor.nodeId))) {
+
+    if (!(await this.#canReadNode(organizationId, viewerUserId, anchor.nodeType, anchor.nodeId))) {
       return { items: [], total: 0, nextCursor: null };
     }
     const limit = Math.min(Math.max(opts.limit, 1), MAX_RELATION_PAGE_SIZE);
     const visibleRelation = or(
       eq(edges.ownerUserId, viewerUserId),
-      inArray(edges.visibility, ["workspace", "public"]),
+      inArray(edges.visibility, ["organization", "public"]),
     );
     const baseWhere = and(
-      eq(edges.workspaceId, workspaceId),
+      eq(edges.organizationId, organizationId),
       visibleRelation,
       or(
         and(
           eq(edges.srcType, anchor.nodeType),
           eq(edges.srcId, anchor.nodeId),
-          this.#accessibleNodeCondition(edges.dstType, edges.dstId, workspaceId, viewerUserId),
+          this.#accessibleNodeCondition(edges.dstType, edges.dstId, organizationId, viewerUserId),
         ),
         and(
           eq(edges.dstType, anchor.nodeType),
           eq(edges.dstId, anchor.nodeId),
-          this.#accessibleNodeCondition(edges.srcType, edges.srcId, workspaceId, viewerUserId),
+          this.#accessibleNodeCondition(edges.srcType, edges.srcId, organizationId, viewerUserId),
         ),
       ),
     );
@@ -1139,7 +1437,7 @@ export class DrizzleGraphStore {
       })),
     );
     const accessible = await this.#loadAccessibleNodes(
-      workspaceId,
+      organizationId,
       viewerUserId,
       evidenceReferences,
       {
@@ -1164,15 +1462,698 @@ export class DrizzleGraphStore {
     };
   }
 
+  async listGraphRelations(
+    organizationId: string,
+    viewerUserId: string,
+    opts: { limit: number; nodeTypes?: string[] },
+  ): Promise<GraphRelationPage> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listGraphRelations(organizationId, viewerUserId, opts),
+      );
+    }
+    const limit = clamp(opts.limit, 1, 500);
+    const nodeTypes = [...new Set((opts.nodeTypes ?? []).map((value) => value.trim()).filter(Boolean))];
+    const where = and(
+      eq(edges.organizationId, organizationId),
+      or(
+        eq(edges.ownerUserId, viewerUserId),
+        inArray(edges.visibility, ["organization", "public"]),
+      ),
+      nodeTypes.length > 0 ? inArray(edges.srcType, nodeTypes) : undefined,
+      nodeTypes.length > 0 ? inArray(edges.dstType, nodeTypes) : undefined,
+      this.#accessibleNodeCondition(edges.srcType, edges.srcId, organizationId, viewerUserId),
+      this.#accessibleNodeCondition(edges.dstType, edges.dstId, organizationId, viewerUserId),
+    );
+    const [rows, totalRows] = await Promise.all([
+      this.#db
+        .select()
+        .from(edges)
+        .where(where)
+        .orderBy(desc(edges.observedAt), desc(edges.createdAt), desc(edges.id))
+        .limit(limit + 1),
+      this.#db.select({ value: count() }).from(edges).where(where),
+    ]);
+    const pageRows = rows.slice(0, limit);
+    const evidenceReferences = pageRows.flatMap((relation) =>
+      relationEvidenceCandidates(relation).map((reference) => ({
+        nodeType: reference.entityType,
+        nodeId: reference.entityId,
+      })),
+    );
+    const accessible = await this.#loadAccessibleNodes(
+      organizationId,
+      viewerUserId,
+      evidenceReferences,
+    );
+    const total = Number(totalRows[0]?.value ?? 0);
+    return {
+      items: pageRows.map((relation) => this.#pruneRelationEvidence(relation, accessible)),
+      total,
+      hasMore: rows.length > limit || total > limit,
+    };
+  }
+
+  async listFullGraph(
+    organizationId: string,
+    viewerUserId: string,
+    opts: { limit: number },
+  ): Promise<FullGraphPage> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listFullGraph(organizationId, viewerUserId, opts),
+      );
+    }
+    const limit = clamp(opts.limit, 1, 200);
+    const sourceLimit = Math.max(10, Math.ceil(limit / 8));
+    const [
+      relationPage,
+      recordPersonRows,
+      recordCommunityRows,
+      fileReferenceRows,
+      applicationRows,
+      taskRows,
+      entityEventRows,
+    ] = await Promise.all([
+      this.listGraphRelations(organizationId, viewerUserId, { limit: sourceLimit }),
+      this.#db
+        .select({
+          recordId: recordParticipants.recordId,
+          personId: recordParticipants.personId,
+          createdAt: records.createdAt,
+        })
+        .from(recordParticipants)
+        .innerJoin(records, eq(records.id, recordParticipants.recordId))
+        .where(and(eq(records.organizationId, organizationId), isNull(records.archivedAt)))
+        .orderBy(desc(records.createdAt))
+        .limit(sourceLimit + 1),
+      this.#db
+        .select({
+          recordId: recordCommunities.recordId,
+          communityId: recordCommunities.communityId,
+          createdAt: records.createdAt,
+        })
+        .from(recordCommunities)
+        .innerJoin(records, eq(records.id, recordCommunities.recordId))
+        .where(and(eq(records.organizationId, organizationId), isNull(records.archivedAt)))
+        .orderBy(desc(records.createdAt))
+        .limit(sourceLimit + 1),
+      this.#db
+        .select({
+          fileId: fileRefs.fileId,
+          entityType: fileRefs.entityType,
+          entityId: fileRefs.entityId,
+          createdAt: files.createdAt,
+        })
+        .from(fileRefs)
+        .innerJoin(files, eq(files.id, fileRefs.fileId))
+        .where(and(eq(files.organizationId, organizationId), isNull(files.archivedAt)))
+        .orderBy(desc(files.createdAt))
+        .limit(sourceLimit + 1),
+      this.#db
+        .select({
+          id: jobpilotApplications.id,
+          jobId: jobpilotApplications.jobId,
+          updatedAt: jobpilotApplications.updatedAt,
+        })
+        .from(jobpilotApplications)
+        .where(eq(jobpilotApplications.organizationId, organizationId))
+        .orderBy(desc(jobpilotApplications.updatedAt))
+        .limit(sourceLimit + 1),
+      this.#db
+        .select({
+          id: tasks.id,
+          anchorTaskId: tasks.anchorTaskId,
+          createdAt: tasks.createdAt,
+        })
+        .from(tasks)
+        .where(eq(tasks.organizationId, organizationId))
+        .orderBy(desc(tasks.createdAt))
+        .limit(sourceLimit + 1),
+      this.#db
+        .select({
+          id: events.id,
+          type: events.type,
+          entityType: events.entityType,
+          entityId: events.entityId,
+          createdAt: events.createdAt,
+        })
+        .from(events)
+        .where(eq(events.organizationId, organizationId))
+        .orderBy(desc(events.createdAt))
+        .limit(sourceLimit + 1),
+    ]);
+
+    const candidates: FullGraphEdgeCandidate[] = relationPage.items.map((relation) => ({
+      id: `relation:${relation.id}`,
+      sourceId: fullGraphNodeId(relation.srcType, relation.srcId),
+      targetId: fullGraphNodeId(relation.dstType, relation.dstId),
+      label: relation.edgeType,
+      relationType: relation.edgeType,
+      sourceModule: relation.sourceModule,
+      evidence: `${relation.evidenceRefs.length} permitted evidence ${relation.evidenceRefs.length === 1 ? "reference" : "references"} · source ${relation.sourceModule}`,
+      sortAt: relation.observedAt,
+    }));
+    for (const row of recordPersonRows.slice(0, sourceLimit)) {
+      candidates.push({
+        id: `record-person:${row.recordId}:${row.personId}`,
+        sourceId: fullGraphNodeId("record", row.recordId),
+        targetId: fullGraphNodeId("person", row.personId),
+        label: "participant",
+        relationType: "participant",
+        sourceModule: "record",
+        evidence: "Record participant · source record",
+        sortAt: row.createdAt,
+      });
+    }
+    for (const row of recordCommunityRows.slice(0, sourceLimit)) {
+      candidates.push({
+        id: `record-community:${row.recordId}:${row.communityId}`,
+        sourceId: fullGraphNodeId("record", row.recordId),
+        targetId: fullGraphNodeId("community", row.communityId),
+        label: "community",
+        relationType: "community",
+        sourceModule: "record",
+        evidence: "Record Community · source record",
+        sortAt: row.createdAt,
+      });
+    }
+    for (const row of fileReferenceRows.slice(0, sourceLimit)) {
+      const targetType = normalizeFullGraphNodeType(row.entityType);
+      if (!targetType) continue;
+      candidates.push({
+        id: `file-reference:${row.fileId}:${targetType}:${row.entityId}`,
+        sourceId: fullGraphNodeId("file", row.fileId),
+        targetId: fullGraphNodeId(targetType, row.entityId),
+        label: "attached to",
+        relationType: "file_reference",
+        sourceModule: "files",
+        evidence: `File reference · source ${row.entityType}`,
+        sortAt: row.createdAt,
+      });
+    }
+    for (const row of applicationRows.slice(0, sourceLimit)) {
+      candidates.push({
+        id: `application-job:${row.id}:${row.jobId}`,
+        sourceId: fullGraphNodeId("application", row.id),
+        targetId: fullGraphNodeId("job", row.jobId),
+        label: "tracks",
+        relationType: "tracks",
+        sourceModule: "job-pilot",
+        evidence: "Application Job reference · source job-pilot",
+        sortAt: row.updatedAt,
+      });
+    }
+    for (const row of taskRows.slice(0, sourceLimit)) {
+      if (!row.anchorTaskId || row.anchorTaskId === row.id) continue;
+      candidates.push({
+        id: `task-anchor:${row.id}:${row.anchorTaskId}`,
+        sourceId: fullGraphNodeId("task", row.id),
+        targetId: fullGraphNodeId("task", row.anchorTaskId),
+        label: "advances",
+        relationType: "advances",
+        sourceModule: "task-manager",
+        evidence: "Task anchor reference · source task-manager",
+        sortAt: row.createdAt,
+      });
+    }
+    for (const row of entityEventRows.slice(0, sourceLimit)) {
+      const targetType = normalizeFullGraphNodeType(row.entityType);
+      if (!targetType || (targetType === "event" && row.entityId === row.id)) continue;
+      const targetDatabase = fullGraphDatabase(targetType);
+      candidates.push({
+        id: `event-entity:${row.id}:${targetType}:${row.entityId}`,
+        sourceId: fullGraphNodeId("event", row.id),
+        targetId: fullGraphNodeId(targetType, row.entityId),
+        label: row.type,
+        relationType: "recorded_for",
+        sourceModule: targetDatabase.moduleId,
+        evidence: `Event ${row.type} · source ${targetDatabase.moduleId}`,
+        sortAt: row.createdAt,
+      });
+    }
+
+    candidates.sort((left, right) => right.sortAt.getTime() - left.sortAt.getTime());
+    const nodeSourceLimit = Math.max(5, Math.ceil(limit / 16));
+    const [
+      basePeople,
+      baseCommunities,
+      baseSignals,
+      baseRecords,
+      baseFiles,
+      baseJobs,
+      baseApplications,
+      baseGoals,
+      baseTasks,
+      baseResources,
+    ] = await Promise.all([
+      this.listPeople(organizationId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
+      this.listCommunities(organizationId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
+      this.listSignals(organizationId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
+      this.#db.select({ id: records.id }).from(records).where(and(
+        eq(records.organizationId, organizationId),
+        isNull(records.archivedAt),
+      )).orderBy(desc(records.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: files.id }).from(files).where(and(
+        eq(files.organizationId, organizationId),
+        isNull(files.archivedAt),
+      )).orderBy(desc(files.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: jobpilotJobs.id }).from(jobpilotJobs).where(and(
+        eq(jobpilotJobs.organizationId, organizationId),
+        isNull(jobpilotJobs.archivedAt),
+      )).orderBy(desc(jobpilotJobs.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: jobpilotApplications.id }).from(jobpilotApplications).where(
+        eq(jobpilotApplications.organizationId, organizationId),
+      ).orderBy(desc(jobpilotApplications.updatedAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: tasks.id }).from(tasks).where(and(
+        eq(tasks.organizationId, organizationId),
+        eq(tasks.isGoal, true),
+      )).orderBy(desc(tasks.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: tasks.id }).from(tasks).where(
+        eq(tasks.organizationId, organizationId),
+      ).orderBy(desc(tasks.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: resources.id }).from(resources).where(and(
+        eq(resources.organizationId, organizationId),
+        isNull(resources.archivedAt),
+      )).orderBy(desc(resources.createdAt)).limit(nodeSourceLimit + 1),
+    ]);
+    const baseReferences = [
+      ...basePeople.items.map((row) => ({ nodeType: "person", nodeId: row.id })),
+      ...baseCommunities.items.map((row) => ({ nodeType: "community", nodeId: row.id })),
+      ...baseSignals.items.map((row) => ({ nodeType: "signal", nodeId: row.id })),
+      ...baseRecords.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "record", nodeId: row.id })),
+      ...baseFiles.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "file", nodeId: row.id })),
+      ...baseJobs.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "job", nodeId: row.id })),
+      ...baseApplications.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "application", nodeId: row.id })),
+      ...baseGoals.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "task", nodeId: row.id })),
+      ...baseTasks.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "task", nodeId: row.id })),
+      ...baseResources.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "resource", nodeId: row.id })),
+    ];
+    const references = [...candidates.flatMap((edge) => [edge.sourceId, edge.targetId]).map((id) => {
+      const separator = id.indexOf(":");
+      return { nodeType: id.slice(0, separator), nodeId: id.slice(separator + 1) };
+    }), ...baseReferences];
+    const baseNodeIds = new Set(baseReferences.map((reference) =>
+      fullGraphNodeId(reference.nodeType, reference.nodeId)));
+    const idsByType = new Map<string, Set<string>>();
+    for (const reference of references) {
+      idsByType.set(reference.nodeType, new Set([
+        ...(idsByType.get(reference.nodeType) ?? []),
+        reference.nodeId,
+      ]));
+    }
+    const ids = (nodeType: string) => [...(idsByType.get(nodeType) ?? [])];
+    const accessible = await this.#loadAccessibleNodes(
+      organizationId,
+      viewerUserId,
+      references.filter((reference) =>
+        reference.nodeType === "person" ||
+        reference.nodeType === "community" ||
+        reference.nodeType === "signal" ||
+        reference.nodeType === "event"),
+    );
+    const [
+      signalRows,
+      eventRows,
+      recordRows,
+      fileRows,
+      jobRows,
+      resolvedApplications,
+      goalRows,
+      resolvedTasks,
+      resourceRows,
+    ] = await Promise.all([
+      accessible.signalIds.size === 0
+        ? Promise.resolve<Array<typeof signals.$inferSelect>>([])
+        : this.#db.select().from(signals).where(and(
+            eq(signals.organizationId, organizationId),
+            inArray(signals.id, [...accessible.signalIds]),
+          )),
+      ids("event").length === 0
+        ? Promise.resolve<Array<typeof events.$inferSelect>>([])
+        : this.#db.select().from(events).where(and(
+            eq(events.organizationId, organizationId),
+            inArray(events.id, ids("event")),
+          )),
+      ids("record").length === 0
+        ? Promise.resolve<Array<typeof records.$inferSelect>>([])
+        : this.#db.select().from(records).where(and(
+            eq(records.organizationId, organizationId),
+            inArray(records.id, ids("record")),
+            isNull(records.archivedAt),
+          )),
+      ids("file").length === 0
+        ? Promise.resolve<Array<typeof files.$inferSelect>>([])
+        : this.#db.select().from(files).where(and(
+            eq(files.organizationId, organizationId),
+            inArray(files.id, ids("file")),
+            isNull(files.archivedAt),
+          )),
+      ids("job").length === 0
+        ? Promise.resolve<Array<typeof jobpilotJobs.$inferSelect>>([])
+        : this.#db.select().from(jobpilotJobs).where(and(
+            eq(jobpilotJobs.organizationId, organizationId),
+            inArray(jobpilotJobs.id, ids("job")),
+            isNull(jobpilotJobs.archivedAt),
+          )),
+      ids("application").length === 0
+        ? Promise.resolve<Array<typeof jobpilotApplications.$inferSelect>>([])
+        : this.#db.select().from(jobpilotApplications).where(and(
+            eq(jobpilotApplications.organizationId, organizationId),
+            inArray(jobpilotApplications.id, ids("application")),
+          )),
+      ids("goal").length === 0
+        ? Promise.resolve<Array<typeof tasks.$inferSelect>>([])
+        : this.#db.select().from(tasks).where(and(
+            eq(tasks.organizationId, organizationId),
+            eq(tasks.isGoal, true),
+            inArray(tasks.id, ids("goal")),
+          )),
+      ids("task").length === 0
+        ? Promise.resolve<Array<typeof tasks.$inferSelect>>([])
+        : this.#db.select().from(tasks).where(and(
+            eq(tasks.organizationId, organizationId),
+            inArray(tasks.id, ids("task")),
+          )),
+      ids("resource").length === 0
+        ? Promise.resolve<Array<typeof resources.$inferSelect>>([])
+        : this.#db.select().from(resources).where(and(
+            eq(resources.organizationId, organizationId),
+            inArray(resources.id, ids("resource")),
+            isNull(resources.archivedAt),
+          )),
+    ]);
+
+    const nodes = new Map<string, FullGraphNodeRecord>();
+    const addNode = (
+      nodeType: string,
+      recordId: string,
+      values: Pick<FullGraphNodeRecord, "label" | "provenance"> & {
+        subtitle?: string | undefined;
+        recordPath?: string | undefined;
+        actionKind?: "signal" | undefined;
+        moduleId?: string | undefined;
+      },
+    ) => {
+      const database = fullGraphDatabase(nodeType);
+      const node: FullGraphNodeRecord = {
+        id: fullGraphNodeId(nodeType, recordId),
+        recordId,
+        recordType: nodeType,
+        label: values.label,
+        databaseId: database.id,
+        databaseLabel: database.label,
+        moduleId: values.moduleId ?? database.moduleId,
+        provenance: values.provenance,
+        ...(values.subtitle ? { subtitle: values.subtitle } : {}),
+        ...(values.recordPath ? { recordPath: values.recordPath } : {}),
+        ...(values.actionKind ? { actionKind: values.actionKind } : {}),
+      };
+      nodes.set(node.id, node);
+    };
+    for (const person of accessible.people.values()) {
+      addNode("person", person.id, {
+        label: person.displayName ?? "Unnamed Person",
+        subtitle: person.currentTitle ?? person.location ?? undefined,
+        recordPath: `/module/relationship/people/${person.id}`,
+        provenance: `Person · source ${person.source ?? "relationship"}`,
+      });
+    }
+    for (const community of accessible.communities.values()) {
+      addNode("community", community.id, {
+        label: community.displayName ?? "Unnamed Community",
+        subtitle: community.kind ?? undefined,
+        recordPath: `/module/relationship/communities/${community.id}`,
+        provenance: `Community · source ${community.source}`,
+      });
+    }
+    for (const signal of signalRows) {
+      addNode("signal", signal.id, {
+        label: `Signal · ${signal.type}`,
+        subtitle: signal.status,
+        recordPath: `/module/relationship/signals/${signal.id}`,
+        actionKind: "signal",
+        provenance: "Signal · source relationship",
+      });
+    }
+    for (const event of eventRows) {
+      const relationshipEvent = event.entityType === "signal" || event.entityType === "interaction";
+      if (relationshipEvent && !accessible.eventIds.has(event.id)) continue;
+      const targetType = normalizeFullGraphNodeType(event.entityType);
+      const targetDatabase = targetType ? fullGraphDatabase(targetType) : fullGraphDatabase("event");
+      addNode("event", event.id, {
+        label: `Event · ${event.type}`,
+        subtitle: event.entityType,
+        moduleId: targetDatabase.moduleId,
+        recordPath: event.entityType === "signal"
+          ? `/module/relationship/signals/${event.entityId}/event`
+          : undefined,
+        provenance: `Event · source ${targetDatabase.moduleId}`,
+      });
+    }
+    for (const record of recordRows) {
+      addNode("record", record.id, {
+        label: record.title,
+        subtitle: record.status ?? undefined,
+        recordPath: `/record/${record.id}`,
+        provenance: "Record · source record",
+      });
+    }
+    for (const file of fileRows) {
+      const storageName = file.storageRef?.split(/[\\/]/).at(-1);
+      addNode("file", file.id, {
+        label: graphMetadataLabel(file.metadata) ?? storageName ?? `File ${file.id.slice(0, 8)}`,
+        subtitle: file.source,
+        moduleId: file.source,
+        provenance: `File · source ${file.source}`,
+      });
+    }
+    for (const job of jobRows) {
+      addNode("job", job.id, {
+        label: job.title,
+        subtitle: `${job.company}${job.location ? ` · ${job.location}` : ""}`,
+        recordPath: "/jobpilot",
+        provenance: `Job · source ${job.source ?? "job-pilot"}`,
+      });
+    }
+    for (const application of resolvedApplications) {
+      addNode("application", application.id, {
+        label: `Application · ${application.stage}`,
+        subtitle: application.flag ?? undefined,
+        recordPath: "/jobpilot",
+        provenance: "Application · source job-pilot",
+      });
+    }
+    for (const goalTask of goalRows) {
+      addNode("task", goalTask.id, {
+        label: goalTask.title,
+        subtitle: "Goal-flagged Task",
+        recordPath: `/task-manager/${goalTask.id}`,
+        provenance: "Task · source task-manager",
+      });
+    }
+    for (const task of resolvedTasks) {
+      addNode("task", task.id, {
+        label: task.title,
+        subtitle: `${task.path} · ${task.status}${task.isGoal ? " · goal-flagged" : ""}`,
+        recordPath: `/task-manager/${task.id}`,
+        provenance: "Task · source task-manager",
+      });
+    }
+    for (const resource of resourceRows) {
+      addNode("resource", resource.id, {
+        label: resource.title,
+        subtitle: resource.kind,
+        recordPath: "/resources",
+        provenance: "Resource · source resources",
+      });
+    }
+    const permittedEdges = candidates.filter(
+      (edge) => nodes.has(edge.sourceId) && nodes.has(edge.targetId),
+    );
+    const selectedEdges = permittedEdges.slice(0, limit).map(({ sortAt: _sortAt, ...edge }) => edge);
+    const connectedNodeIds = new Set(selectedEdges.flatMap((edge) => [edge.sourceId, edge.targetId]));
+    const selectedNodes = [...nodes.values()].filter(
+      (node) => connectedNodeIds.has(node.id) || baseNodeIds.has(node.id),
+    );
+    const databases = [...new Map(selectedNodes.map((node) => [
+      node.databaseId,
+      { id: node.databaseId, label: node.databaseLabel, moduleId: node.moduleId },
+    ])).values()];
+    const sourceTruncated = [
+      recordPersonRows,
+      recordCommunityRows,
+      fileReferenceRows,
+      applicationRows,
+      taskRows,
+      entityEventRows,
+    ].some((rows) => rows.length > sourceLimit);
+    const nodeSourceTruncated =
+      basePeople.total > basePeople.items.length ||
+      baseCommunities.total > baseCommunities.items.length ||
+      baseSignals.total > baseSignals.items.length ||
+      [
+        baseRecords,
+        baseFiles,
+        baseJobs,
+        baseApplications,
+        baseGoals,
+        baseTasks,
+        baseResources,
+      ].some((rows) => rows.length > nodeSourceLimit);
+    return {
+      nodes: selectedNodes,
+      edges: selectedEdges,
+      databases,
+      hasMore:
+        relationPage.hasMore ||
+        sourceTruncated ||
+        nodeSourceTruncated ||
+        permittedEdges.length > limit,
+    };
+  }
+
+  async findRelationshipPaths(
+    organizationId: string,
+    viewerUserId: string,
+    start: RelationshipPathNode,
+    end: RelationshipPathNode,
+    opts: {
+      maxDepth: number;
+      maxPaths: number;
+      maxVisited?: number;
+      maxEdgesPerNode?: number;
+    },
+  ): Promise<RelationshipPathResult> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.findRelationshipPaths(organizationId, viewerUserId, start, end, opts),
+      );
+    }
+    const maxDepth = clamp(opts.maxDepth, 1, 6);
+    const maxPaths = clamp(opts.maxPaths, 1, 5);
+    const maxVisited = clamp(opts.maxVisited ?? 100, 1, 200);
+    const maxEdgesPerNode = clamp(opts.maxEdgesPerNode ?? 50, 1, 100);
+    const [canReadStart, canReadEnd] = await Promise.all([
+      this.#canReadNode(
+        organizationId,
+        viewerUserId,
+        start.nodeType,
+        start.nodeId,
+      ),
+      this.#canReadNode(
+        organizationId,
+        viewerUserId,
+        end.nodeType,
+        end.nodeId,
+      ),
+    ]);
+    if (!canReadStart || !canReadEnd) {
+      return { paths: [], visited: 0, truncated: false };
+    }
+    const key = (node: RelationshipPathNode) =>
+      `${node.nodeType}:${node.nodeId}`;
+    if (key(start) === key(end)) {
+      return {
+        paths: [{ nodes: [start], steps: [], confidence: 1 }],
+        visited: 1,
+        truncated: false,
+      };
+    }
+    const queue: Array<{
+      node: RelationshipPathNode;
+      nodes: RelationshipPathNode[];
+      steps: RelationshipPathStep[];
+      confidence: number;
+      seen: Set<string>;
+    }> = [{
+      node: start,
+      nodes: [start],
+      steps: [],
+      confidence: 1,
+      seen: new Set([key(start)]),
+    }];
+    const shortestDepthByNode = new Map<string, number>([[key(start), 0]]);
+    const paths: RelationshipPath[] = [];
+    let visited = 0;
+    let truncated = false;
+    let shortestFoundDepth: number | null = null;
+    while (queue.length > 0 && paths.length < maxPaths) {
+      const current = queue.shift()!;
+      const depth = current.steps.length;
+      if (depth >= maxDepth || (shortestFoundDepth !== null && depth >= shortestFoundDepth)) {
+        continue;
+      }
+      if (visited >= maxVisited) {
+        truncated = true;
+        break;
+      }
+      visited += 1;
+      const page = await this.listRelations(
+        organizationId,
+        viewerUserId,
+        {
+          nodeType: current.node.nodeType,
+          nodeId: current.node.nodeId,
+        },
+        { limit: maxEdgesPerNode },
+      );
+      if (page.nextCursor !== null || page.total > page.items.length) {
+        truncated = true;
+      }
+      for (const relation of page.items) {
+        const currentIsSource =
+          relation.srcType === current.node.nodeType &&
+          relation.srcId === current.node.nodeId;
+        const next: RelationshipPathNode = currentIsSource
+          ? { nodeType: relation.dstType, nodeId: relation.dstId }
+          : { nodeType: relation.srcType, nodeId: relation.srcId };
+        const nextKey = key(next);
+        if (current.seen.has(nextKey)) continue;
+        const nextDepth = depth + 1;
+        const step: RelationshipPathStep = {
+          from: current.node,
+          to: next,
+          relation,
+        };
+        const nextPath: RelationshipPath = {
+          nodes: [...current.nodes, next],
+          steps: [...current.steps, step],
+          confidence:
+            current.confidence *
+            Math.min(1, Math.max(0, Number(relation.confidence))),
+        };
+        if (nextKey === key(end)) {
+          shortestFoundDepth ??= nextDepth;
+          if (nextDepth === shortestFoundDepth) paths.push(nextPath);
+          if (paths.length >= maxPaths) break;
+          continue;
+        }
+        if (nextDepth >= maxDepth || shortestFoundDepth !== null) continue;
+        const priorDepth = shortestDepthByNode.get(nextKey);
+        if (priorDepth !== undefined && priorDepth < nextDepth) continue;
+        shortestDepthByNode.set(nextKey, nextDepth);
+        queue.push({
+          node: next,
+          nodes: nextPath.nodes,
+          steps: nextPath.steps,
+          confidence: nextPath.confidence,
+          seen: new Set([...current.seen, nextKey]),
+        });
+      }
+    }
+    return { paths, visited, truncated };
+  }
+
   async upsertRelation(input: UpsertRelationInput): Promise<RelationRecord> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.upsertRelation(input),
       );
     }
     const relationInput: UpsertRelationInput = {
       ...input,
-      workspaceId: input.workspaceId.toLowerCase(),
+      organizationId: input.organizationId.toLowerCase(),
       ownerUserId: input.ownerUserId.toLowerCase(),
       srcId: input.srcId.toLowerCase(),
       dstId: input.dstId.toLowerCase(),
@@ -1184,13 +2165,13 @@ export class DrizzleGraphStore {
     assertRelationInput(relationInput);
     const [canReadSource, canReadDestination, srcOwner, dstOwner] = await Promise.all([
       this.#canReadNode(
-        relationInput.workspaceId,
+        relationInput.organizationId,
         relationInput.ownerUserId,
         relationInput.srcType,
         relationInput.srcId,
       ),
       this.#canReadNode(
-        relationInput.workspaceId,
+        relationInput.organizationId,
         relationInput.ownerUserId,
         relationInput.dstType,
         relationInput.dstId,
@@ -1210,7 +2191,7 @@ export class DrizzleGraphStore {
     const rows = await this.#db
       .insert(edges)
       .values({
-        workspaceId: relationInput.workspaceId,
+        organizationId: relationInput.organizationId,
         ownerUserId: relationInput.ownerUserId,
         srcType: relationInput.srcType,
         srcId: relationInput.srcId,
@@ -1227,10 +2208,13 @@ export class DrizzleGraphStore {
         visibility: relationInput.visibility,
         source: relationInput.source.trim(),
         sourceModule: relationInput.sourceModule.trim(),
+        decisionLedgerId: relationInput.decisionLedgerId ?? null,
+        decisionSequence: relationInput.decisionSequence ?? null,
+        decisionAt: relationInput.decisionAt ?? null,
       })
       .onConflictDoUpdate({
         target: [
-          edges.workspaceId,
+          edges.organizationId,
           edges.srcType,
           edges.srcId,
           edges.dstType,
@@ -1258,6 +2242,9 @@ export class DrizzleGraphStore {
           visibility: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."visibility" ELSE ${edges.visibility} END`,
           source: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."source" ELSE ${edges.source} END`,
           sourceModule: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."source_module" ELSE ${edges.sourceModule} END`,
+          decisionLedgerId: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."decision_ledger_id" ELSE ${edges.decisionLedgerId} END`,
+          decisionSequence: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."decision_sequence" ELSE ${edges.decisionSequence} END`,
+          decisionAt: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."decision_at" ELSE ${edges.decisionAt} END`,
         },
       })
       .returning();
@@ -1269,12 +2256,12 @@ export class DrizzleGraphStore {
   async materializeSignalEvidence(
     input: MaterializeSignalEvidenceInput,
   ): Promise<{ sourceEvent: RelationRecord; participants: RelationRecord[] }> {
-    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
-      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
         store.materializeSignalEvidence(input),
       );
     }
-    const workspaceId = input.workspaceId.toLowerCase();
+    const organizationId = input.organizationId.toLowerCase();
     const ownerUserId = input.ownerUserId.toLowerCase();
     const signalId = input.signalId.toLowerCase();
     const sourceEventId = input.sourceEventId.toLowerCase();
@@ -1284,12 +2271,12 @@ export class DrizzleGraphStore {
       recordId: participant.recordId.toLowerCase(),
     }));
     if (
-      !UUID_PATTERN.test(workspaceId) ||
+      !UUID_PATTERN.test(organizationId) ||
       !UUID_PATTERN.test(ownerUserId) ||
       !UUID_PATTERN.test(signalId) ||
       !UUID_PATTERN.test(sourceEventId)
     ) {
-      throw new Error("Signal evidence workspace, owner, Signal, and Event must be UUIDs");
+      throw new Error("Signal evidence organization, owner, Signal, and Event must be UUIDs");
     }
     if (
       !UUID_PATTERN.test(decisionLedgerId) ||
@@ -1310,193 +2297,18 @@ export class DrizzleGraphStore {
     if (new Set(participantKeys).size !== participantKeys.length) {
       throw new Error("Signal evidence participants must be unique by Record");
     }
-
-    await this.#db.execute(
-      sql`SELECT pg_advisory_xact_lock(
-        hashtextextended(${`${workspaceId}:${ownerUserId}:${signalId}`}, 0::bigint)
-      )`,
-    );
-    const watermarkRows = await this.#db
-      .select()
-      .from(edges)
-      .where(
-        and(
-          eq(edges.workspaceId, workspaceId),
-          eq(edges.ownerUserId, ownerUserId),
-          eq(edges.edgeType, "source_event"),
-          isNotNull(edges.decisionSequence),
-          or(
-            and(eq(edges.srcType, "signal"), eq(edges.srcId, signalId)),
-            and(eq(edges.dstType, "signal"), eq(edges.dstId, signalId)),
-          ),
-        ),
-      )
-      .orderBy(
-        desc(edges.decisionSequence),
-        desc(edges.decisionAt),
-        desc(edges.id),
-      )
-      .limit(1);
-    const watermark = watermarkRows[0];
-    const pruneSupersededRelations = async (
-      winningDecisionSequence: number,
-      winningDecisionLedgerId: string,
-    ) => {
-      const sourceRelations = await this.#db
-        .select({
-          srcType: edges.srcType,
-          srcId: edges.srcId,
-          dstType: edges.dstType,
-          dstId: edges.dstId,
-        })
-        .from(edges)
-        .where(
-          and(
-            eq(edges.workspaceId, workspaceId),
-            eq(edges.ownerUserId, ownerUserId),
-            eq(edges.edgeType, "source_event"),
-            eq(edges.sourceModule, "relationship"),
-            isNotNull(edges.decisionSequence),
-            or(
-              and(eq(edges.srcType, "signal"), eq(edges.srcId, signalId)),
-              and(eq(edges.dstType, "signal"), eq(edges.dstId, signalId)),
-            ),
-          ),
-        );
-      const eventIds = [
-        ...new Set(
-          sourceRelations.flatMap((relation) => [
-            ...(relation.srcType === "event" ? [relation.srcId] : []),
-            ...(relation.dstType === "event" ? [relation.dstId] : []),
-          ]),
-        ),
-      ];
-      const supersededDecision = sql<boolean>`(
-        ${edges.decisionSequence} < ${winningDecisionSequence}
-        OR (
-          ${edges.decisionSequence} = ${winningDecisionSequence}
-          AND ${edges.decisionLedgerId} <> ${winningDecisionLedgerId}
-        )
-      )`;
-      if (eventIds.length > 0) {
-        await this.#db
-          .delete(edges)
-          .where(
-            and(
-              eq(edges.workspaceId, workspaceId),
-              eq(edges.ownerUserId, ownerUserId),
-              eq(edges.edgeType, "participant"),
-              eq(edges.sourceModule, "relationship"),
-              isNotNull(edges.decisionSequence),
-              supersededDecision,
-              or(
-                and(
-                  eq(edges.srcType, "event"),
-                  inArray(edges.srcId, eventIds),
-                ),
-                and(
-                  eq(edges.dstType, "event"),
-                  inArray(edges.dstId, eventIds),
-                ),
-              ),
-            ),
-          );
-      }
-      await this.#db
-        .delete(edges)
-        .where(
-          and(
-            eq(edges.workspaceId, workspaceId),
-            eq(edges.ownerUserId, ownerUserId),
-            eq(edges.edgeType, "source_event"),
-            eq(edges.sourceModule, "relationship"),
-            isNotNull(edges.decisionSequence),
-            supersededDecision,
-            or(
-              and(eq(edges.srcType, "signal"), eq(edges.srcId, signalId)),
-              and(eq(edges.dstType, "signal"), eq(edges.dstId, signalId)),
-            ),
-          ),
-        );
-    };
-    if (
-      watermark?.decisionSequence !== null &&
-      watermark?.decisionSequence !== undefined &&
-      (
-        watermark.decisionSequence >= input.decisionSequence
-      )
-    ) {
-      if (!watermark.decisionLedgerId) {
-        throw new Error("Canonical Relationship decision provenance is incomplete");
-      }
-      await pruneSupersededRelations(
-        watermark.decisionSequence,
-        watermark.decisionLedgerId,
-      );
-      const canonicalEventId =
-        watermark.srcType === "event"
-          ? watermark.srcId
-          : watermark.dstType === "event"
-            ? watermark.dstId
-            : null;
-      if (!canonicalEventId) {
-        throw new Error("Canonical Relationship source Event is invalid");
-      }
-      const canonicalParticipants = await this.#db
-        .select()
-        .from(edges)
-        .where(
-          and(
-            eq(edges.workspaceId, workspaceId),
-            eq(edges.ownerUserId, ownerUserId),
-            eq(edges.edgeType, "participant"),
-            eq(edges.sourceModule, "relationship"),
-            eq(edges.decisionSequence, watermark.decisionSequence),
-            eq(edges.decisionLedgerId, watermark.decisionLedgerId),
-            or(
-              and(
-                eq(edges.srcType, "event"),
-                eq(edges.srcId, canonicalEventId),
-              ),
-              and(
-                eq(edges.dstType, "event"),
-                eq(edges.dstId, canonicalEventId),
-              ),
-            ),
-          ),
-        );
-      return {
-        sourceEvent: watermark,
-        participants: canonicalParticipants,
-      };
+    if (signalId !== sourceEventId) {
+      throw new Error("A Signal is projected from its own participant-linked Event");
     }
-
     const signal = await this.#getAccessibleSignal(
-      workspaceId,
+      organizationId,
       ownerUserId,
       signalId,
     );
-    if (!signal) throw new Error("Signal not found or not accessible");
-    const sourceEvent = await this.getEvent(workspaceId, sourceEventId);
-    if (
-      !sourceEvent ||
-      sourceEvent.entityType !== "signal" ||
-      sourceEvent.entityId !== signal.id
-    ) {
-      throw new Error("Source Event must belong to the Signal");
+    const signalEvent = await this.getEvent(organizationId, signalId);
+    if (!signal || !signalEvent) {
+      throw new Error("Signal Event not found or not accessible");
     }
-    const sourceEventPayload =
-      typeof sourceEvent.payload === "object" &&
-      sourceEvent.payload !== null &&
-      !Array.isArray(sourceEvent.payload)
-        ? sourceEvent.payload as Record<string, unknown>
-        : {};
-    const source =
-      typeof sourceEventPayload.source === "string" &&
-      sourceEventPayload.source.trim()
-        ? sourceEventPayload.source.trim()
-        : `event:${sourceEvent.type}`;
-    const observedAt = sourceEvent.createdAt;
     if (
       !participants.some(
         (participant) =>
@@ -1506,63 +2318,60 @@ export class DrizzleGraphStore {
     ) {
       throw new Error("Signal evidence participants must include the Signal subject");
     }
-
-    const nodeTypeNames = [
-      "signal",
-      "event",
-      ...participants.map((participant) => participant.recordType),
-    ];
-    const nodeTypeOwners = await Promise.all(
-      [...new Set(nodeTypeNames)].map((nodeType) =>
-        this.getNodeTypeOwner(nodeType),
-      ),
-    );
+    const currentRows = await this.#db
+      .select()
+      .from(edges)
+      .where(and(
+        eq(edges.organizationId, organizationId),
+        eq(edges.ownerUserId, ownerUserId),
+        eq(edges.edgeType, "participant"),
+        eq(edges.sourceModule, "relationship"),
+        eq(edges.srcType, "event"),
+        eq(edges.srcId, signalId),
+        isNotNull(edges.decisionSequence),
+      ))
+      .orderBy(desc(edges.decisionSequence), desc(edges.decisionAt), desc(edges.id));
+    const watermark = currentRows[0];
     if (
-      nodeTypeOwners.some(
-        (owner) => owner === null || owner.owningModule !== "relationship",
-      )
+      watermark &&
+      watermark.decisionSequence !== null &&
+      watermark.decisionSequence >= input.decisionSequence
     ) {
-      throw new Error("Signal evidence node types must be owned by the Relationship Module");
+      return { sourceEvent: watermark, participants: currentRows };
     }
-
-    const invalidParticipant = participants.find(
-      (participant) =>
-        !UUID_PATTERN.test(participant.recordId) ||
-        !Number.isFinite(participant.confidence) ||
-        participant.confidence < 0 ||
-        participant.confidence > 1,
-    );
     if (
-      invalidParticipant ||
       !(await this.areRelationshipRecordsAccessible(
-        workspaceId,
+        organizationId,
         ownerUserId,
         participants,
       ))
     ) {
-      throw new Error(
-        "Signal evidence participants are invalid or not accessible",
-      );
+      throw new Error("Signal evidence participants are invalid or not accessible");
     }
-
-    const evidenceRef: RelationEvidenceRef = {
-      entityType: "event",
-      entityId: sourceEvent.id,
-      source,
-    };
-    const values: Array<typeof edges.$inferInsert> = [
-      {
-        workspaceId,
+    await this.#db.delete(edges).where(and(
+      eq(edges.organizationId, organizationId),
+      eq(edges.ownerUserId, ownerUserId),
+      eq(edges.edgeType, "participant"),
+      eq(edges.sourceModule, "relationship"),
+      eq(edges.srcType, "event"),
+      eq(edges.srcId, signalId),
+      isNotNull(edges.decisionSequence),
+    ));
+    const signalPayload = payloadRecord(signalEvent.payload);
+    const source = payloadString(signalPayload, "source") ?? `event:${signalEvent.type}`;
+    const materializedParticipants = await Promise.all(participants.map((participant) =>
+      this.upsertRelation({
+        organizationId,
         ownerUserId,
-        srcType: "signal",
-        srcId: signal.id,
-        dstType: "event",
-        dstId: sourceEvent.id,
-        edgeType: "source_event",
-        properties: {},
-        evidenceRefs: [evidenceRef],
-        confidence: "1",
-        observedAt,
+        srcType: "event",
+        srcId: signalId,
+        dstType: participant.recordType,
+        dstId: participant.recordId,
+        relationType: "participant",
+        properties: participant.role ? { role: participant.role } : {},
+        evidenceRefs: [{ entityType: "event", entityId: signalId, source }],
+        confidence: participant.confidence,
+        observedAt: signalEvent.createdAt,
         userConfirmed: input.userConfirmed,
         visibility: input.visibility,
         source,
@@ -1570,120 +2379,48 @@ export class DrizzleGraphStore {
         decisionLedgerId,
         decisionSequence: input.decisionSequence,
         decisionAt: input.decisionAt,
-      },
-      ...participants.map(
-        (participant): typeof edges.$inferInsert => ({
-          workspaceId,
-          ownerUserId,
-          srcType: "event",
-          srcId: sourceEvent.id,
-          dstType: participant.recordType,
-          dstId: participant.recordId,
-          edgeType: "participant",
-          properties: participant.role ? { role: participant.role } : {},
-          evidenceRefs: [evidenceRef],
-          confidence: String(participant.confidence),
-          observedAt,
-          userConfirmed: input.userConfirmed,
-          visibility: input.visibility,
-          source,
-          sourceModule: "relationship",
-          decisionLedgerId,
-          decisionSequence: input.decisionSequence,
-          decisionAt: input.decisionAt,
-        }),
-      ),
-    ];
-    const incomingDecisionWins = sql<boolean>`(
-      ${edges.decisionSequence} IS NULL
-      OR excluded."decision_sequence" > ${edges.decisionSequence}
-      OR (
-        excluded."decision_sequence" = ${edges.decisionSequence}
-        AND excluded."decision_ledger_id" = ${edges.decisionLedgerId}
-      )
-    )`;
-    const rows = await this.#db
-      .insert(edges)
-      .values(values)
-      .onConflictDoUpdate({
-        target: [
-          edges.workspaceId,
-          edges.srcType,
-          edges.srcId,
-          edges.dstType,
-          edges.dstId,
-          edges.edgeType,
-          edges.ownerUserId,
-        ],
-        set: {
-          properties: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."properties" ELSE ${edges.properties} END`,
-          evidenceRefs: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."evidence_refs" ELSE ${edges.evidenceRefs} END`,
-          confidence: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."confidence" ELSE ${edges.confidence} END`,
-          observedAt: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."observed_at" ELSE ${edges.observedAt} END`,
-          validFrom: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."valid_from" ELSE ${edges.validFrom} END`,
-          validTo: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."valid_to" ELSE ${edges.validTo} END`,
-          userConfirmed: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."user_confirmed" ELSE ${edges.userConfirmed} END`,
-          visibility: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."visibility" ELSE ${edges.visibility} END`,
-          source: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."source" ELSE ${edges.source} END`,
-          sourceModule: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."source_module" ELSE ${edges.sourceModule} END`,
-          decisionLedgerId: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."decision_ledger_id" ELSE ${edges.decisionLedgerId} END`,
-          decisionSequence: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."decision_sequence" ELSE ${edges.decisionSequence} END`,
-          decisionAt: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."decision_at" ELSE ${edges.decisionAt} END`,
-        },
-      })
-      .returning();
-    const sourceEventRelation = rows.find((relation) => relation.edgeType === "source_event");
-    if (!sourceEventRelation || rows.length !== values.length) {
-      throw new Error("Signal evidence Relations were not materialized atomically");
-    }
-    await pruneSupersededRelations(input.decisionSequence, decisionLedgerId);
-    return {
-      sourceEvent: sourceEventRelation,
-      participants: rows.filter((relation) => relation.edgeType === "participant"),
-    };
+      }),
+    ));
+    const anchor = materializedParticipants[0];
+    if (!anchor) throw new Error("Signal Event participant Relations were not materialized");
+    return { sourceEvent: anchor, participants: materializedParticipants };
   }
 
-  async listInitiatives(workspaceId: string, opts: PageOpts): Promise<Page<typeof initiatives.$inferSelect>> {
-    const where = eq(initiatives.workspaceId, workspaceId);
+  async listRecords(organizationId: string, opts: PageOpts): Promise<Page<typeof records.$inferSelect>> {
+    const where = eq(records.organizationId, organizationId);
     const [rows, totalRows] = await Promise.all([
-      this.#db.select().from(initiatives).where(where).orderBy(desc(initiatives.createdAt)).limit(opts.limit).offset(opts.offset),
-      this.#db.select({ value: count() }).from(initiatives).where(where),
+      this.#db.select().from(records).where(where).orderBy(desc(records.createdAt)).limit(opts.limit).offset(opts.offset),
+      this.#db.select({ value: count() }).from(records).where(where),
     ]);
     return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
   }
 
-  async getInitiative(id: string): Promise<typeof initiatives.$inferSelect | null> {
-    const rows = await this.#db.select().from(initiatives).where(eq(initiatives.id, id)).limit(1);
+  async getRecord(id: string): Promise<typeof records.$inferSelect | null> {
+    const rows = await this.#db.select().from(records).where(eq(records.id, id)).limit(1);
     return rows[0] ?? null;
   }
 
-  /** Optionally scoped to one initiative (the tree view) or left workspace-wide. */
-  async listTouchpoints(
-    workspaceId: string,
-    opts: PageOpts & { initiativeId?: string },
-  ): Promise<Page<typeof touchpoints.$inferSelect>> {
-    const where = opts.initiativeId
-      ? and(eq(touchpoints.workspaceId, workspaceId), eq(touchpoints.initiativeId, opts.initiativeId))
-      : eq(touchpoints.workspaceId, workspaceId);
-    const [rows, totalRows] = await Promise.all([
-      this.#db.select().from(touchpoints).where(where).orderBy(touchpoints.sortOrder).limit(opts.limit).offset(opts.offset),
-      this.#db.select({ value: count() }).from(touchpoints).where(where),
-    ]);
-    return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
-  }
-
-  async listSignals(workspaceId: string, viewerUserId: string, opts: PageOpts): Promise<Page<typeof signals.$inferSelect>> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listSignals(workspaceId, viewerUserId, opts),
+  async listSignals(
+    organizationId: string,
+    viewerUserId: string,
+    opts: PageOpts & {
+      subjectType?: "person" | "community";
+      subjectId?: string;
+    },
+  ): Promise<Page<typeof signals.$inferSelect>> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listSignals(organizationId, viewerUserId, opts),
       );
     }
     const limit = Math.min(Math.max(opts.limit, 1), MAX_RELATION_PAGE_SIZE);
     const offset = Math.max(opts.offset, 0);
     const where = and(
-      eq(signals.workspaceId, workspaceId),
-      this.#readableSignalSubjectCondition(workspaceId, viewerUserId),
-      this.#signalHasReadableDetailCondition(workspaceId, viewerUserId),
+      eq(signals.organizationId, organizationId),
+      opts.subjectType ? eq(signals.subjectType, opts.subjectType) : undefined,
+      opts.subjectId ? eq(signals.subjectId, opts.subjectId) : undefined,
+      this.#readableSignalSubjectCondition(organizationId, viewerUserId),
+      this.#signalHasReadableDetailCondition(organizationId, viewerUserId),
     );
     const [rows, totalRows] = await Promise.all([
       this.#db
@@ -1701,16 +2438,26 @@ export class DrizzleGraphStore {
     };
   }
 
-  async listPeople(workspaceId: string, viewerUserId: string, opts: PageOpts): Promise<Page<PersonRecord>> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listPeople(workspaceId, viewerUserId, opts),
+  async listPeople(
+    organizationId: string,
+    viewerUserId: string,
+    opts: PageOpts & { query?: string },
+  ): Promise<Page<PersonRecord>> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listPeople(organizationId, viewerUserId, opts),
       );
     }
-    const where = and(
-      eq(people.workspaceId, workspaceId),
+    const limit = clamp(opts.limit, 1, 100);
+    const offset = Math.max(0, opts.offset);
+    const query = opts.query?.trim().slice(0, 120);
+    const pattern = query
+      ? `%${query.replace(/[!%_]/g, (value) => `!${value}`)}%`
+      : null;
+    const readable = and(
+      eq(people.organizationId, organizationId),
       or(
-        eq(people.visibility, "workspace"),
+        eq(people.visibility, "organization"),
         and(
           or(eq(people.visibility, "private"), eq(people.visibility, "team")),
           eq(people.userId, viewerUserId),
@@ -1718,14 +2465,38 @@ export class DrizzleGraphStore {
       ),
       isNull(people.archivedAt),
     );
+    const where = and(
+      readable,
+      pattern
+        ? sql<boolean>`(
+            coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName}, '') ILIKE ${pattern} ESCAPE '!'
+            OR coalesce(
+              CASE
+                WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+                ELSE nullif(${people.currentTitleOverride}, '')
+              END,
+              ''
+            ) ILIKE ${pattern} ESCAPE '!'
+          )`
+        : undefined,
+    );
     const [rows, totalRows] = await Promise.all([
       this.#db
         .select({
           id: people.id,
-          workspaceId: people.workspaceId,
+          organizationId: people.organizationId,
+          ownerUserId: people.userId,
+          isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
           visibility: people.visibility,
           displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
-          currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
+          currentTitle: sql<string | null>`CASE
+            WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+            ELSE nullif(${people.currentTitleOverride}, '')
+          END`,
+          location: sql<string | null>`CASE
+            WHEN ${people.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${peopleCanonical.locationCity}, ${peopleCanonical.locationCountry}), '')
+            ELSE nullif(${people.locationOverride}, '')
+          END`,
           currentCommunityId: people.currentCommunityId,
           source: people.source,
           lastInteractionAt: people.lastInteractionAt,
@@ -1735,41 +2506,67 @@ export class DrizzleGraphStore {
         .from(people)
         .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
         .where(where)
-        .orderBy(desc(people.createdAt))
-        .limit(opts.limit)
-        .offset(opts.offset),
-      this.#db.select({ value: count() }).from(people).where(where),
+        .orderBy(
+          sql`lower(coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName}, ''))`,
+          people.id,
+        )
+        .limit(limit)
+        .offset(offset),
+      this.#db
+        .select({ value: count() })
+        .from(people)
+        .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
+        .where(where),
     ]);
     return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
   }
 
-  async getPerson(workspaceId: string, viewerUserId: string, id: string): Promise<PersonRecord | null> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.getPerson(workspaceId, viewerUserId, id),
+  async getPerson(
+    organizationId: string,
+    viewerUserId: string,
+    id: string,
+  ): Promise<PersonDetail | null> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.getPerson(organizationId, viewerUserId, id),
       );
     }
     const rows = await this.#db
       .select({
         id: people.id,
-        workspaceId: people.workspaceId,
+        organizationId: people.organizationId,
+        ownerUserId: people.userId,
+        isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
         visibility: people.visibility,
         displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
-        currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
+        currentTitle: sql<string | null>`CASE
+          WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+          ELSE nullif(${people.currentTitleOverride}, '')
+        END`,
+        location: sql<string | null>`CASE
+          WHEN ${people.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${peopleCanonical.locationCity}, ${peopleCanonical.locationCountry}), '')
+          ELSE nullif(${people.locationOverride}, '')
+        END`,
         currentCommunityId: people.currentCommunityId,
         source: people.source,
         lastInteractionAt: people.lastInteractionAt,
         contextFreshnessAt: people.contextFreshnessAt,
         createdAt: people.createdAt,
+        bio: sql<string | null>`CASE
+          WHEN ${people.bioOverride} IS NULL THEN ${peopleCanonical.bio}
+          ELSE nullif(${people.bioOverride}, '')
+        END`,
+        avatarUrl: sql<string | null>`coalesce(${people.avatarUrlOverride}, ${peopleCanonical.avatarUrl})`,
+        emails: sql<string[]>`coalesce(${people.emailsOverride}, ${peopleCanonical.emails}, ARRAY[]::text[])`,
       })
       .from(people)
       .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
       .where(
         and(
-          eq(people.workspaceId, workspaceId),
+          eq(people.organizationId, organizationId),
           eq(people.id, id),
           or(
-            eq(people.visibility, "workspace"),
+            eq(people.visibility, "organization"),
             and(
               or(eq(people.visibility, "private"), eq(people.visibility, "team")),
               eq(people.userId, viewerUserId),
@@ -1782,18 +2579,89 @@ export class DrizzleGraphStore {
     return rows[0] ?? null;
   }
 
-  // `communities` has no `createdAt` column (unlike `people`/`initiatives`/`signals`),
-  // so pagination orders by `id` for a stable (if arbitrary) row order instead.
-  async listCommunities(workspaceId: string, viewerUserId: string, opts: PageOpts): Promise<Page<CommunityRecord>> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.listCommunities(workspaceId, viewerUserId, opts),
+  async findPeopleByEmail(
+    organizationId: string,
+    viewerUserId: string,
+    email: string,
+    limit = 2,
+  ): Promise<PersonDetail[]> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.findPeopleByEmail(organizationId, viewerUserId, email, limit),
       );
     }
-    const where = and(
-      eq(communities.workspaceId, workspaceId),
+    const normalizedEmail = email.trim().toLowerCase().slice(0, 320);
+    if (!normalizedEmail) return [];
+    return this.#db
+      .select({
+        id: people.id,
+        organizationId: people.organizationId,
+        ownerUserId: people.userId,
+        isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
+        visibility: people.visibility,
+        displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
+        currentTitle: sql<string | null>`CASE
+          WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+          ELSE nullif(${people.currentTitleOverride}, '')
+        END`,
+        currentCommunityId: people.currentCommunityId,
+        source: people.source,
+        lastInteractionAt: people.lastInteractionAt,
+        contextFreshnessAt: people.contextFreshnessAt,
+        createdAt: people.createdAt,
+        bio: sql<string | null>`CASE
+          WHEN ${people.bioOverride} IS NULL THEN ${peopleCanonical.bio}
+          ELSE nullif(${people.bioOverride}, '')
+        END`,
+        avatarUrl: sql<string | null>`coalesce(${people.avatarUrlOverride}, ${peopleCanonical.avatarUrl})`,
+        emails: sql<string[]>`coalesce(${people.emailsOverride}, ${peopleCanonical.emails}, ARRAY[]::text[])`,
+      })
+      .from(people)
+      .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
+      .where(and(
+        eq(people.organizationId, organizationId),
+        or(
+          eq(people.visibility, "organization"),
+          and(
+            or(eq(people.visibility, "private"), eq(people.visibility, "team")),
+            eq(people.userId, viewerUserId),
+          ),
+        ),
+        isNull(people.archivedAt),
+        sql<boolean>`EXISTS (
+          SELECT 1
+          FROM unnest(coalesce(
+            ${people.emailsOverride},
+            ${peopleCanonical.emails},
+            ARRAY[]::text[]
+          )) AS visible_email
+          WHERE lower(trim(visible_email)) = ${normalizedEmail}
+        )`,
+      ))
+      .orderBy(people.id)
+      .limit(clamp(limit, 1, 2));
+  }
+
+  async listCommunities(
+    organizationId: string,
+    viewerUserId: string,
+    opts: PageOpts & { query?: string },
+  ): Promise<Page<CommunityRecord>> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listCommunities(organizationId, viewerUserId, opts),
+      );
+    }
+    const limit = clamp(opts.limit, 1, 100);
+    const offset = Math.max(0, opts.offset);
+    const query = opts.query?.trim().slice(0, 120);
+    const pattern = query
+      ? `%${query.replace(/[!%_]/g, (value) => `!${value}`)}%`
+      : null;
+    const readable = and(
+      eq(communities.organizationId, organizationId),
       or(
-        eq(communities.visibility, "workspace"),
+        eq(communities.visibility, "organization"),
         and(
           or(eq(communities.visibility, "private"), eq(communities.visibility, "team")),
           eq(communities.userId, viewerUserId),
@@ -1801,54 +2669,137 @@ export class DrizzleGraphStore {
       ),
       isNull(communities.archivedAt),
     );
+    const where = and(
+      readable,
+      pattern
+        ? sql<boolean>`(
+            coalesce(${communities.nameOverride}, ${communitiesCanonical.name}, '') ILIKE ${pattern} ESCAPE '!'
+            OR coalesce(
+              CASE
+                WHEN ${communities.kind} IS NULL THEN ${communitiesCanonical.kind}
+                ELSE nullif(${communities.kind}, '')
+              END,
+              ''
+            ) ILIKE ${pattern} ESCAPE '!'
+          )`
+        : undefined,
+    );
+    const memberCount = sql<number>`(
+      SELECT count(*)::int
+      FROM "community_members" AS "visible_community_member"
+      JOIN "people" AS "visible_community_person"
+        ON "visible_community_person"."id" = "visible_community_member"."person_id"
+      WHERE "visible_community_person"."organization_id" = ${organizationId}
+        AND "visible_community_member"."community_id" = ${communities.id}
+        AND "visible_community_person"."archived_at" IS NULL
+        AND (
+          "visible_community_person"."visibility" = 'organization'
+          OR (
+            "visible_community_person"."visibility" IN ('private', 'team')
+            AND "visible_community_person"."user_id" = ${viewerUserId}
+          )
+        )
+    )`;
     const [rows, totalRows] = await Promise.all([
       this.#db
         .select({
           id: communities.id,
-          workspaceId: communities.workspaceId,
+          organizationId: communities.organizationId,
+          ownerUserId: communities.userId,
+          isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
           visibility: communities.visibility,
           displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
-          description: sql<string | null>`coalesce(${communities.descriptionOverride}, ${communitiesCanonical.description})`,
-          kind: sql<string | null>`coalesce(${communities.kind}, ${communitiesCanonical.kind})`,
+          description: sql<string | null>`CASE
+            WHEN ${communities.descriptionOverride} IS NULL THEN ${communitiesCanonical.description}
+            ELSE nullif(${communities.descriptionOverride}, '')
+          END`,
+          kind: sql<string | null>`CASE
+            WHEN ${communities.kind} IS NULL THEN ${communitiesCanonical.kind}
+            ELSE nullif(${communities.kind}, '')
+          END`,
+          location: sql<string | null>`CASE
+            WHEN ${communities.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${communitiesCanonical.headquartersCity}, ${communitiesCanonical.headquartersCountry}), '')
+            ELSE nullif(${communities.locationOverride}, '')
+          END`,
           source: communities.source,
           isUserConfirmed: communities.isUserConfirmed,
+          memberCount,
         })
         .from(communities)
         .leftJoin(communitiesCanonical, eq(communities.canonicalCommunityId, communitiesCanonical.id))
         .where(where)
-        .orderBy(communities.id)
-        .limit(opts.limit)
-        .offset(opts.offset),
-      this.#db.select({ value: count() }).from(communities).where(where),
+        .orderBy(
+          sql`lower(coalesce(${communities.nameOverride}, ${communitiesCanonical.name}, ''))`,
+          communities.id,
+        )
+        .limit(limit)
+        .offset(offset),
+      this.#db
+        .select({ value: count() })
+        .from(communities)
+        .leftJoin(communitiesCanonical, eq(communities.canonicalCommunityId, communitiesCanonical.id))
+        .where(where),
     ]);
     return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
   }
 
-  async getCommunity(workspaceId: string, viewerUserId: string, id: string): Promise<CommunityRecord | null> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.getCommunity(workspaceId, viewerUserId, id),
+  async getCommunity(
+    organizationId: string,
+    viewerUserId: string,
+    id: string,
+  ): Promise<CommunityDetail | null> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.getCommunity(organizationId, viewerUserId, id),
       );
     }
     const rows = await this.#db
       .select({
         id: communities.id,
-        workspaceId: communities.workspaceId,
+        organizationId: communities.organizationId,
+        ownerUserId: communities.userId,
+        isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
         visibility: communities.visibility,
         displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
-        description: sql<string | null>`coalesce(${communities.descriptionOverride}, ${communitiesCanonical.description})`,
-        kind: sql<string | null>`coalesce(${communities.kind}, ${communitiesCanonical.kind})`,
+        description: sql<string | null>`CASE
+          WHEN ${communities.descriptionOverride} IS NULL THEN ${communitiesCanonical.description}
+          ELSE nullif(${communities.descriptionOverride}, '')
+        END`,
+        kind: sql<string | null>`CASE
+          WHEN ${communities.kind} IS NULL THEN ${communitiesCanonical.kind}
+          ELSE nullif(${communities.kind}, '')
+        END`,
+        location: sql<string | null>`CASE
+          WHEN ${communities.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${communitiesCanonical.headquartersCity}, ${communitiesCanonical.headquartersCountry}), '')
+          ELSE nullif(${communities.locationOverride}, '')
+        END`,
         source: communities.source,
         isUserConfirmed: communities.isUserConfirmed,
+        memberCount: sql<number>`(
+          SELECT count(*)::int
+          FROM "community_members" AS "visible_community_member"
+          JOIN "people" AS "visible_community_person"
+            ON "visible_community_person"."id" = "visible_community_member"."person_id"
+          WHERE "visible_community_person"."organization_id" = ${organizationId}
+            AND "visible_community_member"."community_id" = ${communities.id}
+            AND "visible_community_person"."archived_at" IS NULL
+            AND (
+              "visible_community_person"."visibility" = 'organization'
+              OR (
+                "visible_community_person"."visibility" IN ('private', 'team')
+                AND "visible_community_person"."user_id" = ${viewerUserId}
+              )
+            )
+        )`,
       })
       .from(communities)
       .leftJoin(communitiesCanonical, eq(communities.canonicalCommunityId, communitiesCanonical.id))
       .where(
         and(
-          eq(communities.workspaceId, workspaceId),
+          eq(communities.organizationId, organizationId),
           eq(communities.id, id),
           or(
-            eq(communities.visibility, "workspace"),
+            eq(communities.visibility, "organization"),
             and(
               or(eq(communities.visibility, "private"), eq(communities.visibility, "team")),
               eq(communities.userId, viewerUserId),
@@ -1861,65 +2812,1665 @@ export class DrizzleGraphStore {
     return rows[0] ?? null;
   }
 
-  async getEvent(workspaceId: string, id: string): Promise<typeof events.$inferSelect | null> {
+  async listCommunityMembers(
+    organizationId: string,
+    viewerUserId: string,
+    communityId: string,
+    opts: PageOpts,
+  ): Promise<Page<CommunityMemberRecord>> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listCommunityMembers(
+          organizationId,
+          viewerUserId,
+          communityId,
+          opts,
+        ),
+      );
+    }
+    if (!await this.getCommunity(organizationId, viewerUserId, communityId)) {
+      return { items: [], total: 0 };
+    }
+    const limit = clamp(opts.limit, 1, 100);
+    const offset = clamp(opts.offset, 0, 10_000);
+    const readable = and(
+      eq(communityMembers.communityId, communityId),
+      eq(people.organizationId, organizationId),
+      or(
+        eq(people.visibility, "organization"),
+        and(
+          or(eq(people.visibility, "private"), eq(people.visibility, "team")),
+          eq(people.userId, viewerUserId),
+        ),
+      ),
+      isNull(people.archivedAt),
+    );
+    const [rows, totalRows] = await Promise.all([
+      this.#db
+        .select({
+          id: people.id,
+          organizationId: people.organizationId,
+          ownerUserId: people.userId,
+          isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
+          visibility: people.visibility,
+          displayName: sql<string | null>`coalesce(
+            ${people.fullNameOverride},
+            ${peopleCanonical.preferredName},
+            ${peopleCanonical.fullName}
+          )`,
+          currentTitle: sql<string | null>`CASE
+            WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+            ELSE nullif(${people.currentTitleOverride}, '')
+          END`,
+          currentCommunityId: people.currentCommunityId,
+          source: people.source,
+          lastInteractionAt: people.lastInteractionAt,
+          contextFreshnessAt: people.contextFreshnessAt,
+          createdAt: people.createdAt,
+          role: communityMembers.role,
+          confidence: sql<number | null>`CASE
+            WHEN ${communityMembers.confidence} IS NULL THEN NULL
+            ELSE ${communityMembers.confidence}::double precision
+          END`,
+        })
+        .from(communityMembers)
+        .innerJoin(people, eq(communityMembers.personId, people.id))
+        .leftJoin(
+          peopleCanonical,
+          eq(people.canonicalPersonId, peopleCanonical.id),
+        )
+        .where(readable)
+        .orderBy(
+          sql`lower(coalesce(
+            ${people.fullNameOverride},
+            ${peopleCanonical.preferredName},
+            ${peopleCanonical.fullName},
+            ''
+          ))`,
+          people.id,
+        )
+        .limit(limit)
+        .offset(offset),
+      this.#db
+        .select({ value: count() })
+        .from(communityMembers)
+        .innerJoin(people, eq(communityMembers.personId, people.id))
+        .where(readable),
+    ]);
+    return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
+  }
+
+  async createPerson(input: CreatePersonInput): Promise<PersonDetail> {
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
+        store.createPerson(input),
+      );
+    }
+    const emails = normalizeEmails(input.emails);
+    await this.#db
+      .insert(people)
+      .values({
+        id: input.id,
+        organizationId: input.organizationId,
+        userId: input.ownerUserId,
+        canonicalPersonId: null,
+        visibility: input.visibility,
+        fullNameOverride: input.displayName.trim(),
+        currentTitleOverride: input.currentTitle?.trim() || null,
+        bioOverride: input.bio?.trim() || null,
+        locationOverride: input.location?.trim() || null,
+        emailsOverride: emails,
+        source: input.source.trim(),
+      })
+      .onConflictDoNothing();
+    const person = await this.getPerson(input.organizationId, input.ownerUserId, input.id);
+    if (!person || person.ownerUserId !== input.ownerUserId) {
+      throw new Error("Person create did not materialize an owner-readable Record");
+    }
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "person",
+      operation: "created",
+      displayName: person.displayName,
+    });
+    return person;
+  }
+
+  async updatePerson(input: UpdatePersonInput): Promise<PersonDetail | null> {
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
+        store.updatePerson(input),
+      );
+    }
+    const values: Partial<typeof people.$inferInsert> = {};
+    if (input.displayName !== undefined) values.fullNameOverride = input.displayName.trim();
+    if (input.currentTitle !== undefined) {
+      values.currentTitleOverride = input.currentTitle?.trim() ?? "";
+    }
+    if (input.bio !== undefined) values.bioOverride = input.bio?.trim() ?? "";
+    if (input.location !== undefined) values.locationOverride = input.location?.trim() ?? "";
+    if (input.emails !== undefined) values.emailsOverride = normalizeEmails(input.emails);
+    if (input.visibility !== undefined) values.visibility = input.visibility;
+    if (Object.keys(values).length === 0) throw new Error("Person update requires at least one field");
+    const locked = await this.#db
+      .select({ id: people.id, archivedAt: people.archivedAt })
+      .from(people)
+      .where(and(
+        eq(people.organizationId, input.organizationId),
+        eq(people.id, input.id),
+        eq(people.userId, input.ownerUserId),
+      ))
+      .for("update", { of: people })
+      .limit(1);
+    if (!locked[0]) return null;
+    if (locked[0].archivedAt) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "person",
+        operation: "update",
+        reason: "record_archived",
+      });
+      return null;
+    }
+    if (
+      await this.#hasNewerRecordDecision(
+        input.organizationId,
+        input.ownerUserId,
+        "person",
+        input.id,
+        input.decisionSequence,
+      )
+    ) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "person",
+        operation: "update",
+        reason: "superseded_by_newer_decision",
+      });
+      return this.getPerson(input.organizationId, input.ownerUserId, input.id);
+    }
+    const rows = await this.#db
+      .update(people)
+      .set(values)
+      .where(and(
+        eq(people.organizationId, input.organizationId),
+        eq(people.id, input.id),
+        eq(people.userId, input.ownerUserId),
+        isNull(people.archivedAt),
+      ))
+      .returning();
+    if (!rows[0]) return null;
+    const person = await this.getPerson(input.organizationId, input.ownerUserId, input.id);
+    if (!person) throw new Error("Updated Person became unreadable");
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "person",
+      operation: "updated",
+      displayName: person.displayName,
+      visibility: person.visibility === "organization" ? "organization" : "private",
+    });
+    return person;
+  }
+
+  async archivePerson(input: ArchiveRelationshipRecordInput): Promise<boolean> {
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
+        store.archivePerson(input),
+      );
+    }
+    const [existing] = await this.#db
+      .select({
+        id: people.id,
+        archivedAt: people.archivedAt,
+        visibility: people.visibility,
+        displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
+      })
+      .from(people)
+      .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
+      .where(and(
+        eq(people.organizationId, input.organizationId),
+        eq(people.id, input.id),
+        eq(people.userId, input.ownerUserId),
+      ))
+      .for("update", { of: people })
+      .limit(1);
+    if (!existing) return false;
+    if (existing.archivedAt) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "person",
+        operation: "archive",
+        reason: "record_archived",
+      });
+      return true;
+    }
+    if (
+      await this.#hasNewerRecordDecision(
+        input.organizationId,
+        input.ownerUserId,
+        "person",
+        input.id,
+        input.decisionSequence,
+      )
+    ) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "person",
+        operation: "archive",
+        reason: "superseded_by_newer_decision",
+      });
+      return true;
+    }
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "person",
+      operation: "archived",
+      displayName: existing.displayName,
+      visibility: existing.visibility === "organization" ? "organization" : "private",
+    });
+    const rows = await this.#db
+      .update(people)
+      .set({ archivedAt: input.decisionAt })
+      .where(and(
+        eq(people.organizationId, input.organizationId),
+        eq(people.id, input.id),
+        eq(people.userId, input.ownerUserId),
+        isNull(people.archivedAt),
+      ))
+      .returning();
+    return rows.length === 1;
+  }
+
+  async createCommunity(input: CreateCommunityInput): Promise<CommunityDetail> {
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
+        store.createCommunity(input),
+      );
+    }
+    await this.#db
+      .insert(communities)
+      .values({
+        id: input.id,
+        organizationId: input.organizationId,
+        userId: input.ownerUserId,
+        canonicalCommunityId: null,
+        visibility: input.visibility,
+        nameOverride: input.displayName.trim(),
+        descriptionOverride: input.description?.trim() || null,
+        locationOverride: input.location?.trim() || null,
+        kind: input.kind?.trim() || null,
+        source: input.source.trim(),
+        isUserConfirmed: true,
+      })
+      .onConflictDoNothing();
+    const community = await this.getCommunity(input.organizationId, input.ownerUserId, input.id);
+    if (!community || community.ownerUserId !== input.ownerUserId) {
+      throw new Error("Community create did not materialize an owner-readable Record");
+    }
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "community",
+      operation: "created",
+      displayName: community.displayName,
+    });
+    return community;
+  }
+
+  async updateCommunity(input: UpdateCommunityInput): Promise<CommunityDetail | null> {
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
+        store.updateCommunity(input),
+      );
+    }
+    const values: Partial<typeof communities.$inferInsert> = {};
+    if (input.displayName !== undefined) values.nameOverride = input.displayName.trim();
+    if (input.description !== undefined) {
+      values.descriptionOverride = input.description?.trim() ?? "";
+    }
+    if (input.location !== undefined) values.locationOverride = input.location?.trim() ?? "";
+    if (input.kind !== undefined) values.kind = input.kind?.trim() ?? "";
+    if (input.visibility !== undefined) values.visibility = input.visibility;
+    if (Object.keys(values).length === 0) throw new Error("Community update requires at least one field");
+    const locked = await this.#db
+      .select({ id: communities.id, archivedAt: communities.archivedAt })
+      .from(communities)
+      .where(and(
+        eq(communities.organizationId, input.organizationId),
+        eq(communities.id, input.id),
+        eq(communities.userId, input.ownerUserId),
+      ))
+      .for("update", { of: communities })
+      .limit(1);
+    if (!locked[0]) return null;
+    if (locked[0].archivedAt) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "community",
+        operation: "update",
+        reason: "record_archived",
+      });
+      return null;
+    }
+    if (
+      await this.#hasNewerRecordDecision(
+        input.organizationId,
+        input.ownerUserId,
+        "community",
+        input.id,
+        input.decisionSequence,
+      )
+    ) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "community",
+        operation: "update",
+        reason: "superseded_by_newer_decision",
+      });
+      return this.getCommunity(input.organizationId, input.ownerUserId, input.id);
+    }
+    const rows = await this.#db
+      .update(communities)
+      .set(values)
+      .where(and(
+        eq(communities.organizationId, input.organizationId),
+        eq(communities.id, input.id),
+        eq(communities.userId, input.ownerUserId),
+        isNull(communities.archivedAt),
+      ))
+      .returning();
+    if (!rows[0]) return null;
+    const community = await this.getCommunity(input.organizationId, input.ownerUserId, input.id);
+    if (!community) throw new Error("Updated Community became unreadable");
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "community",
+      operation: "updated",
+      displayName: community.displayName,
+      visibility: community.visibility === "organization" ? "organization" : "private",
+    });
+    return community;
+  }
+
+  async archiveCommunity(input: ArchiveRelationshipRecordInput): Promise<boolean> {
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
+        store.archiveCommunity(input),
+      );
+    }
+    const [existing] = await this.#db
+      .select({
+        id: communities.id,
+        archivedAt: communities.archivedAt,
+        visibility: communities.visibility,
+        displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
+      })
+      .from(communities)
+      .leftJoin(communitiesCanonical, eq(communities.canonicalCommunityId, communitiesCanonical.id))
+      .where(and(
+        eq(communities.organizationId, input.organizationId),
+        eq(communities.id, input.id),
+        eq(communities.userId, input.ownerUserId),
+      ))
+      .for("update", { of: communities })
+      .limit(1);
+    if (!existing) return false;
+    if (existing.archivedAt) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "community",
+        operation: "archive",
+        reason: "record_archived",
+      });
+      return true;
+    }
+    if (
+      await this.#hasNewerRecordDecision(
+        input.organizationId,
+        input.ownerUserId,
+        "community",
+        input.id,
+        input.decisionSequence,
+      )
+    ) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "community",
+        operation: "archive",
+        reason: "superseded_by_newer_decision",
+      });
+      return true;
+    }
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "community",
+      operation: "archived",
+      displayName: existing.displayName,
+      visibility: existing.visibility === "organization" ? "organization" : "private",
+    });
+    const rows = await this.#db
+      .update(communities)
+      .set({ archivedAt: input.decisionAt })
+      .where(and(
+        eq(communities.organizationId, input.organizationId),
+        eq(communities.id, input.id),
+        eq(communities.userId, input.ownerUserId),
+        isNull(communities.archivedAt),
+      ))
+      .returning();
+    return rows.length === 1;
+  }
+
+  async #recordLifecycleEvent(input: DecisionProvenance & {
+    organizationId: string;
+    ownerUserId: string;
+    recordType: "person" | "community";
+    id: string;
+    operation: "created" | "updated" | "archived";
+    displayName: string | null;
+    visibility: RelationshipRecordVisibility;
+  }): Promise<void> {
+    await this.#createInteractionInContext(
+      {
+        id: input.decisionLedgerId,
+        organizationId: input.organizationId,
+        ownerUserId: input.ownerUserId,
+        kind: `${input.recordType}_${input.operation}`,
+        occurredAt: input.decisionAt,
+        summary: `${input.operation[0]?.toUpperCase()}${input.operation.slice(1)} ${input.displayName ?? input.recordType}`,
+        source: "user",
+        sourceRecordId: input.decisionLedgerId,
+        visibility: input.visibility,
+        participants: [{ recordType: input.recordType, recordId: input.id }],
+        updatesPersonFreshness: false,
+        decisionLedgerId: input.decisionLedgerId,
+        decisionSequence: input.decisionSequence,
+        decisionAt: input.decisionAt,
+      },
+      { recordMutationLifecycle: true },
+    );
+  }
+
+  async #recordSkippedMutationReceipt(input: DecisionProvenance & {
+    organizationId: string;
+    ownerUserId: string;
+    recordType: "person" | "community";
+    operation: "update" | "archive";
+    reason: "record_archived" | "superseded_by_newer_decision";
+  }): Promise<void> {
+    await this.#db
+      .insert(events)
+      .values({
+        id: input.decisionLedgerId,
+        organizationId: input.organizationId,
+        type: "relationship.materialization_skipped",
+        entityType: "materialization_receipt",
+        entityId: input.decisionLedgerId,
+        payload: {
+          kind: "relationship_record_mutation_receipt",
+          recordType: input.recordType,
+          operation: input.operation,
+          outcome: "skipped",
+          reason: input.reason,
+          ownerUserId: input.ownerUserId,
+          visibility: "private",
+          decisionLedgerId: input.decisionLedgerId,
+          decisionSequence: input.decisionSequence,
+          decisionAt: input.decisionAt.toISOString(),
+        },
+      })
+      .onConflictDoNothing();
+    const receipt = await this.getEvent(input.organizationId, input.decisionLedgerId);
+    const payload = payloadRecord(receipt?.payload);
+    const expectedLifecycleKind =
+      `${input.recordType}_${input.operation === "archive" ? "archived" : "updated"}`;
+    const kind = payloadString(payload, "kind");
+    const decisionSequence = payload.decisionSequence;
+    if (
+      !receipt ||
+      payloadString(payload, "ownerUserId") !== input.ownerUserId ||
+      payloadString(payload, "decisionLedgerId") !== input.decisionLedgerId ||
+      typeof decisionSequence !== "number" ||
+      decisionSequence !== input.decisionSequence ||
+      (kind !== "relationship_record_mutation_receipt" && kind !== expectedLifecycleKind)
+    ) {
+      throw new Error("Relationship mutation receipt conflicts with a different Event");
+    }
+  }
+
+  async #hasNewerRecordDecision(
+    organizationId: string,
+    ownerUserId: string,
+    recordType: "person" | "community",
+    recordId: string,
+    decisionSequence: number,
+  ): Promise<boolean> {
+    const rows = await this.#db
+      .select({ id: events.id })
+      .from(events)
+      .where(and(
+        eq(events.organizationId, organizationId),
+        eq(events.entityType, "interaction"),
+        inArray(events.type, [
+          `relationship.${recordType}_created`,
+          `relationship.${recordType}_updated`,
+          `relationship.${recordType}_archived`,
+        ]),
+        sql<boolean>`${events.payload} ->> 'recordMutationLifecycle' = 'true'`,
+        sql<boolean>`${events.payload} ->> 'ownerUserId' = ${ownerUserId}`,
+        sql<boolean>`(${events.payload} ->> 'decisionSequence') ~ '^[0-9]+$'`,
+        sql<boolean>`(${events.payload} ->> 'decisionSequence')::bigint > ${decisionSequence}`,
+        sql<boolean>`EXISTS (
+          SELECT 1
+          FROM "edges" AS "record_decision_participant"
+          WHERE "record_decision_participant"."organization_id" = ${organizationId}
+            AND "record_decision_participant"."owner_user_id" = ${ownerUserId}
+            AND "record_decision_participant"."edge_type" = 'participant'
+            AND "record_decision_participant"."src_type" = 'event'
+            AND "record_decision_participant"."src_id" = ${events.id}
+            AND "record_decision_participant"."dst_type" = ${recordType}
+            AND "record_decision_participant"."dst_id" = ${recordId}
+        )`,
+      ))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async createInteraction(input: CreateInteractionInput): Promise<TimelineItem> {
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
+        store.createInteraction(input),
+      );
+    }
+    return this.#createInteractionInContext(input);
+  }
+
+  async #createInteractionInContext(
+    input: CreateInteractionInput,
+    options: { recordMutationLifecycle?: boolean } = {},
+  ): Promise<TimelineItem> {
+    if (
+      !UUID_PATTERN.test(input.id) ||
+      !UUID_PATTERN.test(input.organizationId) ||
+      !UUID_PATTERN.test(input.ownerUserId) ||
+      !UUID_PATTERN.test(input.decisionLedgerId)
+    ) {
+      throw new Error("Interaction identifiers must be UUIDs");
+    }
+    if (
+      input.participants.length === 0 ||
+      input.participants.length > MAX_INTERACTION_PARTICIPANTS
+    ) {
+      throw new Error(`An Interaction requires 1-${MAX_INTERACTION_PARTICIPANTS} participants`);
+    }
+    if (Number.isNaN(input.occurredAt.getTime())) {
+      throw new Error("Interaction occurredAt must be a valid timestamp");
+    }
+    const participants = new Map<string, InteractionParticipantInput>();
+    const participantNodes: AccessibleNodes = {
+      people: new Map(),
+      communities: new Map(),
+      signalIds: new Set(),
+      eventIds: new Set([input.id]),
+    };
+    let visibility = input.visibility;
+    for (const participant of input.participants) {
+      const key = `${participant.recordType}:${participant.recordId}`;
+      if (participants.has(key)) continue;
+      const record = participant.recordType === "person"
+        ? await this.getPerson(input.organizationId, input.ownerUserId, participant.recordId)
+        : await this.getCommunity(input.organizationId, input.ownerUserId, participant.recordId);
+      if (!record) throw new Error("Interaction participant is not readable");
+      if (record.visibility !== "organization") visibility = "private";
+      participants.set(key, participant);
+      if (participant.recordType === "person") {
+        participantNodes.people.set(participant.recordId, record as PersonRecord);
+      } else {
+        participantNodes.communities.set(participant.recordId, record as CommunityRecord);
+      }
+    }
+    const payload = {
+      kind: input.kind.trim(),
+      occurredAt: input.occurredAt.toISOString(),
+      summary: input.summary.trim(),
+      source: input.source.trim(),
+      sourceRecordId: input.sourceRecordId?.trim() || null,
+      ownerUserId: input.ownerUserId,
+      visibility,
+      decisionLedgerId: input.decisionLedgerId,
+      decisionSequence: input.decisionSequence,
+      decisionAt: input.decisionAt.toISOString(),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(options.recordMutationLifecycle ? { recordMutationLifecycle: true } : {}),
+    };
+    const storedPayload = visibility === "private"
+      ? {
+          kind: payload.kind,
+          occurredAt: payload.occurredAt,
+          ownerUserId: payload.ownerUserId,
+          visibility: payload.visibility,
+          decisionLedgerId: payload.decisionLedgerId,
+          decisionSequence: payload.decisionSequence,
+          decisionAt: payload.decisionAt,
+          privatePayloadStoredInRelations: true,
+          ...(options.recordMutationLifecycle
+            ? { recordMutationLifecycle: true }
+            : {}),
+        }
+      : payload;
+    await this.#db
+      .insert(events)
+      .values({
+        id: input.id,
+        organizationId: input.organizationId,
+        type: `relationship.${input.kind.trim()}`,
+        entityType: "interaction",
+        entityId: input.id,
+        payload: storedPayload,
+      })
+      .onConflictDoNothing();
+    const event = await this.getEvent(input.organizationId, input.id);
+    const existingPayload = payloadRecord(event?.payload);
+    if (
+      !event ||
+      event.entityType !== "interaction" ||
+      payloadString(existingPayload, "ownerUserId") !== input.ownerUserId ||
+      payloadString(existingPayload, "decisionLedgerId") !== input.decisionLedgerId
+    ) {
+      throw new Error(
+        `Interaction ${input.id} conflicts with a different Event receipt`,
+      );
+    }
+    const relations: RelationRecord[] = [];
+    for (const participant of participants.values()) {
+      const relation = await this.upsertRelation({
+        organizationId: input.organizationId,
+        ownerUserId: input.ownerUserId,
+        srcType: "event",
+        srcId: input.id,
+        dstType: participant.recordType,
+        dstId: participant.recordId,
+        relationType: "participant",
+        properties: {
+          role: participant.role?.trim() || null,
+          attendanceState: participant.attendanceState?.trim() || null,
+          ...(visibility === "private"
+            ? { privateEventPayload: payload }
+            : {}),
+        },
+        evidenceRefs: [{ entityType: "event", entityId: input.id, source: input.source }],
+        confidence: 1,
+        observedAt: input.occurredAt,
+        validFrom: input.occurredAt,
+        userConfirmed: true,
+        visibility,
+        source: input.source,
+        sourceModule: "relationship",
+        decisionLedgerId: input.decisionLedgerId,
+        decisionSequence: input.decisionSequence,
+        decisionAt: input.decisionAt,
+      });
+      relations.push(relation);
+    }
+    if (input.updatesPersonFreshness !== false) {
+      const ownedPersonIds = [...participants.values()]
+        .filter((participant) => participant.recordType === "person")
+        .map((participant) => participant.recordId);
+      if (ownedPersonIds.length > 0) {
+        await this.#db
+          .update(people)
+          .set({ lastInteractionAt: input.occurredAt })
+          .where(and(
+            eq(people.organizationId, input.organizationId),
+            eq(people.userId, input.ownerUserId),
+            inArray(people.id, ownedPersonIds),
+            isNull(people.archivedAt),
+            or(
+              isNull(people.lastInteractionAt),
+              lt(people.lastInteractionAt, input.occurredAt),
+            ),
+          ));
+      }
+    }
+    return this.#timelineItemFromRows(event, relations, participantNodes);
+  }
+
+  async materializeCommitment(
+    input: MaterializeCommitmentInput,
+  ): Promise<CommitmentRecord> {
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
+        store.materializeCommitment(input),
+      );
+    }
+    const occurredAt = input.decisionAt;
+    await this.#createInteractionInContext({
+      id: input.transitionEventId,
+      organizationId: input.organizationId,
+      ownerUserId: input.ownerUserId,
+      kind: `commitment_${input.operation}`,
+      occurredAt,
+      summary: `${input.operation === "create" ? "Committed" : input.operation === "archive" ? "Archived commitment" : "Updated commitment"}: ${input.text}`,
+      source: "user",
+      sourceRecordId: input.sourceEventId ?? null,
+      visibility: "private",
+      participants: [{
+        recordType: "person",
+        recordId: input.personId,
+        role: "commitment_subject",
+      }],
+      updatesPersonFreshness: false,
+      metadata: {
+        result: "commitment",
+        commitmentId: input.commitmentId,
+        personId: input.personId,
+        text: input.text,
+        dueAt: input.dueAt?.toISOString() ?? null,
+        status: input.status,
+        sourceEventId: input.sourceEventId ?? null,
+      },
+      decisionLedgerId: input.decisionLedgerId,
+      decisionSequence: input.decisionSequence,
+      decisionAt: input.decisionAt,
+    });
+    const evidenceRefs: RelationEvidenceRef[] = [
+      {
+        entityType: "event",
+        entityId: input.transitionEventId,
+        source: "relationship",
+      },
+      ...(input.sourceEventId
+        ? [{
+            entityType: "event",
+            entityId: input.sourceEventId,
+            source: "relationship",
+          }]
+        : []),
+    ];
+    const relation = await this.upsertRelation({
+      organizationId: input.organizationId,
+      ownerUserId: input.ownerUserId,
+      srcType: "event",
+      srcId: input.transitionEventId,
+      dstType: "person",
+      dstId: input.personId,
+      relationType: "commitment",
+      properties: {
+        commitmentId: input.commitmentId,
+        text: input.text,
+        dueAt: input.dueAt?.toISOString() ?? null,
+        status: input.status,
+        sourceEventId: input.sourceEventId ?? null,
+      },
+      evidenceRefs,
+      confidence: 1,
+      observedAt: occurredAt,
+      validFrom: occurredAt,
+      userConfirmed: true,
+      visibility: "private",
+      source: "user",
+      sourceModule: "relationship",
+      decisionLedgerId: input.decisionLedgerId,
+      decisionSequence: input.decisionSequence,
+      decisionAt: input.decisionAt,
+    });
+    return {
+      id: input.commitmentId,
+      personId: input.personId,
+      text: input.text,
+      dueAt: input.dueAt ?? null,
+      status: input.status,
+      sourceEventId: input.sourceEventId ?? null,
+      transitionEventId: input.transitionEventId,
+      occurredAt,
+      createdAt: occurredAt,
+      provenance: {
+        decisionLedgerId: input.decisionLedgerId,
+        decisionSequence: input.decisionSequence,
+        relationId: relation.id,
+        evidenceRefs: relation.evidenceRefs,
+      },
+    };
+  }
+
+  async listCommitments(
+    organizationId: string,
+    viewerUserId: string,
+    personId: string,
+    opts: PageOpts & {
+      includeArchived?: boolean;
+      commitmentId?: string;
+      status?: CommitmentStatus;
+      snapshotAt?: Date;
+    },
+  ): Promise<CommitmentPage> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listCommitments(organizationId, viewerUserId, personId, opts),
+      );
+    }
+    const person = await this.getPerson(organizationId, viewerUserId, personId);
+    if (!person) return { items: [], total: 0 };
+    const limit = clamp(opts.limit, 1, 100);
+    const offset = clamp(opts.offset, 0, 10_000);
+    const result = await this.#db.execute(sql`
+      WITH latest AS (
+        SELECT DISTINCT ON (
+          coalesce(
+            commitment.properties ->> 'commitmentId',
+            transition.payload #>> '{metadata,commitmentId}'
+          )
+        )
+          coalesce(
+            commitment.properties ->> 'commitmentId',
+            transition.payload #>> '{metadata,commitmentId}'
+          ) AS commitment_id,
+          commitment.dst_id::text AS person_id,
+          coalesce(
+            commitment.properties ->> 'text',
+            transition.payload #>> '{metadata,text}'
+          ) AS text,
+          coalesce(
+            commitment.properties ->> 'dueAt',
+            transition.payload #>> '{metadata,dueAt}'
+          ) AS due_at,
+          coalesce(
+            commitment.properties ->> 'status',
+            transition.payload #>> '{metadata,status}'
+          ) AS status,
+          coalesce(
+            commitment.properties ->> 'sourceEventId',
+            transition.payload #>> '{metadata,sourceEventId}'
+          ) AS source_event_id,
+          transition.id::text AS transition_event_id,
+          (transition.payload ->> 'occurredAt')::timestamptz AS occurred_at,
+          transition.created_at AS created_at,
+          transition.payload ->> 'decisionLedgerId' AS decision_ledger_id,
+          (transition.payload ->> 'decisionSequence')::bigint AS decision_sequence,
+          commitment.id::text AS relation_id,
+          commitment.evidence_refs AS evidence_refs
+        FROM ${events} AS transition
+        INNER JOIN ${edges} AS commitment
+          ON commitment.organization_id = transition.organization_id
+          AND commitment.src_type = 'event'
+          AND commitment.src_id = transition.id
+          AND commitment.dst_type = 'person'
+          AND commitment.dst_id = ${personId}::uuid
+          AND commitment.edge_type = 'commitment'
+          AND commitment.owner_user_id = ${viewerUserId}::uuid
+        WHERE transition.organization_id = ${organizationId}::uuid
+          AND transition.entity_type = 'interaction'
+          ${opts.snapshotAt
+            ? sql`AND transition.created_at <= ${opts.snapshotAt}`
+            : sql``}
+          AND coalesce(
+            commitment.properties ->> 'commitmentId',
+            transition.payload #>> '{metadata,commitmentId}'
+          ) IS NOT NULL
+          AND transition.payload ->> 'ownerUserId' = ${viewerUserId}
+          ${opts.commitmentId
+            ? sql`AND coalesce(
+                commitment.properties ->> 'commitmentId',
+                transition.payload #>> '{metadata,commitmentId}'
+              ) = ${opts.commitmentId}`
+            : sql``}
+        ORDER BY
+          coalesce(
+            commitment.properties ->> 'commitmentId',
+            transition.payload #>> '{metadata,commitmentId}'
+          ),
+          (transition.payload ->> 'decisionSequence')::bigint DESC,
+          (transition.payload ->> 'occurredAt')::timestamptz DESC,
+          transition.id DESC
+      ),
+      visible AS (
+        SELECT *
+        FROM latest
+        WHERE commitment_id IS NOT NULL
+          ${opts.includeArchived ? sql`` : sql`AND status <> 'archived'`}
+          ${opts.status ? sql`AND status = ${opts.status}` : sql``}
+      )
+      SELECT *, count(*) OVER() AS total_count
+      FROM visible
+      ORDER BY
+        CASE WHEN due_at IS NULL OR due_at = '' THEN 1 ELSE 0 END,
+        due_at ASC NULLS LAST,
+        occurred_at DESC,
+        commitment_id DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `);
+    const rows = (
+      Array.isArray(result)
+        ? result
+        : (result as { rows?: unknown[] }).rows ?? []
+    ) as Array<{
+      commitment_id: string;
+      person_id: string;
+      text: string;
+      due_at: string | null;
+      status: CommitmentStatus;
+      source_event_id: string | null;
+      transition_event_id: string;
+      occurred_at: Date | string;
+      created_at: Date | string;
+      decision_ledger_id: string;
+      decision_sequence: number | string;
+      relation_id: string;
+      evidence_refs: RelationEvidenceRef[];
+      total_count: number | string;
+    }>;
+    return {
+      items: rows.map((row) => ({
+        id: row.commitment_id,
+        personId: row.person_id,
+        text: row.text,
+        dueAt: row.due_at ? new Date(row.due_at) : null,
+        status: row.status,
+        sourceEventId: row.source_event_id || null,
+        transitionEventId: row.transition_event_id,
+        occurredAt: new Date(row.occurred_at),
+        createdAt: new Date(row.created_at),
+        provenance: {
+          decisionLedgerId: row.decision_ledger_id,
+          decisionSequence: Number(row.decision_sequence),
+          relationId: row.relation_id,
+          evidenceRefs: row.evidence_refs,
+        },
+      })),
+      total: Number(rows[0]?.total_count ?? 0),
+    };
+  }
+
+  async materializeIntroduction(
+    input: MaterializeIntroductionInput,
+  ): Promise<IntroductionRecord> {
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
+        store.materializeIntroduction(input),
+      );
+    }
+    if (input.sourcePersonId === input.targetPersonId) {
+      throw new Error("An Introduction requires two different People");
+    }
+    await this.#db.execute(
+      sql`SELECT pg_advisory_xact_lock(
+        hashtextextended(
+          ${`${input.organizationId}:${input.ownerUserId}:${input.introductionId}`},
+          0::bigint
+        )
+      )`,
+    );
+    const currentPage = await this.listIntroductions(
+      input.organizationId,
+      input.ownerUserId,
+      input.sourcePersonId,
+      {
+        limit: 1,
+        offset: 0,
+        introductionId: input.introductionId,
+      },
+    );
+    const current = currentPage.items[0] ?? null;
+    const declineReason = input.privateDeclineReason?.trim() ?? "";
+    const declineReasonRecorded = declineReason.length > 0;
+    const sameSnapshot =
+      current?.sourcePersonId === input.sourcePersonId &&
+      current.targetPersonId === input.targetPersonId &&
+      current.initiatorConsent === input.initiatorConsent &&
+      current.recipientConsent === input.recipientConsent &&
+      current.status === input.status &&
+      current.declineReasonRecorded === declineReasonRecorded;
+    if (current) {
+      if (current.provenance.decisionSequence > input.decisionSequence) {
+        return current;
+      }
+      if (current.provenance.decisionSequence === input.decisionSequence) {
+        if (
+          current.provenance.decisionLedgerId !== input.decisionLedgerId ||
+          !sameSnapshot
+        ) {
+          throw new Error(
+            "Introduction decision sequence conflicts with another transition",
+          );
+        }
+        if (
+          declineReason &&
+          current.transitionEventId === input.transitionEventId
+        ) {
+          const [existingReason] = await this.#db
+            .select({ properties: edges.properties })
+            .from(edges)
+            .where(and(
+              eq(edges.organizationId, input.organizationId),
+              eq(edges.ownerUserId, input.ownerUserId),
+              eq(edges.srcType, "event"),
+              eq(edges.srcId, input.transitionEventId),
+              eq(edges.dstType, "person"),
+              eq(edges.dstId, input.sourcePersonId),
+              eq(edges.edgeType, "introduction"),
+              eq(edges.visibility, "private"),
+            ))
+            .limit(1);
+          if (
+            !existingReason ||
+            payloadString(
+              payloadRecord(existingReason.properties),
+              "privateDeclineReason",
+            ) !== declineReason
+          ) {
+            throw new Error(
+              "Introduction private decline reason conflicts with its transition",
+            );
+          }
+        }
+        return current;
+      }
+      if (sameSnapshot) return current;
+      if (
+        current.sourcePersonId !== input.sourcePersonId ||
+        current.targetPersonId !== input.targetPersonId
+      ) {
+        throw new Error("Introduction transition cannot retarget People");
+      }
+    }
+    const terminal =
+      current?.status === "declined" ||
+      current?.status === "cancelled" ||
+      current?.status === "introduced";
+    if (input.operation === "create") {
+      if (
+        current ||
+        !input.initiatorConsent ||
+        input.recipientConsent ||
+        input.status !== "awaiting_consents" ||
+        declineReasonRecorded
+      ) {
+        throw new Error(
+          "Introduction creation requires only the initiator's explicit consent",
+        );
+      }
+    } else {
+      if (!current || terminal) {
+        throw new Error("Introduction is not in an actionable state");
+      }
+      if (input.operation === "consent") {
+        if (
+          (current.initiatorConsent && !input.initiatorConsent) ||
+          (current.recipientConsent && !input.recipientConsent)
+        ) {
+          throw new Error("Introduction consent cannot be revoked");
+        }
+        const expectedStatus = declineReasonRecorded
+          ? "declined"
+          : input.initiatorConsent && input.recipientConsent
+            ? "ready"
+            : "awaiting_consents";
+        if (input.status !== expectedStatus) {
+          throw new Error("Introduction consent state is inconsistent");
+        }
+      } else if (
+        input.operation === "complete"
+          ? current.status !== "ready" || input.status !== "introduced"
+          : input.status !== "cancelled"
+      ) {
+        throw new Error("Introduction transition is invalid");
+      }
+    }
+    const statusLabel = input.status.replace(/_/g, " ");
+    await this.#createInteractionInContext({
+      id: input.transitionEventId,
+      organizationId: input.organizationId,
+      ownerUserId: input.ownerUserId,
+      kind: `introduction_${input.operation}`,
+      occurredAt: input.decisionAt,
+      summary: `Introduction ${statusLabel}`,
+      source: "user",
+      sourceRecordId: input.introductionId,
+      visibility: "private",
+      participants: [
+        {
+          recordType: "person",
+          recordId: input.sourcePersonId,
+          role: "introducer",
+        },
+        {
+          recordType: "person",
+          recordId: input.targetPersonId,
+          role: "recipient",
+        },
+      ],
+      updatesPersonFreshness: false,
+      metadata: {
+        result: "introduction",
+        introductionId: input.introductionId,
+        sourcePersonId: input.sourcePersonId,
+        targetPersonId: input.targetPersonId,
+        initiatorConsent: input.initiatorConsent,
+        recipientConsent: input.recipientConsent,
+        status: input.status,
+        declineReasonRecorded,
+      },
+      decisionLedgerId: input.decisionLedgerId,
+      decisionSequence: input.decisionSequence,
+      decisionAt: input.decisionAt,
+    });
+    const relations = await Promise.all(
+      [input.sourcePersonId, input.targetPersonId].map((personId) =>
+        this.upsertRelation({
+          organizationId: input.organizationId,
+          ownerUserId: input.ownerUserId,
+          srcType: "event",
+          srcId: input.transitionEventId,
+          dstType: "person",
+          dstId: personId,
+          relationType: "introduction",
+          properties: {
+            introductionId: input.introductionId,
+            sourcePersonId: input.sourcePersonId,
+            targetPersonId: input.targetPersonId,
+            initiatorConsent: input.initiatorConsent,
+            recipientConsent: input.recipientConsent,
+            status: input.status,
+            declineReasonRecorded,
+            ...(personId === input.sourcePersonId && declineReason
+              ? { privateDeclineReason: declineReason }
+              : {}),
+          },
+          evidenceRefs: [{
+            entityType: "event",
+            entityId: input.transitionEventId,
+            source: "relationship",
+          }],
+          confidence: 1,
+          observedAt: input.decisionAt,
+          validFrom: input.decisionAt,
+          userConfirmed: input.initiatorConsent && input.recipientConsent,
+          visibility: "private",
+          source: "user",
+          sourceModule: "relationship",
+          decisionLedgerId: input.decisionLedgerId,
+          decisionSequence: input.decisionSequence,
+          decisionAt: input.decisionAt,
+        }),
+      ),
+    );
+    return {
+      id: input.introductionId,
+      sourcePersonId: input.sourcePersonId,
+      targetPersonId: input.targetPersonId,
+      initiatorConsent: input.initiatorConsent,
+      recipientConsent: input.recipientConsent,
+      status: input.status,
+      declineReasonRecorded,
+      transitionEventId: input.transitionEventId,
+      occurredAt: input.decisionAt,
+      createdAt: input.decisionAt,
+      provenance: {
+        decisionLedgerId: input.decisionLedgerId,
+        decisionSequence: input.decisionSequence,
+        relationIds: relations.map((relation) => relation.id),
+        evidenceRefs: relations.flatMap((relation) => relation.evidenceRefs),
+      },
+    };
+  }
+
+  async listIntroductions(
+    organizationId: string,
+    viewerUserId: string,
+    personId: string,
+    opts: PageOpts & { introductionId?: string; snapshotAt?: Date },
+  ): Promise<IntroductionPage> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listIntroductions(organizationId, viewerUserId, personId, opts),
+      );
+    }
+    const person = await this.getPerson(organizationId, viewerUserId, personId);
+    if (!person) return { items: [], total: 0 };
+    const limit = clamp(opts.limit, 1, 100);
+    const offset = clamp(opts.offset, 0, 10_000);
+    const result = await this.#db.execute(sql`
+      WITH latest AS (
+        SELECT DISTINCT ON (
+          coalesce(
+            anchor.properties ->> 'introductionId',
+            transition.payload #>> '{metadata,introductionId}'
+          )
+        )
+          coalesce(
+            anchor.properties ->> 'introductionId',
+            transition.payload #>> '{metadata,introductionId}'
+          ) AS introduction_id,
+          coalesce(
+            anchor.properties ->> 'sourcePersonId',
+            transition.payload #>> '{metadata,sourcePersonId}'
+          ) AS source_person_id,
+          coalesce(
+            anchor.properties ->> 'targetPersonId',
+            transition.payload #>> '{metadata,targetPersonId}'
+          ) AS target_person_id,
+          coalesce(
+            (anchor.properties ->> 'initiatorConsent')::boolean,
+            (transition.payload #>> '{metadata,initiatorConsent}')::boolean
+          ) AS initiator_consent,
+          coalesce(
+            (anchor.properties ->> 'recipientConsent')::boolean,
+            (transition.payload #>> '{metadata,recipientConsent}')::boolean
+          ) AS recipient_consent,
+          coalesce(
+            anchor.properties ->> 'status',
+            transition.payload #>> '{metadata,status}'
+          ) AS status,
+          (
+            coalesce(
+              (anchor.properties ->> 'declineReasonRecorded')::boolean,
+              (transition.payload #>> '{metadata,declineReasonRecorded}')::boolean,
+              false
+            )
+            OR coalesce(transition.payload #>> '{metadata,declineReason}', '') <> ''
+          ) AS decline_reason_recorded,
+          transition.id::text AS transition_event_id,
+          (transition.payload ->> 'occurredAt')::timestamptz AS occurred_at,
+          transition.created_at AS created_at,
+          transition.payload ->> 'decisionLedgerId' AS decision_ledger_id,
+          (transition.payload ->> 'decisionSequence')::bigint AS decision_sequence,
+          ARRAY(
+            SELECT related.id::text
+            FROM ${edges} AS related
+            WHERE related.organization_id = transition.organization_id
+              AND related.src_type = 'event'
+              AND related.src_id = transition.id
+              AND related.edge_type = 'introduction'
+              AND related.owner_user_id = ${viewerUserId}::uuid
+            ORDER BY related.id
+          ) AS relation_ids,
+          anchor.evidence_refs AS evidence_refs
+        FROM ${events} AS transition
+        INNER JOIN ${edges} AS anchor
+          ON anchor.organization_id = transition.organization_id
+          AND anchor.src_type = 'event'
+          AND anchor.src_id = transition.id
+          AND anchor.dst_type = 'person'
+          AND anchor.dst_id = ${personId}::uuid
+          AND anchor.edge_type = 'introduction'
+          AND anchor.owner_user_id = ${viewerUserId}::uuid
+        WHERE transition.organization_id = ${organizationId}::uuid
+          AND transition.entity_type = 'interaction'
+          ${opts.snapshotAt
+            ? sql`AND transition.created_at <= ${opts.snapshotAt}`
+            : sql``}
+          AND coalesce(
+            anchor.properties ->> 'introductionId',
+            transition.payload #>> '{metadata,introductionId}'
+          ) IS NOT NULL
+          AND transition.payload ->> 'ownerUserId' = ${viewerUserId}
+          ${opts.introductionId
+            ? sql`AND coalesce(
+                anchor.properties ->> 'introductionId',
+                transition.payload #>> '{metadata,introductionId}'
+              ) = ${opts.introductionId}`
+            : sql``}
+        ORDER BY
+          coalesce(
+            anchor.properties ->> 'introductionId',
+            transition.payload #>> '{metadata,introductionId}'
+          ),
+          (transition.payload ->> 'decisionSequence')::bigint DESC,
+          (transition.payload ->> 'occurredAt')::timestamptz DESC,
+          transition.id DESC
+      )
+      SELECT *, count(*) OVER() AS total_count
+      FROM latest
+      WHERE introduction_id IS NOT NULL
+      ORDER BY occurred_at DESC, introduction_id DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `);
+    const rows = (
+      Array.isArray(result)
+        ? result
+        : (result as { rows?: unknown[] }).rows ?? []
+    ) as Array<{
+      introduction_id: string;
+      source_person_id: string;
+      target_person_id: string;
+      initiator_consent: boolean;
+      recipient_consent: boolean;
+      status: IntroductionStatus;
+      decline_reason_recorded: boolean;
+      transition_event_id: string;
+      occurred_at: Date | string;
+      created_at: Date | string;
+      decision_ledger_id: string;
+      decision_sequence: number | string;
+      relation_ids: string[];
+      evidence_refs: RelationEvidenceRef[];
+      total_count: number | string;
+    }>;
+    return {
+      items: rows.map((row) => ({
+        id: row.introduction_id,
+        sourcePersonId: row.source_person_id,
+        targetPersonId: row.target_person_id,
+        initiatorConsent: row.initiator_consent,
+        recipientConsent: row.recipient_consent,
+        status: row.status,
+        declineReasonRecorded: row.decline_reason_recorded,
+        transitionEventId: row.transition_event_id,
+        occurredAt: new Date(row.occurred_at),
+        createdAt: new Date(row.created_at),
+        provenance: {
+          decisionLedgerId: row.decision_ledger_id,
+          decisionSequence: Number(row.decision_sequence),
+          relationIds: row.relation_ids,
+          evidenceRefs: row.evidence_refs,
+        },
+      })),
+      total: Number(rows[0]?.total_count ?? 0),
+    };
+  }
+
+  async listTimeline(
+    organizationId: string,
+    viewerUserId: string,
+    recordType: "person" | "community",
+    recordId: string,
+    opts: { limit: number; cursor?: TimelineCursor | null },
+  ): Promise<TimelinePage> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listTimeline(organizationId, viewerUserId, recordType, recordId, opts),
+      );
+    }
+    const anchor = recordType === "person"
+      ? await this.getPerson(organizationId, viewerUserId, recordId)
+      : await this.getCommunity(organizationId, viewerUserId, recordId);
+    if (!anchor) return { items: [], nextCursor: null };
+    const limit = clamp(opts.limit, 1, MAX_TIMELINE_PAGE_SIZE);
+    const occurredAt = sql<Date>`coalesce(
+      (${events.payload} ->> 'occurredAt')::timestamptz,
+      ${events.createdAt}
+    )`;
+    const cursorCondition = opts.cursor
+      ? or(
+          lt(occurredAt, opts.cursor.occurredAt),
+          and(eq(occurredAt, opts.cursor.occurredAt), lt(events.id, opts.cursor.id)),
+        )
+      : undefined;
     const rows = await this.#db
       .select()
       .from(events)
-      .where(and(eq(events.workspaceId, workspaceId), eq(events.id, id)))
+      .where(and(
+        eq(events.organizationId, organizationId),
+        eq(events.entityType, "interaction"),
+        sql<boolean>`(
+          ${events.payload} ->> 'ownerUserId' = ${viewerUserId}
+          OR ${events.payload} ->> 'visibility' = 'organization'
+        )`,
+        sql<boolean>`EXISTS (
+          SELECT 1
+          FROM "edges" AS "timeline_anchor_relation"
+          WHERE "timeline_anchor_relation"."organization_id" = ${organizationId}
+            AND "timeline_anchor_relation"."edge_type" = 'participant'
+            AND (
+              "timeline_anchor_relation"."owner_user_id" = ${viewerUserId}
+              OR "timeline_anchor_relation"."visibility" IN ('organization', 'public')
+            )
+            AND (
+              (
+                "timeline_anchor_relation"."src_type" = 'event'
+                AND "timeline_anchor_relation"."src_id" = ${events.id}
+                AND "timeline_anchor_relation"."dst_type" = ${recordType}
+                AND "timeline_anchor_relation"."dst_id" = ${recordId}
+              )
+              OR (
+                "timeline_anchor_relation"."dst_type" = 'event'
+                AND "timeline_anchor_relation"."dst_id" = ${events.id}
+                AND "timeline_anchor_relation"."src_type" = ${recordType}
+                AND "timeline_anchor_relation"."src_id" = ${recordId}
+              )
+            )
+        )`,
+        cursorCondition,
+      ))
+      .orderBy(desc(occurredAt), desc(events.id))
+      .limit(limit + 1);
+    const pageRows = rows.slice(0, limit);
+    if (pageRows.length === 0) return { items: [], nextCursor: null };
+    const eventIds = pageRows.map((event) => event.id);
+    const relationRows = await this.#db
+      .select()
+      .from(edges)
+      .where(and(
+        eq(edges.organizationId, organizationId),
+        eq(edges.edgeType, "participant"),
+        or(
+          and(eq(edges.srcType, "event"), inArray(edges.srcId, eventIds)),
+          and(eq(edges.dstType, "event"), inArray(edges.dstId, eventIds)),
+        ),
+        or(
+          eq(edges.ownerUserId, viewerUserId),
+          inArray(edges.visibility, ["organization", "public"]),
+        ),
+      ))
+      .orderBy(edges.id)
+      .limit(Math.min(MAX_BATCH_NODE_REFS, pageRows.length * MAX_INTERACTION_PARTICIPANTS));
+    const nodeRefs = relationRows.flatMap((relation) => {
+      if (relation.srcType === "event") {
+        return [{ nodeType: relation.dstType, nodeId: relation.dstId }];
+      }
+      if (relation.dstType === "event") {
+        return [{ nodeType: relation.srcType, nodeId: relation.srcId }];
+      }
+      return [];
+    });
+    const nodeMap = await this.#loadAccessibleNodes(organizationId, viewerUserId, nodeRefs);
+    const relationsByEvent = new Map<string, RelationRecord[]>();
+    for (const relation of relationRows) {
+      const eventId = relation.srcType === "event" ? relation.srcId : relation.dstId;
+      const otherType = relation.srcType === "event" ? relation.dstType : relation.srcType;
+      const otherId = relation.srcType === "event" ? relation.dstId : relation.srcId;
+      const otherNode = otherType === "person"
+        ? nodeMap.people.get(otherId)
+        : otherType === "community"
+          ? nodeMap.communities.get(otherId)
+          : null;
+      if (!otherNode) continue;
+      const bucket = relationsByEvent.get(eventId) ?? [];
+      bucket.push(relation);
+      relationsByEvent.set(eventId, bucket);
+    }
+    const items = pageRows
+      .map((event) => this.#timelineItemFromRows(
+        event,
+        relationsByEvent.get(event.id) ?? [],
+        nodeMap,
+      ))
+      .filter((item) => item.participants.length > 0);
+    const last = pageRows.at(-1);
+    const lastOccurredAt = last
+      ? new Date(
+          payloadString(payloadRecord(last.payload), "occurredAt") ??
+            last.createdAt.toISOString(),
+        )
+      : null;
+    return {
+      items,
+      nextCursor:
+        rows.length > limit &&
+        last &&
+        lastOccurredAt &&
+        !Number.isNaN(lastOccurredAt.getTime())
+        ? { occurredAt: lastOccurredAt, id: last.id }
+        : null,
+    };
+  }
+
+  #timelineItemFromRows(
+    event: typeof events.$inferSelect,
+    relations: RelationRecord[],
+    nodeMap: AccessibleNodes,
+  ): TimelineItem {
+    const payload = eventPayloadForProjection(event.payload, relations);
+    const participants: TimelineParticipant[] = [];
+    for (const relation of relations) {
+      const recordType = relation.srcType === "event" ? relation.dstType : relation.srcType;
+      const recordId = relation.srcType === "event" ? relation.dstId : relation.srcId;
+      if (recordType !== "person" && recordType !== "community") continue;
+      const node = recordType === "person"
+        ? nodeMap.people.get(recordId)
+        : nodeMap.communities.get(recordId);
+      if (!node) continue;
+      const properties = payloadRecord(relation.properties);
+      participants.push({
+        relationId: relation.id,
+        recordType,
+        recordId,
+        displayName: typeof node.displayName === "string" ? node.displayName : null,
+        role: payloadString(properties, "role"),
+        attendanceState: payloadString(properties, "attendanceState"),
+      });
+    }
+    const evidenceRefs = relations.flatMap((relation) =>
+      relationEvidenceCandidates(relation).filter((evidence) => (
+        (evidence.entityType === "event" && evidence.entityId === event.id) ||
+        (evidence.entityType === "person" && nodeMap.people.has(evidence.entityId)) ||
+        (evidence.entityType === "community" && nodeMap.communities.has(evidence.entityId))
+      )),
+    );
+    const decisionLedgerIds = [
+      ...new Set(relations.flatMap((relation) =>
+        relation.decisionLedgerId ? [relation.decisionLedgerId] : [],
+      )),
+    ];
+    const visibility = relations.some((relation) => relation.visibility === "private")
+      ? "private"
+      : relations.some((relation) => relation.visibility === "organization")
+        ? "organization"
+        : "public";
+    return {
+      id: event.id,
+      type: event.type,
+      kind: payloadString(payload, "kind") ?? event.type,
+      summary: payloadString(payload, "summary"),
+      source: payloadString(payload, "source") ?? "unknown",
+      sourceRecordId: payloadString(payload, "sourceRecordId"),
+      visibility,
+      occurredAt: payloadDate(payload, "occurredAt", event.createdAt),
+      createdAt: event.createdAt,
+      participants,
+      provenance: {
+        eventId: event.id,
+        relationIds: relations.map((relation) => relation.id),
+        evidenceRefs: [...new Map(evidenceRefs.map((evidence) => [
+          `${evidence.entityType}:${evidence.entityId}:${evidence.source ?? ""}`,
+          evidence,
+        ])).values()],
+        decisionLedgerIds,
+      },
+    };
+  }
+
+  async getEvent(organizationId: string, id: string): Promise<typeof events.$inferSelect | null> {
+    const rows = await this.#db
+      .select()
+      .from(events)
+      .where(and(eq(events.organizationId, organizationId), eq(events.id, id)))
       .limit(1);
     return rows[0] ?? null;
   }
 
-  async getSignalDetail(workspaceId: string, viewerUserId: string, id: string): Promise<SignalDetail | null> {
-    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
-      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
-        store.getSignalDetail(workspaceId, viewerUserId, id),
+  async indexModuleFile(input: IndexModuleFileInput): Promise<typeof files.$inferSelect> {
+    if (!this.#hasRlsContext(input.organizationId, input.ownerUserId)) {
+      return this.#withRlsContext(input.organizationId, input.ownerUserId, (store) =>
+        store.indexModuleFile(input),
       );
     }
-    const anchor = await this.getSignalEvidenceAnchor(workspaceId, viewerUserId, id);
+    if (
+      !UUID_PATTERN.test(input.organizationId) ||
+      !UUID_PATTERN.test(input.ownerUserId) ||
+      !input.moduleId.trim() ||
+      !input.path.trim() ||
+      !Number.isSafeInteger(input.size) ||
+      input.size < 0 ||
+      Number.isNaN(Date.parse(input.modifiedAt))
+    ) {
+      throw new Error("Canonical Module File metadata is invalid");
+    }
+    const moduleRefId = UUID_PATTERN.test(input.moduleId)
+      ? input.moduleId.toLowerCase()
+      : stableReferenceUuid(
+          `${input.organizationId}:${input.moduleId}:${input.moduleName}`,
+        );
+    const storageRef = `module://${input.moduleId}/${input.path}`;
+    const metadata = {
+      moduleId: input.moduleId,
+      moduleName: input.moduleName,
+      path: input.path,
+      size: input.size,
+      modifiedAt: input.modifiedAt,
+    };
+    await this.#db
+      .insert(files)
+      .values({
+        id: randomUUID(),
+        organizationId: input.organizationId,
+        source: input.moduleName,
+        storageRef,
+        metadata,
+      })
+      .onConflictDoUpdate({
+        target: [files.organizationId, files.storageRef],
+        targetWhere: sql`${files.storageRef} IS NOT NULL AND ${files.archivedAt} IS NULL`,
+        set: {
+          source: input.moduleName,
+          metadata,
+        },
+      });
+    const rows = await this.#db
+      .select()
+      .from(files)
+      .where(and(
+        eq(files.organizationId, input.organizationId),
+        eq(files.storageRef, storageRef),
+        isNull(files.archivedAt),
+      ))
+      .limit(1);
+    const file = rows[0];
+    if (!file) throw new Error("Canonical Module File index write returned no row");
+    await this.#db
+      .insert(fileRefs)
+      .values({
+        fileId: file.id,
+        entityType: "module",
+        entityId: moduleRefId,
+      })
+      .onConflictDoNothing();
+    return file;
+  }
+
+  async getSignalDetail(organizationId: string, viewerUserId: string, id: string): Promise<SignalDetail | null> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.getSignalDetail(organizationId, viewerUserId, id),
+      );
+    }
+    const anchor = await this.getSignalEvidenceAnchor(organizationId, viewerUserId, id);
     if (!anchor) return null;
     const { signal, sourceEvent } = anchor;
 
-    const signalRelations = await this.#db
-      .select()
-      .from(edges)
-      .where(
-        and(
-          eq(edges.workspaceId, workspaceId),
-          eq(edges.edgeType, "participant"),
-          or(
-            eq(edges.ownerUserId, viewerUserId),
-            inArray(edges.visibility, ["workspace", "public"]),
-          ),
-          or(
-            and(
-              eq(edges.srcType, "signal"),
-              eq(edges.srcId, signal.id),
-              inArray(edges.dstType, ["person", "community"]),
-              this.#accessibleNodeCondition(edges.dstType, edges.dstId, workspaceId, viewerUserId),
-            ),
-            and(
-              eq(edges.dstType, "signal"),
-              eq(edges.dstId, signal.id),
-              inArray(edges.srcType, ["person", "community"]),
-              this.#accessibleNodeCondition(edges.srcType, edges.srcId, workspaceId, viewerUserId),
-            ),
-          ),
-        ),
-      )
-      .orderBy(...this.#relationPreferenceOrder(viewerUserId))
-      .limit(MAX_SIGNAL_RELATIONS);
+    const signalRelations: RelationRecord[] = [];
     const eventRelations = sourceEvent
       ? await this.#db
           .select()
           .from(edges)
           .where(
             and(
-              eq(edges.workspaceId, workspaceId),
+              eq(edges.organizationId, organizationId),
               eq(edges.edgeType, "participant"),
               or(
                 eq(edges.ownerUserId, viewerUserId),
-                inArray(edges.visibility, ["workspace", "public"]),
+                inArray(edges.visibility, ["organization", "public"]),
               ),
               or(
                 and(
@@ -1929,7 +4480,7 @@ export class DrizzleGraphStore {
                   this.#accessibleNodeCondition(
                     edges.dstType,
                     edges.dstId,
-                    workspaceId,
+                    organizationId,
                     viewerUserId,
                   ),
                 ),
@@ -1940,7 +4491,7 @@ export class DrizzleGraphStore {
                   this.#accessibleNodeCondition(
                     edges.srcType,
                     edges.srcId,
-                    workspaceId,
+                    organizationId,
                     viewerUserId,
                   ),
                 ),
@@ -1971,7 +4522,7 @@ export class DrizzleGraphStore {
       })),
     );
     const accessible = await this.#loadAccessibleNodes(
-      workspaceId,
+      organizationId,
       viewerUserId,
       [...participantReferences, ...evidenceReferences],
       {
@@ -2030,23 +4581,58 @@ export class DrizzleGraphStore {
     };
   }
 
-  /** Records the user's reaction to a Signal (act | dismiss | save). Does not
-   * itself perform "act" — that's a separate governed `action.propose` call the
-   * caller makes; this only logs which verb the user chose, for signal-status
-   * bookkeeping (`signals.status` is left to a later pass to auto-derive from
-   * this, not touched here — out of scope, see BUGS.md if that gap needs filing). */
-  async recordSignalAction(input: { workspaceId: string; signalId: string; userId: string; verb: "act" | "dismiss" | "save" }): Promise<void> {
-    if (!this.#hasRlsContext(input.workspaceId, input.userId)) {
-      return this.#withRlsContext(input.workspaceId, input.userId, (store) =>
+  /** Records the user's reaction without performing the governed Action. */
+  async recordSignalAction(input: { organizationId: string; signalId: string; userId: string; verb: "act" | "dismiss" | "save" }): Promise<void> {
+    if (!this.#hasRlsContext(input.organizationId, input.userId)) {
+      return this.#withRlsContext(input.organizationId, input.userId, (store) =>
         store.recordSignalAction(input),
       );
     }
-    await this.#db.insert(signalActions).values({
+    await this.#db.insert(events).values({
       id: randomUUID(),
-      workspaceId: input.workspaceId,
-      signalId: input.signalId,
-      userId: input.userId,
-      verb: input.verb,
+      organizationId: input.organizationId,
+      type: "relationship.signal.action",
+      entityType: "event",
+      entityId: input.signalId,
+      payload: {
+        kind: "relationship_signal_action",
+        signalEventId: input.signalId,
+        userId: input.userId,
+        verb: input.verb,
+      },
+    });
+  }
+
+  async recordWebResearchResultEvent(input: {
+    organizationId: string;
+    userId: string;
+    eventId: string;
+    resultId: string;
+    memoryId: string;
+    taskId: string;
+    moduleName: string;
+    payload: Record<string, unknown>;
+  }): Promise<void> {
+    if (!this.#hasRlsContext(input.organizationId, input.userId)) {
+      return this.#withRlsContext(input.organizationId, input.userId, (store) =>
+        store.recordWebResearchResultEvent(input),
+      );
+    }
+    await this.#db.insert(events).values({
+      id: input.eventId,
+      organizationId: input.organizationId,
+      type: "learning.web_research.result_recorded",
+      entityType: "result",
+      entityId: input.resultId,
+      payload: {
+        ...input.payload,
+        kind: "web_research_result_event",
+        resultId: input.resultId,
+        memoryId: input.memoryId,
+        taskId: input.taskId,
+        moduleName: input.moduleName,
+        trustOrigin: "untrusted_external",
+      },
     });
   }
 }

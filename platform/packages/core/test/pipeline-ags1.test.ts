@@ -16,8 +16,8 @@ import {
   RecordingVarianceAdjuster,
   InMemoryGoalTaskStore,
   InMemorySkillManifestRegistry,
-  InMemoryRitualRegistry,
-  InProcessRitualExecutor,
+  InMemoryAutomationRegistry,
+  InProcessAutomationExecutor,
   type RunCtx,
   type ActionRequest,
   type Skill,
@@ -36,7 +36,7 @@ const stageStrategicRecommendation: Skill = {
 };
 
 const GOVERNED_MANIFEST: SkillManifest = {
-  workspaceId: WS,
+  organizationId: WS,
   skillId: "stageStrategicRecommendation",
   version: "1.0.0",
   goalTypes: ["relationship.learning"],
@@ -84,9 +84,9 @@ function freshCtx(startISO = "2026-06-01T00:00:00.000Z", seed = 42): RunCtx {
 
 async function seedGoalTask(h: ReturnType<typeof harness>, assignedAgentId: string): Promise<{ goal: Goal; task: Task }> {
   const seam = { nextId: () => "id-" + Math.random().toString(36).slice(2), nowISO: () => "2026-07-16T00:00:00.000Z" };
-  const goal = await h.goalTasks.createGoal({ workspaceId: WS, type: "relationship.learning", title: "goal" }, seam);
+  const goal = await h.goalTasks.createGoal({ organizationId: WS, type: "relationship.learning", title: "goal" }, seam);
   const task = await h.goalTasks.createTask(
-    { workspaceId: WS, goalId: goal.id, type: "synthesize_recommendation", assignedAgentId },
+    { organizationId: WS, goalId: goal.id, type: "synthesize_recommendation", assignedAgentId },
     seam,
   );
   return { goal, task };
@@ -96,7 +96,7 @@ async function seedGoalTask(h: ReturnType<typeof harness>, assignedAgentId: stri
  * AND an assumed-role allow grant — both are required by authority.ts's Layer 1
  * before an agent actor's request even reaches the pipeline's AGS1 gate). */
 function authorizeAgent(h: ReturnType<typeof harness>, agentId: string): void {
-  h.agents.workspaces.set(agentId, WS);
+  h.agents.organizations.set(agentId, WS);
   h.agents.statuses.set(agentId, "active");
   h.agents.scope.set(agentId, ["signal:write"]);
   h.agents.assumed.set(agentId, `role-${agentId}`);
@@ -116,7 +116,7 @@ function authorizePrincipal(h: ReturnType<typeof harness>, actorType: "user" | "
 
 function req(partial: Partial<ActionRequest>): ActionRequest {
   return {
-    workspaceId: WS,
+    organizationId: WS,
     actor: { type: "agent", id: "internal_strategist" },
     action: "write",
     resourceType: "signal",
@@ -235,7 +235,7 @@ test("AGS1: the kernel passthrough is Human-only on unprotected resources", asyn
 test("AGS1: an unregistered skill on an agent-floor-PROTECTED resourceType/action is structurally exempt — no manifest needed, no allowlist maintained", async () => {
   const h = harness();
   h.skills.register({ name: "stageMutation", async run(inputs) { return { proposedOutput: inputs }; } });
-  // capability.approve/blueprint.activate/packages.install's real shape: a Human
+  // capability.approve/blueprint.activate/modules.install's real shape: a Human
   // approving something on the interim "skill" governance token — agent-floor
   // already makes (approve, skill) impossible for ANY agent, unconditionally.
   h.roles.direct.set("user:human-1", [{ resourceType: "skill", resourceId: null, action: "approve", effect: "allow" }]);
@@ -260,22 +260,22 @@ test("AGS1: a NON-floor-protected skill still fails closed even though OTHER ski
 });
 
 // ---------------------------------------------------------------------------
-// Reconciled Automation→declared-Agent-Run integration: an Automation (Ritual)
-// does NOT get a second, parallel actor-binding mechanism — a Ritual step
+// Automation-to-declared-Agent-Run integration: an Automation
+// does NOT get a second, parallel actor-binding mechanism — an Automation step
 // whose skill has a registered manifest resolves through the SAME
 // `resolveSkillForTask` gate a direct Agent call would, using the step's own
-// `goalTaskRef` (RitualStepDef.goalTaskRef, threaded unchanged by
-// InProcessRitualExecutor into `pipeline.propose`).
+// `goalTaskRef` (AutomationStepDef.goalTaskRef, threaded unchanged by
+// InProcessAutomationExecutor into `pipeline.propose`).
 // ---------------------------------------------------------------------------
-test("Automation/Ritual integration: a Ritual step whose declared Agent is eligible for its Task resolves the governed skill", async () => {
+test("Automation integration: a step whose declared Agent is eligible for its Task resolves the governed Skill", async () => {
   const h = harness();
   authorizeAgent(h, "internal_strategist");
   const { task } = await seedGoalTask(h, "internal_strategist");
-  const ritualRegistry = new InMemoryRitualRegistry();
-  ritualRegistry.register({
-    id: "ritual-1",
+  const automationRegistry = new InMemoryAutomationRegistry();
+  automationRegistry.register({
+    id: "automation-1",
     name: "test_fixture automation",
-    workspaceId: WS,
+    organizationId: WS,
     agentId: "internal_strategist",
     agentPlane: "local",
     steps: [
@@ -288,66 +288,34 @@ test("Automation/Ritual integration: a Ritual step whose declared Agent is eligi
       },
     ],
   });
-  const executor = new InProcessRitualExecutor(h.pipeline, { registry: ritualRegistry });
+  const executor = new InProcessAutomationExecutor(h.pipeline, { registry: automationRegistry });
   const result = await executor.runById(
-    { workspaceId: WS, ritualId: "ritual-1", actor: { type: "agent", id: "internal_strategist" } },
+    { organizationId: WS, automationId: "automation-1" },
     freshCtx(),
   );
   assert.equal(result.status, "completed");
   assert.equal(result.proposals[0]!.status, "pending_review"); // agents always draft
 });
 
-test("Automation/Ritual integration: a Ritual step targeting a governed skill with NO goalTaskRef halts (fails closed), never silently skipped", async () => {
+test("Automation integration: a step targeting a governed Skill with no Goal/Task reference halts", async () => {
   const h = harness();
   authorizeAgent(h, "internal_strategist");
-  const ritualRegistry = new InMemoryRitualRegistry();
-  ritualRegistry.register({
-    id: "ritual-2",
+  const automationRegistry = new InMemoryAutomationRegistry();
+  automationRegistry.register({
+    id: "automation-2",
     name: "test_fixture automation missing goalTaskRef",
-    workspaceId: WS,
+    organizationId: WS,
     agentId: "internal_strategist",
     agentPlane: "local",
     steps: [
       { skill: "stageStrategicRecommendation", action: "write", resourceType: "signal", inputs: { text: "x" } },
     ],
   });
-  const executor = new InProcessRitualExecutor(h.pipeline, { registry: ritualRegistry });
+  const executor = new InProcessAutomationExecutor(h.pipeline, { registry: automationRegistry });
   const result = await executor.runById(
-    { workspaceId: WS, ritualId: "ritual-2", actor: { type: "agent", id: "internal_strategist" } },
+    { organizationId: WS, automationId: "automation-2" },
     freshCtx(),
   );
   assert.equal(result.status, "halted");
   assert.match(result.proposals[0]!.rejectionReason ?? "", /requires a resolved Goal\/Task assignment/);
-});
-
-test("Automation/Ritual integration: a Human caller cannot replace the declared owning Agent", async () => {
-  const h = harness();
-  authorizePrincipal(h, "user", "human-1");
-  const { task } = await seedGoalTask(h, "internal_strategist");
-  const ritualRegistry = new InMemoryRitualRegistry();
-  ritualRegistry.register({
-    id: "ritual-3",
-    name: "test_fixture automation rejects human caller",
-    workspaceId: WS,
-    agentId: "internal_strategist",
-    agentPlane: "local",
-    steps: [
-      {
-        skill: "stageStrategicRecommendation",
-        action: "write",
-        resourceType: "signal",
-        inputs: { text: "x" },
-        goalTaskRef: { goalId: task.goalId, taskId: task.id },
-      },
-    ],
-  });
-  const executor = new InProcessRitualExecutor(h.pipeline, { registry: ritualRegistry });
-  await assert.rejects(
-    () =>
-      executor.runById(
-        { workspaceId: WS, ritualId: "ritual-3", actor: { type: "user", id: "human-1" } },
-        freshCtx(),
-      ),
-    /caller actor does not match owning Agent internal_strategist/,
-  );
 });

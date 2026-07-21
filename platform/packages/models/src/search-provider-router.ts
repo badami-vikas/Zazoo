@@ -1,4 +1,8 @@
+import { createHash } from "node:crypto";
+import { isIP } from "node:net";
+
 import {
+  SEARCH_PROVIDER_HEALTH,
   SEARCH_PROVIDER_RESULT_LIMITS,
   SearchProviderError,
   SearchProviderPolicyError,
@@ -6,18 +10,55 @@ import {
   normalizeSearchRequest,
   type SearchProvider,
   type SearchProviderAttempt,
+  type SearchProviderHealth,
   type SearchProviderOutcome,
   type SearchProviderResult,
   type SearchProviderRouter,
   type SearchRequest,
 } from "@bridge/core";
-import { isSafePublicCitationUrl } from "./safe-http-client.js";
+import { isBlockedHostname, isBlockedIp } from "@bridge/net-guard";
 
 const DEFAULT_RIGHTS_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1_000;
+const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const HEALTH_RANK: Readonly<Record<SearchProviderHealth, number>> = {
+  healthy: 0,
+  unknown: 1,
+  degraded: 2,
+  unavailable: 3,
+};
 
 export interface FreeDirectSearchProviderRouterOptions {
   now?: () => number;
   rightsMaxAgeMs?: number;
+}
+
+function routingHealth(provider: SearchProvider): SearchProviderHealth {
+  const health = provider.health();
+  if (!SEARCH_PROVIDER_HEALTH.includes(health)) {
+    throw new SearchProviderPolicyError(
+      provider.id,
+      "SearchProvider returned an invalid health state",
+    );
+  }
+  return health;
+}
+
+function isSafePublicUrl(value: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  if (
+    (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
+    parsed.username.length > 0 ||
+    parsed.password.length > 0 ||
+    isBlockedHostname(parsed.hostname)
+  ) {
+    return false;
+  }
+  return isIP(parsed.hostname) === 0 || !isBlockedIp(parsed.hostname);
 }
 
 function assertVerifiedProvider(
@@ -36,6 +77,7 @@ function assertVerifiedProvider(
       "Phase 1 search permits only rights-verified Tier-1 free-direct providers",
     );
   }
+  routingHealth(provider);
   const verifiedAt = Date.parse(provider.rights.verifiedAt);
   if (
     provider.rights.status !== "verified" ||
@@ -56,15 +98,41 @@ function assertVerifiedProvider(
   ]) {
     if (
       value !== undefined &&
-      (!isSafePublicCitationUrl(value) ||
-        new URL(value).protocol !== "https:")
+      (!isSafePublicUrl(value) || new URL(value).protocol !== "https:")
     ) {
       throw new SearchProviderPolicyError(
         provider.id,
-        "provider rights metadata must use a public HTTP(S) URL",
+        "provider rights metadata must use a public HTTPS URL",
       );
     }
   }
+}
+
+function citationHash(citation: SearchProviderResult["citations"][number]): string {
+  return `sha256:${createHash("sha256")
+    .update(
+      JSON.stringify({
+        url: citation.url,
+        title: citation.title,
+        excerpts: citation.excerpts,
+      }),
+    )
+    .digest("hex")}`;
+}
+
+function sameRights(
+  provider: SearchProvider,
+  result: SearchProviderResult,
+): boolean {
+  const rights = result.provenance.rights;
+  return (
+    rights.status === provider.rights.status &&
+    rights.verifiedAt === provider.rights.verifiedAt &&
+    rights.sourceUrl === provider.rights.sourceUrl &&
+    rights.allowedDataScope === provider.rights.allowedDataScope &&
+    JSON.stringify(rights.restrictions) ===
+      JSON.stringify(provider.rights.restrictions)
+  );
 }
 
 function assertProviderResult(
@@ -83,6 +151,12 @@ function assertProviderResult(
     result.provenance.providerRequestId.length >
       SEARCH_PROVIDER_RESULT_LIMITS.maxProviderRequestIdChars ||
     !/^[\x21-\x7e]+$/.test(result.provenance.providerRequestId) ||
+    result.provenance.searchedAt !== request.requestedAt ||
+    !Number.isInteger(result.provenance.responseBytes) ||
+    result.provenance.responseBytes < 0 ||
+    result.provenance.responseBytes > request.maxResponseBytes ||
+    !SHA256_PATTERN.test(result.provenance.contentHash) ||
+    !sameRights(provider, result) ||
     result.citations.length > request.maxResults
   ) {
     throw new SearchProviderError({
@@ -93,7 +167,6 @@ function assertProviderResult(
     });
   }
   if (
-    !Number.isFinite(Date.parse(result.provenance.searchedAt)) ||
     result.warnings.length > SEARCH_PROVIDER_RESULT_LIMITS.maxWarnings ||
     result.warnings.some(
       (warning) =>
@@ -103,11 +176,14 @@ function assertProviderResult(
     result.citations.some((citation) => {
       return (
         citation.trustOrigin !== "untrusted_external" ||
+        citation.providerId !== provider.id ||
         citation.url.length > SEARCH_PROVIDER_RESULT_LIMITS.maxUrlChars ||
-        !isSafePublicCitationUrl(citation.url) ||
+        !isSafePublicUrl(citation.url) ||
+        !Number.isFinite(Date.parse(citation.retrievedAt)) ||
+        !SHA256_PATTERN.test(citation.contentHash) ||
+        citation.contentHash !== citationHash(citation) ||
         (citation.title !== null &&
-          citation.title.length >
-            SEARCH_PROVIDER_RESULT_LIMITS.maxTitleChars) ||
+          citation.title.length > SEARCH_PROVIDER_RESULT_LIMITS.maxTitleChars) ||
         (citation.publishedAt !== null &&
           !Number.isFinite(Date.parse(citation.publishedAt))) ||
         citation.excerpts.length >
@@ -131,6 +207,7 @@ function assertProviderResult(
 
 function failedAttempt(
   provider: SearchProvider,
+  health: SearchProviderHealth,
   error: unknown,
 ): SearchProviderAttempt {
   if (error instanceof SearchProviderError) {
@@ -138,6 +215,7 @@ function failedAttempt(
       providerId: provider.id,
       providerTier: provider.tier,
       providerAccess: provider.access,
+      providerHealth: health,
       status:
         error.code === "degraded" || error.code === "invalid_response"
           ? "degraded"
@@ -150,6 +228,7 @@ function failedAttempt(
     providerId: provider.id,
     providerTier: provider.tier,
     providerAccess: provider.access,
+    providerHealth: health,
     status: "degraded",
     code: "invalid_response",
     detail: `provider ${provider.id} failed with an unclassified adapter error`,
@@ -205,12 +284,44 @@ export class FreeDirectSearchProviderRouter implements SearchProviderRouter {
   async search(request: SearchRequest): Promise<SearchProviderOutcome> {
     const bounded = normalizeSearchRequest(request);
     const attempts: SearchProviderAttempt[] = [];
-    for (const provider of this.#providers.values()) {
+    const candidates = [...this.#providers.values()]
+      .map((provider) => ({
+        provider,
+        health: routingHealth(provider),
+      }))
+      .sort(
+        (a, b) =>
+          HEALTH_RANK[a.health] - HEALTH_RANK[b.health] ||
+          a.provider.id.localeCompare(b.provider.id),
+      )
+      .slice(0, bounded.maxProviderAttempts);
+
+    for (const { provider, health } of candidates) {
+      if (bounded.signal?.aborted) {
+        throw new SearchProviderError({
+          providerId: provider.id,
+          code: "cancelled",
+          message: "search request was cancelled",
+          retryable: false,
+        });
+      }
       assertVerifiedProvider(
         provider,
         this.#now(),
         this.#rightsMaxAgeMs,
       );
+      if (health === "unavailable") {
+        attempts.push({
+          providerId: provider.id,
+          providerTier: provider.tier,
+          providerAccess: provider.access,
+          providerHealth: health,
+          status: "unavailable",
+          code: "unavailable",
+          detail: `provider ${provider.id} is unavailable`,
+        });
+        continue;
+      }
       try {
         const result = await provider.search(bounded);
         assertProviderResult(provider, bounded, result);
@@ -218,12 +329,19 @@ export class FreeDirectSearchProviderRouter implements SearchProviderRouter {
           providerId: provider.id,
           providerTier: provider.tier,
           providerAccess: provider.access,
+          providerHealth: health,
           status: "succeeded",
           detail: `provider ${provider.id} completed the bounded search`,
         });
         return { ...result, attempts };
       } catch (error) {
-        attempts.push(failedAttempt(provider, error));
+        if (
+          error instanceof SearchProviderError &&
+          error.code === "cancelled"
+        ) {
+          throw error;
+        }
+        attempts.push(failedAttempt(provider, health, error));
       }
     }
     throw new SearchProvidersUnavailableError(attempts);

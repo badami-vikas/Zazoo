@@ -2,8 +2,8 @@
 title: Execution Plan — post-pivot consolidation sprint
 type: raw
 doc_kind: plan
-status: reconciled 2026-07-09 (ADR-044) — GATED lanes over BRIDGE_PLATFORM_RESET_HANDOFF.md (the stable brief). Each Track executes only behind discovery gate (PASSED 07-09) + safety gate (sandboxing/package-import/test-strategy, still required), recorded in docs/APPROVALS.md. Do NOT execute as-is or mark tracks DONE without an approved row.
-companions: [vision-pivot-living-software.md, roadmap-v2-universal-commons.md, capability-package-format.md, research-agent-skill-workflow-practices-2026.md, ../../BRIDGE_PLATFORM_RESET_HANDOFF.md, ../../BRIDGE_PLAN_CRITIQUE_AND_EXTENDED_PLAN.md]
+status: reconciled 2026-07-09 (ADR-044) — GATED lanes over bridge-platform-reset-handoff-2026-07.md (the stable brief). Each Track executes only behind discovery gate (PASSED 07-09) + safety gate (sandboxing/package-import/test-strategy, still required), recorded in docs/APPROVALS.md. Do NOT execute as-is or mark tracks DONE without an approved row.
+companions: [vision-pivot-living-software.md, roadmap-v2-universal-commons.md, capability-module-format.md, research-agent-skill-workflow-practices-2026.md, bridge-platform-reset-handoff-2026-07.md, bridge-plan-critique-2026-07.md]
 related_wiki: ../wiki/roadmap.md
 updated: 2026-07-09
 tags: [execution, subagents, avatar, ui-migration, dummy-purge, pi-packages, oss, onboarding]

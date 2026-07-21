@@ -15,13 +15,13 @@
  *  3. plane is literally typed "local": a context provider cannot exist on
  *     the cloud plane at the type level (raw capture local-plane ONLY).
  *  4. The kernel runs with ZERO providers — nothing in @bridge/core depends
- *     on this package; it is an optional capability surface.
+ *     on this module; it is an optional capability surface.
  */
 
 /** The provider registry kinds — peers, swappable, per the adopted client
  * architecture. Surfaces implement subsets (SURFACE_PROVIDER_KINDS). */
 export type ContextProviderKind =
-  | "apps" // frontmost app / focus tracking (macOS: NSWorkspace)
+  | "apps" // frontmost app / focus tracking (macOS: NSOrganization)
   | "accessibility" // AX-tree reads of the focused window
   | "screen" // on-demand screenshots (CGWindowList)
   | "voice" // microphone / voice command capture

@@ -14,31 +14,31 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createLocalDb, DrizzleAgentStore, schema } from "../src/index.js";
 
-async function seedWorkspaceAndAgent(
+async function seedOrganizationAndAgent(
   db: Awaited<ReturnType<typeof createLocalDb>>["db"],
   overrides: { capabilityScope?: unknown } = {},
 ) {
   const [ws] = await db
-    .insert(schema.workspaces)
+    .insert(schema.organizations)
     .values({ name: "test_fixture_ws_agent_scope" })
-    .returning({ id: schema.workspaces.id });
+    .returning({ id: schema.organizations.id });
   assert.ok(ws);
   const [agent] = await db
     .insert(schema.agents)
     .values({
-      workspaceId: ws.id,
+      organizationId: ws.id,
       name: "test_fixture_agent",
       capabilityScope: overrides.capabilityScope ?? {},
     })
     .returning({ id: schema.agents.id });
   assert.ok(agent);
-  return { workspaceId: ws.id, agentId: agent.id };
+  return { organizationId: ws.id, agentId: agent.id };
 }
 
 test("agent store: write-time — saveCapabilityScope throws on a malformed scope instead of persisting it", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { agentId } = await seedWorkspaceAndAgent(db);
+    const { agentId } = await seedOrganizationAndAgent(db);
     const store = new DrizzleAgentStore(db);
 
     // `resources` must be an array of strings — a number in the array is invalid.
@@ -57,15 +57,15 @@ test("agent store: write-time — saveCapabilityScope throws on a malformed scop
 test("agent store: write-time — saveCapabilityScope persists and capabilityScope()/dataScope() round-trip", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { agentId } = await seedWorkspaceAndAgent(db);
+    const { agentId } = await seedOrganizationAndAgent(db);
     const store = new DrizzleAgentStore(db);
 
     await store.saveCapabilityScope(agentId, {
-      resources: ["person:read", "touchpoint:write"],
+      resources: ["person:read", "event:write"],
       dataScope: "private",
     });
 
-    assert.deepEqual(await store.capabilityScope(agentId), ["person:read", "touchpoint:write"]);
+    assert.deepEqual(await store.capabilityScope(agentId), ["person:read", "event:write"]);
     assert.equal(await store.dataScope(agentId), "private");
   } finally {
     await close();
@@ -78,7 +78,7 @@ test("agent store: read-time — capabilityScope() throws (not silently falls ba
     // Insert directly with a bad capability_scope shape, bypassing
     // DrizzleAgentStore.saveCapabilityScope entirely — simulates a row
     // written before this fix existed, or by another process/raw SQL path.
-    const { agentId } = await seedWorkspaceAndAgent(db, {
+    const { agentId } = await seedOrganizationAndAgent(db, {
       capabilityScope: { resources: "not-an-array" },
     });
     const store = new DrizzleAgentStore(db);
@@ -93,7 +93,7 @@ test("agent store: read-time — capabilityScope() throws (not silently falls ba
 test("agent store: write-time — saveAllowedSkills throws on a malformed list instead of persisting it", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { agentId } = await seedWorkspaceAndAgent(db);
+    const { agentId } = await seedOrganizationAndAgent(db);
     const store = new DrizzleAgentStore(db);
 
     await assert.rejects(
@@ -110,7 +110,7 @@ test("agent store: write-time — saveAllowedSkills throws on a malformed list i
 test("agent store: procedure-name Skill allowlists round-trip through text[] storage", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { agentId } = await seedWorkspaceAndAgent(db);
+    const { agentId } = await seedOrganizationAndAgent(db);
     const store = new DrizzleAgentStore(db);
 
     await store.saveAllowedSkills(agentId, ["dealpilot.source", "google.listCalendarEvents"]);

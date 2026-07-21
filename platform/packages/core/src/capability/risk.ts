@@ -31,7 +31,7 @@ export function maxRisk(a: RiskBand, b: RiskBand): RiskBand {
  * Base risk mapping for a SINGLE permission (before considering dependencies
  * or connectors): read-only/no-egress -> informational; a permission that
  * merely produces recommendations (write to a "recommendation"/"signal"-shaped
- * resource) -> advisory; a write to ordinary workspace data -> transformational;
+ * resource) -> advisory; a write to ordinary organization data -> transformational;
  * a write to a shared/governed resource (permission/role/policy/ledger/agent/
  * delegation — the governance spine itself) -> operational; ANY egress
  * (external send, or dataScope spanning beyond private with write) -> external.
@@ -61,7 +61,7 @@ function riskForPermission(p: CapabilityPermission): RiskBand {
   if (GOVERNED_RESOURCES.has(p.resourceType)) return "operational";
 
   // A write whose resourceType/dataScope shape looks advisory (recommendation/
-  // signal-only output, never touching durable workspace state) stays advisory.
+  // signal-only output, never touching durable organization state) stays advisory.
   if (p.resourceType === "signal" || p.resourceType === "recommendation") return "advisory";
 
   return "transformational";

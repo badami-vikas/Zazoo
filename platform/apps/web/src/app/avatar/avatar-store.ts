@@ -1,31 +1,9 @@
-/**
- * Avatar preferences + overlay status — the small persistence + state layer
- * behind AvatarOverlay.tsx (docs/raw/spec-consolidation-2026-07.md sections 3
- * + 4: "Avatar Day-1" + "Onboarding Egg").
- *
- * Two separate concerns kept in one small file since both are tiny:
- *  - `AvatarPrefs`: durable, per-browser choice (spirit animal, hatch state,
- *    optional name) — localStorage, NOT workspace state. This is a client-side
- *    preference, not kernel data; nothing here is proposed/governed (CLAUDE.md's
- *    "everything is proposed and governed" applies to WORKSPACE state, not local
- *    UI chrome prefs, same category as lib/pins.ts's client-side pinning).
- *  - `avatarStatus`: an in-memory pub/sub the overlay renders from. Exported
- *    `setAvatarStatus` so future kernel events (tRPC subscriptions, Tauri
- *    `sensor.capture`, ritual/agent run events) can drive the same state
- *    machine without the overlay needing to know who's driving it.
- */
+/** Avatar visual preferences plus the operational-status store. */
 import { useEffect, useState } from "react";
 
-const STORAGE_KEY = "bridge.avatar.v1";
+const STORAGE_KEY = "bridge.avatar.v2";
 
-/**
- * 14 options = the ADR-033 onboarding spec's verbatim spirit-animal set
- * (Lion, Fox, Dog, Cat, Panda, Butterfly, Dolphin, Owl, Turtle, Peacock,
- * Elephant, Eagle, Horse, Beaver). `crane`/`wolf` predate that spec and are
- * kept as bonus extras (already wired, harmless, not worth ripping out) —
- * the union is a superset of the spec, not a replacement.
- */
-export type SpiritAnimal =
+export type AvatarStyle =
   | "owl"
   | "fox"
   | "turtle"
@@ -43,7 +21,7 @@ export type SpiritAnimal =
   | "horse"
   | "beaver";
 
-export const SPIRIT_ANIMALS: { value: SpiritAnimal; label: string }[] = [
+export const AVATAR_STYLES: { value: AvatarStyle; label: string }[] = [
   { value: "lion", label: "Lion" },
   { value: "fox", label: "Fox" },
   { value: "dog", label: "Dog" },
@@ -52,6 +30,9 @@ export const SPIRIT_ANIMALS: { value: SpiritAnimal; label: string }[] = [
   { value: "butterfly", label: "Butterfly" },
   { value: "dolphin", label: "Dolphin" },
   { value: "owl", label: "Owl" },
+  { value: "turtle", label: "Turtle" },
+  { value: "crane", label: "Crane" },
+  { value: "wolf", label: "Wolf" },
   { value: "peacock", label: "Peacock" },
   { value: "elephant", label: "Elephant" },
   { value: "eagle", label: "Eagle" },
@@ -60,70 +41,82 @@ export const SPIRIT_ANIMALS: { value: SpiritAnimal; label: string }[] = [
 ];
 
 export interface AvatarPrefs {
-  animal: SpiritAnimal;
-  eggHatched: boolean;
+  style: AvatarStyle;
+  avatarReady: boolean;
   avatarName?: string;
 }
 
 const DEFAULT_PREFS: AvatarPrefs = {
-  animal: "owl",
-  eggHatched: false,
+  style: "owl",
+  avatarReady: false,
 };
 
-/** Existing users (a workspace already exists, but no avatar prefs were ever
- * saved — nothing wrote `bridge.avatar.v1` before this feature shipped) get a
- * neutral hatched owl, never a forced re-onboarding (spec section 4, item 4 of
- * the build brief). */
+/** Existing users never get forced back through Onboarding. */
 const EXISTING_USER_DEFAULT: AvatarPrefs = {
-  animal: "owl",
-  eggHatched: true,
+  style: "owl",
+  avatarReady: true,
 };
 
-function readPrefs(): AvatarPrefs | null {
-  if (typeof window === "undefined") return null;
+function isAvatarStyle(value: unknown): value is AvatarStyle {
+  return typeof value === "string" && AVATAR_STYLES.some((option) => option.value === value);
+}
+
+function parsePrefs(raw: string): AvatarPrefs | null {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<AvatarPrefs>;
-    if (!parsed || typeof parsed !== "object") return null;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      !isAvatarStyle(parsed.style) ||
+      typeof parsed.avatarReady !== "boolean"
+    ) return null;
     return {
-      animal: (parsed.animal as SpiritAnimal) ?? DEFAULT_PREFS.animal,
-      eggHatched: Boolean(parsed.eggHatched),
-      ...(parsed.avatarName ? { avatarName: parsed.avatarName } : {}),
+      style: parsed.style,
+      avatarReady: parsed.avatarReady,
+      ...(typeof parsed.avatarName === "string" && parsed.avatarName
+        ? { avatarName: parsed.avatarName }
+        : {}),
     };
   } catch {
     return null;
   }
 }
 
-function writePrefs(prefs: AvatarPrefs) {
-  if (typeof window === "undefined") return;
+function readPrefs(): AvatarPrefs | null {
+  if (typeof window === "undefined") return null;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    const current = window.localStorage.getItem(STORAGE_KEY);
+    if (current) {
+      const parsed = parsePrefs(current);
+      if (parsed) return parsed;
+    }
+
+    return null;
   } catch {
-    // Honest no-op: localStorage can throw (private mode, quota) — avatar
-    // prefs are a cosmetic convenience, never worth surfacing an error for.
+    return null;
   }
 }
 
-/** True the FIRST time this browser has ever been asked — used to distinguish
- * "brand-new user, egg still incubating" from "existing user, no prefs saved
- * yet" (spec section 4 item 4). Onboarding itself is what flips this by
- * calling `savePrefs` once the egg hatches; existing users who never go
- * through onboarding again should not see an egg. */
-export function hasStoredPrefs(): boolean {
+function writePrefs(prefs: AvatarPrefs): boolean {
   if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(STORAGE_KEY) !== null;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    return true;
+  } catch {
+    // Honest no-op: localStorage can throw (private mode, quota) — avatar
+    // prefs are a cosmetic convenience, never worth surfacing an error for.
+    return false;
+  }
 }
 
-/** Read current prefs, applying the existing-user fallback described above.
- * `hasExistingWorkspace` lets the caller (Layout) distinguish "this browser
- * has an active workspace already" (existing user) from "brand new, egg not
- * hatched yet" (new user, onboarding owns the reveal). */
-export function loadAvatarPrefs(hasExistingWorkspace: boolean): AvatarPrefs {
+export function hasStoredPrefs(): boolean {
+  return readPrefs() !== null;
+}
+
+export function loadAvatarPrefs(hasExistingOrganization: boolean): AvatarPrefs {
   const stored = readPrefs();
   if (stored) return stored;
-  return hasExistingWorkspace ? EXISTING_USER_DEFAULT : DEFAULT_PREFS;
+  return hasExistingOrganization ? EXISTING_USER_DEFAULT : DEFAULT_PREFS;
 }
 
 export function saveAvatarPrefs(prefs: AvatarPrefs): void {
@@ -166,7 +159,7 @@ let currentStatus: AvatarStatus = "idle";
 const listeners = new Set<(status: AvatarStatus) => void>();
 
 /** Exported setter — future kernel events (tRPC subscriptions, Tauri
- * `sensor.capture`, ritual/agent run completion) call this directly. No
+ * `sensor.capture`, Automation/Agent Run completion) call this directly. No
  * polling: purely event-driven per the spec's technical contract. */
 export function setAvatarStatus(status: AvatarStatus): void {
   currentStatus = status;
@@ -187,33 +180,6 @@ export function useAvatarStatus(): AvatarStatus {
     };
   }, []);
   return status;
-}
-
-// ---------------------------------------------------------------------------
-// Growth stage — driven by Memory entry count + installed capability count,
-// NOT streaks or login history (spec "Growth stages").
-// ---------------------------------------------------------------------------
-
-export type GrowthStage = "egg" | "creature" | "mature";
-
-/**
- * Pure function — callers (Layout, tests) pass the live counts; the overlay
- * never fetches them itself. Thresholds align with the spec's `policy_params`
- * concept — move to a server-side param when that table lands.
- *
- * score = memoryCount + capabilityCount × 2
- *   < 10  → egg      (brand-new, onboarding in progress)
- *   < 50  → creature (engaged, some capabilities installed)
- *   ≥ 50  → mature   (power user)
- */
-export function computeGrowthStage(
-  memoryCount: number,
-  capabilityCount: number,
-): GrowthStage {
-  const score = memoryCount + capabilityCount * 2;
-  if (score < 10) return "egg";
-  if (score < 50) return "creature";
-  return "mature";
 }
 
 // ---------------------------------------------------------------------------

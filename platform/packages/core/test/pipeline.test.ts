@@ -6,7 +6,7 @@ import {
   SeededRng,
   UuidGen,
   UniversalActionPipeline,
-  InProcessRitualExecutor,
+  InProcessAutomationExecutor,
   InMemoryRoleStore,
   InMemoryAgentStore,
   InMemoryEphemeralStore,
@@ -14,9 +14,8 @@ import {
   InMemoryLedger,
   InMemoryEventBus,
   InMemorySkillRegistry,
-  InMemoryRitualRegistry,
-  InMemoryRitualRunRecorder,
-  InMemoryToolRegistry,
+  InMemoryAutomationRegistry,
+  InMemoryAutomationRunRecorder,
   RecordingVarianceAdjuster,
   intersectDataScope,
   AlreadyResolvedError,
@@ -66,7 +65,7 @@ function freshCtx(startISO = "2026-06-01T00:00:00.000Z", seed = 42): RunCtx {
 
 function req(partial: Partial<ActionRequest>): ActionRequest {
   return {
-    workspaceId: WS,
+    organizationId: WS,
     actor: { type: "user", id: "u1" },
     action: "write",
     resourceType: "person",
@@ -275,7 +274,7 @@ test("ephemeral grant authorizes an agent step, then drafts for review", async (
   const p = await h.pipeline.propose(
     req({
       actor: { type: "agent", id: "agent-1" },
-      context: { type: "initiative", id: "init-9" },
+      context: { type: "record", id: "init-9" },
     }),
     freshCtx(),
   );
@@ -295,7 +294,7 @@ test("expired ephemeral grant does not authorize", async () => {
     "init-9",
   );
   const p = await h.pipeline.propose(
-    req({ actor: { type: "agent", id: "agent-1" }, context: { type: "initiative", id: "init-9" } }),
+    req({ actor: { type: "agent", id: "agent-1" }, context: { type: "record", id: "init-9" } }),
     freshCtx(),
   );
   assert.equal(p.status, "rejected");
@@ -317,7 +316,7 @@ test("policy require_approval forces a human draft even on auto path", async () 
 test("policy block rejects before the skill runs", async () => {
   const blocker: PolicyFn = (i) =>
     i.phase === "pre"
-      ? { policyId: "pol-block", phase: "pre", effect: "block", reason: "frozen workspace" }
+      ? { policyId: "pol-block", phase: "pre", effect: "block", reason: "frozen organization" }
       : null;
   const h = harness({ policies: [blocker] });
   h.roles.direct.set("user:u1", [
@@ -479,7 +478,7 @@ test("decide() persists and replays the ORIGINAL dataScope + context, not '(repl
     { resourceType: "person", resourceId: null, action: "write", effect: "allow", dataScope: "all" },
   ]);
   const ctx = freshCtx();
-  const originalContext = { type: "initiative" as const, id: "test_fixture_init-9", runId: "test_fixture_run-1" };
+  const originalContext = { type: "record" as const, id: "test_fixture_init-9", runId: "test_fixture_run-1" };
   const p = await h.pipeline.propose(
     req({
       actor: { type: "agent", id: "agent-1" },
@@ -562,17 +561,17 @@ test("server-owned requireHumanReview keeps an otherwise auto-applicable Human p
   assert.equal(h.events.events.length, 0);
 });
 
-test("P2: runById loads a ritual config, merges params, runs it, records the run", async () => {
+test("AutomationExecutor loads a definition, merges params, and records its attributable Run", async () => {
   const h = harness();
-  h.agents.assumed.set("agent-1", "role-ritual-owner");
+  h.agents.assumed.set("agent-1", "role-automation-owner");
   h.agents.scope.set("agent-1", ["person:write"]);
-  h.roles.roleGrants.set("role-ritual-owner", [
+  h.roles.roleGrants.set("role-automation-owner", [
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
   ]);
-  const registry = new InMemoryRitualRegistry().register({
+  const registry = new InMemoryAutomationRegistry().register({
     id: "reconnect",
     name: "Reconnect Advisor",
-    workspaceId: WS,
+    organizationId: WS,
     agentId: "agent-1",
     agentPlane: "local",
     steps: [
@@ -580,11 +579,11 @@ test("P2: runById loads a ritual config, merges params, runs it, records the run
       { skill: "echo", action: "write", resourceType: "person" },
     ],
   });
-  const recorder = new InMemoryRitualRunRecorder();
-  const exec = new InProcessRitualExecutor(h.pipeline, { registry, recorder });
+  const recorder = new InMemoryAutomationRunRecorder();
+  const exec = new InProcessAutomationExecutor(h.pipeline, { registry, recorder });
 
   const result = await exec.runById(
-    { workspaceId: WS, ritualId: "reconnect", params: { target: "p9" } },
+    { organizationId: WS, automationId: "reconnect", params: { target: "p9" } },
     freshCtx(),
   );
   assert.equal(result.status, "completed");
@@ -595,65 +594,43 @@ test("P2: runById loads a ritual config, merges params, runs it, records the run
   // run recorded as completed.
   const rec = recorder.runs.get(result.runId);
   assert.equal(rec?.status, "completed");
+  assert.equal(rec?.agentId, "agent-1");
+  const recent = await recorder.list(WS, ["reconnect"], { limit: 10 });
+  assert.equal(recent.length, 1);
+  assert.equal(recent[0]?.runId, result.runId);
+  assert.equal(recent[0]?.finishedAt !== undefined, true);
 });
 
-test("P2: runById rejects a caller actor that does not match the stored owning Agent", async () => {
+test("AutomationExecutor derives the actor exclusively from the stored owning Agent", async () => {
   const h = harness();
-  const registry = new InMemoryRitualRegistry().register({
+  h.agents.assumed.set("agent-owner", "role-reader");
+  h.agents.scope.set("agent-owner", ["person:read"]);
+  h.roles.roleGrants.set("role-reader", [
+    { resourceType: "person", resourceId: null, action: "read", effect: "allow" },
+  ]);
+  const registry = new InMemoryAutomationRegistry().register({
     id: "owned",
     name: "Owned",
-    workspaceId: WS,
+    organizationId: WS,
     agentId: "agent-owner",
     agentPlane: "local",
     steps: [{ skill: "echo", action: "read", resourceType: "person" }],
   });
-  const exec = new InProcessRitualExecutor(h.pipeline, { registry });
-  await assert.rejects(
-    () =>
-      exec.runById(
-        { workspaceId: WS, ritualId: "owned", actor: { type: "agent", id: "agent-impostor" } },
-        freshCtx(),
-      ),
-    /does not match owning Agent agent-owner/,
+  const exec = new InProcessAutomationExecutor(h.pipeline, { registry });
+  const result = await exec.runById(
+    { organizationId: WS, automationId: "owned" },
+    freshCtx(),
   );
+  assert.equal(result.proposals[0]?.request.actor.type, "agent");
+  assert.equal(result.proposals[0]?.request.actor.id, "agent-owner");
+  assert.equal(result.proposals[0]?.request.actor.plane, "local");
 });
 
-test("P2: runById fails closed when a legacy Ritual has no unambiguous owning Agent", async () => {
+test("AutomationExecutor throws for an unknown Automation id", async () => {
   const h = harness();
-  const registry = new InMemoryRitualRegistry().register({
-    id: "unbound",
-    name: "Unbound",
-    workspaceId: WS,
-    steps: [{ skill: "echo", action: "read", resourceType: "person" }],
-  });
-  const exec = new InProcessRitualExecutor(h.pipeline, { registry });
+  const exec = new InProcessAutomationExecutor(h.pipeline, { registry: new InMemoryAutomationRegistry() });
   await assert.rejects(
-    () => exec.runById({ workspaceId: WS, ritualId: "unbound" }, freshCtx()),
-    /no owning Agent binding/,
-  );
-});
-
-test("P2: runById fails closed when a legacy Ritual has no owning Agent Plane", async () => {
-  const h = harness();
-  const registry = new InMemoryRitualRegistry().register({
-    id: "unbound-plane",
-    name: "Unbound Plane",
-    workspaceId: WS,
-    agentId: "agent-owner",
-    steps: [{ skill: "echo", action: "read", resourceType: "person" }],
-  });
-  const exec = new InProcessRitualExecutor(h.pipeline, { registry });
-  await assert.rejects(
-    () => exec.runById({ workspaceId: WS, ritualId: "unbound-plane" }, freshCtx()),
-    /no owning Agent Plane binding/,
-  );
-});
-
-test("P2: runById throws for an unknown ritual id", async () => {
-  const h = harness();
-  const exec = new InProcessRitualExecutor(h.pipeline, { registry: new InMemoryRitualRegistry() });
-  await assert.rejects(
-    () => exec.runById({ workspaceId: WS, ritualId: "nope", actor: { type: "user", id: "u1" } }, freshCtx()),
+    () => exec.runById({ organizationId: WS, automationId: "nope" }, freshCtx()),
     /not found/,
   );
 });
@@ -739,68 +716,51 @@ test("data-scope: agent ceiling 'public' + step requests 'private' → denied", 
   assert.match(p.rejectionReason ?? "", /data-scope conflict/);
 });
 
-test("data-scope: a ritual step's dataScope flows into the decision", async () => {
+test("data-scope: an Automation step's dataScope flows into the decision", async () => {
   const h = harness();
-  h.agents.assumed.set("agent-1", "role-ritual-reader");
+  h.agents.assumed.set("agent-1", "role-automation-reader");
   h.agents.scope.set("agent-1", ["person:read"]);
-  h.roles.roleGrants.set("role-ritual-reader", [
+  h.roles.roleGrants.set("role-automation-reader", [
     { resourceType: "person", resourceId: null, action: "read", effect: "allow", dataScope: "all" },
   ]);
-  const registry = new InMemoryRitualRegistry().register({
+  const registry = new InMemoryAutomationRegistry().register({
     id: "scan",
     name: "Scan",
-    workspaceId: WS,
+    organizationId: WS,
     agentId: "agent-1",
     agentPlane: "local",
     steps: [{ skill: "echo", action: "read", resourceType: "person", dataScope: "public" }],
   });
-  const exec = new InProcessRitualExecutor(h.pipeline, { registry });
+  const exec = new InProcessAutomationExecutor(h.pipeline, { registry });
   const result = await exec.runById(
-    { workspaceId: WS, ritualId: "scan" },
+    { organizationId: WS, automationId: "scan" },
     freshCtx(),
   );
   assert.equal(result.proposals[0]!.authority.dataScope, "public");
 });
 
-test("P2: runTool loads a tool composition and runs it through the pipeline", async () => {
-  const h = harness();
-  h.roles.direct.set("user:u1", [
-    { resourceType: "community", resourceId: null, action: "read", effect: "allow", dataScope: "all" },
-  ]);
-  const toolRegistry = new InMemoryToolRegistry().register({
-    id: "community-pulse",
-    name: "Community Pulse",
-    workspaceId: WS,
-    steps: [{ skill: "echo", action: "read", resourceType: "community", dataScope: "public" }],
-  });
-  const exec = new InProcessRitualExecutor(h.pipeline, { toolRegistry });
-  const result = await exec.runTool(
-    { workspaceId: WS, ritualId: "community-pulse", actor: { type: "user", id: "u1" } },
-    freshCtx(),
-  );
-  assert.equal(result.status, "completed");
-  assert.equal(result.proposals[0]!.authority.dataScope, "public");
-});
-
-test("RitualExecutor: runs steps in order and halts on a rejected step", async () => {
+test("AutomationExecutor runs steps in order and halts on a rejected step", async () => {
   const h = harness();
   h.agents.assumed.set("agent-1", "role-writer");
   h.agents.scope.set("agent-1", ["person:write"]); // can write person, NOT community
   h.roles.roleGrants.set("role-writer", [
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
   ]);
-  const exec = new InProcessRitualExecutor(h.pipeline);
-  const result = await exec.run(
-    {
-      workspaceId: WS,
-      ritualId: "ritual-1",
-      actor: { type: "agent", id: "agent-1" },
+  const registry = new InMemoryAutomationRegistry().register({
+      id: "automation-1",
+      name: "Ordered Automation",
+      organizationId: WS,
+      agentId: "agent-1",
+      agentPlane: "local",
       steps: [
         { skill: "echo", action: "write", resourceType: "person", inputs: { a: 1 } },
         { skill: "echo", action: "write", resourceType: "community", inputs: { b: 2 } }, // out of scope
         { skill: "echo", action: "write", resourceType: "person", inputs: { c: 3 } },
       ],
-    },
+  });
+  const exec = new InProcessAutomationExecutor(h.pipeline, { registry });
+  const result = await exec.runById(
+    { organizationId: WS, automationId: "automation-1" },
     freshCtx(),
   );
   assert.equal(result.status, "halted");

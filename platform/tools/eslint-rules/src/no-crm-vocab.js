@@ -5,10 +5,10 @@
  * Record types, but never become Engine primitives.
  *
  * Scope (2026-07-06 vision pivot — docs/wiki/vision.md, ADR-011 in
- * docs/raw/decisions-log.md): vocabulary is two-scoped. KERNEL scope (packages/*,
- * apps/api) keeps this ban by default. WORKSPACE scope (compiled products under tools/*, the
- * generated-workspace UI under apps/web) may use domain vocabulary — e.g.
- * tools/dealpilot's "Deal" identifiers are DealPilot's own compiled-product
+ * docs/raw/decisions-log.md): vocabulary is two-scoped. KERNEL scope (modules/*,
+ * apps/api) keeps this ban by default. ORGANIZATION scope (compiled products under tools/*, the
+ * generated-organization UI under apps/web) may use domain vocabulary — e.g.
+ * modules/dealpilot's "Deal" identifiers are DealPilot's own compiled-product
  * vocabulary, not a violation. Module-scoped API identifiers are explicitly
  * allowlisted below so the monolithic API composition root does not turn "Deal"
  * into a generic Engine primitive. The scoping lives HERE (in the rule, via
@@ -29,7 +29,7 @@
  * zero-maintenance option that doesn't false-positive on real code — the tradeoff is the
  * rule can't catch a hypothetical future "salesPipeline"/"dealPipelineStage" identifier,
  * but grep confirmed no such usage exists today, and "Deal" alone (see below) already
- * catches the actual violations found (tools/dealpilot's DealProfile, DealPipelineResult,
+ * catches the actual violations found (modules/dealpilot's DealProfile, DealPipelineResult,
  * processDealCandidate, dealsKanbanView, existingDeals, etc.).
  *
  * "Lead" and "Contact" are excluded from the identifier check too — grep-verified: every
@@ -73,13 +73,13 @@ function containsBannedDeal(filename, name) {
 }
 
 /**
- * KERNEL scope = packages/* (any package) and apps/api/*. Matched on the
+ * KERNEL scope = modules/* (any module) and apps/api/*. Matched on the
  * normalized (forward-slash) filename so it works the same on Windows/POSIX and
  * regardless of whether the caller passed an absolute or repo-relative path.
- * Everything else (tools/*, apps/web/*, docs, root-level files) is WORKSPACE scope
+ * Everything else (tools/*, apps/web/*, docs, root-level files) is ORGANIZATION scope
  * and is not checked by this rule.
  */
-const KERNEL_PATH = /(^|\/)packages\/[^/]+\/.*|(^|\/)apps\/api\/.*/;
+const KERNEL_PATH = /(^|\/)modules\/[^/]+\/.*|(^|\/)apps\/api\/.*/;
 
 function isKernelScope(filename) {
   if (!filename) return false;
@@ -104,7 +104,7 @@ export const noCrmVocab = {
   create(context) {
     const filename = context.filename ?? context.getFilename();
     if (!isKernelScope(filename)) {
-      // WORKSPACE scope (tools/*, apps/web/*, etc.) — no vocabulary restriction.
+      // ORGANIZATION scope (tools/*, apps/web/*, etc.) — no vocabulary restriction.
       return {};
     }
     function check(node, name) {

@@ -15,14 +15,22 @@ function modelReturning(text: string): ModelProvider {
   return {
     id: "judge-local",
     plane: "local",
-    complete: async () => ({ text }),
+    tiers: ["reasoning"],
+    models: { reasoning: "judge-local-v1" },
+    routingHealth: () => "unknown",
+    complete: async (req) => ({
+      text,
+      model: "judge-local-v1",
+      tier: req.tier,
+      usage: { inputTokens: 8, outputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, source: "provider" },
+    }),
   };
 }
 
 function caseInput(overrides: Partial<EvalCase> = {}): EvalCase {
   return {
     id: "case-1",
-    input: { request: "draft a ritual summary" },
+    input: { request: "draft an Automation summary" },
     origin: "seed",
     ...overrides,
   };
@@ -54,13 +62,13 @@ test("JudgeScorer clamps scores above and below the quality range", async () => 
   const high = new JudgeScorer({ model: modelReturning("quality: 1.4"), modelVersion: "judge-v1" });
   const low = new JudgeScorer({ model: modelReturning("-0.3"), modelVersion: "judge-v1" });
 
-  assert.deepEqual(await high.score(caseInput(), "artifact", snapshot), { quality: 1 });
-  assert.deepEqual(await low.score(caseInput(), "artifact", snapshot), { quality: 0 });
+  assert.deepEqual(await high.score(caseInput(), "result", snapshot), { quality: 1 });
+  assert.deepEqual(await low.score(caseInput(), "result", snapshot), { quality: 0 });
 });
 
 test("JudgeScorer rejects model responses without a number", async () => {
   const scorer = new JudgeScorer({ model: modelReturning("no number here"), modelVersion: "judge-v1" });
-  await assert.rejects(() => scorer.score(caseInput(), "artifact", snapshot), /numeric quality score/);
+  await assert.rejects(() => scorer.score(caseInput(), "result", snapshot), /numeric quality score/);
 });
 
 test("JudgeScorer propagates model failures", async () => {
@@ -68,12 +76,15 @@ test("JudgeScorer propagates model failures", async () => {
   const model: ModelProvider = {
     id: "judge-local",
     plane: "local",
+    tiers: ["reasoning"],
+    models: { reasoning: "judge-local-v1" },
+    routingHealth: () => "unknown",
     complete: async () => {
       throw failure;
     },
   };
   const scorer = new JudgeScorer({ model, modelVersion: "judge-v1" });
-  await assert.rejects(() => scorer.score(caseInput(), "artifact", snapshot), failure);
+  await assert.rejects(() => scorer.score(caseInput(), "result", snapshot), failure);
 });
 
 test("JudgeScorer prompt uses case rubric before constructor rubric", async () => {
@@ -81,11 +92,20 @@ test("JudgeScorer prompt uses case rubric before constructor rubric", async () =
   const model: ModelProvider = {
     id: "judge-local",
     plane: "local",
+    tiers: ["reasoning"],
+    models: { reasoning: "judge-local-v1" },
+    routingHealth: () => "unknown",
     complete: async (req) => {
       seenPrompt = req.prompt;
       assert.match(req.system ?? "", /0 to 1/);
       assert.equal(req.maxTokens, 64);
-      return { text: "0.5" };
+      assert.equal(req.tier, "reasoning");
+      return {
+        text: "0.5",
+        model: "judge-local-v1",
+        tier: req.tier,
+        usage: { inputTokens: 8, outputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, source: "provider" },
+      };
     },
   };
   const scorer = new JudgeScorer({ model, modelVersion: "judge-v1", rubric: "constructor rubric" });
@@ -97,17 +117,25 @@ test("JudgeScorer prompt uses case rubric before constructor rubric", async () =
   assert.match(seenPrompt, /Pinned judge model version: judge-v1/);
 });
 
-test("JudgeScorer uses the constructor rubric and stringifies circular artifacts", async () => {
+test("JudgeScorer uses the constructor rubric and stringifies circular Results", async () => {
   let seenPrompt = "";
   const model: ModelProvider = {
     id: "judge-local",
     plane: "local",
+    tiers: ["reasoning"],
+    models: { reasoning: "judge-local-v1" },
+    routingHealth: () => "unknown",
     complete: async (req) => {
       seenPrompt = req.prompt;
-      return { text: "0.6" };
+      return {
+        text: "0.6",
+        model: "judge-local-v1",
+        tier: req.tier,
+        usage: { inputTokens: 8, outputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, source: "provider" },
+      };
     },
   };
-  const circular: Record<string, unknown> = { kind: "artifact" };
+  const circular: Record<string, unknown> = { kind: "result" };
   circular.self = circular;
   const scorer = new JudgeScorer({ model, modelVersion: "judge-v1", rubric: "constructor rubric" });
 

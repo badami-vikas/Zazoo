@@ -7,11 +7,12 @@
  */
 import { PGlite } from "@electric-sql/pglite";
 import type { LocalMediaStore, MediaCaptureRecord, MediaKind, MediaStatus } from "@bridge/core";
+import { MEDIA_SCHEMA_MIGRATIONS_SQL } from "./media-schema-migrations.js";
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS media_captures (
   id text PRIMARY KEY,
-  workspace_id text NOT NULL,
+  organization_id text NOT NULL,
   kind text NOT NULL,
   mime_type text NOT NULL,
   byte_size integer NOT NULL,
@@ -29,10 +30,11 @@ CREATE TABLE IF NOT EXISTS media_captures (
   archived_at text,
   blob bytea NOT NULL
 );
+${MEDIA_SCHEMA_MIGRATIONS_SQL}
 `;
 
 interface Row {
-  id: string; workspace_id: string; kind: string; mime_type: string; byte_size: number;
+  id: string; organization_id: string; kind: string; mime_type: string; byte_size: number;
   width: number | null; height: number | null; duration_seconds: number | null;
   caption: string | null; ocr_text: string | null; thumbnail_data_url: string | null;
   status: string; ledger_id: string | null; linked_entity: unknown; provenance: unknown;
@@ -41,7 +43,7 @@ interface Row {
 
 function toRecord(r: Row): MediaCaptureRecord {
   return {
-    id: r.id, workspaceId: r.workspace_id, kind: r.kind as MediaKind, mimeType: r.mime_type,
+    id: r.id, organizationId: r.organization_id, kind: r.kind as MediaKind, mimeType: r.mime_type,
     byteSize: r.byte_size,
     ...(r.width != null ? { width: r.width } : {}),
     ...(r.height != null ? { height: r.height } : {}),
@@ -74,12 +76,12 @@ export class PgliteMediaStore implements LocalMediaStore {
     try {
       await this.#pg.query(
         `INSERT INTO media_captures
-          (id, workspace_id, kind, mime_type, byte_size, width, height, duration_seconds,
+          (id, organization_id, kind, mime_type, byte_size, width, height, duration_seconds,
            caption, ocr_text, thumbnail_data_url, status, ledger_id, linked_entity,
            provenance, captured_at, archived_at, blob)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
         [
-          rec.id, rec.workspaceId, rec.kind, rec.mimeType, rec.byteSize,
+          rec.id, rec.organizationId, rec.kind, rec.mimeType, rec.byteSize,
           rec.width ?? null, rec.height ?? null, rec.durationSeconds ?? null,
           rec.caption ?? null, rec.ocrText ?? null, rec.thumbnailDataUrl ?? null,
           rec.status, rec.ledgerId ?? null,
@@ -109,12 +111,12 @@ export class PgliteMediaStore implements LocalMediaStore {
     return res.rows[0] ? new Uint8Array(res.rows[0].blob) : null;
   }
 
-  async list(filter?: { status?: MediaStatus; kind?: MediaKind; workspaceId?: string }): Promise<MediaCaptureRecord[]> {
+  async list(filter?: { status?: MediaStatus; kind?: MediaKind; organizationId?: string }): Promise<MediaCaptureRecord[]> {
     const where: string[] = [];
     const args: unknown[] = [];
     if (filter?.status) { args.push(filter.status); where.push(`status = $${args.length}`); }
     if (filter?.kind) { args.push(filter.kind); where.push(`kind = $${args.length}`); }
-    if (filter?.workspaceId) { args.push(filter.workspaceId); where.push(`workspace_id = $${args.length}`); }
+    if (filter?.organizationId) { args.push(filter.organizationId); where.push(`organization_id = $${args.length}`); }
     const sql = `SELECT * FROM media_captures${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY captured_at DESC`;
     const res = await this.#pg.query<Row>(sql, args);
     return res.rows.map(toRecord);
@@ -126,7 +128,7 @@ export class PgliteMediaStore implements LocalMediaStore {
     // Identity + blob fields are immutable.
     const next: MediaCaptureRecord = {
       ...current, ...patch,
-      id: current.id, workspaceId: current.workspaceId, kind: current.kind,
+      id: current.id, organizationId: current.organizationId, kind: current.kind,
       mimeType: current.mimeType, byteSize: current.byteSize,
     };
     await this.#pg.query(

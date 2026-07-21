@@ -13,11 +13,13 @@ import assert from "node:assert/strict";
 import { Writable } from "node:stream";
 import test from "node:test";
 import Fastify from "fastify";
+import { decodeJwt } from "jose";
 import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import { buildWiring, PILOT_USER, PILOT_ORGANIZATION, type Wiring } from "../src/wiring.js";
 import { loggerOptions } from "../src/server.js";
+import { makeContextFactory, verifiedReauthenticationAt } from "../src/context.js";
 
 function makeRun(seed = 1): RunCtx {
   const clock = new SystemClock();
@@ -35,6 +37,58 @@ function makeCaller(wiring: Wiring, identity: Actor) {
   });
 }
 
+test("credential re-auth accepts only a verified password AMR timestamp", () => {
+  const encoded = (payload: object) =>
+    `header.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.signature`;
+  const oauthOnly = decodeJwt(
+    encoded({ auth_time: 1_752_796_800, amr: [{ method: "oauth", timestamp: 1_752_796_800 }] }),
+  );
+  const password = decodeJwt(
+    encoded({
+      auth_time: 1_752_796_700,
+      amr: [{ method: "password", timestamp: 1_752_796_800 }],
+    }),
+  );
+
+  assert.equal(verifiedReauthenticationAt(oauthOnly), undefined);
+  assert.equal(verifiedReauthenticationAt(password), 1_752_796_800_000);
+});
+
+test("sidecar capability authenticates the server-owned pilot without granting re-authentication", async () => {
+  const token = "c".repeat(64);
+  const prior = process.env.BRIDGE_SIDECAR_TOKEN;
+  const priorJwtSecret = process.env.SUPABASE_JWT_SECRET;
+  process.env.BRIDGE_SIDECAR_TOKEN = token;
+  const wiring = await buildWiring();
+  try {
+    const context = await makeContextFactory(wiring)({
+      req: { headers: { "x-bridge-sidecar-token": token } },
+    });
+    assert.equal(context.authenticated, true);
+    assert.equal(context.identity.id, PILOT_USER);
+    assert.equal(context.reauthenticatedAt, undefined);
+
+    process.env.SUPABASE_JWT_SECRET = "test_fixture_verified_identity_secret";
+    const verifierContext = await makeContextFactory(wiring)({
+      req: { headers: { "x-bridge-sidecar-token": token } },
+    });
+    assert.equal(verifierContext.verifying, true);
+    assert.equal(verifierContext.authenticated, false);
+    await assert.rejects(
+      appRouter
+        .createCaller(verifierContext)
+        .dealpilot.module({ organizationId: PILOT_ORGANIZATION }),
+      /authentication required: verified authentication is required/,
+    );
+  } finally {
+    await wiring.close();
+    if (prior === undefined) delete process.env.BRIDGE_SIDECAR_TOKEN;
+    else process.env.BRIDGE_SIDECAR_TOKEN = prior;
+    if (priorJwtSecret === undefined) delete process.env.SUPABASE_JWT_SECRET;
+    else process.env.SUPABASE_JWT_SECRET = priorJwtSecret;
+  }
+});
+
 test("onboarding.saveProfile: a client-asserted verificationMethod:'linkedin' is rejected at the edge (no OAuth proof exists)", async () => {
   const wiring = await buildWiring();
   try {
@@ -42,8 +96,8 @@ test("onboarding.saveProfile: a client-asserted verificationMethod:'linkedin' is
     await assert.rejects(
       () =>
         caller.onboarding.saveProfile({
-          workspaceId: PILOT_WORKSPACE,
-          animal: "otter",
+          organizationId: PILOT_ORGANIZATION,
+          avatarStyle: "otter",
           // Deliberately spoof a trust signal the server can't actually prove.
           verificationMethod: "linkedin" as unknown as "phone",
         }),
@@ -54,21 +108,39 @@ test("onboarding.saveProfile: a client-asserted verificationMethod:'linkedin' is
   }
 });
 
+test("onboarding.saveProfile: canonical Avatar fields persist without aliases", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+    const result = await caller.onboarding.saveProfile({
+      organizationId: PILOT_ORGANIZATION,
+      avatarStyle: "owl",
+      answers: { avatar_style: "owl", profession: "operator" },
+      verificationMethod: null,
+    });
+    assert.equal(result.profile.avatarStyle, "owl");
+    assert.equal(result.profile.answers.avatar_style, "owl");
+    assert.equal(result.profile.answers.profession, "operator");
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("onboarding.saveProfile: the honest paths (null / phone) are still accepted", async () => {
   const wiring = await buildWiring();
   try {
     const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
     const viaNull = await caller.onboarding.saveProfile({
-      workspaceId: PILOT_WORKSPACE,
-      animal: "otter",
+      organizationId: PILOT_ORGANIZATION,
+      avatarStyle: "otter",
       verificationMethod: null,
     });
 
     assert.equal(viaNull.profile.verificationMethod, null);
 
     const viaPhone = await caller.onboarding.saveProfile({
-      workspaceId: PILOT_WORKSPACE,
-      animal: "otter",
+      organizationId: PILOT_ORGANIZATION,
+      avatarStyle: "otter",
       verificationMethod: "phone",
     });
     assert.equal(viaPhone.profile.verificationMethod, "phone");
@@ -103,14 +175,14 @@ test("onboarding role-model learning is cited, approval-gated, controllable, and
       try {
         const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
         await caller.onboarding.saveProfile({
-          workspaceId: PILOT_WORKSPACE,
-          animal: "owl",
+          organizationId: PILOT_ORGANIZATION,
+          avatarStyle: "owl",
           answers: { role_model: "Test Fixture Leader", role_model_why: "clear preparation" },
           verificationMethod: null,
           connectedSourceIds: [],
         });
         const result = await caller.onboarding.recommendFromRoleModel({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           figure: "Test Fixture Leader",
           admiredFor: "clear preparation",
         });
@@ -126,65 +198,65 @@ test("onboarding role-model learning is cited, approval-gated, controllable, and
         });
         assert.equal(approved.status, "applied");
 
-        let state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        let state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         const preference = state.memories.find((item) => item.value.kind === "onboarding_preference");
         const reflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
         assert.ok(preference);
         assert.ok(reflection);
 
         await caller.onboarding.correctMemory({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: preference.row.id,
           content: "careful preparation",
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         const corrected = state.memories.find((item) => item.value.kind === "onboarding_preference");
         assert.ok(corrected?.value.kind === "onboarding_preference");
         assert.equal(corrected.value.admiredFor, "careful preparation");
 
         await caller.onboarding.setReflection({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: reflection.row.id,
           action: "pause",
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         assert.ok(state.memories.some((item) => item.value.kind === "reflection_schedule" && item.value.status === "paused"));
 
         const pausedReflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
         assert.ok(pausedReflection);
         await caller.onboarding.setReflection({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: pausedReflection.row.id,
           action: "resume",
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         const resumedReflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
         assert.ok(resumedReflection?.value.kind === "reflection_schedule");
         assert.equal(resumedReflection.value.status, "scheduled");
 
         await caller.onboarding.setReflection({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: resumedReflection.row.id,
           action: "snooze",
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         const snoozedReflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
         assert.ok(snoozedReflection?.value.kind === "reflection_schedule");
         assert.equal(snoozedReflection.value.status, "snoozed");
 
         await caller.onboarding.setReflection({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: snoozedReflection.row.id,
           action: "skip",
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         assert.ok(state.memories.some((item) => item.value.kind === "reflection_schedule" && item.value.status === "skipped"));
 
         await caller.onboarding.forgetMemory({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           memoryId: corrected.row.id,
         });
-        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
         assert.equal(state.memories.some((item) => item.value.kind === "onboarding_preference"), false);
       } finally {
         globalThis.fetch = originalFetch;
@@ -197,7 +269,7 @@ test("onboarding trust check persists one inspectable, tainted Local Plane Memor
   try {
     const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
     const result = await caller.onboarding.recordTrustCapture({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       appName: "Test Fixture Editor",
       bundleId: "com.example.test-fixture-editor",
       capturedAt: "2026-07-16T10:00:00.000Z",
@@ -207,17 +279,118 @@ test("onboarding trust check persists one inspectable, tainted Local Plane Memor
     assert.equal(result.memory.plane, "local");
     assert.equal(result.memory.trustOrigin, "untrusted_external");
 
-    const state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+    const state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
     const capture = state.memories.find((item) => item.value.kind === "trust_capture");
     assert.ok(capture?.value.kind === "trust_capture");
     assert.equal(capture.value.appName, "Test Fixture Editor");
 
     await caller.onboarding.forgetMemory({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       memoryId: capture.row.id,
     });
-    const afterDelete = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+    const afterDelete = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
     assert.equal(afterDelete.memories.some((item) => item.value.kind === "trust_capture"), false);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("onboarding.learningState / onboarding.forgetMemory (review round-5 item 1): unauthenticated and non-member callers are rejected", async () => {
+  const wiring = await buildWiring();
+  try {
+    const unauth = appRouter.createCaller({ wiring, run: makeRun(), identity: { type: "user", id: PILOT_USER }, authenticated: false, verifying: true });
+    await assert.rejects(() => unauth.onboarding.learningState({ organizationId: PILOT_ORGANIZATION }));
+    await assert.rejects(() => unauth.onboarding.forgetMemory({ organizationId: PILOT_ORGANIZATION, memoryId: "00000000-0000-4000-8000-000000000001" }));
+
+    const nonMember = makeCaller(wiring, { type: "user", id: "22222222-2222-4222-8222-222222222222" });
+    await assert.rejects(
+      () => nonMember.onboarding.learningState({ organizationId: PILOT_ORGANIZATION }),
+      (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
+    );
+    await assert.rejects(
+      () => nonMember.onboarding.forgetMemory({ organizationId: PILOT_ORGANIZATION, memoryId: "00000000-0000-4000-8000-000000000001" }),
+      (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("onboarding.learningState (review round-5 item 1): never returns red_flag/preference_adjustment content, even when such Memories exist for the SAME owner", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+    await wiring.memoryStore.write({
+      id: "33333333-0000-4000-8000-000000000001",
+      organizationId: PILOT_ORGANIZATION,
+      type: "semantic",
+      scope: "private",
+      content: JSON.stringify({ kind: "red_flag", anchor: { kind: "cell", moduleId: "jobpilot", databaseId: "jobpilot.jobs", recordId: "44444444-0000-4000-8000-000000000001", fieldId: "x" }, renderedValue: "v", status: "open", learningStatus: "none" }),
+      confidence: 1,
+      trustOrigin: "user_content",
+      plane: "local",
+      createdBy: PILOT_USER,
+      ownerUserId: PILOT_USER,
+    });
+    await wiring.memoryStore.write({
+      id: "33333333-0000-4000-8000-000000000002",
+      organizationId: PILOT_ORGANIZATION,
+      type: "preference",
+      scope: "private",
+      content: JSON.stringify({ kind: "preference_adjustment", scope: "test", target: "test", proposedChange: "test", rationale: "test", flagMemoryId: "33333333-0000-4000-8000-000000000001", applied: false }),
+      confidence: 1,
+      trustOrigin: "user_content",
+      plane: "local",
+      createdBy: PILOT_USER,
+      ownerUserId: PILOT_USER,
+    });
+    const state = await caller.onboarding.learningState({ organizationId: PILOT_ORGANIZATION });
+    assert.equal(state.memories.some((item) => (item.value as { kind: string }).kind === "red_flag"), false, "learningState must never surface a red_flag Memory");
+    assert.equal(state.memories.some((item) => (item.value as { kind: string }).kind === "preference_adjustment"), false, "learningState must never surface a preference_adjustment Memory");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("onboarding.forgetMemory (review round-5 item 1): rejects red_flag/preference_adjustment ids instead of deleting them — all correction deletion must go through redFlag.forget", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+    const redFlagMemory = await wiring.memoryStore.write({
+      id: "55555555-0000-4000-8000-000000000001",
+      organizationId: PILOT_ORGANIZATION,
+      type: "semantic",
+      scope: "private",
+      content: JSON.stringify({ kind: "red_flag", anchor: { kind: "cell", moduleId: "jobpilot", databaseId: "jobpilot.jobs", recordId: "66666666-0000-4000-8000-000000000001", fieldId: "x" }, renderedValue: "v", status: "open", learningStatus: "none" }),
+      confidence: 1,
+      trustOrigin: "user_content",
+      plane: "local",
+      createdBy: PILOT_USER,
+      ownerUserId: PILOT_USER,
+    });
+    await assert.rejects(
+      () => caller.onboarding.forgetMemory({ organizationId: PILOT_ORGANIZATION, memoryId: redFlagMemory.id }),
+      (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
+    );
+    const stillThere = await wiring.memoryStore.get(redFlagMemory.id, { organizationId: PILOT_ORGANIZATION, userId: PILOT_USER });
+    assert.ok(stillThere, "onboarding.forgetMemory must never delete a red_flag Memory");
+
+    const adjustmentMemory = await wiring.memoryStore.write({
+      id: "55555555-0000-4000-8000-000000000002",
+      organizationId: PILOT_ORGANIZATION,
+      type: "preference",
+      scope: "private",
+      content: JSON.stringify({ kind: "preference_adjustment", scope: "test", target: "test", proposedChange: "test", rationale: "test", flagMemoryId: redFlagMemory.id, applied: false }),
+      confidence: 1,
+      trustOrigin: "user_content",
+      plane: "local",
+      createdBy: PILOT_USER,
+      ownerUserId: PILOT_USER,
+    });
+    await assert.rejects(
+      () => caller.onboarding.forgetMemory({ organizationId: PILOT_ORGANIZATION, memoryId: adjustmentMemory.id }),
+      (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
+    );
   } finally {
     await wiring.close();
   }
@@ -236,7 +409,7 @@ test("onboarding.verifyPhoneOtp: a passing code is labeled verificationSource:'d
   }
 });
 
-test("server logger: phone, OTP code, and Authorization are redacted, never written in the clear", async () => {
+test("server logger: credentials, phone, OTP code, and Authorization are redacted", async () => {
   const chunks: string[] = [];
   const stream = new Writable({
     write(chunk, _enc, cb) {
@@ -251,8 +424,20 @@ test("server logger: phone, OTP code, and Authorization are redacted, never writ
   // these top-level keys are what actually exercises the pino redact config.
   app.log.info(
     {
-      body: { phone: "+15555550123", code: "654321" },
-      headers: { authorization: "Bearer super-secret-token" },
+      body: {
+        phone: "+15555550123",
+        code: "654321",
+        password: "test_fixture_source_password",
+        userId: "test_fixture_private_user",
+        json: {
+          password: "test_fixture_nested_password",
+          userId: "test_fixture_nested_user",
+        },
+      },
+      headers: {
+        authorization: "Bearer super-secret-token",
+        "x-bridge-sidecar-token": "test_fixture_sidecar_capability",
+      },
     },
     "inbound request",
   );
@@ -263,4 +448,9 @@ test("server logger: phone, OTP code, and Authorization are redacted, never writ
   assert.doesNotMatch(out, /super-secret-token/);
   assert.doesNotMatch(out, /654321/);
   assert.doesNotMatch(out, /\+15555550123/);
+  assert.doesNotMatch(out, /test_fixture_source_password/);
+  assert.doesNotMatch(out, /test_fixture_private_user/);
+  assert.doesNotMatch(out, /test_fixture_nested_password/);
+  assert.doesNotMatch(out, /test_fixture_nested_user/);
+  assert.doesNotMatch(out, /test_fixture_sidecar_capability/);
 });

@@ -4,7 +4,7 @@
  *
  * WHY timeline_entries (+ events) and not a new table or signals:
  *  - `timeline_entries` (packages/db/src/schema.ts) IS the Memory-entry shape
- *    already in the schema: workspace-scoped, `occurred_at`, free `type`,
+ *    already in the schema: organization-scoped, `occurred_at`, free `type`,
  *    human-readable `content`, `created_by`, linkable to any entity via
  *    `timeline_entry_refs` — exactly what "inspectable Memory entry" needs,
  *    and where derived Memories from other captures (Gmail/Calendar intake)
@@ -27,7 +27,7 @@ import type { ContextObservation } from "./types.js";
 
 export interface MemoryEntryRecord {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   /** timeline_entries.type — namespaced by provider kind, e.g. "capture.apps". */
   type: string;
   /** timeline_entries.content — the observation's inspectable summary. */
@@ -48,7 +48,7 @@ export interface CaptureLedger {
   /** Append one inspectable Memory entry for an observation. */
   record(entry: MemoryEntryRecord): Promise<MemoryEntryRecord>;
   /** Inspectability: list entries so a user can always see what was captured. */
-  list(workspaceId: string): Promise<MemoryEntryRecord[]>;
+  list(organizationId: string): Promise<MemoryEntryRecord[]>;
 }
 
 /** In-memory CaptureLedger — dev/test default, mirrors memory/stores.ts style. */
@@ -63,7 +63,7 @@ export class InMemoryCaptureLedger implements CaptureLedger {
     return { ...entry };
   }
 
-  async list(workspaceId: string): Promise<MemoryEntryRecord[]> {
-    return this.entries.filter((e) => e.workspaceId === workspaceId).map((e) => ({ ...e }));
+  async list(organizationId: string): Promise<MemoryEntryRecord[]> {
+    return this.entries.filter((e) => e.organizationId === organizationId).map((e) => ({ ...e }));
   }
 }

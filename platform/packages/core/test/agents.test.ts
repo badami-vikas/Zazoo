@@ -49,9 +49,9 @@ test("buildCommunicationsSystemPrompt carries no agent-identity execution guardr
   assert.doesNotMatch(prompt, /never execute actions directly/);
 });
 
-test("buildCommunicationsSystemPrompt applies animal tone additively", () => {
-  const prompt = buildCommunicationsSystemPrompt("wise and calm");
-  assert.match(prompt, /wise and calm/);
+test("buildCommunicationsSystemPrompt applies an explicit writing tone additively", () => {
+  const prompt = buildCommunicationsSystemPrompt("concise and direct");
+  assert.match(prompt, /concise and direct/);
 });
 
 test("checkDesignConstraintViolations flags dummy-data language", () => {
@@ -61,13 +61,13 @@ test("checkDesignConstraintViolations flags dummy-data language", () => {
 
 test("checkDesignConstraintViolations flags bare CRM vocab only in kernel-scope drafts", () => {
   const kernelDraft = "Add a new Deal entity to packages/core for tracking.";
-  const workspaceDraft = "Add a Deal card to the DealPilot kanban view.";
+  const organizationDraft = "Add a Deal card to the DealPilot kanban view.";
   const kernelViolations = checkDesignConstraintViolations(kernelDraft);
-  const workspaceViolations = checkDesignConstraintViolations(workspaceDraft);
+  const organizationViolations = checkDesignConstraintViolations(organizationDraft);
   assert.ok(kernelViolations.some((v) => /CRM vocabulary/.test(v)));
-  assert.equal(workspaceViolations.length, 0);
+  assert.equal(organizationViolations.length, 0);
 });
 
 test("checkDesignConstraintViolations is silent on a clean draft", () => {
-  assert.deepEqual(checkDesignConstraintViolations("Add a Signal for stale Initiatives — Commons content, real connected data only, honest empty state otherwise."), []);
+  assert.deepEqual(checkDesignConstraintViolations("Add a Signal for stale Records — Commons content, real connected data only, honest empty state otherwise."), []);
 });

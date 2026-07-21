@@ -6,7 +6,7 @@ status: under-evaluation
 companions:
   - vision-pivot-living-software.md
   - client-architecture-context-providers.md
-  - capability-package-format.md
+  - capability-module-format.md
 related_wiki: ../wiki/roadmap.md
 updated: 2026-07-06
 tags: [roadmap, universal-commons, platform-agents, rag, promotion-ladder, clients, light-egg]

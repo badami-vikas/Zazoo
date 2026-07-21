@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import {
-  parsePackageManifest,
+  parseModuleManifest,
+  canonicalizeJson,
   verifyCommonsEntry,
   toSignedEnvelope,
   verifyManifestSignature,
-  type CommonsPackageEntry,
+  type CommonsModuleEntry,
   type ManifestSignature,
-  type PackageManifest,
+  type ModuleManifest,
 } from "@bridge/core";
 import { buildCommonsServer } from "../src/server.js";
 import { ed25519ManifestVerifier, resolveCommonsSigningKeyPair, signManifest, type CommonsSigningKeyPair } from "../src/signing.js";
@@ -21,20 +23,20 @@ const provenance = {
   sourceRef: "capability",
   inspectedCommit: "0123456789abcdef0123456789abcdef01234567",
   repositoryLicense: "MIT",
-  artifactLicense: "MIT",
+  contentLicense: "MIT",
   licenseVerified: true,
 };
 const TEST_PUBLISH_TOKEN = "test-commons-publisher-token-00000001";
 const AUTH_HEADERS = { authorization: `Bearer ${TEST_PUBLISH_TOKEN}` };
 
 async function publish(app: ReturnType<typeof buildCommonsServer>, payload: Record<string, unknown>) {
-  return await app.inject({ method: "POST", url: "/v1/packages", headers: AUTH_HEADERS, payload });
+  return await app.inject({ method: "POST", url: "/v1/modules", headers: AUTH_HEADERS, payload });
 }
 
 const sha256 = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
 
-function generalizedManifest(name = "test-fixture-signed", version = "1.0.0"): PackageManifest {
-  return parsePackageManifest({
+function generalizedManifest(name = "test-fixture-signed", version = "1.0.0"): ModuleManifest {
+  return parseModuleManifest({
     name,
     version,
     kind: "view",
@@ -51,7 +53,10 @@ function generalizedManifest(name = "test-fixture-signed", version = "1.0.0"): P
 }
 
 async function createApp(t: TestContext, keyPair: CommonsSigningKeyPair = resolveCommonsSigningKeyPair({ NODE_ENV: "test" })) {
-  const dataDir = await mkdtemp(join(process.cwd(), ".commons-signing-test-"));
+  // Uses the OS tmpdir (never `process.cwd()`) — a killed/interrupted test
+  // run must never leave debris inside the repo working tree (a real,
+  // discovered instance of exactly that litter is what prompted this fix).
+  const dataDir = await mkdtemp(join(tmpdir(), "commons-signing-test-"));
   const app = buildCommonsServer(new FsCommonsStore(dataDir), { keyPair, publishToken: TEST_PUBLISH_TOKEN });
   t.after(async () => {
     await app.close();
@@ -66,7 +71,7 @@ test("publishing a valid manifest stores a server signature", async (t) => {
   const published = await publish(app, { manifest: generalizedManifest(), tags: ["signed"], provenance });
   assert.equal(published.statusCode, 201);
 
-  const entry = (await app.inject({ url: "/v1/packages/test-fixture-signed/1.0.0" })).json() as CommonsPackageEntry;
+  const entry = (await app.inject({ url: "/v1/modules/test-fixture-signed/1.0.0" })).json() as CommonsModuleEntry;
   assert.ok(entry.signature);
   assert.equal(entry.signature.algorithm, "ed25519");
   assert.ok(entry.signature.signature.length > 0);
@@ -78,7 +83,7 @@ test("served signature verifies against the signing-key route", async (t) => {
   const manifest = generalizedManifest("test-fixture-verifies");
 
   assert.equal((await publish(app, { manifest, provenance })).statusCode, 201);
-  const entry = (await app.inject({ url: "/v1/packages/test-fixture-verifies/1.0.0" })).json() as CommonsPackageEntry;
+  const entry = (await app.inject({ url: "/v1/modules/test-fixture-verifies/1.0.0" })).json() as CommonsModuleEntry;
   assert.ok(entry.signature);
   const signingKey = (await app.inject({ url: "/v1/signing-key" })).json() as { publicKey: string; algorithm: "ed25519" };
 
@@ -96,7 +101,7 @@ test("altering a signed manifest invalidates the served signature", async (t) =>
   const manifest = generalizedManifest("test-fixture-tamper");
 
   assert.equal((await publish(app, { manifest, provenance })).statusCode, 201);
-  const entry = (await app.inject({ url: "/v1/packages/test-fixture-tamper/1.0.0" })).json() as CommonsPackageEntry;
+  const entry = (await app.inject({ url: "/v1/modules/test-fixture-tamper/1.0.0" })).json() as CommonsModuleEntry;
   assert.ok(entry.signature);
 
   const mutated = {
@@ -163,7 +168,7 @@ test("Commons rejects non-Ed25519 signing and verification keys", () => {
 });
 
 test("persisted signing keys keep stored entries readable across service restarts", async () => {
-  const dataDir = await mkdtemp(join(process.cwd(), ".commons-restart-test-"));
+  const dataDir = await mkdtemp(join(tmpdir(), "commons-restart-test-"));
   const keyFile = join(dataDir, "signing-key.json");
   try {
     const firstKeyPair = resolveCommonsSigningKeyPair({ NODE_ENV: "test" }, keyFile);
@@ -171,6 +176,7 @@ test("persisted signing keys keep stored entries readable across service restart
       keyPair: firstKeyPair,
       publishToken: TEST_PUBLISH_TOKEN,
     });
+
     const manifest = generalizedManifest("test-fixture-restart");
     assert.equal((await publish(firstApp, { manifest, provenance })).statusCode, 201);
     await firstApp.close();
@@ -181,8 +187,176 @@ test("persisted signing keys keep stored entries readable across service restart
       keyPair: secondKeyPair,
       publishToken: TEST_PUBLISH_TOKEN,
     });
-    assert.equal((await secondApp.inject({ url: "/v1/packages/test-fixture-restart/1.0.0" })).statusCode, 200);
+    assert.equal((await secondApp.inject({ url: "/v1/modules/test-fixture-restart/1.0.0" })).statusCode, 200);
     await secondApp.close();
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("signed pre-VOCAB3 entries remain verified, pinned, visible, and canonically adapted", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "commons-vocab3-test-"));
+  const keyPair = resolveCommonsSigningKeyPair({ NODE_ENV: "test" });
+  const name = "legacy-organization-blueprint";
+  const version = "1.0.0";
+  const manifest = {
+    name,
+    version,
+    kind: "workspace_definition",
+    summary: "A signed generalized organization blueprint.",
+    description: "A signed generalized organization blueprint.",
+    lineageManifestId: null,
+    dependencies: [],
+    capabilities: [],
+    contextProviders: [],
+    workspaceVocab: {
+      alignsToBridgeTheme: true,
+      domainTerms: {
+        Workspace: "Firm",
+        Package: "Capability",
+        Initiative: "Deal",
+      },
+    },
+    blueprint: {
+      schemaVersion: 2,
+      vocabulary: { Initiative: "Deal" },
+      entities: [{
+        nodeType: "initiative",
+        label: "Deals",
+        fields: [{
+          id: "related",
+          label: "Related deal",
+          kind: "relation",
+          relationTarget: "initiative",
+        }],
+      }],
+      views: [{ entity: "initiative", kind: "table" }],
+      capabilities: [],
+    },
+  };
+  const {
+    contentLicense: legacyContentLicense,
+    ...legacyProvenance
+  } = provenance;
+  const content = {
+    name,
+    version,
+    kind: manifest.kind,
+    summary: manifest.summary,
+    tags: ["blueprint"],
+    manifest,
+    provenance: {
+      ...legacyProvenance,
+      artifactLicense: legacyContentLicense,
+    },
+    securityScan: {
+      scanner: "bridge-commons-manifest",
+      scannerVersion: "1.0.0",
+      policyVersion: "CM1-2026-07",
+      status: "passed",
+      riskBand: "informational",
+      lethalTrifecta: false,
+      checks: [],
+    },
+  };
+  const integrity = {
+    algorithm: "sha256",
+    value: `sha256:${sha256(canonicalizeJson(content))}`,
+  };
+  const publishedAt = "2026-07-18T00:00:00.000Z";
+  const signature = {
+    signature: cryptoSign(
+      null,
+      Buffer.from(canonicalizeJson({ content, integrity, publishedAt }), "utf8"),
+      keyPair.privateKeyPem,
+    ).toString("base64"),
+    publicKey: keyPair.publicKeyPem,
+    algorithm: "ed25519",
+    signedAt: publishedAt,
+  };
+  const priorDir = join(dataDir, "packages", name);
+  await mkdir(priorDir, { recursive: true });
+  const storedBytes = JSON.stringify({ ...content, integrity, publishedAt, signature });
+  await writeFile(join(priorDir, `${version}.json`), storedBytes, "utf8");
+
+  const store = new FsCommonsStore(dataDir);
+  const app = buildCommonsServer(store, { keyPair, publishToken: TEST_PUBLISH_TOKEN });
+  try {
+    const list = (await app.inject({ url: "/v1/modules" })).json();
+    assert.equal(list.total, 1);
+    assert.equal(list.items[0].name, name);
+    assert.equal(
+      await readFile(join(dataDir, "modules", name, `${version}.json`), "utf8"),
+      storedBytes,
+    );
+    await assert.rejects(() => access(join(dataDir, "packages")), { code: "ENOENT" });
+
+    const response = await app.inject({ url: `/v1/modules/${name}/${version}` });
+    assert.equal(response.statusCode, 200);
+    const entry = response.json() as CommonsModuleEntry;
+    assert.equal(entry.kind, "organization_definition");
+    assert.deepEqual(entry.manifest.organizationVocab.domainTerms, {
+      Organization: "Firm",
+      Module: "Capability",
+      Record: "Deal",
+    });
+    assert.equal(entry.manifest.blueprint?.entities[0]?.nodeType, "record");
+    assert.equal(entry.manifest.blueprint?.entities[0]?.fields[0]?.relationTarget, "record");
+    assert.equal(entry.manifest.blueprint?.views[0]?.entity, "record");
+    assert.equal(entry.provenance.contentLicense, "MIT");
+    assert.equal(entry.integrity.value, integrity.value);
+    assert.equal(entry.signedSource?.vocabularyVersion, 2);
+    assert.deepEqual(
+      verifyCommonsEntry(entry, sha256, ed25519ManifestVerifier, {
+        trustedPublicKeys: [keyPair.publicKeyPem],
+      }),
+      { valid: true },
+    );
+
+    const tampered = {
+      ...entry,
+      manifest: { ...entry.manifest, summary: "tampered canonical projection" },
+    };
+    assert.deepEqual(
+      verifyCommonsEntry(tampered, sha256, ed25519ManifestVerifier, {
+        trustedPublicKeys: [keyPair.publicKeyPem],
+      }),
+      { valid: false, reason: "metadata_mismatch" },
+    );
+    await assert.rejects(() => store.put(entry), /already published/);
+  } finally {
+    await app.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("legacy registry migration rejects a canonical-path collision before moving signed bytes", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "commons-registry-collision-"));
+  const name = "collision-fixture";
+  const version = "1.0.0";
+  const priorBytes = '{"source":"signed-prior"}';
+  const currentBytes = '{"source":"canonical-current"}';
+  try {
+    const priorDir = join(dataDir, "packages", name);
+    const currentDir = join(dataDir, "modules", name);
+    await mkdir(priorDir, { recursive: true });
+    await mkdir(currentDir, { recursive: true });
+    await writeFile(join(priorDir, `${version}.json`), priorBytes, "utf8");
+    await writeFile(join(currentDir, `${version}.json`), currentBytes, "utf8");
+
+    const store = new FsCommonsStore(dataDir);
+    await assert.rejects(
+      () => store.get(name, version),
+      /conflicting registry entries/,
+    );
+    assert.equal(
+      await readFile(join(priorDir, `${version}.json`), "utf8"),
+      priorBytes,
+    );
+    assert.equal(
+      await readFile(join(currentDir, `${version}.json`), "utf8"),
+      currentBytes,
+    );
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }

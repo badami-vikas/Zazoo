@@ -1,11 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Publishable (anon) key — safe to ship to the client. Points at the live Bridge AI project.
-// Override via .env (VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY).
-const url = import.meta.env.VITE_SUPABASE_URL || 'https://emtbimowmqqhixqlxhzb.supabase.co';
-const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_rpk3zrm13cWu-PqqQMOvtg_I0Dk1FsW';
+const configuredUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+const configuredKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
 
-export const SUPABASE_CONFIGURED = Boolean(url && key);
+export const SUPABASE_CONFIGURED = Boolean(configuredUrl && configuredKey);
+export const SUPABASE_CONFIGURATION_ERROR =
+  Boolean(configuredUrl) !== Boolean(configuredKey)
+    ? "VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY must be configured together"
+    : null;
 
-// Logged-in users only: persist the session so canonical reads ride the authenticated role.
-export const supabase = createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true } });
+// Local/desktop mode still needs a client-shaped object for shared code, but it
+// must never fall back to a live project. Loopback remains unreachable unless a
+// developer intentionally runs a local Supabase instance.
+export const supabase = createClient(
+  SUPABASE_CONFIGURED ? configuredUrl! : "http://127.0.0.1:54321",
+  SUPABASE_CONFIGURED ? configuredKey! : "bridge-unconfigured-publishable-key",
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
+  },
+);

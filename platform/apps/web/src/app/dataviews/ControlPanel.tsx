@@ -5,7 +5,7 @@
  * from the table itself.
  *
  * HONESTY BOUNDARY: no association backend exists — there is no kernel
- * endpoint mapping an entity to its tools/workflows/resources/people/agents/
+ * endpoint mapping an entity to its Modules/Automations/resources/people/Agents/
  * skills (filed in docs/BUGS.md: "association graph for control panel needs a
  * kernel endpoint"). What CAN be derived honestly, client-side, from what the
  * view already receives:
@@ -22,8 +22,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popove
 import { computeEligibleKinds } from "./eligibility.js";
 
 const UNWIRED_SECTIONS: { label: string; note: string }[] = [
-  { label: "Tools", note: "no entity→tool association endpoint yet" },
-  { label: "Workflows", note: "no entity→workflow association endpoint yet" },
+  { label: "Modules", note: "no entity-to-Module association endpoint yet" },
+  { label: "Automations", note: "no entity-to-Automation association endpoint yet" },
   { label: "Resources", note: "no entity→resource association endpoint yet" },
   { label: "People", note: "no entity→person association endpoint yet" },
   { label: "Agents", note: "no entity→agent association endpoint yet" },

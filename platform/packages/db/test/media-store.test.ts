@@ -1,13 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PGlite } from "@electric-sql/pglite";
 import { PgliteMediaStore } from "../src/index.js";
 import type { MediaCaptureRecord } from "@bridge/core";
 
 function rec(partial: Partial<MediaCaptureRecord> = {}): MediaCaptureRecord {
   return {
-    id: "m1", workspaceId: "ws-1", kind: "photo", mimeType: "image/jpeg",
+    id: "m1", organizationId: "ws-1", kind: "photo", mimeType: "image/jpeg",
     byteSize: 4, status: "pending",
-    provenance: { tool: "camera", version: "1.0.0" },
+    provenance: { skill: "camera.capture", version: "1.0.0" },
     capturedAt: "2026-06-20T00:00:00.000Z", ...partial,
   };
 }
@@ -40,4 +44,28 @@ test("append-only: duplicate id throws", async () => {
   await s.put(rec({ id: "dup" }), new Uint8Array([1]));
   await assert.rejects(() => s.put(rec({ id: "dup" }), new Uint8Array([2])), /duplicate|unique/i);
   await s.close();
+});
+
+test("opening a local media store migrates legacy capture provenance to its Skill", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "bridge-media-vocab2-"));
+  try {
+    const initial = await PgliteMediaStore.create(dataDir);
+    await initial.put(rec(), new Uint8Array([1]));
+    await initial.close();
+
+    const legacy = new PGlite(dataDir);
+    await legacy.query(
+      `UPDATE media_captures SET provenance = '{"tool":"camera","version":"1.0.0"}'::jsonb WHERE id = 'm1'`,
+    );
+    await legacy.close();
+
+    const migrated = await PgliteMediaStore.create(dataDir);
+    assert.deepEqual((await migrated.get("m1"))?.provenance, {
+      skill: "camera",
+      version: "1.0.0",
+    });
+    await migrated.close();
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
 });

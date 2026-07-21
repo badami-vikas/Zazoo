@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-// Generalizes the localStorage persistence pattern already proven in ResourcesPage
+// Shared local preference persistence helper.
 // (EDITS_KEY/ADDED_KEY) so every table surface can survive a refresh, not just Resources.
 // Prototype-tier persistence: per-browser, per-device. Swap for a Supabase/API-backed
 // PersistencePort later without touching call sites (same hook shape).

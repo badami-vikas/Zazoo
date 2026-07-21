@@ -1,7 +1,7 @@
 /**
  * DrizzleChildAgentRunStore — binds the core `ChildAgentRunStore` port
  * (@bridge/core's child-agent-run.ts) to `child_agent_runs` (schema.ts's
- * LAYER 8). Mirrors DrizzleWorkspaceDefinitionStore's shape: a single class,
+ * LAYER 8). Mirrors DrizzleOrganizationDefinitionStore's shape: a single class,
  * `#db` private field, an `unpack` helper, jsonb string-array columns
  * validated at the read boundary (same reasoning as skill-manifest-store.ts's
  * `parseStringArray`: a corrupted `authorityScope`/`eligibleSkills` must fail
@@ -14,10 +14,11 @@
  */
 import { and, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
-import { ChildRunBudgetExceededError } from "@bridge/core";
+import { ChildRunBudgetExceededError, ChildRunAlreadyTerminalError } from "@bridge/core";
 import type { ChildAgentRun, ChildAgentRunStatus, ChildAgentRunStore, DataScope, Plane, ReviewMode, TrustOrigin } from "@bridge/core";
 import type { Database } from "./client.js";
 import { childAgentRuns } from "./schema.js";
+import { withOrganizationOnly } from "./organization-context.js";
 
 const stringArraySchema = z.array(z.string());
 
@@ -44,8 +45,8 @@ function unpack(row: typeof childAgentRuns.$inferSelect): ChildAgentRun {
     id: row.id,
     parentRunId: row.parentRunId,
     parentAgentId: row.parentAgentId,
-    workspaceId: row.workspaceId,
-    goalId: row.goalId,
+    organizationId: row.organizationId,
+    goalId: row.anchorTaskId,
     taskId: row.taskId,
     depth: row.depth,
     authorityScope: parseStringArray(row.authorityScope, "authority_scope"),
@@ -72,14 +73,15 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
   }
 
   async create(run: ChildAgentRun): Promise<ChildAgentRun> {
-    const [inserted] = await this.#db
+    return withOrganizationOnly(this.#db, run.organizationId, async (tx) => {
+    const [inserted] = await tx
       .insert(childAgentRuns)
       .values({
         id: run.id,
         parentRunId: run.parentRunId,
         parentAgentId: run.parentAgentId,
-        workspaceId: run.workspaceId,
-        goalId: run.goalId,
+        organizationId: run.organizationId,
+        anchorTaskId: run.goalId,
         taskId: run.taskId,
         depth: run.depth,
         authorityScope: [...run.authorityScope],
@@ -99,54 +101,77 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
       .returning();
     if (!inserted) throw new Error("child_agent_runs: insert returned no row");
     return unpack(inserted);
+    });
   }
 
-  async get(workspaceId: string, id: string): Promise<ChildAgentRun | null> {
-    const rows = await this.#db
+  async get(organizationId: string, id: string): Promise<ChildAgentRun | null> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+    const rows = await tx
       .select()
       .from(childAgentRuns)
-      .where(and(eq(childAgentRuns.workspaceId, workspaceId), eq(childAgentRuns.id, id)))
+      .where(and(eq(childAgentRuns.organizationId, organizationId), eq(childAgentRuns.id, id)))
       .limit(1);
     const row = rows[0];
     return row ? unpack(row) : null;
+    });
   }
 
-  async listByParentRun(workspaceId: string, parentRunId: string): Promise<ChildAgentRun[]> {
-    const rows = await this.#db
+  async listByParentRun(organizationId: string, parentRunId: string): Promise<ChildAgentRun[]> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+    const rows = await tx
       .select()
       .from(childAgentRuns)
       .where(
         and(
-          eq(childAgentRuns.workspaceId, workspaceId),
+          eq(childAgentRuns.organizationId, organizationId),
           eq(childAgentRuns.parentRunId, parentRunId),
         ),
       );
     return rows.map(unpack);
+    });
   }
 
   async updateStatus(
-    workspaceId: string,
+    organizationId: string,
     id: string,
     expectedStatus: ChildAgentRunStatus,
     status: ChildAgentRunStatus,
   ): Promise<ChildAgentRun> {
-    const [updated] = await this.#db
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+    const [updated] = await tx
       .update(childAgentRuns)
       .set({ status })
       .where(
         and(
-          eq(childAgentRuns.workspaceId, workspaceId),
+          eq(childAgentRuns.organizationId, organizationId),
           eq(childAgentRuns.id, id),
           eq(childAgentRuns.status, expectedStatus),
         ),
       )
       .returning();
-    if (!updated) throw new Error(`child_agent_runs: unknown run ${id} or invalid state transition`);
+    if (!updated) {
+      // TASK-011 remediation (2026-07-18 fresh review) — the UPDATE's WHERE
+      // clause can miss for two different reasons (unknown run vs. a real
+      // CAS mismatch); distinguish them with one follow-up read so a genuine
+      // race throws the SAME typed `ChildRunAlreadyTerminalError` the
+      // in-memory store throws, not a generic Error. Callers throughout
+      // apps/api specifically catch `instanceof ChildRunAlreadyTerminalError`
+      // to swallow ONLY an expected already-terminal race — before this fix,
+      // the real CAS-mismatch path here threw a plain Error that such
+      // callers would incorrectly rethrow as an unexpected failure.
+      const [current] = await tx
+        .select()
+        .from(childAgentRuns)
+        .where(and(eq(childAgentRuns.organizationId, organizationId), eq(childAgentRuns.id, id)));
+      if (!current) throw new Error(`child_agent_runs: unknown run ${id}`);
+      throw new ChildRunAlreadyTerminalError(id, current.status as ChildAgentRunStatus);
+    }
     return unpack(updated);
+    });
   }
 
   async consumeBudget(
-    workspaceId: string,
+    organizationId: string,
     id: string,
     cost: number,
     nowISO: string,
@@ -154,7 +179,8 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
     if (!Number.isFinite(cost) || cost < 0) {
       throw new Error("child_agent_runs: cost must be a non-negative finite number");
     }
-    const [updated] = await this.#db
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+    const [updated] = await tx
       .update(childAgentRuns)
       .set({
         callsUsed: sql`${childAgentRuns.callsUsed} + 1`,
@@ -162,7 +188,7 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
       })
       .where(
         and(
-          eq(childAgentRuns.workspaceId, workspaceId),
+          eq(childAgentRuns.organizationId, organizationId),
           eq(childAgentRuns.id, id),
           eq(childAgentRuns.status, "running"),
           gt(childAgentRuns.deadline, new Date(nowISO)),
@@ -175,5 +201,6 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
       throw new ChildRunBudgetExceededError(`run ${id} has no budget or time remaining`);
     }
     return unpack(updated);
+    });
   }
 }

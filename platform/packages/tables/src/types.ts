@@ -13,7 +13,7 @@ export type ColumnKind =
   | "url"
   | "relation"
   | "formula"
-  | "tool"
+  | "skill"
   // "location" (ADR-023/ADR-024 view-convertibility grammar): lets map-view
   // eligibility be computed from a real column kind instead of the
   // `apps/web` id/label-substring heuristic (dataviews/eligibility.ts,
@@ -21,6 +21,29 @@ export type ColumnKind =
   // location" row, 2026-07-06). Mirrors `@bridge/core`'s
   // `BlueprintColumnKind`, which added this member first.
   | "location";
+
+export type ViewKind =
+  | "table"
+  | "board"
+  | "gallery"
+  | "form"
+  | "calendar"
+  | "map"
+  | "graph"
+  | "tree";
+
+export type GraphScope = "single_database" | "multi_database" | "full";
+
+export const VIEW_KINDS: readonly ViewKind[] = [
+  "table",
+  "board",
+  "gallery",
+  "form",
+  "calendar",
+  "map",
+  "graph",
+  "tree",
+] as const;
 
 export interface ColumnSpec {
   id: string;
@@ -30,7 +53,13 @@ export interface ColumnSpec {
   locked?: boolean;
   width?: number;
   options?: string[]; // select/multiselect
-  toolId?: string; // kind: "tool" — computed by an internal tool
+  skillId?: string; // kind: "skill" — computed by a governed Skill
+  required?: boolean;
+  defaultValue?: unknown;
+  relationTarget?: string;
+  relationParent?: boolean;
+  hiddenInForm?: boolean;
+  sensitive?: boolean;
 }
 
 export interface TableSpec {
@@ -57,14 +86,27 @@ export interface ViewConfig {
   /** "form" = standard new-row input view (direct insert, same enrichment process as
    * any other DB write — docs/wiki/ui-architecture.md "Form view"). Always eligible
    * for any table-backed spec; submission calls the caller-supplied `onInsert` hook. */
-  kind: "table" | "gallery" | "kanban" | "calendar" | "map" | "network" | "form";
+  kind: ViewKind;
   sorts: SortSpec[];
   rowFilters: RowFilter[];
   filterMatch: "all" | "any";
   groupBy: string | null;
+  dateBy?: string;
+  locationBy?: string;
+  relationBy?: string;
+  parentBy?: string;
+  graphScope?: GraphScope;
+  graphDatabaseIds?: string[];
+  formDefaults?: Record<string, unknown>;
 }
 
-export const defaultViewConfig = (id: string, kind: ViewConfig["kind"] = "table"): ViewConfig => ({
+export function normalizeViewKind(kind: unknown): ViewKind | null {
+  if (kind === "kanban") return "board";
+  if (kind === "network") return "graph";
+  return VIEW_KINDS.includes(kind as ViewKind) ? (kind as ViewKind) : null;
+}
+
+export const defaultViewConfig = (id: string, kind: ViewKind = "table"): ViewConfig => ({
   id,
   kind,
   sorts: [],

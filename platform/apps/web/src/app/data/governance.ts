@@ -29,13 +29,13 @@ export interface LedgerEntry {
   age: string;           // humanized age for the queue
   actorKind: ActorKind;
   actor: string;         // who proposed it (agent or human name)
-  // provenance: on-behalf-of + delegation + ritual run (ledger.on_behalf_of_*, delegation_id, run_id)
+  // provenance: on-behalf-of + delegation + Automation Run
   onBehalfOfType?: 'user' | null;
   onBehalfOf?: string | null;
   delegationId?: string | null;
   runId?: string | null;
   action: string;        // verb, e.g. "Send intro email"
-  resourceType: 'person' | 'initiative' | 'community' | 'relation' | 'ritual' | 'signal' | 'external' | 'memory' | 'help';
+  resourceType: 'person' | 'record' | 'community' | 'relation' | 'automation' | 'signal' | 'event' | 'external' | 'memory' | 'help';
   resource: string;      // target label, e.g. "Priya Anand"
   policy: string;        // the policy that forced review (policies.name)
   decision: Decision;    // null === pending (awaiting review)
