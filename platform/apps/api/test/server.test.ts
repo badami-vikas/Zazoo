@@ -35,6 +35,18 @@ const COMPLETE_PRODUCTION_ENV = {
   BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY: undefined,
 } as const;
 
+const PUBLIC_CLOUD_PRODUCTION_ENV = {
+  ...COMPLETE_PRODUCTION_ENV,
+  API_ALLOWED_ORIGINS: undefined,
+  BRIDGE_RENDER_WEB_HOST: "bridge-pilot-web.onrender.com",
+  BRIDGE_LOCAL_DIR: "/tmp/bridge-public-only/local",
+  BRIDGE_FILES_ROOT: "/tmp/bridge-public-only/files",
+  BRIDGE_LOCAL_RESIDENCY: "public-cloud",
+  BRIDGE_DEALPILOT_CREDENTIAL_VAULT: "disabled",
+  BRIDGE_CREDENTIAL_VAULT_KEY_ID: undefined,
+  BRIDGE_CREDENTIAL_VAULT_KEY: undefined,
+} as const;
+
 function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
   const prior: Record<string, string | undefined> = {};
   for (const key of Object.keys(vars)) prior[key] = process.env[key];
@@ -76,6 +88,21 @@ async function withEnvAsync<T>(vars: Record<string, string | undefined>, fn: () 
 test("CORS: explicit API_ALLOWED_ORIGINS always wins, in any NODE_ENV", () => {
   withEnv({ API_ALLOWED_ORIGINS: "https://test_fixture_a.example, https://test_fixture_b.example", NODE_ENV: "production" }, () => {
     assert.deepEqual(corsOriginConfig(), ["https://test_fixture_a.example", "https://test_fixture_b.example"]);
+  });
+
+  test("CORS: Render static host derives one exact HTTPS origin", () => {
+    withEnv(
+      {
+        API_ALLOWED_ORIGINS: undefined,
+        BRIDGE_RENDER_WEB_HOST: "bridge-pilot-web.onrender.com",
+        NODE_ENV: "production",
+      },
+      () => {
+        assert.deepEqual(corsOriginConfig(), [
+          "https://bridge-pilot-web.onrender.com",
+        ]);
+      },
+    );
   });
   withEnv({ API_ALLOWED_ORIGINS: "https://test_fixture_a.example", NODE_ENV: undefined }, () => {
     assert.deepEqual(corsOriginConfig(), ["https://test_fixture_a.example"]);
@@ -139,6 +166,22 @@ test("assertProductionEnv: accepts the complete hosted pilot contract", () => {
   withEnv(COMPLETE_PRODUCTION_ENV, () => {
   withEnv({ NODE_ENV: "production", DATABASE_URL: "postgres://test_fixture_user:test_fixture_pw@localhost:5432/test_fixture_db" }, () => {
     assert.doesNotThrow(() => assertProductionEnv());
+  });
+
+  test("assertProductionEnv: accepts public-cloud only with ephemeral scratch and no vault", () => {
+    withEnv(PUBLIC_CLOUD_PRODUCTION_ENV, () => {
+      assert.doesNotThrow(() => assertProductionEnv());
+    });
+    for (const [key, value, expected] of [
+      ["BRIDGE_LOCAL_DIR", "/var/lib/bridge/local", /scratch paths/],
+      ["BRIDGE_FILES_ROOT", "/var/lib/bridge/files", /scratch paths/],
+      ["BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "encrypted-file", /disabled/],
+      ["BRIDGE_CREDENTIAL_VAULT_KEY_ID", "unexpected", /forbids credential vault keys/],
+    ] as const) {
+      withEnv({ ...PUBLIC_CLOUD_PRODUCTION_ENV, [key]: value }, () => {
+        assert.throws(() => assertProductionEnv(), expected);
+      });
+    }
   });
   });
 });

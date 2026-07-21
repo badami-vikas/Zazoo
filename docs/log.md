@@ -1968,6 +1968,12 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Exact unblock: an authorized real Source credential plus configured/authorized Google OAuth, followed by live BizBuySell Deal discovery and credential reveal/copy/revoke/expiry/wrong-Human proof.
 - Preserved the security evidence that the terminal-exposed runtime password was immediately rotated to a generated Keychain-only value; no value is stored in committed evidence.
 
+# 2026-07-21 — Free Render public-cloud deployment boundary (AP-063, ADR-137)
+- Added one free Virginia Docker API plus one free static site Blueprint; no Render database, disk, Key Value, or paid resource.
+- Added explicit `public-cloud` fail-closed mode: `/tmp` scratch only, no vault/keys, no private procedure or Google token path, no private Relation reconciliation.
+- Preserved exact pilot/JWKS, least-privilege `bridge_app`, RLS context, CORS derivation, existing Docker/static builds, and desktop Local Plane.
+- TASK-006 stays blocked on authorized Google OAuth + real Source credentials. TASK-016/017 remain ready; this slice does not close their broader prototypes.
+
 # 2026-07-21 — TASK-013 repository and manifest cleanup (AP-061, ADR-135)
 - Preserved exact pre-cleanup `origin/main@7f37e17e1132ebbbee74f1c612f0e83b211139ef` on verified private ref `archive/task-013-pre-cleanup-2026-07-21`, then removed unopened legacy root trees from main without rewriting history.
 - Moved three root audit/plan docs under `docs/raw/` with canonical frontmatter and explicit deprecated status.

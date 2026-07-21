@@ -65,6 +65,37 @@ test("OAuth states are hashed at rest, single-use, bound, and expiring", async (
   assert.equal(await states.consume(PILOT_ORGANIZATION, expired.state), null);
 });
 
+test("public-cloud callback cannot persist Google tokens", async () => {
+  const priorResidency = process.env.BRIDGE_LOCAL_RESIDENCY;
+  const priorVault = process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT;
+  process.env.BRIDGE_LOCAL_RESIDENCY = "public-cloud";
+  process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT = "disabled";
+  const wiring = await buildWiring();
+  const app = Fastify();
+  try {
+    await registerGoogleOAuthRoutes(app, wiring);
+    const response = await app.inject({
+      method: "GET",
+      url: "/integrations/google/callback?state=blocked&code=blocked",
+    });
+    assert.equal(response.statusCode, 302);
+    assert.match(
+      response.headers.location ?? "",
+      /desktop_local_plane_required/,
+    );
+  } finally {
+    await app.close();
+    await wiring.close();
+    if (priorResidency === undefined) delete process.env.BRIDGE_LOCAL_RESIDENCY;
+    else process.env.BRIDGE_LOCAL_RESIDENCY = priorResidency;
+    if (priorVault === undefined) {
+      delete process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT;
+    } else {
+      process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT = priorVault;
+    }
+  }
+});
+
 test("Google connect issues an unpredictable state and callback rejects legacy predictable state", async () => {
   const priorId = process.env.GOOGLE_CLIENT_ID;
   const priorSecret = process.env.GOOGLE_CLIENT_SECRET;

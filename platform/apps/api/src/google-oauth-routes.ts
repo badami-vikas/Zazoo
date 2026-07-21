@@ -53,6 +53,12 @@ export async function registerGoogleOAuthRoutes(
     "/integrations/google/callback",
     async (req, reply) => {
       const { code, state, error } = req.query;
+      if (wiring.publicCloudOnly) {
+        return finishOAuth(reply, {
+          connected: false,
+          error: "desktop_local_plane_required",
+        });
+      }
       if (!wiring.googleOAuth) {
         return finishOAuth(reply, {
           connected: false,

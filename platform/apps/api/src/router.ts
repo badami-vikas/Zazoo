@@ -15,6 +15,7 @@ import {
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
+import { isPublicCloudProcedureAllowed } from "./deployment-boundary.js";
 import { LocalGeocodingProviderError } from "./geocoding-provider.js";
 import {
   applyApprovedRelationshipMaterialization,
@@ -401,11 +402,35 @@ const requireAuthenticatedIdentity = t.middleware(async ({ ctx, next }) => {
   return next();
 });
 
+const enforcePublicCloudBoundary = t.middleware(
+  async ({ ctx, path, next }) => {
+    if (
+      ctx.wiring.publicCloudOnly &&
+      !isPublicCloudProcedureAllowed(path)
+    ) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message:
+          "This operation requires the desktop Local Plane and is unavailable from the public cloud API",
+      });
+    }
+    return next();
+  },
+);
+
 // All non-public procedures require a verified identity on hosted/persistent
 // deployments. Helpdesk's token-capability surface is the sole public router.
-const procedure = t.procedure.use(requireAuthenticatedIdentity).use(withPilotOrganizationGuard);
-const authenticatedProcedure = t.procedure.use(requireAuthenticatedIdentity).use(withPilotOrganizationGuard);
-const publicProcedure = t.procedure.use(withPilotOrganizationGuard);
+const procedure = t.procedure
+  .use(requireAuthenticatedIdentity)
+  .use(enforcePublicCloudBoundary)
+  .use(withPilotOrganizationGuard);
+const authenticatedProcedure = t.procedure
+  .use(requireAuthenticatedIdentity)
+  .use(enforcePublicCloudBoundary)
+  .use(withPilotOrganizationGuard);
+const publicProcedure = t.procedure
+  .use(enforcePublicCloudBoundary)
+  .use(withPilotOrganizationGuard);
 
 /**
  * TASK-010 (docs/raw/ui-architecture-rules-2026-07.md §5d) — the anchor a Red
@@ -3446,6 +3471,13 @@ export const appRouter = t.router({
     propose: procedure.input(proposeInput).mutation(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      if (ctx.wiring.publicCloudOnly && input.dataScope !== "public") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "The public cloud API accepts governed Actions only with explicit public data scope",
+        });
+      }
       if (input.actor.type === "agent") {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -3458,7 +3490,7 @@ export const appRouter = t.router({
       const actor = {
         type: ctx.identity.type,
         id: ctx.identity.id,
-        plane: "local" as const,
+        plane: ctx.wiring.publicCloudOnly ? "cloud" as const : "local" as const,
       };
       const onBehalfOf = resolveClientOnBehalfOf(ctx.identity, input.onBehalfOf);
       return ctx.wiring.pipeline.propose(
@@ -10018,6 +10050,7 @@ export const appRouter = t.router({
       const { items, total } = await ctx.wiring.moduleStore.list(input.organizationId, {
         limit: input.limit,
         offset: input.offset,
+        ...(ctx.wiring.publicCloudOnly ? { installedRootsOnly: true } : {}),
       });
       const itemsWithRuntimeBindings = await Promise.all(
         items.map(async (installation) => {

@@ -16,6 +16,11 @@ import { buildWiring, PILOT_ORGANIZATION } from "./wiring.js";
 import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
 import { reconcileOrganizationRelationshipMaterializations } from "./relationship-materializer.js";
 import { SIDECAR_TOKEN_HEADER, validSidecarToken } from "./sidecar-auth.js";
+import {
+  isPublicCloudOnly,
+  isPublicCloudScratchPath,
+  renderWebOrigin,
+} from "./deployment-boundary.js";
 
 /**
  * CORS origin resolution. `API_ALLOWED_ORIGINS` (comma-separated) is the explicit
@@ -36,6 +41,8 @@ export function corsOriginConfig(): true | string[] {
       .map((o) => o.trim())
       .filter(Boolean);
   }
+  const renderOrigin = renderWebOrigin();
+  if (renderOrigin) return [renderOrigin];
 
   if (process.env.NODE_ENV === "production" || isVerifierConfigured()) return [];
   return true;
@@ -192,6 +199,7 @@ function validBase64Key(value: string | undefined): boolean {
 export function assertProductionEnv(): void {
   if (process.env.NODE_ENV !== "production") return;
   const invalid: string[] = [];
+  const publicCloudOnly = isPublicCloudOnly();
   if (!process.env.DATABASE_URL) invalid.push("DATABASE_URL");
   if (!process.env.SUPABASE_URL) {
     invalid.push("SUPABASE_URL");
@@ -204,10 +212,18 @@ export function assertProductionEnv(): void {
       invalid.push("SUPABASE_URL (invalid URL)");
     }
   }
-  const origins = process.env.API_ALLOWED_ORIGINS
-    ?.split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+  let renderOrigin: string | null = null;
+  try {
+    renderOrigin = renderWebOrigin();
+  } catch {
+    invalid.push("BRIDGE_RENDER_WEB_HOST");
+  }
+  const origins =
+    process.env.API_ALLOWED_ORIGINS
+      ?.split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean) ??
+    (renderOrigin ? [renderOrigin] : undefined);
   if (!origins?.length) {
     invalid.push("API_ALLOWED_ORIGINS");
   } else {
@@ -229,47 +245,61 @@ export function assertProductionEnv(): void {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(process.env.BRIDGE_PILOT_USER_EMAIL ?? "")) {
     invalid.push("BRIDGE_PILOT_USER_EMAIL");
   }
-  if (
-    !process.env.BRIDGE_LOCAL_DIR ||
-    !isAbsolute(process.env.BRIDGE_LOCAL_DIR)
-  ) {
-    invalid.push("BRIDGE_LOCAL_DIR (absolute durable volume path)");
-  }
-  if (
-    !process.env.BRIDGE_FILES_ROOT ||
-    !isAbsolute(process.env.BRIDGE_FILES_ROOT)
-  ) {
-    invalid.push("BRIDGE_FILES_ROOT (absolute durable volume path)");
-  }
-  if (process.env.BRIDGE_LOCAL_RESIDENCY !== "encrypted-host-volume") {
+  const localDir = process.env.BRIDGE_LOCAL_DIR;
+  if (!localDir || !isAbsolute(localDir)) {
     invalid.push(
-      "BRIDGE_LOCAL_RESIDENCY=encrypted-host-volume",
+      `BRIDGE_LOCAL_DIR (absolute ${publicCloudOnly ? "ephemeral scratch" : "durable volume"} path)`,
     );
   }
-  if (
-    process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT !== "encrypted-file"
-  ) {
+  const filesRoot = process.env.BRIDGE_FILES_ROOT;
+  if (!filesRoot || !isAbsolute(filesRoot)) {
     invalid.push(
-      "BRIDGE_DEALPILOT_CREDENTIAL_VAULT=encrypted-file",
+      `BRIDGE_FILES_ROOT (absolute ${publicCloudOnly ? "ephemeral scratch" : "durable volume"} path)`,
     );
-  }
-  if (!process.env.BRIDGE_CREDENTIAL_VAULT_KEY_ID?.trim()) {
-    invalid.push("BRIDGE_CREDENTIAL_VAULT_KEY_ID");
-  }
-  if (!validBase64Key(process.env.BRIDGE_CREDENTIAL_VAULT_KEY?.trim())) {
-    invalid.push("BRIDGE_CREDENTIAL_VAULT_KEY (base64 32-byte key)");
   }
   const previousKey = process.env.BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY?.trim();
   const previousKeyId =
     process.env.BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID?.trim();
-  if (Boolean(previousKey) !== Boolean(previousKeyId)) {
-    invalid.push(
-      "BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID/BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY (configure together)",
-    );
-  } else if (previousKey && !validBase64Key(previousKey)) {
-    invalid.push(
-      "BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY (base64 32-byte key)",
-    );
+  if (publicCloudOnly) {
+    if (
+      (localDir && !isPublicCloudScratchPath(localDir)) ||
+      (filesRoot && !isPublicCloudScratchPath(filesRoot))
+    ) {
+      invalid.push("public-cloud scratch paths must stay under /tmp/bridge-public-only");
+    }
+    if (process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT !== "disabled") {
+      invalid.push("BRIDGE_DEALPILOT_CREDENTIAL_VAULT=disabled");
+    }
+    if (
+      process.env.BRIDGE_CREDENTIAL_VAULT_KEY_ID ||
+      process.env.BRIDGE_CREDENTIAL_VAULT_KEY ||
+      previousKeyId ||
+      previousKey
+    ) {
+      invalid.push("public-cloud mode forbids credential vault keys");
+    }
+  } else {
+    if (process.env.BRIDGE_LOCAL_RESIDENCY !== "encrypted-host-volume") {
+      invalid.push("BRIDGE_LOCAL_RESIDENCY=encrypted-host-volume");
+    }
+    if (process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT !== "encrypted-file") {
+      invalid.push("BRIDGE_DEALPILOT_CREDENTIAL_VAULT=encrypted-file");
+    }
+    if (!process.env.BRIDGE_CREDENTIAL_VAULT_KEY_ID?.trim()) {
+      invalid.push("BRIDGE_CREDENTIAL_VAULT_KEY_ID");
+    }
+    if (!validBase64Key(process.env.BRIDGE_CREDENTIAL_VAULT_KEY?.trim())) {
+      invalid.push("BRIDGE_CREDENTIAL_VAULT_KEY (base64 32-byte key)");
+    }
+    if (Boolean(previousKey) !== Boolean(previousKeyId)) {
+      invalid.push(
+        "BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID/BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY (configure together)",
+      );
+    } else if (previousKey && !validBase64Key(previousKey)) {
+      invalid.push(
+        "BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY (base64 32-byte key)",
+      );
+    }
   }
   if (invalid.length > 0) {
     throw new Error(
@@ -389,7 +419,11 @@ export async function buildServer() {
   // operator discover it one 401 at a time.
   const verifierConfigured = isVerifierConfigured();
   app.log.info(
-    { verifierConfigured, persistent: wiring.persistent },
+    {
+      verifierConfigured,
+      persistent: wiring.persistent,
+      boundary: wiring.publicCloudOnly ? "public-cloud" : "full",
+    },
     `identity: verifier ${verifierConfigured ? "CONFIGURED" : "not configured (pilot fallback for tokenless requests)"}; ` +
       `stores ${wiring.persistent ? "persistent" : "in-memory"}`,
   );
@@ -454,7 +488,12 @@ export async function buildServer() {
     }
 
     reply.code(ready ? 200 : 503);
-    return { ready, persistent: wiring.persistent, checks };
+    return {
+      ready,
+      persistent: wiring.persistent,
+      boundary: wiring.publicCloudOnly ? "public-cloud" : "full",
+      checks,
+    };
   });
 
   // OAuth redirect target (a GET, not tRPC): Google sends the user back here with a
@@ -511,14 +550,19 @@ export async function buildServer() {
       relationReconciliationRunning = false;
     }
   };
-  await reconcileRelationships();
-  const relationReconciliationTimer = setInterval(
-    () => void reconcileRelationships(),
-    60_000,
-  );
-  relationReconciliationTimer.unref();
+  let relationReconciliationTimer: NodeJS.Timeout | undefined;
+  if (!wiring.publicCloudOnly) {
+    await reconcileRelationships();
+    relationReconciliationTimer = setInterval(
+      () => void reconcileRelationships(),
+      60_000,
+    );
+    relationReconciliationTimer.unref();
+  }
   app.addHook("onClose", async () => {
-    clearInterval(relationReconciliationTimer);
+    if (relationReconciliationTimer) {
+      clearInterval(relationReconciliationTimer);
+    }
   });
 
   return app;
