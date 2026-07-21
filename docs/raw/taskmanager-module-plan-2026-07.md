@@ -2,7 +2,7 @@
 title: Task Manager Module Plan — Design, Business, and Technical
 type: raw
 doc_kind: plan
-status: active
+status: done
 companions: [brd-taskmanager-2026-07.md, initiatives-taskade-research.md, productivity-app-research-2026.md, calendar-module-plan-2026-07.md, agent-goal-skill-orchestration-plan-2026-07.md, ui-architecture-rules-2026-07.md, clean-room-capability-research-protocol-2026-07.md]
 related_wiki: ../wiki/taskmanager.md
 updated: 2026-07-21
