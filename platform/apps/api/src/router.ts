@@ -47,6 +47,7 @@ import {
   LEARNING_AGENT,
   OUTREACH_AGENT,
   INTERNAL_STRATEGIST_AGENT,
+  GOVERNANCE_AGENT,
   PILOT_ORGANIZATION,
   LEARNING_ROLE_MODEL_GOAL_TYPE,
   PRODUCE_RECOMMENDATION_TASK_TYPE,
@@ -115,6 +116,7 @@ import {
   buildCommunicationsSystemPrompt,
   canonicalizeManifest,
   canonicalizeJson,
+  findOrganizationDataPaths,
   normalizeCommonsTags,
   COMMUNICATIONS_SKILL,
   findFoundationalAgent,
@@ -149,6 +151,7 @@ import {
   type OrganizationBlueprint,
   type RoutableCapability,
   type ModuleInstallationRow,
+  type ModuleCapabilityNeed,
   type ModuleManifest,
   type CommonsModuleEntry,
   type CommonsListQuery,
@@ -158,7 +161,9 @@ import {
   uuidv7,
   emitTasksMarkdown,
   detectTaskProjectionDrift,
+  applyApprovedTaskProjectionReconciliation,
   evaluateTaskGuards,
+  planCompletedBaySweep,
   routeTaskByRequiredSkill,
   classifyTaskChangeBand,
   calibratedTaskChangeDecision,
@@ -195,6 +200,8 @@ import {
   COMMONS_BUILT_IN_MODULES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCE_AUTOMATION_ID,
+  TASK_MANAGER_DRIFT_AUTOMATION_ID,
+  TASK_MANAGER_SWEEP_AUTOMATION_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeAutomationId,
   resolveModuleAgentRuntimeId,
@@ -204,7 +211,11 @@ import { assertCommonsEntryContentTrusted } from "./commons-client.js";
 import {
   listModuleFiles,
   MAX_MODULE_FILE_BYTES,
+  ModuleFileContentConflictError,
   ModuleFilesPathError,
+  readModuleFileContent,
+  replaceModuleFileContent,
+  withOrganizationFileOperationLock,
   saveModuleFile,
   OrganizationFilesConflictError,
   OrganizationFilesRecoveryError,
@@ -241,10 +252,11 @@ const SUPPORTED_RELATIONSHIP_CONTRACT = (() => {
     (candidate) => candidate.manifest.name === "relationship",
   );
   if (!relationship) throw new Error("Relationship built-in manifest is missing");
+  const manifest = parseModuleManifest({ module: relationship.manifest });
   return {
-    name: relationship.manifest.name,
-    version: relationship.manifest.version,
-    canonicalManifest: canonicalizeManifest(relationship.manifest),
+    name: manifest.name,
+    version: manifest.version,
+    canonicalManifest: canonicalizeManifest(manifest),
   };
 })();
 
@@ -2571,6 +2583,50 @@ async function assertCurrentCommonsAttachment(
   installation: ModuleInstallationRow,
 ): Promise<CommonsModuleEntry | null> {
   const attachment = installation.moduleAttachment;
+  if (!attachment && !installation.commonsSource) return null;
+  if (installation.commonsSource) {
+    const entry = await wiring.commonsRegistry.getVersion(
+      installation.moduleName,
+      installation.moduleVersion,
+    );
+    if (
+      !entry ||
+      entry.integrity.value !== installation.commonsSource.contentHash ||
+      canonicalizeJson(entry) !== canonicalizeJson(installation.commonsSource.entry)
+    ) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Commons root Module no longer matches its pinned signed source",
+      });
+    }
+    try {
+      assertCommonsEntryContentTrusted(entry);
+    } catch (error) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: error instanceof Error ? error.message : "Commons root Module failed trust verification",
+      });
+    }
+    const parsed = parseModuleManifest({ module: entry.manifest });
+    if (
+      canonicalizeManifest(parsed) !== canonicalizeManifest(installation.manifest) ||
+      `sha256:${createHash("sha256").update(canonicalizeManifest(parsed)).digest("hex")}` !==
+        installation.commonsSource.manifestHash
+    ) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Commons root Module normalized manifest no longer matches the installation",
+      });
+    }
+    const privacyPaths = findOrganizationDataPaths(entry.manifest);
+    if (privacyPaths.length > 0) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Commons root Module contains Organization data (${privacyPaths.join(", ")})`,
+      });
+    }
+    return entry;
+  }
   if (!attachment) return null;
   const ownerModule = await wiring.moduleStore.getAvailable(
     installation.organizationId,
@@ -2632,21 +2688,29 @@ async function verifiedCommonsDependencyInstallations(
   root: ModuleInstallationRow,
   rootEntry: CommonsModuleEntry | null,
 ): Promise<ModuleInstallationRow[]> {
-  if (!root.moduleAttachment || !rootEntry) return [];
+  if (!rootEntry) return [];
   const { items } = await wiring.moduleStore.list(root.organizationId, { limit: 10_000, offset: 0 });
-  const pins = new Map<string, string>(
-    (rootEntry.securityScan.dependencyPins ?? []).map(
-      (pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const,
-    ),
-  );
+  const verifiedPins = new Map<string, string>();
   const found = new Map<string, ModuleInstallationRow>();
   const visited = new Set<string>();
   const visit = async (entry: CommonsModuleEntry): Promise<void> => {
+    const parentPins = new Map<string, string>(
+      (entry.securityScan.dependencyPins ?? []).map(
+        (pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const,
+      ),
+    );
     for (const dependency of entry.manifest.dependencies) {
       const key = `${dependency.manifestId}@${dependency.version}`;
+      const expectedHash = parentPins.get(key);
+      const priorHash = verifiedPins.get(key);
+      if (priorHash && priorHash !== expectedHash) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Commons dependency "${key}" has conflicting signed content-hash pins`,
+        });
+      }
       if (visited.has(key)) continue;
       visited.add(key);
-      const expectedHash = pins.get(key);
       const dependencyEntry = await wiring.commonsRegistry.getVersion(
         dependency.manifestId,
         dependency.version,
@@ -2657,6 +2721,7 @@ async function verifiedCommonsDependencyInstallations(
           message: `Commons dependency "${key}" does not match its signed content-hash pin`,
         });
       }
+      verifiedPins.set(key, expectedHash);
       try {
         assertCommonsEntryContentTrusted(dependencyEntry);
       } catch (error) {
@@ -2665,16 +2730,22 @@ async function verifiedCommonsDependencyInstallations(
           message: error instanceof Error ? error.message : `Commons dependency "${key}" failed trust verification`,
         });
       }
-      const local = items.find(
-        (candidate) =>
-          candidate.moduleName === dependency.manifestId &&
-          candidate.moduleVersion === dependency.version &&
-          candidate.moduleAttachment?.source === "commons" &&
-          candidate.moduleAttachment.ownerModuleName === root.moduleAttachment?.ownerModuleName &&
-          candidate.moduleAttachment.agentId === root.moduleAttachment?.agentId &&
-          candidate.moduleAttachment.needId === root.moduleAttachment?.needId &&
-          candidate.moduleAttachment.contentHash === expectedHash,
-      );
+      const local = items.find((candidate) => {
+        if (
+          candidate.moduleName !== dependency.manifestId ||
+          candidate.moduleVersion !== dependency.version
+        ) return false;
+        if (root.moduleAttachment) {
+          return (
+            candidate.moduleAttachment?.source === "commons" &&
+            candidate.moduleAttachment.ownerModuleName === root.moduleAttachment.ownerModuleName &&
+            candidate.moduleAttachment.agentId === root.moduleAttachment.agentId &&
+            candidate.moduleAttachment.needId === root.moduleAttachment.needId &&
+            candidate.moduleAttachment.contentHash === expectedHash
+          );
+        }
+        return candidate.commonsSource?.contentHash === expectedHash;
+      });
       if (!local || !["private", "promoted", "available"].includes(local.state)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -2682,9 +2753,6 @@ async function verifiedCommonsDependencyInstallations(
         });
       }
       found.set(local.id, local);
-      for (const pin of dependencyEntry.securityScan.dependencyPins ?? []) {
-        pins.set(`${pin.name}@${pin.version}`, pin.contentHash);
-      }
       await visit(dependencyEntry);
     }
   };
@@ -3097,6 +3165,110 @@ const taskRestructureInput = z.discriminatedUnion("kind", [
   }),
 ]);
 
+const TASK_MANAGER_PROJECTION_FILE = "tasks.md";
+
+function sha256Content(value: string | Uint8Array): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function idempotentUuid(value: string): string {
+  const hex = createHash("sha256").update(value).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+async function requireInstalledTaskManager(wiring: Wiring, organizationId: string) {
+  const installation = await wiring.moduleStore.getAvailable(organizationId, "task-manager");
+  if (!installation || installation.status !== "installed" || !installation.manifest.module) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "installed Task Manager Module not found" });
+  }
+
+  return installation;
+}
+
+async function requireOrganizationNameForFiles(
+  wiring: Wiring,
+  organizationId: string,
+  userId: string,
+): Promise<string> {
+  const organization = (await wiring.organizationStore.listOrganizations(userId))
+    .find((candidate) => candidate.id === organizationId);
+  if (!organization) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
+  }
+  return organization.name;
+}
+
+async function replaceTaskProjectionFile(
+  wiring: Wiring,
+  organizationName: string,
+  moduleName: string,
+  expectedHash: string | null,
+  content: string,
+) {
+  try {
+    return await replaceModuleFileContent(
+      organizationName,
+      moduleName,
+      TASK_MANAGER_PROJECTION_FILE,
+      expectedHash,
+      Buffer.from(content, "utf8"),
+      wiring.moduleFilesBridgeRoot,
+    );
+  } catch (error) {
+    if (error instanceof ModuleFileContentConflictError) {
+      throw new TRPCError({ code: "CONFLICT", message: error.message });
+    }
+    throw error;
+  }
+}
+
+async function ensureTaskManagerAutomation(
+  wiring: Wiring,
+  organizationId: string,
+  input: {
+    automationId: string;
+    name: string;
+    agentId: string;
+    skill: string;
+    action: Action;
+  },
+  run: RunCtx,
+): Promise<{ goalId: string; taskId: string }> {
+  const seam = { nextId: () => run.ids.next(), nowISO: () => run.clock.nowISO() };
+  const goals = await wiring.goalTasks.listGoals(organizationId);
+  const goal =
+    goals.find((candidate) => candidate.type === "task-manager") ??
+    await wiring.goalTasks.createGoal({
+      organizationId,
+      type: "task-manager",
+      title: "Task Manager guard Automations",
+    }, seam);
+  const existing = (await wiring.goalTasks.listTasksByGoal(organizationId, goal.id))
+    .find((task) => task.type === "task" && task.assignedAgentId === input.agentId);
+  const task = existing ?? await wiring.goalTasks.createTask({
+    organizationId,
+    goalId: goal.id,
+    type: "task",
+    assignedAgentId: input.agentId,
+    exitTest: `${input.name} produces attributable governed evidence`,
+  }, seam);
+  await wiring.automationRegistry.save({
+    id: input.automationId,
+    name: input.name,
+    organizationId,
+    agentId: input.agentId,
+    agentPlane: "local",
+    steps: [{
+      skill: input.skill,
+      action: input.action,
+      resourceType: "record",
+      dataScope: "all",
+      goalTaskRef: { goalId: goal.id, taskId: task.id },
+    }],
+  });
+  return { goalId: goal.id, taskId: task.id };
+}
+
 export const appRouter = t.router({
   taskManager: t.router({
     list: authenticatedProcedure.input(z.object({ organizationId: z.string().uuid() })).query(async ({ input, ctx }) => {
@@ -3295,29 +3467,255 @@ export const appRouter = t.router({
     decideProposal: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),
       proposalId: z.string().uuid(),
-      decision: z.enum(["approve", "veto"]),
+      decision: z.enum(["approve", "edit", "veto"]),
+      editedExternalContent: z.string().max(MAX_MODULE_FILE_BYTES).optional(),
     })).mutation(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
       if (ctx.identity.type !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "Only a Human may decide a Task proposal" });
-      try {
-        await ctx.wiring.pipeline.decide(input.proposalId, input.decision, ctx.identity, ctx.run);
-      } catch (error) {
-        if (!(error instanceof AlreadyResolvedError)) throw error;
-        if (error.existingDecision !== input.decision) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: `Pipeline proposal was already resolved as ${error.existingDecision ?? "unknown"}`,
-          });
+      const taskProposal = await ctx.wiring.taskManager.getProposal(input.organizationId, input.proposalId);
+      if (!taskProposal) throw new TRPCError({ code: "NOT_FOUND", message: "Task proposal not found" });
+      if (
+        taskProposal.status === "pending_review" &&
+        taskProposal.expiresAt &&
+        Date.parse(taskProposal.expiresAt) <= Date.parse(ctx.run.clock.nowISO())
+      ) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Task proposal expired" });
+      }
+      if (input.decision === "edit" && taskProposal.kind !== "projection_reconcile") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only projection reconciliation supports an edited decision" });
+      }
+      const decidePipeline = async (
+        editedPayload?: Readonly<Record<string, unknown>>,
+      ): Promise<Readonly<Record<string, unknown>>> => {
+        try {
+          await ctx.wiring.pipeline.decide(
+            input.proposalId,
+            input.decision,
+            ctx.identity,
+            ctx.run,
+            editedPayload,
+          );
+        } catch (error) {
+          if (!(error instanceof AlreadyResolvedError)) throw error;
+          if (error.existingDecision !== input.decision) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `Pipeline proposal was already resolved as ${error.existingDecision ?? "unknown"}`,
+            });
+          }
+        }
+        const decisionEntry = await ctx.wiring.ledger.decisionFor(input.proposalId);
+        const payload: Readonly<Record<string, unknown>> = {
+          ...(editedPayload ?? taskProposal.payload),
+          ...(decisionEntry ? { decisionLedgerId: decisionEntry.id } : {}),
+        };
+        return payload;
+      };
+      const applyDecision = (payload: Readonly<Record<string, unknown>>) =>
+        ctx.wiring.taskManager.decideProposal(
+          input.organizationId,
+          input.proposalId,
+          input.decision,
+          ctx.identity.id,
+          { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
+          payload,
+        );
+
+      if (taskProposal.kind === "projection_reconcile") {
+        const installation = await requireInstalledTaskManager(ctx.wiring, input.organizationId);
+        const organizationName = await requireOrganizationNameForFiles(
+          ctx.wiring,
+          input.organizationId,
+          ctx.identity.id,
+        );
+        let editedPayload: Readonly<Record<string, unknown>> | undefined;
+        if (input.decision === "edit" && taskProposal.status === "pending_review") {
+          const externalContent = input.editedExternalContent;
+          if (!externalContent) throw new TRPCError({ code: "BAD_REQUEST", message: "editedExternalContent is required" });
+          const tasks = await ctx.wiring.taskManager.list(input.organizationId);
+          const currentProjection = emitTasksMarkdown(tasks);
+          const drift = detectTaskProjectionDrift(currentProjection, externalContent, tasks);
+          if (!drift.drifted || drift.reason) {
+            throw new TRPCError({ code: "CONFLICT", message: drift.reason ?? "Edited projection has no changes" });
+          }
+          editedPayload = {
+            ...taskProposal.payload,
+            externalContent,
+            externalContentHash: drift.externalContentHash,
+            changes: drift.changes,
+          };
+        }
+        const effectivePayload = await decidePipeline(editedPayload);
+        const runIdValue = taskProposal.payload["runId"];
+        const runId = typeof runIdValue === "string" ? runIdValue : null;
+        let effect;
+        if (input.decision === "veto") {
+          effect = {
+            decided: await applyDecision(effectivePayload),
+            runId,
+            vetoed: true as const,
+          };
+        } else {
+          let projection: { content: string; contentHash: string };
+          if (taskProposal.status === "approved") {
+            const existingProjection = taskProposal.result?.["projection"];
+            if (
+              typeof existingProjection !== "object" ||
+              existingProjection === null ||
+              typeof (existingProjection as { content?: unknown }).content !== "string"
+            ) {
+              throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Applied projection has no durable result" });
+            }
+            projection = existingProjection as { content: string; contentHash: string };
+          } else {
+            const currentTasks = await ctx.wiring.taskManager.list(input.organizationId);
+            const externalContent = effectivePayload["externalContent"];
+            if (typeof externalContent !== "string") {
+              throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Projection proposal has no external content" });
+            }
+            projection = emitTasksMarkdown(
+              applyApprovedTaskProjectionReconciliation(
+                currentTasks,
+                externalContent,
+                ctx.run.clock.nowISO(),
+              ),
+            );
+          }
+          const fileEffect = await withOrganizationFileOperationLock(
+            input.organizationId,
+            async () => {
+              const file = await readModuleFileContent(
+                organizationName,
+                installation.manifest.module!.displayName,
+                TASK_MANAGER_PROJECTION_FILE,
+                ctx.wiring.moduleFilesBridgeRoot,
+              );
+              const proposedFileHash = taskProposal.payload["externalFileHash"];
+              const replayFileHash = sha256Content(projection.content);
+              if (
+                !file ||
+                ![proposedFileHash, replayFileHash].some(
+                  (candidate) => typeof candidate === "string" && candidate === file.contentHash,
+                )
+              ) {
+                throw new TRPCError({ code: "CONFLICT", message: "tasks.md changed after reconciliation was proposed" });
+              }
+              const originalContent = Buffer.from(file.content).toString("utf8");
+              const written = await replaceTaskProjectionFile(
+                ctx.wiring,
+                organizationName,
+                installation.manifest.module!.displayName,
+                file.contentHash,
+                projection.content,
+              );
+              return { written, originalContent };
+            },
+          );
+          let decided;
+          try {
+            decided = await applyDecision(effectivePayload);
+          } catch (error) {
+            try {
+              await withOrganizationFileOperationLock(
+                input.organizationId,
+                () => replaceTaskProjectionFile(
+                  ctx.wiring,
+                  organizationName,
+                  installation.manifest.module!.displayName,
+                  fileEffect.written.contentHash,
+                  fileEffect.originalContent,
+                ),
+              );
+            } catch (rollbackError) {
+              throw new AggregateError(
+                [error, rollbackError],
+                "Projection Database effect failed and tasks.md rollback also failed",
+              );
+            }
+            throw error;
+          }
+          const durableProjection = decided.result?.["projection"];
+          if (
+            typeof durableProjection !== "object" ||
+            durableProjection === null ||
+            (durableProjection as { contentHash?: unknown }).contentHash !== projection.contentHash
+          ) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Projection File and Database result diverged" });
+          }
+          effect = {
+            decided,
+            runId,
+            vetoed: false as const,
+            written: fileEffect.written,
+            projection,
+          };
+        }
+        if (effect.vetoed) {
+          if (effect.runId) {
+            await ctx.wiring.automationRunRecorder.finish({
+              runId: effect.runId,
+              organizationId: input.organizationId,
+              status: "completed",
+              output: { decision: "veto", proposalId: input.proposalId },
+            }, ctx.run);
+          }
+          return effect.decided;
+        }
+        const indexed = await ctx.wiring.graphStore.indexModuleFile({
+          organizationId: input.organizationId,
+          ownerUserId: ctx.identity.id,
+          moduleId: installation.id,
+          moduleName: installation.moduleName,
+          ...effect.written.item,
+        });
+        if (effect.runId) {
+          await ctx.wiring.automationRunRecorder.finish({
+            runId: effect.runId,
+            organizationId: input.organizationId,
+            status: "completed",
+            output: {
+              decision: input.decision,
+              proposalId: input.proposalId,
+              resultId: effect.decided.result?.["resultId"] ?? input.proposalId,
+              eventId: effect.decided.result?.["eventId"] ?? null,
+              fileId: indexed.id,
+              fileHash: effect.written.contentHash,
+              projectionHash: effect.projection.contentHash,
+            },
+          }, ctx.run);
+        }
+        return {
+          ...effect.decided,
+          evidence: {
+            eventType: "task.projection_reconcile.approved",
+            eventId: effect.decided.result?.["eventId"] ?? null,
+            resultId: effect.decided.result?.["resultId"] ?? input.proposalId,
+            fileId: indexed.id,
+            runId: effect.runId,
+            fileHash: effect.written.contentHash,
+            projectionHash: effect.projection.contentHash,
+          },
+        };
+      }
+
+      const decided = await applyDecision(await decidePipeline());
+      if (taskProposal.kind === "archive_sweep") {
+        const runId = taskProposal.payload["runId"];
+        if (typeof runId === "string") {
+          await ctx.wiring.automationRunRecorder.finish({
+            runId,
+            organizationId: input.organizationId,
+            status: "completed",
+            output: {
+              decision: input.decision,
+              proposalId: input.proposalId,
+              result: decided.result ?? null,
+            },
+          }, ctx.run);
         }
       }
-      return ctx.wiring.taskManager.decideProposal(
-        input.organizationId,
-        input.proposalId,
-        input.decision,
-        ctx.identity.id,
-        { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
-      );
+      return decided;
     }),
     projection: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),
@@ -3332,6 +3730,241 @@ export const appRouter = t.router({
         ...(input.externalContent ? { drift: detectTaskProjectionDrift(projection, input.externalContent, tasks) } : {}),
         guards: evaluateTaskGuards(tasks),
       };
+    }),
+    emitProjectionFile: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      expectedFileHash: z.string().regex(/^sha256:[0-9a-f]{64}$/).nullable().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const installation = await requireInstalledTaskManager(ctx.wiring, input.organizationId);
+      const projection = emitTasksMarkdown(await ctx.wiring.taskManager.list(input.organizationId));
+      const organizationName = await requireOrganizationNameForFiles(
+        ctx.wiring,
+        input.organizationId,
+        ctx.identity.id,
+      );
+      const written = await withOrganizationFileOperationLock(
+        input.organizationId,
+        () =>
+          replaceTaskProjectionFile(
+            ctx.wiring,
+            organizationName,
+            installation.manifest.module!.displayName,
+            input.expectedFileHash ?? null,
+            projection.content,
+          ),
+      );
+      const indexed = await ctx.wiring.graphStore.indexModuleFile({
+        organizationId: input.organizationId,
+        ownerUserId: ctx.identity.id,
+        moduleId: installation.id,
+        moduleName: installation.moduleName,
+        ...written.item,
+      });
+      return { projection, file: written.item, fileHash: written.contentHash, fileId: indexed.id };
+    }),
+    proposeProjectionReconcile: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      externalContent: z.string().max(MAX_MODULE_FILE_BYTES),
+      expectedFileHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+      idempotencyKey: z.string().trim().min(8).max(200),
+      expiresAt: z.string().datetime(),
+    })).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const expiresAt = Date.parse(input.expiresAt);
+      const now = Date.parse(ctx.run.clock.nowISO());
+      if (expiresAt <= now || expiresAt > now + 24 * 60 * 60 * 1000) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Projection proposal expiry must be within the next 24 hours" });
+      }
+      const installation = await requireInstalledTaskManager(ctx.wiring, input.organizationId);
+      const assignment = await ensureTaskManagerAutomation(ctx.wiring, input.organizationId, {
+        automationId: TASK_MANAGER_DRIFT_AUTOMATION_ID,
+        name: "Task Manager ledger drift detector",
+        agentId: INTERNAL_STRATEGIST_AGENT,
+        skill: "task-manager.ledger-projection",
+        action: "write",
+      }, ctx.run);
+      const organizationName = await requireOrganizationNameForFiles(
+        ctx.wiring,
+        input.organizationId,
+        ctx.identity.id,
+      );
+      const file = await withOrganizationFileOperationLock(
+        input.organizationId,
+        () => readModuleFileContent(
+            organizationName,
+            installation.manifest.module!.displayName,
+            TASK_MANAGER_PROJECTION_FILE,
+            ctx.wiring.moduleFilesBridgeRoot,
+        ),
+      );
+      if (!file || file.contentHash !== input.expectedFileHash) {
+        throw new TRPCError({ code: "CONFLICT", message: "tasks.md does not match expectedFileHash" });
+      }
+      if (Buffer.from(file.content).toString("utf8") !== input.externalContent) {
+        throw new TRPCError({ code: "CONFLICT", message: "Submitted projection is not the current tasks.md File" });
+      }
+      const tasks = await ctx.wiring.taskManager.list(input.organizationId);
+      const projection = emitTasksMarkdown(tasks);
+      const drift = detectTaskProjectionDrift(projection, input.externalContent, tasks);
+      if (!drift.drifted || drift.reason) {
+        throw new TRPCError({ code: "CONFLICT", message: drift.reason ?? "tasks.md has no drift" });
+      }
+      const payload = {
+            beforeProjectionHash: projection.contentHash,
+            externalContentHash: drift.externalContentHash,
+            externalFileHash: input.expectedFileHash,
+            recordVersions: projection.recordVersions,
+            changes: drift.changes,
+            externalContent: input.externalContent,
+            assignment,
+      };
+      const proposalId = idempotentUuid(
+            `${input.organizationId}:projection_reconcile:${input.idempotencyKey}`,
+      );
+      const runId = idempotentUuid(
+            `${input.organizationId}:projection_reconcile_run:${input.idempotencyKey}`,
+      );
+      const staged = await ctx.wiring.taskManager.stageProposal({
+            id: proposalId,
+            organizationId: input.organizationId,
+            kind: "projection_reconcile",
+            taskId: drift.changes[0]!.id,
+            actorId: INTERNAL_STRATEGIST_AGENT,
+            payload: { ...payload, runId },
+            idempotencyKey: input.idempotencyKey,
+            expiresAt: input.expiresAt,
+      }, { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() });
+      if (await ctx.wiring.ledger.get(proposalId)) {
+        return { proposal: staged, runId, drift };
+      }
+      const run = await ctx.wiring.automationExecutor.runById({
+            organizationId: input.organizationId,
+            automationId: TASK_MANAGER_DRIFT_AUTOMATION_ID,
+            onBehalfOf: { type: "user", id: ctx.identity.id },
+            params: payload,
+            seed: input.idempotencyKey,
+            runId,
+            proposalId,
+      }, ctx.run);
+      const governed = run.proposals[0];
+      if (!governed || governed.id !== proposalId || governed.status !== "pending_review") {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Ledger drift Automation did not halt for review (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
+        });
+      }
+      return { proposal: staged, runId, drift };
+    }),
+    runCompletedBaySweep: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      completedCap: z.number().int().min(0).max(100).default(10),
+      maxAgeDays: z.number().int().min(0).max(365).default(7),
+      idempotencyKey: z.string().trim().min(8).max(200),
+      expiresAt: z.string().datetime(),
+    })).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const nowIso = ctx.run.clock.nowISO();
+      const expiresAt = Date.parse(input.expiresAt);
+      const now = Date.parse(nowIso);
+      if (expiresAt <= now || expiresAt > now + 24 * 60 * 60 * 1000) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Sweep proposal expiry must be within the next 24 hours" });
+      }
+      const proposalId = idempotentUuid(
+        `${input.organizationId}:archive_sweep:${input.idempotencyKey}`,
+      );
+      const existingProposal = await ctx.wiring.taskManager.getProposal(
+        input.organizationId,
+        proposalId,
+      );
+      if (existingProposal) {
+        const runId = existingProposal.payload["runId"];
+        return {
+          runId: typeof runId === "string" ? runId : null,
+          proposal: existingProposal,
+          plan: {
+            eligibleTaskIds: existingProposal.payload["taskIds"] ?? [],
+            expectedVersions: existingProposal.payload["recordVersions"] ?? {},
+            policy: existingProposal.payload["policy"] ?? null,
+          },
+        };
+      }
+      const tasks = await ctx.wiring.taskManager.list(input.organizationId);
+      const plan = planCompletedBaySweep(tasks, nowIso, input.completedCap, input.maxAgeDays);
+      if (plan.eligibleTaskIds.length === 0) {
+        const runId = idempotentUuid(
+          `${input.organizationId}:archive_sweep_noop:${input.idempotencyKey}`,
+        );
+        const existingRuns = await ctx.wiring.automationRunRecorder.list(
+          input.organizationId,
+          [TASK_MANAGER_SWEEP_AUTOMATION_ID],
+          { limit: 50 },
+        );
+        if (existingRuns.some((run) => run.runId === runId)) {
+          return { runId, proposal: null, plan };
+        }
+        await ctx.wiring.automationRunRecorder.start({
+          runId,
+          automationId: TASK_MANAGER_SWEEP_AUTOMATION_ID,
+          organizationId: input.organizationId,
+          agentId: GOVERNANCE_AGENT,
+        }, ctx.run);
+        await ctx.wiring.automationRunRecorder.finish({
+          runId,
+          organizationId: input.organizationId,
+          status: "completed",
+          output: { eligibleTaskIds: [], policy: plan.policy },
+        }, ctx.run);
+        return { runId, proposal: null, plan };
+      }
+      await ensureTaskManagerAutomation(ctx.wiring, input.organizationId, {
+        automationId: TASK_MANAGER_SWEEP_AUTOMATION_ID,
+        name: "Task Manager completed bay sweep",
+        agentId: GOVERNANCE_AGENT,
+        skill: "task-manager.completed-bay-sweep",
+        action: "archive",
+      }, ctx.run);
+      const payload = {
+        taskIds: plan.eligibleTaskIds,
+        recordVersions: plan.expectedVersions,
+        policy: plan.policy,
+      };
+      const runId = idempotentUuid(
+        `${input.organizationId}:archive_sweep_run:${input.idempotencyKey}`,
+      );
+      const staged = await ctx.wiring.taskManager.stageProposal({
+        id: proposalId,
+        organizationId: input.organizationId,
+        kind: "archive_sweep",
+        taskId: plan.eligibleTaskIds[0]!,
+        actorId: GOVERNANCE_AGENT,
+        payload: { ...payload, runId },
+        idempotencyKey: input.idempotencyKey,
+        expiresAt: input.expiresAt,
+      }, { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() });
+      if (await ctx.wiring.ledger.get(proposalId)) {
+        return { runId, proposal: staged, plan };
+      }
+      const run = await ctx.wiring.automationExecutor.runById({
+        organizationId: input.organizationId,
+        automationId: TASK_MANAGER_SWEEP_AUTOMATION_ID,
+        onBehalfOf: { type: "user", id: ctx.identity.id },
+        params: payload,
+        seed: input.idempotencyKey,
+        runId,
+        proposalId,
+      }, ctx.run);
+      const governed = run.proposals[0];
+      if (!governed || governed.id !== proposalId || governed.status !== "pending_review") {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Completed-bay Automation did not halt for review (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
+        });
+      }
+      return { runId, proposal: staged, plan };
     }),
     route: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),
@@ -10317,23 +10950,14 @@ export const appRouter = t.router({
           name: z.string().min(1),
           /** Omit to install the latest version. */
           version: z.string().optional(),
-          ownerModuleName: z.string().min(1),
-          agentId: z.string().min(1),
-          needId: z.string().min(1),
+          ownerModuleName: z.string().min(1).optional(),
+          agentId: z.string().min(1).optional(),
+          needId: z.string().min(1).optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotOrganization(input.organizationId);
         await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-
-        const ownerModule = await ctx.wiring.moduleStore.getAvailable(input.organizationId, input.ownerModuleName);
-        if (!ownerModule || ownerModule.status !== "installed" || !ownerModule.manifest.module) {
-          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.ownerModuleName}" not found` });
-        }
-        const need = ownerModule.manifest.module.commonsNeeds?.find((candidate) => candidate.id === input.needId);
-        if (!need || need.agentId !== input.agentId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Commons capability need is not owned by the selected Module Agent" });
-        }
 
         // Fetch from registry — HttpCommonsClient verifies the publisher signature (PKG-2).
         const entry = input.version
@@ -10356,10 +10980,6 @@ export const appRouter = t.router({
             message: err instanceof Error ? err.message : "Commons entry failed install-time trust verification",
           });
         }
-        if (entry.kind !== need.kind || !need.tags.every((tag) => entry.tags.includes(tag))) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Commons module does not satisfy the declared Module need" });
-        }
-
         // Re-validate the manifest at this seam (same guard modules.register uses).
         let manifest: ModuleManifest;
         try {
@@ -10370,32 +10990,87 @@ export const appRouter = t.router({
           }
           throw err;
         }
-        if (manifest.capabilities.length === 0 || manifest.capabilities.some((capability) => capability.capabilityType !== "skill")) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Only Skill modules can attach beneath a Module Agent" });
+        const privacyPaths = findOrganizationDataPaths(entry.manifest);
+        if (privacyPaths.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Commons manifest contains Organization data (${privacyPaths.join(", ")})`,
+          });
         }
+        const rootModule = manifest.kind === "organization_definition";
+        const attachmentFields = [input.ownerModuleName, input.agentId, input.needId];
+        if (rootModule) {
+          if (!manifest.module) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Organization-definition Module has no installable Module surface" });
+          }
+          if (attachmentFields.some((value) => value !== undefined)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Root Module installation cannot attach beneath another Module Agent" });
+          }
+        } else if (
+          manifest.kind !== "skill" ||
+          manifest.capabilities.length === 0 ||
+          manifest.capabilities.some((capability) => capability.capabilityType !== "skill")
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Commons install supports only a signed Organization-definition root Module or a declared Skill need",
+          });
+        }
+        let ownerModule: ModuleInstallationRow | undefined;
+        let need: ModuleCapabilityNeed | undefined;
+        if (!rootModule) {
+          if (attachmentFields.some((value) => value === undefined)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Skill attachment requires ownerModuleName, agentId, and needId" });
+          }
+          ownerModule = (await ctx.wiring.moduleStore.getAvailable(input.organizationId, input.ownerModuleName!)) ?? undefined;
+          if (!ownerModule || ownerModule.status !== "installed" || !ownerModule.manifest.module) {
+            throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.ownerModuleName}" not found` });
+          }
+          need = ownerModule.manifest.module.commonsNeeds?.find((candidate) => candidate.id === input.needId);
+          if (!need || need.agentId !== input.agentId) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Commons capability need is not owned by the selected Module Agent" });
+          }
+          if (entry.kind !== need.kind || !need.tags.every((tag) => entry.tags.includes(tag))) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Commons module does not satisfy the declared Module need" });
+          }
+        }
+        const commonsSource = {
+          contentHash: entry.integrity.value,
+          manifestHash: sha256Content(canonicalizeManifest(manifest)),
+          entry,
+        };
 
-        const dependencyPins = new Map<string, string>(
-          (entry.securityScan.dependencyPins ?? []).map(
-            (pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const,
-          ),
-        );
+        const verifiedDependencyPins = new Map<string, string>();
         const staged = new Set<string>();
-        const stageDependencies = async (parent: ModuleManifest): Promise<void> => {
-          for (const dependency of parent.dependencies) {
+        const stageDependencies = async (parentEntry: CommonsModuleEntry): Promise<void> => {
+          const parentPins = new Map<string, string>(
+            (parentEntry.securityScan.dependencyPins ?? []).map(
+              (pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const,
+            ),
+          );
+          for (const dependency of parentEntry.manifest.dependencies) {
             const key = `${dependency.manifestId}@${dependency.version}`;
+            const expectedHash = parentPins.get(key);
+            const priorHash = verifiedDependencyPins.get(key);
+            if (priorHash && priorHash !== expectedHash) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Commons dependency "${key}" has conflicting signed content-hash pins`,
+              });
+            }
             if (staged.has(key)) continue;
             staged.add(key);
             const dependencyEntry = await ctx.wiring.commonsRegistry.getVersion(
               dependency.manifestId,
               dependency.version,
             );
-            const expectedHash = dependencyPins.get(key);
             if (!dependencyEntry || !expectedHash || dependencyEntry.integrity.value !== expectedHash) {
               throw new TRPCError({
                 code: "BAD_REQUEST",
                 message: `Commons dependency "${key}" does not match its signed content-hash pin`,
               });
             }
+            verifiedDependencyPins.set(key, expectedHash);
             try {
               assertCommonsEntryContentTrusted(dependencyEntry);
             } catch (err) {
@@ -10404,30 +11079,60 @@ export const appRouter = t.router({
                 message: err instanceof Error ? err.message : `Commons dependency "${key}" failed trust verification`,
               });
             }
+            const dependencyManifest = parseModuleManifest({ module: dependencyEntry.manifest });
+            const dependencyPrivacyPaths = findOrganizationDataPaths(dependencyEntry.manifest);
+            if (dependencyPrivacyPaths.length > 0) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Commons dependency "${key}" contains Organization data`,
+              });
+            }
             await ctx.wiring.moduleStore.create({
               organizationId: input.organizationId,
-              moduleName: dependencyEntry.manifest.name,
-              moduleVersion: dependencyEntry.manifest.version,
-              manifest: dependencyEntry.manifest,
+              moduleName: dependencyManifest.name,
+              moduleVersion: dependencyManifest.version,
+              manifest: dependencyManifest,
               computedRisk: dependencyEntry.securityScan.riskBand,
               state: "private",
               status: "pending_review",
-              lineageManifestId: dependencyEntry.manifest.lineageManifestId,
-              moduleAttachment: {
-                source: "commons",
-                ownerModuleName: ownerModule.moduleName,
-                agentId: input.agentId,
-                needId: input.needId,
-                contentHash: dependencyEntry.integrity.value,
-              },
+              lineageManifestId: dependencyManifest.lineageManifestId,
+              ...(rootModule
+                ? {
+                    commonsSource: {
+                      contentHash: dependencyEntry.integrity.value,
+                      manifestHash: sha256Content(canonicalizeManifest(dependencyManifest)),
+                      entry: dependencyEntry,
+                    },
+                  }
+                : {
+                    moduleAttachment: {
+                      source: "commons" as const,
+                      ownerModuleName: ownerModule!.moduleName,
+                      agentId: input.agentId!,
+                      needId: input.needId!,
+                      contentHash: dependencyEntry.integrity.value,
+                    },
+                  }),
             });
-            for (const pin of dependencyEntry.securityScan.dependencyPins ?? []) {
-              dependencyPins.set(`${pin.name}@${pin.version}`, pin.contentHash);
-            }
-            await stageDependencies(dependencyEntry.manifest);
+            await stageDependencies(dependencyEntry);
           }
         };
-        await stageDependencies(manifest);
+        await stageDependencies(entry);
+
+        if (rootModule) {
+          const existing = (await ctx.wiring.moduleStore.listVersions(input.organizationId, manifest.name))
+            .find((candidate) => candidate.moduleVersion === manifest.version && !candidate.moduleAttachment);
+          if (existing) {
+            if (canonicalizeManifest(existing.manifest) !== canonicalizeManifest(manifest)) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: "Existing root Module version has different immutable normalized content",
+              });
+            }
+            const reconciled = await ctx.wiring.moduleStore.setCommonsSource(existing.id, commonsSource);
+            return { installation: reconciled };
+          }
+        }
 
         // Register as a private installation — same as modules.register, but the
         // manifest source is the verified Commons entry, not a user-supplied object.
@@ -10440,13 +11145,17 @@ export const appRouter = t.router({
           state: "private",
           status: "pending_review",
           lineageManifestId: manifest.lineageManifestId,
-          moduleAttachment: {
-            source: "commons",
-            ownerModuleName: ownerModule.moduleName,
-            agentId: input.agentId,
-            needId: input.needId,
-            contentHash: entry.integrity.value,
-          },
+          ...(rootModule
+            ? { commonsSource }
+            : {
+                moduleAttachment: {
+                  source: "commons" as const,
+                  ownerModuleName: ownerModule!.moduleName,
+                  agentId: input.agentId!,
+                  needId: input.needId!,
+                  contentHash: entry.integrity.value,
+                },
+              }),
         });
 
         return { installation: created };
@@ -10564,7 +11273,8 @@ export const appRouter = t.router({
       const skipped: string[] = [];
       const failed: { name: string; reason: string }[] = [];
 
-      for (const { manifest, commons } of COMMONS_BUILT_IN_MODULES) {
+      for (const { manifest: sourceManifest, commons } of COMMONS_BUILT_IN_MODULES) {
+        const manifest = parseModuleManifest({ module: sourceManifest });
         try {
           await ctx.wiring.commonsRegistry.publish(manifest, {
             tags: commons.tags,

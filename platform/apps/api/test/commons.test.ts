@@ -11,7 +11,15 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SeededRng, SystemClock, UuidGen, type CommonsProvenance, type RunCtx } from "@bridge/core";
+import {
+  SeededRng,
+  SystemClock,
+  UuidGen,
+  canonicalizeManifest,
+  parseModuleManifest,
+  type CommonsProvenance,
+  type RunCtx,
+} from "@bridge/core";
 import type {
   CommonsListQuery,
   CommonsListResult,
@@ -279,7 +287,6 @@ test("commons.installPropose: fetches from registry, registers private installat
       agentId: "application-agent",
       needId: "interview-calendar-availability",
     });
-
     assert.equal(installation.moduleName, "install-me");
     assert.equal(installation.moduleVersion, "1.0.0");
     assert.equal(installation.state, "private");
@@ -292,6 +299,7 @@ test("commons.installPropose: fetches from registry, registers private installat
       installationId: installation.id,
       todayKey: "2026-07-15",
     });
+
     assert.equal(result.installed, true);
     assert.equal(result.risk.effectiveRisk, "informational");
     const interruptedRetry = await caller.commons.installPropose({
@@ -1046,6 +1054,84 @@ test("commons.publishBuiltins: publishes BUILT_IN_MODULES to the mock registry",
     const repeat = await caller.commons.publishBuiltins();
     assert.equal(repeat.published.length, 0);
     assert.equal(repeat.skipped.length, COMMONS_BUILT_IN_MODULES.length);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("commons.installPropose reconciles the signed normalized Task Manager root Module", async () => {
+  const builtIn = COMMONS_BUILT_IN_MODULES.find(
+    (candidate) => candidate.manifest.name === "task-manager",
+  );
+  assert.ok(builtIn);
+  const normalized = parseModuleManifest({ module: builtIn.manifest });
+  const entry = makeEntry(normalized, [...builtIn.commons.tags]);
+  const wiring = await buildWiring();
+  const registry = new InMemoryTestCommonsRegistry().seed(entry);
+  (wiring as { commonsRegistry: CommonsRegistry }).commonsRegistry = registry;
+  try {
+    const caller = await makeCaller(wiring);
+    const existing = await wiring.moduleStore.getAvailable(PILOT_ORGANIZATION, "task-manager");
+    assert.ok(existing);
+    assert.equal(canonicalizeManifest(existing.manifest), canonicalizeManifest(normalized));
+    const result = await caller.commons.installPropose({
+      organizationId: PILOT_ORGANIZATION,
+      name: "task-manager",
+      version: "1.0.0",
+    });
+    assert.equal(result.installation.id, existing.id);
+    assert.equal(result.installation.commonsSource?.contentHash, entry.integrity.value);
+    assert.equal(
+      canonicalizeManifest(result.installation.commonsSource!.entry.manifest),
+      canonicalizeManifest(result.installation.manifest),
+    );
+    assert.deepEqual(result.installation.manifest.module?.commonsNeeds, []);
+
+    const nextManifest = {
+      ...normalized,
+      version: "1.0.1",
+      summary: "Task Manager signed upgrade",
+      capabilities: normalized.capabilities.map((capability) => ({
+        ...capability,
+        version: "1.0.1",
+      })),
+    };
+    const nextEntry = makeEntry(nextManifest, [...builtIn.commons.tags]);
+    registry.seed(nextEntry);
+    const staged = await caller.commons.installPropose({
+      organizationId: PILOT_ORGANIZATION,
+      name: "task-manager",
+      version: "1.0.1",
+    });
+    assert.equal(staged.installation.state, "private");
+    assert.equal(staged.installation.commonsSource?.contentHash, nextEntry.integrity.value);
+    const install = await caller.modules.install({
+      organizationId: PILOT_ORGANIZATION,
+      installationId: staged.installation.id,
+      todayKey: "2026-07-21",
+    });
+    if (!install.installed && install.proposal) {
+      await caller.action.decide({
+        proposalId: install.proposal.id,
+        decision: "approve",
+      });
+    }
+    const promoted = await caller.modules.promote({
+      organizationId: PILOT_ORGANIZATION,
+      installationId: staged.installation.id,
+    });
+    assert.equal(promoted.installation.state, "available");
+    assert.equal(promoted.installation.commonsSource?.contentHash, nextEntry.integrity.value);
+
+    entry.integrity.value = `sha256:${"0".repeat(64)}`;
+    await assert.rejects(
+      () => caller.commons.installPropose({
+        organizationId: PILOT_ORGANIZATION,
+        name: "task-manager",
+        version: "1.0.0",
+      }),
+      /hash_mismatch|trust verification/i,
+    );
   } finally {
     await wiring.close();
   }

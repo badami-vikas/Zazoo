@@ -93,6 +93,8 @@ import {
   ChildRunAlreadyTerminalError,
   ChildRunTerminalAuditPendingError,
   MemoryConflictError,
+  canonicalizeManifest,
+  parseModuleManifest,
   uuidv7,
 } from "@bridge/core";
 import { guardedFetch } from "@bridge/net-guard";
@@ -201,6 +203,8 @@ import {
   BUILT_IN_MODULES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCING_AGENT_ID,
+  GOVERNANCE_AGENT_RUNTIME_ID,
+  INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
   LEARNING_AGENT_RUNTIME_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   resolveModuleAgentRuntimeId,
@@ -236,7 +240,7 @@ const INTAKE_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c8";
 // the same way LEARNING_AGENT above is distinct from "learning" — @mention
 // routing and pipeline authority are two different identity spaces that
 // happen to share a display name.
-export const INTERNAL_STRATEGIST_AGENT = "b0000000-0000-4000-a000-0000000000d3";
+export const INTERNAL_STRATEGIST_AGENT = INTERNAL_STRATEGIST_AGENT_RUNTIME_ID;
 // TASK-007 (AGS3 closure) — the remaining two of the five permanent
 // foundational Agents (docs/raw/agent-goal-skill-orchestration-plan-2026-07.md
 // responsibility_map) get REAL physical governed-pipeline identities too, not
@@ -246,7 +250,7 @@ export const INTERNAL_STRATEGIST_AGENT = "b0000000-0000-4000-a000-0000000000d3";
 // Staff deliberately has NO physical identity here — per docs/glossary.md
 // "Its routing role is a product composition, not an architectural
 // requirement" — it never itself invokes a governed Skill as an actor.
-export const GOVERNANCE_AGENT = "b0000000-0000-4000-a000-0000000000d4";
+export const GOVERNANCE_AGENT = GOVERNANCE_AGENT_RUNTIME_ID;
 export const CAPABILITY_BUILDER_AGENT = "b0000000-0000-4000-a000-0000000000d5";
 // TASK-007 persistent-mode governance seed ids (ensureInternalStrategistGovernance)
 // — mirror LEARNING_ROLE/LEARNING_SIGNAL_PERMISSION's id-space convention for
@@ -2757,6 +2761,7 @@ const TASK_MANAGER_SKILL_OWNERS: Readonly<Record<string, string>> = {
   "task-manager.evidence-verification": "internal-strategist",
   "task-manager.progress-synthesis": "chief-of-staff",
   "task-manager.habit-scaffolding": "chief-of-staff",
+  "task-manager.completed-bay-sweep": "governance",
 };
 
 export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.entries(TASK_MANAGER_SKILL_OWNERS)
@@ -2766,7 +2771,9 @@ export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.ent
     version: "1.0.0",
     goalTypes: ["task-manager"],
     taskTypes: ["task"],
-    permissions: ["record:read", "record:write"],
+    permissions: skillId === "task-manager.completed-bay-sweep"
+      ? ["record:read", "record:archive"]
+      : ["record:read", "record:write"],
     plane: "local",
     dataScopes: ["all"],
     riskBand: "advisory",
@@ -2905,9 +2912,17 @@ function seedGovernance(
   // which Agent a Task is actually assigned to (AGS1 acceptance: "same Skill
   // can be selected for two eligible Agents assigned to same Task").
   agents.assumed.set(INTERNAL_STRATEGIST_AGENT, "role-internal-strategist");
-  agents.scope.set(INTERNAL_STRATEGIST_AGENT, ["signal:write"]);
+  agents.scope.set(INTERNAL_STRATEGIST_AGENT, ["signal:write", "record:read", "record:write"]);
+  agents.skills.set(INTERNAL_STRATEGIST_AGENT, [
+    "stageStrategicRecommendation",
+    "jobpilot.synthesizeCultureProfile",
+    "task-manager.ledger-projection",
+  ]);
   roles.roleGrants.set("role-internal-strategist", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "record", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "record", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "record", resourceId: null, action: "archive", effect: "allow" },
   ]);
 
   // Governance (AGS3, TASK-007) — reviews/explains/audits only; the
@@ -2921,9 +2936,12 @@ function seedGovernance(
   // to actually enact anything routes through the separate, Human-decided
   // capability.approve/action.decide surfaces, never through this scope.
   agents.assumed.set(GOVERNANCE_AGENT, "role-governance");
-  agents.scope.set(GOVERNANCE_AGENT, ["signal:write"]);
+  agents.scope.set(GOVERNANCE_AGENT, ["signal:write", "record:read", "record:archive"]);
+  agents.skills.set(GOVERNANCE_AGENT, ["task-manager.completed-bay-sweep"]);
   roles.roleGrants.set("role-governance", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "record", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "record", resourceId: null, action: "archive", effect: "allow" },
   ]);
 
   // Capability Builder (AGS3, TASK-007) — drafts only; every output still
@@ -2978,6 +2996,7 @@ function seedGovernance(
     { resourceType: "relation", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "record", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "record", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "record", resourceId: null, action: "archive", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
   ]);
@@ -3506,17 +3525,23 @@ export async function seedBuiltInModules(
   organizationId: string,
 ): Promise<void> {
   for (const builtIn of BUILT_IN_MODULES) {
-    const versions = await moduleStore.listVersions(organizationId, builtIn.manifest.name);
-    const current = versions.find((row) => row.moduleVersion === builtIn.manifest.version);
-    if (current) continue;
+    const manifest = parseModuleManifest({ module: builtIn.manifest });
+    const versions = await moduleStore.listVersions(organizationId, manifest.name);
+    const current = versions.find((row) => row.moduleVersion === manifest.version);
+    if (current) {
+      if (canonicalizeManifest(current.manifest) !== canonicalizeManifest(manifest)) {
+        await moduleStore.setNormalizedManifest(current.id, manifest);
+      }
+      continue;
+    }
     for (const previous of versions.filter((row) => row.state === "available")) {
       await moduleStore.setState(previous.id, "legacy");
     }
     await moduleStore.create({
       organizationId,
-      moduleName: builtIn.manifest.name,
-      moduleVersion: builtIn.manifest.version,
-      manifest: builtIn.manifest,
+      moduleName: manifest.name,
+      moduleVersion: manifest.version,
+      manifest,
       computedRisk: builtIn.computedRisk,
       state: "available",
       status: "installed",

@@ -24,8 +24,9 @@
  */
 import { and, eq, count, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { canonicalizeManifest } from "@bridge/core";
+import { canonicalizeJson, canonicalizeManifest, parseModuleManifest } from "@bridge/core";
 import type {
+  CommonsInstallationSource,
   ModuleAttachmentTarget,
   ModuleInstallationRow,
   ModuleManifest,
@@ -72,6 +73,12 @@ const moduleAttachmentSchema = z.object({
   contentHash: z.string().startsWith("sha256:"),
 });
 
+const commonsSourceSchema = z.object({
+  contentHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  manifestHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  entry: z.record(z.string(), z.unknown()),
+});
+
 /**
  * Validate `module_installations.manifest` jsonb. Throws loudly on a
  * malformed shape rather than silently treating a corrupted manifest as
@@ -91,6 +98,9 @@ function unpack(row: typeof moduleInstallations.$inferSelect): ModuleInstallatio
   const moduleAttachment = row.moduleAttachment === null
     ? undefined
     : moduleAttachmentSchema.parse(row.moduleAttachment);
+  const commonsSource = row.commonsSource === null
+    ? undefined
+    : commonsSourceSchema.parse(row.commonsSource) as unknown as CommonsInstallationSource;
   return {
     id: row.id,
     organizationId: row.organizationId,
@@ -102,6 +112,7 @@ function unpack(row: typeof moduleInstallations.$inferSelect): ModuleInstallatio
     status: row.status as ModuleInstallationRow["status"],
     lineageManifestId: row.lineageManifestId,
     ...(moduleAttachment ? { moduleAttachment } : {}),
+    ...(commonsSource ? { commonsSource } : {}),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -141,7 +152,8 @@ function assertSameImmutableContent(
   if (
     canonicalizeManifest(existing.manifest) !== canonicalizeManifest(validatedManifest) ||
     existing.lineageManifestId !== incoming.lineageManifestId ||
-    !sameAttachment(existing.moduleAttachment, incoming.moduleAttachment)
+    !sameAttachment(existing.moduleAttachment, incoming.moduleAttachment) ||
+    canonicalizeJson(existing.commonsSource ?? null) !== canonicalizeJson(incoming.commonsSource ?? null)
   ) {
     throw new Error("module_installations: conflicting immutable content for attachment identity");
   }
@@ -193,6 +205,7 @@ export class DrizzleModuleStore implements ModuleStore {
         status: row.status,
         ...(row.lineageManifestId ? { lineageManifestId: row.lineageManifestId } : {}),
         ...(row.moduleAttachment ? { moduleAttachment: row.moduleAttachment } : {}),
+        ...(row.commonsSource ? { commonsSource: row.commonsSource } : {}),
       })
       .onConflictDoNothing()
       .returning();
@@ -296,6 +309,50 @@ export class DrizzleModuleStore implements ModuleStore {
       .returning();
     if (!updated) throw new Error(`module_installations: unknown id ${id}`);
     return unpack(updated);
+    });
+  }
+
+  async setCommonsSource(id: string, source: CommonsInstallationSource): Promise<ModuleInstallationRow> {
+    return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (tx) => {
+      const [current] = await tx.select().from(moduleInstallations)
+        .where(eq(moduleInstallations.id, id))
+        .for("update")
+        .limit(1);
+      if (!current) throw new Error(`module_installations: unknown id ${id}`);
+      if (
+        current.commonsSource !== null &&
+        canonicalizeJson(current.commonsSource) !== canonicalizeJson(source)
+      ) {
+        throw new Error("module_installations: conflicting immutable Commons source");
+      }
+
+      const [updated] = await tx.update(moduleInstallations)
+        .set({ commonsSource: source })
+        .where(eq(moduleInstallations.id, id))
+        .returning();
+      if (!updated) throw new Error(`module_installations: unknown id ${id}`);
+      return unpack(updated);
+    });
+  }
+
+  async setNormalizedManifest(id: string, manifest: ModuleManifest): Promise<ModuleInstallationRow> {
+    return withDefaultOrganization(this.#db, this.#defaultOrganizationId, async (tx) => {
+      const [current] = await tx.select().from(moduleInstallations)
+        .where(eq(moduleInstallations.id, id))
+        .for("update")
+        .limit(1);
+      if (!current) throw new Error(`module_installations: unknown id ${id}`);
+      const normalizedExisting = parseModuleManifest({ module: parseModuleManifestRow(current.manifest) });
+      const validatedIncoming = parseModuleManifestRow(manifest);
+      if (canonicalizeManifest(normalizedExisting) !== canonicalizeManifest(validatedIncoming)) {
+        throw new Error("module_installations: normalization would change immutable Module content");
+      }
+      const [updated] = await tx.update(moduleInstallations)
+        .set({ manifest: validatedIncoming })
+        .where(eq(moduleInstallations.id, id))
+        .returning();
+      if (!updated) throw new Error(`module_installations: unknown id ${id}`);
+      return unpack(updated);
     });
   }
 

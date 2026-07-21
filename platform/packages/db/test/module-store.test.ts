@@ -181,6 +181,68 @@ test("module store: list paginates within a organization", async () => {
   }
 });
 
+test("module store: root Commons source attaches idempotently and rejects conflicting envelopes", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const organizationId = await seedOrganization(db);
+    const store = new DrizzleModuleStore(db);
+    const manifest = dummyManifest({ name: "signed-root", kind: "organization_definition" });
+    const created = await store.create({
+      organizationId,
+      moduleName: manifest.name,
+      moduleVersion: manifest.version,
+      manifest,
+      computedRisk: "operational",
+      state: "available",
+      status: "installed",
+      lineageManifestId: null,
+    });
+    const source = {
+      contentHash: `sha256:${"a".repeat(64)}`,
+      manifestHash: `sha256:${"b".repeat(64)}`,
+      entry: {
+        name: manifest.name,
+        version: manifest.version,
+        kind: manifest.kind,
+        summary: manifest.summary,
+        tags: ["built-in"],
+        manifest,
+        provenance: {
+          sourceRepository: "https://github.com/example/repo",
+          sourceRef: "module",
+          inspectedCommit: "0123456789abcdef0123456789abcdef01234567",
+          repositoryLicense: "MIT",
+          contentLicense: "MIT",
+          licenseVerified: true,
+        },
+        securityScan: {
+          scanner: "bridge-commons-manifest" as const,
+          scannerVersion: "1.0.0" as const,
+          policyVersion: "CM1-2026-07" as const,
+          status: "passed" as const,
+          riskBand: "operational" as const,
+          lethalTrifecta: false,
+          checks: [],
+        },
+        integrity: { algorithm: "sha256" as const, value: `sha256:${"a".repeat(64)}` },
+        publishedAt: "2026-07-21T00:00:00.000Z",
+      },
+    };
+    const attached = await store.setCommonsSource(created.id, source);
+    assert.equal(attached.commonsSource?.contentHash, source.contentHash);
+    assert.equal((await store.setCommonsSource(created.id, source)).id, created.id);
+    await assert.rejects(
+      () => store.setCommonsSource(created.id, {
+        ...source,
+        contentHash: `sha256:${"c".repeat(64)}`,
+      }),
+      /conflicting immutable Commons source/,
+    );
+  } finally {
+    await close();
+  }
+});
+
 test("module store: installedRootsOnly filters before pagination and totals", async () => {
   const { db, close } = await createLocalDb();
   try {

@@ -1,7 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import {
+  applyApprovedTaskProjectionReconciliation,
   applyTaskRestructure,
+  canonicalizeJson,
   draftTaskCreate,
+  emitTasksMarkdown,
+  taskProjectionContentHash,
   withOutcomeTarget,
   withTaskStatus,
   type CreateTaskRecordInput,
@@ -65,6 +69,9 @@ function proposal(row: typeof taskChangeProposals.$inferSelect): TaskChangePropo
     actorId: row.actorId,
     payload: row.payload as Readonly<Record<string, unknown>>,
     status: row.status as TaskChangeProposal["status"],
+    ...(row.idempotencyKey ? { idempotencyKey: row.idempotencyKey } : {}),
+    ...(row.expiresAt ? { expiresAt: row.expiresAt.toISOString() } : {}),
+    ...(row.result ? { result: row.result as Readonly<Record<string, unknown>> } : {}),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -296,39 +303,109 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
     });
   }
 
+  async getProposal(organizationId: string, proposalId: string): Promise<TaskChangeProposal | null> {
+    return this.scoped(organizationId, async (tx) => {
+      const [row] = await tx.select().from(taskChangeProposals)
+        .where(and(
+          eq(taskChangeProposals.organizationId, organizationId),
+          eq(taskChangeProposals.id, proposalId),
+        ))
+        .limit(1);
+      return row ? proposal(row) : null;
+    });
+  }
+
+  async stageProposal(
+    input: {
+      id: string;
+      organizationId: string;
+      kind: "projection_reconcile" | "archive_sweep";
+      taskId: string;
+      actorId: string;
+      payload: Readonly<Record<string, unknown>>;
+      idempotencyKey: string;
+      expiresAt: string;
+    },
+    seam: TaskManagerIdClock,
+  ): Promise<TaskChangeProposal> {
+    return this.scoped(input.organizationId, async (tx) => {
+      const [existingRow] = await tx.select().from(taskChangeProposals)
+        .where(and(
+          eq(taskChangeProposals.organizationId, input.organizationId),
+          eq(taskChangeProposals.kind, input.kind),
+          eq(taskChangeProposals.idempotencyKey, input.idempotencyKey),
+        ))
+        .limit(1);
+      if (existingRow) {
+        if (canonicalizeJson(existingRow.payload) !== canonicalizeJson(input.payload)) {
+          throw new Error("task-manager: idempotency key conflicts with different proposal content");
+        }
+        return proposal(existingRow);
+      }
+      const [inserted] = await tx.insert(taskChangeProposals).values({
+        id: input.id,
+        organizationId: input.organizationId,
+        kind: input.kind,
+        taskId: input.taskId,
+        actorId: input.actorId,
+        payload: input.payload,
+        status: "pending_review",
+        idempotencyKey: input.idempotencyKey,
+        expiresAt: new Date(input.expiresAt),
+        createdAt: new Date(seam.nowISO()),
+      }).onConflictDoNothing().returning();
+      if (inserted) return proposal(inserted);
+      const [raced] = await tx.select().from(taskChangeProposals)
+        .where(and(
+          eq(taskChangeProposals.organizationId, input.organizationId),
+          eq(taskChangeProposals.kind, input.kind),
+          eq(taskChangeProposals.idempotencyKey, input.idempotencyKey),
+        ))
+        .limit(1);
+      if (!raced || canonicalizeJson(raced.payload) !== canonicalizeJson(input.payload)) {
+        throw new Error("task-manager: concurrent idempotency conflict");
+      }
+      return proposal(raced);
+    });
+  }
+
   async decideProposal(
     organizationId: string,
     proposalId: string,
-    decision: "approve" | "veto",
+    decision: "approve" | "edit" | "veto",
     deciderId: string,
     seam: TaskManagerIdClock,
-  ): Promise<{ proposal: TaskChangeProposal; tasks: TaskRecord[] }> {
+    editedPayload?: Readonly<Record<string, unknown>>,
+  ): Promise<{ proposal: TaskChangeProposal; tasks: TaskRecord[]; result?: Readonly<Record<string, unknown>> }> {
     return this.scoped(organizationId, async (tx) => {
       const [row] = await tx.select().from(taskChangeProposals)
         .where(and(eq(taskChangeProposals.organizationId, organizationId), eq(taskChangeProposals.id, proposalId)))
+        .for("update")
         .limit(1);
       if (!row) throw new Error(`task-manager: unknown proposal ${proposalId}`);
-      if (row.status !== "pending_review") throw new Error(`task-manager: proposal ${proposalId} already resolved`);
+      if (row.status !== "pending_review") {
+        const existing = proposal(row);
+        const currentTasks = (await tx.select().from(tasks)
+          .where(eq(tasks.organizationId, organizationId))).map(unpack).sort(comparePaths);
+        return {
+          proposal: existing,
+          tasks: currentTasks,
+          ...(existing.result ? { result: existing.result } : {}),
+        };
+      }
+      if (row.expiresAt && row.expiresAt.getTime() <= Date.parse(seam.nowISO())) {
+        throw new Error(`task-manager: proposal ${proposalId} expired`);
+      }
       if (row.actorId === deciderId) throw new Error("task-manager: proposal author cannot approve its own change");
-      const resolvedStatus = decision === "approve" ? "approved" : "vetoed";
-      const [resolvedRow] = await tx.update(taskChangeProposals).set({
-        status: resolvedStatus,
-        decidedBy: deciderId,
-        decidedAt: new Date(seam.nowISO()),
-      }).where(and(
-        eq(taskChangeProposals.organizationId, organizationId),
-        eq(taskChangeProposals.id, proposalId),
-        eq(taskChangeProposals.status, "pending_review"),
-      )).returning();
-      if (!resolvedRow) throw new Error(`task-manager: proposal ${proposalId} lost a concurrent decision race`);
-      const resolved = proposal(resolvedRow);
       const lockedRows = await tx.select().from(tasks)
         .where(eq(tasks.organizationId, organizationId))
         .for("update");
       const current = lockedRows.map(unpack).sort(comparePaths);
       let updated = current;
-      if (decision === "approve") {
-        const operation = (row.payload as { operation?: RestructureOperation }).operation;
+      const effectivePayload = editedPayload ?? row.payload as Readonly<Record<string, unknown>>;
+      let result: Readonly<Record<string, unknown>> | undefined;
+      if (decision !== "veto") {
+        const operation = (effectivePayload as { operation?: RestructureOperation }).operation;
         if (operation) {
           updated = applyTaskRestructure(updated, operation, seam.nowISO());
           const currentById = new Map(current.map((task) => [task.id, task]));
@@ -358,8 +435,87 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
             )).returning();
             if (!saved) throw new Error(`task-manager: Task ${task.id} changed during restructure`);
           }
+        } else if (row.kind === "projection_reconcile") {
+          const externalContent = effectivePayload["externalContent"];
+          const externalContentHash = effectivePayload["externalContentHash"];
+          const beforeProjectionHash = effectivePayload["beforeProjectionHash"];
+          const recordVersions = effectivePayload["recordVersions"];
+          if (
+            typeof externalContent !== "string" ||
+            typeof externalContentHash !== "string" ||
+            typeof beforeProjectionHash !== "string" ||
+            typeof recordVersions !== "object" ||
+            recordVersions === null
+          ) {
+            throw new Error("task-manager: projection proposal payload is invalid");
+          }
+          if (taskProjectionContentHash(externalContent) !== externalContentHash) {
+            throw new Error("task-manager: projection proposal content hash changed");
+          }
+          const currentProjection = emitTasksMarkdown(current);
+          if (currentProjection.contentHash !== beforeProjectionHash) {
+            throw new Error("task-manager: projection proposal is stale against the current Database");
+          }
+          const expectedVersions = recordVersions as Record<string, number>;
+          for (const task of current) {
+            if (expectedVersions[task.id] !== task.version) {
+              throw new Error(`task-manager: projection proposal is stale for Task ${task.id}`);
+            }
+          }
+          updated = applyApprovedTaskProjectionReconciliation(current, externalContent, seam.nowISO());
+          const currentById = new Map(current.map((task) => [task.id, task]));
+          for (const task of updated) {
+            const before = currentById.get(task.id)!;
+            if (before.version === task.version) continue;
+            const [saved] = await tx.update(tasks).set({
+              ...values(task),
+              anchorTaskId: resolvedAnchorId(task, updated),
+              parentTaskId: task.parentTaskId ?? null,
+            }).where(and(
+              eq(tasks.organizationId, organizationId),
+              eq(tasks.id, task.id),
+              eq(tasks.version, before.version),
+            )).returning();
+            if (!saved) throw new Error(`task-manager: Task ${task.id} changed during projection reconcile`);
+          }
+          result = {
+            projection: emitTasksMarkdown(updated),
+            beforeProjectionHash,
+            externalContentHash,
+            decision,
+          };
+        } else if (row.kind === "archive_sweep") {
+          const taskIds = effectivePayload["taskIds"];
+          const recordVersions = effectivePayload["recordVersions"];
+          if (!Array.isArray(taskIds) || typeof recordVersions !== "object" || recordVersions === null) {
+            throw new Error("task-manager: archive sweep proposal payload is invalid");
+          }
+          const expectedVersions = recordVersions as Record<string, number>;
+          const archivedTaskIds: string[] = [];
+          for (const taskId of taskIds) {
+            if (typeof taskId !== "string") throw new Error("task-manager: archive sweep Task id is invalid");
+            const target = updated.find((task) => task.id === taskId);
+            if (!target || target.status !== "done" || expectedVersions[taskId] !== target.version) {
+              throw new Error(`task-manager: archive sweep proposal is stale for Task ${taskId}`);
+            }
+            const archived = withTaskStatus(target, "archived", seam.nowISO());
+            const [saved] = await tx.update(tasks).set({
+              status: archived.status,
+              version: archived.version,
+              updatedAt: new Date(archived.updatedAt),
+            }).where(and(
+              eq(tasks.organizationId, organizationId),
+              eq(tasks.id, taskId),
+              eq(tasks.version, target.version),
+              eq(tasks.status, "done"),
+            )).returning();
+            if (!saved) throw new Error(`task-manager: Task ${taskId} changed during completed-bay sweep`);
+            updated = updated.map((task) => task.id === taskId ? archived : task);
+            archivedTaskIds.push(taskId);
+          }
+          result = { archivedTaskIds, decision };
         } else if (row.kind === "impact_fit" || row.kind === "reopen") {
-          const proposedStatus = (row.payload as { proposedStatus?: TaskRecordStatus }).proposedStatus;
+          const proposedStatus = (effectivePayload as { proposedStatus?: TaskRecordStatus }).proposedStatus;
           const target = updated.find((task) => task.id === row.taskId);
           if (proposedStatus && target) {
             const settled = withTaskStatus(target, proposedStatus, seam.nowISO());
@@ -372,7 +528,8 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
           }
         }
       }
-      await tx.insert(events).values({
+      const resolvedStatus = decision === "veto" ? "vetoed" : "approved";
+      const [event] = await tx.insert(events).values({
         organizationId,
         type: `task.${row.kind}.${resolvedStatus}`,
         entityType: "task",
@@ -381,11 +538,34 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
           proposalId,
           decision,
           deciderId,
-          operation: (row.payload as { operation?: unknown }).operation ?? null,
+          operation: (effectivePayload as { operation?: unknown }).operation ?? null,
+          result: result ?? null,
         },
         createdAt: new Date(seam.nowISO()),
-      });
-      return { proposal: resolved, tasks: updated };
+      }).returning();
+      if (!event) throw new Error("task-manager: Event insert returned no row");
+      const decisionLedgerId = effectivePayload["decisionLedgerId"];
+      if (result) {
+        result = {
+          ...result,
+          eventId: event.id,
+          ...(typeof decisionLedgerId === "string" ? { resultId: decisionLedgerId } : {}),
+        };
+      }
+      const [resolvedRow] = await tx.update(taskChangeProposals).set({
+        payload: effectivePayload,
+        status: resolvedStatus,
+        decidedBy: deciderId,
+        decidedAt: new Date(seam.nowISO()),
+        ...(result ? { result, appliedAt: new Date(seam.nowISO()) } : {}),
+      }).where(and(
+        eq(taskChangeProposals.organizationId, organizationId),
+        eq(taskChangeProposals.id, proposalId),
+        eq(taskChangeProposals.status, "pending_review"),
+      )).returning();
+      if (!resolvedRow) throw new Error(`task-manager: proposal ${proposalId} lost a concurrent decision race`);
+      const resolved = proposal(resolvedRow);
+      return { proposal: resolved, tasks: updated, ...(result ? { result } : {}) };
     });
   }
 }

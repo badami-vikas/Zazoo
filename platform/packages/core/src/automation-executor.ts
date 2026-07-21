@@ -37,6 +37,9 @@ export interface AutomationRunByIdRequest {
   /** Run-time params shallow-merged into each step's static inputs. */
   params?: Record<string, unknown>;
   seed?: string;
+  /** Server-derived idempotent identities for durable trigger retries. */
+  runId?: string;
+  proposalId?: string;
 }
 
 export interface AutomationExecutor {
@@ -85,7 +88,7 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
       ...(s.dataScope ? { dataScope: s.dataScope } : {}),
       ...(s.goalTaskRef ? { goalTaskRef: s.goalTaskRef } : {}),
     }));
-    const runId = ctx.ids.next();
+    const runId = req.runId ?? ctx.ids.next();
     return this.#execute(
       runId,
       req.organizationId,
@@ -94,6 +97,7 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
       req.onBehalfOf,
       steps,
       req.seed,
+      req.proposalId,
       ctx,
     );
   }
@@ -106,6 +110,7 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
     onBehalfOf: OnBehalfOf | undefined,
     steps: AutomationStep[],
     seed: string | undefined,
+    proposalId: string | undefined,
     ctx: RunCtx,
   ): Promise<AutomationRunResult> {
     await this.#recorder?.start({ runId, automationId, organizationId, agentId: agent.id }, ctx);
@@ -129,6 +134,7 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
           ...(step.goalTaskRef ? { goalTaskRef: step.goalTaskRef } : {}),
         },
         ctx,
+        i === 0 && proposalId ? { proposalId } : {},
       );
       proposals.push(proposal);
 

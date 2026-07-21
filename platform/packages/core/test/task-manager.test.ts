@@ -10,6 +10,7 @@ import {
   emitTasksMarkdown,
   evaluateTaskGuards,
   parseTasksMarkdown,
+  planCompletedBaySweep,
   routeTaskByRequiredSkill,
   withOutcomeTarget,
   withTaskStatus,
@@ -123,7 +124,7 @@ test("tasks.md projection is deterministic and external drift becomes reconcilia
   const edited = projection.content.replace("Build queue", "Build governed queue");
   const drift = detectTaskProjectionDrift(projection, edited, tree);
   assert.equal(drift.drifted, true);
-  assert.equal(drift.proposal?.status, "pending_review");
+  assert.equal(drift.changes.find((entry) => entry.id === "child")?.title, "Build governed queue");
   const reconciled = applyApprovedTaskProjectionReconciliation(tree, edited, NOW);
   assert.equal(reconciled.find((task) => task.id === "child")?.title, "Build governed queue");
   assert.equal(reconciled.find((task) => task.id === "child")?.version, 2);
@@ -134,6 +135,35 @@ test("tasks.md projection is deterministic and external drift becomes reconcilia
   const promotedProjection = projection.content.replace("## 1.1.1 — Verify tree", "## 3 — Verify tree");
   const promoted = applyApprovedTaskProjectionReconciliation(tree, promotedProjection, NOW);
   assert.equal(promoted.find((task) => task.id === "leaf")?.parentTaskId, undefined);
+  assert.throws(
+    () => applyApprovedTaskProjectionReconciliation(
+      tree,
+      projection.content.replace("- Status: pending", "- Status: done"),
+      NOW,
+    ),
+    /verification evidence/,
+  );
+  assert.throws(
+    () => parseTasksMarkdown(projection.content.replace("- Status: pending", "- Status: invented")),
+    /invalid projected status/,
+  );
+});
+
+test("completed bay sweep deterministically combines cap and age eligibility", () => {
+  const tree = createTree().map((task, index) => ({
+    ...task,
+    status: "done" as const,
+    verification: {
+      verifiedAt: NOW,
+      verifiedBy: "human-1",
+      evidenceRefs: [`event:${index}`],
+      result: "passed" as const,
+    },
+    updatedAt: index === 0 ? "2026-07-01T00:00:00.000Z" : `2026-07-${19 + index}T00:00:00.000Z`,
+  }));
+  const plan = planCompletedBaySweep(tree, "2026-07-21T00:00:00.000Z", 2, 7);
+  assert.deepEqual(plan.eligibleTaskIds, ["root"]);
+  assert.equal(plan.expectedVersions["root"], 1);
 });
 
 test("guards surface WIP, unverified done, completed overflow, and goal cadence without silent mutation", () => {

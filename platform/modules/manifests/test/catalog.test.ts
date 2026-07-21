@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { BUILT_IN_MODULES, requireBuiltInModule } from "../src/index.js";
+import { canonicalizeManifest, parseModuleManifest } from "@bridge/core";
 
 test("built-in Module catalog has one manifest per Module name", () => {
   const names = BUILT_IN_MODULES.map(({ manifest }) => manifest.name);
@@ -15,6 +16,12 @@ test("Task Manager is a signed installable Module with one Task Database and Age
   assert.equal(taskManager.module?.agents.length, 5);
   assert.ok(taskManager.module?.agents.find((agent) => agent.id === "chief-of-staff")?.skillIds.includes("task-manager.skill.agent-task-routing"));
   assert.ok(taskManager.module?.automations.every((automation) => Boolean(automation.agentId)));
+  const normalized = parseModuleManifest({ module: taskManager });
+  assert.equal(
+    canonicalizeManifest(parseModuleManifest({ module: normalized })),
+    canonicalizeManifest(normalized),
+  );
+  assert.deepEqual(normalized.module?.commonsNeeds, []);
 });
 
 test("every built-in Module route is declared by its manifest", () => {

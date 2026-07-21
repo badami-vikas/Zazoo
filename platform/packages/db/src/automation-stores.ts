@@ -211,7 +211,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
     ctx: RunCtx,
   ): Promise<void> {
     await withOrganizationOnly(this.#db, run.organizationId, async (tx) => {
-      await tx.insert(automationRuns).values({
+      const [inserted] = await tx.insert(automationRuns).values({
       id: run.runId,
       organizationId: run.organizationId,
       automationId: run.automationId,
@@ -219,7 +219,19 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
       runId: run.runId,
       status: "running",
       startedAt: new Date(ctx.clock.nowISO()),
-      });
+      }).onConflictDoNothing().returning();
+      if (inserted) return;
+      const [existing] = await tx.select().from(automationRuns).where(and(
+        eq(automationRuns.id, run.runId),
+        eq(automationRuns.organizationId, run.organizationId),
+      )).limit(1);
+      if (
+        !existing ||
+        existing.automationId !== run.automationId ||
+        existing.agentId !== run.agentId
+      ) {
+        throw new Error(`AutomationRunRecorder.start: Run ${run.runId} conflicts with existing attribution`);
+      }
     });
   }
 

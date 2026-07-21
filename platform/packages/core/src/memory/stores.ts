@@ -492,6 +492,17 @@ export class InMemoryAutomationRunRecorder implements AutomationRunRecorder {
     run: { runId: string; automationId: string; organizationId: string; agentId: string },
     ctx: RunCtx,
   ): Promise<void> {
+    const existing = this.runs.get(run.runId);
+    if (existing) {
+      if (
+        existing.automationId !== run.automationId ||
+        existing.organizationId !== run.organizationId ||
+        existing.agentId !== run.agentId
+      ) {
+        throw new Error(`AutomationRunRecorder.start: Run ${run.runId} conflicts with existing attribution`);
+      }
+      return;
+    }
     this.runs.set(run.runId, {
       ...run,
       status: "running",

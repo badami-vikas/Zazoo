@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { detectTaskProjectionDrift, emitTasksMarkdown, planCompletedBaySweep } from "@bridge/core";
 import { createLocalDb, DrizzleTaskManagerStore, schema } from "../src/index.js";
 
 async function fixture() {
@@ -90,12 +91,152 @@ test("approved restructure is atomic, attributable, identity-preserving, and con
       db.store.decideProposal(db.organizationId, proposal.id, "approve", db.userId, seam()),
       db.store.decideProposal(db.organizationId, proposal.id, "approve", db.userId, seam()),
     ]);
-    assert.equal([first, second].filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal([first, second].filter((result) => result.status === "fulfilled").length, 2);
     const tasks = await db.store.list(db.organizationId);
     assert.equal(tasks.find((task) => task.id === child.task.id)?.parentTaskId, undefined);
     assert.equal(new Set(tasks.map((task) => task.id)).size, 2);
     const events = await db.db.select().from(schema.events);
     assert.ok(events.some((event) => event.type === "task.promote.approved" && event.entityId === child.task.id));
+  } finally {
+    await db.close();
+  }
+});
+
+test("durable projection reconciliation is UUID/idempotent and rejects stale versions", async () => {
+  const db = await fixture();
+  try {
+    const created = await db.store.create({
+      organizationId: db.organizationId,
+      title: "Original title",
+      ownerType: "human",
+      ownerId: db.userId,
+      isGoal: true,
+      reviewCadence: "weekly",
+    }, seam());
+    const before = emitTasksMarkdown(await db.store.list(db.organizationId));
+    const externalContent = before.content.replace("Original title", "Reconciled title");
+    const drift = detectTaskProjectionDrift(before, externalContent, await db.store.list(db.organizationId));
+    const proposalId = crypto.randomUUID();
+    const staged = await db.store.stageProposal({
+      id: proposalId,
+      organizationId: db.organizationId,
+      kind: "projection_reconcile",
+      taskId: created.task.id,
+      actorId: "internal-strategist",
+      payload: {
+        beforeProjectionHash: before.contentHash,
+        externalContentHash: drift.externalContentHash,
+        externalContent,
+        recordVersions: before.recordVersions,
+      },
+      idempotencyKey: "projection-reconcile-1",
+      expiresAt: "2026-07-22T00:00:00.000Z",
+    }, seam());
+    const retry = await db.store.stageProposal({
+      id: crypto.randomUUID(),
+      organizationId: db.organizationId,
+      kind: "projection_reconcile",
+      taskId: created.task.id,
+      actorId: "internal-strategist",
+      payload: staged.payload,
+      idempotencyKey: "projection-reconcile-1",
+      expiresAt: "2026-07-22T00:00:00.000Z",
+    }, seam());
+    assert.equal(retry.id, proposalId);
+    const applied = await db.store.decideProposal(
+      db.organizationId,
+      proposalId,
+      "approve",
+      db.userId,
+      seam(),
+    );
+    assert.equal(applied.tasks[0]?.title, "Reconciled title");
+    assert.equal((applied.result?.["projection"] as { contentHash: string }).contentHash, emitTasksMarkdown(applied.tasks).contentHash);
+    assert.match(String(applied.result?.["eventId"]), /^[0-9a-f-]{36}$/);
+    assert.equal(
+      (await db.db.select().from(schema.events)).some(
+        (event) => event.id === applied.result?.["eventId"],
+      ),
+      true,
+    );
+    const replay = await db.store.decideProposal(
+      db.organizationId,
+      proposalId,
+      "approve",
+      db.userId,
+      seam(),
+    );
+    assert.equal(replay.tasks[0]?.version, applied.tasks[0]?.version);
+
+    const stale = await db.store.stageProposal({
+      id: crypto.randomUUID(),
+      organizationId: db.organizationId,
+      kind: "projection_reconcile",
+      taskId: created.task.id,
+      actorId: "internal-strategist",
+      payload: {
+        beforeProjectionHash: before.contentHash,
+        externalContentHash: drift.externalContentHash,
+        externalContent,
+        recordVersions: before.recordVersions,
+      },
+      idempotencyKey: "projection-reconcile-stale",
+      expiresAt: "2026-07-22T00:00:00.000Z",
+    }, seam());
+    await assert.rejects(
+      () => db.store.decideProposal(db.organizationId, stale.id, "approve", db.userId, seam()),
+      /stale/,
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+test("completed-bay sweep archives eligible done Tasks without deleting evidence", async () => {
+  const db = await fixture();
+  try {
+    const created = await db.store.create({
+      organizationId: db.organizationId,
+      title: "Completed work",
+      ownerType: "human",
+      ownerId: db.userId,
+      isGoal: false,
+      exitTest: "evidence exists",
+    }, seam());
+    await db.store.verify(db.organizationId, created.task.id, {
+      verifiedAt: "2026-07-21T00:00:00.000Z",
+      verifiedBy: db.userId,
+      evidenceRefs: ["event:completed"],
+      result: "passed",
+    }, seam());
+    await db.store.transition(db.organizationId, created.task.id, "done", seam());
+    const tasks = await db.store.list(db.organizationId);
+    const plan = planCompletedBaySweep(tasks, "2026-07-21T00:00:00.000Z", 0, 7);
+    const proposal = await db.store.stageProposal({
+      id: crypto.randomUUID(),
+      organizationId: db.organizationId,
+      kind: "archive_sweep",
+      taskId: created.task.id,
+      actorId: "governance",
+      payload: {
+        taskIds: plan.eligibleTaskIds,
+        recordVersions: plan.expectedVersions,
+        policy: plan.policy,
+      },
+      idempotencyKey: "completed-bay-sweep-1",
+      expiresAt: "2026-07-22T00:00:00.000Z",
+    }, seam());
+    const applied = await db.store.decideProposal(
+      db.organizationId,
+      proposal.id,
+      "approve",
+      db.userId,
+      seam(),
+    );
+    const archived = applied.tasks.find((task) => task.id === created.task.id);
+    assert.equal(archived?.status, "archived");
+    assert.deepEqual(archived?.evidenceRefs, ["event:completed"]);
+    assert.deepEqual(applied.result?.["archivedTaskIds"], [created.task.id]);
   } finally {
     await db.close();
   }

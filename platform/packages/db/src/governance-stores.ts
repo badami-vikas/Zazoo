@@ -399,6 +399,7 @@ export async function ensureRelationshipUserGovernance(
     { resourceType: "event", action: "write" },
     { resourceType: "record", action: "read" },
     { resourceType: "record", action: "write" },
+    { resourceType: "record", action: "archive" },
   ] as const;
   await withOrganizationContext(
     db,
@@ -564,9 +565,14 @@ export async function ensureInternalStrategistGovernance(
     resourceType: "signal",
     action: "write",
     capabilityToken: "signal:write",
+    additionalGrants: [
+      { resourceType: "record", action: "read", capabilityToken: "record:read" },
+      { resourceType: "record", action: "write", capabilityToken: "record:write" },
+    ],
     allowedSkills: [
       "stageStrategicRecommendation",
       "jobpilot.synthesizeCultureProfile",
+      "task-manager.ledger-projection",
     ],
     dataScope: "all",
   });
@@ -576,10 +582,20 @@ export async function ensureGovernanceAgentGovernance(
   db: Database,
   config: FoundationalAgentGovernanceConfig,
 ): Promise<void> {
-  return ensureSignalDraftAgentGovernance(db, config, {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
     name: "Governance",
     description: "May draft inspectable risk-assessment Signals; never approves or executes them.",
     goal: "Explain policy, assess risk, and summarize audit findings without deciding authority.",
+    resourceType: "signal",
+    action: "write",
+    capabilityToken: "signal:write",
+    additionalGrants: [
+      { resourceType: "record", action: "read", capabilityToken: "record:read" },
+      { resourceType: "record", action: "archive", capabilityToken: "record:archive" },
+    ],
+    allowedSkills: ["task-manager.completed-bay-sweep"],
+    dataScope: "all",
   });
 }
 

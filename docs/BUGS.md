@@ -28,6 +28,15 @@ and vault keys, blocks every private tRPC procedure plus Google OAuth token pers
 private Relation reconciliation, and allows only exact Auth/shell reads plus explicitly-public
 governed Actions. Attached to TASK-006; AP-063/ADR-137.
 
+## OPEN 2026-07-21 — TASK-021 projection drift proposal cannot be approved or applied
+Corporate-training-sims certification at `d24e76ba9413e2ca757768af5f61d4f413714a69` proved `taskManager.projection` returns an unpersisted non-UUID `projection:<before-hash>:<after-hash>` proposal. `taskManager.decideProposal` accepts only UUID proposals present in the pipeline and `task_change_proposals`; no API effect invokes `applyApprovedTaskProjectionReconciliation`. A controlled external edit was detected and honestly left unapplied. TASK-021 must persist a pipeline-linked UUID proposal and apply approved reconciliation with file/version/hash CAS, atomic Task updates, deterministic re-emit, and durable Event/Result/File/Run evidence.
+
+## OPEN 2026-07-21 — TASK-021 completed-bay sweep is manifest-only
+Corporate-training-sims completed a real Task with Result/Event/File evidence, but no runtime procedure or attributable Automation Run exists for declared `completed-bay-sweep`. TASK-021 must execute cap/age evaluation through the existing Automation→Agent Run→pipeline path, archive eligible done Tasks without deleting evidence, and make retries/restarts/concurrent triggers idempotent.
+
+## OPEN 2026-07-21 — TASK-021 signed Module cannot install through Commons
+Corporate-training-sims verified signed `task-manager@1.0.0`, but public `commons.installPropose` rejects non-Skill content. Built-in seeding bypasses canonical Commons parsing, loses `module.commonsNeeds=[]`, and produces bytes/hash different from the signed normalized manifest. TASK-021 must narrowly admit signed `organization_definition` Modules after provenance/key/scan/dependency/privacy/need checks and make built-in plus Commons normalization equivalent without rewriting signed content or weakening TASK-004/005 Skill installation.
+
 ## RESOLVED 2026-07-20 — Source Form could not create a vault-backed credential
 Live TASK-006 certification reached the real Source Form and found that `userId`/`password`
 manifest columns were always locked and hidden. The API, OS-keyring adapter, re-authentication,

@@ -4,8 +4,14 @@
  * create/get/list + upsert-state pattern). In-memory implementation here lets
  * @bridge/core run + be tested with no database.
  */
-import type { ModuleAttachment, ModuleInstallationRow, ModuleVersionState } from "./types.js";
-import { canonicalizeManifest } from "./signing.js";
+import type {
+  CommonsInstallationSource,
+  ModuleAttachment,
+  ModuleInstallationRow,
+  ModuleVersionState,
+} from "./types.js";
+import { canonicalizeJson, canonicalizeManifest } from "./signing.js";
+import { parseModuleManifest } from "./manifest.js";
 
 export type ModuleAttachmentTarget = Pick<ModuleAttachment, "ownerModuleName" | "agentId" | "needId">;
 
@@ -43,7 +49,8 @@ function assertSameImmutableContent(
   if (
     canonicalizeManifest(existing.manifest) !== canonicalizeManifest(incoming.manifest) ||
     existing.lineageManifestId !== incoming.lineageManifestId ||
-    !sameAttachment(existing.moduleAttachment, incoming.moduleAttachment)
+    !sameAttachment(existing.moduleAttachment, incoming.moduleAttachment) ||
+    canonicalizeJson(existing.commonsSource ?? null) !== canonicalizeJson(incoming.commonsSource ?? null)
   ) {
     throw new Error("module_installations: conflicting immutable content for attachment identity");
   }
@@ -71,6 +78,8 @@ export interface ModuleStore {
   setComputedRisk(id: string, risk: ModuleInstallationRow["computedRisk"]): Promise<ModuleInstallationRow>;
   setState(id: string, state: ModuleVersionState): Promise<ModuleInstallationRow>;
   setStatus(id: string, status: ModuleInstallationRow["status"]): Promise<ModuleInstallationRow>;
+  setCommonsSource(id: string, source: CommonsInstallationSource): Promise<ModuleInstallationRow>;
+  setNormalizedManifest(id: string, manifest: ModuleInstallationRow["manifest"]): Promise<ModuleInstallationRow>;
 }
 
 /** In-memory `ModuleStore` — dev/test default, mirrors InMemoryCapabilityStore's shape. */
@@ -158,6 +167,32 @@ export class InMemoryModuleStore implements ModuleStore {
     const existing = this.rows.get(id);
     if (!existing) throw new Error(`module_installations: unknown id ${id}`);
     const updated: ModuleInstallationRow = { ...existing, status };
+    this.rows.set(id, updated);
+    return updated;
+  }
+
+  async setCommonsSource(id: string, source: CommonsInstallationSource): Promise<ModuleInstallationRow> {
+    const existing = this.rows.get(id);
+    if (!existing) throw new Error(`module_installations: unknown id ${id}`);
+    if (
+      existing.commonsSource &&
+      canonicalizeJson(existing.commonsSource) !== canonicalizeJson(source)
+    ) {
+      throw new Error("module_installations: conflicting immutable Commons source");
+    }
+    const updated: ModuleInstallationRow = { ...existing, commonsSource: source };
+    this.rows.set(id, updated);
+    return updated;
+  }
+
+  async setNormalizedManifest(id: string, manifest: ModuleInstallationRow["manifest"]): Promise<ModuleInstallationRow> {
+    const existing = this.rows.get(id);
+    if (!existing) throw new Error(`module_installations: unknown id ${id}`);
+    const normalizedExisting = parseModuleManifest({ module: existing.manifest });
+    if (canonicalizeManifest(normalizedExisting) !== canonicalizeManifest(manifest)) {
+      throw new Error("module_installations: normalization would change immutable Module content");
+    }
+    const updated: ModuleInstallationRow = { ...existing, manifest };
     this.rows.set(id, updated);
     return updated;
   }
