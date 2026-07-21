@@ -33,6 +33,7 @@ import type {
   PostCommitPolicyResult,
   Proposal,
   SkillOutput,
+  TrustOrigin,
 } from "./types.js";
 
 export interface PipelineDeps {
@@ -195,6 +196,21 @@ function toPostCommitResults(results: PolicyResult[]): PostCommitPolicyResult[] 
   return out;
 }
 
+const TRUST_ORIGIN_RANK: Readonly<Record<TrustOrigin, number>> = {
+  operator: 0,
+  user_content: 1,
+  untrusted_external: 2,
+};
+
+function combineTrustOrigins(
+  first: TrustOrigin | undefined,
+  second: TrustOrigin | undefined,
+): TrustOrigin | undefined {
+  if (!first) return second;
+  if (!second) return first;
+  return TRUST_ORIGIN_RANK[first] >= TRUST_ORIGIN_RANK[second] ? first : second;
+}
+
 export class UniversalActionPipeline {
   #deps: PipelineDeps;
 
@@ -206,10 +222,10 @@ export class UniversalActionPipeline {
   async propose(req: ActionRequest, ctx: RunCtx, options: ProposeOptions = {}): Promise<Proposal> {
     const { authority, policies, skills, ledger } = this.#deps;
 
-    // The turn's effective provenance (PI-2). req.trustOrigin (tagged at the ingest
-    // edge) wins; otherwise fall back to ambient ctx.taint. Undefined = kernel/user
-    // authored, no untrusted content in play.
-    const turnTaint = req.trustOrigin ?? ctx.taint;
+    // The turn's effective provenance (PI-2). Input and ambient context combine
+    // monotonically so a caller cannot downgrade an already-tainted context.
+    // Undefined = kernel/user authored, no tagged content in play.
+    const turnTaint = combineTrustOrigins(req.trustOrigin, ctx.taint);
 
     // 1) Authority (deny-default). nowISO injected for ephemeral expiry checks.
     const auth = await resolveAuthority(
@@ -345,7 +361,11 @@ export class UniversalActionPipeline {
       }
     }
 
-    const output = await skill.run(req.inputs, ctx);
+    const output = await skill.run(
+      req.inputs,
+      turnTaint ? { ...ctx, taint: turnTaint } : ctx,
+    );
+    const effectiveTaint = combineTrustOrigins(turnTaint, output.trustOrigin);
 
     // 4) Policy(runtime) — evaluate the produced output.
     const runtime = await policies.evaluate({
@@ -357,11 +377,20 @@ export class UniversalActionPipeline {
       phase: "runtime",
       inputs: req.inputs,
       proposedOutput: output.proposedOutput,
-      ...(turnTaint ? { taint: turnTaint } : {}),
+      ...(effectiveTaint ? { taint: effectiveTaint } : {}),
     });
     const all = [...pre, ...runtime];
     const rtBlock = blocked(runtime);
-    if (rtBlock) return this.#reject(req, auth, all, `policy(runtime): ${rtBlock.reason}`, ctx);
+    if (rtBlock) {
+      return this.#reject(
+        req,
+        auth,
+        all,
+        `policy(runtime): ${rtBlock.reason}`,
+        ctx,
+        effectiveTaint,
+      );
+    }
 
     // PI-2 — structural tainted-context egress gate. An always-on kernel guarantee (NOT
     // a deployment-configurable policy): when this turn carries untrusted_external
@@ -372,13 +401,21 @@ export class UniversalActionPipeline {
     const egressGate = evaluateTaintedEgress({
       action: req.action,
       resourceType: req.resourceType,
-      taint: turnTaint,
+      taint: effectiveTaint,
     });
     if (egressGate) all.push(egressGate);
 
     // 5) Review gate — append ledger row, status by approval requirement.
     if (options.requireHumanReview === true || requiresApproval(req.actor.type, all)) {
-      const entry = await this.#appendLedger(req, output, all, null, ctx, options.proposalId);
+      const entry = await this.#appendLedger(
+        req,
+        output,
+        all,
+        null,
+        ctx,
+        effectiveTaint,
+        options.proposalId,
+      );
       return {
         id: entry.id,
         status: "pending_review",
@@ -390,7 +427,15 @@ export class UniversalActionPipeline {
     }
 
     // Auto-approve path (human + allow policies): commit immediately.
-    const entry = await this.#appendLedger(req, output, all, "auto", ctx, options.proposalId);
+    const entry = await this.#appendLedger(
+      req,
+      output,
+      all,
+      "auto",
+      ctx,
+      effectiveTaint,
+      options.proposalId,
+    );
     await this.#commit(entry, ctx);
     return {
       id: entry.id,
@@ -420,6 +465,7 @@ export class UniversalActionPipeline {
         output: {
           proposedOutput: entry.proposedOutput,
           ...(entry.diff !== undefined ? { diff: entry.diff } : {}),
+          ...(entry.trustOrigin ? { trustOrigin: entry.trustOrigin } : {}),
         },
         createdAt: entry.createdAt,
       })),
@@ -561,7 +607,13 @@ export class UniversalActionPipeline {
       request: this.#requestFromEntry(original),
       authority: { allowed: true, reason: "authorized; approved at review", basis: "role", dataScope: "all" },
       policyResults: original.policyResults,
-      output: { proposedOutput: committedOutput, ...(persisted.diff ? { diff: persisted.diff } : {}) },
+      output: {
+        proposedOutput: committedOutput,
+        ...(persisted.diff ? { diff: persisted.diff } : {}),
+        ...(persisted.trustOrigin
+          ? { trustOrigin: persisted.trustOrigin }
+          : {}),
+      },
     };
   }
 
@@ -586,6 +638,7 @@ export class UniversalActionPipeline {
       phase: "post",
       inputs: entry.inputs,
       proposedOutput: entry.proposedOutput,
+      ...(entry.trustOrigin ? { taint: entry.trustOrigin } : {}),
     });
     const postCommitResults: PostCommitPolicyResult[] = toPostCommitResults(postResults);
     void postCommitResults; // advisory-only; no phase="post" policy currently acts on this — kept typed for future use, see toPostCommitResults doc.
@@ -607,6 +660,7 @@ export class UniversalActionPipeline {
     policyResults: PolicyResult[],
     decision: LedgerEntry["userDecision"],
     ctx: RunCtx,
+    effectiveTaint: TrustOrigin | undefined,
     proposalId?: string,
   ): Promise<LedgerEntry> {
     const entry: LedgerEntry = {
@@ -627,7 +681,7 @@ export class UniversalActionPipeline {
       ...(req.seed ? { seed: req.seed } : {}),
       ...(req.dataScope ? { dataScope: req.dataScope } : {}),
       ...(req.context ? { context: req.context } : {}),
-      ...(req.trustOrigin ? { trustOrigin: req.trustOrigin } : {}),
+      ...(effectiveTaint ? { trustOrigin: effectiveTaint } : {}),
       createdAt: ctx.clock.nowISO(),
     };
     return this.#deps.ledger.append(entry);
@@ -639,8 +693,13 @@ export class UniversalActionPipeline {
     policyResults: PolicyResult[],
     reason: string,
     ctx: RunCtx,
+    outputTaint?: TrustOrigin,
   ): Promise<Proposal> {
     // Even rejections are audited — append a ledger row with no commit.
+    const rejectionTaint = combineTrustOrigins(
+      combineTrustOrigins(req.trustOrigin, ctx.taint),
+      outputTaint,
+    );
     const entry: LedgerEntry = {
       id: ctx.ids.next(),
       workspaceId: req.workspaceId,
@@ -655,6 +714,9 @@ export class UniversalActionPipeline {
       policyResults,
       diff: { rejected: reason },
       ...(req.seed ? { seed: req.seed } : {}),
+      ...(req.dataScope ? { dataScope: req.dataScope } : {}),
+      ...(req.context ? { context: req.context } : {}),
+      ...(rejectionTaint ? { trustOrigin: rejectionTaint } : {}),
       createdAt: ctx.clock.nowISO(),
     };
     await this.#deps.ledger.append(entry);

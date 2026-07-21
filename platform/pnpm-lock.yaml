@@ -367,6 +367,9 @@ importers:
       '@bridge/tool-kit':
         specifier: workspace:*
         version: link:../tool-kit
+      ipaddr.js:
+        specifier: ^2.4.0
+        version: 2.4.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

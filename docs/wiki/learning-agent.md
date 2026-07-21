@@ -6,15 +6,15 @@ full: [../raw/learning-agent-roadmap-2026-07.md](../raw/learning-agent-roadmap-2
 corrections, connected systems, docs; runs research; feeds every other
 agent. `neverExecutes: true` — enforced in code, only firm thing built.
 
-**Ground truth (updated 2026-07-16): early substrate now real.** @learning =
+**Ground truth (updated 2026-07-18): early substrate now real.** @learning =
 prompt + one LLM call. Durable Memory runtime ABSENT
 (historical audit); MemoryStore + Drizzle binding now exist, and TASK-002 uses
 private Local Plane preference Memories with inspect/correct/delete. Mem0 decision ratified (ADR-010f), zero
-mem0 code. PromptAssembler unbuilt. broader research lane = "policy
-decided, no mechanism". Onboarding profile in-memory only. Signals tables
-exist, no producer. Embeddings tables exist, no retrieval. Security audit:
-Learning = PRIMARY untrusted-input consumer, no taint marking, no SSRF
-client, no quarantine — all HIGH, all unbuilt.
+mem0 code. PromptAssembler unbuilt. LA3 Phase 1 research Result path now real:
+governed `web-research` Skill + SearchProvider + safe HTTP + citations +
+output taint. No research-to-Memory/prompt sink yet. Onboarding profile
+in-memory only. Signals tables exist, no producer. Embeddings tables exist,
+no retrieval. Quarantine/full runtime taint flow still open.
 
 **TASK-002 partial:** every onboarding question says why + effect. User may skip
 role model. Fixed-host Wikipedia research returns citation + separates documented
@@ -82,4 +82,9 @@ plane) — LA0–LA3 self-contained, deliver standalone.
 
 No sequencer reorder. LA0/LA1 refine P0–P1 tracks (ADR-031/034).
 
-**LA3 provider survey (2026-07-17, TASK-023, ADR-111):** 178 candidates checked. Tier1 (free, no acct — use first): Parallel Search MCP, Jina AI keyless, DuckDuckGo IA API. Tier2 (free tier, needs signup, 33 total): Exa, Tavily, Firecrawl, Apify, Browserbase, etc. Tier3 (paid/self-host-only): Perplexity Sonar, Bright Data, Webz.io, Klue, SearXNG, Crawl4AI, etc. Rollout: Tier1 first ($0) → 2-4 Tier2 as fallback → Tier3 only behind cost/ROI + approval gate. Full list: `../raw/learning-agent-roadmap-2026-07.md` §7; itemized survey: `../../outputs/2026-07-17-learning-agent-recon-search-integrations.md`.
+**LA3 provider survey + rights gate (TASK-023, ADR-111/113):** 178
+candidates checked. Phase 1 ships only anonymous Parallel Search MCP.
+Jina keyless + DuckDuckGo IA blocked: current direct-access rights not
+verified. Tier2 still signup-gated. Tier3 still cost/ROI + approval-gated.
+No paid escalation code. Full list: `../raw/learning-agent-roadmap-2026-07.md`
+§7. Implementation: `../../outputs/2026-07-18-task023-governed-web-research.md`.

@@ -424,19 +424,21 @@ export async function ensureLearningAgentGovernance(
   return ensurePersistentAgentGovernance(db, {
     ...config,
     name: "Learning Agent",
-    description: "May draft inspectable Signal recommendations; never approves or executes them.",
-    goal: "Produce source-attributed Memories, Signals, and recommendations without executing Actions.",
+    description: "May research rights-approved public sources and draft inspectable Signal recommendations; never approves or executes them.",
+    goal: "Produce source-attributed public research, Memories, Signals, and recommendations without executing Actions.",
     resourceType: "signal",
     action: "write",
     capabilityToken: "signal:write",
     additionalGrants: [
       { resourceType: "touchpoint", action: "write", capabilityToken: "touchpoint:write" },
+      { resourceType: "external:fetch", action: "read", capabilityToken: "external:fetch:read" },
     ],
     allowedSkills: [
       "stageLearningRecommendation",
       "stageStrategicRecommendation",
       "helpdesk.stageAnswer",
       "stageCapture",
+      "web-research",
     ],
     dataScope: "all",
   });

@@ -32,6 +32,8 @@ import {
   STAGE_CAPTURE_TASK_TYPE,
   RELATIONSHIP_OUTREACH_GOAL_TYPE,
   DRAFT_OUTREACH_TASK_TYPE,
+  LEARNING_WEB_RESEARCH_GOAL_TYPE,
+  RESEARCH_PUBLIC_WEB_TASK_TYPE,
   type Wiring,
 } from "./wiring.js";
 import type {
@@ -92,6 +94,7 @@ import {
   InvalidPackageTransitionError,
   resolveSkillForTask,
   cancelChildAgentRun,
+  SearchProvidersUnavailableError,
   type CapabilityManifest,
   type CapabilityManifestRow,
   type CapabilityOrigin,
@@ -110,6 +113,7 @@ import {
   type LedgerEntry,
   uuidv7,
 } from "@bridge/core";
+import { WEB_RESEARCH_SKILL_ID } from "./web-research-skill.js";
 import { authUrl } from "@bridge/integrations-google";
 import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@bridge/helpdesk";
 import {
@@ -373,6 +377,20 @@ async function provisionRoleModelRecommendationTask(
     LEARNING_ROLE_MODEL_GOAL_TYPE,
     "Role-model deliberate-practice recommendations",
     PRODUCE_RECOMMENDATION_TASK_TYPE,
+    LEARNING_AGENT,
+  );
+}
+
+async function provisionWebResearchTask(
+  wiring: Wiring,
+  workspaceId: string,
+): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    workspaceId,
+    LEARNING_WEB_RESEARCH_GOAL_TYPE,
+    "Rights-approved public web research",
+    RESEARCH_PUBLIC_WEB_TASK_TYPE,
     LEARNING_AGENT,
   );
 }
@@ -5463,6 +5481,70 @@ export const appRouter = t.router({
     }),
 
     skill: t.router({
+      webResearch: authenticatedProcedure
+        .input(
+          z
+            .object({
+              workspaceId: z.string().min(1),
+              objective: z.string().trim().min(1).max(500),
+              searchQueries: z
+                .array(z.string().trim().min(1).max(160))
+                .min(1)
+                .max(3),
+              maxResults: z.number().int().min(1).max(10).default(5),
+              timeoutMs: z.number().int().min(1_000).max(15_000).default(12_000),
+            })
+            .strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(
+            ctx.wiring.workspaceStore,
+            input.workspaceId,
+            ctx.identity.id,
+          );
+          try {
+            return await ctx.wiring.pipeline.propose(
+              {
+                workspaceId: input.workspaceId,
+                actor: {
+                  type: "agent",
+                  id: LEARNING_AGENT,
+                  plane: "cloud",
+                },
+                onBehalfOf: { type: "user", id: ctx.identity.id },
+                action: "read",
+                resourceType: "external:fetch",
+                inputs: {
+                  objective: input.objective,
+                  searchQueries: input.searchQueries,
+                  maxResults: input.maxResults,
+                  timeoutMs: input.timeoutMs,
+                },
+                skill: WEB_RESEARCH_SKILL_ID,
+                dataScope: "public",
+                goalTaskRef: await provisionWebResearchTask(
+                  ctx.wiring,
+                  input.workspaceId,
+                ),
+              },
+              ctx.run,
+            );
+          } catch (error) {
+            if (error instanceof SearchProvidersUnavailableError) {
+              const attempts = error.attempts
+                .map((attempt) => `${attempt.providerId}:${attempt.status}`)
+                .join(", ");
+              throw new TRPCError({
+                code: "BAD_GATEWAY",
+                message: `web research unavailable (${attempts})`,
+                cause: error,
+              });
+            }
+            throw error;
+          }
+        }),
+
       /** Read-only preview of AGS1 resolution — never invokes the Skill. Lets
        * the UI show WHY an Agent is (or is not) eligible before a real call. */
       resolve: authenticatedProcedure.input(resolveSkillInput).query(async ({ input, ctx }) => {
@@ -5482,6 +5564,9 @@ export const appRouter = t.router({
         const candidates = input.skillId
           ? ctx.wiring.skillManifests.forSkill(input.workspaceId, input.skillId)
           : ctx.wiring.skillManifests.all(input.workspaceId);
+        const candidatePlanes = new Set(candidates.map((candidate) => candidate.plane));
+        const intendedPlane =
+          candidatePlanes.size === 1 ? candidates[0]!.plane : "local";
         return resolveSkillForTask(candidates, {
           goal,
           task,
@@ -5490,7 +5575,9 @@ export const appRouter = t.router({
             workspaceId: agentWorkspaceId,
             active: agentActive,
             capabilityScope: agentScope,
-            plane: "local",
+            // Preview the server-owned workflow plane when the candidate set is
+            // unambiguous; actual invocation still enforces its runtime Actor plane.
+            plane: intendedPlane,
             dataScope: agentDataScope,
           },
           ...(input.skillId ? { skillId: input.skillId } : {}),

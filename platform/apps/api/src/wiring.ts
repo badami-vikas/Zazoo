@@ -95,6 +95,7 @@ import {
   type SkillManifestRegistry,
   type ChildAgentRunStore,
   type SkillManifest,
+  type SearchProviderRouter,
   uuidv7,
 } from "@bridge/core";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
@@ -134,7 +135,15 @@ import {
   type CanonicalIdentityStore,
 } from "@bridge/db";
 import { createMemoryLocalPlane, createPgliteLocalPlane, type LocalPlane } from "@bridge/local";
-import { AnthropicProvider, GroqProvider, OllamaProvider, createModelRouter, type ModelRouter } from "@bridge/models";
+import {
+  AnthropicProvider,
+  FreeDirectSearchProviderRouter,
+  GroqProvider,
+  OllamaProvider,
+  ParallelSearchProvider,
+  createModelRouter,
+  type ModelRouter,
+} from "@bridge/models";
 import {
   EgressExecutor,
   GoogleApiGatewayFactory,
@@ -176,6 +185,10 @@ import {
   resolveModuleAgentRuntimeId,
   resolveModuleRitualRuntimeId,
 } from "./built-in-packages.js";
+import {
+  WEB_RESEARCH_SKILL_ID,
+  createWebResearchSkill,
+} from "./web-research-skill.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // workspace + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -335,6 +348,9 @@ export interface Wiring {
    * registers Ollama (local) + Anthropic + Groq (cloud, only when their respective
    * API keys are set). */
   models: ModelRouter;
+  /** TASK-023 public-web SearchProvider router. Phase 1 accepts only
+   * rights-verified Tier-1 free-direct providers and has no paid escalation path. */
+  searchProviders: SearchProviderRouter;
   /** DealPilot's quarantine/commit surface (first tool on the generic intake seam). */
   dealpilot: {
     captures: ToolCaptureStore;
@@ -433,6 +449,8 @@ export const AGENT_ORCHESTRATION_SKILL_MANIFEST = {
  */
 export const LEARNING_ROLE_MODEL_GOAL_TYPE = "learning.role_model_recommendation";
 export const PRODUCE_RECOMMENDATION_TASK_TYPE = "produce_recommendation";
+export const LEARNING_WEB_RESEARCH_GOAL_TYPE = "learning.web_research";
+export const RESEARCH_PUBLIC_WEB_TASK_TYPE = "research_public_web";
 
 export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
   workspaceId: PILOT_WORKSPACE,
@@ -446,6 +464,21 @@ export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
   riskBand: "advisory",
   evalVersion: "1.0.0",
   defaultAgents: ["learning"],
+} as const;
+
+export const WEB_RESEARCH_SKILL_MANIFEST = {
+  workspaceId: PILOT_WORKSPACE,
+  skillId: WEB_RESEARCH_SKILL_ID,
+  version: "1.0.0",
+  goalTypes: [LEARNING_WEB_RESEARCH_GOAL_TYPE],
+  taskTypes: [RESEARCH_PUBLIC_WEB_TASK_TYPE],
+  permissions: ["external:fetch:read"],
+  plane: "cloud",
+  dataScopes: ["public"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  defaultAgents: ["learning"],
+  childRunPolicy: "forbidden",
 } as const;
 
 /**
@@ -643,6 +676,7 @@ export const GOOGLE_SKILL_MANIFESTS = [
 export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
   AGENT_ORCHESTRATION_SKILL_MANIFEST,
   LEARNING_RECOMMENDATION_SKILL_MANIFEST,
+  WEB_RESEARCH_SKILL_MANIFEST,
   HELPDESK_ANSWER_SKILL_MANIFEST,
   OUTREACH_DRAFT_SKILL_MANIFEST,
   DEALPILOT_SOURCE_SKILL_MANIFEST,
@@ -724,17 +758,23 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
   ]);
 
   agents.assumed.set(LEARNING_AGENT, "role-learning");
-  agents.scope.set(LEARNING_AGENT, ["signal:write", "touchpoint:write"]);
+  agents.scope.set(LEARNING_AGENT, [
+    "signal:write",
+    "touchpoint:write",
+    "external:fetch:read",
+  ]);
   agents.tiers.set(LEARNING_AGENT, "all");
   agents.skills.set(LEARNING_AGENT, [
     "stageLearningRecommendation",
     "stageStrategicRecommendation",
     "helpdesk.stageAnswer",
     "stageCapture",
+    WEB_RESEARCH_SKILL_ID,
   ]);
   roles.roleGrants.set("role-learning", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
   ]);
 
   // Internal Strategist (AGS0/AGS1, TASK-007) — local, analysis/synthesis only.
@@ -1122,15 +1162,21 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
   };
 }
 
-export async function buildWiring(): Promise<Wiring> {
+export async function buildWiring(options: {
+  searchProviders?: SearchProviderRouter;
+} = {}): Promise<Wiring> {
   const events = new InMemoryEventBus();
+  const searchProviders =
+    options.searchProviders ??
+    new FreeDirectSearchProviderRouter([new ParallelSearchProvider()]);
   const skillRegistry = new InMemorySkillRegistry()
     .register(stageMutation)
     .register(stageCapture)
     .register(stageLearningRecommendation)
     .register(stageStrategicRecommendation)
     .register(stageHelpdeskAnswer)
-    .register(stageOutreachDraft);
+    .register(stageOutreachDraft)
+    .register(createWebResearchSkill(searchProviders));
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
@@ -1712,6 +1758,7 @@ export async function buildWiring(): Promise<Wiring> {
     evalStore,
     policyParams,
     models,
+    searchProviders,
     ...(memory ? { memory } : {}),
     close: async () => {
       await localPlane.close();

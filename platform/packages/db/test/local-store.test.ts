@@ -50,7 +50,7 @@ test("local plane: migrations apply and Drizzle ports read the local store", asy
   }
 });
 
-test("persistent governance provisions and verifies the attributable Learning Agent Signal grant", async () => {
+test("persistent governance provisions Learning Agent recommendation and public-research authority", async () => {
   const workspaceId = "b0000000-0000-4000-a000-000000000001";
   const userId = "e0f0053b-fc44-476e-be27-1371e179e958";
   const agentId = "b0000000-0000-4000-a000-0000000000d2";
@@ -72,7 +72,19 @@ test("persistent governance provisions and verifies the attributable Learning Ag
     assert.deepEqual(await ports.agents.capabilityScope(agentId), [
       "signal:write",
       "touchpoint:write",
+      "external:fetch:read",
     ]);
+    assert.ok(
+      (await ports.roles.grantsForRole(roleId)).some(
+        (grant) =>
+          grant.resourceType === "external:fetch" &&
+          grant.action === "read" &&
+          grant.effect === "allow",
+      ),
+    );
+    assert.ok(
+      (await ports.agents.allowedSkills(agentId)).includes("web-research"),
+    );
     assert.ok(
       (await ports.roles.grantsForRole(roleId)).some(
         (grant) =>

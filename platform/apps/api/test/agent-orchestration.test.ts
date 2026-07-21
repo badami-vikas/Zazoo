@@ -12,6 +12,10 @@ import {
   SystemClock,
   UuidGen,
   createChildAgentRun,
+  SearchProvidersUnavailableError,
+  type SearchProviderOutcome,
+  type SearchProviderRouter,
+  type SearchRequest,
   type RunCtx,
 } from "@bridge/core";
 import { appRouter } from "../src/router.js";
@@ -25,8 +29,11 @@ import {
   CAPABILITY_BUILDER_AGENT,
   RELATIONSHIP_LEARNING_GOAL_TYPE,
   SYNTHESIZE_RECOMMENDATION_TASK_TYPE,
+  LEARNING_WEB_RESEARCH_GOAL_TYPE,
+  RESEARCH_PUBLIC_WEB_TASK_TYPE,
   type Wiring,
 } from "../src/wiring.js";
+import { WEB_RESEARCH_SKILL_ID } from "../src/web-research-skill.js";
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -60,6 +67,50 @@ async function seedGoalAndTask(caller: Awaited<ReturnType<typeof makeCaller>>, a
     assignedAgentId,
   });
   return { goal, task };
+}
+
+function researchFixture(): {
+  router: SearchProviderRouter;
+  calls: SearchRequest[];
+} {
+  const calls: SearchRequest[] = [];
+  const router: SearchProviderRouter = {
+    providers: () => new Map(),
+    async search(request): Promise<SearchProviderOutcome> {
+      calls.push(request);
+      return {
+        citations: [
+          {
+            url: "https://example.com/evidence",
+            title: "Evidence",
+            publishedAt: null,
+            excerpts: ["public evidence"],
+            trustOrigin: "untrusted_external",
+          },
+        ],
+        warnings: [],
+        provenance: {
+          providerId: "test-fixture-search",
+          providerTier: 1,
+          providerAccess: "free_direct",
+          providerRequestId: "test-fixture-provider-request",
+          termsUrl: "https://example.com/terms",
+          searchedAt: request.requestedAt,
+        },
+        trustOrigin: "untrusted_external",
+        attempts: [
+          {
+            providerId: "test-fixture-search",
+            providerTier: 1,
+            providerAccess: "free_direct",
+            status: "succeeded",
+            detail: "deterministic test fixture",
+          },
+        ],
+      };
+    },
+  };
+  return { router, calls };
 }
 
 test("agentOrchestration: a Task assigned to a non-default eligible Agent (Internal Strategist) resolves the governed skill", async () => {
@@ -148,6 +199,171 @@ test("server-owned Agent runtime: an eligible assigned Agent invoking the govern
       goalTaskRef: { goalId: goal.id, taskId: task.id },
     }, makeRun());
     assert.equal(proposal.status, "pending_review");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("web-research runs as the server-selected Learning Agent through cloud/public Goal-Task authority and persists taint", async () => {
+  const fixture = researchFixture();
+  const wiring = await buildWiring({ searchProviders: fixture.router });
+  try {
+    const caller = await makeCaller(wiring);
+    const memoriesBefore = await wiring.memoryStore.retrieve(
+      { limit: 100 },
+      { workspaceId: PILOT_WORKSPACE, userId: PILOT_USER },
+    );
+    const proposal = await caller.agentOrchestration.skill.webResearch({
+      workspaceId: PILOT_WORKSPACE,
+      objective: "Find current public evidence",
+      searchQueries: ["current public evidence"],
+      maxResults: 3,
+      timeoutMs: 5_000,
+    });
+
+    assert.equal(proposal.status, "pending_review");
+    assert.deepEqual(proposal.request.actor, {
+      type: "agent",
+      id: LEARNING_AGENT,
+      plane: "cloud",
+    });
+    assert.deepEqual(proposal.request.onBehalfOf, {
+      type: "user",
+      id: PILOT_USER,
+    });
+    assert.equal(proposal.request.dataScope, "public");
+    assert.equal(proposal.request.skill, WEB_RESEARCH_SKILL_ID);
+    assert.equal(fixture.calls.length, 1);
+    assert.equal(fixture.calls[0]?.maxResults, 3);
+    const task = await wiring.goalTasks.getTask(
+      PILOT_WORKSPACE,
+      proposal.request.goalTaskRef!.taskId,
+    );
+    const goal = await wiring.goalTasks.getGoal(
+      PILOT_WORKSPACE,
+      proposal.request.goalTaskRef!.goalId,
+    );
+    assert.ok(task);
+    assert.ok(goal);
+    assert.equal(task.assignedAgentId, LEARNING_AGENT);
+    assert.equal(task.type, RESEARCH_PUBLIC_WEB_TASK_TYPE);
+    assert.equal(goal.type, LEARNING_WEB_RESEARCH_GOAL_TYPE);
+    const resolution = await caller.agentOrchestration.skill.resolve({
+      workspaceId: PILOT_WORKSPACE,
+      goalId: goal.id,
+      taskId: task.id,
+      agentId: LEARNING_AGENT,
+      skillId: WEB_RESEARCH_SKILL_ID,
+      requestedDataScope: "public",
+    });
+    assert.equal(resolution.ok, true);
+    assert.equal(resolution.manifest?.plane, "cloud");
+    assert.equal(proposal.output?.trustOrigin, "untrusted_external");
+    assert.equal(
+      (proposal.output?.proposedOutput as { trustOrigin?: string })
+        .trustOrigin,
+      "untrusted_external",
+    );
+    const ledger = await wiring.ledger.get(proposal.id);
+    assert.equal(ledger?.actorId, LEARNING_AGENT);
+    assert.equal(ledger?.trustOrigin, "untrusted_external");
+    assert.equal(ledger?.dataScope, "public");
+    const memoriesAfter = await wiring.memoryStore.retrieve(
+      { limit: 100 },
+      { workspaceId: PILOT_WORKSPACE, userId: PILOT_USER },
+    );
+    assert.equal(memoriesAfter.length, memoriesBefore.length);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("web-research surfaces attributable provider unavailability instead of returning an empty success", async () => {
+  const unavailable: SearchProviderRouter = {
+    providers: () => new Map(),
+    async search() {
+      throw new SearchProvidersUnavailableError([
+        {
+          providerId: "parallel-search-mcp",
+          providerTier: 1,
+          providerAccess: "free_direct",
+          status: "unavailable",
+          code: "timeout",
+          detail: "provider parallel-search-mcp failed with timeout",
+        },
+      ]);
+    },
+  };
+  const wiring = await buildWiring({ searchProviders: unavailable });
+  try {
+    const caller = await makeCaller(wiring);
+    await assert.rejects(
+      () =>
+        caller.agentOrchestration.skill.webResearch({
+          workspaceId: PILOT_WORKSPACE,
+          objective: "Find current public evidence",
+          searchQueries: ["current public evidence"],
+        }),
+      /web research unavailable \(parallel-search-mcp:unavailable\)/,
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("web-research authority rejects local-plane and direct-Human invocation before provider access", async () => {
+  const fixture = researchFixture();
+  const wiring = await buildWiring({ searchProviders: fixture.router });
+  try {
+    const caller = await makeCaller(wiring);
+    const goal = await caller.agentOrchestration.goal.create({
+      workspaceId: PILOT_WORKSPACE,
+      type: LEARNING_WEB_RESEARCH_GOAL_TYPE,
+      title: "test_fixture public research goal",
+    });
+
+    const task = await caller.agentOrchestration.task.create({
+      workspaceId: PILOT_WORKSPACE,
+      goalId: goal.id,
+      type: RESEARCH_PUBLIC_WEB_TASK_TYPE,
+      assignedAgentId: LEARNING_AGENT,
+    });
+    const common = {
+      workspaceId: PILOT_WORKSPACE,
+      action: "read" as const,
+      resourceType: "external:fetch" as const,
+      inputs: {
+        objective: "Find public evidence",
+        searchQueries: ["public evidence"],
+      },
+      skill: WEB_RESEARCH_SKILL_ID,
+      dataScope: "public" as const,
+      goalTaskRef: { goalId: goal.id, taskId: task.id },
+    };
+
+    const local = await wiring.pipeline.propose(
+      {
+        ...common,
+        actor: { type: "agent", id: LEARNING_AGENT, plane: "local" },
+      },
+      makeRun(),
+    );
+    assert.equal(local.status, "rejected");
+    assert.match(local.rejectionReason ?? "", /plane|external fetch/i);
+
+    const directHuman = await wiring.pipeline.propose(
+      {
+        ...common,
+        actor: { type: "user", id: PILOT_USER, plane: "cloud" },
+      },
+      makeRun(),
+    );
+    assert.equal(directHuman.status, "rejected");
+    assert.match(
+      directHuman.rejectionReason ?? "",
+      /may only be invoked by an eligible Agent Run/,
+    );
+    assert.equal(fixture.calls.length, 0);
   } finally {
     await wiring.close();
   }

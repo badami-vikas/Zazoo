@@ -50,6 +50,7 @@ export {
 } from "./ritual-executor.js";
 export * from "./memory/stores.js";
 export * from "./memory/memory-store.js";
+export * from "./search-provider.js";
 export * from "./skills.js";
 export * from "./goal-task.js";
 export * from "./skill-manifest.js";

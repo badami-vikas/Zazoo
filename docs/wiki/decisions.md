@@ -4,6 +4,12 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-18 — Web research rights gate (ADR-113, AP-040)
+- Phase 1 = Parallel anonymous MCP only.
+- Jina keyless + DuckDuckGo blocked. Reachable is not permitted.
+- Free-direct/public only. Rights stale or headers change = stop.
+- No paid fallback. Ever without approval.
+
 ## 2026-07-18 — Durable Relationship effects (ADR-112)
 - Decision first. Effect second. Never ask twice.
 - `ref_ledger_id` is truth. Caller JSON is not.

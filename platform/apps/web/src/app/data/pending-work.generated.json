@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T23:37:49.283Z",
+  "generatedAt": "2026-07-18T08:50:33.375Z",
   "items": [
     {
       "id": "TASK-001",
@@ -713,7 +713,8 @@
         "docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)"
       ],
       "evidence": [
-        "outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning"
+        "outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning",
+        "outputs/2026-07-18-task023-governed-web-research.md — implementation, live Parallel verification, security/rights gates, and test evidence (status/order unchanged)"
       ],
       "requests": [
         "user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)"
