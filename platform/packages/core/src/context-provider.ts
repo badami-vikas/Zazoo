@@ -15,6 +15,7 @@
  * only documents the constraint at the type level via `dataScope`/`retention`.
  */
 import type { TrustOrigin } from "./types.js";
+import type { TaintLabel } from "./taint.js";
 
 /** The nine day-1 Sensor SPI sources (docs/wiki/roadmap.md P0). Screen is one
  * of nine — not a privileged member of this union. */
@@ -73,6 +74,7 @@ export interface ContextItem<TPayload = unknown> {
    * (projectToPrompt) and that taints the turn for egress gating (PI-2). Absent = not
    * tagged; spotlighting treats only an explicit `untrusted_external` as untrusted. */
   trustOrigin?: TrustOrigin;
+  taintLabel?: TaintLabel;
 }
 
 /**

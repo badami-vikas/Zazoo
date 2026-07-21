@@ -5,6 +5,7 @@
 import {
   MODEL_TIERS,
   assertModelCompletionRequest,
+  modelRequestTaint,
   type ModelCompletion,
   type ModelCompletionRequest,
   type ModelTier,
@@ -467,6 +468,7 @@ export class EchoModelProvider implements ModelProvider {
         cacheReadInputTokens: 0,
         source: "estimated",
       },
+      taintLabel: modelRequestTaint(req),
     };
   }
   async embed(texts: string[]): Promise<number[][]> {

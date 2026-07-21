@@ -1,4 +1,7 @@
-import type { LedgerEntry } from "@bridge/core";
+import {
+  labelFromLegacyTrustOrigin,
+  type LedgerEntry,
+} from "@bridge/core";
 import type { DrizzleGraphStore, TimelineItem } from "@bridge/db";
 import { z } from "zod";
 import { relationshipDateTimeSchema } from "./relationship-datetime.js";
@@ -187,5 +190,12 @@ export async function materializeApprovedGoogleInteraction(
     decisionLedgerId: resolution.id,
     decisionSequence: resolution.appendSequence!,
     decisionAt,
+    taintLabel:
+      resolution.taintLabel ??
+      original.taintLabel ??
+      labelFromLegacyTrustOrigin(
+        resolution.trustOrigin ?? original.trustOrigin,
+        `google-intake:${resolution.id}`,
+      ),
   });
 }

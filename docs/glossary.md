@@ -130,7 +130,7 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Intake Policy** — rules governing how externally supplied content is classified, quarantined, reviewed, and committed.
 - **Gated Intake** — quarantine → proposal → approval → commit path for external or unauthenticated content entering a governed Plane.
 - **Quarantine** — isolated state in which untrusted content cannot reach privileged or egress-capable execution.
-- **Runtime Taint Tracking** — monotonic labels carried through retrieval, prompts, models, Skills, Actions, Events, Results, Files, storage, queues, caches, and retries so untrusted derivation cannot disappear during composition.
+- **Runtime Taint Tracking** — versioned monotonic labels over trust/source, sensitivity, instruction risk, and bounded provenance, carried through retrieval, prompts, models, Skills, Actions, Events, Results, Files, Memory, Runs, storage, queues, caches, and retries. Composition joins labels; missing/malformed labels become unknown and quarantine.
 - **Declassification** — explicit reduction of a taint restriction after deterministic validation or a recorded Human Decision.
 - **Prompt Injection** — untrusted content attempting to redirect an Agent or model away from the authorized Request and policy.
 - **Content Security Policy (CSP)** — browser and desktop-shell restriction on which code and resources may load or execute.

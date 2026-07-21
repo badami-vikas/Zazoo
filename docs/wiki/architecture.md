@@ -34,4 +34,4 @@ Engine recovers bounded runtime faults. Governance remediates policy/control fai
 
 ## Current debt
 
-Legacy code/schema/API names remain. VOCAB0–VOCAB5 owns real migration + backfill + compatibility deletion; active docs must not interpret aliases as completion. Runtime taint RT0–RT4 remains root security gap before high-autonomy execution.
+Legacy code/schema/API names remain only where tracked migration evidence requires them. Runtime taint RT0–RT4 is DONE (TASK-015): v1 label lattice + required RuntimeValue envelope, monotonic joins, registered source/sink edges, fail-closed unknowns, immutable declassification, prompt-free replay, and migration `0029`.

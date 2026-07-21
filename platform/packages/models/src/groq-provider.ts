@@ -8,6 +8,7 @@
  */
 import {
   assertModelCompletionRequest,
+  modelRequestTaint,
   type ModelCompletion,
   type ModelCompletionRequest,
   type ModelProvider,
@@ -112,6 +113,7 @@ export class GroqProvider implements ModelProvider {
         cacheReadInputTokens: 0,
         source: "provider",
       },
+      taintLabel: modelRequestTaint(req),
     };
   }
   // No embed(): Groq's public API is chat/completion-focused; embeddings stay

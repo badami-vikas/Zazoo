@@ -420,7 +420,7 @@ export default function Layout() {
         </div>
       </nav>
 
-      <div className="flex-1 overflow-auto pb-14 sm:pb-0 bg-background">
+      <div className="min-w-0 flex-1 overflow-auto pb-14 sm:pb-0 bg-background">
         <Outlet />
       </div>
 

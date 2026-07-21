@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-21 | Files scanned: packages/core/src/{pipeline,authority,automation-executor,task-manager,skill-manifest,module/{manifest,ports,privacy,commons-trust}}.ts, modules/manifests/src/index.ts, apps/api/src/{router,built-in-modules,module-files,wiring,commons-client}.ts, apps/web/src/app/{Layout,routes,pages/TaskManagerPage,pages/TaskRecordDetailPage,pages/ModuleDetailPage}.tsx, packages/db/src/{schema,task-manager-store,module-store,automation-stores,graph-store,ledger-store}.ts, packages/local/src/stores/pglite.ts | Token estimate: ~3000 -->
+<!-- Updated: 2026-07-21 | Files scanned: packages/core/src/{pipeline,taint,authority,automation-executor,task-manager,skill-manifest,module/{manifest,ports,privacy,commons-trust}}.ts, modules/manifests/src/index.ts, apps/api/src/{router,built-in-modules,module-files,wiring,commons-client}.ts, apps/web/src/app/{Layout,routes,pages/ApprovalsPage,pages/TaskManagerPage,pages/TaskRecordDetailPage,pages/ModuleDetailPage}.tsx, packages/db/src/{schema,taint-audit-store,task-manager-store,module-store,automation-stores,graph-store,ledger-store}.ts, packages/db/migrations/0029_task015_runtime_taint.sql, packages/local/src/stores/pglite.ts | Token estimate: ~3200 -->
 
 # Load-Bearing Flows + Schema ER
 
@@ -26,6 +26,7 @@ sequenceDiagram
     Note over P: no Agent Skill authority is inferred
   end
   P->>S: skill lookup + agent allowedSkills check, then skill.run() → proposedOutput (NOT committed)
+  Note over P,S: v1 TaintLabel joins request + Run context + Skill output; unknown fails closed
   P->>Pol: evaluate(phase:runtime, proposedOutput) — block ⇒ reject [180-192]
   Note over P: requiresApproval [79-82]: any require_approval policy OR actor is agent ⇒ agents ALWAYS draft
   alt needs approval
@@ -172,6 +173,8 @@ erDiagram
   agents ||--o{ child_agent_runs : "parent Agent, same Organization"
   ledger ||--o{ ledger : "ref_ledger_id (decision→proposal, append-only spine)"
   ledger ||--o{ decision_traces : ledger_id
+  ledger ||--o{ taint_sink_traces : "opaque Plane-partitioned lineage ref"
+  taint_sink_traces ||--o{ taint_declassifications : "provenance hash lineage"
   delegations ||--o{ ledger : delegation_id
   roles ||--o{ role_permissions : role_id
   policies ||--o{ policy_params : policy_id

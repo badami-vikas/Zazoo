@@ -171,6 +171,7 @@ function listCalendarSkill(deps: GoogleSkillDeps): Skill {
 /** Pure echo — stages a typed local-graph directive for human review. */
 const stageSkill: Skill = {
   name: SKILL_STAGE,
+  executionClass: "pure_data",
   async run(inputs) {
     const display = (inputs as { display?: unknown })?.display;
     return { proposedOutput: inputs, ...(display ? { diff: display } : {}) };

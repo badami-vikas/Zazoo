@@ -27,6 +27,10 @@
  */
 import type { ContextDataScope } from "../context-provider.js";
 import type { Plane, TrustOrigin } from "../types.js";
+import {
+  labelFromLegacyTrustOrigin,
+  type TaintLabel,
+} from "../taint.js";
 
 /** Cognitive kind of a Memory (undefined-elements-definitions-2026-07 §Memory). */
 export type MemoryType = "episodic" | "semantic" | "procedural" | "preference";
@@ -58,6 +62,7 @@ export interface MemoryWrite {
   /** Provenance / trust origin of the content this Memory was derived from
    * (PI-1). Untrusted-by-default for anything not user/kernel authored. */
   trustOrigin: TrustOrigin;
+  taintLabel?: TaintLabel;
   plane: Plane;
   /** Provenance actor: the provider/agent/user id that produced this Memory. */
   createdBy: string;
@@ -402,6 +407,11 @@ export class InMemoryMemoryStore implements MemoryStore {
         successor.sourceRefId === next.sourceRefId &&
         successor.confidence === next.confidence &&
         successor.trustOrigin === next.trustOrigin &&
+        successor.taintLabel?.provenanceHash ===
+          (
+            next.taintLabel ??
+            labelFromLegacyTrustOrigin(next.trustOrigin, `memory:${next.id}`)
+          ).provenanceHash &&
         successor.plane === next.plane &&
         successor.createdBy === next.createdBy &&
         successor.ownerUserId === next.ownerUserId &&
@@ -611,6 +621,9 @@ export class InMemoryMemoryStore implements MemoryStore {
     }
     const full: MemoryEntry = {
       ...entry,
+      taintLabel:
+        entry.taintLabel ??
+        labelFromLegacyTrustOrigin(entry.trustOrigin, `memory:${entry.id}`),
       supersedesId,
       createdAt: entry.createdAt ?? new Date().toISOString(),
       ...(lineageRevision != null ? { lineageRevision } : {}),

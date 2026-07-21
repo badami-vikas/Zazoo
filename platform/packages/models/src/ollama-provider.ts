@@ -9,6 +9,7 @@
 import {
   MODEL_TIERS,
   assertModelCompletionRequest,
+  modelRequestTaint,
   type ModelCompletion,
   type ModelCompletionRequest,
   type ModelProvider,
@@ -104,6 +105,7 @@ export class OllamaProvider implements ModelProvider {
         cacheReadInputTokens: 0,
         source: "provider",
       },
+      taintLabel: modelRequestTaint(req),
     };
   }
 

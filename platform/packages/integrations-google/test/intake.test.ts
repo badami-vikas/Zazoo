@@ -254,7 +254,7 @@ test("syncGmail stages linked Event and Memory directives for an existing matche
   assert.deepEqual(
     stage.inputs.directive.entities.map((e) => ({ kind: e.kind, personId: e.personId, source: e.source, sourceRecordId: e.sourceRecordId, trustOrigin: e.trustOrigin })),
     [
-      { kind: "event", personId: "test_fixture_person_founder", source: GMAIL_SOURCE, sourceRecordId: "test_fixture_thread_linked", trustOrigin: undefined },
+      { kind: "event", personId: "test_fixture_person_founder", source: GMAIL_SOURCE, sourceRecordId: "test_fixture_thread_linked", trustOrigin: "untrusted_external" },
       { kind: "memory", personId: "test_fixture_person_founder", source: GMAIL_SOURCE, sourceRecordId: "test_fixture_thread_linked", trustOrigin: "untrusted_external" },
     ],
   );

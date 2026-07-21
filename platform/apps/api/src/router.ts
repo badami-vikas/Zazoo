@@ -100,6 +100,7 @@ import {
   validateAutomationWithinAgents,
   computeRisk,
   assertModelCompletionRequest,
+  assertModelOutputTaint,
   createModelCallReceipt,
   advance,
   demoteOnDependencyChange,
@@ -148,6 +149,11 @@ import {
   SearchProvidersUnavailableError,
   completeChildAgentRun,
   createChildAgentRun,
+  labelFromLegacyTrustOrigin,
+  declassifyTaintLabel,
+  deriveDeclassifiedLabel,
+  hashTaintValue,
+  labelAtSource,
   validateActionWithinChildRun,
   type ParentRunEnvelope,
   type CapabilityManifest,
@@ -932,6 +938,38 @@ async function provisionWebResearchTask(
 }
 
 const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const taintOriginSchema = z.object({
+  source: z.enum([
+    "operator", "human", "system", "signed_import", "screen", "clipboard",
+    "sensor", "email", "google", "web", "mcp", "file_import", "memory",
+    "cache", "queue", "mixed", "unknown",
+  ]),
+  ref: z.string().min(1).max(2_048),
+  hash: sha256Schema,
+  transform: z.string().min(1).max(200),
+}).strict();
+const taintLabelSchema = z.object({
+  version: z.literal(1),
+  trust: z.enum([
+    "verified_system",
+    "authenticated_human",
+    "verified_signed",
+    "untrusted",
+    "unknown",
+  ]),
+  source: taintOriginSchema.shape.source,
+  sensitivity: z.enum([
+    "public",
+    "organization",
+    "private",
+    "restricted",
+    "unknown",
+  ]),
+  instructionRisk: z.enum(["none", "data", "instruction_like", "unknown"]),
+  originChain: z.array(taintOriginSchema).max(16),
+  originsTruncated: z.boolean(),
+  provenanceHash: sha256Schema,
+}).strict();
 const webResearchOutputSchema = z.object({
   kind: z.literal("web_research"),
   objective: z.string().min(1).max(500),
@@ -962,6 +1000,7 @@ const webResearchOutputSchema = z.object({
       reason: z.string().min(1).max(500),
     }).strict(),
     trustOrigin: z.literal("untrusted_external"),
+    taintLabel: taintLabelSchema,
   }).strict()).min(1).max(10),
   warnings: z.array(z.string().max(500)).max(10),
   provenance: z.object({
@@ -1072,6 +1111,12 @@ async function persistWebResearchOutcome(
     });
   }
   const resultId = proposal.id;
+  const taintLabel =
+    proposal.output?.taintLabel ??
+    labelFromLegacyTrustOrigin(
+      proposal.output?.trustOrigin ?? "untrusted_external",
+      `web-research-result:${resultId}`,
+    );
   const memoryId = run.ids.next();
   const eventId = run.ids.next();
   const content = {
@@ -1093,6 +1138,7 @@ async function persistWebResearchOutcome(
     sourceRefId: resultId,
     confidence: 1,
     trustOrigin: "untrusted_external",
+    taintLabel,
     plane: "local",
     createdBy: LEARNING_AGENT,
     ownerUserId: identityId,
@@ -1112,6 +1158,7 @@ async function persistWebResearchOutcome(
       provenance: parsed.data.provenance,
       providerAttempts: parsed.data.providerAttempts,
     },
+    taintLabel,
   });
   return {
     resultId,
@@ -2960,6 +3007,7 @@ function createGovernedModelProvider(
         cloudEgress,
       );
       const completion = await model.complete(request);
+      assertModelOutputTaint(request, completion);
       const receipt = createModelCallReceipt(model, completion, request.tier);
       receiptLedgerId = await appendIntentModelReceipt(
         ctx,
@@ -4614,6 +4662,13 @@ export const appRouter = t.router({
           resourceType: input.resourceType as ResourceType,
           ...(input.resourceId ? { resourceId: input.resourceId } : {}),
           inputs: input.inputs,
+          taintLabel: labelAtSource("human_input", {
+            ref: `action.propose:${ctx.identity.id}:${input.seed ?? "unseeded"}`,
+            valueHash: hashTaintValue(input.inputs),
+            sensitivity:
+              input.dataScope === "public" ? "public" : "organization",
+            instructionRisk: "instruction_like",
+          }),
           skill: KERNEL_PASSTHROUGH_SKILL,
           ...(input.dataScope ? { dataScope: input.dataScope as DataScope } : {}),
           ...(cleanContext(input.context) ? { context: cleanContext(input.context)! } : {}),
@@ -4852,6 +4907,134 @@ export const appRouter = t.router({
           return { status: "terminal" as const, decision: proposal.userDecision };
         }
         return { status: "pending" as const, decision: null };
+      }),
+
+    taintTrace: authenticatedProcedure
+      .input(z.object({ proposalId: z.string().uuid() }))
+      .query(async ({ input, ctx }) => {
+        const proposal = await ctx.wiring.ledger.get(input.proposalId);
+        if (!proposal) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+        }
+        assertPilotOrganization(proposal.organizationId);
+        await assertMembership(
+          ctx.wiring.organizationStore,
+          proposal.organizationId,
+          ctx.identity.id,
+        );
+        assertPrivateProposalOwner(proposal, ctx.identity, ctx.wiring.google);
+        const label =
+          proposal.taintLabel ??
+          labelFromLegacyTrustOrigin(
+            proposal.trustOrigin,
+            `ledger:${proposal.id}`,
+          );
+        const [sinkTraces, declassifications] = await Promise.all([
+          ctx.wiring.taintAudit.listSinkTraces(
+            proposal.organizationId,
+            proposal.id,
+          ),
+          ctx.wiring.taintAudit.listDeclassifications(
+            proposal.organizationId,
+            label.provenanceHash,
+          ),
+        ]);
+        return {
+          label,
+          sinkTraces,
+          declassifications,
+          influencedByUntrusted:
+            label.trust === "untrusted" || label.trust === "unknown",
+        };
+      }),
+
+    declassifyInstructionRisk: authenticatedProcedure
+      .input(
+        z.object({
+          proposalId: z.string().uuid(),
+          reason: z.string().trim().min(1).max(500),
+          evidenceHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.identity.type !== "user") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only an authenticated Human may declassify runtime data",
+          });
+        }
+        const proposal = await ctx.wiring.ledger.get(input.proposalId);
+        if (!proposal) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+        }
+        assertPilotOrganization(proposal.organizationId);
+        await assertMembership(
+          ctx.wiring.organizationStore,
+          proposal.organizationId,
+          ctx.identity.id,
+        );
+        assertPrivateProposalOwner(proposal, ctx.identity, ctx.wiring.google);
+        const accountableHumanId =
+          proposal.onBehalfOfType === "user"
+            ? proposal.onBehalfOfId
+            : proposal.actorType === "user"
+              ? proposal.actorId
+              : null;
+        if (accountableHumanId !== ctx.identity.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Only the accountable Human for this proposal may declassify it",
+          });
+        }
+        const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
+        if (
+          !decision ||
+          (decision.userDecision !== "approve" &&
+            decision.userDecision !== "edit")
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Declassification requires an explicit approved Human Decision",
+          });
+        }
+        const before =
+          decision.taintLabel ??
+          proposal.taintLabel ??
+          labelFromLegacyTrustOrigin(
+            decision.trustOrigin ?? proposal.trustOrigin,
+            `ledger:${decision.id}`,
+          );
+        const after = deriveDeclassifiedLabel(before, {
+          instructionRisk: "data",
+        });
+        let record;
+        try {
+          record = declassifyTaintLabel({
+            id: ctx.run.ids.next(),
+            organizationId: proposal.organizationId,
+            before,
+            after,
+            reason: input.reason,
+            evidenceHash: input.evidenceHash,
+            actor: {
+              type: "user",
+              id: ctx.identity.id,
+              decisionLedgerId: decision.id,
+            },
+            createdAt: ctx.run.clock.nowISO(),
+            plane: proposal.dataScope === "public" ? "cloud" : "local",
+          });
+        } catch (cause) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: cause instanceof Error ? cause.message : String(cause),
+            cause,
+          });
+        }
+        await ctx.wiring.taintAudit.appendDeclassification(record);
+        return record;
       }),
 
     /** Resolve a pending proposal: approve | veto | edit. TASK-010 review
@@ -9766,6 +9949,16 @@ export const appRouter = t.router({
                 skill: "jobpilot.researchCultureSource",
                 dataScope: "public" as DataScope,
                 inputs: { sourceId: source.id, organizationId: input.organizationId, company: input.company },
+                taintLabel: labelAtSource("system_generated", {
+                  ref: `culture-source-intent:${source.id}`,
+                  valueHash: hashTaintValue({
+                    organizationId: input.organizationId,
+                    company: input.company,
+                    sourceId: source.id,
+                  }),
+                  sensitivity: "public",
+                  instructionRisk: "none",
+                }),
                 goalTaskRef: { goalId: researchGoalTask.goalId, taskId: researchGoalTask.taskId },
                 context: { type: "child_agent_run", id: childRun.id, runId: parentRunId },
                 // TASK-011 remediation (2026-07-19 coordinator distributed-
@@ -10049,6 +10242,15 @@ export const appRouter = t.router({
                 // `createSynthesizeCultureProfileSkill`) so the ledger never
                 // durably retains full raw fetched content.
                 inputs: { organizationId: input.organizationId, parentRunId: input.parentRunId, claims: input.claims as GroundedClaimInput[], skippedSources },
+                taintLabel: labelAtSource("web_search", {
+                  ref: `culture-synthesis:${input.parentRunId}`,
+                  valueHash: hashTaintValue({
+                    claims: input.claims,
+                    skippedSources,
+                  }),
+                  sensitivity: "public",
+                  instructionRisk: "data",
+                }),
                 goalTaskRef: { goalId: synthesisGoalTask.goalId, taskId: synthesisGoalTask.taskId },
                 // TASK-011 remediation (2026-07-19 coordinator distributed-
                 // defects RE-review round 2, issue 9) — Internal Strategist
@@ -11516,10 +11718,17 @@ export const appRouter = t.router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "Commons module does not satisfy the declared Module need" });
           }
         }
+        const commonsTaintLabel = labelAtSource("signed_commons_import", {
+          ref: `${entry.name}@${entry.version}`,
+          valueHash: entry.integrity.value,
+          sensitivity: "public",
+          instructionRisk: "data",
+        });
         const commonsSource = {
           contentHash: entry.integrity.value,
           manifestHash: sha256Content(canonicalizeManifest(manifest)),
           entry,
+          taintLabel: commonsTaintLabel,
         };
 
         const verifiedDependencyPins = new Map<string, string>();
@@ -11562,6 +11771,15 @@ export const appRouter = t.router({
               });
             }
             const dependencyManifest = parseModuleManifest({ module: dependencyEntry.manifest });
+            const dependencyTaintLabel = labelAtSource(
+              "signed_commons_import",
+              {
+                ref: key,
+                valueHash: dependencyEntry.integrity.value,
+                sensitivity: "public",
+                instructionRisk: "data",
+              },
+            );
             const dependencyPrivacyPaths = findOrganizationDataPaths(dependencyEntry.manifest);
             if (dependencyPrivacyPaths.length > 0) {
               throw new TRPCError({
@@ -11584,6 +11802,7 @@ export const appRouter = t.router({
                       contentHash: dependencyEntry.integrity.value,
                       manifestHash: sha256Content(canonicalizeManifest(dependencyManifest)),
                       entry: dependencyEntry,
+                      taintLabel: dependencyTaintLabel,
                     },
                   }
                 : {
@@ -11593,6 +11812,7 @@ export const appRouter = t.router({
                       agentId: input.agentId!,
                       needId: input.needId!,
                       contentHash: dependencyEntry.integrity.value,
+                      taintLabel: dependencyTaintLabel,
                     },
                   }),
             });
@@ -11636,6 +11856,7 @@ export const appRouter = t.router({
                   agentId: input.agentId!,
                   needId: input.needId!,
                   contentHash: entry.integrity.value,
+                  taintLabel: commonsTaintLabel,
                 },
               }),
         });
@@ -12191,6 +12412,15 @@ export const appRouter = t.router({
                   searchQueries: input.searchQueries,
                   budget: input.budget,
                 },
+                taintLabel: labelAtSource("human_input", {
+                  ref: `web-research:${ctx.identity.id}:${goalTaskRef.taskId}`,
+                  valueHash: hashTaintValue({
+                    objective: input.objective,
+                    searchQueries: input.searchQueries,
+                  }),
+                  sensitivity: "public",
+                  instructionRisk: "instruction_like",
+                }),
                 skill: WEB_RESEARCH_SKILL_ID,
                 dataScope: "public",
                 goalTaskRef,
@@ -12202,6 +12432,14 @@ export const appRouter = t.router({
               },
               ctx.run,
             );
+            if (proposal.status === "rejected") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message:
+                  proposal.rejectionReason ??
+                  "web research was rejected before persistence",
+              });
+            }
             const resultEvidence = await persistWebResearchOutcome(
               ctx.wiring,
               ctx.run,

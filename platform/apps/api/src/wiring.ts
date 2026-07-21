@@ -53,6 +53,8 @@ import {
   InMemoryTaskManagerStore,
   InMemorySkillManifestRegistry,
   InMemoryChildAgentRunStore,
+  InMemoryTaintAuditStore,
+  PlaneRoutingTaintAuditStore,
   EchoModelProvider,
   type ModelProvider,
   type AgentQuery,
@@ -82,6 +84,7 @@ import {
   type SkillManifestRegistry,
   type ChildAgentRunStore,
   type SkillManifest,
+  type TaintAuditStore,
   type SearchProviderRouter,
   type ContentGuard,
   type GeocodingProvider,
@@ -98,6 +101,8 @@ import {
   canonicalizeManifest,
   parseModuleManifest,
   uuidv7,
+  hashTaintValue,
+  labelAtSource,
 } from "@bridge/core";
 import { guardedFetch } from "@bridge/net-guard";
 import {
@@ -141,6 +146,7 @@ import {
   DrizzleModuleStore,
   DrizzleMemoryStore,
   DrizzleLedgerStore,
+  DrizzleTaintAuditStore,
   DrizzleRelationMaterializationStore,
   DrizzleAutomationRegistry,
   DrizzleAutomationRunRecorder,
@@ -318,6 +324,7 @@ export interface Wiring {
   ephemeral: EphemeralQuery;
   policies: PolicyStore;
   ledger: LedgerStore;
+  taintAudit: TaintAuditStore;
   relationMaterializations: DrizzleRelationMaterializationStore;
   events: InMemoryEventBus;
   /** LOCAL-plane media store (bytea blobs). Pglite when LOCAL_MEDIA_DIR set, else in-memory. Never cloud. */
@@ -498,6 +505,7 @@ export interface BuildWiringOptions {
  * `name` MUST equal that constant. */
 const stageMutation: Skill = {
   name: KERNEL_PASSTHROUGH_SKILL,
+  executionClass: "pure_data",
   async run(inputs) {
     return { proposedOutput: inputs, diff: { to: inputs } };
   },
@@ -1210,6 +1218,22 @@ export class DurableCultureFetchStore {
       // then. The moment `result` is populated, the row's OWN trustOrigin
       // flips to `untrusted_external` to match its actual contents.
       trustOrigin: next.result ? "untrusted_external" : "operator",
+      taintLabel: next.result
+        ? labelAtSource("web_search", {
+            ref: next.result.sourceUrl,
+            valueHash: next.result.contentHash,
+            sensitivity: "public",
+            instructionRisk: "data",
+          })
+        : labelAtSource("system_generated", {
+            ref: `culture-fetch-intent:${next.childRunId}`,
+            valueHash: hashTaintValue({
+              sourceId: next.sourceId,
+              status: next.status,
+            }),
+            sensitivity: "organization",
+            instructionRisk: "none",
+          }),
       plane: "local",
       createdBy: next.actorId,
     };
@@ -3109,6 +3133,7 @@ export interface ModePorts {
   ephemeral: EphemeralQuery;
   policyStore: PolicyStore;
   ledger: LedgerStore;
+  taintAudit: TaintAuditStore;
   relationMaterializations: DrizzleRelationMaterializationStore;
   automationRegistry: AutomationRegistry;
   automationRunRecorder: AutomationRunRecorder;
@@ -3220,6 +3245,7 @@ export function buildPersistentPorts(env: {
     ephemeral: ports.ephemeral,
     policyStore: ports.policies,
     ledger: ports.ledger,
+    taintAudit: new DrizzleTaintAuditStore(db),
     relationMaterializations: ports.relationMaterializations,
     automationRegistry: ports.automationRegistry,
     automationRunRecorder: ports.automationRunRecorder,
@@ -3423,6 +3449,9 @@ export async function buildInMemoryPorts(env: {
     ephemeral: mEphemeral,
     policyStore: new InMemoryPolicyStore(policies),
     ledger,
+    taintAudit: localDirDurable
+      ? new DrizzleTaintAuditStore(localDb)
+      : new InMemoryTaintAuditStore(),
     relationMaterializations: new DrizzleRelationMaterializationStore(localDb),
     automationRegistry: localDirDurable
       ? new DrizzleAutomationRegistry(localDb)
@@ -3831,6 +3860,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     ephemeral,
     policyStore,
     ledger: modeLedger,
+    taintAudit: modeTaintAudit,
     relationMaterializations,
     automationRegistry,
     automationRunRecorder,
@@ -3860,6 +3890,14 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         modeLedger,
       )
     : modeLedger;
+  const taintAudit: TaintAuditStore = url
+    ? new PlaneRoutingTaintAuditStore(
+        localDir
+          ? new DrizzleTaintAuditStore(localDatabase.db)
+          : new InMemoryTaintAuditStore(),
+        modeTaintAudit,
+      )
+    : modeTaintAudit;
   const modelProviders = options.modelProviders ? [...options.modelProviders] : modeModelProviders;
   // Kernel policies are deployment-invariant safety rules. Persistent mode also
   // evaluates organization policies from Postgres; it must not replace these rules.
@@ -4197,6 +4235,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     variance,
     skillManifests,
     goalTasks,
+    taintAudit,
   });
 
   // Google integration surface.
@@ -4257,6 +4296,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     ephemeral,
     policies: effectivePolicyStore,
     ledger,
+    taintAudit,
     relationMaterializations,
     events,
     persistent: Boolean(url || localDir),

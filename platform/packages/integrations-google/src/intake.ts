@@ -14,7 +14,23 @@
  *      entries to the LOCAL graph. Shared owner-scoped Relationship Records are
  *      materialized by the API from the same governed decision.
  */
-import type { GoalTaskStore, LedgerEntry, LedgerStore, Proposal, ProposalStatus, ResourceType, RunCtx, TrustOrigin, UniversalActionPipeline } from "@bridge/core";
+import {
+  hashTaintValue,
+  joinTaintLabels,
+  labelFromLegacyTrustOrigin,
+  labelAtSource,
+  legacyTrustOriginFromLabel,
+  type GoalTaskStore,
+  type LedgerEntry,
+  type LedgerStore,
+  type Proposal,
+  type ProposalStatus,
+  type ResourceType,
+  type RunCtx,
+  type TaintLabel,
+  type TrustOrigin,
+  type UniversalActionPipeline,
+} from "@bridge/core";
 import type { BodyStore, LocalGraphStore } from "@bridge/local";
 import {
   CALENDAR_SOURCE,
@@ -44,6 +60,7 @@ export interface EntityDirective {
   payload: unknown;
   /** PI-1 provenance of the ingested content. */
   trustOrigin?: TrustOrigin;
+  taintLabel?: TaintLabel;
   source: string;
   sourceRecordId: string;
 }
@@ -187,6 +204,12 @@ export class IntakeService {
         resourceType: "external:fetch",
         skill: SKILL_SOURCE_GMAIL,
         dataScope: "public",
+        taintLabel: labelAtSource("system_generated", {
+          ref: `${opts.integrationId}:gmail-sync`,
+          valueHash: hashTaintValue({ organizationId, query: opts.query }),
+          sensitivity: "public",
+          instructionRisk: "none",
+        }),
         inputs: {
           integrationId: opts.integrationId,
           organizationId,
@@ -233,6 +256,16 @@ export class IntakeService {
         resourceType: "external:fetch",
         skill: SKILL_SOURCE_CALENDAR,
         dataScope: "public",
+        taintLabel: labelAtSource("system_generated", {
+          ref: `${opts.integrationId}:calendar-sync`,
+          valueHash: hashTaintValue({
+            organizationId,
+            timeMin: opts.timeMin,
+            timeMax: opts.timeMax,
+          }),
+          sensitivity: "public",
+          instructionRisk: "none",
+        }),
         inputs: {
           integrationId: opts.integrationId,
           organizationId,
@@ -320,6 +353,12 @@ export class IntakeService {
     const memoryId = ctx.ids.next();
     const lastMsg = thread.messages[thread.messages.length - 1];
     const gmailTrustOrigin: TrustOrigin = GOOGLE_MANIFEST.intake_policy.quarantine ? "untrusted_external" : "user_content";
+    const gmailTaintLabel = labelAtSource("email_google_intake", {
+      ref: `${GMAIL_SOURCE}:${thread.threadId}`,
+      valueHash: hashTaintValue(thread),
+      sensitivity: "private",
+      instructionRisk: "instruction_like",
+    });
 
     const directive: IntakeDirective = {
       ...(newPerson ? { person: newPerson } : {}),
@@ -337,6 +376,8 @@ export class IntakeService {
           },
           source: GMAIL_SOURCE,
           sourceRecordId: thread.threadId,
+          trustOrigin: gmailTrustOrigin,
+          taintLabel: gmailTaintLabel,
         },
         {
           localId: memoryId,
@@ -349,6 +390,7 @@ export class IntakeService {
             occurredAt: thread.lastMessageAt,
           },
           trustOrigin: gmailTrustOrigin,
+          taintLabel: gmailTaintLabel,
           source: GMAIL_SOURCE,
           sourceRecordId: thread.threadId,
         },
@@ -381,6 +423,12 @@ export class IntakeService {
     const { organizationId, intakeAgentId, userId } = opts.identities;
     const cp = counterpartyOf(event.attendees, opts.selfEmails);
     const matches = cp ? await this.deps.graph.findPeopleByEmail(organizationId, cp.email) : [];
+    const calendarTaintLabel = labelAtSource("email_google_intake", {
+      ref: `${CALENDAR_SOURCE}:${event.eventId}`,
+      valueHash: hashTaintValue(event),
+      sensitivity: "private",
+      instructionRisk: "instruction_like",
+    });
 
     if (cp && matches.length > 1) {
       return this.stage(
@@ -407,6 +455,8 @@ export class IntakeService {
                 },
                 source: CALENDAR_SOURCE,
                 sourceRecordId: event.eventId,
+                trustOrigin: "untrusted_external",
+                taintLabel: calendarTaintLabel,
               },
             ],
             external: [{ source: CALENDAR_SOURCE, sourceRecordId: event.eventId, entityType: "signal" }],
@@ -441,6 +491,8 @@ export class IntakeService {
           },
           source: CALENDAR_SOURCE,
           sourceRecordId: event.eventId,
+          trustOrigin: "untrusted_external",
+          taintLabel: calendarTaintLabel,
         },
       ],
       external: [{ source: CALENDAR_SOURCE, sourceRecordId: event.eventId, entityType: "event" }],
@@ -514,7 +566,17 @@ export class IntakeService {
     ctx: RunCtx,
   ): Promise<IntakeProposalSummary> {
     let directive = args.directive;
-    const trustOrigin = directive.entities.find((e) => e.trustOrigin)?.trustOrigin;
+    const taintLabel = joinTaintLabels(
+      ...directive.entities.map(
+        (entity) =>
+          entity.taintLabel ??
+          labelFromLegacyTrustOrigin(
+            entity.trustOrigin,
+            `${entity.source}:${entity.sourceRecordId}`,
+          ),
+      ),
+    );
+    const trustOrigin = legacyTrustOriginFromLabel(taintLabel);
     const pending = await this.pendingIntakeEntries(args.organizationId, args.userId);
     const existingPendingId =
       pending.find((entry) => entry.seed === seed)?.id ??
@@ -560,7 +622,8 @@ export class IntakeService {
         skill: SKILL_STAGE,
         dataScope: "private",
         seed,
-        ...(trustOrigin ? { trustOrigin } : {}),
+        trustOrigin,
+        taintLabel,
         inputs: {
           directive,
           display: {

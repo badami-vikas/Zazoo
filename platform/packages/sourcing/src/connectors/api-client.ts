@@ -1,4 +1,5 @@
 import type { CaptureEnvelope, SourceConnector, SourceQuery } from "../types.js";
+import { hashTaintValue, labelAtSource } from "@bridge/core";
 
 // Proof connector #1 — a typed API client, tier "free". Generalizes the "career-ops" pattern
 // (a structured HTTP API with a query->results shape) that both people-sourcing (e.g. a company
@@ -30,6 +31,12 @@ export function createApiClientConnector(config: ApiClientConfig): SourceConnect
         costUnits: costPerCall,
         capturedAt: new Date().toISOString(),
         trustOrigin: "untrusted_external", // PI-1: fetched from an external API — untrusted input
+        taintLabel: labelAtSource("web_search", {
+          ref: `${config.id}:${String(payload["id"] ?? "unkeyed")}`,
+          valueHash: hashTaintValue(payload),
+          sensitivity: "public",
+          instructionRisk: "data",
+        }),
       }));
     },
   };

@@ -2,6 +2,8 @@
 
 full: [../raw/security-audit-2026-07.md](../raw/security-audit-2026-07.md) · 2026-07-08. Bug rows filed in [BUGS](../BUGS.md).
 
+**2026-07-21 closure:** TASK-015 RT0–RT4 closes the runtime-taint root gap. Unknown/malformed labels quarantine; instruction-bearing untrusted data cannot enter authority-bearing Skill/model contexts; egress joins all context; declassification is validator/Human-only and immutable; Approval warning/trace plus prompt-free replay/alerts are live. The older audit text below remains historical evidence.
+
 **Verdict: no CRITICAL. The governance/agent-floor design is genuinely strong — human-only
 approvals, agent-floor DENY, `external:send` gating, idempotent draft-only egress all hold. The
 HIGH items undermine the *identity* feeding that otherwise-sound gate, not the gate itself.**

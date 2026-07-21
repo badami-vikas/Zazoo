@@ -23,7 +23,16 @@
  */
 import { TRPCError } from "@trpc/server";
 import { decodeJwt } from "jose";
-import { SeededRng, SystemClock, UuidGen, type Actor, type Rng, type RunCtx } from "@bridge/core";
+import {
+  SeededRng,
+  SystemClock,
+  UuidGen,
+  hashTaintValue,
+  labelAtSource,
+  type Actor,
+  type Rng,
+  type RunCtx,
+} from "@bridge/core";
 import type { Wiring } from "./wiring.js";
 import { bearerToken, createIdentityResolver, IdentityVerificationError } from "./identity.js";
 import { SIDECAR_TOKEN_HEADER, validSidecarToken } from "./sidecar-auth.js";
@@ -131,7 +140,24 @@ export function makeContextFactory(wiring: Wiring) {
     // Its entropy must not repeat when two request contexts start in one millisecond.
     return {
       wiring,
-      run: { clock, rng, ids: new UuidGen(clock, new CryptographicRng()) },
+      run: {
+        clock,
+        rng,
+        ids: new UuidGen(clock, new CryptographicRng()),
+        ...(authenticated
+          ? {
+              taintLabel: labelAtSource("human_input", {
+              ref: `authenticated:${identity.id}`,
+              valueHash: hashTaintValue({
+                actorType: identity.type,
+                actorId: identity.id,
+              }),
+              sensitivity: "organization",
+              instructionRisk: "none",
+              }),
+            }
+          : {}),
+      },
       identity,
       authenticated,
       verifying,

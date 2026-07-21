@@ -14,7 +14,12 @@
  */
 import { and, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
-import { ChildRunBudgetExceededError, ChildRunAlreadyTerminalError } from "@bridge/core";
+import {
+  ChildRunBudgetExceededError,
+  ChildRunAlreadyTerminalError,
+  labelFromLegacyTrustOrigin,
+  storedTaintLabelOrUnknown,
+} from "@bridge/core";
 import type { ChildAgentRun, ChildAgentRunStatus, ChildAgentRunStore, DataScope, Plane, ReviewMode, TrustOrigin } from "@bridge/core";
 import type { Database } from "./client.js";
 import { childAgentRuns } from "./schema.js";
@@ -61,6 +66,7 @@ function unpack(row: typeof childAgentRuns.$inferSelect): ChildAgentRun {
     stopCondition: row.stopCondition,
     reviewMode: row.reviewMode as ReviewMode,
     ...(row.taint ? { taint: row.taint as TrustOrigin } : {}),
+    taintLabel: storedTaintLabelOrUnknown(row.taintLabel).label,
     status: row.status as ChildAgentRunStatus,
     createdAt: row.createdAt.toISOString(),
   };
@@ -96,6 +102,9 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
         stopCondition: run.stopCondition,
         reviewMode: run.reviewMode,
         taint: run.taint ?? null,
+        taintLabel:
+          run.taintLabel ??
+          labelFromLegacyTrustOrigin(run.taint, `child-run:${run.id}`),
         status: run.status,
       })
       .returning();

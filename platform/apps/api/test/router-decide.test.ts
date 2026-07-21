@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TRPCError } from "@trpc/server";
-import { InMemoryRoleStore, SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
+import {
+  InMemoryRoleStore,
+  SeededRng,
+  SystemClock,
+  UuidGen,
+  hashTaintValue,
+  type Actor,
+  type RunCtx,
+} from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import {
   buildWiring,
@@ -33,6 +41,8 @@ function grantShareEvent(wiring: Wiring) {
   assert.ok(wiring.roles instanceof InMemoryRoleStore, "buildWiring test harness should use in-memory roles");
   wiring.roles.direct.set(`user:${PILOT_USER}`, [
     { resourceType: "event", resourceId: null, action: "share", effect: "allow" },
+    { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
+    { resourceType: "module", resourceId: null, action: "share", effect: "allow" },
   ]);
 }
 
@@ -73,6 +83,89 @@ test("action.decide: a user can veto a pending share proposal through the router
       status: "resolved",
       decision: "veto",
     });
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("action taint trace is prompt-free and Human declassification is immutable", async () => {
+  const wiring = await buildWiring();
+  try {
+    grantShareEvent(wiring);
+    const caller = makeCaller(wiring);
+    const proposed = await caller.action.propose({
+      organizationId: PILOT_ORGANIZATION,
+      actor: { type: "user", id: PILOT_USER },
+      action: "share",
+      resourceType: "module",
+      inputs: { note: "test_fixture_taint_trace" },
+      skill: "stageMutation",
+    });
+    assert.equal(proposed.status, "pending_review");
+
+    const before = await caller.action.taintTrace({
+      proposalId: proposed.id,
+    });
+    assert.equal(before.label.version, 1);
+    assert.equal(before.label.trust, "authenticated_human");
+    assert.equal(before.sinkTraces.length, 1);
+    assert.equal(before.sinkTraces[0]?.sink, "external_send");
+    assert.equal(JSON.stringify(before).includes("test_fixture_taint_trace"), false);
+
+    await caller.action.decide({
+      proposalId: proposed.id,
+      decision: "approve",
+    });
+    const declassified = await caller.action.declassifyInstructionRisk({
+      proposalId: proposed.id,
+      reason: "Human reviewed the exact proposal as inert data",
+      evidenceHash: hashTaintValue("reviewed exact proposal"),
+    });
+    assert.equal(declassified.before.instructionRisk, "instruction_like");
+    assert.equal(declassified.after.instructionRisk, "data");
+    assert.equal(declassified.actor.type, "user");
+
+    const after = await caller.action.taintTrace({
+      proposalId: proposed.id,
+    });
+    assert.equal(after.declassifications.length, 1);
+    assert.equal(after.declassifications[0]?.id, declassified.id);
+
+    const otherMember = await wiring.organizationStore.inviteMember(
+      PILOT_ORGANIZATION,
+      "taint-reviewer@example.test",
+    );
+    const otherMemberCaller = makeCaller(
+      wiring,
+      { type: "user", id: otherMember.userId },
+      10,
+    );
+    await assert.rejects(
+      () =>
+        otherMemberCaller.action.declassifyInstructionRisk({
+          proposalId: proposed.id,
+          reason: "Different member attempt",
+          evidenceHash: hashTaintValue("different-member"),
+        }),
+      (error: unknown) =>
+        error instanceof TRPCError && error.code === "FORBIDDEN",
+    );
+
+    const agentCaller = makeCaller(
+      wiring,
+      { type: "agent", id: OUTREACH_AGENT },
+      11,
+    );
+    await assert.rejects(
+      () =>
+        agentCaller.action.declassifyInstructionRisk({
+          proposalId: proposed.id,
+          reason: "Agent attempt",
+          evidenceHash: hashTaintValue("agent"),
+        }),
+      (error: unknown) =>
+        error instanceof TRPCError && error.code === "FORBIDDEN",
+    );
   } finally {
     await wiring.close();
   }

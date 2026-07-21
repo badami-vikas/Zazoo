@@ -32,7 +32,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { uuidv7 } from "@bridge/core";
+import { UNKNOWN_LABEL, uuidv7 } from "@bridge/core";
 
 /** pgvector column. v1 dim = 768 (nomic-embed-text-v1.5). */
 const vector = (name: string, dim: number) =>
@@ -404,6 +404,7 @@ export const memories = pgTable(
     supersedesId: uuid("supersedes_id"),
     /** PI-1 provenance: operator | user_content | untrusted_external. */
     trustOrigin: text("trust_origin").notNull(),
+    taintLabel: jsonb("taint_label").notNull().default(UNKNOWN_LABEL),
     /** local | cloud — captures/derived-facts default to the local plane. */
     plane: text("plane").notNull(),
     /** Provenance actor: provider/agent/user id that produced this Memory. */
@@ -440,6 +441,7 @@ export const files = pgTable("files", {
   storageRef: text("storage_ref"),
   contentText: text("content_text"),
   metadata: jsonb("metadata").notNull().default({}),
+  taintLabel: jsonb("taint_label").notNull().default(UNKNOWN_LABEL),
   createdAt: now(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
 });
@@ -571,6 +573,7 @@ export const automationRuns = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     output: jsonb("output"),
     ledgerId: uuid("ledger_id"),
+    taintLabel: jsonb("taint_label").notNull().default(UNKNOWN_LABEL),
   },
   (t) => [
     foreignKey({
@@ -769,6 +772,7 @@ export const ledger = pgTable("ledger", {
    * operator | user_content | untrusted_external. Nullable — absent on rows not
    * ingested from a tagged source. Tag-and-persist only; gating is PI-2. */
   trustOrigin: text("trust_origin"),
+  taintLabel: jsonb("taint_label").notNull().default(UNKNOWN_LABEL),
   createdAt: now(),
 });
 
@@ -865,6 +869,7 @@ export const events = pgTable(
     entityType: text("entity_type").notNull(),
     entityId: uuid("entity_id").notNull(),
     payload: jsonb("payload").notNull().default({}),
+    taintLabel: jsonb("taint_label").notNull().default(UNKNOWN_LABEL),
     createdAt: now(),
   },
   (t) => [index("events_org_created_idx").on(t.organizationId, t.createdAt)],
@@ -1344,6 +1349,7 @@ export const childAgentRuns = pgTable(
     stopCondition: text("stop_condition").notNull(),
     reviewMode: text("review_mode").notNull(), // auto | notify | approve | quorum
     taint: text("taint"),
+    taintLabel: jsonb("taint_label").notNull().default(UNKNOWN_LABEL),
     status: text("status").notNull().default("running"), // running | completed | cancelled | failed | stopped
     createdAt: now(),
   },
@@ -1364,5 +1370,60 @@ export const childAgentRuns = pgTable(
       foreignColumns: [tasks.organizationId, tasks.id],
       name: "child_agent_runs_organization_task_fk",
     }),
+  ],
+);
+
+export const taintSinkTraces = pgTable(
+  "taint_sink_traces",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    /** Opaque lineage reference: Ledger/Event logs are Plane-partitioned and may
+     * live in a different database, so a cross-Plane FK would be invalid. */
+    ledgerId: uuid("ledger_id"),
+    sink: text("sink").notNull(),
+    taintLabel: jsonb("taint_label").notNull(),
+    sourceChain: jsonb("source_chain").notNull(),
+    policy: text("policy").notNull(),
+    reason: text("reason").notNull(),
+    traceHash: text("trace_hash").notNull(),
+    plane: text("plane").notNull(),
+    createdAt: now(),
+  },
+  (t) => [
+    unique("taint_sink_traces_hash_uq").on(
+      t.organizationId,
+      t.ledgerId,
+      t.sink,
+      t.traceHash,
+    ),
+    index("taint_sink_traces_ledger_idx").on(t.organizationId, t.ledgerId),
+  ],
+);
+
+export const taintDeclassifications = pgTable(
+  "taint_declassifications",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    beforeLabel: jsonb("before_label").notNull(),
+    afterLabel: jsonb("after_label").notNull(),
+    reason: text("reason").notNull(),
+    evidenceHash: text("evidence_hash").notNull(),
+    actorType: text("actor_type").notNull(),
+    actorId: text("actor_id").notNull(),
+    /** Opaque Plane-partitioned Ledger reference; see taintSinkTraces.ledgerId. */
+    decisionLedgerId: uuid("decision_ledger_id"),
+    ruleId: text("rule_id"),
+    ruleVersion: text("rule_version"),
+    parentTraceHash: text("parent_trace_hash").notNull(),
+    plane: text("plane").notNull(),
+    createdAt: now(),
+  },
+  (t) => [
+    index("taint_declassifications_org_created_idx").on(
+      t.organizationId,
+      t.createdAt,
+    ),
   ],
 );

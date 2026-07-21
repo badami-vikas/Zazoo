@@ -6,6 +6,7 @@
  * the same ports to Drizzle/Supabase.
  */
 export * from "./types.js";
+export * from "./taint.js";
 export * from "./data-scope.js";
 export * from "./determinism.js";
 export * from "./ports.js";

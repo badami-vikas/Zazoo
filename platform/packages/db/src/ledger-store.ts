@@ -25,6 +25,8 @@ import {
   type LedgerStore,
   type RunContext,
   type TrustOrigin,
+  labelFromLegacyTrustOrigin,
+  storedTaintLabelOrUnknown,
 } from "@bridge/core";
 import type { Database } from "./client.js";
 import { ledger } from "./schema.js";
@@ -83,6 +85,7 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
     ...(row.dataScope ? { dataScope: row.dataScope as DataScope } : {}),
     ...(row.context != null ? { context: row.context as RunContext } : {}),
     ...(row.trustOrigin ? { trustOrigin: row.trustOrigin as TrustOrigin } : {}),
+    taintLabel: storedTaintLabelOrUnknown(row.taintLabel).label,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -275,6 +278,12 @@ export class DrizzleLedgerStore implements LedgerStore {
           ...(entry.dataScope ? { dataScope: entry.dataScope } : {}),
           ...(entry.context ? { context: entry.context } : {}),
           ...(entry.trustOrigin ? { trustOrigin: entry.trustOrigin } : {}),
+          taintLabel:
+            entry.taintLabel ??
+            labelFromLegacyTrustOrigin(
+              entry.trustOrigin,
+              `ledger:${entry.id}`,
+            ),
           createdAt: new Date(entry.createdAt),
         })
         .returning();

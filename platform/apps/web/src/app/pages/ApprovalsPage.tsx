@@ -272,7 +272,7 @@ export function ApprovalsPage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: 'var(--color-background)' }}>
+    <div className="min-w-0 flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: 'var(--color-background)' }}>
       <Header tabs={[{ id: 'Approvals', icon: ShieldCheck }]} activeTab="Approvals" onTabChange={() => {}} />
       <StandardToolbar
         insightsExpanded={insightsOpen}
@@ -289,12 +289,12 @@ export function ApprovalsPage() {
         ]}
       />
       {loadError && (
-        <div role="alert" className="mx-4 mt-3 rounded-lg border px-3 py-2 text-sm text-red-700" style={{ borderColor: 'color-mix(in srgb, var(--danger) 35%, var(--color-border))' }}>
+        <div role="alert" className="mx-4 mt-3 min-w-0 break-words rounded-lg border px-3 py-2 text-sm text-red-700" style={{ borderColor: 'color-mix(in srgb, var(--danger) 35%, var(--color-border))' }}>
           Approvals could not be loaded: {loadError}
         </div>
       )}
       {materializationError && (
-        <div role="alert" className="mx-4 mt-3 rounded-lg border px-3 py-2 text-sm text-red-700" style={{ borderColor: 'color-mix(in srgb, var(--danger) 35%, var(--color-border))' }}>
+        <div role="alert" className="mx-4 mt-3 min-w-0 break-words rounded-lg border px-3 py-2 text-sm text-red-700" style={{ borderColor: 'color-mix(in srgb, var(--danger) 35%, var(--color-border))' }}>
           Approved Relationship application could not be confirmed: {materializationError}
         </div>
       )}
@@ -400,6 +400,31 @@ export function ApprovalsPage() {
                     </h2>
                   </div>
                   <Provenance e={selected} />
+                  {selected.taintLabel &&
+                    (selected.taintLabel.trust === 'untrusted' ||
+                      selected.taintLabel.trust === 'unknown') && (
+                      <div
+                        role="alert"
+                        className="rounded-lg border px-3 py-2.5 flex items-start gap-2 text-sm"
+                        style={{
+                          borderColor: 'color-mix(in srgb, var(--warning) 45%, var(--color-border))',
+                          backgroundColor: 'color-mix(in srgb, var(--warning) 8%, transparent)',
+                          color: 'var(--color-navy-mid)',
+                        }}
+                      >
+                        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" style={{ color: 'var(--warning)' }} />
+                        <div>
+                          <div className="font-semibold" style={{ color: 'var(--color-navy)' }}>
+                            {selected.taintLabel.trust === 'unknown'
+                              ? 'Taint unknown — quarantined'
+                              : 'Influenced by untrusted content'}
+                          </div>
+                          <div>
+                            Source {selected.taintLabel.source} · {selected.taintLabel.sensitivity} · instruction risk {selected.taintLabel.instructionRisk}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   <div className="flex flex-wrap items-center gap-2 text-sm">
                     <span style={{ color: 'var(--color-warm-gray)' }}>Target:</span>
                     <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{selected.resource}</span>
@@ -409,6 +434,31 @@ export function ApprovalsPage() {
                     </span>
                   </div>
                 </div>
+
+                {selected.taintLabel && (
+                  <div className="rounded-xl border p-4 flex flex-col gap-3" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white' }}>
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4" style={{ color: 'var(--color-steel)' }} />
+                      <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-steel)' }}>Taint trace</span>
+                    </div>
+                    <div className="text-xs font-mono break-all" style={{ color: 'var(--color-warm-gray)' }}>
+                      {selected.taintLabel.provenanceHash}
+                    </div>
+                    {selected.taintLabel.originChain.length === 0 ? (
+                      <div className="text-sm" style={{ color: 'var(--color-navy-mid)' }}>No classified source chain is available; this proposal remains quarantined.</div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {selected.taintLabel.originChain.map((origin, index) => (
+                          <div key={`${origin.hash}-${index}`} className="rounded-md border px-3 py-2 text-xs" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>
+                            <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{origin.source}</span>
+                            {' · '}{origin.transform}
+                            <div className="font-mono break-all mt-1" style={{ color: 'var(--color-warm-gray)' }}>{origin.ref} · {origin.hash}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Proposed output + inline diff */}
                 <div className="rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white' }}>

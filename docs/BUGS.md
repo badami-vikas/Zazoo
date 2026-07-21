@@ -646,15 +646,8 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
 - **OPEN 2026-07-08 — GAP (ADR-018 follow-on): capability/package manifest has no `license`/`provenance`/`content_hash`/`signature` fields.**
   Blocks safe OSS ingestion into Commons (can't record SPDX license, source repo+commit SHA, or verify integrity) and is the same hole as the security audit's "no signature/publisher verification on imports". FIX: extend the manifest schema (`packages/core/src/package`) with a `provenance` block (source, commit, content_hash, SPDX license — no privacy-gate-denied key names) + a `signature` slot; make `versionPin` a content hash not a label; drop the MCP sandbox exemption (`importer.ts:96`). Full plan: [../raw/oss-commons-integration-plan-2026-07.md](../raw/oss-commons-integration-plan-2026-07.md).
 
-- **OPEN 2026-07-08 — SECURITY (prompt-injection root gap): no runtime provenance/taint on ingested content.**
-  Nothing tags an email body / captured screen / scraped page as untrusted (grep taint/untrusted = nothing); the
-  lethal-trifecta rule is a STATIC install-time manifest audit (`packages/core/src/package/risk.ts:48`), not a
-  runtime data-flow check. Injection defense collapses to "agents draft, human approves" — a crafted injection can
-  produce a plausible draft an approver rubber-stamps, poison Memory, or steer auto-activating advisory actions.
-  FIX (highest-leverage): end-to-end taint tag (`operator|user_content|untrusted_external`) from ingestion edge
-  through ledger; structurally deny `external:send`/egress on tainted context; activate the dead
-  `intake_policy.quarantine` flag; add approval-UI "influenced by untrusted content" banner; adopt Prompt Guard /
-  Llama Guard behind a `ContentGuard` port (NOT SaaS detectors — would violate no-external-egress). Full: [../raw/security-audit-2026-07.md](../raw/security-audit-2026-07.md).
+- **RESOLVED 2026-07-21 — SECURITY (prompt-injection root gap): runtime taint RT0–RT4.**
+  TASK-015/AP-070/ADR-142 replace source-only metadata with a versioned multi-axis lattice and opaque RuntimeValue envelope. Labels join through current canonical runtime/persistence boundaries; unknown/malformed history fails closed; registered sources/sinks, ContentGuard isolation, immutable declassification, prompt-free sink traces, Approval warning/trace, migration `0029`, and real A→B restart replay are covered by targeted property/migration/RLS/red-team/UI tests. Instruction-bearing hostile retries create zero Events/Actions. Exact evidence: [`outputs/2026-07-21-task015-runtime-taint.md`](../outputs/2026-07-21-task015-runtime-taint.md).
 
 - **OPEN 2026-07-08 — SECURITY: OAuth access + refresh tokens stored PLAINTEXT in local pglite.**
   `packages/local/src/stores/pglite.ts:81` — despite "SecretStore" naming, no encryption. Local account-takeover

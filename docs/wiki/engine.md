@@ -19,6 +19,6 @@ Six planned engine families:
 5. Memory/retrieval: working/episodic/semantic/procedural context; evidence-backed user profile; inspectable/correctable/deletable learning.
 6. Automation mining: deterministic sequence/periodicity detection → governed Automation proposal using registered Skills only.
 
-**Runtime taint prerequisite:** provenance metadata alone insufficient. RT0–RT4 in roadmap must propagate labels through prompt/model/Skill/Action/Event/Result/File, join labels on composition, instrument sinks, deny tainted tool/egress paths, and prove with injection/leak tests before high-autonomy MCP/research/ambient execution.
+**Runtime taint DONE (TASK-015):** one v1 lattice/envelope joins trust/source, sensitivity, instruction risk, and bounded provenance through prompt/model/Skill/Action/Event/Result/File/Memory/Run/queue/cache/retry boundaries. Classified sinks fail closed; declassification needs a deterministic rule or explicit Human Decision; migration/restart/red-team/UI proof exists.
 
 Execution plan still contains legacy filenames and identifiers. VOCAB2 migrates paths/types/docs together; no display-only rename.

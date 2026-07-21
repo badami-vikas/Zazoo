@@ -34,7 +34,13 @@
  * so the offline fallback is not a lesser code path — it is the SAME contract
  * with a different signal source.
  */
-import { createModelCallReceipt, type ModelCallReceipt, type ModelProvider } from "./ports.js";
+import {
+  assertModelOutputTaint,
+  createModelCallReceipt,
+  type ModelCallReceipt,
+  type ModelCompletionRequest,
+  type ModelProvider,
+} from "./ports.js";
 
 /** A downstream capability Chief of Staff can route a single turn to. Kept as
  * a closed, caller-supplied registry (mirrors compileBlueprint's registered-
@@ -209,13 +215,15 @@ export async function classifyIntent(args: ClassifyIntentArgs): Promise<RoutingD
     return classifyByKeyword(args.message, args.registry);
   }
   const { system, prompt } = classificationPrompt(args.message, args.registry);
-  const result = await args.model.complete({
+  const request: ModelCompletionRequest = {
     system,
     prompt,
     maxTokens: 32,
     tier: "cheap",
     cache: { strategy: "stable_system_prefix", ttl: "5m" },
-  });
+  };
+  const result = await args.model.complete(request);
+  assertModelOutputTaint(request, result);
   return {
     ...parseModelResponse(result.text, args.registry),
     modelReceipt: createModelCallReceipt(args.model, result, "cheap"),

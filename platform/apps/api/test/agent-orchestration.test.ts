@@ -13,6 +13,7 @@ import {
   UuidGen,
   createChildAgentRun,
   SearchProvidersUnavailableError,
+  labelFromLegacyTrustOrigin,
   type ContentGuard,
   type SearchProviderOutcome,
   type SearchProviderRouter,
@@ -39,7 +40,15 @@ import { WEB_RESEARCH_SKILL_ID } from "../src/web-research-skill.js";
 function makeRun(): RunCtx {
   const clock = new SystemClock();
   const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
+  return {
+    clock,
+    rng,
+    ids: new UuidGen(clock, rng),
+    taintLabel: labelFromLegacyTrustOrigin(
+      "operator",
+      "agent-orchestration-test",
+    ),
+  };
 }
 
 async function makeCaller(

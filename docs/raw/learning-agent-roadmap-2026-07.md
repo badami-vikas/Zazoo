@@ -220,25 +220,30 @@ Universal exit gate (every slice): source/license record, manifest risk computed
 ```yaml
 slices:
   RT0:
+    status: done
     goal: one runtime taint lattice and envelope contract
     deliverables: [TaintLabel source/trust/sensitivity/instructionRisk, deterministic join, required RuntimeValue envelope, serialization contract]
     exit_criteria: every ingest source and stored Memory carries a label; join is monotonic and property-tested
   RT1:
+    status: done
     goal: propagation through prompt/model/Skill/Action paths
     depends_on: [RT0]
     deliverables: [PromptSegment labels, model-output derivation, Skill IO propagation, Action/Event/Result/File propagation, cache/queue/retry preservation]
     exit_criteria: end-to-end provenance trace survives process boundaries with no unlabeled fallback
   RT2:
+    status: done
     goal: sources and sinks instrumented
     depends_on: [RT1]
     deliverables: [screen/clipboard/email/web/MCP source adapters, network/file/credential/schema-mutation sinks, deny-by-default unknown labels]
     exit_criteria: source/sink coverage inventory is complete; uninstrumented sink fails CI/runtime registration
   RT3:
+    status: done
     goal: policy enforcement and quarantine
     depends_on: [RT2]
     deliverables: [no tainted content in tool-bearing context, egress join gate, dual-model quarantine, declassification only by deterministic validator or explicit human Decision]
     exit_criteria: injection/exfiltration/red-team suite has zero unauthorized Actions and zero label loss
   RT4:
+    status: done
     goal: operations, migration, and observability
     depends_on: [RT3]
     deliverables: [backfill existing data, taint trace UI, metrics/alerts, incident replay, compatibility removal]
