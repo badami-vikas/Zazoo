@@ -1973,6 +1973,8 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Added explicit `public-cloud` fail-closed mode: `/tmp` scratch only, no vault/keys, no private procedure or Google token path, no private Relation reconciliation.
 - Preserved exact pilot/JWKS, least-privilege `bridge_app`, RLS context, CORS derivation, existing Docker/static builds, and desktop Local Plane.
 - TASK-006 stays blocked on authorized Google OAuth + real Source credentials. TASK-016/017 remain ready; this slice does not close their broader prototypes.
+- Render CLI authentication succeeded, but the collaborator has no repository-admin permission and Render cannot see the private repo. No resource/secret/spend was created. Exact unblock: the repo owner/admin grants the Render GitHub App repository-specific access.
+- GitHub Actions run `29814901057` failed all eight runner-backed jobs with zero steps and skipped installer aggregation; this is the known payment block, not test execution.
 
 # 2026-07-21 — TASK-013 repository and manifest cleanup (AP-061, ADR-135)
 - Preserved exact pre-cleanup `origin/main@7f37e17e1132ebbbee74f1c612f0e83b211139ef` on verified private ref `archive/task-013-pre-cleanup-2026-07-21`, then removed unopened legacy root trees from main without rewriting history.

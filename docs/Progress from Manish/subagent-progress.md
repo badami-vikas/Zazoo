@@ -42,6 +42,10 @@ create-time Source fields, a live rights-attested Source, governed Source↔Thes
 desktop/exact-375 proof. The user has no authorized Source credential and Google OAuth is absent;
 TASK-006 is `blocked` under AP-060 until an authorized real Source credential and configured/authorized Google OAuth permit live BizBuySell Deal plus credential reveal/copy/revoke/expiry/wrong-Human proof.
 
+AP-063/ADR-137 adds the free Render Blueprint plus public-cloud fail-closed mode. Render CLI auth
+passed; live resource creation is blocked because the GitHub collaborator lacks repository-admin
+permission. Exact unblock: the private-repo owner/admin grants the Render GitHub App access.
+
 ## Non-project background agents and reviewers
 
 - The recovered Supabase session started 25 workers and recorded 20 completions. Its five

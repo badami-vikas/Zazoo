@@ -40,6 +40,8 @@ This file prevents a new session from re-merging historical branches or reusing 
 - Fresh TASK-006 continuation from `origin/main@922ca52` allocates
   `0025_task006_supabase_root_catalogs` and `0026_task006_supabase_auto_rls_alignment`; ADR-134
   keeps policyless catalogs server-only while every RLS-enabled table retains a tracked policy.
+- AP-063/ADR-137 adds the free Render Blueprint/public-cloud boundary. Live deployment is blocked
+  before resource creation on repository-owner Render GitHub App authorization.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
