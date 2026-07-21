@@ -1,6 +1,6 @@
 # Task Manager Module
 
-Full depth: [../raw/taskmanager-module-plan-2026-07.md](../raw/taskmanager-module-plan-2026-07.md) · BRD: [../raw/brd-taskmanager-2026-07.md](../raw/brd-taskmanager-2026-07.md). Status: proposed 2026-07-16, revised twice (TASK-021, AP-035, placed after TASK-014). Live UI (pre-existing, evolving into this Module's Queue Page): `/task-manager` in `platform/apps/web`.
+Full depth: [../raw/taskmanager-module-plan-2026-07.md](../raw/taskmanager-module-plan-2026-07.md) · BRD: [../raw/brd-taskmanager-2026-07.md](../raw/brd-taskmanager-2026-07.md). Status: `in_progress` 2026-07-21 (TASK-021, AP-062). Bridge TM0–TM6 implementation landed at source checkpoint `c708017`; only `badami-vikas/Corporate-training-sims` external certification remains.
 
 ## Core call
 
@@ -37,7 +37,7 @@ One installable Module. Owns **single execution queue** per workspace. Agent-fir
 
 ## Slices
 
-TM0 schema+vocab (ONE Database, migrate legacy tree under VOCAB2) → TM1 queue surface (Goal filter, not a Goal Page) → TM2 tasks.md contract + drift detect (dogfood repo TASKS.md) → TM3 planning Skills + Playbooks + restructure Skill + impact-fit-on-create → TM4 guard Automations + no-default routing + calibrated reschedule/routing → TM5 Calendar/Second Brain/proactive scan + **game-designs instance certification** → TM6 Commons packaging.
+TM0 schema+vocab (ONE Database, migration `0027`) → TM1 Queue/Table/Form/Tree/Record Detail → TM2 deterministic `tasks.md` emit/parse/hash/drift/reconcile + repo parser projection → TM3 planning Skills/5 Playbooks + governed impact/restructure/reopen → TM4 guards + no-default routing + calibrated reschedule/routing → TM5 Calendar/Graph/proactive candidate + **Corporate-training-sims certification pending** → TM6 signed Commons packaging/provenance.
 
 ## Reuse
 
@@ -49,4 +49,4 @@ Second-queue creep · plausibly-done · methodology bloat · ledger drift · voc
 
 ## Local preview
 
-Live app already exists at `/task-manager` (`platform/apps/web/src/app/pages/TaskManagerPage.tsx` → `PendingWorkPage.tsx`), reading a build-time projection of `docs/TASKS.md` (`pnpm generate:pending-work`). Status column confirmed present (RANK/TASK/STATUS/PROGRESS/PRIORITY/HORIZON/SOURCE/RECORD columns). This is the pre-Module state — TM0–TM6 evolve it into the full Task type (path/is_goal/outcomes[]/restructure), not a rebuild.
+`/task-manager` now reads the canonical Task API. Shared View Grammar supplies Table/Form/Tree and Record Detail is `/task-manager/:taskId`. `/pending-work` redirects; generated `docs/TASKS.md` data no longer backs the Module. Real-data empty state remains when no API/rows exist. Module Detail, Files, Graph, Calendar-eligible date fields, Agents→Skills, Automations, and recent Runs come from the installed signed manifest.
