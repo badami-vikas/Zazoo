@@ -2,6 +2,7 @@ services:
   - type: web
     name: bridge-pilot-api
     runtime: docker
+    repo: https://github.com/badami-vikas/relationship-os
     plan: free
     region: virginia
     branch: main
@@ -37,6 +38,7 @@ services:
   - type: web
     name: bridge-pilot-web
     runtime: static
+    repo: https://github.com/badami-vikas/relationship-os
     branch: main
     autoDeploy: false
     buildCommand: >-

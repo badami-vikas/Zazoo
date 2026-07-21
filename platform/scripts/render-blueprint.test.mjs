@@ -6,6 +6,10 @@ const blueprint = await readFile(new URL("../../render.yaml", import.meta.url), 
 
 test("Render Blueprint stays free-only and carries no cloud Local Plane", () => {
   assert.match(blueprint, /name: bridge-pilot-api/);
+  assert.equal(
+    blueprint.match(/repo: https:\/\/github\.com\/badami-vikas\/relationship-os/g)?.length,
+    2,
+  );
   assert.match(blueprint, /runtime: docker/);
   assert.match(blueprint, /plan: free/);
   assert.match(blueprint, /region: virginia/);

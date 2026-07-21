@@ -70,6 +70,10 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   symmetric Source↔Thesis Relation, and desktop/exact-375 evidence are live. Migrations `0025`/`0026`
   align Supabase automatic RLS; ADR-134 records the boundary. Authorized Source credentials and
   Google OAuth remain external, so TASK-006 is `blocked` under AP-060.
+- AP-063/ADR-137 lands the free Render Blueprint and public-cloud fail-closed boundary. Live
+  deployment is externally blocked before resource creation: a `badami-vikas/relationship-os`
+  owner/admin must grant the Render GitHub App access to the private repository. No secret,
+  resource, or spend was created.
 
 ## Critical resume constraints
 

@@ -32,10 +32,23 @@ Render free spin-down loses only empty scratch. Desktop Local Plane behavior is 
 - API typecheck/build passed.
 - Focused public-cloud, server/Auth, and Google callback tests passed.
 - Render Blueprint contract test and YAML parse passed.
+- Official Render CLI v2.21 authenticated successfully. Its validator accepts the
+  Blueprint structure and reaches only the private-repository branch lookup.
 - Docker CLI is unavailable on this machine; Render performs the literal container build.
+- GitHub Actions run `29814901057` failed all eight runner-backed jobs with zero steps and
+  skipped installer aggregation, matching the payment-blocked runner condition; no CI success
+  is claimed.
 
 ## Provider status
 
-Repository configuration is ready. Live Render authentication, private-repository connection,
-secret entry, deploy, URL configuration, cold-start certification, and live browser/API evidence
-remain to be completed through the visible provider flow.
+Repository configuration and Render authentication are ready. No Render resource or secret was
+created.
+
+Deployment is externally blocked before Blueprint creation: the authenticated GitHub collaborator
+has push/triage but no admin/maintain permission on the private repository. Installing the Render
+GitHub App under the collaborator's account does not expose an owner-account repository, so Render
+reports no repositories and official validation cannot resolve `main`.
+
+Exact unblock: a `badami-vikas/relationship-os` repository owner/admin must configure the Render
+GitHub App for “Only select repositories” → `relationship-os`. Then refresh New Blueprint, enter
+the `sync: false` values directly, and continue the live deployment/certification.
