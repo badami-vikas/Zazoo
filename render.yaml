@@ -22,10 +22,7 @@ services:
       - key: BRIDGE_DEALPILOT_CREDENTIAL_VAULT
         value: disabled
       - key: BRIDGE_RENDER_WEB_HOST
-        fromService:
-          type: web
-          name: bridge-pilot-web
-          property: host
+        value: bridge-pilot-web.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL
@@ -65,10 +62,7 @@ services:
         value: DENY
     envVars:
       - key: BRIDGE_RENDER_API_HOST
-        fromService:
-          type: web
-          name: bridge-pilot-api
-          property: host
+        value: bridge-pilot-api.onrender.com
       - key: VITE_SUPABASE_URL
         sync: false
       - key: VITE_SUPABASE_PUBLISHABLE_KEY

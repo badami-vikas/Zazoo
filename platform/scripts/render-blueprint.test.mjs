@@ -20,6 +20,15 @@ test("Render Blueprint stays free-only and carries no cloud Local Plane", () => 
   assert.match(blueprint, /runtime: static/);
   assert.match(blueprint, /staticPublishPath: platform\/apps\/web\/dist/);
   assert.match(blueprint, /turbo run build --filter=\.\.\.@bridge\/web/);
+  assert.match(
+    blueprint,
+    /BRIDGE_RENDER_WEB_HOST\s*\n\s*value: bridge-pilot-web\.onrender\.com/,
+  );
+  assert.match(
+    blueprint,
+    /BRIDGE_RENDER_API_HOST\s*\n\s*value: bridge-pilot-api\.onrender\.com/,
+  );
+  assert.doesNotMatch(blueprint, /property: host/);
   assert.match(blueprint, /BRIDGE_LOCAL_RESIDENCY\s*\n\s*value: public-cloud/);
   assert.match(
     blueprint,
