@@ -1077,7 +1077,7 @@ test("commons.installPropose reconciles the signed normalized Task Manager root 
     const result = await caller.commons.installPropose({
       organizationId: PILOT_ORGANIZATION,
       name: "task-manager",
-      version: "1.0.0",
+      version: normalized.version,
     });
     assert.equal(result.installation.id, existing.id);
     assert.equal(result.installation.commonsSource?.contentHash, entry.integrity.value);
@@ -1089,11 +1089,11 @@ test("commons.installPropose reconciles the signed normalized Task Manager root 
 
     const nextManifest = {
       ...normalized,
-      version: "1.0.1",
+      version: "1.0.2",
       summary: "Task Manager signed upgrade",
       capabilities: normalized.capabilities.map((capability) => ({
         ...capability,
-        version: "1.0.1",
+        version: "1.0.2",
       })),
     };
     const nextEntry = makeEntry(nextManifest, [...builtIn.commons.tags]);
@@ -1101,7 +1101,7 @@ test("commons.installPropose reconciles the signed normalized Task Manager root 
     const staged = await caller.commons.installPropose({
       organizationId: PILOT_ORGANIZATION,
       name: "task-manager",
-      version: "1.0.1",
+      version: nextManifest.version,
     });
     assert.equal(staged.installation.state, "private");
     assert.equal(staged.installation.commonsSource?.contentHash, nextEntry.integrity.value);
@@ -1128,7 +1128,7 @@ test("commons.installPropose reconciles the signed normalized Task Manager root 
       () => caller.commons.installPropose({
         organizationId: PILOT_ORGANIZATION,
         name: "task-manager",
-        version: "1.0.0",
+        version: normalized.version,
       }),
       /hash_mismatch|trust verification/i,
     );
