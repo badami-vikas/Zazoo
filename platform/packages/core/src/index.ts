@@ -165,6 +165,7 @@ export type {
 // above; never redefines its trust-model types.
 export * from "./module/types.js";
 export { parseModuleManifest, ModuleManifestValidationError } from "./module/manifest.js";
+export { findOrganizationDataPaths } from "./module/privacy.js";
 export { computeModuleRisk, moduleHasLethalTrifecta, type ModuleRiskResult } from "./module/risk.js";
 export {
   InvalidModuleTransitionError,

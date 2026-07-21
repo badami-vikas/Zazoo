@@ -20,17 +20,34 @@ export const DEALPILOT_SOURCING_AGENT_ID = "b0000000-0000-4000-a000-0000000000e1
 export const DEALPILOT_SOURCE_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f1";
 export const DEALPILOT_SOURCE_AUTOMATION_KEY = "deal-pilot.source-intake";
 export const LEARNING_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d2";
+export const INTERNAL_STRATEGIST_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d3";
+export const GOVERNANCE_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d4";
+export const TASK_MANAGER_DRIFT_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f7";
+export const TASK_MANAGER_SWEEP_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f8";
+export const TASK_MANAGER_DRIFT_AUTOMATION_KEY = "task-manager.ledger-drift-detector";
+export const TASK_MANAGER_SWEEP_AUTOMATION_KEY = "task-manager.completed-bay-sweep";
 export const LEARNING_RECOMMENDATION_SKILL_ID = "stageLearningRecommendation";
 export const CITED_ROLE_MODEL_PRACTICE_VERSION = "1.0.1";
 
 export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAutomationId: string): string | undefined {
-  return moduleName === "deal-pilot" && manifestAutomationId === DEALPILOT_SOURCE_AUTOMATION_KEY
-    ? DEALPILOT_SOURCE_AUTOMATION_ID
-    : undefined;
+  if (moduleName === "deal-pilot" && manifestAutomationId === DEALPILOT_SOURCE_AUTOMATION_KEY) {
+    return DEALPILOT_SOURCE_AUTOMATION_ID;
+  }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_DRIFT_AUTOMATION_KEY) {
+    return TASK_MANAGER_DRIFT_AUTOMATION_ID;
+  }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_SWEEP_AUTOMATION_KEY) {
+    return TASK_MANAGER_SWEEP_AUTOMATION_ID;
+  }
+  return undefined;
 }
 
 export function isModuleRuntimeAutomationId(automationId: string): boolean {
-  return automationId === DEALPILOT_SOURCE_AUTOMATION_ID;
+  return [
+    DEALPILOT_SOURCE_AUTOMATION_ID,
+    TASK_MANAGER_DRIFT_AUTOMATION_ID,
+    TASK_MANAGER_SWEEP_AUTOMATION_ID,
+  ].includes(automationId);
 }
 
 export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId: string): string | undefined {
@@ -40,11 +57,17 @@ export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId:
   if (moduleName === "relationship" && manifestAgentId === "learning-agent") {
     return LEARNING_AGENT_RUNTIME_ID;
   }
+  if (moduleName === "task-manager" && manifestAgentId === "internal-strategist") {
+    return INTERNAL_STRATEGIST_AGENT_RUNTIME_ID;
+  }
+  if (moduleName === "task-manager" && manifestAgentId === "governance-agent") {
+    return GOVERNANCE_AGENT_RUNTIME_ID;
+  }
   return undefined;
 }
 
 const SOURCE_REPOSITORY = "https://github.com/badami-vikas/relationship-os";
-const INSPECTED_COMMIT = "c7080173dc3c2383d2ddb0106b660be92315978d";
+const INSPECTED_COMMIT = "c32bc20b700f127fe42f7fb294cee276beaa88ee";
 const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   "deal-pilot": "platform/modules/dealpilot/src/manifest.ts",
   "job-pilot": "platform/modules/jobpilot/src/manifest.ts",
@@ -318,6 +341,7 @@ const taskManagerSkills = [
   ["evidence-verification", "Internal Strategist"],
   ["progress-synthesis", "Chief of Staff"],
   ["habit-scaffolding", "Chief of Staff"],
+  ["completed-bay-sweep", "Governance Agent"],
 ] as const;
 
 const taskManagerAgents = [
@@ -349,7 +373,7 @@ const taskManagerAutomations = [
 const taskManagerCapabilities = [
   capability("task-manager.tasks", "Tasks Database and Views", "view", [readAll("record"), writeAll("record")]),
   ...taskManagerSkills.map(([id]) =>
-    capability(`task-manager.skill.${id}`, id.replaceAll("-", " "), "skill", [readAll("record"), writeAll("record")])
+    capability(`task-manager.skill.${id}`, `Skill: ${id.replaceAll("-", " ")}`, "skill", [readAll("record"), writeAll("record")])
   ),
   ...taskManagerAgents.map((agent) =>
     capability(
@@ -367,7 +391,7 @@ const taskManagerCapabilities = [
     const agent = taskManagerAgents.find((candidate) => candidate.name === agentName)!;
     return capability(
       `task-manager.automation.${id}`,
-      id.replaceAll("-", " "),
+      `Automation: ${id.replaceAll("-", " ")}`,
       "automation",
       [readAll("record"), writeAll("record")],
       [],
@@ -577,7 +601,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "operational",
     manifest: {
       name: "task-manager",
-      version: "1.0.0",
+      version: "1.0.1",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:
@@ -600,6 +624,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
         agents: taskManagerAgents.map((agent) => ({
           ...agent,
           capabilityId: `task-manager.agent.${agent.id}`,
+          plane: "local" as const,
           skillIds: taskManagerSkills
             .filter(([, owner]) => owner === agent.name)
             .map(([skillId]) => `task-manager.skill.${skillId}`),
@@ -613,6 +638,11 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
             agentId: agent.id,
             trigger: id.includes("cadence") || id.includes("brief") ? "Scheduled" : "Task Event",
             procedure: `task-manager.${id}`,
+            ...(id === "ledger-drift-detector"
+              ? { automationId: TASK_MANAGER_DRIFT_AUTOMATION_KEY }
+              : id === "completed-bay-sweep"
+                ? { automationId: TASK_MANAGER_SWEEP_AUTOMATION_KEY }
+                : {}),
           };
         }),
       },

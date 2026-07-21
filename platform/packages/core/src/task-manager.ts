@@ -9,6 +9,18 @@ export type TaskRecordStatus =
   | "abandoned"
   | "archived";
 
+const TASK_RECORD_STATUSES: readonly TaskRecordStatus[] = [
+  "candidate",
+  "committed",
+  "pending",
+  "in_progress",
+  "blocked",
+  "done",
+  "parked",
+  "abandoned",
+  "archived",
+];
+
 export type TaskOwnerType = "human" | "agent";
 export type TaskIndicatorKind = "leading" | "lagging";
 
@@ -91,6 +103,7 @@ export type TaskProposalKind =
   | "route"
   | "reschedule"
   | "archive_sweep"
+  | "projection_reconcile"
   | "candidate";
 
 export interface TaskChangeProposal {
@@ -101,6 +114,9 @@ export interface TaskChangeProposal {
   actorId: string;
   payload: Readonly<Record<string, unknown>>;
   status: "pending_review" | "approved" | "vetoed";
+  idempotencyKey?: string;
+  expiresAt?: string;
+  result?: Readonly<Record<string, unknown>>;
   createdAt: string;
 }
 
@@ -434,7 +450,7 @@ export interface TaskProjection {
   recordVersions: Readonly<Record<string, number>>;
 }
 
-function stableHash(value: string): string {
+export function taskProjectionContentHash(value: string): string {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
@@ -479,7 +495,7 @@ export function emitTasksMarkdown(tasks: readonly TaskRecord[], completedCap = 1
   ].join("\n").trimEnd() + "\n";
   return {
     content: body,
-    contentHash: stableHash(body),
+    contentHash: taskProjectionContentHash(body),
     recordVersions: Object.fromEntries(tasks.map((task) => [task.id, task.version])),
   };
 }
@@ -514,7 +530,13 @@ export function parseTasksMarkdown(content: string): ParsedTaskProjectionEntry[]
     if (!field) continue;
     if (field[1] === "Record ID") current.id = field[2]!.trim();
     if (field[1] === "Version") current.version = Number.parseInt(field[2]!, 10);
-    if (field[1] === "Status") current.status = field[2]!.trim() as TaskRecordStatus;
+    if (field[1] === "Status") {
+      const status = field[2]!.trim() as TaskRecordStatus;
+      if (!TASK_RECORD_STATUSES.includes(status)) {
+        throw new Error(`task-manager: invalid projected status "${status}"`);
+      }
+      current.status = status;
+    }
   }
   flush();
   return entries;
@@ -524,43 +546,41 @@ export function detectTaskProjectionDrift(
   lastProjection: TaskProjection,
   externalContent: string,
   currentTasks: readonly TaskRecord[],
-): { drifted: boolean; proposal?: TaskChangeProposal; reason?: string } {
-  if (stableHash(externalContent) === lastProjection.contentHash) return { drifted: false };
+): {
+  drifted: boolean;
+  externalContentHash: string;
+  changes: ParsedTaskProjectionEntry[];
+  reason?: string;
+} {
+  const externalContentHash = taskProjectionContentHash(externalContent);
+  if (externalContentHash === lastProjection.contentHash) {
+    return { drifted: false, externalContentHash, changes: [] };
+  }
   const parsed = parseTasksMarkdown(externalContent);
   for (const entry of parsed) {
     const current = currentTasks.find((task) => task.id === entry.id);
-    if (!current) return {
+    if (!current) {
+      return {
       drifted: true,
+      externalContentHash,
+      changes: parsed,
       reason: `external projection contains unknown Task ${entry.id}`,
-      proposal: {
-        id: `projection:${lastProjection.contentHash}:${stableHash(externalContent)}`,
-        organizationId: currentTasks[0]?.organizationId ?? "unknown",
-        kind: "resequence",
-        taskId: entry.id,
-        actorId: "internal-strategist",
-        payload: { externalContentHash: stableHash(externalContent), conflict: "unknown-record" },
-        status: "pending_review",
-        createdAt: new Date(0).toISOString(),
-      },
-    };
-    if (entry.version !== current.version) return {
-      drifted: true,
-      reason: `Task ${entry.id} version conflict (${entry.version} != ${current.version})`,
-    };
+      };
+    }
+    if (entry.version !== current.version) {
+      return {
+        drifted: true,
+        externalContentHash,
+        changes: parsed,
+        reason: `Task ${entry.id} version conflict (${entry.version} != ${current.version})`,
+      };
+    }
   }
 
   return {
     drifted: true,
-    proposal: {
-      id: `projection:${lastProjection.contentHash}:${stableHash(externalContent)}`,
-      organizationId: currentTasks[0]?.organizationId ?? "unknown",
-      kind: "resequence",
-      taskId: parsed[0]?.id ?? "projection",
-      actorId: "internal-strategist",
-      payload: { externalContentHash: stableHash(externalContent), changes: parsed },
-      status: "pending_review",
-      createdAt: new Date(0).toISOString(),
-    },
+    externalContentHash,
+    changes: parsed,
   };
 }
 
@@ -583,6 +603,7 @@ export function applyApprovedTaskProjectionReconciliation(
   return currentTasks.map((task) => {
     const external = byId.get(task.id);
     if (!external) return task;
+    assertTaskTransition(task, external.status);
     const segments = external.path.split(".");
     const parentPath = external.path.includes(".") ? external.path.slice(0, external.path.lastIndexOf(".")) : undefined;
     const parent = parentPath
@@ -616,6 +637,7 @@ export function evaluateTaskGuards(tasks: readonly TaskRecord[], completedCap = 
     if (task.status === "done" && !task.verification) {
       findings.push({ kind: "unverified_done", taskId: task.id, proposedStatus: "pending" });
     }
+
     if (task.isGoal && task.reviewCadence && !task.lastReviewedAt) {
       findings.push({ kind: "goal_review_due", taskId: task.id });
     }
@@ -634,6 +656,52 @@ export function evaluateTaskGuards(tasks: readonly TaskRecord[], completedCap = 
     findings.push({ kind: "completed_bay_overflow", taskIds: completed.slice(completedCap).map((task) => task.id) });
   }
   return findings;
+}
+
+export interface CompletedBaySweepPlan {
+  eligibleTaskIds: readonly string[];
+  expectedVersions: Readonly<Record<string, number>>;
+  policy: {
+    completedCap: number;
+    maxAgeDays: number;
+    evaluatedAt: string;
+  };
+}
+
+export function planCompletedBaySweep(
+  tasks: readonly TaskRecord[],
+  now: string,
+  completedCap = 10,
+  maxAgeDays = 7,
+): CompletedBaySweepPlan {
+  if (!Number.isInteger(completedCap) || completedCap < 0) {
+    throw new Error("task-manager: completed bay cap must be a non-negative integer");
+  }
+  if (!Number.isInteger(maxAgeDays) || maxAgeDays < 0) {
+    throw new Error("task-manager: completed bay age must be a non-negative integer");
+  }
+  const nowMs = Date.parse(now);
+  if (!Number.isFinite(nowMs)) throw new Error("task-manager: sweep evaluation time must be ISO-8601");
+  const completed = tasks
+    .filter((task) => task.status === "done")
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
+  const overflow = new Set(completed.slice(completedCap).map((task) => task.id));
+  const oldestAllowed = nowMs - maxAgeDays * 24 * 60 * 60 * 1000;
+  for (const task of completed) {
+    const updatedAt = Date.parse(task.updatedAt);
+    if (!Number.isFinite(updatedAt)) throw new Error(`task-manager: Task ${task.id} has invalid updatedAt`);
+    if (updatedAt < oldestAllowed) overflow.add(task.id);
+  }
+  const eligibleTaskIds = completed
+    .filter((task) => overflow.has(task.id))
+    .map((task) => task.id);
+  return {
+    eligibleTaskIds,
+    expectedVersions: Object.fromEntries(
+      completed.filter((task) => overflow.has(task.id)).map((task) => [task.id, task.version]),
+    ),
+    policy: { completedCap, maxAgeDays, evaluatedAt: now },
+  };
 }
 
 export const TASK_MANAGER_PLAYBOOKS = [
@@ -678,13 +746,28 @@ export interface TaskManagerStore {
     actorId: string,
     seam: TaskManagerIdClock,
   ): Promise<TaskChangeProposal>;
+  getProposal(organizationId: string, proposalId: string): Promise<TaskChangeProposal | null>;
+  stageProposal(
+    input: {
+      id: string;
+      organizationId: string;
+      kind: "projection_reconcile" | "archive_sweep";
+      taskId: string;
+      actorId: string;
+      payload: Readonly<Record<string, unknown>>;
+      idempotencyKey: string;
+      expiresAt: string;
+    },
+    seam: TaskManagerIdClock,
+  ): Promise<TaskChangeProposal>;
   decideProposal(
     organizationId: string,
     proposalId: string,
-    decision: "approve" | "veto",
+    decision: "approve" | "edit" | "veto",
     deciderId: string,
     seam: TaskManagerIdClock,
-  ): Promise<{ proposal: TaskChangeProposal; tasks: TaskRecord[] }>;
+    editedPayload?: Readonly<Record<string, unknown>>,
+  ): Promise<{ proposal: TaskChangeProposal; tasks: TaskRecord[]; result?: Readonly<Record<string, unknown>> }>;
 }
 
 export class InMemoryTaskManagerStore implements TaskManagerStore {
@@ -785,22 +868,138 @@ export class InMemoryTaskManagerStore implements TaskManagerStore {
     return proposal;
   }
 
+  async getProposal(organizationId: string, proposalId: string): Promise<TaskChangeProposal | null> {
+    const found = this.proposals.get(proposalId);
+    return found?.organizationId === organizationId ? found : null;
+  }
+
+  async stageProposal(
+    input: {
+      id: string;
+      organizationId: string;
+      kind: "projection_reconcile" | "archive_sweep";
+      taskId: string;
+      actorId: string;
+      payload: Readonly<Record<string, unknown>>;
+      idempotencyKey: string;
+      expiresAt: string;
+    },
+    seam: TaskManagerIdClock,
+  ): Promise<TaskChangeProposal> {
+    const existing = [...this.proposals.values()].find(
+      (proposal) =>
+        proposal.organizationId === input.organizationId &&
+        proposal.kind === input.kind &&
+        proposal.idempotencyKey === input.idempotencyKey,
+    );
+    if (existing) {
+      if (JSON.stringify(existing.payload) !== JSON.stringify(input.payload)) {
+        throw new Error("task-manager: idempotency key conflicts with different proposal content");
+      }
+      return existing;
+    }
+    const proposal: TaskChangeProposal = {
+      id: input.id,
+      organizationId: input.organizationId,
+      kind: input.kind,
+      taskId: input.taskId,
+      actorId: input.actorId,
+      payload: input.payload,
+      status: "pending_review",
+      idempotencyKey: input.idempotencyKey,
+      expiresAt: input.expiresAt,
+      createdAt: seam.nowISO(),
+    };
+    this.proposals.set(proposal.id, proposal);
+    return proposal;
+  }
+
   async decideProposal(
     organizationId: string,
     proposalId: string,
-    decision: "approve" | "veto",
+    decision: "approve" | "edit" | "veto",
     deciderId: string,
     seam: TaskManagerIdClock,
-  ): Promise<{ proposal: TaskChangeProposal; tasks: TaskRecord[] }> {
+    editedPayload?: Readonly<Record<string, unknown>>,
+  ): Promise<{ proposal: TaskChangeProposal; tasks: TaskRecord[]; result?: Readonly<Record<string, unknown>> }> {
     const proposal = this.proposals.get(proposalId);
     if (!proposal || proposal.organizationId !== organizationId) {
       throw new Error(`task-manager: unknown proposal ${proposalId}`);
     }
-    if (proposal.status !== "pending_review") throw new Error(`task-manager: proposal ${proposalId} already resolved`);
+    if (proposal.status !== "pending_review") {
+      return {
+        proposal,
+        tasks: await this.list(organizationId),
+        ...(proposal.result ? { result: proposal.result } : {}),
+      };
+    }
+    if (Date.parse(proposal.expiresAt ?? "9999-12-31T00:00:00.000Z") <= Date.parse(seam.nowISO())) {
+      throw new Error(`task-manager: proposal ${proposalId} expired`);
+    }
     if (deciderId === proposal.actorId) throw new Error("task-manager: proposal author cannot approve its own change");
-    const resolved = { ...proposal, status: decision === "approve" ? "approved" as const : "vetoed" as const };
+    const resolvedStatus = decision === "veto" ? "vetoed" as const : "approved" as const;
+    let effectivePayload = editedPayload ?? proposal.payload;
+    let tasks = await this.list(organizationId);
+    let result: Readonly<Record<string, unknown>> | undefined;
+    if (decision !== "veto" && proposal.kind === "projection_reconcile") {
+      const externalContent = effectivePayload["externalContent"];
+      const externalContentHash = effectivePayload["externalContentHash"];
+      const beforeProjectionHash = effectivePayload["beforeProjectionHash"];
+      const recordVersions = effectivePayload["recordVersions"];
+      if (
+        typeof externalContent !== "string" ||
+        typeof externalContentHash !== "string" ||
+        typeof beforeProjectionHash !== "string" ||
+        typeof recordVersions !== "object" ||
+        recordVersions === null
+      ) {
+        throw new Error("task-manager: projection proposal payload is invalid");
+      }
+      if (taskProjectionContentHash(externalContent) !== externalContentHash) {
+        throw new Error("task-manager: projection proposal content hash changed");
+      }
+      const currentProjection = emitTasksMarkdown(tasks);
+      if (currentProjection.contentHash !== beforeProjectionHash) {
+        throw new Error("task-manager: projection proposal is stale against the current Database");
+      }
+      const expected = recordVersions as Record<string, number>;
+      for (const task of tasks) {
+        if (expected[task.id] !== task.version) {
+          throw new Error(`task-manager: projection proposal is stale for Task ${task.id}`);
+        }
+      }
+      tasks = applyApprovedTaskProjectionReconciliation(tasks, externalContent, seam.nowISO());
+      for (const task of tasks) this.tasks.set(task.id, task);
+      const projection = emitTasksMarkdown(tasks);
+      result = { projection, decision };
+    } else if (decision !== "veto" && proposal.kind === "archive_sweep") {
+      const taskIds = effectivePayload["taskIds"];
+      const recordVersions = effectivePayload["recordVersions"];
+      if (!Array.isArray(taskIds) || typeof recordVersions !== "object" || recordVersions === null) {
+        throw new Error("task-manager: archive sweep proposal payload is invalid");
+      }
+      const expected = recordVersions as Record<string, number>;
+      const archived: string[] = [];
+      tasks = tasks.map((task) => {
+        if (!taskIds.includes(task.id)) return task;
+        if (task.status !== "done" || expected[task.id] !== task.version) {
+          throw new Error(`task-manager: sweep proposal is stale for Task ${task.id}`);
+        }
+        const updated = withTaskStatus(task, "archived", seam.nowISO());
+        this.tasks.set(task.id, updated);
+        archived.push(task.id);
+        return updated;
+      });
+      result = { archivedTaskIds: archived, decision };
+    }
+    const resolved = {
+      ...proposal,
+      payload: effectivePayload,
+      status: resolvedStatus,
+      ...(result ? { result } : {}),
+    };
     this.proposals.set(proposal.id, resolved);
-    if (decision === "veto") return { proposal: resolved, tasks: await this.list(organizationId) };
+    if (decision === "veto") return { proposal: resolved, tasks };
     const operation = proposal.payload["operation"] as RestructureOperation | undefined;
     if (!operation) {
       const tasks = await this.list(organizationId);
@@ -808,10 +1007,10 @@ export class InMemoryTaskManagerStore implements TaskManagerStore {
         const task = tasks.find((candidate) => candidate.id === proposal.taskId);
         if (task) this.tasks.set(task.id, withTaskStatus(task, proposal.payload["proposedStatus"] as TaskRecordStatus, seam.nowISO()));
       }
-      return { proposal: resolved, tasks: await this.list(organizationId) };
+      return { proposal: resolved, tasks: await this.list(organizationId), ...(result ? { result } : {}) };
     }
     const updated = applyTaskRestructure(await this.list(organizationId), operation, seam.nowISO());
     for (const task of updated) this.tasks.set(task.id, task);
-    return { proposal: resolved, tasks: updated };
+    return { proposal: resolved, tasks: updated, ...(result ? { result } : {}) };
   }
 }

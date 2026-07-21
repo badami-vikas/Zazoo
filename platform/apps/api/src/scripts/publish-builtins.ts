@@ -9,7 +9,7 @@
  */
 import { COMMONS_BUILT_IN_MODULES } from "../built-in-modules.js";
 import { commonsUrlFromEnv, HttpCommonsClient } from "../commons-client.js";
-import { canonicalizeJson, normalizeCommonsTags } from "@bridge/core";
+import { canonicalizeJson, normalizeCommonsTags, parseModuleManifest } from "@bridge/core";
 
 const publishToken = process.env.COMMONS_PUBLISH_TOKEN;
 if (!publishToken) {
@@ -18,7 +18,8 @@ if (!publishToken) {
 const client = new HttpCommonsClient(undefined, { publishToken });
 
 let failures = 0;
-for (const { manifest, commons } of COMMONS_BUILT_IN_MODULES) {
+for (const { manifest: sourceManifest, commons } of COMMONS_BUILT_IN_MODULES) {
+  const manifest = parseModuleManifest({ module: sourceManifest });
   try {
     const { name, version } = await client.publish(manifest, {
       tags: commons.tags,

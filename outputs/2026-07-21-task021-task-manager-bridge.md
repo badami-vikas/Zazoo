@@ -33,3 +33,16 @@ The next strictly sequential session must use `badami-vikas/Corporate-training-s
 6. Return commit/PR, installed manifest/version/provenance, Task/Run/Event/File IDs, projection hashes before/after, approval IDs, and duplicate-queue scan.
 
 Only that external evidence may move TASK-021 from `in_progress` to `done`.
+
+## Recertification update — Bridge source `a0da415`
+
+Corporate PR #102 correctly blocked on three Bridge defects. They are fixed; rerun certification against the landed merge containing `a0da415`.
+
+1. Emit/link the canonical File with `taskManager.emitProjectionFile`.
+2. Edit that exact `tasks.md`, then call `taskManager.proposeProjectionReconcile` with its SHA-256, a stable idempotency key, and ≤24h expiry. Assert a UUID proposal and attributable drift Run.
+3. Exercise Human `veto`, `edit`, and `approve`. Approval must return Event/Result/File/Run IDs and before/external/final hashes. Replay must return the same proposal/Run/result. File change, DB version change, expiry, and race controls must leave Tasks untouched and never overwrite an unexpected File.
+4. Complete a real verified Task. Call `taskManager.runCompletedBaySweep` with explicit cap/age/key/expiry; approve the Governance Agent proposal; prove status becomes `archived` while evidence remains. Retry the same key with different policy inputs and prove the original Run/proposal/result returns.
+5. Fetch newly signed `task-manager@1.0.1` (source checkpoint `c32bc20`). Derive—not hardcode—the registry content hash, normalized manifest hash, and built-in normalized hash. Call `commons.installPropose` without Agent-need fields; prove the exact signed entry/provenance/key/scan/pins/publish time persist in `commonsSource`, built-in reconciliation is byte-equivalent after normalization, and a new signed version follows ordinary install approval/promotion.
+6. Negative controls: tamper, untrusted key, failed scan, personal/Organization data, changed dependency pin, signed-source drift, and immutable same-version content conflict all fail closed. Re-run existing Skill attachment/need tests.
+
+Return source/merge/PR, derived hashes, installation and commonsSource evidence, Task proposal/decision/Run/Event/Result/File IDs, projection hashes, sweep policy/result, restart/replay outcomes, and the duplicate-queue scan. TASK-021 remains `in_progress` until that evidence lands.

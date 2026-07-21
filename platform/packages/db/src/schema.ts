@@ -1157,6 +1157,8 @@ export const moduleInstallations = pgTable(
     lineageManifestId: uuid("lineage_manifest_id"),
     /** Installation-local ownership for a signed Commons capability. */
     moduleAttachment: jsonb("module_attachment"),
+    /** Exact verified generalized Commons envelope for a root Module install. */
+    commonsSource: jsonb("commons_source"),
     createdAt: now(),
   },
   (t) => [
@@ -1252,12 +1254,21 @@ export const taskChangeProposals = pgTable(
     actorId: text("actor_id").notNull(),
     payload: jsonb("payload").notNull(),
     status: text("status").notNull().default("pending_review"),
+    idempotencyKey: text("idempotency_key"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    result: jsonb("result"),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
     decidedBy: text("decided_by"),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     createdAt: now(),
   },
   (t) => [
     index("task_change_proposals_org_status_idx").on(t.organizationId, t.status, t.createdAt),
+    unique("task_change_proposals_org_kind_idempotency_uq").on(
+      t.organizationId,
+      t.kind,
+      t.idempotencyKey,
+    ),
     foreignKey({
       columns: [t.organizationId, t.taskId],
       foreignColumns: [tasks.organizationId, tasks.id],

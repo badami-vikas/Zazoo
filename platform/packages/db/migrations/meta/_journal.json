@@ -190,6 +190,13 @@
       "when": 1784616000000,
       "tag": "0027_task021_task_manager",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1784629000000,
+      "tag": "0028_task021_recertification",
+      "breakpoints": true
     }
   ]
 }

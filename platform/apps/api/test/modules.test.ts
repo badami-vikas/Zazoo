@@ -19,7 +19,10 @@ import {
 } from "@bridge/core";
 import {
   ModuleFilesPathError,
+  ModuleFileContentConflictError,
   moduleFilesRoot,
+  readModuleFileContent,
+  replaceModuleFileContent,
   saveModuleFile,
 } from "../src/module-files.js";
 import { appRouter } from "../src/router.js";
@@ -770,6 +773,7 @@ test("modules.install: rejects a signed capability collision with different cont
       organizationId: PILOT_ORGANIZATION,
       manifest: dummyManifest({ version: "1.0.0", capabilities: [originalCapability] }),
     });
+
     await caller.modules.install({
       organizationId: PILOT_ORGANIZATION,
       installationId: original.id,
@@ -797,5 +801,61 @@ test("modules.install: rejects a signed capability collision with different cont
     );
   } finally {
     await wiring.close();
+  }
+});
+
+test("Task projection File replacement is hash-CAS and never silently overwrites", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bridge-task-projection-file-"));
+  try {
+    const first = await replaceModuleFileContent(
+      "Organization",
+      "Task Manager",
+      "tasks.md",
+      null,
+      Buffer.from("first", "utf8"),
+      root,
+    );
+    await assert.rejects(
+      () => replaceModuleFileContent(
+        "Organization",
+        "Task Manager",
+        "tasks.md",
+        `sha256:${"0".repeat(64)}`,
+        Buffer.from("overwrite", "utf8"),
+        root,
+      ),
+      ModuleFileContentConflictError,
+    );
+    assert.equal(
+      Buffer.from((await readModuleFileContent(
+        "Organization",
+        "Task Manager",
+        "tasks.md",
+        root,
+      ))!.content).toString("utf8"),
+      "first",
+    );
+    const race = await Promise.allSettled([
+      replaceModuleFileContent(
+        "Organization",
+        "Task Manager",
+        "tasks.md",
+        first.contentHash,
+        Buffer.from("second", "utf8"),
+        root,
+      ),
+      replaceModuleFileContent(
+        "Organization",
+        "Task Manager",
+        "tasks.md",
+        first.contentHash,
+        Buffer.from("third", "utf8"),
+        root,
+      ),
+    ]);
+    assert.equal(race.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(race.filter((result) => result.status === "rejected").length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

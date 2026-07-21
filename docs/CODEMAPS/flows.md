@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-21 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,automation-executor,goal-task,task-manager,skill-manifest,child-agent-run,ports}.ts, modules/manifests/src/index.ts, apps/api/src/{router,relationship-help-routing,relationship-materializer,built-in-modules,module-files,server,wiring}.ts, apps/web/src/app/{Layout,routes,pages/TaskManagerPage,pages/TaskRecordDetailPage,pages/ModuleDetailPage,pages/SecondBrainPage,dataviews/views/GraphView,components/shared/PanelControl}.tsx, packages/local/src/ports.ts, packages/db/src/{schema,task-manager-store,goal-task-store,automation-stores,graph-store,ledger-store}.ts, packages/db/migrations/0027_task021_task_manager.sql | Token estimate: ~2700 -->
+<!-- Updated: 2026-07-21 | Files scanned: packages/core/src/{pipeline,authority,automation-executor,task-manager,skill-manifest,module/{manifest,ports,privacy,commons-trust}}.ts, modules/manifests/src/index.ts, apps/api/src/{router,built-in-modules,module-files,wiring,commons-client}.ts, apps/web/src/app/{Layout,routes,pages/TaskManagerPage,pages/TaskRecordDetailPage,pages/ModuleDetailPage}.tsx, packages/db/src/{schema,task-manager-store,module-store,automation-stores,graph-store,ledger-store}.ts, packages/db/migrations/0028_task021_recertification.sql | Token estimate: ~2900 -->
 
 # Load-Bearing Flows + Schema ER
 
@@ -165,6 +165,7 @@ erDiagram
   organizations ||--o{ tasks : "one recursive Task Database"
   tasks ||--o{ tasks : "parent_task_id / anchor_task_id"
   tasks ||--o{ task_change_proposals : "pipeline-linked governed proposal projection"
+  organizations ||--o{ module_installations : "commons_source signed root envelope"
   agents ||--o{ tasks : "assigned Agent, same Organization"
   organizations ||--o{ skill_manifests : organization_id
   tasks ||--o{ child_agent_runs : "same-Organization composite FK"

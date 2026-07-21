@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T08:20:21.199Z",
+  "generatedAt": "2026-07-21T11:36:44.259Z",
   "items": [
     {
       "id": "TASK-001",
@@ -395,18 +395,18 @@
       ],
       "evidence": [
         "docs/TASKS.md + Task Manager UI already prove the ledger model in production (AP-024/025)",
-        "Bridge implementation checkpoint `c708017` adds one recursive Task Database, migration `0027`, governed pipeline-linked create/restructure/reopen proposals, atomic path/version updates, required-Skill no-default routing, calibrated approval bands, deterministic projection/reconciliation, guard evaluation, Graph/Files/Calendar View integration, signed built-in Module packaging, Queue/Form/Tree/Record Detail, and real self-hosting evidence. Targeted Core/DB/API/Graph/RLS/parser/manifest/web checks passed",
-        "migration fresh/upgrade/replay preserves legacy Goal/Task IDs and assignment. Real local workspace proved paths `2`→`2.1`→`2.1.1`",
-        "desktop `1280×800` and exact `375×812` Tree rendered with `scrollWidth===clientWidth`",
-        "screenshots are session artifacts. GitHub Actions remain payment-blocked and no CI success is claimed. Exact remaining gate: a separate strictly sequential session must certify `badami-vikas/Corporate-training-sims` against the contract in `outputs/2026-07-21-task021-task-manager-bridge.md`",
-        "this session did not change that repository."
+        "Bridge implementation checkpoint `c708017` adds one recursive Task Database, migration `0027`, governed pipeline-linked create/restructure/reopen proposals, atomic path/version updates, required-Skill no-default routing, calibrated approval bands, deterministic projection/reconciliation, guard evaluation, Graph/Files/Calendar View integration, signed built-in Module packaging, Queue/Form/Tree/Record Detail, and real self-hosting evidence. Corporate-training-sims merge `d24e76ba9413e2ca757768af5f61d4f413714a69` and PR #102 completed a real queue-integrity Task with Task/Agent Run/Result/Event/File evidence, routing proof, one-queue proof, and signed-manifest verification, then found three Bridge blockers. Source checkpoint `a0da415` resolves all three: durable UUID Automation/pipeline projection reconciliation with File+DB CAS and Event/Result/File/Run evidence",
+        "real idempotent completed-bay sweep Automation",
+        "and signed `organization_definition` root Module install with exact Commons envelope plus shared built-in normalization. Signed package checkpoint `c32bc20` versions those changed immutable bytes as `task-manager@1.0.1`",
+        "its provenance is pinned separately. Migration `0028` has fresh/upgrade/replay preservation evidence. Targeted Core/DB/API/Automation/Commons/manifest/web/type/lint/policy checks pass. GitHub Actions remain payment-blocked and no CI success is claimed. Exact remaining gate: rerun the external certification contract in `outputs/2026-07-21-task021-task-manager-bridge.md`",
+        "do not mark done from Bridge-only evidence."
       ],
       "requests": [
         "R-035",
         "R-036 (2026-07-16 revision: collapse Initiative/Outcome into Goal+Task, agent routing, calibrated reschedule, proactive scan, reorder after TASK-014)",
         "R-037 (2026-07-17 revision: collapse Goal into a Task field entirely, full tree restructuring, no-default CoS-owned routing, reopenable done status)"
       ],
-      "approval": "AP-033 applied (plan+roadmap addition); AP-034 applied (revision 1); AP-035 applied (revision 2); AP-062 applied (Bridge implementation milestone and Corporate-training-sims remaining gate); ADR-106 records the Goal-collapse vocabulary call; ADR-107 records no-default CoS routing; ADR-136 records the landed storage/governance/projection contract.",
+      "approval": "AP-033 applied (plan+roadmap addition); AP-034 applied (revision 1); AP-035 applied (revision 2); AP-062 applied (Bridge implementation milestone and Corporate-training-sims remaining gate); AP-064 applied (external-blocker remediation and recertification landing); ADR-106 records the Goal-collapse vocabulary call; ADR-107 records no-default CoS routing; ADR-136 records the landed storage/governance/projection contract; ADR-138 records durable recertification effects and signed root Module reconciliation.",
       "dependencies": [
         "TASK-001",
         "TASK-012 (VOCAB2 tree migration)",

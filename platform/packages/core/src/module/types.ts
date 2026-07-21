@@ -13,6 +13,7 @@
 import type { CapabilityManifest, RiskBand } from "../capability/types.js";
 import type { OrganizationBlueprint } from "../blueprint.js";
 import type { Plane } from "../types.js";
+import type { CommonsModuleEntry } from "./commons.js";
 
 /** module.yaml's `kind` — one level broader than CapabilityType (a module
  * can itself be shaped like a whole organization_definition, not just one
@@ -142,6 +143,13 @@ export interface ModuleAttachment {
   contentHash: string;
 }
 
+export interface CommonsInstallationSource {
+  contentHash: string;
+  manifestHash: string;
+  /** Exact verified generalized registry envelope; never Organization/user state. */
+  entry: CommonsModuleEntry;
+}
+
 /** module_installations row shape (or the equivalent ModuleStore row) — one
  * per (organization, module name, version). */
 export interface ModuleInstallationRow {
@@ -156,6 +164,8 @@ export interface ModuleInstallationRow {
   lineageManifestId: string | null;
   /** Installation-local ownership. The signed Commons artifact stays immutable. */
   moduleAttachment?: ModuleAttachment;
+  /** Verified source envelope for a root Module installed/reconciled from Commons. */
+  commonsSource?: CommonsInstallationSource;
   createdAt: string;
 }
 

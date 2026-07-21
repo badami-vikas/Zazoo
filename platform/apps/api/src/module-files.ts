@@ -1,6 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   lstat,
+  link,
   mkdir,
   open,
   readFile,
@@ -34,9 +35,44 @@ export class ModuleFilesPathError extends Error {
     super(`${label} cannot address a path outside the Bridge File root`);
     this.name = "ModuleFilesPathError";
   }
+
+}
+
+export class ModuleFileContentConflictError extends Error {
+  constructor(readonly expectedHash: string | null, readonly actualHash: string | null) {
+    super(`Module File content changed (${expectedHash ?? "absent"} != ${actualHash ?? "absent"})`);
+    this.name = "ModuleFileContentConflictError";
+  }
 }
 
 export const MAX_MODULE_FILE_BYTES = 10 * 1024 * 1024;
+const organizationFileOperations = new Map<string, Promise<void>>();
+
+export async function withOrganizationFileOperationLock<T>(
+  organizationId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = organizationFileOperations.get(organizationId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => current);
+  organizationFileOperations.set(organizationId, tail);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (organizationFileOperations.get(organizationId) === tail) {
+      organizationFileOperations.delete(organizationId);
+    }
+  }
+}
+
+function contentHash(content: Uint8Array): string {
+  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
+}
 
 export class OrganizationFilesConflictError extends Error {
   constructor(readonly targetPath: string) {
@@ -147,6 +183,7 @@ export async function saveModuleFile(
   if (content.byteLength > MAX_MODULE_FILE_BYTES) {
     throw new RangeError(`File exceeds the ${MAX_MODULE_FILE_BYTES}-byte local File limit`);
   }
+
   const root = await writableModuleFilesRoot(
     organizationName,
     moduleName,
@@ -176,6 +213,129 @@ export async function saveModuleFile(
     }
   }
   throw new Error("Could not allocate a unique local File name");
+}
+
+export interface ModuleFileContent {
+  content: Uint8Array;
+  contentHash: string;
+  item: ModuleFileInventoryItem;
+}
+
+export async function readModuleFileContent(
+  organizationName: string,
+  moduleName: string,
+  fileName: string,
+  bridgeRootOverride?: string,
+): Promise<ModuleFileContent | null> {
+  const root = await writableModuleFilesRoot(organizationName, moduleName, bridgeRootOverride);
+  const name = safeFileName(fileName);
+  const path = resolve(root, name);
+  const metadata = await pathMetadata(path);
+  if (!metadata) return null;
+  if (metadata.isSymbolicLink() || !metadata.isFile()) {
+    throw new ModuleFilesPathError("Module File");
+  }
+  const content = await readFile(path);
+  return {
+    content,
+    contentHash: contentHash(content),
+    item: { path: name, size: metadata.size, modifiedAt: metadata.mtime.toISOString() },
+  };
+}
+
+export async function replaceModuleFileContent(
+  organizationName: string,
+  moduleName: string,
+  fileName: string,
+  expectedHash: string | null,
+  content: Uint8Array,
+  bridgeRootOverride?: string,
+): Promise<ModuleFileContent> {
+  if (content.byteLength > MAX_MODULE_FILE_BYTES) {
+    throw new RangeError(`File exceeds the ${MAX_MODULE_FILE_BYTES}-byte local File limit`);
+  }
+  const root = await writableModuleFilesRoot(organizationName, moduleName, bridgeRootOverride);
+  const name = safeFileName(fileName);
+  const destination = resolve(root, name);
+  const lockPath = resolve(root, `.${name}.bridge-lock`);
+  const temporary = resolve(root, `.${name}.${randomUUID()}.tmp`);
+  const previous = resolve(root, `.${name}.${randomUUID()}.previous`);
+  let lock;
+  let movedPrevious = false;
+  try {
+    try {
+      lock = await open(lockPath, "wx", 0o600);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new ModuleFileContentConflictError(expectedHash, null);
+      }
+      throw error;
+    }
+    const existing = await readModuleFileContent(
+      organizationName,
+      moduleName,
+      name,
+      bridgeRootOverride,
+    );
+    const actualHash = existing?.contentHash ?? null;
+    if (actualHash !== expectedHash) {
+      throw new ModuleFileContentConflictError(expectedHash, actualHash);
+    }
+    await writeFile(temporary, content, { flag: "wx", mode: 0o600 });
+    if (existing) {
+      await rename(destination, previous);
+      movedPrevious = true;
+      const previousMetadata = await lstat(previous);
+      if (previousMetadata.isSymbolicLink() || !previousMetadata.isFile()) {
+        await rename(previous, destination);
+        movedPrevious = false;
+        throw new ModuleFilesPathError("Module File");
+      }
+      const movedHash = contentHash(await readFile(previous));
+      if (movedHash !== expectedHash) {
+        await rename(previous, destination);
+        movedPrevious = false;
+        throw new ModuleFileContentConflictError(expectedHash, movedHash);
+      }
+    }
+    try {
+      await link(temporary, destination);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new ModuleFileContentConflictError(expectedHash, null);
+      }
+      throw error;
+    }
+    if (movedPrevious) {
+      const finalPreviousHash = contentHash(await readFile(previous));
+      if (finalPreviousHash !== expectedHash) {
+        const installedHash = contentHash(await readFile(destination));
+        if (installedHash === contentHash(content)) {
+          await rm(destination, { force: true });
+          await rename(previous, destination);
+          movedPrevious = false;
+        }
+        throw new ModuleFileContentConflictError(expectedHash, finalPreviousHash);
+      }
+      await rm(previous, { force: true });
+      movedPrevious = false;
+    }
+  } finally {
+    await rm(temporary, { force: true });
+    if (movedPrevious && !(await pathMetadata(destination))) {
+      await rename(previous, destination);
+      movedPrevious = false;
+    }
+    await rm(previous, { force: true });
+    await lock?.close();
+    await rm(lockPath, { force: true });
+  }
+  const metadata = await stat(destination);
+  return {
+    content,
+    contentHash: contentHash(content),
+    item: { path: name, size: metadata.size, modifiedAt: metadata.mtime.toISOString() },
+  };
 }
 
 export function moduleFilesRoot(
@@ -394,13 +554,17 @@ export async function createOrganizationRenameLease(
   const temporaryPath = `${intentPath}.${generation}.tmp`;
   return {
     recover: (currentOrganizationName) =>
-      recoverOrganizationRenameIntent(
-        intentPath,
+      withOrganizationFileOperationLock(
         organizationId,
-        currentOrganizationName,
-        resolvedBridgeRoot,
+        () => recoverOrganizationRenameIntent(
+          intentPath,
+          organizationId,
+          currentOrganizationName,
+          resolvedBridgeRoot,
+        ),
       ),
-    rename: async (previousOrganizationName, nextOrganizationName) => {
+    rename: (previousOrganizationName, nextOrganizationName) =>
+      withOrganizationFileOperationLock(organizationId, async () => {
       const previousRoot = organizationFilesRoot(previousOrganizationName, resolvedBridgeRoot);
       const nextRoot = organizationFilesRoot(nextOrganizationName, resolvedBridgeRoot);
       if (previousRoot === nextRoot) return;
@@ -442,8 +606,11 @@ export async function createOrganizationRenameLease(
         }
         throw error;
       }
-    },
-    complete: () => clearOrganizationRenameIntent(intentPath, organizationId, generation),
+      }),
+    complete: () => withOrganizationFileOperationLock(
+      organizationId,
+      () => clearOrganizationRenameIntent(intentPath, organizationId, generation),
+    ),
   };
 }
 
