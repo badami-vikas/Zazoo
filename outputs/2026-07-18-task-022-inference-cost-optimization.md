@@ -8,6 +8,8 @@ The code milestone is implemented and reviewed. TASK-022 remains `blocked` under
 
 Exact unblock: authorize the secure opt-in test, then run two sequential real public-safe Chief-of-Staff `@builder` turns and retain a second prompt-free ledger receipt with non-zero `cacheReadInputTokens`.
 
+Landing source: `61e85c39ecbbe8003f9ffe5853450ce14c164a1b`; focused PR #43.
+
 ## Outcome
 
 `ModelProvider.complete()` requires `cheap | default | reasoning`. Providers must declare supported tiers, exact configured model identities, and routing health. Completions return normalized input/output/cache-write/cache-read usage. Request size, output tokens, usage, pricing metadata, and persisted estimates are bounded.
