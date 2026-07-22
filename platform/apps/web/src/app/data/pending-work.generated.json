@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-21T17:32:40.812Z",
+  "generatedAt": "2026-07-22T10:30:09.893Z",
   "items": [
     {
       "id": "TASK-001",
@@ -434,7 +434,8 @@
         "unlabeled/malformed rows become `UNKNOWN_LABEL`",
         "immutable sink/declassification tables use forced Organization RLS. Server-owned Human/system/sensor/Google/web/MCP/signed-Commons edges derive labels",
         "model, Skill, pipeline, Automation, child Run, Result, Memory, cache/queue/retry, Event, File, and restart paths join/persist them. Approval UI shows untrusted/unknown warning plus source trace. Targeted proof: 175 core/DB checks (one taint-coupled Memory regression fixed), 81 local/model/net-guard/sensor checks, 19 Google checks, 17 web-research/Agent checks, 8 approval/declassification checks, 38 culture-research/restart checks, migration fresh+upgrade+replay+RLS, one genuine file-backed A→B restart, and 3 UI trace checks",
-        "affected builds/typechecks/lint/vocabulary/no-dummy pass. GitHub Actions remain payment-blocked",
+        "affected builds/typechecks/lint/vocabulary/no-dummy pass. Source `da26f465187230b09f758b6f3e88b52af050381e` landed through PR #46 at merge `5857cb95d98c53928103df801cfc4ff30a73e8e3`",
+        "source ancestry and `origin/main` were verified. GitHub Actions remain payment-blocked",
         "no CI success is claimed."
       ],
       "requests": [
@@ -454,7 +455,7 @@
     {
       "id": "TASK-016",
       "title": "TASK-016 — Database and migration correctness backlog",
-      "status": "pending",
+      "status": "completed",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "Known schema, migration, identity-upsert, UUID-validation, and concurrent-test defects are corrected with regression coverage.",
@@ -463,20 +464,20 @@
         "docs/BUGS.md detailed database evidence"
       ],
       "evidence": [
-        "BUGS location enum",
-        "BUGS partial dedup conflict",
-        "BUGS incomplete Drizzle metadata",
-        "BUGS pglite invalid UUID",
-        "BUGS concurrent DB flake",
+        "RESOLVED 2026-07-21 location field-kind drift, partial dedup conflict target, incomplete Drizzle metadata, PGlite malformed-UUID crash path, and concurrent DB flake",
+        "migration `0030_task016_schema_alignment` restores the canonical Event Organization/time index exposed by metadata reconciliation",
         "RESOLVED 2026-07-19 Supabase least-privilege runtime role and transaction-local Organization/user RLS context, migration `0022_supabase_runtime_role`, and focused recovery evidence in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)",
-        "AP-063 public-cloud RLS/provider certification is TASK-006 evidence only and does not close this backlog"
+        "exact close evidence in [TASK-016 database correctness](../outputs/2026-07-21-task016-database-correctness.md). Source `0b395b1e6fc624ede139d4cfc5c6b6e76f428ed2` landed through PR #47 at merge `ba8ccc1ecd89b92766829a189d82c4e9015300ad`",
+        "source, merge, and `origin/main` trees matched and ancestry was verified."
       ],
-      "requests": [],
-      "approval": "AP-054 applied for the Supabase runtime-role/RLS slice; none for the remaining backlog",
+      "requests": [
+        "explicit TASK-016 completion/landing directive 2026-07-21"
+      ],
+      "approval": "AP-054 applied for the Supabase runtime-role/RLS slice; AP-071 applied for complete prototype and canonical closure",
       "dependencies": [
         "TASK-012"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 224,
@@ -504,6 +505,7 @@
         "BUGS 2026-07-16 baseline lint/typecheck failures",
         "BUGS 2026-07-15 sensor coverage floor",
         "BUGS 2026-07-19 paginated Relationship Views filter/sort only the loaded page",
+        "BUGS 2026-07-21 three stale Relationship API taint expectations",
         "RESOLVED 2026-07-19 API container build/readiness and exact hosted Supabase Auth admission, documented in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)",
         "AP-063 Render Blueprint/public-cloud boundary is a landed slice only and does not close the remaining prototype"
       ],
@@ -515,7 +517,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 237,
+      "sourceLine": 238,
       "rank": 14
     },
     {
@@ -543,7 +545,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 250,
+      "sourceLine": 251,
       "rank": 15
     },
     {
@@ -572,7 +574,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 265,
+      "sourceLine": 266,
       "rank": 16
     },
     {
@@ -607,7 +609,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 279,
+      "sourceLine": 280,
       "rank": 17
     },
     {
@@ -640,7 +642,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 293,
+      "sourceLine": 294,
       "rank": 18
     },
     {
@@ -671,7 +673,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 306,
+      "sourceLine": 307,
       "rank": 19
     },
     {
@@ -699,7 +701,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 319,
+      "sourceLine": 320,
       "rank": 20
     },
     {
@@ -726,7 +728,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 332,
+      "sourceLine": 333,
       "rank": 21
     },
     {
@@ -760,7 +762,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 345,
+      "sourceLine": 346,
       "rank": 22
     },
     {
@@ -791,7 +793,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 358,
+      "sourceLine": 359,
       "rank": 23
     },
     {
@@ -823,7 +825,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 371,
+      "sourceLine": 372,
       "rank": 24
     }
   ]

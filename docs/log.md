@@ -1,5 +1,13 @@
 # Change Log
 
+- **2026-07-22 — Canonical progress handoff reconciled through live Render certification**:
+  audited `docs/TASKS.md` and all four `docs/Progress from Manish/` handoff files against
+  `origin/main@4d130736a873667a6ac561957ed0993144e19ee4`. Added exact TASK-015 PR #46,
+  TASK-016 PR #47, TASK-023 selection/closure, TASK-022 landed-blocked state, and Render PRs
+  #49–#52 source/merge evidence; replaced stale “landing,” “competing candidates,” and migration
+  high-water statements. Current migration high-water is `0030`, next `0031`. No task status,
+  scope, dependency, or queue order changed.
+
 - **2026-07-21 — TASK-016 database/migration correctness closed (AP-071, ADR-143)**: derived field kinds from one core tuple and proved a Location Organization-definition round trip through PGlite/API; matched canonical Person upsert to the partial dedup index with null-key and concurrent-writer semantics; generated `0029`/`0030` Drizzle snapshots, added real schema migration `0030_task016_schema_alignment` for the missing canonical Event index, and locked no-op generation plus fresh/upgrade/replay behavior; added typed UUID failure-before-SQL across Organization/Relationship/definition boundaries; bounded only DB test-file concurrency at four and stress-closed eight concurrent fresh databases. The 198-test DB package passed three consecutive official runs; targeted core/API/RLS/TASK-015 restart checks and one changed-scope review passed. GitHub Actions run `29859505915` failed before execution: eight jobs had zero steps and the installer job was skipped, consistent with the billing/payment block; no CI success is claimed.
 
 - **2026-07-21 — TASK-023 closed (AP-069)**: accepted PR #44 source `6e33f051b7e001efe25c949d4038730aee6a1292` / normal merge `b8e1db0b808806d45dd904270902dd77b132541c` plus the real durable governed Parallel prototype as exact exit evidence. Anonymous Tier-1 Parallel returned cited bounded public evidence; Result, Memory, and Event retained provenance and `untrusted_external`; provider-unavailable and no-paid-escalation paths failed explicitly. Jina and DuckDuckGo remain unregistered at rights gates. Candidate B stays superseded and untouched. GitHub Actions run `29844324937` had no runner and zero steps, so no CI success is claimed. TASK-023 is `done`; only docs and generated Task projection changed.
