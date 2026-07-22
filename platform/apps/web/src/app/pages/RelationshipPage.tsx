@@ -243,10 +243,27 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
     return () => window.clearTimeout(timer);
   }, [search]);
 
+  // D10 (BUGS.md "paginated Relationship Views filter and sort only the
+  // loaded page", OPEN 2026-07-19): changing the active View's sort/filter
+  // changes which rows and what order the NEXT server page returns, so
+  // (like a new search term) it must restart from the first page rather than
+  // keep whatever offset applied under the previous sort/filter.
+  useEffect(() => {
+    setOffset(0);
+  }, [view.sorts, view.rowFilters, view.filterMatch]);
+
   useEffect(() => {
     let active = true;
     setRows(null);
     setError(null);
+    // D10: forward the active View's sorts/rowFilters so the SERVER — which
+    // sees every matching row across the whole Organization, not just this
+    // one loaded page — is the authoritative filter/sort. `DataViews`' own
+    // client-side `applyFilters`/`applySorts` still runs afterward as a
+    // display layer; since the page it receives already satisfies the same
+    // filter/sort, that is a no-op, not a second source of truth.
+    const activeSorts = view.sorts.length ? view.sorts : undefined;
+    const activeRowFilters = view.rowFilters.length ? view.rowFilters : undefined;
     const request =
       kind === "person"
         ? trpc.relationship.listPeople.query({
@@ -254,6 +271,8 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
             limit: 50,
             offset,
             ...(query ? { query } : {}),
+            ...(activeSorts ? { sorts: activeSorts } : {}),
+            ...(activeRowFilters ? { rowFilters: activeRowFilters, filterMatch: view.filterMatch } : {}),
           }).then((page) => ({
             ...page,
             items: page.items.map((record) => ({
@@ -272,6 +291,8 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
             limit: 50,
             offset,
             ...(query ? { query } : {}),
+            ...(activeSorts ? { sorts: activeSorts } : {}),
+            ...(activeRowFilters ? { rowFilters: activeRowFilters, filterMatch: view.filterMatch } : {}),
           }).then((page) => ({
             ...page,
             items: page.items.map((record) => ({
@@ -300,7 +321,7 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
     return () => {
     active = false;
     };
-  }, [kind, offset, query, reload]);
+  }, [kind, offset, query, reload, view.sorts, view.rowFilters, view.filterMatch]);
 
   useEffect(() => {
     if (view.kind !== "graph") return;

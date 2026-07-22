@@ -90,7 +90,12 @@ test("VOCAB5 upgrades the immutable Relationship manifest", async () => {
   const store = new InMemoryModuleStore();
   const current = BUILT_IN_MODULES.find((builtIn) => builtIn.manifest.name === "relationship");
   assert.ok(current);
-  assert.equal(current.manifest.version, "0.2.2");
+  // 0.2.3 (bumped from 0.2.2 by the TASK-023 governed-web-research merge
+  // `6e33f051`, which added the `web-research` capability/skill to the
+  // Relationship steward/help-routing Agent — a genuine, immutable manifest
+  // content change, never a stale-test-vs-code drift). See modules/manifests/
+  // src/index.ts's built-in Relationship manifest for the current version.
+  assert.equal(current.manifest.version, "0.2.3");
 
   const priorManifest = structuredClone(current.manifest);
   priorManifest.version = "0.2.1";
@@ -114,7 +119,7 @@ test("VOCAB5 upgrades the immutable Relationship manifest", async () => {
 
   assert.equal((await store.get(prior.id))?.state, "legacy");
   const available = await store.getAvailable(PILOT_ORGANIZATION, "relationship");
-  assert.equal(available?.moduleVersion, "0.2.2");
+  assert.equal(available?.moduleVersion, "0.2.3");
   assert.ok(
     available?.manifest.capabilities.some(
       (capability) => capability.id === "relationship.submodule.relations",

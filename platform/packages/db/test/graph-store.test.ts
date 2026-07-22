@@ -1389,6 +1389,168 @@ test("Relationship search escapes wildcards and clamps page bounds", async () =>
   }
 });
 
+test("D10: listPeople sorts/filters server-side across the whole result set, not one loaded page", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
+    const store = new DrizzleGraphStore(db);
+
+    // 60 rows: strictly more than one default (50-row) page, so a
+    // filter/sort that only ever saw page 1 could not find or globally order
+    // every row. Names ascend "00".."59" — the default (displayName asc)
+    // order therefore puts index 59 ("Chief Wizard") on the SECOND page.
+    await db.insert(schema.people).values(
+      Array.from({ length: 60 }, (_, index) => ({
+        organizationId,
+        userId,
+        visibility: "organization" as const,
+        fullNameOverride: `Zz Late Alphabet Person ${String(index).padStart(2, "0")}`,
+        currentTitleOverride: index === 59 ? "Chief Wizard" : "Staff Engineer",
+      })),
+    );
+
+    const unfilteredFirstPage = await store.listPeople(organizationId, userId, { limit: 50, offset: 0 });
+    assert.equal(unfilteredFirstPage.total, 60);
+    assert.ok(
+      !unfilteredFirstPage.items.some((person) => person.currentTitle === "Chief Wizard"),
+      "fixture setup must put the Chief Wizard row on the SECOND page under the default order",
+    );
+
+    // A rowFilter on `currentTitle` must find that one row even though it
+    // never appears in a loaded first page — proving the filter runs in SQL
+    // over every row BEFORE limit/offset, not over one already-fetched page.
+    const filtered = await store.listPeople(organizationId, userId, {
+      limit: 50,
+      offset: 0,
+      rowFilters: [{ field: "currentTitle", op: "contains", value: "wizard" }],
+    });
+    assert.equal(filtered.total, 1);
+    assert.equal(filtered.items[0]?.currentTitle, "Chief Wizard");
+    assert.equal(filtered.items[0]?.displayName, "Zz Late Alphabet Person 59");
+
+    // `is` is an exact (case-insensitive) match, not a substring one.
+    const exactMiss = await store.listPeople(organizationId, userId, {
+      limit: 50,
+      offset: 0,
+      rowFilters: [{ field: "currentTitle", op: "is", value: "wizard" }],
+    });
+    assert.equal(exactMiss.total, 0);
+
+    // A `sorts` DESC by displayName must be a GLOBAL sort applied before
+    // limit/offset: page 1 returns the alphabetically LAST five names, and
+    // page 2 (via offset) continues immediately from there with no repeats
+    // and no gaps — not each page's 50 rows independently re-sorted.
+    const sortedFirstPage = await store.listPeople(organizationId, userId, {
+      limit: 5,
+      offset: 0,
+      sorts: [{ id: "displayName", dir: "desc" }],
+    });
+    assert.deepEqual(
+      sortedFirstPage.items.map((person) => person.displayName),
+      [
+        "Zz Late Alphabet Person 59",
+        "Zz Late Alphabet Person 58",
+        "Zz Late Alphabet Person 57",
+        "Zz Late Alphabet Person 56",
+        "Zz Late Alphabet Person 55",
+      ],
+    );
+    const sortedSecondPage = await store.listPeople(organizationId, userId, {
+      limit: 5,
+      offset: 5,
+      sorts: [{ id: "displayName", dir: "desc" }],
+    });
+    assert.deepEqual(
+      sortedSecondPage.items.map((person) => person.displayName),
+      [
+        "Zz Late Alphabet Person 54",
+        "Zz Late Alphabet Person 53",
+        "Zz Late Alphabet Person 52",
+        "Zz Late Alphabet Person 51",
+        "Zz Late Alphabet Person 50",
+      ],
+    );
+
+    // An unrecognized field is ignored (never concatenated into SQL) rather
+    // than throwing or eliminating every row — same fields, unchanged total.
+    const ignoredUnknownField = await store.listPeople(organizationId, userId, {
+      limit: 50,
+      offset: 0,
+      sorts: [{ id: "not_a_real_column; DROP TABLE people;--", dir: "asc" }],
+      rowFilters: [{ field: "not_a_real_column", op: "contains", value: "x" }],
+    });
+    assert.equal(ignoredUnknownField.total, 60);
+  } finally {
+    await close();
+  }
+});
+
+test("D10: listCommunities sorts/filters server-side across the whole result set, not one loaded page", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
+    const store = new DrizzleGraphStore(db);
+
+    await db.insert(schema.communities).values(
+      Array.from({ length: 60 }, (_, index) => ({
+        organizationId,
+        userId,
+        visibility: "organization" as const,
+        nameOverride: `Zz Late Alphabet Community ${String(index).padStart(2, "0")}`,
+        kind: index === 59 ? "guild" : "team",
+      })),
+    );
+
+    const unfilteredFirstPage = await store.listCommunities(organizationId, userId, { limit: 50, offset: 0 });
+    assert.equal(unfilteredFirstPage.total, 60);
+    assert.ok(
+      !unfilteredFirstPage.items.some((community) => community.kind === "guild"),
+      "fixture setup must put the guild row on the SECOND page under the default order",
+    );
+
+    const filtered = await store.listCommunities(organizationId, userId, {
+      limit: 50,
+      offset: 0,
+      rowFilters: [{ field: "kind", op: "is", value: "guild" }],
+    });
+    assert.equal(filtered.total, 1);
+    assert.equal(filtered.items[0]?.displayName, "Zz Late Alphabet Community 59");
+
+    const sortedFirstPage = await store.listCommunities(organizationId, userId, {
+      limit: 5,
+      offset: 0,
+      sorts: [{ id: "displayName", dir: "desc" }],
+    });
+    assert.deepEqual(
+      sortedFirstPage.items.map((community) => community.displayName),
+      [
+        "Zz Late Alphabet Community 59",
+        "Zz Late Alphabet Community 58",
+        "Zz Late Alphabet Community 57",
+        "Zz Late Alphabet Community 56",
+        "Zz Late Alphabet Community 55",
+      ],
+    );
+    const sortedSecondPage = await store.listCommunities(organizationId, userId, {
+      limit: 5,
+      offset: 5,
+      sorts: [{ id: "displayName", dir: "desc" }],
+    });
+    assert.deepEqual(
+      sortedSecondPage.items.map((community) => community.displayName),
+      [
+        "Zz Late Alphabet Community 54",
+        "Zz Late Alphabet Community 53",
+        "Zz Late Alphabet Community 52",
+        "Zz Late Alphabet Community 51",
+        "Zz Late Alphabet Community 50",
+      ],
+    );
+  } finally {
+    await close();
+  }
+});
+
 test("Relationship lifecycle is owner-only, decision-provenanced, and archive-idempotent", async () => {
   const { db, close } = await createLocalDb();
   try {

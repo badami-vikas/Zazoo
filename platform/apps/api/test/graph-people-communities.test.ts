@@ -1096,6 +1096,15 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     });
     assert.equal(reconciled.status, "confirmed");
     assert.equal(retried.status, "confirmed");
+    // D8: the new generic `action.reconcileApproved` (for approved external
+    // effect classes with NO dedicated reconcile surface, e.g. plain Google
+    // send/DealPilot) explicitly defers a Relationship approval to this
+    // already-durable `relationship.reconcileApproved` path instead of
+    // silently no-op-succeeding.
+    await assert.rejects(
+      () => caller.action.reconcileApproved({ proposalId: proposed.proposal.id }),
+      (error: unknown) => error instanceof TRPCError && error.code === "BAD_REQUEST",
+    );
     const materializedDetail = await caller.relationship.getSignalDetail({
       organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,

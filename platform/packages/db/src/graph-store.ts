@@ -7,7 +7,7 @@
  * bookkeeping writes; the safe Action itself still uses the governed pipeline.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { and, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import {
   UNKNOWN_LABEL,
   evaluateTaintSink,
@@ -47,6 +47,40 @@ export interface PageOpts {
 export interface Page<T> {
   items: T[];
   total: number;
+}
+
+/**
+ * D10 (BUGS.md "paginated Relationship Views filter and sort only the loaded
+ * page", OPEN 2026-07-19) — mirrors `@bridge/tables`' `SortSpec`/`RowFilter`
+ * shapes (and `apps/api/src/router.ts`'s `viewSortSpecInput`/
+ * `viewRowFilterInput`, the same zod mirror used by the Blueprint View
+ * config) so a View's server-side query and the web `DataViews` client-side
+ * display layer agree on one filter/sort vocabulary. Deliberately duplicated
+ * as plain types rather than a new `@bridge/db` -> `@bridge/tables` package
+ * dependency: `@bridge/tables` is UI-facing (ColumnSpec/ViewConfig), and
+ * `@bridge/db` has no other reason to depend on it.
+ */
+export interface ViewSortSpec {
+  id: string;
+  dir: "asc" | "desc";
+}
+export type ViewFilterOp = "contains" | "is" | "is_not" | "is_empty" | "is_not_empty" | "starts_with";
+export interface ViewRowFilter {
+  field: string;
+  op: ViewFilterOp;
+  value: string;
+}
+export interface ViewQueryOpts {
+  /** Multi-sort: index 0 is primary, later entries break ties — same
+   * "Notion-style then-by" semantics as `@bridge/tables`' `applySorts`, just
+   * evaluated in SQL instead of over one already-loaded page. Unknown
+   * (non-allowlisted) `id`s are silently ignored, never passed into SQL. */
+  sorts?: ViewSortSpec[];
+  /** Unknown (non-allowlisted) `field`s are silently ignored, matching
+   * `applyFilters`' effective behavior of not letting an unrecognized column
+   * eliminate every row. */
+  rowFilters?: ViewRowFilter[];
+  filterMatch?: "all" | "any";
 }
 
 export interface RelationCursor {
@@ -531,6 +565,151 @@ const MAX_SIGNAL_RELATIONS = 200;
 const MAX_BATCH_NODE_REFS = 10_000;
 const MAX_TIMELINE_PAGE_SIZE = 50;
 const MAX_INTERACTION_PARTICIPANTS = 100;
+/** Bounded so a caller cannot force an unbounded number of ORDER
+ * BY/ILIKE clauses onto one query. */
+const MAX_VIEW_SORTS = 5;
+const MAX_VIEW_ROW_FILTERS = 20;
+
+/** Same escaping `listPeople`/`listCommunities`' free-text `query` search
+ * already applies to its ILIKE pattern — extracted so View row-filter
+ * `contains`/`starts_with` values get identical treatment. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[!%_]/g, (character) => `!${character}`);
+}
+
+/**
+ * D10 — the explicit allowlist of Person columns a View may sort/filter on
+ * server-side, mapped to the EXACT same computed SQL expression the SELECT
+ * projection already uses for that field (so a filter/sort matches what the
+ * caller actually sees). Anything not listed here (including free-form
+ * client-only fields like `community`/`members`) returns `null` and is
+ * dropped by the caller rather than ever reaching raw SQL.
+ */
+function personViewColumn(field: string): SQL<string | null> | null {
+  switch (field) {
+    case "displayName":
+      return sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`;
+    case "currentTitle":
+      return sql<string | null>`CASE
+        WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+        ELSE nullif(${people.currentTitleOverride}, '')
+      END`;
+    case "location":
+      return sql<string | null>`CASE
+        WHEN ${people.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${peopleCanonical.locationCity}, ${peopleCanonical.locationCountry}), '')
+        ELSE nullif(${people.locationOverride}, '')
+      END`;
+    case "visibility":
+      return sql<string | null>`${people.visibility}`;
+    case "source":
+      return sql<string | null>`${people.source}`;
+    default:
+      return null;
+  }
+}
+
+/** Same allowlist contract as `personViewColumn`, for Community columns. */
+function communityViewColumn(field: string): SQL<string | null> | null {
+  switch (field) {
+    case "displayName":
+      return sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`;
+    case "kind":
+      return sql<string | null>`CASE
+        WHEN ${communities.kind} IS NULL THEN ${communitiesCanonical.kind}
+        ELSE nullif(${communities.kind}, '')
+      END`;
+    case "description":
+      return sql<string | null>`CASE
+        WHEN ${communities.descriptionOverride} IS NULL THEN ${communitiesCanonical.description}
+        ELSE nullif(${communities.descriptionOverride}, '')
+      END`;
+    case "location":
+      return sql<string | null>`CASE
+        WHEN ${communities.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${communitiesCanonical.headquartersCity}, ${communitiesCanonical.headquartersCountry}), '')
+        ELSE nullif(${communities.locationOverride}, '')
+      END`;
+    case "visibility":
+      return sql<string | null>`${communities.visibility}`;
+    case "source":
+      return sql<string | null>`${communities.source}`;
+    default:
+      return null;
+  }
+}
+
+/** Translates one already-allowlisted View row filter into a validated SQL
+ * boolean condition over `column` — the same `op` vocabulary (and identical
+ * empty-value passthrough) as `@bridge/tables`' client-side `passesOne`, just
+ * evaluated in SQL against every row instead of one already-loaded page. */
+function viewRowFilterCondition(column: SQL<string | null>, filter: ViewRowFilter): SQL<boolean> {
+  switch (filter.op) {
+    case "is_empty":
+      return sql<boolean>`coalesce(${column}, '') = ''`;
+    case "is_not_empty":
+      return sql<boolean>`coalesce(${column}, '') <> ''`;
+    case "is":
+      return filter.value
+        ? sql<boolean>`lower(coalesce(${column}, '')) = lower(${filter.value})`
+        : sql<boolean>`true`;
+    case "is_not":
+      return filter.value
+        ? sql<boolean>`lower(coalesce(${column}, '')) <> lower(${filter.value})`
+        : sql<boolean>`true`;
+    case "starts_with":
+      return filter.value
+        ? sql<boolean>`coalesce(${column}, '') ILIKE ${`${escapeLikePattern(filter.value)}%`} ESCAPE '!'`
+        : sql<boolean>`true`;
+    case "contains":
+    default:
+      return filter.value
+        ? sql<boolean>`coalesce(${column}, '') ILIKE ${`%${escapeLikePattern(filter.value)}%`} ESCAPE '!'`
+        : sql<boolean>`true`;
+  }
+}
+
+/** Builds the combined WHERE addition for a View's `rowFilters` — allowlisted
+ * fields only (via `resolveColumn`), AND/OR'd per `filterMatch` exactly like
+ * `@bridge/tables`' `applyFilters`. Returns `undefined` (no-op) when nothing
+ * survives allowlisting, so callers can `and(readable, ..., viewRowFiltersCondition(...))`
+ * unconditionally. */
+function viewRowFiltersCondition(
+  rowFilters: ViewRowFilter[] | undefined,
+  filterMatch: "all" | "any" | undefined,
+  resolveColumn: (field: string) => SQL<string | null> | null,
+): SQL<unknown> | undefined {
+  const conditions = (rowFilters ?? [])
+    .slice(0, MAX_VIEW_ROW_FILTERS)
+    .filter((filter) => filter.op === "is_empty" || filter.op === "is_not_empty" || !!filter.value)
+    .map((filter) => {
+      const column = resolveColumn(filter.field);
+      return column ? viewRowFilterCondition(column, filter) : null;
+    })
+    .filter((condition): condition is SQL<boolean> => condition !== null);
+  if (!conditions.length) return undefined;
+  return filterMatch === "any" ? or(...conditions) : and(...conditions);
+}
+
+/** Builds the `orderBy` columns for a View's `sorts` — allowlisted fields
+ * only, in caller-declared multi-sort priority order. Returns `null` when no
+ * requested sort survives allowlisting, so the caller falls back to its
+ * existing default order unchanged. Callers append their own id column as a
+ * final deterministic tiebreaker (so LIMIT/OFFSET pagination stays stable
+ * across pages even when the requested sort has ties) — kept out of this
+ * function since the id column differs per entity (`people.id` vs
+ * `communities.id`). */
+function viewSortOrderBy(
+  sorts: ViewSortSpec[] | undefined,
+  resolveColumn: (field: string) => SQL<string | null> | null,
+): SQL<unknown>[] | null {
+  const columns = (sorts ?? [])
+    .slice(0, MAX_VIEW_SORTS)
+    .map((sort) => {
+      const column = resolveColumn(sort.id);
+      return column ? (sort.dir === "desc" ? desc(column) : asc(column)) : null;
+    })
+    .filter((entry): entry is SQL<unknown> => entry !== null);
+  return columns.length ? columns : null;
+}
 
 function stableReferenceUuid(value: string): string {
   const hex = createHash("sha256").update(value).digest("hex").slice(0, 32);
@@ -2452,7 +2631,7 @@ export class DrizzleGraphStore {
   async listPeople(
     organizationId: string,
     viewerUserId: string,
-    opts: PageOpts & { query?: string },
+    opts: PageOpts & { query?: string } & ViewQueryOpts,
   ): Promise<Page<PersonRecord>> {
     if (!this.#hasRlsContext(organizationId, viewerUserId)) {
       return this.#withRlsContext(organizationId, viewerUserId, (store) =>
@@ -2476,6 +2655,10 @@ export class DrizzleGraphStore {
       ),
       isNull(people.archivedAt),
     );
+    // D10: the View's server-side filter/sort — same allowlist-only contract
+    // as personViewColumn's callers everywhere else in this method.
+    const rowFiltersCondition = viewRowFiltersCondition(opts.rowFilters, opts.filterMatch, personViewColumn);
+    const sortOrderBy = viewSortOrderBy(opts.sorts, personViewColumn);
     const where = and(
       readable,
       pattern
@@ -2490,6 +2673,7 @@ export class DrizzleGraphStore {
             ) ILIKE ${pattern} ESCAPE '!'
           )`
         : undefined,
+      rowFiltersCondition,
     );
     const [rows, totalRows] = await Promise.all([
       this.#db
@@ -2518,8 +2702,12 @@ export class DrizzleGraphStore {
         .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
         .where(where)
         .orderBy(
-          sql`lower(coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName}, ''))`,
-          people.id,
+          ...(sortOrderBy
+            ? [...sortOrderBy, people.id]
+            : [
+                sql`lower(coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName}, ''))`,
+                people.id,
+              ]),
         )
         .limit(limit)
         .offset(offset),
@@ -2659,7 +2847,7 @@ export class DrizzleGraphStore {
   async listCommunities(
     organizationId: string,
     viewerUserId: string,
-    opts: PageOpts & { query?: string },
+    opts: PageOpts & { query?: string } & ViewQueryOpts,
   ): Promise<Page<CommunityRecord>> {
     if (!this.#hasRlsContext(organizationId, viewerUserId)) {
       return this.#withRlsContext(organizationId, viewerUserId, (store) =>
@@ -2683,6 +2871,10 @@ export class DrizzleGraphStore {
       ),
       isNull(communities.archivedAt),
     );
+    // D10: the View's server-side filter/sort — same allowlist-only contract
+    // as communityViewColumn's callers everywhere else in this method.
+    const rowFiltersCondition = viewRowFiltersCondition(opts.rowFilters, opts.filterMatch, communityViewColumn);
+    const sortOrderBy = viewSortOrderBy(opts.sorts, communityViewColumn);
     const where = and(
       readable,
       pattern
@@ -2697,6 +2889,7 @@ export class DrizzleGraphStore {
             ) ILIKE ${pattern} ESCAPE '!'
           )`
         : undefined,
+      rowFiltersCondition,
     );
     const memberCount = sql<number>`(
       SELECT count(*)::int
@@ -2743,8 +2936,12 @@ export class DrizzleGraphStore {
         .leftJoin(communitiesCanonical, eq(communities.canonicalCommunityId, communitiesCanonical.id))
         .where(where)
         .orderBy(
-          sql`lower(coalesce(${communities.nameOverride}, ${communitiesCanonical.name}, ''))`,
-          communities.id,
+          ...(sortOrderBy
+            ? [...sortOrderBy, communities.id]
+            : [
+                sql`lower(coalesce(${communities.nameOverride}, ${communitiesCanonical.name}, ''))`,
+                communities.id,
+              ]),
         )
         .limit(limit)
         .offset(offset),
