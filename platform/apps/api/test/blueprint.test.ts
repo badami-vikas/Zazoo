@@ -149,6 +149,117 @@ test("organization.blueprint.getById: 404s on an unknown definitionId", async ()
   }
 });
 
+test("SECURITY: organization.blueprint.activate — authorized pilot-user activation still succeeds and mutates state", async () => {
+  const wiring = await buildWiring();
+  try {
+    // `caller` here is already the seeded PILOT_USER (see makeCaller's comment) —
+    // `seedGovernance`'s direct grants now include organization_definition:approve
+    // for this identity, so its action:"approve" proposal resolves "applied" and
+    // the activation mutation actually runs (proving the fix's Part 2 grant did
+    // not just lock legitimate approvals out).
+    const caller = await makeCaller(wiring);
+    const { definition: draft } = await caller.organization.blueprint.propose({
+      organizationId: PILOT_ORGANIZATION,
+      blueprint: dummyBlueprint(),
+    });
+    assert.equal(draft.status, "draft");
+
+    const result = await caller.organization.blueprint.activate({
+      organizationId: PILOT_ORGANIZATION,
+      definitionId: draft.id,
+    });
+
+    assert.equal(result.activated, true, "an authorized activation must actually activate");
+    assert.equal(result.definition.status, "active");
+
+    const { definition: reloaded } = await caller.organization.blueprint.getById({
+      organizationId: PILOT_ORGANIZATION,
+      definitionId: draft.id,
+    });
+    assert.equal(reloaded.status, "active", "state genuinely advanced in the store, not just the response");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("SECURITY: organization.blueprint.activate throws FORBIDDEN for a caller with no organization_definition:approve grant, and does NOT mutate state", async () => {
+  const wiring = await buildWiring();
+  try {
+    // Propose as the authorized pilot user (organization_definitions.created_by
+    // is a real FK to users — see makeCaller's comment), then attempt to
+    // activate as a DIFFERENT, ungranted identity. Before the hard-stop guard,
+    // this fell through into archiving/activating anyway (docs/BUGS.md); it
+    // must now throw before ever reaching that mutation.
+    const authorizedCaller = await makeCaller(wiring);
+    const { definition: draft } = await authorizedCaller.organization.blueprint.propose({
+      organizationId: PILOT_ORGANIZATION,
+      blueprint: dummyBlueprint(),
+    });
+
+    const unauthorizedCaller = await appRouter.createCaller({
+      wiring,
+      run: makeRun(),
+      identity: { type: "user", id: "test_fixture_blueprint_unauthorized_user" },
+      authenticated: true,
+      verifying: false,
+    });
+
+    await assert.rejects(
+      () =>
+        unauthorizedCaller.organization.blueprint.activate({
+          organizationId: PILOT_ORGANIZATION,
+          definitionId: draft.id,
+        }),
+      (err: unknown) => {
+        assert.match(String((err as { message?: string })?.message ?? err), /FORBIDDEN|authority|not authorized/i);
+        return true;
+      },
+    );
+
+    const { definition: reloaded } = await authorizedCaller.organization.blueprint.getById({
+      organizationId: PILOT_ORGANIZATION,
+      definitionId: draft.id,
+    });
+    assert.equal(reloaded.status, "draft", "an unauthorized activate must leave the definition status unchanged");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("SECURITY: organization.blueprint.activate throws FORBIDDEN for an Agent actor (agent-floor), and does NOT mutate state", async () => {
+  const wiring = await buildWiring();
+  try {
+    const authorizedCaller = await makeCaller(wiring);
+    const { definition: draft } = await authorizedCaller.organization.blueprint.propose({
+      organizationId: PILOT_ORGANIZATION,
+      blueprint: dummyBlueprint(),
+    });
+
+    const agentCaller = await appRouter.createCaller({
+      wiring,
+      run: makeRun(),
+      identity: { type: "agent", id: "test_fixture_blueprint_agent" },
+      authenticated: true,
+      verifying: false,
+    });
+
+    await assert.rejects(() =>
+      agentCaller.organization.blueprint.activate({
+        organizationId: PILOT_ORGANIZATION,
+        definitionId: draft.id,
+      }),
+    );
+
+    const { definition: reloaded } = await authorizedCaller.organization.blueprint.getById({
+      organizationId: PILOT_ORGANIZATION,
+      definitionId: draft.id,
+    });
+    assert.equal(reloaded.status, "draft", "an agent activate attempt must leave the definition status unchanged");
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("organization.blueprint.getById: still resolves an ARCHIVED definition (not just draft/active) — the whole point of the endpoint", async () => {
   const wiring = await buildWiring();
   try {

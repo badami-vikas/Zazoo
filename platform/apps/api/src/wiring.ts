@@ -161,6 +161,7 @@ import {
   ensureEgressAgentGovernance,
   ensureIntakeAgentGovernance,
   ensureDealPilotPrincipalGovernance,
+  ensureCapabilityApprovalPrincipalGovernance,
   InMemoryCanonicalIdentityStore,
   ensureInternalStrategistGovernance,
   ensureGovernanceAgentGovernance,
@@ -3128,6 +3129,19 @@ function seedGovernance(
     { resourceType: "record", resourceId: null, action: "archive", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
+    // docs/BUGS.md "capability.approve/organization.blueprint.activate mutate
+    // even when the governed decision is rejected" (2026-07-22) — both
+    // handlers propose an action:"approve" request through the SAME governed
+    // pipeline capability.approve/action.decide use, specifically so a human
+    // (never an agent — the agent-floor still blocks that unconditionally)
+    // resolves it. Before this grant, the pilot user had NO capability:approve
+    // or organization_definition:approve authority, so `resolveAuthority`
+    // denied every proposal (status "rejected") and the only reason those
+    // endpoints ever mutated was a since-fixed fall-through bug that ignored
+    // the rejection. This is the intended human approver's real authority —
+    // it must NEVER be granted to an Agent.
+    { resourceType: "capability", resourceId: null, action: "approve", effect: "allow" },
+    { resourceType: "organization_definition", resourceId: null, action: "approve", effect: "allow" },
   ]);
 }
 
@@ -3207,6 +3221,15 @@ export interface ModePorts {
   ensureEgressGovernance?: () => Promise<void>;
   ensureIntakeGovernance?: () => Promise<void>;
   ensureDealPilotPrincipalGovernance?: () => Promise<void>;
+  /**
+   * docs/BUGS.md "capability.approve/organization.blueprint.activate mutate
+   * even when the governed decision is rejected" (2026-07-22 RESOLVED) —
+   * persistent-mode-only counterpart to `seedGovernance`'s in-memory pilot
+   * `capability:approve`/`organization_definition:approve` grants, mirroring
+   * `ensureDealPilotPrincipalGovernance`'s shape exactly. In-memory mode
+   * needs no hook here — `seedGovernance` seeds the equivalent directly.
+   */
+  ensureCapabilityApprovalGovernance?: () => Promise<void>;
 }
 
 /**
@@ -3305,6 +3328,11 @@ export function buildPersistentPorts(env: {
       }),
     ensureDealPilotPrincipalGovernance: () =>
       ensureDealPilotPrincipalGovernance(db, {
+        organizationId: PILOT_ORGANIZATION,
+        userId: pilotUserId,
+      }),
+    ensureCapabilityApprovalGovernance: () =>
+      ensureCapabilityApprovalPrincipalGovernance(db, {
         organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
       }),
@@ -3581,6 +3609,11 @@ export async function buildInMemoryPorts(env: {
             }),
           ensureDealPilotPrincipalGovernance: () =>
             ensureDealPilotPrincipalGovernance(localDb, {
+              organizationId: PILOT_ORGANIZATION,
+              userId: pilotUserId,
+            }),
+          ensureCapabilityApprovalGovernance: () =>
+            ensureCapabilityApprovalPrincipalGovernance(localDb, {
               organizationId: PILOT_ORGANIZATION,
               userId: pilotUserId,
             }),
@@ -4144,6 +4177,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   await modePorts.ensureEgressGovernance?.();
   await modePorts.ensureIntakeGovernance?.();
   await modePorts.ensureDealPilotPrincipalGovernance?.();
+  await modePorts.ensureCapabilityApprovalGovernance?.();
   // Refresh the persistent manifest registry before constructing the pipeline.
   // In-memory mode registers the same catalog synchronously in its port factory.
   await modePorts.ensureSkillManifestCatalog?.();

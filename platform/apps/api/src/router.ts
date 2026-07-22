@@ -9667,6 +9667,16 @@ export const appRouter = t.router({
         if (proposal.status === "pending_review") {
           return { activated: false, proposal, definition: draft };
         }
+        // Hard-stop mirroring capability.approve above: only an authority-granted,
+        // auto-applied decision may archive the prior active definition and
+        // activate the draft. A `"rejected"` decision (authority denied, or the
+        // agent-floor blocked it) must never reach the mutation below.
+        if (proposal.status !== "applied") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: proposal.rejectionReason ?? "approval was not authorized",
+          });
+        }
 
         const priorActive = await ctx.wiring.organizationDefinitionStore.getActive(input.organizationId);
         if (priorActive) {
@@ -10741,6 +10751,20 @@ export const appRouter = t.router({
       );
       if (proposal.status === "pending_review") {
         return { proposal, state };
+      }
+      // Hard-stop on anything other than an authority-granted, auto-applied
+      // decision — notably `"rejected"` (authority denied the action or the
+      // agent-floor blocked it). Without this, every non-pending status fell
+      // through into the state-advance mutation below, so a DENIED approve
+      // still mutated (docs/BUGS.md "capability.approve ... mutate even when
+      // the governed decision is rejected"). `ProposalStatus` is exactly
+      // `"pending_review" | "applied" | "rejected"`, so this only ever
+      // catches `"rejected"` here.
+      if (proposal.status !== "applied") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: proposal.rejectionReason ?? "approval was not authorized",
+        });
       }
 
       // EVAL-3 (§4.2): the baseline-vs-candidate "is it better than what we
