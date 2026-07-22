@@ -1878,11 +1878,14 @@ const resourceTypeEnum = z.enum([
   "record",
   "automation",
   "module",
+  "module_installation",
+  "organization_definition",
   "file",
   "signal",
   "policy",
   "policy_param",
   "skill",
+  "capability",
   "agent",
   "role",
   "permission",
@@ -7658,13 +7661,13 @@ export const appRouter = t.router({
             organizationId: z.string().min(1),
             subject: z.string().min(1),
             body: z.string().default(""),
-            topicsByPerson: z
-              .record(z.array(z.string().min(1)).max(50))
-              .refine(
-                (value) => Object.keys(value).every((id) => z.string().uuid().safeParse(id).success),
-                "candidate Person ids must be UUIDs",
-              )
-              .refine((value) => Object.keys(value).length <= 500, "at most 500 candidate People may be routed")
+            /** WHO to consider — never their topics. Topics are derived
+             * server-side from each candidate's own Person record (`skills`),
+             * never accepted from the caller (a caller could otherwise stuff
+             * arbitrary topics onto someone else's Person to steer routing). */
+            candidatePersonIds: z
+              .array(z.string().uuid())
+              .max(500, "at most 500 candidate People may be routed")
               .optional(),
             limit: z.number().int().min(1).max(10).default(3),
           }),
@@ -7674,7 +7677,7 @@ export const appRouter = t.router({
           await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
           const candidates = (
             await Promise.all(
-              Object.entries(input.topicsByPerson ?? {}).map(async ([personId, topics]) => {
+              (input.candidatePersonIds ?? []).map(async (personId) => {
                 const person = await ctx.wiring.graphStore.getPerson(
                   input.organizationId,
                   ctx.identity.id,
@@ -7684,7 +7687,10 @@ export const appRouter = t.router({
                   ? {
                       personId: person.id,
                       displayName: person.displayName ?? "Unnamed person",
-                      topics,
+                      // Server-side topics ONLY — never caller-supplied. A
+                      // Person with no skills contributes no topics (honest
+                      // empty state, not a dummy stand-in).
+                      topics: person.skills,
                     } satisfies HelpResponderCandidate
                   : null;
               }),
@@ -9495,7 +9501,7 @@ export const appRouter = t.router({
             organizationId: input.organizationId,
             actor: { type: ctx.identity.type, id: ctx.identity.id },
             action: "approve",
-            resourceType: "skill", // organization_definitions has no dedicated ResourceType yet — same interim token capability.approve uses
+            resourceType: "organization_definition",
             resourceId: input.definitionId,
             inputs: { definitionId: input.definitionId, fromStatus: draft.status },
             skill: "stageMutation",
@@ -10570,7 +10576,7 @@ export const appRouter = t.router({
           organizationId: state.organizationId,
           actor: { type: ctx.identity.type, id: ctx.identity.id },
           action: "approve",
-          resourceType: "skill", // capability rows are not yet their own ResourceType; skill is the closest governed registry token
+          resourceType: "capability",
           resourceId: input.manifestId,
           inputs: { manifestId: input.manifestId, fromState: state.state },
           skill: "stageMutation",
@@ -11264,7 +11270,7 @@ export const appRouter = t.router({
                 organizationId: input.organizationId,
                 actor: { type: ctx.identity.type, id: ctx.identity.id },
                 action: "write",
-                resourceType: "signal", // governed install intent; module_installation is not yet a kernel ResourceType
+                resourceType: "module_installation",
                 resourceId: moduleInstallationLedgerResourceId(
                   input.organizationId,
                   installation.id,

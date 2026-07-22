@@ -231,7 +231,10 @@ function displayResourceType(value: PendingProposal['request']['resourceType']):
       return value;
     case 'file':
     case 'module':
+    case 'module_installation':
+    case 'organization_definition':
     case 'skill':
+    case 'capability':
     case 'agent':
     case 'role':
     case 'permission':

@@ -59,19 +59,20 @@ export interface PipelineDeps {
    * invocation must EITHER resolve through a registered manifest OR target a
    * resourceType/action combination that is ALREADY, structurally,
    * agent-floor-denied (`isAgentFloorDenied` — policy/policy_param/skill/
-   * agent/role/permission/ledger/delegation writes/executes/archives/
-   * approvals) — there is no silent "unregistered skill just passes through"
-   * path once this field is set, and no maintained allowlist either: the ONE
-   * exemption is DERIVED from the pre-existing, non-removable agent-floor
-   * invariant, not a separate list this module or any caller maintains. The
-   * reasoning: if NO Agent could ever perform this (action, resourceType)
-   * combination regardless of any grant (agent-floor already denies it
-   * unconditionally), then requiring an Agent+Task to perform it is
-   * nonsensical — the action is definitionally a Human-only governance
-   * decision (e.g. `capability.approve`, `blueprint.activate`,
-   * `modules.install` all propose `action:"approve"`/`"execute"` on
-   * resourceType `"skill"`, which agent-floor already forbids ANY agent from
-   * touching). Everything else — any skill on a NON-floor-protected
+   * capability/organization_definition/agent/role/permission/ledger/
+   * delegation writes/executes/archives/approvals) — there is no silent
+   * "unregistered skill just passes through" path once this field is set,
+   * and no maintained allowlist either: the ONE exemption is DERIVED from
+   * the pre-existing, non-removable agent-floor invariant, not a separate
+   * list this module or any caller maintains. The reasoning: if NO Agent
+   * could ever perform this (action, resourceType) combination regardless
+   * of any grant (agent-floor already denies it unconditionally), then
+   * requiring an Agent+Task to perform it is nonsensical — the action is
+   * definitionally a Human-only governance decision (e.g. `capability.approve`
+   * proposes `action:"approve"` on resourceType `"capability"`,
+   * `blueprint.activate` on resourceType `"organization_definition"` —
+   * both agent-floor-protected the same way `"skill"` is). Everything
+   * else — any skill on a NON-floor-protected
    * resourceType/action — must have a real manifest or is rejected, EXCEPT
    * the one reserved Human-only `KERNEL_PASSTHROUGH_SKILL` name (see its own doc
    * comment) — not a maintained allowlist, a single permanent kernel

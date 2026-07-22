@@ -97,7 +97,7 @@ async function makeAnonymousVerifiedCaller(wiring: Wiring) {
  * its own connection against the same directory. */
 async function seedFixtures(
   dir: string,
-  options: { addNewerSourceEvent?: boolean } = {},
+  options: { addNewerSourceEvent?: boolean; firstPersonSkills?: string[] } = {},
 ): Promise<{
   signalId: string;
   eventId: string;
@@ -130,6 +130,18 @@ async function seedFixtures(
       organizationId: PILOT_ORGANIZATION,
       userId: otherMember.id,
     });
+    // Only populated when a test needs a Person with real server-side skills
+    // (Helpdesk topic-routing) — every other test leaves this null, so their
+    // fixtures are byte-for-byte unchanged.
+    let firstPersonCanonicalId: string | null = null;
+    if (options.firstPersonSkills) {
+      const [canonical] = await db
+        .insert(schema.peopleCanonical)
+        .values({ skills: options.firstPersonSkills })
+        .returning({ id: schema.peopleCanonical.id });
+      firstPersonCanonicalId = canonical?.id ?? null;
+      assert.ok(firstPersonCanonicalId);
+    }
     let firstPersonId: string | null = null;
     let memberPersonId: string | null = null;
     let firstCommunityId: string | null = null;
@@ -140,6 +152,7 @@ async function seedFixtures(
           organizationId: PILOT_ORGANIZATION,
           userId: PILOT_USER,
           fullNameOverride: `test_fixture_person_${i}`,
+          ...(i === 0 && firstPersonCanonicalId ? { canonicalPersonId: firstPersonCanonicalId } : {}),
         })
         .returning({ id: schema.people.id });
       if (i === 0) firstPersonId = person?.id ?? null;
@@ -448,10 +461,10 @@ test("Helpdesk rejects malformed Person identifiers before querying UUID columns
           organizationId: PILOT_ORGANIZATION,
           subject: "Need help",
           body: "",
-          topicsByPerson: { "not-a-uuid": ["fundraising"] },
+          candidatePersonIds: ["not-a-uuid"],
           limit: 3,
         }),
-      /candidate Person ids must be UUIDs/,
+      /Invalid uuid|validation/i,
     );
     await assert.rejects(
       () =>
@@ -502,7 +515,7 @@ test("graph.listCommunities: paginates communities under the pilot organization"
 
 test("graph Relationship path resolves evidence and proposes a governed Action", async () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-graph-relationship-test-"));
-  const fixture = await seedFixtures(dir);
+  const fixture = await seedFixtures(dir, { firstPersonSkills: ["fundraising"] });
 
   const prior = process.env.BRIDGE_LOCAL_DIR;
   process.env.BRIDGE_LOCAL_DIR = dir;
@@ -544,14 +557,32 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     assert.equal(proposal.request.seed, fixture.eventId);
     assert.equal(proposal.request.actor.plane, "local");
 
+    // D6: topics come from the Person's OWN server-side `skills` (seeded
+    // above as ["fundraising"]) — the caller supplies WHO to consider, never
+    // their topics.
     const routed = await caller.relationship.helpdesk.route({
       organizationId: PILOT_ORGANIZATION,
       subject: "Fundraising support",
       body: "We need fundraising guidance.",
-      topicsByPerson: { [fixture.personId]: ["fundraising"] },
+      candidatePersonIds: [fixture.personId],
       limit: 3,
     });
     assert.equal(routed.routes[0]?.personId, fixture.personId);
+    assert.deepEqual(routed.routes[0]?.matchedTopics, ["fundraising"]);
+
+    // Caller-supplied topics can no longer drive routing: a request that only
+    // matches a caller-asserted topic (not the Person's real server-side
+    // skills) must NOT route, and any legacy `topicsByPerson` payload a
+    // caller still sends is silently ignored, never read.
+    const ignoredCallerTopics = await caller.relationship.helpdesk.route({
+      organizationId: PILOT_ORGANIZATION,
+      subject: "kubernetes crash",
+      body: "the cluster is down",
+      candidatePersonIds: [fixture.personId],
+      limit: 3,
+      topicsByPerson: { [fixture.personId]: ["kubernetes"] },
+    } as unknown as Parameters<typeof caller.relationship.helpdesk.route>[0]);
+    assert.deepEqual(ignoredCallerTopics.routes, []);
 
     const staged = await caller.relationship.helpdesk.stageAnswer({
       organizationId: PILOT_ORGANIZATION,
