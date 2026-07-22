@@ -1,5 +1,31 @@
 # Change Log
 
+- **2026-07-22 — TASK-017 runtime/package correctness backlog closed (AP-072)**: completed the
+  remaining backlog in five reviewed slices merged to `main` (`21a4ca3`, `5c5ddbe`, `e70a5f8`,
+  `49a9fff`, `5674b05`). D1 repo lint green via a DealPilot module-vocab carve-out (the
+  `no-crm-vocab` rule's `KERNEL_PATH` wrongly flagged DealPilot's own `Deal` Record vocabulary
+  after its TASK-013 relocation to `platform/modules/dealpilot/`). D3 moved the `node:vm`-using
+  `InProcessJsSandboxProvider` to a new `@bridge/core/server` entry so the web bundle no longer
+  externalizes `node:vm`. D5 added dedicated `module_installation`/`organization_definition`/
+  `capability` ResourceTypes (the ledger `resource_type` is free text — no migration) with
+  agent-floor protection and module-install authority preserved. D6 made `helpdesk.route` derive
+  responder topics from server-side `Person.skills` instead of caller-supplied topics (closes a
+  routing-manipulation vector). D8 added an idempotent `action.reconcileApproved` for general
+  approved external effects beside the existing relationship/module reconcilers. D9 scoped sensor
+  coverage to its own source (100%). D10 added injection-safe server-side View filter/sort to
+  `listPeople`/`listCommunities` (column allowlist + parameterized SQL, bounded, before
+  limit/offset). D11 was broader than catalogued — reconciled the api Relationship taint test plus
+  14 stale `@bridge/core` taint tests from the TASK-015 landing (all missing the production
+  `human_input` label). Stale D2/D4/D7 (globals.css populated / `DrizzleModuleStore` / pins removed)
+  and a stale VOCAB5 `modules` test (Relationship manifest legitimately `0.2.2`→`0.2.3` via TASK-023)
+  marked resolved. Verified by build + web typecheck + targeted tests (core 477/477, db graph-store
+  21/21, api graph-people-communities 12/12, modules 22/22, capability-governance 7/7, blueprint 6/6,
+  router-decide 10/10, sensors 100%) + repo lint exit 0; no migration (high-water `0030`).
+  Code/build/test-based, not a live browser walkthrough. Two pre-existing gaps filed not fixed:
+  payment-blocked GitHub Actions runners (root cause these regressions reached main uncaught) and
+  `capability.approve`/`organization.blueprint.activate` mutating on a `rejected` proposal. Full
+  outcome: [`outputs/2026-07-22-task017-runtime-package-correctness.md`](../outputs/2026-07-22-task017-runtime-package-correctness.md).
+
 - **2026-07-22 — Canonical progress handoff reconciled through live Render certification**:
   audited `docs/TASKS.md` and all four `docs/Progress from Manish/` handoff files against
   `origin/main@4d130736a873667a6ac561957ed0993144e19ee4`. Added exact TASK-015 PR #46,
