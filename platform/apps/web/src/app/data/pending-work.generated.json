@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T10:30:09.893Z",
+  "generatedAt": "2026-07-22T14:58:49.298Z",
   "items": [
     {
       "id": "TASK-001",
@@ -486,7 +486,7 @@
     {
       "id": "TASK-017",
       "title": "TASK-017 — Runtime and package correctness backlog",
-      "status": "pending",
+      "status": "completed",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "Package persistence/types, Helpdesk routing, browser bundling, styling, and remaining shell persistence defects are production-correct.",
@@ -510,11 +510,11 @@
         "AP-063 Render Blueprint/public-cloud boundary is a landed slice only and does not close the remaining prototype"
       ],
       "requests": [],
-      "approval": "AP-054 applied for the Supabase container/Auth slice; none for the remaining backlog",
+      "approval": "AP-054 applied for the Supabase container/Auth slice; AP-072 applied for the remaining backlog completion and closure",
       "dependencies": [
         "TASK-012"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 238,
@@ -545,7 +545,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 251,
+      "sourceLine": 252,
       "rank": 15
     },
     {
@@ -574,7 +574,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 266,
+      "sourceLine": 267,
       "rank": 16
     },
     {
@@ -609,7 +609,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 280,
+      "sourceLine": 281,
       "rank": 17
     },
     {
@@ -642,7 +642,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 294,
+      "sourceLine": 295,
       "rank": 18
     },
     {
@@ -673,7 +673,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 307,
+      "sourceLine": 308,
       "rank": 19
     },
     {
@@ -701,7 +701,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 320,
+      "sourceLine": 321,
       "rank": 20
     },
     {
@@ -728,7 +728,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 333,
+      "sourceLine": 334,
       "rank": 21
     },
     {
@@ -762,7 +762,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 346,
+      "sourceLine": 347,
       "rank": 22
     },
     {
@@ -793,7 +793,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 359,
+      "sourceLine": 360,
       "rank": 23
     },
     {
@@ -825,7 +825,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 372,
+      "sourceLine": 373,
       "rank": 24
     }
   ]

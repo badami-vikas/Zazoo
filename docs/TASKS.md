@@ -236,7 +236,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Runtime and package correctness backlog
 - ID: TASK-017
-- Status: ready
+- Status: done
 - Priority: P3
 - Horizon: Hardening
 - Outcome: Package persistence/types, Helpdesk routing, browser bundling, styling, and remaining shell persistence defects are production-correct.
@@ -244,8 +244,9 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Scope: docs/BUGS.md detailed runtime evidence
 - Evidence: BUGS in-memory package store; BUGS package resourceType skill; BUGS caller-supplied Helpdesk topics; BUGS Node vm browser leak; BUGS empty globals.css; BUGS client-only pin persistence; BUGS post-decision effect retry; BUGS 2026-07-16 baseline lint/typecheck failures; BUGS 2026-07-15 sensor coverage floor; BUGS 2026-07-19 paginated Relationship Views filter/sort only the loaded page; BUGS 2026-07-21 three stale Relationship API taint expectations; RESOLVED 2026-07-19 API container build/readiness and exact hosted Supabase Auth admission, documented in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md); AP-063 Render Blueprint/public-cloud boundary is a landed slice only and does not close the remaining prototype
 - Requests: none
-- Approval: AP-054 applied for the Supabase container/Auth slice; none for the remaining backlog
+- Approval: AP-054 applied for the Supabase container/Auth slice; AP-072 applied for the remaining backlog completion and closure
 - Dependencies: TASK-012
+- Verification: 2026-07-22 remaining backlog completed under AP-072 across five reviewed slices merged to main (`21a4ca3`, `5c5ddbe`, `e70a5f8`, `49a9fff`, `5674b05`). D1 repo lint green (DealPilot module-vocab carve-out for `no-crm-vocab` after its TASK-013 relocation to `platform/modules/`); D2/D4/D7 stale and marked RESOLVED (globals.css populated; persistent wiring composes `DrizzleModuleStore`; pins feature removed); D3 the `node:vm`-using `InProcessJsSandboxProvider` moved to a new `@bridge/core/server` entry so the web bundle no longer externalizes `node:vm`; D5 dedicated `module_installation`/`organization_definition`/`capability` ResourceTypes replace the interim signal/skill install tokens (`resource_type` is free text — no migration) with agent-floor and module-install authority preserved; D6 `helpdesk.route` derives responder topics from server-side `Person.skills` instead of caller-supplied `topicsByPerson` (closes a topic-injection routing vector); D8 an idempotent `action.reconcileApproved` completes durable approved-effect retry beside the existing relationship/module reconcilers; D9 sensor coverage scoped to its own source (100%, floor 38); D10 injection-safe server-side View filter/sort for `listPeople`/`listCommunities` (column allowlist + parameterized SQL, bounded, applied before limit/offset); D11 was broader than catalogued — the api Relationship taint test plus 14 stale `@bridge/core` taint tests from the TASK-015 landing (all missing the production `human_input` label), no quarantine weakened. Verified by build (core/db/api) + web typecheck + targeted tests (core 477/477, db graph-store 21/21, api graph-people-communities 12/12, modules 22/22, capability-governance 7/7, blueprint 6/6, router-decide 10/10, sensors own-source 100%) + repo lint exit 0; no DB migration (high-water stays `0030`). Verification is code/build/test-based, not a live browser walkthrough. Two pre-existing gaps surfaced during review were filed, not closed here: GitHub Actions runners remain payment-blocked (why these regressions reached main uncaught), and `capability.approve`/`organization.blueprint.activate` mutate on a `rejected` governed proposal (both recorded in `docs/BUGS.md`).
 
 ## DealPilot ETA core prototype
 - ID: TASK-006
