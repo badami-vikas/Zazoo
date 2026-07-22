@@ -15,6 +15,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
+import { resolveAuthority } from "@bridge/core";
 import {
   createDrizzlePorts,
   createLocalDb,
@@ -24,6 +25,7 @@ import {
   ensureIntakeAgentGovernance,
   ensureDealPilotPrincipalGovernance,
   ensureRelationshipUserGovernance,
+  ensureCapabilityApprovalPrincipalGovernance,
   schema,
 } from "../src/index.js";
 
@@ -407,6 +409,95 @@ test("persistent governance aligns Egress and Intake authority with their govern
     assert.deepEqual(await ports.agents.allowedSkills(intakeAgentId), ["google.stage"]);
     assert.equal(await ports.agents.organizationId(intakeAgentId), organizationId);
     assert.equal(await ports.agents.isActive(intakeAgentId), true);
+  } finally {
+    await close();
+  }
+});
+
+test("persistent governance idempotently provisions the pilot's capability/organization_definition approve authority, never an Agent's", async () => {
+  // docs/BUGS.md "capability.approve/organization.blueprint.activate mutate
+  // even when the governed decision is rejected" (2026-07-22 RESOLVED) —
+  // persistent-mode counterpart to `ensureDealPilotPrincipalGovernance`'s
+  // test above. Proves `ensureCapabilityApprovalPrincipalGovernance` seeds
+  // real `permissions` rows the pilot's `capability.approve`/
+  // `organization.blueprint.activate` calls need to resolve `"applied"`
+  // (rather than authority-denied `"rejected"`) once `DATABASE_URL` is set.
+  const organizationId = "b0000000-0000-4000-a000-000000000013";
+  const userId = "e0f0053b-fc44-476e-be27-1371e179e913";
+  const { db, close } = await createLocalDb();
+  try {
+    await db.insert(schema.users).values({ id: userId, email: "capability-approval-governance@test.invalid" });
+    await db.insert(schema.organizations).values({ id: organizationId, name: "Capability approval governance test" });
+
+    const config = { organizationId, userId };
+    await Promise.all(
+      Array.from({ length: 5 }, () => ensureCapabilityApprovalPrincipalGovernance(db, config)),
+    );
+    await ensureCapabilityApprovalPrincipalGovernance(db, config); // idempotent re-run
+
+    const ports = createDrizzlePorts(db);
+    const direct = await ports.roles.directGrants(organizationId, { type: "user", id: userId });
+    assert.deepEqual(
+      direct
+        .filter(
+          (grant) =>
+            grant.resourceType === "capability" || grant.resourceType === "organization_definition",
+        )
+        .map((grant) => `${grant.resourceType}:${grant.action}:${grant.effect}`)
+        .sort(),
+      ["capability:approve:allow", "organization_definition:approve:allow"],
+    );
+    // Idempotent: exactly one row per grant survives 6 total invocations, not one per call.
+    const rows = (await db.select().from(schema.permissions)).filter(
+      (row) =>
+        row.organizationId === organizationId &&
+        row.actorType === "user" &&
+        row.actorId === userId &&
+        (row.resourceType === "capability" || row.resourceType === "organization_definition"),
+    );
+    assert.equal(rows.length, 2);
+    // Pure principal grant — this seeder must never create an Agent role/agent row.
+    assert.equal((await db.select().from(schema.roles)).length, 0);
+    assert.equal((await db.select().from(schema.agents)).length, 0);
+
+    // The actual point of the grant: resolveAuthority (what `pipeline.propose()`
+    // calls internally) must now resolve "allowed" for this principal's
+    // action:"approve" on both resourceTypes — proving capability.approve/
+    // organization.blueprint.activate will get proposal.status "applied"
+    // instead of the authority-denied "rejected" that made the hard-stop
+    // guard (router.ts) throw FORBIDDEN for every pilot approval before this seed.
+    const nowISO = new Date().toISOString();
+    const authorityDeps = { roles: ports.roles, agents: ports.agents, ephemeral: ports.ephemeral, nowISO };
+    const capabilityDecision = await resolveAuthority(
+      { organizationId, actor: { type: "user", id: userId }, action: "approve", resourceType: "capability" },
+      authorityDeps,
+    );
+    assert.equal(capabilityDecision.allowed, true, capabilityDecision.reason);
+
+    const orgDefDecision = await resolveAuthority(
+      {
+        organizationId,
+        actor: { type: "user", id: userId },
+        action: "approve",
+        resourceType: "organization_definition",
+      },
+      authorityDeps,
+    );
+    assert.equal(orgDefDecision.allowed, true, orgDefDecision.reason);
+
+    // Agent-floor sanity — even with the principal now granted, an Agent actor
+    // (never seeded with this grant) must still be denied unconditionally.
+    // The floor is a structural DENY independent of any grant this seeder adds.
+    const agentDecision = await resolveAuthority(
+      {
+        organizationId,
+        actor: { type: "agent", id: "b0000000-0000-4000-a000-000000000f99" },
+        action: "approve",
+        resourceType: "capability",
+      },
+      authorityDeps,
+    );
+    assert.equal(agentDecision.allowed, false);
   } finally {
     await close();
   }

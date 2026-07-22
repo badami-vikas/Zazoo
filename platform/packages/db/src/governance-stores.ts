@@ -381,6 +381,110 @@ export async function ensureDealPilotPrincipalGovernance(
   );
 }
 
+/**
+ * Provision the Human (pilot) principal's `capability:approve`/
+ * `organization_definition:approve` authority in persistent mode — the real-DB
+ * counterpart to `apps/api/src/wiring.ts`'s in-memory `seedGovernance()` pilot
+ * direct-grant addition (docs/BUGS.md "capability.approve/
+ * organization.blueprint.activate mutate even when the governed decision is
+ * rejected", 2026-07-22 RESOLVED). `capability.approve` and
+ * `organization.blueprint.activate` each propose an `action:"approve"` request
+ * through the SAME governed pipeline every other approve uses — before this,
+ * `resolveAuthority` denied every such proposal in persistent mode (no matching
+ * grant row existed), so only the handlers' own hard-stop guard stood between
+ * a denied decision and a silent mutation; that guard now closes the mutation
+ * off correctly, but a legitimate human approval also needs somewhere to
+ * succeed. Grants ONLY the Human principal — never an Agent role. The
+ * agent-floor (`packages/core/src/agent-floor.ts`,
+ * `AGENT_FLOOR_PROTECTED_RESOURCES`) already lists both `capability` and
+ * `organization_definition` as protected resources with `approve` in
+ * `AGENT_FLOOR_MUTATIONS`, so no Agent could ever hold this authority
+ * regardless of what this function seeds.
+ */
+export async function ensureCapabilityApprovalPrincipalGovernance(
+  db: Database,
+  config: PrincipalGovernanceConfig,
+): Promise<void> {
+  return withOrganizationContext(
+    db,
+    { organizationId: config.organizationId, userId: config.userId },
+    async (db) => {
+  const grants = [
+    { resourceType: "capability" as const, action: "approve" as const },
+    { resourceType: "organization_definition" as const, action: "approve" as const },
+  ];
+  for (const grant of grants) {
+    const existing = await db
+      .select({ id: permissions.id })
+      .from(permissions)
+      .where(
+        and(
+          eq(permissions.organizationId, config.organizationId),
+          eq(permissions.actorType, "user"),
+          eq(permissions.actorId, config.userId),
+          eq(permissions.resourceType, grant.resourceType),
+          eq(permissions.action, grant.action),
+          eq(permissions.effect, "allow"),
+          isNull(permissions.resourceId),
+          isNull(permissions.revokedAt),
+        ),
+      )
+      .limit(1);
+    if (!existing[0]) {
+      const id = stableGovernanceId(
+        `principal:${config.organizationId}:${config.userId}:${grant.resourceType}:${grant.action}`,
+      );
+      await db
+        .insert(permissions)
+        .values({
+          id,
+          organizationId: config.organizationId,
+          actorType: "user",
+          actorId: config.userId,
+          resourceType: grant.resourceType,
+          resourceId: null,
+          action: grant.action,
+          effect: "allow",
+          grantedBy: config.userId,
+        })
+        .onConflictDoUpdate({
+          target: permissions.id,
+          set: {
+            organizationId: config.organizationId,
+            actorType: "user",
+            actorId: config.userId,
+            resourceType: grant.resourceType,
+            resourceId: null,
+            action: grant.action,
+            effect: "allow",
+            grantedBy: config.userId,
+            revokedAt: null,
+          },
+        });
+    }
+  }
+
+  const direct = await new DrizzleRoleStore(db).directGrants(
+    config.organizationId,
+    { type: "user", id: config.userId },
+  );
+  if (
+    !grants.every((expected) =>
+      direct.some(
+        (actual) =>
+          actual.resourceType === expected.resourceType &&
+          actual.resourceId === null &&
+          actual.action === expected.action &&
+          actual.effect === "allow",
+      ),
+    )
+  ) {
+    throw new Error("Persistent capability-approval principal governance provisioning failed verification");
+  }
+    },
+  );
+}
+
 /** Idempotently grants only the Human principal the governed Relationship surface. */
 export async function ensureRelationshipUserGovernance(
   db: Database,
