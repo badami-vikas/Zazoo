@@ -19,6 +19,8 @@ import {
   type Skill,
   type PostCommitEffect,
   type PostCommitPolicyResult,
+  hashTaintValue,
+  labelAtSource,
 } from "../src/index.js";
 
 /**
@@ -85,10 +87,29 @@ function harness(opts?: { policies?: PolicyFn[] }) {
   return { roles, agents, ephemeral, policies, ledger, events, skills, variance, pipeline };
 }
 
+/**
+ * Mirrors context.ts's `makeContextFactory`, which attaches a `human_input`-derived
+ * taintLabel to `ctx.run` for every authenticated request. This harness builds the
+ * RunCtx directly (bypassing that factory), so it must reproduce the SAME label a
+ * genuine authenticated request always carries — otherwise ADR-142's fail-closed
+ * unknown-taint-axis quarantine (taint.ts's `evaluateTaintSink`) misclassifies a real
+ * authenticated turn as unlabeled/untrusted and blocks the `skill_execution` sink for
+ * the `echo` skill (which does not set `executionClass: "pure_data"`).
+ */
 function freshCtx(startISO = "2026-06-01T00:00:00.000Z", seed = 42): RunCtx {
   const clock = new FixedClock(startISO);
   const rng = new SeededRng(seed);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
+  return {
+    clock,
+    rng,
+    ids: new UuidGen(clock, rng),
+    taintLabel: labelAtSource("human_input", {
+      ref: "test-fixture:authenticated-caller",
+      valueHash: hashTaintValue("test-fixture-authenticated-caller"),
+      sensitivity: "organization",
+      instructionRisk: "none",
+    }),
+  };
 }
 
 function req(partial: Partial<ActionRequest>): ActionRequest {
