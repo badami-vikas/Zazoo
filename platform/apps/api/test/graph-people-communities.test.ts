@@ -24,6 +24,8 @@ import {
   SeededRng,
   SystemClock,
   UuidGen,
+  hashTaintValue,
+  labelAtSource,
   type Actor,
   type RunCtx,
 } from "@bridge/core";
@@ -35,10 +37,36 @@ import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src
 
 const FIXTURE_COUNT = 5;
 
-function makeRun(): RunCtx {
+/**
+ * `authenticated` mirrors context.ts's `makeContextFactory`, which attaches a
+ * `human_input`-derived taintLabel to `ctx.run` for every authenticated
+ * request (and none for an anonymous/tokenless one). This harness calls
+ * `appRouter.createCaller()` directly, bypassing that factory, so it must
+ * reproduce the SAME label an authenticated request always gets — otherwise
+ * ADR-142's fail-closed unknown-taint-axis quarantine (taint.ts's
+ * `evaluateTaintSink`) misclassifies a genuine authenticated Human turn as
+ * unlabeled/untrusted and blocks any non-`pure_data` Skill run under an agent
+ * actor (see `relationship.help-request.stage-offer`/`stageCapture`, neither
+ * of which sets `executionClass: "pure_data"`).
+ */
+function makeRun(options: { authenticated?: boolean } = {}): RunCtx {
   const clock = new SystemClock();
   const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
+  return {
+    clock,
+    rng,
+    ids: new UuidGen(clock, rng),
+    ...(options.authenticated !== false
+      ? {
+          taintLabel: labelAtSource("human_input", {
+            ref: "test-fixture:authenticated-caller",
+            valueHash: hashTaintValue("test-fixture-authenticated-caller"),
+            sensitivity: "organization",
+            instructionRisk: "none",
+          }),
+        }
+      : {}),
+  };
 }
 
 async function makeCaller(
@@ -57,7 +85,7 @@ async function makeCaller(
 async function makeAnonymousVerifiedCaller(wiring: Wiring) {
   return appRouter.createCaller({
     wiring,
-    run: makeRun(),
+    run: makeRun({ authenticated: false }),
     identity: { type: "user", id: PILOT_USER },
     authenticated: false,
     verifying: true,
@@ -960,7 +988,13 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.ok(concurrentMaterialization);
     assert.equal(concurrentLostResponseRetry.id, decided.id);
     assert.equal(concurrentLostResponseRetry.recordedDecision, "edit");
-    assert.deepEqual(concurrentLostResponseRetry.output, decided.output);
+    // An already-resolved retry echoes `proposalFromResolvedRelationshipLedger`'s
+    // sanitized shape (proposedOutput + diff only, no taintLabel/trustOrigin),
+    // never the fresh pipeline.decide() output that produced `decided` — the two
+    // intentionally differ in audit-metadata shape under ADR-142 (see taint.ts);
+    // the substantive committed content must still match exactly.
+    assert.deepEqual(concurrentLostResponseRetry.output?.proposedOutput, decided.output?.proposedOutput);
+    assert.deepEqual(concurrentLostResponseRetry.output?.diff, decided.output?.diff);
     assert.equal(concurrentLostResponseRetry.effectsStatus, "failed");
     assert.equal(
       concurrentMaterialization.status,
@@ -982,7 +1016,9 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     });
     assert.equal(lostResponseRetry.id, decided.id);
     assert.equal(lostResponseRetry.recordedDecision, "edit");
-    assert.deepEqual(lostResponseRetry.output, decided.output);
+    // Same sanitized-replay-shape distinction as the concurrent retry above.
+    assert.deepEqual(lostResponseRetry.output?.proposedOutput, decided.output?.proposedOutput);
+    assert.deepEqual(lostResponseRetry.output?.diff, decided.output?.diff);
     assert.equal(lostResponseRetry.effectsStatus, "confirmed");
     assert.deepEqual(lostResponseRetry.relationshipMaterialization, {
       status: "confirmed",
@@ -1010,7 +1046,9 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       editedOutput: { kind: "test_fixture_invalid_after_resolution" },
     });
     assert.equal(immutableEditReplay.id, decided.id);
-    assert.deepEqual(immutableEditReplay.output, decided.output);
+    // Same sanitized-replay-shape distinction as the concurrent retry above.
+    assert.deepEqual(immutableEditReplay.output?.proposedOutput, decided.output?.proposedOutput);
+    assert.deepEqual(immutableEditReplay.output?.diff, decided.output?.diff);
     assert.ok("relationshipMaterialization" in immutableEditReplay);
     assert.deepEqual(immutableEditReplay.relationshipMaterialization, {
       status: "confirmed",
