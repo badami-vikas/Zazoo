@@ -10,10 +10,12 @@ import {
   type BuilderPrimitiveRequest,
 } from "../src/capability/builder-primitives.js";
 import {
-  InProcessJsSandboxProvider,
   NotImplementedContainerSandboxProvider,
   type SandboxProvider,
 } from "../src/capability/sandbox-provider.js";
+// InProcessJsSandboxProvider lives at ../src/server.ts (TASK-017 D3) — see
+// sandbox-provider.test.ts's import comment for why.
+import { InProcessJsSandboxProvider } from "../src/server.js";
 
 function test_fixture_grant(overrides: Partial<BuilderPrimitiveGrant> = {}): BuilderPrimitiveGrant {
   return {
