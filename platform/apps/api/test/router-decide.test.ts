@@ -335,6 +335,111 @@ test("action.decide reports post-decision effect failures without losing the rec
   }
 });
 
+/**
+ * D8 (BUGS.md "approved external effects have no durable retry executor",
+ * OPEN 2026-07-16) — verifies the GAP the bug described (a non-Relationship,
+ * non-Module-install proposal whose post-decision effect fails could never be
+ * retried — `action.decide` called again just reports CONFLICT) and that
+ * `action.reconcileApproved` closes it: it replays ONLY the post-decision
+ * effect, reusing the already-persisted approval/decision, and never creates
+ * a second review decision.
+ */
+test("action.reconcileApproved durably retries a failed post-decision effect without a second review decision", async () => {
+  const wiring = await buildWiring();
+  try {
+    grantShareEvent(wiring);
+    let onApprovedCalls = 0;
+    let failNextCall = true;
+    const originalOnApproved = wiring.google.onApproved.bind(wiring.google);
+    wiring.google.onApproved = async (...args: Parameters<typeof originalOnApproved>) => {
+      onApprovedCalls += 1;
+      if (failNextCall) {
+        failNextCall = false;
+        throw new Error("test_fixture_reconcile_provider_unavailable");
+      }
+      return originalOnApproved(...args);
+    };
+    const caller = makeCaller(wiring);
+    const proposed = await caller.action.propose({
+      organizationId: PILOT_ORGANIZATION,
+      actor: { type: "user", id: PILOT_USER },
+      action: "share",
+      resourceType: "event",
+      inputs: { note: "test_fixture_reconcile_effect" },
+      skill: "stageMutation",
+    });
+    assert.equal(proposed.status, "pending_review");
+
+    const decided = await caller.action.decide({
+      proposalId: proposed.id,
+      decision: "approve",
+    });
+    assert.equal(decided.status, "applied");
+    assert.equal(decided.effectsStatus, "failed");
+    assert.match(decided.effectsError, /reconcile_provider_unavailable/);
+    assert.equal(onApprovedCalls, 1);
+    const originalDecision = await wiring.ledger.decisionFor(proposed.id);
+    assert.equal(originalDecision?.userDecision, "approve");
+
+    // The exact pre-existing gap: this proposal is neither a Relationship
+    // nor a capture-intake proposal, so `action.decide` cannot replay it —
+    // calling it again on an already-resolved proposal just reports CONFLICT.
+    await assert.rejects(
+      () => caller.action.decide({ proposalId: proposed.id, decision: "approve" }),
+      (error: unknown) => error instanceof TRPCError && error.code === "CONFLICT",
+    );
+
+    const reconciled = await caller.action.reconcileApproved({ proposalId: proposed.id });
+    assert.equal(reconciled.effectsStatus, "confirmed");
+    assert.equal(onApprovedCalls, 2);
+
+    // No second review decision was created: same original decision row.
+    const decisionAfterReconcile = await wiring.ledger.decisionFor(proposed.id);
+    assert.equal(decisionAfterReconcile?.id, originalDecision?.id);
+    assert.equal(decisionAfterReconcile?.userDecision, "approve");
+    assert.deepEqual(
+      await caller.action.resolution({ proposalId: proposed.id }),
+      { status: "resolved", decision: "approve" },
+    );
+
+    // Idempotent: reconciling again after it already succeeded safely replays.
+    const reconciledAgain = await caller.action.reconcileApproved({ proposalId: proposed.id });
+    assert.equal(reconciledAgain.effectsStatus, "confirmed");
+    assert.equal(onApprovedCalls, 3);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("action.reconcileApproved rejects a non-approved decision and an unknown proposal", async () => {
+  const wiring = await buildWiring();
+  try {
+    grantShareEvent(wiring);
+    const caller = makeCaller(wiring);
+    const vetoed = await caller.action.propose({
+      organizationId: PILOT_ORGANIZATION,
+      actor: { type: "user", id: PILOT_USER },
+      action: "share",
+      resourceType: "event",
+      inputs: { note: "test_fixture_reconcile_vetoed" },
+      skill: "stageMutation",
+    });
+    assert.equal(vetoed.status, "pending_review");
+    await caller.action.decide({ proposalId: vetoed.id, decision: "veto" });
+
+    await assert.rejects(
+      () => caller.action.reconcileApproved({ proposalId: vetoed.id }),
+      (error: unknown) => error instanceof TRPCError && error.code === "BAD_REQUEST",
+    );
+    await assert.rejects(
+      () => caller.action.reconcileApproved({ proposalId: "00000000-0000-4000-8000-000000000099" }),
+      (error: unknown) => error instanceof TRPCError && error.code === "NOT_FOUND",
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("action.proposeOutreachDraft binds the server-owned Agent to the authenticated user", async () => {
   const wiring = await buildWiring();
   try {
