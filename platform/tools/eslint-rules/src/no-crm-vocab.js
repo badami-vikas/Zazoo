@@ -9,12 +9,18 @@
  * apps/api) keeps this ban by default. ORGANIZATION scope (compiled products under tools/*, the
  * generated-organization UI under apps/web) may use domain vocabulary — e.g.
  * modules/dealpilot's "Deal" identifiers are DealPilot's own compiled-product
- * vocabulary, not a violation. Module-scoped API identifiers are explicitly
- * allowlisted below so the monolithic API composition root does not turn "Deal"
- * into a generic Engine primitive. The scoping lives HERE (in the rule, via
- * `context.filename`) rather than in eslint.config.js's `files` globs, so the rule
- * stays self-contained and correct regardless of how it's wired into any given
- * flat-config file list.
+ * vocabulary, not a violation. Concretely, modules/dealpilot/** (the module's OWN
+ * source, relocated here from tools/dealpilot/ by TASK-013) is carved out of KERNEL
+ * scope entirely — see DEALPILOT_MODULE_PATH / isKernelScope below — so DealProfile,
+ * DealStage, DEAL_STAGE_OPTIONS, dealsTableSpec, etc. are unflagged there. Every OTHER
+ * module under modules/* (e.g. modules/jobpilot) stays KERNEL scope by default; only
+ * DealPilot's own directory gets the carve-out. Separately, a small set of
+ * Module-scoped API identifiers used from apps/api's composition root (which itself
+ * remains KERNEL scope) are explicitly allowlisted below so that root does not turn
+ * "Deal" into a generic Engine primitive while still calling DealPilot's own Module
+ * Record APIs by name. The scoping lives HERE (in the rule, via `context.filename`)
+ * rather than in eslint.config.js's `files` globs, so the rule stays self-contained
+ * and correct regardless of how it's wired into any given flat-config file list.
  *
  * Scope decision (see docs/raw/decisions-log.md 2026-07-05 entry): "Pipeline" is
  * DELIBERATELY EXCLUDED from this rule's banned-word list. `UniversalActionPipeline`,
@@ -81,9 +87,20 @@ function containsBannedDeal(filename, name) {
  */
 const KERNEL_PATH = /(^|\/)modules\/[^/]+\/.*|(^|\/)apps\/api\/.*/;
 
+/**
+ * DealPilot's own module source (platform/modules/dealpilot/**) is ORGANIZATION
+ * scope, not KERNEL scope — it is DealPilot's own compiled-product Module Record
+ * vocabulary (DealProfile, DealStage, DEAL_STAGE_OPTIONS, dealsTableSpec, etc.), not
+ * generic Engine vocabulary. This carve-out is intentionally narrower than "all of
+ * modules/*": every other module (e.g. modules/jobpilot) is unaffected and remains
+ * KERNEL scope.
+ */
+const DEALPILOT_MODULE_PATH = /(^|\/)modules\/dealpilot\/.*/;
+
 function isKernelScope(filename) {
   if (!filename) return false;
   const normalized = filename.replace(/\\/g, "/");
+  if (DEALPILOT_MODULE_PATH.test(normalized)) return false;
   return KERNEL_PATH.test(normalized);
 }
 
