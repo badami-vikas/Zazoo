@@ -7,6 +7,8 @@ import {
   InMemoryPolicyStore, InMemoryLedger, InMemoryEventBus,
   InMemorySkillRegistry, RecordingVarianceAdjuster,
   stageCapture,
+  hashTaintValue,
+  labelAtSource,
   type RunCtx, type ActionRequest,
 } from "../src/index.js";
 
@@ -32,10 +34,34 @@ function harness() {
   ]);
   return { roles, agents, ledger, events, pipeline };
 }
+/**
+ * Mirrors context.ts's `makeContextFactory`, which attaches a `human_input`-derived
+ * taintLabel to `ctx.run` for EVERY authenticated request — including the real
+ * `capture.stage` tRPC procedure (router.ts), which threads `ctx.run` straight into
+ * `pipeline.propose()` with no additional `req.taintLabel` of its own (the raw media
+ * blob never enters the pipeline at all; only `local_media_id` + already-authenticated
+ * caption/ocrText metadata do). This harness builds the RunCtx directly (bypassing
+ * that factory), so it must reproduce the SAME label a genuine authenticated capture
+ * request always carries — otherwise ADR-142's fail-closed unknown-taint-axis
+ * quarantine (taint.ts's `evaluateTaintSink`) misclassifies a real authenticated
+ * capture turn as unlabeled/untrusted and blocks the `skill_execution` sink for
+ * `stageCapture` (which does not set `executionClass: "pure_data"`) — see
+ * graph-people-communities.test.ts's identical `makeRun()` fix for this same skill.
+ */
 function ctx(): RunCtx {
   const c = new FixedClock("2026-06-20T00:00:00.000Z");
   const r = new SeededRng(7);
-  return { clock: c, rng: r, ids: new UuidGen(c, r) };
+  return {
+    clock: c,
+    rng: r,
+    ids: new UuidGen(c, r),
+    taintLabel: labelAtSource("human_input", {
+      ref: "test-fixture:authenticated-caller",
+      valueHash: hashTaintValue("test-fixture-authenticated-caller"),
+      sensitivity: "organization",
+      instructionRisk: "none",
+    }),
+  };
 }
 function captureReq(partial: Partial<ActionRequest> = {}): ActionRequest {
   return {
