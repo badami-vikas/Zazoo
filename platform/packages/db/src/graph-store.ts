@@ -218,6 +218,10 @@ export interface PersonDetail extends PersonRecord {
   bio: string | null;
   avatarUrl: string | null;
   emails: string[];
+  /** Server-side skills/topics (peopleCanonical.skills — no per-org override
+   * column exists yet). Drives Helpdesk topic-routing matching; a Person with
+   * none contributes an empty array, never a caller-supplied stand-in. */
+  skills: string[];
 }
 
 export interface CommunityDetail extends CommunityRecord {}
@@ -2566,6 +2570,7 @@ export class DrizzleGraphStore {
         END`,
         avatarUrl: sql<string | null>`coalesce(${people.avatarUrlOverride}, ${peopleCanonical.avatarUrl})`,
         emails: sql<string[]>`coalesce(${people.emailsOverride}, ${peopleCanonical.emails}, ARRAY[]::text[])`,
+        skills: sql<string[]>`coalesce(${peopleCanonical.skills}, ARRAY[]::text[])`,
       })
       .from(people)
       .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
@@ -2623,6 +2628,7 @@ export class DrizzleGraphStore {
         END`,
         avatarUrl: sql<string | null>`coalesce(${people.avatarUrlOverride}, ${peopleCanonical.avatarUrl})`,
         emails: sql<string[]>`coalesce(${people.emailsOverride}, ${peopleCanonical.emails}, ARRAY[]::text[])`,
+        skills: sql<string[]>`coalesce(${peopleCanonical.skills}, ARRAY[]::text[])`,
       })
       .from(people)
       .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))

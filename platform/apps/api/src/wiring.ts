@@ -3116,6 +3116,11 @@ function seedGovernance(
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "module", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "module", resourceId: null, action: "write", effect: "allow" },
+    // modules.install's governed propose() call moved off the interim
+    // "signal" token onto its own dedicated resourceType (D5/TASK-017) —
+    // carries the SAME write grant "signal" held so authority for the
+    // module-install proposal is unchanged.
+    { resourceType: "module_installation", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "relation", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "relation", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "record", resourceId: null, action: "read", effect: "allow" },
