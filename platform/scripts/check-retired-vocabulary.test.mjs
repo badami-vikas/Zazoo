@@ -190,6 +190,20 @@ test("technical DOM and projection identifiers stay classified without allowing 
   assert.equal(forbidden.element["packages/core/src/record.ts"].identifier, 1);
 });
 
+test("the npm manifest filename is allowed only at the reviewed desktop bundle seam", () => {
+  const allowed = inventoryForSource(
+    "apps/desktop/scripts/prepare-bundle.mjs",
+    `const manifest = join(root, "package.json");`,
+  );
+  assert.equal(allowed.package, undefined);
+
+  const blocked = inventoryForSource(
+    "apps/web/src/app/blocked.ts",
+    `export const label = "package.json";`,
+  );
+  assert.equal(blocked.package["apps/web/src/app/blocked.ts"].string, 1);
+});
+
 test("Rust and SQL scanners cover identifiers and strings without counting comments", () => {
   const rust = inventoryForSource(
     "apps/desktop/src-tauri/src/probe.rs",

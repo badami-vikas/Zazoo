@@ -1,5 +1,16 @@
 # Change Log
 
+- **2026-07-25 — Hosted wake/Auth ordering hardened (ADR-145, AP-075)**:
+  the remote API now wakes before Supabase session read and bearer construction, preventing a
+  near-expiry token from aging through the bounded cold start. Organization activation is
+  single-flight per Auth subject; duplicate initial and token-refresh events update session state
+  without duplicate activation mutations. Query-only replay, mutation non-replay, and loopback
+  sidecar behavior remain intact. Focused and full web tests, typecheck, lint, build, and independent
+  review pass. The same gate pass adds one exact technical vocabulary allow for npm's mandatory
+  `package.json` filename at the desktop bundle seam and removes a retired term from its test title;
+  product use remains rejected everywhere else. Live natural-cold/Auth certification and exact
+  deployed-source evidence follow.
+
 - **2026-07-25 — Reliability remediation deployed and live Supabase rechecked (AP-074)**:
   committed/pushed `015716c`; Render API deploy `dep-d9i6bbt0kf9s73baeuc0` and web deploy
   `dep-d9i6bbq4hv7c73bmsrvg` are live. Warm web/liveness/readiness and exact-origin CORS passed with

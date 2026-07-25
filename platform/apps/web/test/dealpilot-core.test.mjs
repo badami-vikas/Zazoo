@@ -5,6 +5,10 @@ import test from "node:test";
 const pageSource = await readFile(new URL("../src/app/pages/DealPilotPage.tsx", import.meta.url), "utf8");
 const routeSource = await readFile(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
 const trpcSource = await readFile(new URL("../src/app/lib/trpc.ts", import.meta.url), "utf8");
+const authorizationSource = await readFile(
+  new URL("../src/app/lib/api-authorization.ts", import.meta.url),
+  "utf8",
+);
 const transportSource = await readFile(
   new URL("../src/app/lib/api-transport.ts", import.meta.url),
   "utf8",
@@ -52,9 +56,10 @@ test("Source credentials require re-authentication and are never persisted by th
   assert.match(formSource, /type=\{col\.sensitive \? "password" : "text"\}/);
   assert.match(formSource, /autoComplete=\{col\.sensitive \? "new-password" : undefined\}/);
   assert.doesNotMatch(pageSource, /sessionStorage|localStorage/);
+  assert.match(trpcSource, /sidecarToken:[\s\S]*__BRIDGE_SIDECAR_TOKEN__/);
   assert.match(
-    trpcSource,
-    /x-bridge-sidecar-token.*__BRIDGE_SIDECAR_TOKEN__/s,
+    authorizationSource,
+    /"x-bridge-sidecar-token": options\.sidecarToken/,
   );
 });
 

@@ -184,6 +184,14 @@ function scopedDefinition(family, definition, relativePath) {
 }
 
 function isAllowedTechnicalUse(family, relativePath, value, kind) {
+  if (
+    family === "package" &&
+    kind === "string" &&
+    relativePath === "apps/desktop/scripts/prepare-bundle.mjs" &&
+    value === "package.json"
+  ) {
+    return true;
+  }
   if (family === "workspace" && kind === "string") {
     if (
       relativePath === "packages/db/src/client-local.ts" &&

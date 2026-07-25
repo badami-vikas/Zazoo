@@ -10,6 +10,10 @@ const approvalsPage = readFileSync(new URL("../src/app/pages/ApprovalsPage.tsx",
 const signalsPage = readFileSync(new URL("../src/app/pages/SignalsPage.tsx", import.meta.url), "utf8");
 const layout = readFileSync(new URL("../src/app/Layout.tsx", import.meta.url), "utf8");
 const trpcClient = readFileSync(new URL("../src/app/lib/trpc.ts", import.meta.url), "utf8");
+const apiAuthorization = readFileSync(
+  new URL("../src/app/lib/api-authorization.ts", import.meta.url),
+  "utf8",
+);
 const pagination = readFileSync(new URL("../src/app/lib/pagination.ts", import.meta.url), "utf8");
 const ledgerData = readFileSync(new URL("../src/app/data/ledger.ts", import.meta.url), "utf8");
 const executionLedger = readFileSync(new URL("../src/app/components/ExecutionLedger.tsx", import.meta.url), "utf8");
@@ -146,7 +150,7 @@ test("375px Settings and Approvals keep governed actions in the visible content 
 
 test("private Relationship requests forward the authenticated Supabase session", () => {
   assert.match(trpcClient, /supabase\.auth\.getSession/);
-  assert.match(trpcClient, /authorization: `Bearer \$\{token\}`/);
+  assert.match(apiAuthorization, /authorization: `Bearer \$\{accessToken\}`/);
   assert.match(trpcClient, /headers: trpcAuthorizationHeaders/);
   assert.match(trpcClient, /methodOverride: "POST"/);
 });

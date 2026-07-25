@@ -4,6 +4,14 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-25 — Wake before bearer capture (ADR-145, AP-075)
+- Remote wake first. Supabase session second. Bearer last.
+- Same Auth subject activates Organization once.
+- Token refresh updates session. No duplicate activation mutation.
+- Sign-out/subject switch invalidates pending activation.
+- Query replay rule unchanged. Mutation never replays.
+- Desktop loopback remains wake-free. Sidecar token stays.
+
 ## 2026-07-24 — Reliability boundaries fail closed (ADR-144, AP-073)
 - Remote wake: bounded, single-flight liveness.
 - Query may replay once. Mutation never.

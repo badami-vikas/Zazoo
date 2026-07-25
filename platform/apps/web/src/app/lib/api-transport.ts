@@ -252,6 +252,9 @@ const bridgeApiTransport = createApiTransport({
 
 export const apiFetch = bridgeApiTransport.fetch;
 export const apiQueryFetch = bridgeApiTransport.fetchReplaySafe;
+export function ensureApiReady(): Promise<void> {
+  return bridgeApiTransport.ensureReady();
+}
 export function getApiRecoveryState(): ApiRecoveryState {
   return recoveryState;
 }

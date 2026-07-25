@@ -32,7 +32,7 @@ test("supported installer preparation fails closed on Windows", () => {
   assert.equal(unsupportedInstallerReason("linux"), null);
 });
 
-test("macOS keyring loader delegates to the signed Framework without the broken package override", () => {
+test("macOS keyring loader delegates to the signed Framework without the broken generated-loader override", () => {
   assert.match(MAC_NATIVE_KEYRING_LOADER, /BRIDGE_KEYRING_NATIVE_LIBRARY/);
   assert.match(MAC_NATIVE_KEYRING_LOADER, /process\.dlopen/);
   assert.doesNotMatch(MAC_NATIVE_KEYRING_LOADER, /NAPI_RS_NATIVE_LIBRARY_PATH/);

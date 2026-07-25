@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T07:21:58.132Z",
+  "generatedAt": "2026-07-25T07:48:38.643Z",
   "items": [
     {
       "id": "TASK-001",
@@ -577,7 +577,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 267,
+      "sourceLine": 268,
       "rank": 16
     },
     {
@@ -612,7 +612,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 281,
+      "sourceLine": 282,
       "rank": 17
     },
     {
@@ -647,7 +647,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 295,
+      "sourceLine": 296,
       "rank": 18
     },
     {
@@ -678,7 +678,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 308,
+      "sourceLine": 309,
       "rank": 19
     },
     {
@@ -701,7 +701,8 @@
         "rejects secrets/stale/wrong-target inputs",
         "signs the macOS Keyring from Frameworks with Node entitlements",
         "disables unsupported Windows installers while retaining compile checks",
-        "and launches a 349 MB portable `Bridge.app` from Finder-like PATH through restart-stable Local Plane Onboarding and visible Lion overlay. TASK-018 remains `blocked`: real Developer ID/notarization, Windows secure listener inheritance/installers, the full physical OS matrix, and mobile are not complete. Queue order/status is unchanged."
+        "and launches a 349 MB portable `Bridge.app` from Finder-like PATH through restart-stable Local Plane Onboarding and visible Lion overlay. A 2026-07-25 review caught the signed Framework's broken `NAPI_RS_NATIVE_LIBRARY_PATH` load path before deployment",
+        "the generated architecture package now uses a reviewed `process.dlopen` bridge, and final-bundle verification proves packaged Node can import `@napi-rs/keyring` and construct `AsyncEntry` with no native addon left in Resources. TASK-018 remains `blocked`: real Developer ID/notarization, Windows secure listener inheritance/installers, the full physical OS matrix, and mobile are not complete. Queue order/status is unchanged."
       ],
       "requests": [
         "cross-platform roadmap work"
@@ -713,7 +714,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 321,
+      "sourceLine": 322,
       "rank": 20
     },
     {
@@ -740,7 +741,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 334,
+      "sourceLine": 335,
       "rank": 21
     },
     {
@@ -774,7 +775,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 347,
+      "sourceLine": 348,
       "rank": 22
     },
     {
@@ -805,7 +806,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 360,
+      "sourceLine": 361,
       "rank": 23
     },
     {
@@ -837,7 +838,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 373,
+      "sourceLine": 374,
       "rank": 24
     }
   ]

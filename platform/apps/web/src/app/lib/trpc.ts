@@ -6,7 +6,13 @@
 import { createTRPCClient, httpBatchLink, splitLink } from "@trpc/client";
 import type { AppRouter } from "@bridge/api";
 import { SUPABASE_CONFIGURED, supabase } from "./supabase";
-import { API_URL, apiFetch, apiQueryFetch } from "./api-transport";
+import { buildApiAuthorizationHeaders } from "./api-authorization";
+import {
+  API_URL,
+  apiFetch,
+  apiQueryFetch,
+  ensureApiReady,
+} from "./api-transport";
 
 /**
  * API URL resolution order (R-001 offline desktop):
@@ -23,20 +29,16 @@ export async function trpcAuthorizationHeaders(): Promise<Record<string, string>
   if (!API_TRANSPORT_CONFIGURED) {
     throw new Error("Bridge API transport is not configured");
   }
-  let token: string | undefined;
-  if (SUPABASE_CONFIGURED) {
-    const { data, error } = await supabase.auth.getSession();
-    if (error) {
-      throw new Error(`Could not read the authenticated Supabase session: ${error.message}`);
-    }
-    token = data.session?.access_token;
-  }
-  return {
-    ...(token ? { authorization: `Bearer ${token}` } : {}),
-    ...(typeof window !== "undefined" && window.__BRIDGE_SIDECAR_TOKEN__
-      ? { "x-bridge-sidecar-token": window.__BRIDGE_SIDECAR_TOKEN__ }
-      : {}),
-  };
+  return buildApiAuthorizationHeaders({
+    ensureReady: ensureApiReady,
+    readSession: SUPABASE_CONFIGURED
+      ? () => supabase.auth.getSession()
+      : undefined,
+    sidecarToken:
+      typeof window !== "undefined"
+        ? window.__BRIDGE_SIDECAR_TOKEN__
+        : undefined,
+  });
 }
 
 function createHttpBatchLink(fetchImpl: typeof apiFetch) {
