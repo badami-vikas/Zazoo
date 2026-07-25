@@ -1,5 +1,16 @@
 # Change Log
 
+- **2026-07-25 — Reliability remediation deployed and live Supabase rechecked (AP-074)**:
+  committed/pushed `015716c`; Render API deploy `dep-d9i6bbt0kf9s73baeuc0` and web deploy
+  `dep-d9i6bbq4hv7c73bmsrvg` are live. Warm web/liveness/readiness and exact-origin CORS passed with
+  zero post-deploy runtime errors. Supabase remains `ACTIVE_HEALTHY`, PostgreSQL 17.6, 15.06 MB,
+  55 public tables, about 108 estimated rows, two observed runtime connections, 41 RLS-enabled
+  tables, zero policyless RLS tables, 141 policies, healthy GoTrue, and least-privilege
+  `bridge_app`. A 65-second window containing 19 Render `/health` probes added zero
+  `bridge_app` statements, rows, or execution time, proving cheap liveness removed the prior
+  readiness pressure. No tier, secret, configuration, or production data changed. Natural-cold,
+  current exact-375px, and Auth-refresh checks remain OPEN.
+
 - **2026-07-24 — Hosted/desktop reliability remediation and governed Onboarding completed (ADR-144, AP-073)**:
   remote API wake is visible, single-flight, bounded, and read-replay-only; Render probes cheap
   liveness. Desktop development is orchestrated; supported release bundles own allowlisted API +

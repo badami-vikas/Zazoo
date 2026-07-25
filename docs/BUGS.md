@@ -55,7 +55,7 @@ TASK-018; neither task status/order changed.
 ## OPEN 2026-07-24 — Public Render deployment still lacks reviewed wake recovery, and prior readiness probes dominate Bridge's avoidable database calls
 **User report (verbatim):** “there have been some changes done. I see that the website is flaky, it runs sometimes and doesnt sometimes. Check what is eating the limits of supabase. Also the local desktop is broken, can you check what is the issue on both sides and let me know.”
 
-The free static site and API are separate: the static shell remained reachable, while API-dependent behavior inherits the free Docker service's sleep/wake boundary. Render logs show 11 API starts since the July 22 deployment and repeated runtime windows ending around the free tier's idle boundary. The deployed API/web source remains `163562a`, both services have `autoDeploy: no`, and current `main` is `cbffa3ed`; the public deployment therefore does not contain later main changes. A warm `/health/ready` request returned `200` in 0.947 seconds. A natural cold request could not be isolated during the final sample because an active web page was issuing tRPC traffic and keeping the service warm. Historical provider startup windows, not a successful warm spot check, are the cold/wake evidence.
+The free static site and API are separate: the static shell remained reachable, while API-dependent behavior inherits the free Docker service's sleep/wake boundary. At diagnosis, Render logs showed 11 API starts since the July 22 deployment and repeated runtime windows ending around the free tier's idle boundary. The deployed API/web source was `163562a`, both services had `autoDeploy: no`, and current `main` was `cbffa3ed`; the public deployment therefore did not contain later main changes. A warm `/health/ready` request returned `200` in 0.947 seconds. A natural cold request could not be isolated during the final sample because an active web page was issuing tRPC traffic and keeping the service warm. Historical provider startup windows, not a successful warm spot check, are the cold/wake evidence.
 
 At diagnosis, `platform/apps/web/src/app/lib/trpc.ts` and `platform/apps/web/src/app/data/api.ts` performed one-shot fetches with no bounded wake retry, readiness wait, or recoverable cold-start state. A first request during wake could therefore surface as a broken page even though a later refresh succeeded. While awake, Render called `/health/ready` about every five seconds. That route called the residency-routed ledger with the all-zero health ID, producing a Cloud Plane transaction plus a guaranteed zero-row ledger read, and also probed Local Plane storage. Retrieved provider windows contain 2,573 readiness probes, proving at least 10,292 `BEGIN`/Organization-context/read/`COMMIT` statements, or 40.9% of 25,179 cumulative `bridge_app` statements. `pg_stat_statements` retains 3,513 zero-row reads with the same normalized ledger shape (32.20 ms total execution), but parameters are normalized, so the larger count is not assigned exclusively to readiness. The provider-proven lower bound still makes readiness the largest avoidable Bridge statement family; it is tiny in absolute database time and is not evidence of a Supabase limit incident.
 
@@ -63,14 +63,28 @@ Supabase is `ACTIVE_HEALTHY`: database size is 15,060,115 bytes, 55 public table
 
 Attached to TASK-006. Exit test: deploy current reviewed source; preserve a cheap liveness endpoint while running persistent readiness at a bounded cadence; make the web show/retry a bounded wake state without duplicating mutations; then prove static, warm API, natural cold API, Auth refresh, and exact 375px recovery. Re-measure application-role statements and Dashboard egress before considering a provider-tier change. No tier or production configuration was changed during diagnosis.
 
-LOCAL REMEDIATION, NOT DEPLOYED: the web now has a remote-only, single-flight, 90-second liveness
+DEPLOYED 2026-07-25 under AP-074: the web now has a remote-only, single-flight, 90-second liveness
 wake gate and visible recovery banner. GET/HEAD and tRPC queries may replay once after a fresh wake;
 mutations never replay. `splitLink` prevents query/mutation co-batching, which matters because tRPC
 batches both as POST. Render's Blueprint probes cheap `/health` instead of persistent readiness.
 Eight transport regressions, the full 96-test web suite, typecheck, lint, and production build pass.
-This bug remains OPEN because `autoDeploy: no` still leaves the public source unchanged; no natural
-cold-wake, exact 375px hosted recovery, Auth refresh, or post-deploy Supabase re-measurement is
-claimed.
+API deploy `dep-d9i6bbt0kf9s73baeuc0` and web deploy `dep-d9i6bbq4hv7c73bmsrvg` are live at
+`015716c`. Warm probes returned web `200` in 0.444 seconds, `/health` `200` in 0.324 seconds, and
+`/health/ready` `200` in 1.306 seconds with persistent `public-cloud` ledger and Local Plane checks.
+Exact-origin CORS returned `204`; post-deploy API logs contained no error-level entries.
+
+The live Supabase project remained `ACTIVE_HEALTHY` on PostgreSQL 17.6: 15,060,115 bytes, 55 public
+tables, about 108 estimated rows, two observed `bridge_app` connections, 41 RLS-enabled tables,
+zero RLS-enabled tables without a policy, and 141 public policies. GoTrue health returned `200`.
+`bridge_app` remains login-capable but has no superuser, inheritance, database-create, role-create,
+replication, or RLS-bypass attributes. Its retained cumulative statistics were 35,684 statements,
+56,710 rows, and 10.89 seconds total execution. Most importantly, a post-deploy 65-second sample
+containing 19 Render `/health` requests advanced those counters by zero statements, zero rows, and
+zero execution time. The liveness probes therefore no longer consume Supabase statements.
+
+This bug remains OPEN only for the still-unrun natural-cold wake, exact 375px hosted recovery, and
+live Auth refresh checks. No provider tier, secret, production row, or Supabase configuration was
+changed during deployment/certification.
 
 ## RESOLVED 2026-07-24 — Existing pre-VOCAB Local Plane cannot reach the migration that would upgrade it
 The current macOS release app reproduced the user's first local failure against the existing Local Plane:
