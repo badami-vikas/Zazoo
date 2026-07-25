@@ -1,5 +1,26 @@
 # Change Log
 
+- **2026-07-24 — Hosted/desktop reliability remediation and governed Onboarding completed (ADR-144, AP-073)**:
+  remote API wake is visible, single-flight, bounded, and read-replay-only; Render probes cheap
+  liveness. Desktop development is orchestrated; supported release bundles own allowlisted API +
+  target-native Node; macOS native Keyring code lives in signed Frameworks with verified Node
+  entitlements; Windows installers fail closed while compile checks remain. Exact pre-VOCAB
+  Local Plane upgrade/reopen passes. A packaged restart exposed and then closed process-only
+  Onboarding storage: the profile now persists as private Local Plane Memory, hydrates stale browser
+  fallback state, and survives a second restart as active `Manish's Organization` + Lion Avatar
+  with the native overlay visible. Hosted remains operationally OPEN until manual deployment and
+  natural-cold/Auth/375px/statement proof. TASK-002/006/018 order/status, provider tiers, and
+  migration high-water (`0030`) remain unchanged. No commit/push/deploy occurred. Evidence:
+  [`outputs/2026-07-24-hosted-desktop-reliability-remediation.md`](../outputs/2026-07-24-hosted-desktop-reliability-remediation.md).
+
+- **2026-07-24 — Onboarding desktop-height deadlock fixed (TASK-002)**: the trust ceremony's
+  unconstrained dialog could render its only Continue action below the desktop webview with no
+  internal scrolling. Bounded `OnboardingDialog` to `calc(100dvh - 2rem)` with contained vertical
+  overflow and added a focused contract regression. Rendered at 1130×738, the 1192px content now
+  scrolls inside a 615px dialog; Continue moves on-screen and advances to the profession question.
+  Targeted onboarding 10/10, web typecheck, focused ESLint, and production web build passed.
+  Full evidence: [`outputs/2026-07-24-onboarding-dialog-deadlock.md`](../outputs/2026-07-24-onboarding-dialog-deadlock.md).
+
 - **2026-07-22 — TASK-017 runtime/package correctness backlog closed (AP-072)**: completed the
   remaining backlog in five reviewed slices merged to `main` (`21a4ca3`, `5c5ddbe`, `e70a5f8`,
   `49a9fff`, `5674b05`). D1 repo lint green via a DealPilot module-vocab carve-out (the
@@ -2087,3 +2108,10 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Advanced the existing free Supabase pilot from `0026` through canonical `0030` with the official linked CLI and no owner URI in chat, files, or shell history.
 - Certified live health/readiness, exact CORS, pilot sign-in/activation/refresh/logout, public bearer success, anonymous credential rejection, private `412 desktop-required`, least-privilege `bridge_app`, cross-Organization RLS/context reset, API restart, secret scans, zero cloud operational Records/local Memories/credential columns, and exact 375px without overflow or page-load errors.
 - Public URLs and provider/deploy IDs are recorded in `outputs/2026-07-21-render-free-deployment.md`. Free idle sleep remains accepted and was not separately timed. TASK-006 remains blocked only on the independent authorized Google OAuth + real Source credential gate.
+
+# 2026-07-24 — Hosted, Supabase, and desktop reliability diagnosis
+- Preserved the user's hosted-flakiness/Supabase-limit/desktop-broken report and attached the findings to TASK-006 and TASK-018 without changing queue order/status.
+- Render evidence separates the reliable static shell from the free API wake boundary, records 11 API starts, identifies absent client wake recovery, and notes manual deployment drift (`163562a` deployed versus `cbffa3ed` on main).
+- Supabase is healthy and small. The 2,573 provider-recorded readiness probes prove at least 10,292/25,179 cumulative `bridge_app` statements, making the route the largest avoidable Bridge statement family; retained same-shaped reads consumed only 32.20 ms total, and no size, Auth, direct-request, or connection exhaustion was found.
+- Reproduced desktop development's missing orchestration/identity path, release packaging's missing API/Node runtime, and the user's first release failure: the pre-VOCAB `external_records.workspace_id` Local Plane is rejected before migration `0021` can upgrade it.
+- No source fix, provider-tier/configuration change, deployment, task-state change, or personal Local Plane mutation was made. Durable findings: `outputs/2026-07-24-hosted-supabase-desktop-diagnosis.md`.

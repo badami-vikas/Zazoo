@@ -9,16 +9,26 @@
  * seed rows) belong to the pipeline integration slice (E/F).
  */
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
-import { resolveAuthority } from "@bridge/core";
+import { MemoryBackedOnboardingProfileStore, resolveAuthority } from "@bridge/core";
 import {
   createDrizzlePorts,
   createLocalDb,
+  DrizzleMemoryStore,
   ensureLearningAgentGovernance,
   ensureOutreachAgentGovernance,
   ensureEgressAgentGovernance,
@@ -28,6 +38,51 @@ import {
   ensureCapabilityApprovalPrincipalGovernance,
   schema,
 } from "../src/index.js";
+
+interface MigrationJournal {
+  version: string;
+  dialect: string;
+  entries: Array<{
+    idx: number;
+    version: string;
+    when: number;
+    tag: string;
+    breakpoints: boolean;
+  }>;
+}
+
+function currentMigrationsFolder(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const relativePath of ["../migrations", "../../migrations"]) {
+    const candidate = join(here, relativePath);
+    if (existsSync(join(candidate, "meta", "_journal.json"))) return candidate;
+  }
+  throw new Error("Could not locate the current migration folder");
+}
+
+async function copyMigrationsThrough(
+  targetFolder: string,
+  maximumIndex: number,
+): Promise<void> {
+  const sourceFolder = currentMigrationsFolder();
+  const journal = JSON.parse(
+    await readFile(join(sourceFolder, "meta", "_journal.json"), "utf8"),
+  ) as MigrationJournal;
+  const entries = journal.entries.filter((entry) => entry.idx <= maximumIndex);
+  await mkdir(join(targetFolder, "meta"), { recursive: true });
+  await Promise.all(
+    entries.map((entry) =>
+      copyFile(
+        join(sourceFolder, `${entry.tag}.sql`),
+        join(targetFolder, `${entry.tag}.sql`),
+      ),
+    ),
+  );
+  await writeFile(
+    join(targetFolder, "meta", "_journal.json"),
+    `${JSON.stringify({ ...journal, entries }, null, 2)}\n`,
+  );
+}
 
 test("local plane: migrations apply and Drizzle ports read the local store", async () => {
   // UUID columns reject non-UUID text (22P02), so probe with the nil UUID.
@@ -103,6 +158,158 @@ test("local plane renames the legacy text external-record table before Drizzle m
       await local.close();
     }
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("local plane upgrades the pre-VOCAB canonical external-record table without losing rows", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bridge-pre-vocab-local-plane-"));
+  const dataDir = join(root, "data");
+  const oldMigrations = join(root, "migrations-through-0020");
+  const organizationId = "b0000000-0000-4000-a000-000000000001";
+  const recordId = "b0000000-0000-4000-a000-000000000002";
+  const entityId = "b0000000-0000-4000-a000-000000000003";
+  await copyMigrationsThrough(oldMigrations, 20);
+
+  try {
+    const beforeVocab = await createLocalDb({
+      dataDir,
+      migrationsFolder: oldMigrations,
+    });
+    try {
+      await beforeVocab.client.query(
+        `INSERT INTO workspaces (id, name) VALUES ($1, 'Retained organization')`,
+        [organizationId],
+      );
+      await beforeVocab.client.query(
+        `INSERT INTO external_records
+           (id, workspace_id, source, source_record_id, entity_type, entity_id)
+         VALUES ($1, $2, 'gmail', 'message-retained', 'event', $3)`,
+        [recordId, organizationId, entityId],
+      );
+    } finally {
+      await beforeVocab.close();
+    }
+
+    const upgraded = await createLocalDb({ dataDir });
+    try {
+      const retained = await upgraded.client.query<{
+        id: string;
+        organization_id: string;
+        entity_id: string;
+      }>(
+        `SELECT id, organization_id, entity_id
+           FROM external_records
+          WHERE source = 'gmail' AND source_record_id = 'message-retained'`,
+      );
+      assert.deepEqual(retained.rows, [
+        {
+          id: recordId,
+          organization_id: organizationId,
+          entity_id: entityId,
+        },
+      ]);
+      const highWaterIndex = await upgraded.client.query<{ count: string | number }>(
+        `SELECT count(*) AS count
+           FROM pg_indexes
+          WHERE schemaname = 'public' AND indexname = 'events_org_created_idx'`,
+      );
+      assert.equal(Number(highWaterIndex.rows[0]?.count), 1);
+      await assert.rejects(
+        () =>
+          upgraded.client.query(
+            `INSERT INTO external_records
+               (organization_id, source, source_record_id, entity_type, entity_id)
+             VALUES ($1, 'gmail', 'message-retained', 'event', $2)`,
+            [organizationId, entityId],
+          ),
+        /duplicate key value violates unique constraint/,
+      );
+    } finally {
+      await upgraded.close();
+    }
+
+    const reopened = await createLocalDb({ dataDir });
+    try {
+      const retained = await reopened.client.query<{ count: string | number }>(
+        `SELECT count(*) AS count
+           FROM external_records
+          WHERE organization_id = $1
+            AND source = 'gmail'
+            AND source_record_id = 'message-retained'`,
+        [organizationId],
+      );
+      assert.equal(Number(retained.rows[0]?.count), 1);
+    } finally {
+      await reopened.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("local plane persists the onboarding profile Memory across restart and correction", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bridge-onboarding-profile-"));
+  const organizationId = "b0000000-0000-4000-a000-000000000001";
+  const userId = "b0000000-0000-4000-a000-000000000002";
+  let local: Awaited<ReturnType<typeof createLocalDb>> | undefined;
+  try {
+    local = await createLocalDb({ dataDir: root });
+    await local.db.insert(schema.organizations).values({
+      id: organizationId,
+      name: "Profile persistence organization",
+    });
+    await local.db.insert(schema.users).values({
+      id: userId,
+      email: "profile-persistence@example.com",
+    });
+    const firstStore = new MemoryBackedOnboardingProfileStore(
+      new DrizzleMemoryStore(local.db),
+      userId,
+    );
+    await firstStore.save({
+      organizationId,
+      avatarStyle: "owl",
+      answers: { profession: "Software Engineer" },
+      phoneVerified: false,
+      verificationMethod: null,
+      connectedSourceIds: [],
+      updatedAtISO: "2026-07-24T10:00:00.000Z",
+    });
+    await local.close();
+    local = undefined;
+
+    local = await createLocalDb({ dataDir: root });
+    const reopenedStore = new MemoryBackedOnboardingProfileStore(
+      new DrizzleMemoryStore(local.db),
+      userId,
+    );
+    assert.equal((await reopenedStore.get(organizationId))?.avatarStyle, "owl");
+    await reopenedStore.save({
+      organizationId,
+      avatarStyle: "lion",
+      answers: {
+        profession: "Software Engineer",
+        domain: "relationships",
+        watch_first: ["surface_signals"],
+      },
+      phoneVerified: false,
+      verificationMethod: null,
+      connectedSourceIds: [],
+      updatedAtISO: "2026-07-24T11:00:00.000Z",
+    });
+    await local.close();
+    local = undefined;
+
+    local = await createLocalDb({ dataDir: root });
+    const corrected = await new MemoryBackedOnboardingProfileStore(
+      new DrizzleMemoryStore(local.db),
+      userId,
+    ).get(organizationId);
+    assert.equal(corrected?.avatarStyle, "lion");
+    assert.deepEqual(corrected?.answers["watch_first"], ["surface_signals"]);
+  } finally {
+    await local?.close();
     await rm(root, { recursive: true, force: true });
   }
 });

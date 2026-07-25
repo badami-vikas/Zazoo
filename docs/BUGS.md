@@ -18,6 +18,112 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-24 — USER REPORT: onboarding clipped its required Continue action below the desktop viewport
+**User report (verbatim):** “I think you are running in circles, can you fix this deadlock instead?”
+
+The trust step was taller than the desktop webview, while `OnboardingDialog` used an unconstrained
+`DialogContent`. The only action that advances with observation disabled rendered below the viewport,
+and the modal had no internal overflow boundary, leaving the user unable to continue.
+
+FIX: bound the onboarding dialog to `calc(100dvh - 2rem)` and make that dialog, not the document,
+vertically scrollable with contained overscroll. A focused contract regression keeps the viewport cap
+and overflow behavior attached to the trust ceremony. At the reproduced 1130×738 window
+(`innerHeight` 651), the dialog now has a 615px client height, 1192px scroll height, computed
+`overflow-y: auto`, and a 617px maximum height. Scrolling moved Continue from 1146px off-screen to
+569px on-screen; activating it advanced to “What's your role or profession?”. The onboarding test
+file passed 10/10, web typecheck and focused ESLint passed, and the production web build completed.
+Attached to TASK-002; no task status or queue change.
+
+## RESOLVED 2026-07-24 — Onboarding profile and selected Avatar disappeared after desktop restart
+The governed Organization rename and active blueprint survived restart, but `onboarding.saveProfile`
+used `InMemoryOnboardingProfileStore` in every runtime mode. The API returned the selected Lion
+profile during the saving process, then `onboarding.getProfile` returned `null` after a packaged
+desktop restart. Browser storage already contained the neutral existing-user Owl fallback, so the
+always-on Avatar remained Owl even though the user's recorded choice was Lion.
+
+FIX: file-backed Local Plane mode now binds `MemoryBackedOnboardingProfileStore`. It stores one
+private, user-owned preference Memory and appends corrections through the existing Memory lineage;
+public-cloud and isolated ephemeral modes still retain no private profile across restart. The web
+hydrates a valid persisted profile even when browser storage already contains a stale neutral
+fallback, while preserving `avatarName`. A PGlite integration regression proves save, restart,
+correction, and second restart without migration `0031`. The rebuilt portable app then proved the
+real sequence: profile `lion` survived process restart, browser storage became
+`{"style":"lion","avatarReady":true}`, the Organization remained `Manish's Organization`, its
+blueprint remained active, and the native overlay reported visible. Attached to TASK-002 and
+TASK-018; neither task status/order changed.
+
+## OPEN 2026-07-24 — Public Render deployment still lacks reviewed wake recovery, and prior readiness probes dominate Bridge's avoidable database calls
+**User report (verbatim):** “there have been some changes done. I see that the website is flaky, it runs sometimes and doesnt sometimes. Check what is eating the limits of supabase. Also the local desktop is broken, can you check what is the issue on both sides and let me know.”
+
+The free static site and API are separate: the static shell remained reachable, while API-dependent behavior inherits the free Docker service's sleep/wake boundary. Render logs show 11 API starts since the July 22 deployment and repeated runtime windows ending around the free tier's idle boundary. The deployed API/web source remains `163562a`, both services have `autoDeploy: no`, and current `main` is `cbffa3ed`; the public deployment therefore does not contain later main changes. A warm `/health/ready` request returned `200` in 0.947 seconds. A natural cold request could not be isolated during the final sample because an active web page was issuing tRPC traffic and keeping the service warm. Historical provider startup windows, not a successful warm spot check, are the cold/wake evidence.
+
+At diagnosis, `platform/apps/web/src/app/lib/trpc.ts` and `platform/apps/web/src/app/data/api.ts` performed one-shot fetches with no bounded wake retry, readiness wait, or recoverable cold-start state. A first request during wake could therefore surface as a broken page even though a later refresh succeeded. While awake, Render called `/health/ready` about every five seconds. That route called the residency-routed ledger with the all-zero health ID, producing a Cloud Plane transaction plus a guaranteed zero-row ledger read, and also probed Local Plane storage. Retrieved provider windows contain 2,573 readiness probes, proving at least 10,292 `BEGIN`/Organization-context/read/`COMMIT` statements, or 40.9% of 25,179 cumulative `bridge_app` statements. `pg_stat_statements` retains 3,513 zero-row reads with the same normalized ledger shape (32.20 ms total execution), but parameters are normalized, so the larger count is not assigned exclusively to readiness. The provider-proven lower bound still makes readiness the largest avoidable Bridge statement family; it is tiny in absolute database time and is not evidence of a Supabase limit incident.
+
+Supabase is `ACTIVE_HEALTHY`: database size is 15,060,115 bytes, 55 public tables hold about 106 live rows, and the observed application pressure was one `bridge_app` connection. July 20–24 direct service traffic was 73 Auth, 7 REST, 3 Storage, and 0 Realtime requests. Two 65-second global-stat samples while the API was warm advanced by 39 commits/2,055 returned tuples and 68 commits/2,181 returned tuples. Readiness and active-page traffic were present, and the counters combine every database role, so those deltas cannot isolate a Bridge or Supabase-managed consumer. Exact organization-billing egress by service/day remains unavailable without an authenticated Dashboard billing session; current evidence rules out disk, Auth MAU, direct API-request, and connection exhaustion.
+
+Attached to TASK-006. Exit test: deploy current reviewed source; preserve a cheap liveness endpoint while running persistent readiness at a bounded cadence; make the web show/retry a bounded wake state without duplicating mutations; then prove static, warm API, natural cold API, Auth refresh, and exact 375px recovery. Re-measure application-role statements and Dashboard egress before considering a provider-tier change. No tier or production configuration was changed during diagnosis.
+
+LOCAL REMEDIATION, NOT DEPLOYED: the web now has a remote-only, single-flight, 90-second liveness
+wake gate and visible recovery banner. GET/HEAD and tRPC queries may replay once after a fresh wake;
+mutations never replay. `splitLink` prevents query/mutation co-batching, which matters because tRPC
+batches both as POST. Render's Blueprint probes cheap `/health` instead of persistent readiness.
+Eight transport regressions, the full 96-test web suite, typecheck, lint, and production build pass.
+This bug remains OPEN because `autoDeploy: no` still leaves the public source unchanged; no natural
+cold-wake, exact 375px hosted recovery, Auth refresh, or post-deploy Supabase re-measurement is
+claimed.
+
+## RESOLVED 2026-07-24 — Existing pre-VOCAB Local Plane cannot reach the migration that would upgrade it
+The current macOS release app reproduced the user's first local failure against the existing Local Plane:
+
+```text
+external_records exists with an unsupported schema
+```
+
+`platform/packages/db/src/client-local.ts` runs `prepareLegacyLocalExternalRecords()` before Drizzle migrations. VOCAB3 commit `58573ba` changed its canonical-shape test from the original UUID `workspace_id` column to UUID `organization_id`. A Local Plane created from `0000_amazing_betty_brant.sql` legitimately has canonical `external_records.workspace_id uuid`; migration `0021_vocab3_organization_module_record.sql` is designed to rename every `workspace_id` to `organization_id`, but the preflight guard rejects that database before migration `0021` can execute. The existing personal Local Plane was not edited or opened with a repair script during this diagnosis.
+
+Attached to TASK-018 as the current desktop-release blocker, with TASK-012/VOCAB3 as provenance. Exit test: construct the exact pre-VOCAB canonical schema with retained rows, run the supported startup/migration path through current high-water, verify IDs and uniqueness are preserved, reopen a second process, and launch the packaged desktop against a copy before touching the user's Local Plane. Unsupported legacy text-ID shapes must remain fail-closed.
+
+**Resolution:** the preflight now accepts only the exact UUID `workspace_id` canonical shape that
+migration `0021` owns, while unsupported text or extra-column shapes still fail closed. The
+regression constructs migrations through `0020`, retains a real row, upgrades through current
+`0030`, proves ID/Organization/uniqueness preservation, and reopens the database. The rebuilt
+packaged app opened the user's existing Local Plane twice and retained the active Organization and
+profile state. No repair script or destructive rewrite touched the user's data.
+
+## RESOLVED 2026-07-24 — Desktop development and supported release startup are self-contained
+The two supported startup paths fail at different boundaries:
+
+- Development: `pnpm --filter @bridge/desktop dev` runs only `tauri dev`; `beforeDevCommand` is empty. With the existing stale Vite process, the webview was blank because `@bridge/module-manifests` was neither linked nor built and Vite returned `500`. A frozen install plus the targeted manifest build restored rendering, but the shell then reported `Modules unavailable` because no API was started. Starting a persistent API restored transport but not identity: debug Tauri neither spawns the sidecar nor injects `window.__BRIDGE_SIDECAR_TOKEN__`, so authenticated local reads correctly fail closed.
+- Release: the current macOS app bundle builds, but its Resources directory contains only `icon.icns`; it contains no `api/server.js` and no Node runtime. `api_sidecar.rs` falls back to an absolute compile-time monorepo path and executes system `node`. With `apps/api/dist` temporarily absent, the untouched bundle logged `no API build found`; with a Finder-like `/usr/bin:/bin:/usr/sbin:/sbin` PATH, it logged `failed to spawn node`. Both simulations restored all build artifacts. The bundle is ad-hoc signed, and the installer workflow builds web/Tauri without building or copying the API runtime.
+
+Attached to TASK-018. Exit test: one documented development command prepares workspace dependencies, Vite, API, and a verified local identity boundary; a clean release bundle on a machine without the repository or Homebrew Node contains and starts its pinned API runtime; sidecar readiness, shutdown, Local Plane migration/restart, signing, and the named desktop OS matrix pass from clean artifacts.
+
+**Resolution:** `beforeDevCommand` now runs the dev orchestrator; release preparation builds and
+deploys the API's allowlisted `dist` tree, copies the target-native Node runtime and license, and
+removes production repository/system-Node fallback. Bundle policy rejects environment, credential,
+key, certificate, symlinked dependency, wrong-target, and stale-input layouts. macOS extracts the
+Keyring addon from API Resources into signed Frameworks, gives packaged Node the required JIT
+entitlements, and verifies native signatures plus same-Team-ID alignment for signed builds. Windows
+installer preparation fails explicitly until secure listener inheritance exists; Windows remains
+compile-checked, while macOS/Linux remain installer targets. The rebuilt 349 MB `Bridge.app`
+launched from a Finder-like PATH, started its packaged Node/API, reopened Local Plane state, served
+authenticated webview traffic, showed the native Avatar overlay, and shut its child down with the
+app. Bundle policy, input, secret, layout, Rust test/Clippy/check, and macOS packaging gates pass.
+
+**Post-review correction (2026-07-25):** final review found that the first Framework layout was
+signed but not loadable: `@napi-rs/keyring` calls `require(NAPI_RS_NATIVE_LIBRARY_PATH)`, which
+treated the renamed `.dylib` as JavaScript, and that package loader also discarded a successful
+override result. A direct packaged-Node import reproduced `Cannot find native binding`. Bundle
+preparation now removes the native `.node` from Resources, keeps the signed Framework, and replaces
+only the architecture package's generated entry point with a reviewed `process.dlopen` bridge.
+The sidecar clears the broken upstream override and supplies only the signed Framework path to that
+bridge. Final-bundle verification now imports `@napi-rs/keyring` and constructs `AsyncEntry` using
+the packaged Node; the rebuilt app then started its managed API and reopened the retained Local
+Plane. Attached to TASK-018.
+
+Real Developer ID/notarization, Windows installer support, the full physical OS matrix, and mobile
+remain honest TASK-018 blockers rather than claims of this bounded resolution.
+
 ## RESOLVED 2026-07-22 — `capability.approve`/`organization.blueprint.activate` mutate even when the governed decision is `rejected`
 Both `platform/apps/api/src/router.ts`'s `capability.approve` (`capability: t.router({ approve: ... })`, currently ~10722-10804)
 and `organization.blueprint.activate` (`organization: t.router({ blueprint: t.router({ activate: ... }) })`, currently ~9645-9677)

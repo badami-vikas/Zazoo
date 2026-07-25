@@ -18,7 +18,7 @@ test("Render Blueprint stays free-only and carries no cloud Local Plane", () => 
   assert.match(blueprint, /region: virginia/);
   assert.match(blueprint, /dockerfilePath: \.\/platform\/Dockerfile/);
   assert.match(blueprint, /dockerContext: \.\/platform/);
-  assert.match(blueprint, /healthCheckPath: \/health\/ready/);
+  assert.match(blueprint, /healthCheckPath: \/health/);
   assert.match(blueprint, /name: bridge-pilot-web/);
   assert.match(blueprint, /runtime: static/);
   assert.match(blueprint, /staticPublishPath: platform\/apps\/web\/dist/);

@@ -170,6 +170,18 @@ test("technical DOM and projection identifiers stay classified without allowing 
   );
   assert.equal(parallelMcpMethod.tool, undefined);
 
+  const preVocabularyAdapter = inventoryForSource(
+    "packages/db/src/client-local.ts",
+    `export const previousTenantColumn = "workspace_id";`,
+  );
+  assert.equal(preVocabularyAdapter.workspace, undefined);
+
+  const preVocabularyFixture = inventoryForSource(
+    "packages/db/test/local-store.test.ts",
+    `await client.query("INSERT INTO workspaces (id, name) VALUES ($1, $2)");`,
+  );
+  assert.equal(preVocabularyFixture.workspace, undefined);
+
   const forbidden = inventoryForSource(
     "packages/core/src/record.ts",
     `export interface ProjectElement { label: string }`,

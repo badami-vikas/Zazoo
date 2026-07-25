@@ -191,6 +191,8 @@ test("onboarding role-model learning is cited, approval-gated, controllable, and
         assert.equal(new URL(requestedUrl).pathname, "/w/api.php");
         assert.equal(requestedRedirect, "error");
         assert.equal(result.proposal.status, "pending_review", JSON.stringify(result.proposal));
+        assert.equal(result.proposal.request.taintLabel?.sensitivity, "private");
+        assert.equal(result.proposal.request.taintLabel?.instructionRisk, "data");
         assert.ok(result.proposal.policyResults.some((policy) => policy.effect === "require_approval"));
         const approved = await caller.action.decide({
           proposalId: result.proposal.id,

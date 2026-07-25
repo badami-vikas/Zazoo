@@ -184,6 +184,23 @@ function scopedDefinition(family, definition, relativePath) {
 }
 
 function isAllowedTechnicalUse(family, relativePath, value, kind) {
+  if (family === "workspace" && kind === "string") {
+    if (
+      relativePath === "packages/db/src/client-local.ts" &&
+      value === "workspace_id"
+    ) {
+      return true;
+    }
+    if (
+      relativePath === "packages/db/test/local-store.test.ts" &&
+      (
+        value.startsWith("INSERT INTO workspaces (id, name)") ||
+        value.includes("(id, workspace_id, source, source_record_id, entity_type, entity_id)")
+      )
+    ) {
+      return true;
+    }
+  }
   if (
     family === "workspace" &&
     kind === "identifier" &&

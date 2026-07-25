@@ -44,6 +44,7 @@ import {
   InMemoryOrganizationDefinitionStore,
   InMemoryModuleStore,
   InMemoryOnboardingProfileStore,
+  MemoryBackedOnboardingProfileStore,
   type MemoryStore,
   type MemoryAuthScope,
   type MemoryEntry,
@@ -3971,11 +3972,16 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const capabilityBudgets = new InMemoryAutoActivationBudgetStore();
   const capabilityKillSwitch = new InMemoryKillSwitch();
   const credentialBroker = new InMemoryCredentialBroker();
-  // Onboarding personalization profile (ADR-033/R-030) — in-memory in both
-  // modes for now, same honest-gap pattern as capabilityBudgets above: no
-  // persistent implementation exists yet, this is the onboarding-scoped slice
-  // of the still-absent general Memory/Knowledge kernel primitive.
-  const onboardingProfileStore = new InMemoryOnboardingProfileStore();
+  // Onboarding preferences are private Local Plane Memory when a durable local
+  // root exists. Public-cloud and isolated ephemeral modes retain no private
+  // profile across process restarts.
+  const onboardingProfileStore =
+    localDir && !publicCloudOnly
+      ? new MemoryBackedOnboardingProfileStore(
+          new DrizzleMemoryStore(localDatabase.db),
+          pilotUserId,
+        )
+      : new InMemoryOnboardingProfileStore();
   // P2 capability modules — now backed by DrizzleModuleStore in persistent mode
   // (ADR-023); `moduleStore` comes from modePorts (see above), same split every
   // other per-mode port already follows.

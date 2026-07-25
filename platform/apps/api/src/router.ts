@@ -155,6 +155,7 @@ import {
   declassifyTaintLabel,
   deriveDeclassifiedLabel,
   hashTaintValue,
+  joinTaintLabels,
   labelAtSource,
   validateActionWithinChildRun,
   type ParentRunEnvelope,
@@ -1222,6 +1223,27 @@ async function stageRoleModelRecommendation(
       },
       skill: LEARNING_RECOMMENDATION_SKILL_ID,
       trustOrigin: "untrusted_external",
+      taintLabel: joinTaintLabels(
+        labelAtSource("web_search", {
+          ref: recommendation.citation.url,
+          valueHash: hashTaintValue({
+            documentedContext: recommendation.documentedContext,
+            citation: recommendation.citation,
+          }),
+          sensitivity: "public",
+          instructionRisk: "data",
+        }),
+        labelAtSource("human_input", {
+          ref: `onboarding-role-model:${identityId}`,
+          valueHash: hashTaintValue({
+            title: recommendation.title,
+            summary: recommendation.summary,
+            interpretation: recommendation.interpretation,
+          }),
+          sensitivity: "private",
+          instructionRisk: "data",
+        }),
+      ),
       goalTaskRef: await provisionRoleModelRecommendationTask(wiring, organizationId),
     },
     run,
@@ -3691,7 +3713,7 @@ async function reconcileApprovedExternalEffect(
   if (moduleInstallIdFromProposal(original)) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: "module install approvals reconcile through packages.reconcileApproved",
+      message: "module install approvals reconcile through modules.reconcileApproved",
     });
   }
   if (

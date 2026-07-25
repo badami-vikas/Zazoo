@@ -382,10 +382,10 @@ export {
 } from "./run-context.js";
 
 // Onboarding profile store (ADR-033/R-029/R-030) — narrow, onboarding-scoped
-// personalization store. NOT the general Memory/Knowledge kernel primitive
-// (still absent); see onboarding-profile.ts's header comment.
+// personalization stored as private Local Plane Memory when durability exists.
 export {
   InMemoryOnboardingProfileStore,
+  MemoryBackedOnboardingProfileStore,
   profileFromRow,
   buildChiefOfStaffPersona,
   type OnboardingProfileRow,

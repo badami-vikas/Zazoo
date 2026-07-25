@@ -56,12 +56,38 @@ const LEGACY_EXTERNAL_RECORD_COLUMNS = new Map([
   ["entity_id", "text"],
   ["created_at", "text"],
 ]);
+const CANONICAL_EXTERNAL_RECORD_COLUMNS = new Map([
+  ["id", "uuid"],
+  ["organization_id", "uuid"],
+  ["source", "text"],
+  ["source_record_id", "text"],
+  ["entity_type", "text"],
+  ["entity_id", "uuid"],
+  ["created_at", "timestamp with time zone"],
+]);
+const PRE_VOCAB_CANONICAL_EXTERNAL_RECORD_COLUMNS = new Map(
+  [...CANONICAL_EXTERNAL_RECORD_COLUMNS].map(([name, dataType]) => [
+    name === "organization_id" ? "workspace_id" : name,
+    dataType,
+  ]),
+);
 
 type ExternalRecordTableShape =
   | "missing"
   | "legacy"
+  | "pre-vocab-canonical"
   | "canonical"
   | "unsupported";
+
+function hasExactColumns(
+  actual: ReadonlyMap<string, string>,
+  expected: ReadonlyMap<string, string>,
+): boolean {
+  return (
+    actual.size === expected.size &&
+    [...expected].every(([name, dataType]) => actual.get(name) === dataType)
+  );
+}
 
 async function inspectExternalRecordTable(
   client: PGlite,
@@ -80,23 +106,13 @@ async function inspectExternalRecordTable(
   const columns = new Map(
     result.rows.map((row) => [row.column_name, row.data_type]),
   );
-  const isExactLegacyShape =
-    columns.size === LEGACY_EXTERNAL_RECORD_COLUMNS.size &&
-    [...LEGACY_EXTERNAL_RECORD_COLUMNS].every(
-      ([name, dataType]) => columns.get(name) === dataType,
-    );
-  if (isExactLegacyShape) return "legacy";
-  if (
-    tableName === "external_records" &&
-    columns.get("id") === "uuid" &&
-    columns.get("organization_id") === "uuid" &&
-    columns.get("source") === "text" &&
-    columns.get("source_record_id") === "text" &&
-    columns.get("entity_type") === "text" &&
-    columns.get("entity_id") === "uuid" &&
-    columns.get("created_at") === "timestamp with time zone"
-  ) {
+  if (hasExactColumns(columns, LEGACY_EXTERNAL_RECORD_COLUMNS)) return "legacy";
+  if (tableName !== "external_records") return "unsupported";
+  if (hasExactColumns(columns, CANONICAL_EXTERNAL_RECORD_COLUMNS)) {
     return "canonical";
+  }
+  if (hasExactColumns(columns, PRE_VOCAB_CANONICAL_EXTERNAL_RECORD_COLUMNS)) {
+    return "pre-vocab-canonical";
   }
   return "unsupported";
 }
@@ -113,7 +129,11 @@ export async function prepareLegacyLocalExternalRecords(
     client,
     LEGACY_EXTERNAL_RECORDS,
   );
-  if (backupShape === "unsupported" || backupShape === "canonical") {
+  if (
+    backupShape === "unsupported" ||
+    backupShape === "canonical" ||
+    backupShape === "pre-vocab-canonical"
+  ) {
     throw new Error(
       `${LEGACY_EXTERNAL_RECORDS} exists with an unsupported schema`,
     );
@@ -122,7 +142,13 @@ export async function prepareLegacyLocalExternalRecords(
     client,
     "external_records",
   );
-  if (sourceShape === "missing" || sourceShape === "canonical") return;
+  if (
+    sourceShape === "missing" ||
+    sourceShape === "canonical" ||
+    sourceShape === "pre-vocab-canonical"
+  ) {
+    return;
+  }
   if (sourceShape === "unsupported") {
     throw new Error("external_records exists with an unsupported schema");
   }

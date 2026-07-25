@@ -9,7 +9,7 @@ services:
     autoDeploy: false
     dockerfilePath: ./platform/Dockerfile
     dockerContext: ./platform
-    healthCheckPath: /health/ready
+    healthCheckPath: /health
     envVars:
       - key: API_HOST
         value: 0.0.0.0

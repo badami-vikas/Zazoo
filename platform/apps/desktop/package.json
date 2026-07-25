@@ -7,6 +7,11 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
+    "prepare:dev": "node scripts/prepare-dev.mjs",
+    "prepare:bundle": "node scripts/prepare-bundle.mjs",
+    "verify:bundle-inputs": "node scripts/prepare-bundle.mjs --verify-only",
+    "verify:macos-bundle": "node scripts/verify-macos-bundle.mjs",
+    "test:bundle": "node --test scripts/prepare-bundle.test.mjs",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "build:tauri": "tauri build"

@@ -63,4 +63,12 @@ npm-debug.log*
 .pnpm-store/
 **/.playwright-cli/
 platform/output/
+platform/apps/desktop/src-tauri/binaries/*
+!platform/apps/desktop/src-tauri/binaries/.gitkeep
+platform/apps/desktop/src-tauri/generated/api/*
+!platform/apps/desktop/src-tauri/generated/api/.gitkeep
+platform/apps/desktop/src-tauri/generated/licenses/*
+!platform/apps/desktop/src-tauri/generated/licenses/.gitkeep
+platform/apps/desktop/src-tauri/generated/native/*
+!platform/apps/desktop/src-tauri/generated/native/.gitkeep
 .DS_Store

@@ -42,7 +42,11 @@ test("browser and desktop Avatar surfaces render the selected visual style", () 
   assert.match(layout, /const hasOrganization = Boolean\(res\.definition\)/);
   assert.match(layout, /setOrganizationConfirmed\(hasOrganization\)/);
   assert.match(layout, /loadAvatarPrefs\(hasOrganization\)/);
-  assert.match(layout, /if \(hasOrganization\) saveAvatarPrefs\(resolvedPrefs\)/);
+  assert.match(layout, /storedPrefs = hasStoredPrefs\(\) \? loadAvatarPrefs\(true\) : null/);
+  assert.doesNotMatch(layout, /if \(!hasStoredPrefs\(\)\)/);
+  assert.match(layout, /trpc\.onboarding\.getProfile\.query/);
+  assert.match(layout, /isAvatarStyle\(profile\.avatarStyle\)/);
+  assert.match(layout, /if \(persistResolvedPrefs\) saveAvatarPrefs\(resolvedPrefs\)/);
   assert.match(layout, /overlay_set_session_ready/);
   assert.match(layout, /organizationConfirmed === true &&/);
   assert.match(nativeOverlay, /\.visible\(false\)/);

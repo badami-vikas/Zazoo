@@ -3,9 +3,10 @@
  * through `appRouter`'s procedures, never a direct Supabase/localStorage read (that's the
  * prototype's pattern this app replaces — see docs/raw/frontend-migration-scoping.md).
  */
-import { createTRPCClient, httpBatchLink } from "@trpc/client";
+import { createTRPCClient, httpBatchLink, splitLink } from "@trpc/client";
 import type { AppRouter } from "@bridge/api";
 import { SUPABASE_CONFIGURED, supabase } from "./supabase";
+import { API_URL, apiFetch, apiQueryFetch } from "./api-transport";
 
 /**
  * API URL resolution order (R-001 offline desktop):
@@ -15,13 +16,8 @@ import { SUPABASE_CONFIGURED, supabase } from "./supabase";
  *  2. `VITE_API_URL` — build-time env (browser deploys, dev).
  *  3. localhost:4000 only in an explicit Vite development build.
  */
-const CONFIGURED_API_URL =
-  (typeof window !== "undefined" && window.__BRIDGE_API_URL__) ||
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV ? "http://localhost:4000" : "") ||
-  "";
-export const API_TRANSPORT_CONFIGURED = Boolean(CONFIGURED_API_URL);
-export const API_URL = CONFIGURED_API_URL;
+export const API_TRANSPORT_CONFIGURED = Boolean(API_URL);
+export { API_URL };
 
 export async function trpcAuthorizationHeaders(): Promise<Record<string, string>> {
   if (!API_TRANSPORT_CONFIGURED) {
@@ -43,20 +39,28 @@ export async function trpcAuthorizationHeaders(): Promise<Record<string, string>
   };
 }
 
+function createHttpBatchLink(fetchImpl: typeof apiFetch) {
+  return httpBatchLink<AppRouter>({
+    url: API_TRANSPORT_CONFIGURED
+      ? `${API_URL}/trpc`
+      : "http://bridge-api.invalid/trpc",
+    methodOverride: "POST",
+    headers: trpcAuthorizationHeaders,
+    fetch: async (input, init) => {
+      if (!API_TRANSPORT_CONFIGURED) {
+        throw new Error("Bridge API transport is not configured");
+      }
+      return fetchImpl(input, init);
+    },
+  });
+}
+
 export const trpc = createTRPCClient<AppRouter>({
   links: [
-    httpBatchLink({
-      url: API_TRANSPORT_CONFIGURED
-        ? `${API_URL}/trpc`
-        : "http://bridge-api.invalid/trpc",
-      methodOverride: "POST",
-      headers: trpcAuthorizationHeaders,
-      fetch: async (input, init) => {
-        if (!API_TRANSPORT_CONFIGURED) {
-          throw new Error("Bridge API transport is not configured");
-        }
-        return globalThis.fetch(input, init);
-      },
+    splitLink({
+      condition: (operation) => operation.type === "query",
+      true: createHttpBatchLink(apiQueryFetch),
+      false: createHttpBatchLink(apiFetch),
     }),
   ],
 });

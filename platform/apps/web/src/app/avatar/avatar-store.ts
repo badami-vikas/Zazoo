@@ -57,7 +57,7 @@ const EXISTING_USER_DEFAULT: AvatarPrefs = {
   avatarReady: true,
 };
 
-function isAvatarStyle(value: unknown): value is AvatarStyle {
+export function isAvatarStyle(value: unknown): value is AvatarStyle {
   return typeof value === "string" && AVATAR_STYLES.some((option) => option.value === value);
 }
 

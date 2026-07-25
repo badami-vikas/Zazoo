@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-22T14:58:49.298Z",
+  "generatedAt": "2026-07-25T07:21:58.132Z",
   "items": [
     {
       "id": "TASK-001",
@@ -533,7 +533,10 @@
         "docs/raw/dealpilot-module-plan-2026-07.md DP0–DP1"
       ],
       "evidence": [
-        "user DealPilot corrections 2026-07-14–15"
+        "user DealPilot corrections 2026-07-14–15",
+        "[2026-07-24 hosted/Supabase diagnosis](../outputs/2026-07-24-hosted-supabase-desktop-diagnosis.md) records the OPEN user-reported reliability issue: the static shell is separate from a free sleeping API, deployed source remains manually pinned at `163562a` while `main` is `cbffa3ed`, and 2,573 provider-recorded readiness probes prove at least 10,292/25,179 cumulative `bridge_app` statements while the retained same-shaped reads consumed only about 32 ms total. Supabase is healthy and small, with no disk, Auth MAU, request, or connection exhaustion found. [Local remediation](../outputs/2026-07-24-hosted-desktop-reliability-remediation.md) adds a visible, remote-only, single-flight 90-second wake gate",
+        "replay-once queries separated from never-replayed mutations",
+        "and cheap Render liveness probes. The public issue stays OPEN until reviewed source is manually deployed and natural-cold/Auth/375px/statement evidence passes. Queue order/status and provider tier remain unchanged."
       ],
       "requests": [
         "DealPilot requirements 2026-07-14–15"
@@ -629,7 +632,9 @@
         "BUGS 2026-07-14 blueprint-centric onboarding (resolved 2026-07-16)",
         "BUGS onboarding re-entry (resolved 2026-07-16)",
         "BUGS Radix Dialog warning remains cosmetic and non-blocking",
-        "2026-07-16 API/Memory/persistent-authority regressions plus native Tauri and exact 375px prototype evidence in outputs/2026-07-16-task002-onboarding-learning.md"
+        "2026-07-16 API/Memory/persistent-authority regressions plus native Tauri and exact 375px prototype evidence in outputs/2026-07-16-task002-onboarding-learning.md",
+        "2026-07-24 desktop-height deadlock fixed with a viewport-bounded, internally scrollable onboarding dialog and rendered Continue-to-profession proof in outputs/2026-07-24-onboarding-dialog-deadlock.md",
+        "[2026-07-24 reliability remediation](../outputs/2026-07-24-hosted-desktop-reliability-remediation.md) completes the user's recorded governed Onboarding, persists the profile as private Local Plane Memory, and proves restart-stable `Manish's Organization`, active blueprint, Lion browser preference, and visible native overlay"
       ],
       "requests": [
         "R-028",
@@ -689,7 +694,14 @@
       ],
       "evidence": [
         "BUGS mobile app absent from accessible refs",
-        "AP-012 desktop CI-green follow-up"
+        "AP-012 desktop CI-green follow-up",
+        "[2026-07-24 desktop diagnosis](../outputs/2026-07-24-hosted-supabase-desktop-diagnosis.md) reproduced pre-VOCAB Local Plane rejection plus non-self-contained development/release startup. [Bounded remediation](../outputs/2026-07-24-hosted-desktop-reliability-remediation.md) accepts only the exact migratable UUID shape and proves retained-row upgrade/reopen",
+        "orchestrates development",
+        "bundles allowlisted API + target-native Node",
+        "rejects secrets/stale/wrong-target inputs",
+        "signs the macOS Keyring from Frameworks with Node entitlements",
+        "disables unsupported Windows installers while retaining compile checks",
+        "and launches a 349 MB portable `Bridge.app` from Finder-like PATH through restart-stable Local Plane Onboarding and visible Lion overlay. TASK-018 remains `blocked`: real Developer ID/notarization, Windows secure listener inheritance/installers, the full physical OS matrix, and mobile are not complete. Queue order/status is unchanged."
       ],
       "requests": [
         "cross-platform roadmap work"
