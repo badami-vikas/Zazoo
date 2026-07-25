@@ -2142,3 +2142,8 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Supabase is healthy and small. The 2,573 provider-recorded readiness probes prove at least 10,292/25,179 cumulative `bridge_app` statements, making the route the largest avoidable Bridge statement family; retained same-shaped reads consumed only 32.20 ms total, and no size, Auth, direct-request, or connection exhaustion was found.
 - Reproduced desktop development's missing orchestration/identity path, release packaging's missing API/Node runtime, and the user's first release failure: the pre-VOCAB `external_records.workspace_id` Local Plane is rejected before migration `0021` can upgrade it.
 - No source fix, provider-tier/configuration change, deployment, task-state change, or personal Local Plane mutation was made. Durable findings: `outputs/2026-07-24-hosted-supabase-desktop-diagnosis.md`.
+
+# 2026-07-25 — Freelancer high-level implementation requirements handoff
+- Added `docs/raw/freelancer-implementation-requirements-2026-07.md` with high-level third-party implementation requirements covering objective, non-negotiable architecture/governance constraints, security/reliability bar, scope boundaries, and definition of done.
+- Added wiki summary `docs/wiki/freelancer-handoff.md` and linked it from `docs/wiki/index.md` for quick navigation.
+- Recorded session outcome in `outputs/2026-07-25-freelancer-implementation-requirements.md`.
