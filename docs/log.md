@@ -8,8 +8,13 @@
   sidecar behavior remain intact. Focused and full web tests, typecheck, lint, build, and independent
   review pass. The same gate pass adds one exact technical vocabulary allow for npm's mandatory
   `package.json` filename at the desktop bundle seam and removes a retired term from its test title;
-  product use remains rejected everywhere else. Live natural-cold/Auth certification and exact
-  deployed-source evidence follow.
+  product use remains rejected everywhere else. Commit `c0353e7` is pushed on `main`; static deploy
+  `dep-d9i6ojjrjlhs73ef2380` is live at that exact source. Provider logs prove natural hibernation
+  (`07:59:21Z` old-instance final health -> `08:01:38Z` different-instance start), then deployed
+  browser health `200`, CORS `204`, and refreshed-bearer activation `200`. Exact-pilot Auth rotated
+  both tokens for the same subject and emitted `TOKEN_REFRESHED`; exact 375px showed the wake state,
+  reached `/`, and held `innerWidth=scrollWidth=375`. Supabase is still `ACTIVE_HEALTHY`, GoTrue
+  health is `200`, and post-wake API error logs are empty. The hosted reliability BUG is resolved.
 
 - **2026-07-25 — Reliability remediation deployed and live Supabase rechecked (AP-074)**:
   committed/pushed `015716c`; Render API deploy `dep-d9i6bbt0kf9s73baeuc0` and web deploy
@@ -20,7 +25,7 @@
   `bridge_app`. A 65-second window containing 19 Render `/health` probes added zero
   `bridge_app` statements, rows, or execution time, proving cheap liveness removed the prior
   readiness pressure. No tier, secret, configuration, or production data changed. Natural-cold,
-  current exact-375px, and Auth-refresh checks remain OPEN.
+  exact-375px, and Auth-refresh checks remained open at this checkpoint and were closed by AP-075.
 
 - **2026-07-24 — Hosted/desktop reliability remediation and governed Onboarding completed (ADR-144, AP-073)**:
   remote API wake is visible, single-flight, bounded, and read-replay-only; Render probes cheap

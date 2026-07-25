@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-25T07:48:38.643Z",
+  "generatedAt": "2026-07-25T08:04:13.771Z",
   "items": [
     {
       "id": "TASK-001",
@@ -541,7 +541,7 @@
       "requests": [
         "DealPilot requirements 2026-07-14–15"
       ],
-      "approval": "AP-023, AP-029, AP-044, AP-045, AP-054, AP-060, and AP-063 applied",
+      "approval": "AP-023, AP-029, AP-044, AP-045, AP-054, AP-060, AP-063, AP-074, and AP-075 applied",
       "dependencies": [
         "TASK-001"
       ],

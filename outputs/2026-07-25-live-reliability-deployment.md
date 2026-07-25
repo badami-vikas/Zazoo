@@ -53,8 +53,9 @@ This directly proves that the new `/health` liveness path does not consume Supab
 ## Boundaries
 
 - No provider tier, secret, Supabase setting, or production row changed.
-- The broader hosted reliability bug remains open for a natural cold wake, current exact-375px
-  recovery, and live Auth refresh.
+- At this deployment checkpoint, natural cold wake, exact-375px recovery, and live Auth refresh
+  remained open. They are now closed by
+  [the AP-075 follow-up](2026-07-25-hosted-cold-wake-auth-refresh.md).
 - The clean full API suite still has 13 unrelated baseline contract failures; changed-surface
   security, web, Local Plane, core, Rust, bundle, build, vocabulary, and runtime checks passed.
 

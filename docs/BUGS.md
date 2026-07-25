@@ -52,7 +52,7 @@ real sequence: profile `lion` survived process restart, browser storage became
 blueprint remained active, and the native overlay reported visible. Attached to TASK-002 and
 TASK-018; neither task status/order changed.
 
-## OPEN 2026-07-24 — Public Render deployment still lacks reviewed wake recovery, and prior readiness probes dominate Bridge's avoidable database calls
+## RESOLVED 2026-07-25 — Public Render wake recovery and Auth refresh are bounded, mutation-safe, and live-certified
 **User report (verbatim):** “there have been some changes done. I see that the website is flaky, it runs sometimes and doesnt sometimes. Check what is eating the limits of supabase. Also the local desktop is broken, can you check what is the issue on both sides and let me know.”
 
 The free static site and API are separate: the static shell remained reachable, while API-dependent behavior inherits the free Docker service's sleep/wake boundary. At diagnosis, Render logs showed 11 API starts since the July 22 deployment and repeated runtime windows ending around the free tier's idle boundary. The deployed API/web source was `163562a`, both services had `autoDeploy: no`, and current `main` was `cbffa3ed`; the public deployment therefore did not contain later main changes. A warm `/health/ready` request returned `200` in 0.947 seconds. A natural cold request could not be isolated during the final sample because an active web page was issuing tRPC traffic and keeping the service warm. Historical provider startup windows, not a successful warm spot check, are the cold/wake evidence.
@@ -82,9 +82,23 @@ replication, or RLS-bypass attributes. Its retained cumulative statistics were 3
 containing 19 Render `/health` requests advanced those counters by zero statements, zero rows, and
 zero execution time. The liveness probes therefore no longer consume Supabase statements.
 
-This bug remains OPEN only for the still-unrun natural-cold wake, exact 375px hosted recovery, and
-live Auth refresh checks. No provider tier, secret, production row, or Supabase configuration was
-changed during deployment/certification.
+RESOLVED under AP-075/ADR-145. Web commit `c0353e7` wakes the remote API before Supabase session
+read/bearer construction and single-flights Organization activation per Auth subject. Duplicate
+initial and `TOKEN_REFRESHED` events no longer issue duplicate activation mutations; query-only
+replay and mutation non-replay are unchanged. Static deploy `dep-d9i6ojjrjlhs73ef2380` is live at
+that exact commit.
+
+Natural-cold evidence is provider-correlated rather than inferred from a slow request: the old
+instance's final `/health` completed at `07:59:21Z`; a different instance started at `08:01:38Z`;
+the deployed 375px browser then completed `/health` `200`, exact-origin CORS `204`, and refreshed-
+bearer `organization.activateSession` `200` by `08:01:44Z`, followed by the Module/Organization
+batch. A separate exact-pilot Auth run emitted `INITIAL_SESSION` -> `SIGNED_IN` ->
+`TOKEN_REFRESHED` -> `SIGNED_OUT`, rotated both access and refresh tokens for the same subject, and
+returned a 3,600-second session. The corrected warm harness then saw the wake banner, first requested
+`GET /health`, activated with `200`, reached `/`, and measured `innerWidth=scrollWidth=375`.
+Supabase remained `ACTIVE_HEALTHY`, authenticated GoTrue health returned `200`, and post-wake API
+logs had no error-level entries. No tier, secret, Supabase configuration, or application row changed;
+the bounded check created and signed out ephemeral Auth sessions.
 
 ## RESOLVED 2026-07-24 — Existing pre-VOCAB Local Plane cannot reach the migration that would upgrade it
 The current macOS release app reproduced the user's first local failure against the existing Local Plane:
