@@ -170,12 +170,38 @@ test("technical DOM and projection identifiers stay classified without allowing 
   );
   assert.equal(parallelMcpMethod.tool, undefined);
 
+  const preVocabularyAdapter = inventoryForSource(
+    "packages/db/src/client-local.ts",
+    `export const previousTenantColumn = "workspace_id";`,
+  );
+  assert.equal(preVocabularyAdapter.workspace, undefined);
+
+  const preVocabularyFixture = inventoryForSource(
+    "packages/db/test/local-store.test.ts",
+    `await client.query("INSERT INTO workspaces (id, name) VALUES ($1, $2)");`,
+  );
+  assert.equal(preVocabularyFixture.workspace, undefined);
+
   const forbidden = inventoryForSource(
     "packages/core/src/record.ts",
     `export interface ProjectElement { label: string }`,
   );
   assert.equal(forbidden.project["packages/core/src/record.ts"].identifier, 1);
   assert.equal(forbidden.element["packages/core/src/record.ts"].identifier, 1);
+});
+
+test("the npm manifest filename is allowed only at the reviewed desktop bundle seam", () => {
+  const allowed = inventoryForSource(
+    "apps/desktop/scripts/prepare-bundle.mjs",
+    `const manifest = join(root, "package.json");`,
+  );
+  assert.equal(allowed.package, undefined);
+
+  const blocked = inventoryForSource(
+    "apps/web/src/app/blocked.ts",
+    `export const label = "package.json";`,
+  );
+  assert.equal(blocked.package["apps/web/src/app/blocked.ts"].string, 1);
 });
 
 test("Rust and SQL scanners cover identifiers and strings without counting comments", () => {

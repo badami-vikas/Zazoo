@@ -4,6 +4,23 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-25 — Wake before bearer capture (ADR-145, AP-075)
+- Remote wake first. Supabase session second. Bearer last.
+- Same Auth subject activates Organization once.
+- Token refresh updates session. No duplicate activation mutation.
+- Sign-out/subject switch invalidates pending activation.
+- Query replay rule unchanged. Mutation never replays.
+- Desktop loopback remains wake-free. Sidecar token stays.
+
+## 2026-07-24 — Reliability boundaries fail closed (ADR-144, AP-073)
+- Remote wake: bounded, single-flight liveness.
+- Query may replay once. Mutation never.
+- Release owns Node + built API. No repo/system fallback.
+- API bundle allowlist + secret scan.
+- macOS native addon = signed Framework. Node gets JIT entitlements.
+- Windows installer blocked until safe listener handoff. Compile check stays.
+- Onboarding profile = private Local Plane Memory. Browser Avatar hydrates from it.
+
 ## 2026-07-21 — Web research rights gate (ADR-141, AP-068)
 - Phase 1 = Parallel anonymous MCP only.
 - Jina keyless + DuckDuckGo blocked. Reachable is not permitted.

@@ -5,6 +5,14 @@ import test from "node:test";
 const pageSource = await readFile(new URL("../src/app/pages/DealPilotPage.tsx", import.meta.url), "utf8");
 const routeSource = await readFile(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
 const trpcSource = await readFile(new URL("../src/app/lib/trpc.ts", import.meta.url), "utf8");
+const authorizationSource = await readFile(
+  new URL("../src/app/lib/api-authorization.ts", import.meta.url),
+  "utf8",
+);
+const transportSource = await readFile(
+  new URL("../src/app/lib/api-transport.ts", import.meta.url),
+  "utf8",
+);
 const apiSource = await readFile(new URL("../src/app/data/api.ts", import.meta.url), "utf8");
 const googleSource = await readFile(new URL("../src/app/pages/GoogleIntegrationPanel.tsx", import.meta.url), "utf8");
 const formSource = await readFile(new URL("../src/app/dataviews/views/FormView.tsx", import.meta.url), "utf8");
@@ -48,9 +56,10 @@ test("Source credentials require re-authentication and are never persisted by th
   assert.match(formSource, /type=\{col\.sensitive \? "password" : "text"\}/);
   assert.match(formSource, /autoComplete=\{col\.sensitive \? "new-password" : undefined\}/);
   assert.doesNotMatch(pageSource, /sessionStorage|localStorage/);
+  assert.match(trpcSource, /sidecarToken:[\s\S]*__BRIDGE_SIDECAR_TOKEN__/);
   assert.match(
-    trpcSource,
-    /x-bridge-sidecar-token.*__BRIDGE_SIDECAR_TOKEN__/s,
+    authorizationSource,
+    /"x-bridge-sidecar-token": options\.sidecarToken/,
   );
 });
 
@@ -85,9 +94,14 @@ test("desktop Google OAuth opens in the system browser, not the privileged webvi
   assert.doesNotMatch(googleSource, /window\.location\.href\s*=/);
   assert.match(apiSource, /API_TRANSPORT_CONFIGURED/);
   assert.match(apiSource, /await trpcAuthorizationHeaders\(\)/);
-  assert.match(trpcSource, /__BRIDGE_API_URL__/);
+  assert.match(transportSource, /__BRIDGE_API_URL__/);
   assert.match(trpcSource, /__BRIDGE_SIDECAR_TOKEN__/);
-  assert.match(trpcSource, /import\.meta\.env\.DEV \? "http:\/\/localhost:4000"/);
-  assert.doesNotMatch(trpcSource, /CONFIGURED_API_URL \|\| "http:\/\/localhost:4000"/);
+  assert.match(transportSource, /import\.meta\.env\.DEV/);
+  assert.match(transportSource, /"http:\/\/localhost:4000"/);
+  assert.doesNotMatch(transportSource, /configured \|\| "http:\/\/localhost:4000"/);
   assert.match(trpcSource, /Bridge API transport is not configured/);
+  assert.match(trpcSource, /splitLink/);
+  assert.match(trpcSource, /operation\.type === "query"/);
+  assert.match(trpcSource, /createHttpBatchLink\(apiQueryFetch\)/);
+  assert.match(trpcSource, /createHttpBatchLink\(apiFetch\)/);
 });

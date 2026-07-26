@@ -1022,7 +1022,12 @@ fn present_overlay(window: &WebviewWindow) -> Result<(), String> {
     window
         .set_ignore_cursor_events(false)
         .map_err(|error| error.to_string())?;
-    window.show().map_err(|error| error.to_string())
+    window.show().map_err(|error| error.to_string())?;
+    println!(
+        "[bridge-desktop] avatar overlay visible label={}",
+        window.label()
+    );
+    Ok(())
 }
 
 fn assert_readiness_controller(label: &str) -> Result<(), String> {

@@ -49,6 +49,7 @@ export {
   ensureEgressAgentGovernance,
   ensureIntakeAgentGovernance,
   ensureDealPilotPrincipalGovernance,
+  ensureCapabilityApprovalPrincipalGovernance,
   type InternalStrategistGovernanceConfig,
   type RelationshipUserGovernanceConfig,
   type FoundationalAgentGovernanceConfig,

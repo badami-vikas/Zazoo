@@ -6,8 +6,11 @@
   "build": {
     "devUrl": "http://localhost:5173",
     "frontendDist": "../../web/dist",
-    "beforeDevCommand": "",
-    "beforeBuildCommand": ""
+    "beforeDevCommand": {
+      "script": "pnpm prepare:dev",
+      "wait": false
+    },
+    "beforeBuildCommand": "pnpm prepare:bundle"
   },
   "app": {
     "windows": [],
@@ -19,6 +22,19 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": [
+      "binaries/bridge-node"
+    ],
+    "macOS": {
+      "frameworks": [
+        "generated/native/bridge-keyring.dylib"
+      ],
+      "entitlements": "Bridge.entitlements"
+    },
+    "resources": {
+      "generated/api/": "api/",
+      "generated/licenses/": "licenses/"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

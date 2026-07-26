@@ -155,6 +155,7 @@ import {
   declassifyTaintLabel,
   deriveDeclassifiedLabel,
   hashTaintValue,
+  joinTaintLabels,
   labelAtSource,
   validateActionWithinChildRun,
   type ParentRunEnvelope,
@@ -1222,6 +1223,27 @@ async function stageRoleModelRecommendation(
       },
       skill: LEARNING_RECOMMENDATION_SKILL_ID,
       trustOrigin: "untrusted_external",
+      taintLabel: joinTaintLabels(
+        labelAtSource("web_search", {
+          ref: recommendation.citation.url,
+          valueHash: hashTaintValue({
+            documentedContext: recommendation.documentedContext,
+            citation: recommendation.citation,
+          }),
+          sensitivity: "public",
+          instructionRisk: "data",
+        }),
+        labelAtSource("human_input", {
+          ref: `onboarding-role-model:${identityId}`,
+          valueHash: hashTaintValue({
+            title: recommendation.title,
+            summary: recommendation.summary,
+            interpretation: recommendation.interpretation,
+          }),
+          sensitivity: "private",
+          instructionRisk: "data",
+        }),
+      ),
       goalTaskRef: await provisionRoleModelRecommendationTask(wiring, organizationId),
     },
     run,
@@ -1878,11 +1900,14 @@ const resourceTypeEnum = z.enum([
   "record",
   "automation",
   "module",
+  "module_installation",
+  "organization_definition",
   "file",
   "signal",
   "policy",
   "policy_param",
   "skill",
+  "capability",
   "agent",
   "role",
   "permission",
@@ -1951,11 +1976,31 @@ const relationshipSignalEvidenceInput = relationshipSignalEvidencePayloadSchema
   .extend({
     organizationId: z.string().uuid().transform((value) => value.toLowerCase()),
   });
+/** D10 — the View grammar's sort/row-filter shapes, shared by the Blueprint
+ * View config (`blueprintViewInput.config` below) and the paginated
+ * Relationship list endpoints so a View's server-side query uses the exact
+ * same vocabulary its client-side `DataViews` display layer does. */
+const viewSortSpecInput = z.object({ id: z.string(), dir: z.enum(["asc", "desc"]) });
+const viewRowFilterInput = z.object({
+  field: z.string(),
+  op: z.enum(["contains", "is", "is_not", "is_empty", "is_not_empty", "starts_with"]),
+  value: z.string(),
+});
 const relationshipListInput = z.object({
   organizationId: databaseUuidSchema,
   query: z.string().trim().max(120).optional(),
   limit: z.number().int().min(1).max(100).default(50),
   offset: z.number().int().min(0).max(10_000).default(0),
+  // D10 (BUGS.md "paginated Relationship Views filter and sort only the
+  // loaded page", OPEN 2026-07-19): the active View's sorts/rowFilters,
+  // applied server-side (`packages/db/src/graph-store.ts`'s allowlisted
+  // `personViewColumn`/`communityViewColumn`) BEFORE limit/offset, so a
+  // filter can match a row on a later page and a sort is global rather than
+  // per-page. Bounded arrays — same reasoning as `MAX_VIEW_SORTS`/
+  // `MAX_VIEW_ROW_FILTERS` in graph-store.ts.
+  sorts: z.array(viewSortSpecInput).max(5).optional(),
+  rowFilters: z.array(viewRowFilterInput).max(20).optional(),
+  filterMatch: z.enum(["all", "any"]).optional(),
 });
 const humanInteractionFieldsSchema = interactionCreateFieldsSchema.omit({
   source: true,
@@ -2658,16 +2703,8 @@ const blueprintViewInput = z.object({
   kind: z.enum(["table", "board", "gallery", "form", "calendar", "map", "graph", "tree", "chatbot", "dashboard", "canvas"]),
   config: z
     .object({
-      sorts: z.array(z.object({ id: z.string(), dir: z.enum(["asc", "desc"]) })).optional(),
-      rowFilters: z
-        .array(
-          z.object({
-            field: z.string(),
-            op: z.enum(["contains", "is", "is_not", "is_empty", "is_not_empty", "starts_with"]),
-            value: z.string(),
-          }),
-        )
-        .optional(),
+      sorts: z.array(viewSortSpecInput).optional(),
+      rowFilters: z.array(viewRowFilterInput).optional(),
       filterMatch: z.enum(["all", "any"]).optional(),
       groupBy: z.string().nullable().optional(),
       dateBy: z.string().optional(),
@@ -3637,6 +3674,128 @@ async function retryApprovedRelationship(
         effect.lastError ??
         (cause instanceof Error ? cause.message : String(cause)),
       retryable: true,
+    };
+  }
+}
+
+/**
+ * D8 (BUGS.md "approved external effects have no durable retry executor",
+ * OPEN 2026-07-16) — a durable, idempotent retry for the OTHER approved
+ * `action.decide` post-decision effect classes: plain Google `external:send`
+ * egress (Gmail draft / Calendar create/update/delete — NOT the private
+ * Google interaction-intake shape `relationship.reconcileApproved` already
+ * covers) and DealPilot `thesis_source_discovery` materialization. Relation
+ * materialization has its own dedicated `relationship.reconcileApproved`/
+ * `retryMaterialization` (plus the background
+ * `reconcileOrganizationRelationshipMaterializations` sweep), and Module
+ * installs have `packages.reconcileApproved` — both explicitly rejected here
+ * so callers use the correct, already-durable surface instead of a
+ * no-op-shaped success from this one.
+ *
+ * Reuses the ORIGINAL approval unchanged: `proposalFromResolvedRelationshipLedger`
+ * replays the exact persisted request/authority/policyResults/output the human
+ * decision already produced, and this NEVER calls `pipeline.decide()` — so it
+ * cannot create a second review decision. The effects themselves carry their
+ * own idempotency keys (egress's `hasExternal(organizationId, "egress",
+ * proposalId)` guard against double-send; DealPilot's relation-key upsert), so
+ * replaying them is safe even if the original attempt partially succeeded.
+ * A failure here appends the same shape of append-only audit evidence
+ * `action.decide` does on a post-decision effect failure.
+ */
+async function reconcileApprovedExternalEffect(
+  ctx: Pick<ApiContext, "wiring" | "identity" | "run">,
+  proposalId: string,
+) {
+  const original = await ctx.wiring.ledger.get(proposalId);
+  if (!original) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+  }
+  if (moduleInstallIdFromProposal(original)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "module install approvals reconcile through modules.reconcileApproved",
+    });
+  }
+  if (
+    (original.resourceType === "relation" && isRelationshipSignalEvidence(original.inputs)) ||
+    isRelationshipMutation(original.inputs) ||
+    (original.dataScope === "private" && isGoogleLinkedInteractionIntake(original.inputs))
+  ) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Relationship approvals reconcile through relationship.reconcileApproved",
+    });
+  }
+  if (
+    original.resourceType !== "relation" &&
+    isPrivateProposalInputs(original.inputs) &&
+    original.onBehalfOfId !== ctx.identity.id
+  ) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "This proposal is private to its own owner" });
+  }
+  assertPrivateProposalOwner(original, ctx.identity, ctx.wiring.google);
+  const decision = await ctx.wiring.ledger.decisionFor(proposalId);
+  if (!decision || (decision.userDecision !== "approve" && decision.userDecision !== "edit")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "proposal is not approved" });
+  }
+  const resolved = proposalFromResolvedRelationshipLedger(original, decision);
+  try {
+    const effects = await ctx.wiring.google.onApproved(proposalId, resolved, ctx.run);
+    const dealPilotEffects = await materializeDealPilotApproval(ctx.wiring, resolved);
+    return {
+      proposalId,
+      effects,
+      dealPilotEffects,
+      effectsStatus: "confirmed" as const,
+    };
+  } catch (cause) {
+    const effectsError = cause instanceof Error ? cause.message : String(cause);
+    let effectsAuditId: string | undefined;
+    try {
+      const auditId = ctx.run.ids.next();
+      await ctx.wiring.ledger.append({
+        id: auditId,
+        organizationId: original.organizationId,
+        actorType: original.actorType,
+        actorId: original.actorId,
+        ...(original.onBehalfOfType ? { onBehalfOfType: original.onBehalfOfType } : {}),
+        ...(original.onBehalfOfId ? { onBehalfOfId: original.onBehalfOfId } : {}),
+        action: original.action,
+        resourceType: original.resourceType,
+        ...(original.resourceId ? { resourceId: original.resourceId } : {}),
+        inputs: {
+          originalProposalId: proposalId,
+          display: {
+            actor: `${original.actorType} · ${original.actorId}`,
+            resource: `${original.resourceType}${original.resourceId ? ` · ${original.resourceId}` : ""}`,
+            policy: "Reconcile of approved effect failed",
+          },
+        },
+        proposedOutput: {
+          text: `Reconcile of approved effect failed: ${effectsError}`,
+          executed: false,
+          error: effectsError,
+        },
+        userDecision: "auto",
+        policyResults: [],
+        diff: { executionFailed: effectsError },
+        refLedgerId: decision.id,
+        createdAt: ctx.run.clock.nowISO(),
+      });
+      effectsAuditId = auditId;
+    } catch (auditCause) {
+      // Same fail-open rationale as action.decide's post-decision audit append:
+      // an already-persisted approval plus a failed effect must stay visible
+      // even when the failure-audit append itself also fails.
+      console.error("action.reconcileApproved: failed to append effect-retry audit", auditCause);
+    }
+    return {
+      proposalId,
+      effects: { materialized: false, sent: false },
+      dealPilotEffects: [],
+      effectsStatus: "failed" as const,
+      effectsError,
+      ...(effectsAuditId ? { effectsAuditId } : {}),
     };
   }
 }
@@ -5643,6 +5802,22 @@ export const appRouter = t.router({
         };
       }
     }),
+
+    /** D8 — durable idempotent retry for a post-decision effect that
+     * `action.decide` reported `effectsStatus: "failed"` for, when the
+     * proposal is NOT a Relationship approval (`relationship.reconcileApproved`)
+     * or a Module install approval (`packages.reconcileApproved`) — see
+     * `reconcileApprovedExternalEffect` above for the full rationale. Never
+     * creates a second review decision; the human approval is immutable. */
+    reconcileApproved: authenticatedProcedure
+      .input(z.object({ proposalId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        const original = await ctx.wiring.ledger.get(input.proposalId);
+        if (!original) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+        assertPilotOrganization(original.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, original.organizationId, ctx.identity.id);
+        return reconcileApprovedExternalEffect(ctx, input.proposalId);
+      }),
   }),
 
   /** Gmail + Google Calendar integration — connect, sync (read), send (write). */
@@ -6180,6 +6355,9 @@ export const appRouter = t.router({
             limit: input.limit,
             offset: input.offset,
             ...(input.query ? { query: input.query } : {}),
+            ...(input.sorts ? { sorts: input.sorts } : {}),
+            ...(input.rowFilters ? { rowFilters: input.rowFilters } : {}),
+            ...(input.filterMatch ? { filterMatch: input.filterMatch } : {}),
           },
         );
         return { items, total, hasMore: input.offset + items.length < total };
@@ -6270,6 +6448,9 @@ export const appRouter = t.router({
             limit: input.limit,
             offset: input.offset,
             ...(input.query ? { query: input.query } : {}),
+            ...(input.sorts ? { sorts: input.sorts } : {}),
+            ...(input.rowFilters ? { rowFilters: input.rowFilters } : {}),
+            ...(input.filterMatch ? { filterMatch: input.filterMatch } : {}),
           },
         );
         return { items, total, hasMore: input.offset + items.length < total };
@@ -7658,13 +7839,13 @@ export const appRouter = t.router({
             organizationId: z.string().min(1),
             subject: z.string().min(1),
             body: z.string().default(""),
-            topicsByPerson: z
-              .record(z.array(z.string().min(1)).max(50))
-              .refine(
-                (value) => Object.keys(value).every((id) => z.string().uuid().safeParse(id).success),
-                "candidate Person ids must be UUIDs",
-              )
-              .refine((value) => Object.keys(value).length <= 500, "at most 500 candidate People may be routed")
+            /** WHO to consider — never their topics. Topics are derived
+             * server-side from each candidate's own Person record (`skills`),
+             * never accepted from the caller (a caller could otherwise stuff
+             * arbitrary topics onto someone else's Person to steer routing). */
+            candidatePersonIds: z
+              .array(z.string().uuid())
+              .max(500, "at most 500 candidate People may be routed")
               .optional(),
             limit: z.number().int().min(1).max(10).default(3),
           }),
@@ -7674,7 +7855,7 @@ export const appRouter = t.router({
           await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
           const candidates = (
             await Promise.all(
-              Object.entries(input.topicsByPerson ?? {}).map(async ([personId, topics]) => {
+              (input.candidatePersonIds ?? []).map(async (personId) => {
                 const person = await ctx.wiring.graphStore.getPerson(
                   input.organizationId,
                   ctx.identity.id,
@@ -7684,7 +7865,10 @@ export const appRouter = t.router({
                   ? {
                       personId: person.id,
                       displayName: person.displayName ?? "Unnamed person",
-                      topics,
+                      // Server-side topics ONLY — never caller-supplied. A
+                      // Person with no skills contributes no topics (honest
+                      // empty state, not a dummy stand-in).
+                      topics: person.skills,
                     } satisfies HelpResponderCandidate
                   : null;
               }),
@@ -9495,7 +9679,7 @@ export const appRouter = t.router({
             organizationId: input.organizationId,
             actor: { type: ctx.identity.type, id: ctx.identity.id },
             action: "approve",
-            resourceType: "skill", // organization_definitions has no dedicated ResourceType yet — same interim token capability.approve uses
+            resourceType: "organization_definition",
             resourceId: input.definitionId,
             inputs: { definitionId: input.definitionId, fromStatus: draft.status },
             skill: "stageMutation",
@@ -9504,6 +9688,16 @@ export const appRouter = t.router({
         );
         if (proposal.status === "pending_review") {
           return { activated: false, proposal, definition: draft };
+        }
+        // Hard-stop mirroring capability.approve above: only an authority-granted,
+        // auto-applied decision may archive the prior active definition and
+        // activate the draft. A `"rejected"` decision (authority denied, or the
+        // agent-floor blocked it) must never reach the mutation below.
+        if (proposal.status !== "applied") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: proposal.rejectionReason ?? "approval was not authorized",
+          });
         }
 
         const priorActive = await ctx.wiring.organizationDefinitionStore.getActive(input.organizationId);
@@ -10570,7 +10764,7 @@ export const appRouter = t.router({
           organizationId: state.organizationId,
           actor: { type: ctx.identity.type, id: ctx.identity.id },
           action: "approve",
-          resourceType: "skill", // capability rows are not yet their own ResourceType; skill is the closest governed registry token
+          resourceType: "capability",
           resourceId: input.manifestId,
           inputs: { manifestId: input.manifestId, fromState: state.state },
           skill: "stageMutation",
@@ -10579,6 +10773,20 @@ export const appRouter = t.router({
       );
       if (proposal.status === "pending_review") {
         return { proposal, state };
+      }
+      // Hard-stop on anything other than an authority-granted, auto-applied
+      // decision — notably `"rejected"` (authority denied the action or the
+      // agent-floor blocked it). Without this, every non-pending status fell
+      // through into the state-advance mutation below, so a DENIED approve
+      // still mutated (docs/BUGS.md "capability.approve ... mutate even when
+      // the governed decision is rejected"). `ProposalStatus` is exactly
+      // `"pending_review" | "applied" | "rejected"`, so this only ever
+      // catches `"rejected"` here.
+      if (proposal.status !== "applied") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: proposal.rejectionReason ?? "approval was not authorized",
+        });
       }
 
       // EVAL-3 (§4.2): the baseline-vs-candidate "is it better than what we
@@ -11264,7 +11472,7 @@ export const appRouter = t.router({
                 organizationId: input.organizationId,
                 actor: { type: ctx.identity.type, id: ctx.identity.id },
                 action: "write",
-                resourceType: "signal", // governed install intent; module_installation is not yet a kernel ResourceType
+                resourceType: "module_installation",
                 resourceId: moduleInstallationLedgerResourceId(
                   input.organizationId,
                   installation.id,

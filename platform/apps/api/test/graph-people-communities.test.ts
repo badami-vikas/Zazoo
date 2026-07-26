@@ -24,6 +24,8 @@ import {
   SeededRng,
   SystemClock,
   UuidGen,
+  hashTaintValue,
+  labelAtSource,
   type Actor,
   type RunCtx,
 } from "@bridge/core";
@@ -35,10 +37,36 @@ import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src
 
 const FIXTURE_COUNT = 5;
 
-function makeRun(): RunCtx {
+/**
+ * `authenticated` mirrors context.ts's `makeContextFactory`, which attaches a
+ * `human_input`-derived taintLabel to `ctx.run` for every authenticated
+ * request (and none for an anonymous/tokenless one). This harness calls
+ * `appRouter.createCaller()` directly, bypassing that factory, so it must
+ * reproduce the SAME label an authenticated request always gets — otherwise
+ * ADR-142's fail-closed unknown-taint-axis quarantine (taint.ts's
+ * `evaluateTaintSink`) misclassifies a genuine authenticated Human turn as
+ * unlabeled/untrusted and blocks any non-`pure_data` Skill run under an agent
+ * actor (see `relationship.help-request.stage-offer`/`stageCapture`, neither
+ * of which sets `executionClass: "pure_data"`).
+ */
+function makeRun(options: { authenticated?: boolean } = {}): RunCtx {
   const clock = new SystemClock();
   const rng = new SeededRng(1);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
+  return {
+    clock,
+    rng,
+    ids: new UuidGen(clock, rng),
+    ...(options.authenticated !== false
+      ? {
+          taintLabel: labelAtSource("human_input", {
+            ref: "test-fixture:authenticated-caller",
+            valueHash: hashTaintValue("test-fixture-authenticated-caller"),
+            sensitivity: "organization",
+            instructionRisk: "none",
+          }),
+        }
+      : {}),
+  };
 }
 
 async function makeCaller(
@@ -57,7 +85,7 @@ async function makeCaller(
 async function makeAnonymousVerifiedCaller(wiring: Wiring) {
   return appRouter.createCaller({
     wiring,
-    run: makeRun(),
+    run: makeRun({ authenticated: false }),
     identity: { type: "user", id: PILOT_USER },
     authenticated: false,
     verifying: true,
@@ -69,7 +97,7 @@ async function makeAnonymousVerifiedCaller(wiring: Wiring) {
  * its own connection against the same directory. */
 async function seedFixtures(
   dir: string,
-  options: { addNewerSourceEvent?: boolean } = {},
+  options: { addNewerSourceEvent?: boolean; firstPersonSkills?: string[] } = {},
 ): Promise<{
   signalId: string;
   eventId: string;
@@ -102,6 +130,18 @@ async function seedFixtures(
       organizationId: PILOT_ORGANIZATION,
       userId: otherMember.id,
     });
+    // Only populated when a test needs a Person with real server-side skills
+    // (Helpdesk topic-routing) — every other test leaves this null, so their
+    // fixtures are byte-for-byte unchanged.
+    let firstPersonCanonicalId: string | null = null;
+    if (options.firstPersonSkills) {
+      const [canonical] = await db
+        .insert(schema.peopleCanonical)
+        .values({ skills: options.firstPersonSkills })
+        .returning({ id: schema.peopleCanonical.id });
+      firstPersonCanonicalId = canonical?.id ?? null;
+      assert.ok(firstPersonCanonicalId);
+    }
     let firstPersonId: string | null = null;
     let memberPersonId: string | null = null;
     let firstCommunityId: string | null = null;
@@ -112,6 +152,7 @@ async function seedFixtures(
           organizationId: PILOT_ORGANIZATION,
           userId: PILOT_USER,
           fullNameOverride: `test_fixture_person_${i}`,
+          ...(i === 0 && firstPersonCanonicalId ? { canonicalPersonId: firstPersonCanonicalId } : {}),
         })
         .returning({ id: schema.people.id });
       if (i === 0) firstPersonId = person?.id ?? null;
@@ -420,10 +461,10 @@ test("Helpdesk rejects malformed Person identifiers before querying UUID columns
           organizationId: PILOT_ORGANIZATION,
           subject: "Need help",
           body: "",
-          topicsByPerson: { "not-a-uuid": ["fundraising"] },
+          candidatePersonIds: ["not-a-uuid"],
           limit: 3,
         }),
-      /candidate Person ids must be UUIDs/,
+      /Invalid uuid|validation/i,
     );
     await assert.rejects(
       () =>
@@ -474,7 +515,7 @@ test("graph.listCommunities: paginates communities under the pilot organization"
 
 test("graph Relationship path resolves evidence and proposes a governed Action", async () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-graph-relationship-test-"));
-  const fixture = await seedFixtures(dir);
+  const fixture = await seedFixtures(dir, { firstPersonSkills: ["fundraising"] });
 
   const prior = process.env.BRIDGE_LOCAL_DIR;
   process.env.BRIDGE_LOCAL_DIR = dir;
@@ -516,14 +557,32 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     assert.equal(proposal.request.seed, fixture.eventId);
     assert.equal(proposal.request.actor.plane, "local");
 
+    // D6: topics come from the Person's OWN server-side `skills` (seeded
+    // above as ["fundraising"]) — the caller supplies WHO to consider, never
+    // their topics.
     const routed = await caller.relationship.helpdesk.route({
       organizationId: PILOT_ORGANIZATION,
       subject: "Fundraising support",
       body: "We need fundraising guidance.",
-      topicsByPerson: { [fixture.personId]: ["fundraising"] },
+      candidatePersonIds: [fixture.personId],
       limit: 3,
     });
     assert.equal(routed.routes[0]?.personId, fixture.personId);
+    assert.deepEqual(routed.routes[0]?.matchedTopics, ["fundraising"]);
+
+    // Caller-supplied topics can no longer drive routing: a request that only
+    // matches a caller-asserted topic (not the Person's real server-side
+    // skills) must NOT route, and any legacy `topicsByPerson` payload a
+    // caller still sends is silently ignored, never read.
+    const ignoredCallerTopics = await caller.relationship.helpdesk.route({
+      organizationId: PILOT_ORGANIZATION,
+      subject: "kubernetes crash",
+      body: "the cluster is down",
+      candidatePersonIds: [fixture.personId],
+      limit: 3,
+      topicsByPerson: { [fixture.personId]: ["kubernetes"] },
+    } as unknown as Parameters<typeof caller.relationship.helpdesk.route>[0]);
+    assert.deepEqual(ignoredCallerTopics.routes, []);
 
     const staged = await caller.relationship.helpdesk.stageAnswer({
       organizationId: PILOT_ORGANIZATION,
@@ -960,7 +1019,13 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.ok(concurrentMaterialization);
     assert.equal(concurrentLostResponseRetry.id, decided.id);
     assert.equal(concurrentLostResponseRetry.recordedDecision, "edit");
-    assert.deepEqual(concurrentLostResponseRetry.output, decided.output);
+    // An already-resolved retry echoes `proposalFromResolvedRelationshipLedger`'s
+    // sanitized shape (proposedOutput + diff only, no taintLabel/trustOrigin),
+    // never the fresh pipeline.decide() output that produced `decided` — the two
+    // intentionally differ in audit-metadata shape under ADR-142 (see taint.ts);
+    // the substantive committed content must still match exactly.
+    assert.deepEqual(concurrentLostResponseRetry.output?.proposedOutput, decided.output?.proposedOutput);
+    assert.deepEqual(concurrentLostResponseRetry.output?.diff, decided.output?.diff);
     assert.equal(concurrentLostResponseRetry.effectsStatus, "failed");
     assert.equal(
       concurrentMaterialization.status,
@@ -982,7 +1047,9 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     });
     assert.equal(lostResponseRetry.id, decided.id);
     assert.equal(lostResponseRetry.recordedDecision, "edit");
-    assert.deepEqual(lostResponseRetry.output, decided.output);
+    // Same sanitized-replay-shape distinction as the concurrent retry above.
+    assert.deepEqual(lostResponseRetry.output?.proposedOutput, decided.output?.proposedOutput);
+    assert.deepEqual(lostResponseRetry.output?.diff, decided.output?.diff);
     assert.equal(lostResponseRetry.effectsStatus, "confirmed");
     assert.deepEqual(lostResponseRetry.relationshipMaterialization, {
       status: "confirmed",
@@ -1010,7 +1077,9 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       editedOutput: { kind: "test_fixture_invalid_after_resolution" },
     });
     assert.equal(immutableEditReplay.id, decided.id);
-    assert.deepEqual(immutableEditReplay.output, decided.output);
+    // Same sanitized-replay-shape distinction as the concurrent retry above.
+    assert.deepEqual(immutableEditReplay.output?.proposedOutput, decided.output?.proposedOutput);
+    assert.deepEqual(immutableEditReplay.output?.diff, decided.output?.diff);
     assert.ok("relationshipMaterialization" in immutableEditReplay);
     assert.deepEqual(immutableEditReplay.relationshipMaterialization, {
       status: "confirmed",
@@ -1027,6 +1096,15 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     });
     assert.equal(reconciled.status, "confirmed");
     assert.equal(retried.status, "confirmed");
+    // D8: the new generic `action.reconcileApproved` (for approved external
+    // effect classes with NO dedicated reconcile surface, e.g. plain Google
+    // send/DealPilot) explicitly defers a Relationship approval to this
+    // already-durable `relationship.reconcileApproved` path instead of
+    // silently no-op-succeeding.
+    await assert.rejects(
+      () => caller.action.reconcileApproved({ proposalId: proposed.proposal.id }),
+      (error: unknown) => error instanceof TRPCError && error.code === "BAD_REQUEST",
+    );
     const materializedDetail = await caller.relationship.getSignalDetail({
       organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,

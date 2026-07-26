@@ -26,6 +26,8 @@ import {
   RecordingVarianceAdjuster,
   agentFloorDeny,
   planeGate,
+  hashTaintValue,
+  labelAtSource,
   type RunCtx,
   type Skill,
 } from "../src/index.js";
@@ -50,10 +52,30 @@ function build() {
   });
   return { roles, agents, ephemeral, ledger, events, variance, pipeline };
 }
+/**
+ * Mirrors context.ts's `makeContextFactory`, which attaches a `human_input`-derived
+ * taintLabel to `ctx.run` for every authenticated request. This conformance harness
+ * builds the RunCtx directly (bypassing that factory), so it must reproduce the SAME
+ * label a genuine authenticated request always carries — otherwise ADR-142's
+ * fail-closed unknown-taint-axis quarantine (taint.ts's `evaluateTaintSink`)
+ * misclassifies a real authenticated turn as unlabeled/untrusted and blocks the
+ * `skill_execution` sink for the `echo` skill (which does not set
+ * `executionClass: "pure_data"`).
+ */
 function ctx(): RunCtx {
   const clock = new FixedClock("2026-06-01T00:00:00.000Z");
   const rng = new SeededRng(7);
-  return { clock, rng, ids: new UuidGen(clock, rng) };
+  return {
+    clock,
+    rng,
+    ids: new UuidGen(clock, rng),
+    taintLabel: labelAtSource("human_input", {
+      ref: "test-fixture:authenticated-caller",
+      valueHash: hashTaintValue("test-fixture-authenticated-caller"),
+      sensitivity: "organization",
+      instructionRisk: "none",
+    }),
+  };
 }
 function grantWrite(roles: InMemoryRoleStore, actorKey: string) {
   roles.direct.set(actorKey, [{ resourceType: "person", resourceId: null, action: "write", effect: "allow" }]);

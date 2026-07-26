@@ -58,11 +58,20 @@ fn build_init_script(api_url: Option<&str>, sidecar_token: Option<&str>) -> Stri
         ));
     }
     if let Some(token) = sidecar_token {
+        let debug_origin_guard = if cfg!(debug_assertions) {
+            let port = api_sidecar::dev_web_port();
+            format!(
+                " || [\"http://localhost:{port}\", \"http://127.0.0.1:{port}\"].includes(window.location.origin)"
+            )
+        } else {
+            String::new()
+        };
         script.push_str(&format!(
             " if ([\"tauri://localhost\", \"http://tauri.localhost\", \
-             \"https://tauri.localhost\"].includes(window.location.origin)) {{ \
+             \"https://tauri.localhost\"].includes(window.location.origin){}) {{ \
              Object.defineProperty(window, \"__BRIDGE_SIDECAR_TOKEN__\", \
              {{ value: {}, writable: false, configurable: false }}); }}",
+            debug_origin_guard,
             serde_json::to_string(token)
                 .expect("serializing the sidecar launch capability cannot fail")
         ));
@@ -80,7 +89,8 @@ fn trusted_webview_navigation(url: &tauri::Url) -> bool {
         && matches!(
             (url.scheme(), url.host_str()),
             ("http" | "https", Some("localhost") | Some("127.0.0.1"))
-        ))
+        )
+        && url.port_or_known_default() == Some(api_sidecar::dev_web_port()))
 }
 
 #[tauri::command]
@@ -124,10 +134,19 @@ fn create_windows(
     let main_builder = main_builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
-    let main = main_builder.build();
-    if let Err(err) = main {
-        eprintln!("[bridge-desktop] failed to create main window: {err}");
+    let main = match main_builder.build() {
+        Ok(main) => main,
+        Err(err) => {
+            eprintln!("[bridge-desktop] failed to create main window: {err}");
+            return false;
+        }
+    };
+    if let Err(err) = main.show() {
+        eprintln!("[bridge-desktop] failed to present main window: {err}");
         return false;
+    }
+    if let Err(err) = main.set_focus() {
+        eprintln!("[bridge-desktop] failed to focus main window: {err}");
     }
     if let Err(err) = overlay::create_overlay_windows(app, companion_init_script) {
         // The companion is additive: never block the main app on it.
@@ -156,6 +175,10 @@ fn create_bootstrap_window(app: &tauri::AppHandle) -> Result<(), String> {
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
     let window = builder.build().map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    if let Err(error) = window.set_focus() {
+        eprintln!("[bridge-desktop] failed to focus bootstrap window: {error}");
+    }
     let state = app.state::<BootstrapWindowState>();
     let result = match state.0.lock() {
         Ok(mut guard) => {
@@ -410,26 +433,22 @@ pub fn run() {
                 }
                 return Ok(());
             }
-            if cfg!(debug_assertions) {
-                // Dev mode: external Vite + API. No sidecar.
-                let init_script = build_init_script(None, None);
-                if !create_windows(app.handle(), &init_script, &init_script) {
-                    show_sidecar_unavailable(app.handle());
-                }
-                return Ok(());
-            }
-
             let resource_dir = app.path().resource_dir().ok();
-            let local_dir = match app.path().app_data_dir() {
-                Ok(dir) => dir.join("bridge").join("local-plane"),
-                Err(error) => {
-                    eprintln!(
-                        "[bridge-desktop] api sidecar: app-data directory is unavailable: \
-                             {error}. Refusing an ephemeral API."
-                    );
-                    show_sidecar_unavailable(app.handle());
-                    return Ok(());
-                }
+            let local_dir = std::env::var_os("BRIDGE_LOCAL_DIR")
+                .map(std::path::PathBuf::from)
+                .or_else(|| {
+                    app.path()
+                        .app_data_dir()
+                        .ok()
+                        .map(|dir| dir.join("bridge").join("local-plane"))
+                });
+            let Some(local_dir) = local_dir else {
+                eprintln!(
+                    "[bridge-desktop] api sidecar: app-data directory is unavailable. \
+                     Refusing an ephemeral API."
+                );
+                show_sidecar_unavailable(app.handle());
+                return Ok(());
             };
 
             // Keep the event loop responsive while the child reports its
@@ -481,11 +500,18 @@ mod security_tests {
         assert!(!trusted_webview_navigation(
             &tauri::Url::parse("https://accounts.google.com/o/oauth2/v2/auth").unwrap()
         ));
-        assert!(
-            !trusted_webview_navigation(
-                &tauri::Url::parse("http://127.0.0.1:4000/attacker").unwrap()
-            ) || cfg!(debug_assertions)
-        );
+        assert!(!trusted_webview_navigation(
+            &tauri::Url::parse("http://127.0.0.1:4000/attacker").unwrap()
+        ));
+        if cfg!(debug_assertions) {
+            assert!(trusted_webview_navigation(
+                &tauri::Url::parse(&format!(
+                    "http://127.0.0.1:{}/",
+                    api_sidecar::dev_web_port()
+                ))
+                .unwrap()
+            ));
+        }
     }
 
     #[test]
@@ -499,6 +525,9 @@ mod security_tests {
         let script = build_init_script(Some("http://127.0.0.1:4123"), Some("test-sidecar-token"));
         assert!(script.contains("window.location.origin"));
         assert!(script.contains("Object.defineProperty"));
+        if cfg!(debug_assertions) {
+            assert!(script.contains(&format!("http://127.0.0.1:{}", api_sidecar::dev_web_port())));
+        }
         assert!(!build_init_script(None, None).contains("__BRIDGE_SIDECAR_TOKEN__"));
     }
 }

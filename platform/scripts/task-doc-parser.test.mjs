@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseCanonicalTasks, projectCanonicalTasks } from './task-doc-parser.mjs';
+import { parseCanonicalTasks, projectCanonicalTasks, renderActiveTaskIndex } from './task-doc-parser.mjs';
 
 test('one canonical task absorbs roadmap, bug, request, and approval references', () => {
   const document = `
@@ -123,4 +123,33 @@ test('hybrid legacy sections do not duplicate matching IDs and reject conflicts'
 `),
     /Conflicting task IDs/,
   );
+});
+
+test('active task index is compact, ordered, and excludes completed audit history', () => {
+  const index = renderActiveTaskIndex(`
+IDs for cross-reference: \`TASK-003, TASK-001, TASK-002\`
+
+## Completed shell
+- ID: TASK-001
+- Status: done
+- Priority: P0
+
+## Blocked integration
+- ID: TASK-002
+- Status: blocked
+- Priority: P1
+- Dependencies: TASK-001
+
+## Current optimization
+- ID: TASK-003
+- Status: in_progress
+- Priority: P1
+- Dependencies: none
+`);
+
+  assert.doesNotMatch(index, /Completed shell/);
+  assert.match(index, /\| TASK-003 \| in_progress \| P1 \| Current optimization \| none \|/);
+  assert.match(index, /\| TASK-002 \| blocked \| P1 \| Blocked integration \| TASK-001 \|/);
+  assert.ok(index.indexOf('TASK-003') < index.indexOf('TASK-002'));
+  assert.match(index, /Non-canonical navigation only/);
 });

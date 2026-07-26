@@ -1,5 +1,99 @@
 # Change Log
 
+- **2026-07-26 — Tiered agent-context budget implemented (TASK-025, AP-076/AP-077, ADR-146)**:
+  Copilot CLI and Claude Code now share one risk-tiered contract: read-only Tier A writes no
+  trackers/ledgers/outputs, routine Tier B uses targeted context/checks, and governed Tier C preserves
+  full security/canon/production gates. `CLAUDE.md` fell from 10,972 bytes/1,343 words to 7,211
+  bytes/878 words. A generated 767-byte active-task index replaces routine reads of the 78,436-byte
+  canonical ledger. Main now tracks only `.claude/settings.json`, disables 111 off-project skills and
+  four noisy plugins, and keeps generated Claude state ignored. A tested `pnpm check:agent-context`
+  CI gate caps canonical/path/task/skill context. PR #17/#48 remain unchanged and are not merge
+  sources. Fresh GPT/Claude-compatible checks kept read-only work ledger-free, caught and closed a
+  test-edit classification ambiguity, and preserved full Auth/production Tier-C handling. AP-077
+  authorizes landing this bounded change set directly on `main`.
+
+- **2026-07-25 — Hosted wake/Auth ordering hardened (ADR-145, AP-075)**:
+  the remote API now wakes before Supabase session read and bearer construction, preventing a
+  near-expiry token from aging through the bounded cold start. Organization activation is
+  single-flight per Auth subject; duplicate initial and token-refresh events update session state
+  without duplicate activation mutations. Query-only replay, mutation non-replay, and loopback
+  sidecar behavior remain intact. Focused and full web tests, typecheck, lint, build, and independent
+  review pass. The same gate pass adds one exact technical vocabulary allow for npm's mandatory
+  `package.json` filename at the desktop bundle seam and removes a retired term from its test title;
+  product use remains rejected everywhere else. Commit `c0353e7` is pushed on `main`; static deploy
+  `dep-d9i6ojjrjlhs73ef2380` is live at that exact source. Provider logs prove natural hibernation
+  (`07:59:21Z` old-instance final health -> `08:01:38Z` different-instance start), then deployed
+  browser health `200`, CORS `204`, and refreshed-bearer activation `200`. Exact-pilot Auth rotated
+  both tokens for the same subject and emitted `TOKEN_REFRESHED`; exact 375px showed the wake state,
+  reached `/`, and held `innerWidth=scrollWidth=375`. Supabase is still `ACTIVE_HEALTHY`, GoTrue
+  health is `200`, and post-wake API error logs are empty. The hosted reliability BUG is resolved.
+
+- **2026-07-25 — Reliability remediation deployed and live Supabase rechecked (AP-074)**:
+  committed/pushed `015716c`; Render API deploy `dep-d9i6bbt0kf9s73baeuc0` and web deploy
+  `dep-d9i6bbq4hv7c73bmsrvg` are live. Warm web/liveness/readiness and exact-origin CORS passed with
+  zero post-deploy runtime errors. Supabase remains `ACTIVE_HEALTHY`, PostgreSQL 17.6, 15.06 MB,
+  55 public tables, about 108 estimated rows, two observed runtime connections, 41 RLS-enabled
+  tables, zero policyless RLS tables, 141 policies, healthy GoTrue, and least-privilege
+  `bridge_app`. A 65-second window containing 19 Render `/health` probes added zero
+  `bridge_app` statements, rows, or execution time, proving cheap liveness removed the prior
+  readiness pressure. No tier, secret, configuration, or production data changed. Natural-cold,
+  exact-375px, and Auth-refresh checks remained open at this checkpoint and were closed by AP-075.
+
+- **2026-07-24 — Hosted/desktop reliability remediation and governed Onboarding completed (ADR-144, AP-073)**:
+  remote API wake is visible, single-flight, bounded, and read-replay-only; Render probes cheap
+  liveness. Desktop development is orchestrated; supported release bundles own allowlisted API +
+  target-native Node; macOS native Keyring code lives in signed Frameworks with verified Node
+  entitlements; Windows installers fail closed while compile checks remain. Exact pre-VOCAB
+  Local Plane upgrade/reopen passes. A packaged restart exposed and then closed process-only
+  Onboarding storage: the profile now persists as private Local Plane Memory, hydrates stale browser
+  fallback state, and survives a second restart as active `Manish's Organization` + Lion Avatar
+  with the native overlay visible. Hosted remains operationally OPEN until manual deployment and
+  natural-cold/Auth/375px/statement proof. TASK-002/006/018 order/status, provider tiers, and
+  migration high-water (`0030`) remain unchanged. No commit/push/deploy occurred. Evidence:
+  [`outputs/2026-07-24-hosted-desktop-reliability-remediation.md`](../outputs/2026-07-24-hosted-desktop-reliability-remediation.md).
+
+- **2026-07-24 — Onboarding desktop-height deadlock fixed (TASK-002)**: the trust ceremony's
+  unconstrained dialog could render its only Continue action below the desktop webview with no
+  internal scrolling. Bounded `OnboardingDialog` to `calc(100dvh - 2rem)` with contained vertical
+  overflow and added a focused contract regression. Rendered at 1130×738, the 1192px content now
+  scrolls inside a 615px dialog; Continue moves on-screen and advances to the profession question.
+  Targeted onboarding 10/10, web typecheck, focused ESLint, and production web build passed.
+  Full evidence: [`outputs/2026-07-24-onboarding-dialog-deadlock.md`](../outputs/2026-07-24-onboarding-dialog-deadlock.md).
+
+- **2026-07-22 — TASK-017 runtime/package correctness backlog closed (AP-072)**: completed the
+  remaining backlog in five reviewed slices merged to `main` (`21a4ca3`, `5c5ddbe`, `e70a5f8`,
+  `49a9fff`, `5674b05`). D1 repo lint green via a DealPilot module-vocab carve-out (the
+  `no-crm-vocab` rule's `KERNEL_PATH` wrongly flagged DealPilot's own `Deal` Record vocabulary
+  after its TASK-013 relocation to `platform/modules/dealpilot/`). D3 moved the `node:vm`-using
+  `InProcessJsSandboxProvider` to a new `@bridge/core/server` entry so the web bundle no longer
+  externalizes `node:vm`. D5 added dedicated `module_installation`/`organization_definition`/
+  `capability` ResourceTypes (the ledger `resource_type` is free text — no migration) with
+  agent-floor protection and module-install authority preserved. D6 made `helpdesk.route` derive
+  responder topics from server-side `Person.skills` instead of caller-supplied topics (closes a
+  routing-manipulation vector). D8 added an idempotent `action.reconcileApproved` for general
+  approved external effects beside the existing relationship/module reconcilers. D9 scoped sensor
+  coverage to its own source (100%). D10 added injection-safe server-side View filter/sort to
+  `listPeople`/`listCommunities` (column allowlist + parameterized SQL, bounded, before
+  limit/offset). D11 was broader than catalogued — reconciled the api Relationship taint test plus
+  14 stale `@bridge/core` taint tests from the TASK-015 landing (all missing the production
+  `human_input` label). Stale D2/D4/D7 (globals.css populated / `DrizzleModuleStore` / pins removed)
+  and a stale VOCAB5 `modules` test (Relationship manifest legitimately `0.2.2`→`0.2.3` via TASK-023)
+  marked resolved. Verified by build + web typecheck + targeted tests (core 477/477, db graph-store
+  21/21, api graph-people-communities 12/12, modules 22/22, capability-governance 7/7, blueprint 6/6,
+  router-decide 10/10, sensors 100%) + repo lint exit 0; no migration (high-water `0030`).
+  Code/build/test-based, not a live browser walkthrough. Two pre-existing gaps filed not fixed:
+  payment-blocked GitHub Actions runners (root cause these regressions reached main uncaught) and
+  `capability.approve`/`organization.blueprint.activate` mutating on a `rejected` proposal. Full
+  outcome: [`outputs/2026-07-22-task017-runtime-package-correctness.md`](../outputs/2026-07-22-task017-runtime-package-correctness.md).
+
+- **2026-07-22 — Canonical progress handoff reconciled through live Render certification**:
+  audited `docs/TASKS.md` and all four `docs/Progress from Manish/` handoff files against
+  `origin/main@4d130736a873667a6ac561957ed0993144e19ee4`. Added exact TASK-015 PR #46,
+  TASK-016 PR #47, TASK-023 selection/closure, TASK-022 landed-blocked state, and Render PRs
+  #49–#52 source/merge evidence; replaced stale “landing,” “competing candidates,” and migration
+  high-water statements. Current migration high-water is `0030`, next `0031`. No task status,
+  scope, dependency, or queue order changed.
+
 - **2026-07-21 — TASK-016 database/migration correctness closed (AP-071, ADR-143)**: derived field kinds from one core tuple and proved a Location Organization-definition round trip through PGlite/API; matched canonical Person upsert to the partial dedup index with null-key and concurrent-writer semantics; generated `0029`/`0030` Drizzle snapshots, added real schema migration `0030_task016_schema_alignment` for the missing canonical Event index, and locked no-op generation plus fresh/upgrade/replay behavior; added typed UUID failure-before-SQL across Organization/Relationship/definition boundaries; bounded only DB test-file concurrency at four and stress-closed eight concurrent fresh databases. The 198-test DB package passed three consecutive official runs; targeted core/API/RLS/TASK-015 restart checks and one changed-scope review passed. GitHub Actions run `29859505915` failed before execution: eight jobs had zero steps and the installer job was skipped, consistent with the billing/payment block; no CI success is claimed.
 
 - **2026-07-21 — TASK-023 closed (AP-069)**: accepted PR #44 source `6e33f051b7e001efe25c949d4038730aee6a1292` / normal merge `b8e1db0b808806d45dd904270902dd77b132541c` plus the real durable governed Parallel prototype as exact exit evidence. Anonymous Tier-1 Parallel returned cited bounded public evidence; Result, Memory, and Event retained provenance and `untrusted_external`; provider-unavailable and no-paid-escalation paths failed explicitly. Jina and DuckDuckGo remain unregistered at rights gates. Candidate B stays superseded and untouched. GitHub Actions run `29844324937` had no runner and zero steps, so no CI success is claimed. TASK-023 is `done`; only docs and generated Task projection changed.
@@ -1994,6 +2088,12 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Render CLI authentication succeeded, but the collaborator has no repository-admin permission and Render cannot see the private repo. No resource/secret/spend was created. Exact unblock: the repo owner/admin grants the Render GitHub App repository-specific access.
 - GitHub Actions run `29814901057` failed all eight runner-backed jobs with zero steps and skipped installer aggregation; this is the known payment block, not test execution.
 
+# 2026-07-22 — Render clean static build repair (AP-063)
+- Owner-scoped Render GitHub App access succeeded; the free Virginia API and static services were created from `main@ba8ccc1` with no disk/database/Key Value.
+- API clean Docker build completed its 18 dependency builds and image export.
+- Static deploy `dep-d9ft14n7f7vs739aqimg` exposed a clean-build dependency gap; changed the Blueprint to Turbo `--filter=...@bridge/web`.
+- Reproduced from a clean Git archive: 19/19 dependency + web builds passed. No secret value entered logs or committed evidence.
+
 # 2026-07-21 — TASK-013 repository and manifest cleanup (AP-061, ADR-135)
 - Preserved exact pre-cleanup `origin/main@7f37e17e1132ebbbee74f1c612f0e83b211139ef` on verified private ref `archive/task-013-pre-cleanup-2026-07-21`, then removed unopened legacy root trees from main without rewriting history.
 - Moved three root audit/plan docs under `docs/raw/` with canonical frontmatter and explicit deprecated status.
@@ -2040,3 +2140,17 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Added Approval untrusted/unknown warning + source trace and honest empty trace state.
 - Targeted core/DB/RLS/migration/local/model/Google/net-guard/sensor/API/research/culture/restart/red-team/UI tests, affected builds/typechecks, lint, vocabulary, no-dummy, and diff gates pass. GitHub Actions remain payment-blocked; no CI success claimed.
 - One bounded changed-scope review found nine sink/audit/Plane/legacy/web/Automation/model/trace/declassification defects; all were fixed with direct regressions. Exact CDP 375px proof found and fixed shared metrics/content overflow; final `innerWidth` and `scrollWidth` both equal 375.
+
+# 2026-07-22 — Free Render deployment live certification (AP-063, ADR-137)
+- Repository-specific Render GitHub App authorization succeeded. Created only the approved free Virginia Docker API and free static site; no disk/database/Key Value/paid resource or spend.
+- Repaired three live blockers: clean static dependencies (PR #49), public service host wiring (PR #50), and Turbo forwarding/cache hashing for the public Vite API/Auth inputs (PR #51).
+- Advanced the existing free Supabase pilot from `0026` through canonical `0030` with the official linked CLI and no owner URI in chat, files, or shell history.
+- Certified live health/readiness, exact CORS, pilot sign-in/activation/refresh/logout, public bearer success, anonymous credential rejection, private `412 desktop-required`, least-privilege `bridge_app`, cross-Organization RLS/context reset, API restart, secret scans, zero cloud operational Records/local Memories/credential columns, and exact 375px without overflow or page-load errors.
+- Public URLs and provider/deploy IDs are recorded in `outputs/2026-07-21-render-free-deployment.md`. Free idle sleep remains accepted and was not separately timed. TASK-006 remains blocked only on the independent authorized Google OAuth + real Source credential gate.
+
+# 2026-07-24 — Hosted, Supabase, and desktop reliability diagnosis
+- Preserved the user's hosted-flakiness/Supabase-limit/desktop-broken report and attached the findings to TASK-006 and TASK-018 without changing queue order/status.
+- Render evidence separates the reliable static shell from the free API wake boundary, records 11 API starts, identifies absent client wake recovery, and notes manual deployment drift (`163562a` deployed versus `cbffa3ed` on main).
+- Supabase is healthy and small. The 2,573 provider-recorded readiness probes prove at least 10,292/25,179 cumulative `bridge_app` statements, making the route the largest avoidable Bridge statement family; retained same-shaped reads consumed only 32.20 ms total, and no size, Auth, direct-request, or connection exhaustion was found.
+- Reproduced desktop development's missing orchestration/identity path, release packaging's missing API/Node runtime, and the user's first release failure: the pre-VOCAB `external_records.workspace_id` Local Plane is rejected before migration `0021` can upgrade it.
+- No source fix, provider-tier/configuration change, deployment, task-state change, or personal Local Plane mutation was made. Durable findings: `outputs/2026-07-24-hosted-supabase-desktop-diagnosis.md`.

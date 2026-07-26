@@ -4,7 +4,13 @@ import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare } fr
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
-import { hasStoredPrefs, loadAvatarPrefs, saveAvatarPrefs, type AvatarPrefs } from "./avatar/avatar-store";
+import {
+  hasStoredPrefs,
+  isAvatarStyle,
+  loadAvatarPrefs,
+  saveAvatarPrefs,
+  type AvatarPrefs,
+} from "./avatar/avatar-store";
 import { AgentPanel } from "./components/shared/AgentPanel";
 import { NewModuleDialog } from "./components/NewModuleDialog";
 import {
@@ -117,19 +123,40 @@ export default function Layout() {
   useEffect(() => {
     trpc.organization.blueprint.get
       .query({ organizationId: PILOT_ORGANIZATION })
-      .then((res) => {
+      .then(async (res) => {
         // Existing users (a organization already has an active blueprint) never
         // see onboarding forced back open; the avatar just defaults to a
-        // neutral ready Avatar if this browser never saved prefs (spec section
+        // server-saved Avatar if this browser never saved prefs (spec section
         // 4, item 4 — "no forced re-onboarding").
         const hasOrganization = Boolean(res.definition);
         setOrganizationConfirmed(hasOrganization);
         if (!hasOrganization) setOnboardingOpen(true);
-        if (!hasStoredPrefs()) {
-          const resolvedPrefs = loadAvatarPrefs(hasOrganization);
-          if (hasOrganization) saveAvatarPrefs(resolvedPrefs);
-          setAvatarPrefs(resolvedPrefs);
+        const storedPrefs = hasStoredPrefs() ? loadAvatarPrefs(true) : null;
+        let resolvedPrefs = storedPrefs ?? loadAvatarPrefs(hasOrganization);
+        let persistResolvedPrefs = hasOrganization && storedPrefs === null;
+        if (hasOrganization) {
+          try {
+            const { profile } = await trpc.onboarding.getProfile.query({
+              organizationId: PILOT_ORGANIZATION,
+            });
+            if (profile && isAvatarStyle(profile.avatarStyle)) {
+              resolvedPrefs = {
+                ...resolvedPrefs,
+                style: profile.avatarStyle,
+                avatarReady: true,
+              };
+              persistResolvedPrefs = true;
+            } else if (profile) {
+              persistResolvedPrefs = false;
+              console.error(`[avatar] unsupported saved Avatar style "${profile.avatarStyle}"`);
+            }
+          } catch (failure) {
+            persistResolvedPrefs = false;
+            console.error("[avatar] failed to restore saved Avatar preferences", failure);
+          }
         }
+        if (persistResolvedPrefs) saveAvatarPrefs(resolvedPrefs);
+        setAvatarPrefs(resolvedPrefs);
       })
       .catch(() => {
         // Honest no-op: if the check itself fails (e.g. API unreachable), don't

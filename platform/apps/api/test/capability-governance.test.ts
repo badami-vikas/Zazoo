@@ -21,7 +21,7 @@ import {
   type RunCtx,
 } from "@bridge/core";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_ORGANIZATION, type Wiring } from "../src/wiring.js";
+import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -34,6 +34,23 @@ async function makeCaller(wiring: Wiring) {
     wiring,
     run: makeRun(),
     identity: { type: "user", id: "test_fixture_gov_user" },
+    authenticated: true,
+    verifying: false,
+  });
+}
+
+/**
+ * The REAL seeded pilot user (`wiring.ts`'s `seedGovernance` grants
+ * `capability:approve` only to `user:${PILOT_USER}`) — the one identity
+ * whose `capability.approve` proposal actually resolves `"applied"` rather
+ * than authority-denied `"rejected"`. Use this caller for any test that
+ * expects `capability.approve` to legitimately mutate state.
+ */
+async function makeApprovingCaller(wiring: Wiring) {
+  return appRouter.createCaller({
+    wiring,
+    run: makeRun(),
+    identity: { type: "user", id: PILOT_USER },
     authenticated: true,
     verifying: false,
   });
@@ -110,7 +127,7 @@ function flat(n: number, row: AxisScores): AxisScores[] {
 test("EVAL-3: capability.approve auto-advances a candidate that beats baseline, with a why-better card", async () => {
   const wiring = await buildWiring();
   try {
-    const caller = await makeCaller(wiring);
+    const caller = await makeApprovingCaller(wiring);
     const baseline = await seedManifest(wiring, { state: "active" });
     const candidate = await seedManifest(wiring, { state: "validated", lineageManifestId: baseline.id });
     await seedRun(wiring, baseline.id, flat(20, { quality: 0.7, route_p: 0.8, route_r: 0.78, safety: 1, correction: 0.15 }));
@@ -131,7 +148,7 @@ test("EVAL-3: capability.approve auto-advances a candidate that beats baseline, 
 test("EVAL-3: capability.approve rejects a regressor and leaves it validated", async () => {
   const wiring = await buildWiring();
   try {
-    const caller = await makeCaller(wiring);
+    const caller = await makeApprovingCaller(wiring);
     const baseline = await seedManifest(wiring, { state: "active" });
     const candidate = await seedManifest(wiring, { state: "validated", lineageManifestId: baseline.id });
     await seedRun(wiring, baseline.id, flat(20, { quality: 0.85, route_p: 0.85, route_r: 0.82, safety: 1, correction: 0.1 }));
@@ -150,12 +167,63 @@ test("EVAL-3: capability.approve rejects a regressor and leaves it validated", a
 test("EVAL-3: approve proceeds unchanged when there is no lineage baseline to beat", async () => {
   const wiring = await buildWiring();
   try {
-    const caller = await makeCaller(wiring);
+    const caller = await makeApprovingCaller(wiring);
     // First-of-lineage (no lineageManifestId) — nothing to compare against.
     const cap = await seedManifest(wiring, { state: "validated" });
     const result = await caller.capability.approve({ manifestId: cap.id });
     assert.equal(result.state.state, "approved");
     assert.equal((result as { comparison?: unknown }).comparison, undefined, "no card when the gate is not applicable");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("SECURITY: capability.approve throws FORBIDDEN for a caller with no capability:approve grant, and does NOT mutate state", async () => {
+  const wiring = await buildWiring();
+  try {
+    // "test_fixture_gov_user" is intentionally NOT the seeded pilot user —
+    // `seedGovernance`'s direct grants only cover `user:${PILOT_USER}`, so
+    // this identity's action:"approve" proposal is authority-denied
+    // (status "rejected"). Before the hard-stop guard in capability.approve,
+    // this call fell through into the state-advance mutation anyway (the bug
+    // documented in docs/BUGS.md); it must now throw before ever reaching it.
+    const caller = await makeCaller(wiring);
+    const cap = await seedManifest(wiring, { state: "validated" });
+
+    await assert.rejects(
+      () => caller.capability.approve({ manifestId: cap.id }),
+      (err: unknown) => {
+        assert.match(String((err as { message?: string })?.message ?? err), /FORBIDDEN|authority|not authorized/i);
+        return true;
+      },
+    );
+
+    const after = await wiring.capabilityStore.getState(cap.id);
+    assert.equal(after?.state, "validated", "an unauthorized approve must leave capability state unchanged");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("SECURITY: capability.approve throws FORBIDDEN for an Agent actor (agent-floor), and does NOT mutate state", async () => {
+  const wiring = await buildWiring();
+  try {
+    // Agents can never resolve an approve decision (agent-floor, pipeline.ts) —
+    // this must reject even though the grant added for the pilot user exists,
+    // proving the fix did not weaken the agent-floor.
+    const caller = await appRouter.createCaller({
+      wiring,
+      run: makeRun(),
+      identity: { type: "agent", id: "test_fixture_gov_agent" },
+      authenticated: true,
+      verifying: false,
+    });
+    const cap = await seedManifest(wiring, { state: "validated" });
+
+    await assert.rejects(() => caller.capability.approve({ manifestId: cap.id }));
+
+    const after = await wiring.capabilityStore.getState(cap.id);
+    assert.equal(after?.state, "validated", "an agent approve attempt must leave capability state unchanged");
   } finally {
     await wiring.close();
   }

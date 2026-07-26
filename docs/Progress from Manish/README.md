@@ -9,12 +9,12 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 1. Read [`subagent-progress.md`](subagent-progress.md).
 2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
 3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and confirm TASK-012 PRs #26/#27 plus partial VOCAB3 checkpoint `58573ba`,
-   TASK-024 PR #23, and TASK-005 landing commit `d4de355` remain in its ancestry.
+4. Fetch `origin/main` and confirm the current baseline `4d130736a873667a6ac561957ed0993144e19ee4`
+   plus TASK-015 PR #46, TASK-016 PR #47, and Render evidence PR #52 remain in its ancestry.
 5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
 6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
-## State at handoff
+## State at current handoff
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
@@ -29,7 +29,8 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   `6590c71`, and this merge ports only the deployment slice onto current Organization-era
   `main`. Runtime-role migration `0022_supabase_runtime_role`, hosted Auth, encrypted
   credentials, residency routing, container assets, and the deployment runbook are integrated
-  locally under AP-054; no push or cloud provisioning occurred.
+  under AP-054 and later landed at `6ee47e1`; that recovered slice itself performed no cloud
+  provisioning.
 - Verified pre-landing baseline `origin/main@512cf35`. TASK-024 implementation checkpoint
   `a4bf5fb` normally merged that baseline at `69ffbff` and landed through PR #23 from
   `task-024-zazoo-website`.
@@ -64,22 +65,35 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   on verified private ref `archive/task-013-pre-cleanup-2026-07-21`; main has one production tree,
   one built-in Module manifest catalog, no superseded runtime fixture pages, and no history rewrite.
   Deterministic security/migration fixtures remain tracked. Do not restore archived legacy trees.
+- TASK-021 is done after Bridge PRs #37/#40/#41/#42 and external Corporate-training-sims PR #104
+  certified signed Task Manager install, governed projection, two-instance restart, completed-bay
+  sweeps, semantic reconciliation, and no-default Agent routing.
+- TASK-022 implementation landed through PR #43 at merge `5122695`; it remains blocked only on an
+  authorized Anthropic credential plus explicit live-spend proof of a non-zero second-call cache read.
+- TASK-023 candidate A landed through PR #44 and closed through PR #45 at `2e0cb73`. Anonymous
+  Parallel Search MCP is the sole shipped Tier-1 provider. Candidate B is superseded, dirty, idle,
+  and must not be resumed, merged, cherry-picked, or deleted.
+- TASK-015 runtime taint is done: source `da26f46`, PR #46, merge `5857cb9`, migration `0029`.
+- TASK-016 database correctness is done: source `0b395b1`, PR #47, merge `ba8ccc1`, migration
+  `0030`; the official 198-test DB package passed three consecutive four-file-concurrency runs.
 - TASK-006 resumed fresh from `origin/main@922ca52` on
   `manishsbhoopalam8498-close-dealpilot-pilot`. One free `us-east-1` Supabase project, exact
-  pilot Auth, 26 migrations, least-privilege `bridge_app`, policy-backed RLS, Local Plane restart,
+  pilot Auth, migrations through `0030`, least-privilege `bridge_app`, policy-backed RLS, Local Plane restart,
   symmetric Source↔Thesis Relation, and desktop/exact-375 evidence are live. Migrations `0025`/`0026`
   align Supabase automatic RLS; ADR-134 records the boundary. Authorized Source credentials and
   Google OAuth remain external, so TASK-006 is `blocked` under AP-060.
-- AP-063/ADR-137 lands the free Render Blueprint and public-cloud fail-closed boundary. Live
-  deployment is externally blocked before resource creation: a `badami-vikas/relationship-os`
-  owner/admin must grant the Render GitHub App access to the private repository. No secret,
-  resource, or spend was created.
+- AP-063/ADR-137's free Render Virginia API and static site are live at the public URLs recorded in
+  `outputs/2026-07-21-render-free-deployment.md`. PRs #49–#51 repaired clean dependency builds,
+  public host wiring, and Turbo public-build inputs; evidence PR #52 source `3685985` merged at
+  `4d130736a873667a6ac561957ed0993144e19ee4`. Auth/refresh/logout, public/private boundary,
+  RLS/reset, restart, secret scans, and exact 375px passed. No disk/database/Key Value/paid resource
+  exists; TASK-006 retains only its separate Google/Source-credential blocker.
 
 ## Critical resume constraints
 
 - TASK-010's post-RM4 migration `0016_new_ink` landed and merged into `main` as `e532b15` on 2026-07-18 (owner-aware `memories` RLS, DB-backed `lineage_revision`, JobPilot flag backfill+constraint).
-- Migrations `0018` through `0023_vocab4_event_result_file` are allocated. VOCAB5 required no schema
-  or data migration. The next NEW migration is `0024`.
+- Migrations through `0030_task016_schema_alignment` are allocated and represented by current
+  Drizzle metadata. The next new migration is `0031`; never reuse `0024`–`0030`.
 - TASK-012 VOCAB0–VOCAB6 plus final compatibility deletion is represented through PR #33. The task
   is complete; old planning/integration branches remain historical.
 - TASK-011 landed on `main` under AP-049 via PR #22 (branch `manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). No new migration was required.
@@ -94,19 +108,22 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   `2f85dc7`, final reviewed source `adf6c95`, and landed integration `7f44186`. Live
   Google/BizBuySell and verified OS/application re-authentication remain external, so canonical
   historical status stayed `in_progress`; AP-060 now sets the canonical task to `blocked`.
-- TASK-006 live Supabase continuation allocates migrations `0025` and `0026`; next new migration
-  is `0027`.
+- TASK-006 live Supabase continuation allocated `0025`/`0026`; Render certification applied the
+  canonical `0027`–`0030` chain without adding a deployment-only migration.
 - TASK-008's validated Relationship continuation from candidate A is merged through `905aee9`.
   Candidate B is a superseded historical dirty worktree; do not merge either candidate again.
-- TASK-023 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
+- TASK-023 candidate A is selected, merged, and done. Candidate B remains a superseded dirty
+  historical worktree; do not resume, merge, cherry-pick, or delete it.
 - TASK-022's paused ADR-113 collision is resolved as ADR-140 at source `61e85c3`/PR #43.
   TASK-022 remains blocked only on authorized live Anthropic cache-read evidence. Re-evaluate
-  TASK-023 candidate A's branch-local ADR-113 against current main if that candidate is selected.
+  it only when that exact external proof can run. TASK-023 candidate A's former branch-local
+  ADR-113 was reconciled to ADR-141 before its selected implementation landed.
 - TASK-003 completed after human physical-input certification on 2026-07-18. TASK-005 completed
   its separate combined certification under AP-047; do not resume or re-merge its historical
   worktree. External provider/keychain/device evidence for other tasks remains honestly blocked.
-- TASK-008 is landed and complete for its exact prototype. TASK-014/TASK-009 still own the separate
-  shared cross-Module Graph renderer; advanced RM6/evaluation work is future plan scope.
+- TASK-008 is landed and complete for its exact prototype. TASK-014 and converged TASK-009 are also
+  done through the shared View Grammar/full-scope Graph renderer; advanced RM6/evaluation work is
+  future plan scope.
 - TASK-010 closed on 2026-07-19 after authenticated live desktop and 375px certification found and
   fixed the missing JobPilot default-table cell controls. `ledger`'s own RLS remains deliberately
   unwidened as the previously reviewed port-signature limitation; private proposal reads stay

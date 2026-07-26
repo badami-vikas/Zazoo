@@ -368,7 +368,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : resetAndClose())}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Set up Bridge</DialogTitle>
           <DialogDescription>

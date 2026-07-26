@@ -18,6 +18,203 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-26 — Token docs claimed project skill scoping that main did not contain
+
+The token plan, wiki index, and 2026-07-09 log said 111 off-project skills were disabled through a
+project `.claude/settings.json`, but main ignored the entire `.claude/` directory and contained no
+such configuration. Fresh Claude Code clones therefore inherited the exact global skill/plugin noise
+the docs claimed was fixed. PR #48 contained a settings candidate but bundled it with 43 skills,
+406 files, stale launch configuration, and failing checks; PR #17 separately duplicated policy into
+six conflicting path instructions and reused TASK-024 for a meaning now owned by the Zazoo website.
+
+RESOLVED under TASK-025/AP-076: main now permits only `.claude/settings.json`, keeps all other Claude
+state ignored, disables the reviewed 111 off-project skills plus four noisy plugins, and adds no
+project skill pack or path-policy duplicate. A CI context-budget gate rejects bulk skill metadata,
+oversized path instructions, canonical instruction growth, and active-task projection growth. The
+raw/wiki/log claims now match the tracked source.
+
+## RESOLVED 2026-07-24 — USER REPORT: onboarding clipped its required Continue action below the desktop viewport
+**User report (verbatim):** “I think you are running in circles, can you fix this deadlock instead?”
+
+The trust step was taller than the desktop webview, while `OnboardingDialog` used an unconstrained
+`DialogContent`. The only action that advances with observation disabled rendered below the viewport,
+and the modal had no internal overflow boundary, leaving the user unable to continue.
+
+FIX: bound the onboarding dialog to `calc(100dvh - 2rem)` and make that dialog, not the document,
+vertically scrollable with contained overscroll. A focused contract regression keeps the viewport cap
+and overflow behavior attached to the trust ceremony. At the reproduced 1130×738 window
+(`innerHeight` 651), the dialog now has a 615px client height, 1192px scroll height, computed
+`overflow-y: auto`, and a 617px maximum height. Scrolling moved Continue from 1146px off-screen to
+569px on-screen; activating it advanced to “What's your role or profession?”. The onboarding test
+file passed 10/10, web typecheck and focused ESLint passed, and the production web build completed.
+Attached to TASK-002; no task status or queue change.
+
+## RESOLVED 2026-07-24 — Onboarding profile and selected Avatar disappeared after desktop restart
+The governed Organization rename and active blueprint survived restart, but `onboarding.saveProfile`
+used `InMemoryOnboardingProfileStore` in every runtime mode. The API returned the selected Lion
+profile during the saving process, then `onboarding.getProfile` returned `null` after a packaged
+desktop restart. Browser storage already contained the neutral existing-user Owl fallback, so the
+always-on Avatar remained Owl even though the user's recorded choice was Lion.
+
+FIX: file-backed Local Plane mode now binds `MemoryBackedOnboardingProfileStore`. It stores one
+private, user-owned preference Memory and appends corrections through the existing Memory lineage;
+public-cloud and isolated ephemeral modes still retain no private profile across restart. The web
+hydrates a valid persisted profile even when browser storage already contains a stale neutral
+fallback, while preserving `avatarName`. A PGlite integration regression proves save, restart,
+correction, and second restart without migration `0031`. The rebuilt portable app then proved the
+real sequence: profile `lion` survived process restart, browser storage became
+`{"style":"lion","avatarReady":true}`, the Organization remained `Manish's Organization`, its
+blueprint remained active, and the native overlay reported visible. Attached to TASK-002 and
+TASK-018; neither task status/order changed.
+
+## RESOLVED 2026-07-25 — Public Render wake recovery and Auth refresh are bounded, mutation-safe, and live-certified
+**User report (verbatim):** “there have been some changes done. I see that the website is flaky, it runs sometimes and doesnt sometimes. Check what is eating the limits of supabase. Also the local desktop is broken, can you check what is the issue on both sides and let me know.”
+
+The free static site and API are separate: the static shell remained reachable, while API-dependent behavior inherits the free Docker service's sleep/wake boundary. At diagnosis, Render logs showed 11 API starts since the July 22 deployment and repeated runtime windows ending around the free tier's idle boundary. The deployed API/web source was `163562a`, both services had `autoDeploy: no`, and current `main` was `cbffa3ed`; the public deployment therefore did not contain later main changes. A warm `/health/ready` request returned `200` in 0.947 seconds. A natural cold request could not be isolated during the final sample because an active web page was issuing tRPC traffic and keeping the service warm. Historical provider startup windows, not a successful warm spot check, are the cold/wake evidence.
+
+At diagnosis, `platform/apps/web/src/app/lib/trpc.ts` and `platform/apps/web/src/app/data/api.ts` performed one-shot fetches with no bounded wake retry, readiness wait, or recoverable cold-start state. A first request during wake could therefore surface as a broken page even though a later refresh succeeded. While awake, Render called `/health/ready` about every five seconds. That route called the residency-routed ledger with the all-zero health ID, producing a Cloud Plane transaction plus a guaranteed zero-row ledger read, and also probed Local Plane storage. Retrieved provider windows contain 2,573 readiness probes, proving at least 10,292 `BEGIN`/Organization-context/read/`COMMIT` statements, or 40.9% of 25,179 cumulative `bridge_app` statements. `pg_stat_statements` retains 3,513 zero-row reads with the same normalized ledger shape (32.20 ms total execution), but parameters are normalized, so the larger count is not assigned exclusively to readiness. The provider-proven lower bound still makes readiness the largest avoidable Bridge statement family; it is tiny in absolute database time and is not evidence of a Supabase limit incident.
+
+Supabase is `ACTIVE_HEALTHY`: database size is 15,060,115 bytes, 55 public tables hold about 106 live rows, and the observed application pressure was one `bridge_app` connection. July 20–24 direct service traffic was 73 Auth, 7 REST, 3 Storage, and 0 Realtime requests. Two 65-second global-stat samples while the API was warm advanced by 39 commits/2,055 returned tuples and 68 commits/2,181 returned tuples. Readiness and active-page traffic were present, and the counters combine every database role, so those deltas cannot isolate a Bridge or Supabase-managed consumer. Exact organization-billing egress by service/day remains unavailable without an authenticated Dashboard billing session; current evidence rules out disk, Auth MAU, direct API-request, and connection exhaustion.
+
+Attached to TASK-006. Exit test: deploy current reviewed source; preserve a cheap liveness endpoint while running persistent readiness at a bounded cadence; make the web show/retry a bounded wake state without duplicating mutations; then prove static, warm API, natural cold API, Auth refresh, and exact 375px recovery. Re-measure application-role statements and Dashboard egress before considering a provider-tier change. No tier or production configuration was changed during diagnosis.
+
+DEPLOYED 2026-07-25 under AP-074: the web now has a remote-only, single-flight, 90-second liveness
+wake gate and visible recovery banner. GET/HEAD and tRPC queries may replay once after a fresh wake;
+mutations never replay. `splitLink` prevents query/mutation co-batching, which matters because tRPC
+batches both as POST. Render's Blueprint probes cheap `/health` instead of persistent readiness.
+Eight transport regressions, the full 96-test web suite, typecheck, lint, and production build pass.
+API deploy `dep-d9i6bbt0kf9s73baeuc0` and web deploy `dep-d9i6bbq4hv7c73bmsrvg` are live at
+`015716c`. Warm probes returned web `200` in 0.444 seconds, `/health` `200` in 0.324 seconds, and
+`/health/ready` `200` in 1.306 seconds with persistent `public-cloud` ledger and Local Plane checks.
+Exact-origin CORS returned `204`; post-deploy API logs contained no error-level entries.
+
+The live Supabase project remained `ACTIVE_HEALTHY` on PostgreSQL 17.6: 15,060,115 bytes, 55 public
+tables, about 108 estimated rows, two observed `bridge_app` connections, 41 RLS-enabled tables,
+zero RLS-enabled tables without a policy, and 141 public policies. GoTrue health returned `200`.
+`bridge_app` remains login-capable but has no superuser, inheritance, database-create, role-create,
+replication, or RLS-bypass attributes. Its retained cumulative statistics were 35,684 statements,
+56,710 rows, and 10.89 seconds total execution. Most importantly, a post-deploy 65-second sample
+containing 19 Render `/health` requests advanced those counters by zero statements, zero rows, and
+zero execution time. The liveness probes therefore no longer consume Supabase statements.
+
+RESOLVED under AP-075/ADR-145. Web commit `c0353e7` wakes the remote API before Supabase session
+read/bearer construction and single-flights Organization activation per Auth subject. Duplicate
+initial and `TOKEN_REFRESHED` events no longer issue duplicate activation mutations; query-only
+replay and mutation non-replay are unchanged. Static deploy `dep-d9i6ojjrjlhs73ef2380` is live at
+that exact commit.
+
+Natural-cold evidence is provider-correlated rather than inferred from a slow request: the old
+instance's final `/health` completed at `07:59:21Z`; a different instance started at `08:01:38Z`;
+the deployed 375px browser then completed `/health` `200`, exact-origin CORS `204`, and refreshed-
+bearer `organization.activateSession` `200` by `08:01:44Z`, followed by the Module/Organization
+batch. A separate exact-pilot Auth run emitted `INITIAL_SESSION` -> `SIGNED_IN` ->
+`TOKEN_REFRESHED` -> `SIGNED_OUT`, rotated both access and refresh tokens for the same subject, and
+returned a 3,600-second session. The corrected warm harness then saw the wake banner, first requested
+`GET /health`, activated with `200`, reached `/`, and measured `innerWidth=scrollWidth=375`.
+Supabase remained `ACTIVE_HEALTHY`, authenticated GoTrue health returned `200`, and post-wake API
+logs had no error-level entries. No tier, secret, Supabase configuration, or application row changed;
+the bounded check created and signed out ephemeral Auth sessions.
+
+## RESOLVED 2026-07-24 — Existing pre-VOCAB Local Plane cannot reach the migration that would upgrade it
+The current macOS release app reproduced the user's first local failure against the existing Local Plane:
+
+```text
+external_records exists with an unsupported schema
+```
+
+`platform/packages/db/src/client-local.ts` runs `prepareLegacyLocalExternalRecords()` before Drizzle migrations. VOCAB3 commit `58573ba` changed its canonical-shape test from the original UUID `workspace_id` column to UUID `organization_id`. A Local Plane created from `0000_amazing_betty_brant.sql` legitimately has canonical `external_records.workspace_id uuid`; migration `0021_vocab3_organization_module_record.sql` is designed to rename every `workspace_id` to `organization_id`, but the preflight guard rejects that database before migration `0021` can execute. The existing personal Local Plane was not edited or opened with a repair script during this diagnosis.
+
+Attached to TASK-018 as the current desktop-release blocker, with TASK-012/VOCAB3 as provenance. Exit test: construct the exact pre-VOCAB canonical schema with retained rows, run the supported startup/migration path through current high-water, verify IDs and uniqueness are preserved, reopen a second process, and launch the packaged desktop against a copy before touching the user's Local Plane. Unsupported legacy text-ID shapes must remain fail-closed.
+
+**Resolution:** the preflight now accepts only the exact UUID `workspace_id` canonical shape that
+migration `0021` owns, while unsupported text or extra-column shapes still fail closed. The
+regression constructs migrations through `0020`, retains a real row, upgrades through current
+`0030`, proves ID/Organization/uniqueness preservation, and reopens the database. The rebuilt
+packaged app opened the user's existing Local Plane twice and retained the active Organization and
+profile state. No repair script or destructive rewrite touched the user's data.
+
+## RESOLVED 2026-07-24 — Desktop development and supported release startup are self-contained
+The two supported startup paths fail at different boundaries:
+
+- Development: `pnpm --filter @bridge/desktop dev` runs only `tauri dev`; `beforeDevCommand` is empty. With the existing stale Vite process, the webview was blank because `@bridge/module-manifests` was neither linked nor built and Vite returned `500`. A frozen install plus the targeted manifest build restored rendering, but the shell then reported `Modules unavailable` because no API was started. Starting a persistent API restored transport but not identity: debug Tauri neither spawns the sidecar nor injects `window.__BRIDGE_SIDECAR_TOKEN__`, so authenticated local reads correctly fail closed.
+- Release: the current macOS app bundle builds, but its Resources directory contains only `icon.icns`; it contains no `api/server.js` and no Node runtime. `api_sidecar.rs` falls back to an absolute compile-time monorepo path and executes system `node`. With `apps/api/dist` temporarily absent, the untouched bundle logged `no API build found`; with a Finder-like `/usr/bin:/bin:/usr/sbin:/sbin` PATH, it logged `failed to spawn node`. Both simulations restored all build artifacts. The bundle is ad-hoc signed, and the installer workflow builds web/Tauri without building or copying the API runtime.
+
+Attached to TASK-018. Exit test: one documented development command prepares workspace dependencies, Vite, API, and a verified local identity boundary; a clean release bundle on a machine without the repository or Homebrew Node contains and starts its pinned API runtime; sidecar readiness, shutdown, Local Plane migration/restart, signing, and the named desktop OS matrix pass from clean artifacts.
+
+**Resolution:** `beforeDevCommand` now runs the dev orchestrator; release preparation builds and
+deploys the API's allowlisted `dist` tree, copies the target-native Node runtime and license, and
+removes production repository/system-Node fallback. Bundle policy rejects environment, credential,
+key, certificate, symlinked dependency, wrong-target, and stale-input layouts. macOS extracts the
+Keyring addon from API Resources into signed Frameworks, gives packaged Node the required JIT
+entitlements, and verifies native signatures plus same-Team-ID alignment for signed builds. Windows
+installer preparation fails explicitly until secure listener inheritance exists; Windows remains
+compile-checked, while macOS/Linux remain installer targets. The rebuilt 349 MB `Bridge.app`
+launched from a Finder-like PATH, started its packaged Node/API, reopened Local Plane state, served
+authenticated webview traffic, showed the native Avatar overlay, and shut its child down with the
+app. Bundle policy, input, secret, layout, Rust test/Clippy/check, and macOS packaging gates pass.
+
+**Post-review correction (2026-07-25):** final review found that the first Framework layout was
+signed but not loadable: `@napi-rs/keyring` calls `require(NAPI_RS_NATIVE_LIBRARY_PATH)`, which
+treated the renamed `.dylib` as JavaScript, and that package loader also discarded a successful
+override result. A direct packaged-Node import reproduced `Cannot find native binding`. Bundle
+preparation now removes the native `.node` from Resources, keeps the signed Framework, and replaces
+only the architecture package's generated entry point with a reviewed `process.dlopen` bridge.
+The sidecar clears the broken upstream override and supplies only the signed Framework path to that
+bridge. Final-bundle verification now imports `@napi-rs/keyring` and constructs `AsyncEntry` using
+the packaged Node; the rebuilt app then started its managed API and reopened the retained Local
+Plane. Attached to TASK-018.
+
+Real Developer ID/notarization, Windows installer support, the full physical OS matrix, and mobile
+remain honest TASK-018 blockers rather than claims of this bounded resolution.
+
+## RESOLVED 2026-07-22 — `capability.approve`/`organization.blueprint.activate` mutate even when the governed decision is `rejected`
+Both `platform/apps/api/src/router.ts`'s `capability.approve` (`capability: t.router({ approve: ... })`, currently ~10722-10804)
+and `organization.blueprint.activate` (`organization: t.router({ blueprint: t.router({ activate: ... }) })`, currently ~9645-9677)
+follow the identical pattern: propose an `action:"approve"` request through `ctx.wiring.pipeline.propose()`, then
+```ts
+if (proposal.status === "pending_review") {
+  return { ...(early exit for the pending-approval case)... };
+}
+// falls straight into the state-advance mutation for EVERY other status —
+// "applied" AND "rejected" alike.
+```
+Neither handler checks for `proposal.status === "rejected"` (authority denied the `action:"approve"`/resourceType `"capability"`/`"organization_definition"` request) before falling through. `capability.approve` proceeds to `advance()` + `capabilityStore.upsertState()`; `organization.blueprint.activate` proceeds to archive the prior active `organization_definition` and activate the draft — both unconditionally, even on a denied/rejected decision.
+
+Compounding this: `apps/api/src/wiring.ts`'s `seedGovernance()` grants NO role/permission for resourceType `"capability"` or `"organization_definition"` action `"approve"` to any seeded Agent or Human role (confirmed: zero matches for either resourceType across `seedGovernance`'s role grants). Since `resolveAuthority` is deny-by-default, an authenticated pilot user calling either endpoint today has their `action:"approve"` proposal authority-DENIED (status `"rejected"`) on every call — these two handlers currently work in practice ONLY because the fall-through bug ignores that rejection and performs the mutation anyway. There is presently no legitimate, authority-granted path to reach these mutations; the endpoints function by accident, not by a passing governed decision.
+
+Surfaced during TASK-017 D5 (ResourceType rename) verification; pre-existing and unchanged by that rename. Needs a dedicated fix, not bundled into this pass: (1) both handlers must hard-stop (throw, e.g. `FORBIDDEN`/`PRECONDITION_FAILED`) on `rejected` or any other non-`pending_review`/non-`applied` terminal status instead of falling through, and (2) `seedGovernance` (and the real DB-backed role/permission seed it mirrors) must grant explicit `capability:approve`/`organization_definition:approve` authority to whichever role is meant to hold it, so a legitimate human approval still succeeds once the hard-stop lands. Not yet attached to a canonical `docs/TASKS.md` item — newly-tracked finding.
+
+**Resolution:** Both handlers now hard-stop before any mutation: after the existing `pending_review` early-return, `capability.approve` (`platform/apps/api/src/router.ts` ~10742-10756) and `organization.blueprint.activate` (~9667-9679) each add `if (proposal.status !== "applied") throw new TRPCError({ code: "FORBIDDEN", message: proposal.rejectionReason ?? "approval was not authorized" })`, so a `"rejected"` decision (authority-denied OR agent-floor-blocked) can never reach `advance()`/`capabilityStore.upsertState()` or the blueprint archive/activate writes — only an auto-applied, authority-granted decision does. Paired with that, `wiring.ts`'s `seedGovernance()` pilot-user direct-grant block (~line 3107) now grants `{ resourceType: "capability", action: "approve", effect: "allow" }` and `{ resourceType: "organization_definition", action: "approve", effect: "allow" }` to `user:${pilotUserId}` only — no Agent role gained anything, so the agent-floor (which already lists `capability`/`organization_definition` as protected resources) still unconditionally blocks every agent approve attempt. `apps/api/test/capability-governance.test.ts` and `apps/api/test/blueprint.test.ts` each gained a matching pair of SECURITY tests: an authorized-pilot-user approve/activate that asserts the state genuinely advances in the store (not just the response), and two negative cases — an ungranted human caller and an Agent actor — that assert a FORBIDDEN throw AND that the underlying capability/organization_definition state is byte-for-byte unchanged (queried directly from the store before/after). The three pre-existing EVAL-3 tests that called `capability.approve` were updated to use the seeded pilot-user identity (`PILOT_USER`), since they had been unknowingly relying on the fall-through bug (their prior caller, `"test_fixture_gov_user"`, holds no grant and would now correctly throw). **Known residual gap, filed separately below:** this fix grants the pilot only in `seedGovernance`'s in-memory maps, which back `buildInMemoryPorts` (dev/test and `BRIDGE_LOCAL_DIR` local-durable mode); the fully-persistent/Supabase-backed `buildPersistentPorts` path reads real DB-backed role rows via `ensureRelationshipUserGovernance` instead, which was NOT touched by this fix and does not grant these two actions — see the new OPEN item immediately below.
+
+## RESOLVED 2026-07-22 — Persistent (Supabase-backed) pilot governance seed still lacks `capability:approve`/`organization_definition:approve`
+The fix above (previous entry) grants the seeded pilot user `capability:approve`/`organization_definition:approve` ONLY in `platform/apps/api/src/wiring.ts`'s in-memory `seedGovernance()` direct-grant block, which backs `buildInMemoryPorts` — used whenever `DATABASE_URL` is unset (dev/test) or `BRIDGE_LOCAL_DIR` local-durable mode. When `DATABASE_URL` IS set, `buildWiring()` instead calls `buildPersistentPorts()`, whose `roles` port is a real `DrizzleRoleStore` reading actual `permissions`/`role_permissions` rows, seeded at boot by `ensureRelationshipUserGovernance` (`packages/db/src/governance-stores.ts` ~385, invoked via `modePorts.ensureRelationshipUserGovernance?.()` in `wiring.ts` ~4143) — a SEPARATE, already-incomplete mirror of `seedGovernance`'s grant list (it was already missing `module`/`module_installation`/`signal`/`external:fetch`/`external:send` before this fix, and now also lacks the two new `approve` grants). Net effect: on the live Supabase-backed deployment (the pilot database this repo's several `RESOLVED 2026-07-22` Render/Supabase entries above document as real and current), `capability.approve`/`organization.blueprint.activate` will now correctly THROW `FORBIDDEN` for the pilot user too — safe (fails closed, no regression to the security fix), but a functional regression versus "was silently mutating via the fall-through bug" if either endpoint is exercised against the live deployment before this is closed. Needs `ensureRelationshipUserGovernance` (and ideally its drift versus `seedGovernance`'s fuller grant list) reconciled in a follow-up pass — deliberately NOT bundled into the hard-stop fix above, since it touches a different store/table and was outside that fix's reviewed scope.
+
+**Resolution:** Added a dedicated persistent-mode seeder, `ensureCapabilityApprovalPrincipalGovernance` (`platform/packages/db/src/governance-stores.ts`, right after `ensureDealPilotPrincipalGovernance`, whose exact idempotent `onConflictDoUpdate`-into-`permissions` shape it mirrors), granting ONLY the pilot-user principal `{resourceType:"capability", action:"approve"}` and `{resourceType:"organization_definition", action:"approve"}` — no Agent role touched. Exported from `@bridge/db`'s `index.ts`. Wired into `platform/apps/api/src/wiring.ts`: a new optional `ensureCapabilityApprovalGovernance` hook on `ModePorts`, implemented in both `buildPersistentPorts` (real `DrizzleRoleStore`/Supabase) and `buildInMemoryPorts`'s `BRIDGE_LOCAL_DIR`-durable branch (mirroring exactly where `ensureDealPilotPrincipalGovernance` is wired in both), and invoked at boot in `buildWiring()` alongside the other `ensure*Governance` calls (`await modePorts.ensureCapabilityApprovalGovernance?.();`, right after `ensureDealPilotPrincipalGovernance`). A new persistent/PGlite-backed test, `packages/db/test/local-store.test.ts` ("persistent governance idempotently provisions the pilot's capability/organization_definition approve authority, never an Agent's"), proves: the seeder is idempotent (6 invocations, 5 concurrent, yield exactly 2 permission rows); it creates zero `roles`/`agents` rows; and — the actual point of the fix — `resolveAuthority` (the function `pipeline.propose()` calls) now resolves `allowed: true` for the pilot user's `action:"approve"` on both `capability` and `organization_definition`, while an Agent actor on the same resource is still unconditionally denied (agent-floor unaffected). `@bridge/db`'s full 201-test suite and `@bridge/api`'s `capability-governance`/`blueprint`/`wiring` tests all still pass; `pnpm run lint` exits 0.
+
+## RESOLVED 2026-07-22 — Render service references produced private names, not public hosts
+The live Blueprint populated `fromService.property: host` as `bridge-pilot-api` /
+`bridge-pilot-web`. Those private service names are not valid browser origins, so API production
+validation rejected CORS and the static build could not target the public API. The Blueprint now
+uses the actual public `onrender.com` hostnames and its contract test rejects `property: host`.
+Official Blueprint validation passed; API CORS allows only the static origin. Attached to
+TASK-006/AP-063.
+
+## RESOLVED 2026-07-22 — Turbo stripped Render's public Vite build inputs
+The corrected static deploy still omitted `VITE_API_URL`, `VITE_SUPABASE_URL`, and the Supabase
+publishable key because Turbo strict environment filtering did not forward or hash those public
+build inputs. `turbo.json` now declares all three on `build`; the deployment contract asserts the
+list. A dependency-inclusive 19/19 build and the live recursive asset scan prove all three public
+values are embedded, while database/private pilot values, vault keys, and Local Plane paths are
+absent. Attached to TASK-006/AP-063.
+
+## RESOLVED 2026-07-22 — Live Supabase schema lagged current API through migration 0026
+The first correctly configured API boot reached Supabase but failed on
+`module_installations.commons_source`, added by migration `0028`; the pilot database had been
+certified before TASK-021/TASK-015/TASK-016 advanced main through `0030`. The official linked
+Supabase CLI applied only canonical `0027`–`0030` in one history-guarded transaction. Live history
+now reaches `0030`, `commons_source` and the canonical Event index exist, and the API boots without
+owner credentials. Attached to TASK-006/AP-063.
+
 ## RESOLVED 2026-07-21 — TASK-022 inference receipt path failed persistent governance boundaries
 Independent correctness/security review and the final blast-radius scan found nine defects before commit:
 Chief-of-Staff conversation did not
@@ -58,6 +255,13 @@ Resolved at `689fca0`: both authoritative stores now create UUID installation ID
 ## RESOLVED 2026-07-21 — TASK-021 projection reconciliation refreshes unchanged completed Tasks
 Corporate-training-sims recertification merge `4d6ae1c`/PR #103 proved an unrelated projection edit changed an untouched completed Task's `updatedAt` from `2026-07-16T10:00:00.000Z` to `2026-07-21T12:00:00.000Z`, postponing age-based completed-bay eligibility. `applyApprovedTaskProjectionReconciliation` updates every parsed row. TASK-021 must semantically diff creates/deletes/reorders/field changes and preserve exact version, `updatedAt`, evidence, and status on unchanged Tasks while retaining atomic reconciliation, deterministic re-emit, and File/record race controls. External ID: `BRIDGE-TM-PROJECTION-TOUCHES-UNCHANGED-DONE`.
 Resolved at `689fca0`: reconciliation compares title/status/path/level/order/parent identity and returns unchanged Task objects without a write, version bump, or timestamp change. Projected parent paths win over stale current paths during root swaps. Changed/reordered Tasks still version-CAS atomically; unknown creates fail closed and omitted projection rows cannot delete canonical Tasks; deterministic re-emit restores the complete capped projection.
+
+## RESOLVED 2026-07-22 — Render static build skipped workspace dependencies
+The first live static deploy (`dep-d9ft14n7f7vs739aqimg`) installed the full workspace but ran
+only `pnpm --filter @bridge/web build`. A clean environment had no prebuilt
+`@bridge/module-manifests` entry, so Vite failed while local builds passed against stale `dist`.
+The Blueprint now runs Turbo with `--filter=...@bridge/web`, which builds all 18 dependencies
+before web. A clean Git archive/install/build passed 19/19 tasks. Attached to TASK-006/AP-063.
 
 ## RESOLVED 2026-07-21 — Existing hosted API required forbidden cloud Local Plane storage
 The production container could boot only with `encrypted-host-volume` residency and an
@@ -522,8 +726,9 @@ The Relationship Signal/Tool capture paths could construct Agent identity in the
 ## RESOLVED 2026-07-16 — public Helpdesk retries could duplicate writes or lose the only recovery credential
 Public ticket creation and submitter replies now use client operation UUIDs plus deterministic server-side ticket/message UUIDs. Reusing an operation with different input fails explicitly; ticket + initial message writes are transactional. Recovery credentials are 192-bit client-generated values stored only as SHA-256 hashes, omitted from internal DTOs/logs, and legacy plaintext values migrate on first use. Pending operations persist before network submission when browser storage is available; if reply-key persistence or Clipboard access fails, the key remains selectable in the page. Inputs are bounded and the public procedures use the sensitive rate-limit bucket.
 
-## OPEN 2026-07-16 — approved external effects have no durable retry executor
+## RESOLVED 2026-07-22 — approved external effects have no durable retry executor
 `action.decide` now preserves the append-only Human decision, returns `effectsStatus: failed`, and appends inspectable execution-failure evidence when a post-decision provider side effect fails. It does not yet enqueue or expose an idempotent retry for that approved effect, so recovery remains operator-driven. Resolve under TASK-017 with a durable retry record/worker or explicit retry procedure that reuses the original approval, effect idempotency key, authority context, and audit chain without creating a second review decision.
+**Resolution (TASK-017 D8):** verified the existing coverage first — Relationship materialization already reconciles through `relationship.reconcileApproved`/`reconcileOrganizationRelationshipMaterializations` and Module installs through `packages.reconcileApproved`. The remaining gap (general approved external effects that `action.decide` reported `effectsStatus:"failed"` for, which are neither a Relationship nor a Module-install approval) is now closed by a new idempotent `action.reconcileApproved` procedure (`reconcileApprovedExternalEffect`, `apps/api/src/router.ts`): it reuses the original append-only approval, re-derives the same effect idempotency key/authority context, re-runs the side effect, appends effect-retry audit, and never creates a second review decision; already-confirmed effects return `confirmed` as a no-op, and Relationship/Module proposals are explicitly rejected toward their dedicated reconcilers. Covered by `apps/api/test/router-decide.test.ts` (10/10).
 
 ## RESOLVED 2026-07-18 — TASK-008 integration omitted the RM4 Relation persistence/materialization contract
 Merged on `main` at `590cca6` as migration `0015_task008_relation_contract`. Relations now persist bounded evidence/provenance/visibility/validity/owner/decision fields; owning-Module node types and owner-scoped uniqueness/RLS are enforced; reads use deterministic composite keyset pagination with batched permission pruning; and approved proposals reconcile through a durable pending/applied/failed effect ledger with bounded retry and stale-lease recovery. Runtime proposal resolution trusts only `ref_ledger_id`; the verified legacy backfill rejects malformed, ambiguous, cross-workspace, mismatched, missing, and physically post-0003 references. The merge preserved hardened Relationship UI, Approvals, public Helpdesk, DealPilot validation/effects, and both governance seeders. Full affected tests, migration fresh/upgrade/no-drift, desktop checks, changed-file lint, no-dummy, and independent central-merge review passed.
@@ -1470,8 +1675,9 @@ FIX (ADR-023): when `watch_first` includes `"calendar"`, the generated entity no
 Generated kanban view on `initiative` omits `groupBy: "stage"` even when the stage field was just created from the same answers. Board renders ungrouped. Same source: onboarding simulation audit.
 FIX (ADR-023): when the view style is kanban AND `watch_first` includes `track_stage` (the stage field was actually generated), the view now carries `config.groupBy: "stage"` so KanbanView.tsx groups by it instead of falling back to its own "needs a group-by column" empty state.
 
-## OPEN — package store is in-memory in BOTH wiring modes (2026-07-06, ADR-021)
+## RESOLVED 2026-07-22 — package store is in-memory in BOTH wiring modes (2026-07-06, ADR-021)
 `packages.*` installation rows (apps/api Wiring.packageStore = InMemoryPackageStore) do not persist even when DATABASE_URL is set — no Drizzle `package_installations` table/migration exists yet. Same honest-gap pattern as capabilityBudgets/killSwitch. Next step: table + DrizzlePackageStore following capability-store.ts + migration naming, mirror to docs/raw/SCHEMA.sql.
+**Resolution:** superseded by the module store. `platform/apps/api/src/wiring.ts` now composes a real `DrizzleModuleStore(localDb, PILOT_ORGANIZATION)` for `moduleStore` in durable/persistent wiring (`localDirDurable` true), backed by the `module_installations` table; only the dependency-free ephemeral dev/test wiring keeps `InMemoryModuleStore`, which is the intended split (mirrors `goalTasks`/`taskManager`'s same durable-vs-ephemeral pattern), not an unaddressed gap.
 
 ## RESOLVED 2026-07-06 — package install re-registers bundled capabilities non-idempotently (ADR-021)
 `packages.install` creates a fresh `capability_manifests` row per bundled capability on EVERY install; installing two package versions whose capability keeps the same (name, version) violates `capability_manifests_uq`. Needs lookup-or-reuse by (workspace, name, version) before insert.
@@ -1491,8 +1697,9 @@ FIX: OnboardingDialog.submit now chains workspace.blueprint.propose -> workspace
 UPDATE 2026-07-06 (ADR-023): the "parent refresh closes the dialog before the success message is readable" cosmetic bug is now fixed. Root cause: `Layout.tsx` passed `onProposed={() => setOnboardingOpen(false)}`, and `OnboardingDialog`'s `Dialog open={open}` is bound directly to that same state — so the instant `submit()` called `onProposed()`, `open` flipped to `false` and the dialog unmounted its "submitted" step before it could render. Fix: `Layout.tsx`'s `onProposed` no longer closes the dialog (now a no-op — it existed only to let the shell refresh its "does an active workspace exist" check, which the mount-time `workspace.blueprint.get` effect already re-runs on next visit); the dialog now only closes via the explicit "Done" button (`resetAndClose`) or manual dismissal.
 Live-tested (not just simulated): completing the onboarding dialog and clicking "Propose this workspace" calls `workspace.blueprint.propose` successfully (no network errors), but the copy "Nothing is created until you approve it in Approvals" is misleading — `propose` only writes a draft row; nothing calls `workspace.blueprint.activate` (the actual governed-proposal step per ADR-017), so Approvals shows "0 pending" and /workspace shows "No active workspace blueprint yet" with an explicit hint to call `workspace.blueprint.propose` + activate manually via API. The onboarding flow has no UI path to activate its own draft — a user who completes onboarding sees no visible outcome at all. Needs: either auto-chain propose→activate on submit (draft still requires human approval per governance, but at minimum surface a "review your draft" affordance), or a visible drafts list + activate button. Also minor: onboarding's compiled preview only showed the `initiative` entity + kanban view — the signal/touchpoint table views described in the ETA simulation (docs/raw/onboarding-vs-dealpilot-simulation.md) did not appear in the live preview; worth reconciling why (likely compileBlueprint only surfaces views for entities that end up in the final node-type list, or the preview component doesn't render all viewConfigs — needs a source read, not yet diagnosed).
 
-## OPEN — pin persistence is client-side localStorage only (2026-07-06, ADR-023)
+## RESOLVED 2026-07-22 — pin persistence is client-side localStorage only (2026-07-06, ADR-023)
 `platform/apps/web/src/app/lib/pins.ts` persists pinned Projects/Tools nav entries to `localStorage` (`bridge.pins.projects`/`bridge.pins.tools`) — per-device, not per-user/server-side. No `pins`/`user_preferences` table or tRPC procedure exists yet. Cleared by browser data wipe, doesn't sync across devices/surfaces (contradicts the Notion-model "one platform, three clients" goal until fixed). Next step: a real `user_preferences`-shaped store + `preferences.pins.get/set` procedure, migrate `lib/pins.ts` to read-through/write-through that instead of `localStorage` directly.
+**Resolution:** moot — the pins feature was removed under shell IA v2 (see the 2026-07-16 "Pinned Projects/Tools no longer surfaced anywhere after shell IA v2" row below). `platform/apps/web/src/app/lib/pins.ts` no longer exists in the repo and no `bridge.pins` reference remains anywhere under `platform/apps/web/src`; there is no client-side-only persistence left to fix.
 
 ## OPEN — `bridge/dummy-prefix` ESLint rule still expects `dummy_`, contradicts the 2026-07-06 reversal (2026-07-07)
 CLAUDE.md's "NO dummy data" rule was reversed 2026-07-06 — new fixtures should use a `test_fixture_` prefix, not `dummy_`. `platform/eslint.config.js`'s `bridge/dummy-prefix` rule (`platform/tools/eslint-rules/src/dummy-prefix.js`) hasn't been updated to match: it still warns on any placeholder-shaped string literal in test files that ISN'T `dummy_`-prefixed, actively suggesting a `dummy_` rename. Confirmed low-severity (rule is `"warn"`, not `"error"` — `pnpm lint` still exits 0), so it didn't block this task's new `test_fixture_`-prefixed fixtures (`packages/db/test/graph-store.test.ts`, `apps/api/test/graph-people-communities.test.ts`), but it's misleading guidance for the next person who takes the warning at face value. `eslint.config.js` is a protected file (not to be touched per task-scoping in this session) — fix belongs to whoever owns lint config, either retiring the rule or repointing it at `test_fixture_`.
@@ -1507,15 +1714,17 @@ Reproduced while adding `graph.listPeople`/`graph.listCommunities` (`platform/pa
 **Review closure 2026-07-19:** focused correctness review also closed partial-batch result loss, View-filter bypass, multiline/scientific coordinate round-trip failures, hide/show Location-column lifecycle, inaccessible co-located pins, stale whole-row coordinate writes, structured-Location filter/sort projection, hardcoded title/search fields, pointer-only pin access, Map unmount during multi-Record saves, owner-only update eligibility, persisted one-shot Board form defaults, Board mutations on read-only/locked columns, and missing Table sort-state accessibility. Successful geocoder batches publish before a later failure; coordinate persistence sends a Location-only patch; Relationship updates preserve omitted fields and update the current page in place; shared Records remain readable but are never offered owner-only coordinate/edit writes; leaving Form clears group defaults; Board only mutates editable unlocked fields; and sorted headers expose visual direction plus `aria-sort`.
 **Merge-review closure 2026-07-19 (ADR-125/ADR-126):** the first merged journal placed TASK-005's privacy backfill below the former local TASK-014 migration timestamp, so a database from that parent would skip it; idempotent `0019` now sits above both high-water marks and a real migrator regression proves convergence. The first merged Module upload path also read the Organization name outside rename's row lock and could recreate the old root; File reads/uploads now lock and recover through the same store primitive as rename, with a concurrent upload/rename regression.
 
-## OPEN 2026-07-19 — paginated Relationship Views filter and sort only the loaded page
+## RESOLVED 2026-07-22 — paginated Relationship Views filter and sort only the loaded page
 `RecordListPage` deliberately keeps bounded server pagination (`relationship.listPeople` / `listCommunities`, 50 rows), while the shared `DataViews` renderer applies `ViewConfig.rowFilters` and `sorts` in the browser. For datasets over 50 rows, a filter can miss matches on later pages and each page can sort independently rather than representing one globally ordered result set. This predates the Map renderer and affects every client-filtered View over this paginated source. Preserve bounded reads; fix under TASK-017 by translating supported View filters/sorts into validated server query fields and applying them before limit/offset, rather than restoring unbounded `collectAllPages`.
+**Resolution (TASK-017 D10):** `relationship.listPeople`/`listCommunities` now accept the active View's `sorts` (max 5) and `rowFilters` (max 20, `filterMatch` all/any) and `DrizzleGraphStore` applies them in SQL BEFORE `limit`/`offset`, so filtering/sorting spans the whole result set, not one page. Bounded reads preserved (no `collectAllPages`). Injection-safe: an explicit column allowlist (`personViewColumn`/`communityViewColumn`) maps each filter/sort field to the same computed projection expression — unknown fields are dropped, never passed to SQL; filter values are parameterized Drizzle `sql` bindings with `ESCAPE '!'` on ILIKE patterns; `people.id`/`communities.id` is a deterministic final sort tiebreaker. `RelationshipPage.tsx` forwards the active View's sorts/rowFilters/filterMatch to the query (client-side `applyFilters`/`applySorts` still runs as a display layer). Covered by `packages/db/test/graph-store.test.ts` (21/21, incl. a >50-row cross-page filter/sort case).
 
 ## RESOLVED 2026-07-06 — @bridge/tables ColumnKind missing "location", drifted from @bridge/core's BlueprintColumnKind
 `packages/core/src/blueprint.ts` (concurrent session, same day) added `"location"` to its `BlueprintColumnKind` (a "structural mirror of @bridge/tables' ColumnKind, PLUS location" per its own header comment) so `compileBlueprint` can compute `map` view eligibility from a real column kind instead of a name heuristic. `@bridge/tables`' `ColumnKind` (`packages/tables/src/types.ts`) has NOT been updated to match — grep-confirmed, still only `text|number|select|multiselect|date|checkbox|url|relation|formula|tool`. This is latent, not caught by `turbo run build --filter=@bridge/web` (Vite, not a `tsc -b` composite build, so the mismatch doesn't surface there), but a standalone `tsc -b apps/web/tsconfig.json` fails: `WorkspacePage.tsx`'s `compiled.tableSpecs.find(...)` (typed via `BlueprintTableSpec`) is no longer assignable to `@bridge/web`'s local `TableSpec` (from `@bridge/tables`) because `BlueprintColumnKind` now has a case (`"location"`) `ColumnKind` doesn't. Not touched by the current apps/web session (out of its lane — `packages/tables` belongs to the concurrent packages/*-owning session); flagging so the location `ColumnKind` gets added to `@bridge/tables` and `apps/web`'s `dataviews/eligibility.ts`/`MapView.tsx` heuristic (currently a `id`/`label` substring guess, see the "map view is a grouped-by-location list" row above) can be swapped for a real kind check once it lands.
 FIX (ADR-024): added `"location"` to `ColumnKind` in `packages/tables/src/types.ts` (additive union member, no existing case touched). Verified: `npx tsc -b apps/web/tsconfig.json` now passes clean (previously failed with the `BlueprintColumnKind`/`ColumnKind` assignability error quoted above). `apps/web`'s `dataviews/eligibility.ts`/`MapView.tsx` still use their own id/label substring heuristic rather than this real kind — swapping them over is left to the web-owning session (not this pass's lane), tracked by the still-open "map view is a grouped-by-location list" row above.
 
-## OPEN 2026-07-06 — apps/web globals.css is EMPTY: app effectively unstyled (P0)
+## RESOLVED 2026-07-22 — apps/web globals.css is EMPTY: app effectively unstyled (P0) (2026-07-06)
 `platform/apps/web/src/styles/globals.css` is 0 bytes. Tailwind v4 runs via `@tailwindcss/vite` but the CSS entry has no `@import "tailwindcss";` and no `@theme` token block, so every utility/token class used across components (`bg-muted`, `text-muted-foreground`, `bg-primary`, `border-input`, shadcn-style cva variants in `ui/*`) resolves to nothing — the app renders bare/unstyled. Fix = wave-2 skin migration: add `@import "tailwindcss";` + `@theme` block with the prototype's design tokens (skin spec being produced in docs/raw/ui-parity-audit-2026-07.md). Found during session-3 frontend inventory.
+**Resolution:** the wave-2 skin migration landed. `platform/apps/web/src/styles/globals.css` is now ~9.3KB: `@import "tailwindcss";` plus font imports and a full `:root`/`.dark` design-token block (Bridge color system, spacing, radii). The app renders styled.
 
 ## OPEN 2026-07-07 — @bridge/core's Node-only SandboxProvider leaks into the browser bundle
 `platform/packages/core/src/capability/sandbox-provider.ts`'s `InProcessJsSandboxProvider` imports Node's built-in `vm` module and is re-exported from `@bridge/core`'s public `index.ts`. `@bridge/web` imports from `@bridge/core` broadly, so Vite's build (`pnpm --filter @bridge/web build`) reports `Module "node:vm" has been externalized for browser compatibility` — the symbol is reachable from the browser bundle's import graph even though nothing in apps/web currently calls it. If any future web code path ever invokes `InProcessJsSandboxProvider`, it will throw at runtime in-browser (no `vm` in the browser). Fix = split `@bridge/core`'s exports into a server-only entry point (e.g. `@bridge/core/server`) for Node-only capabilities (sandbox providers, toolbelt shell:execute path) vs. a browser-safe entry for types/pure functions, or move sandbox-provider.ts to a server-only package (`@bridge/api` or a new `@bridge/sandbox`). Found during session-3 wave-3 full-build verification.
@@ -1539,8 +1748,9 @@ Settings → Learning now exposes “Re-enter onboarding.” The dialog returns 
 `packages/db/migrations/0008_rls_as_code.sql` makes every `createLocalDb()`→`migrate()` apply RLS policies across 37 tables, so db test setup is materially heavier. During a full `turbo run typecheck test build --force` run CONCURRENTLY with 3 other subagent builds (machine thrash), the db test process once hit `'Promise resolution is still pending but the event loop has already resolved'` (~16.5s) and failed. Re-run alone under normal load: 53/53 green, and the batch-close full build (run alone) was also green → resource-starvation flakiness, not a logic defect. CI runners are dedicated (resemble the clean run). Watch: if it recurs on CI, cap db test concurrency (`--test-concurrency=1`) or split the migration cost. Low priority.
 **Resolution:** the package's documented runner now bounds only DB test-file concurrency at four, not the repository. A focused stress regression runs two waves of four concurrent fully migrated PGlite databases and closes all eight. The official 198-test package run passes three consecutive times at this setting; no retry, timeout increase, hidden failure, or repository-wide serialization was added.
 
-## OPEN 2026-07-21 — three Relationship API regressions still assert pre-TASK-015 taint behavior
+## RESOLVED 2026-07-22 — three Relationship API regressions still assert pre-TASK-015 taint behavior
 The current `graph-people-communities.test.ts` has three failures outside TASK-016's changed paths: Helpdesk/Relationship/capture fixtures expect `pending_review` or retained taint fields, while current TASK-015 fail-closed behavior rejects unknown labels or returns the sanitized decision shape. TASK-016's location and malformed-UUID selectors pass, as does the file-backed TASK-015 restart test. Attached to TASK-017 rather than reopening completed TASK-015. EXIT TEST: reconcile fixture source labels and decision expectations with ADR-142 without weakening unknown-label quarantine; the whole Relationship API file passes.
+**Resolution:** The fallout was broader than this row's original three-file scope — TASK-015/ADR-142's `skill_execution` fail-close (`platform/packages/core/src/pipeline.ts` ~269-273, ~432/447/525) also left 14 `@bridge/core` unit tests asserting pre-taint expectations (`pipeline-ags1.test.ts` x4, `conformance.test.ts` x6, `capture-pipeline.test.ts` x3, `postcommit-effect-types.test.ts` x1), all rejecting with `rejectionReason` `"taint sink: unknown taint axis fails closed"` because their bare `freshCtx()`/`ctx()` helpers omitted any `taintLabel`, on top of the `graph-people-communities.test.ts` file already fixed in Wave A. All 15 files reconciled the same way: attach the production `human_input`-origin taint label (mirroring `apps/api/src/context.ts:149`'s `labelAtSource("human_input", {...})`, sensitivity `"organization"`, instructionRisk `"none"`) to each test's shared `RunCtx` helper, modeling the authenticated run every real request carries — never by loosening `evaluateTaintSink`, marking a Skill `pure_data`, or editing an assertion to force a pass. `@bridge/core`: 477/477 pass, line coverage 88.69% (floor 80). `graph-people-communities.test.ts`: 12/12 pass, unaffected. `pnpm run lint`: exit 0.
 
 ## RESOLVED 2026-07-21 — schema-hardening regressions still targeted deleted pre-vocabulary tables and historical aliases
 The supported DB package initially failed three old tests: schema hardening queried deleted `timeline_entries`; migration 0013's historical fixture used post-VOCAB4 `event` where that migration accepted `signal`; migration 0023 invoked the current taint-aware GraphStore against a deliberately pre-0029 schema; and journal ordering used a moving `slice(-7)`. Tests now target canonical Events, preserve the historical fixture vocabulary, inspect migration-0023 rows without a future adapter, and assert the fixed 0020–0026 range. Historical migration SQL/checksums were not changed.

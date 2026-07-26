@@ -9,7 +9,7 @@ services:
     autoDeploy: false
     dockerfilePath: ./platform/Dockerfile
     dockerContext: ./platform
-    healthCheckPath: /health/ready
+    healthCheckPath: /health
     envVars:
       - key: API_HOST
         value: 0.0.0.0
@@ -22,10 +22,7 @@ services:
       - key: BRIDGE_DEALPILOT_CREDENTIAL_VAULT
         value: disabled
       - key: BRIDGE_RENDER_WEB_HOST
-        fromService:
-          type: web
-          name: bridge-pilot-web
-          property: host
+        value: bridge-pilot-web.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL
@@ -47,7 +44,7 @@ services:
       corepack prepare pnpm@10.33.3 --activate &&
       cd platform &&
       pnpm install --frozen-lockfile &&
-      VITE_API_URL="https://${BRIDGE_RENDER_API_HOST}" pnpm --filter @bridge/web build
+      VITE_API_URL="https://${BRIDGE_RENDER_API_HOST}" pnpm turbo run build --filter=...@bridge/web
     staticPublishPath: platform/apps/web/dist
     routes:
       - type: rewrite
@@ -65,10 +62,7 @@ services:
         value: DENY
     envVars:
       - key: BRIDGE_RENDER_API_HOST
-        fromService:
-          type: web
-          name: bridge-pilot-api
-          property: host
+        value: bridge-pilot-api.onrender.com
       - key: VITE_SUPABASE_URL
         sync: false
       - key: VITE_SUPABASE_PUBLISHABLE_KEY

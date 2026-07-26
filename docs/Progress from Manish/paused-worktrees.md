@@ -1,7 +1,7 @@
 # Paused worktrees
 
-All listed paused workers were stopped on 2026-07-18. TASK-005, TASK-024, and the recovered
-Supabase deployment session are complete. Re-check every status before resuming because remaining entries are uncommitted
+All listed paused workers were stopped on 2026-07-18. Later TASK-015/TASK-016/Render owners are
+also complete and idle. Re-check every status before resuming because remaining entries are uncommitted
 snapshots, not immutable releases.
 
 ## Central baseline
@@ -17,8 +17,9 @@ snapshots, not immutable releases.
   `29683837490` passed and `https://zazoo.me` serves the older experience.
 - TASK-012 VOCAB0–VOCAB1 landed through PR #26; VOCAB2 landed through PR #27 at `f6c4376`.
 - Partial VOCAB3 checkpoint `58573ba` was pushed to `main` with migration `0021`.
-- Recovered Supabase deployment checkpoint `6590c71` is integrated by this merge with migration
-  `0022_supabase_runtime_role`; next new migration is `0023`.
+- Recovered Supabase deployment checkpoint `6590c71` is integrated with migration
+  `0022_supabase_runtime_role`; current migration high-water is `0030`, and next is `0031`.
+- Current verified `origin/main` is `4d130736a873667a6ac561957ed0993144e19ee4`.
 - Working tree: clean after this merge completes.
 - Background agents and worktree processes: none.
 
@@ -28,7 +29,7 @@ snapshots, not immutable releases.
 - Runtime session: `78a592e5-ac77-4496-8ed2-98d48fe6c316`
 - Checkout/branch: shared central checkout on `main`; no separate worktree or source branch
 - Preservation checkpoint: `6590c71`
-- Integration: this local merge under AP-054/ADR-128
+- Integration: landed at `6ee47e1` under AP-054/ADR-128
 - Migration: `0022_supabase_runtime_role`
 
 The parent process is defunct and its five displayed workers were stale. Checkpoints/events
@@ -83,8 +84,28 @@ Relationship `0.2.2` and removes standalone Help Request package/browser stores.
 installation-driven Module/Run/Panel/full-Graph convergence. Final closure moves DealPilot/JobPilot
 to canonical Module paths, deletes expired compatibility, migrates stored Results, moves old Commons
 registry bytes into one canonical root, and lowers the forbidden baseline to zero. Desktop and exact
-375×812 routes pass. TASK-012 is done under AP-059/ADR-133. Next new migration is `0027`. Do not
+375×812 routes pass. TASK-012 is done under AP-059/ADR-133. Current next migration is `0031`. Do not
 resume or re-merge any prior VOCAB worktree.
+
+## TASK-013 repository cleanup — MERGED 2026-07-21
+
+- Planning/implementation sessions: `aef84034-3206-4816-b14b-4918f06e6915` /
+  `bd633262-aeac-44ef-a3e4-bb827ccc331c`
+- Source/landing: `5ba4234` / PR #36 merge `a47b781`
+- Archive: verified private `archive/task-013-pre-cleanup-2026-07-21`
+
+The single production tree and manifest catalog are on `main`; history was not rewritten.
+Both worktrees are historical and must not be resumed or merged.
+
+## TASK-021 Task Manager — MERGED / EXTERNALLY CERTIFIED 2026-07-21
+
+- Session: `21ddba68-74ab-44bf-8496-4b4caeed4f44`
+- Bridge PRs: #37, #40, #41, #42; final merge `2325cc5`
+- External certifier: Corporate-training-sims PR #104, merge `f3443acc`
+- Migrations: `0027_task021_task_manager`, `0028_task021_recertification`
+
+Signed install, governed projection/tree surgery/routing, completed-bay sweeps, and two-instance
+restart certification passed. TASK-021 is done; do not resume or re-merge this worktree.
 
 ## TASK-006 durability — MERGED 2026-07-19
 
@@ -159,15 +180,15 @@ governed source; Library navigation, the Process Human Decision gate, and the Im
 through pointer, keyboard, and touch; reduced motion preserves the narrative; and the unapproved
 final destination remains honestly disabled. Six contract tests, typecheck, production build,
 ESLint, desktop, and exact 375×812 live walkthroughs passed. The user explicitly skipped the
-optional independent review before landing. The production artifact is now served through GitHub
-Pages with the custom-domain `CNAME` and existing Consulting/Training pages preserved. This
+optional independent review before landing. The source remains preserved, but publication was
+rolled back; the custom-domain `CNAME` and existing Consulting/Training pages remain preserved. This
 worktree is historical after merge; do not resume or merge it again.
 
 ## TASK-022 inference optimization
 
 - Session: `87f7fbd1-a6a4-47fa-bc67-bb8a5a20bd1a`
 - Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-turbo-carnival`
-- Branch/head: `manishsbhoopalam8498-implement-task-022` / source `61e85c3`; PR #43
+- Branch/head: `manishsbhoopalam8498-implement-task-022` / final source `a02b5fc`; PR #43
 - Recovery: preserved old-base work at `85474fa`, normally merged `origin/main@2325cc5`, and
   resolved nine conflicts without rebase/stash/reset/force.
 
@@ -184,7 +205,7 @@ Landing validation: core 59, models 27, API 13 passed; one secure live test skip
 builds/typechecks, 23-file ESLint, vocabulary, no-dummy, diff integrity, correctness re-review,
 and separate security review passed.
 
-PR #43 owns landing. After merge this worktree is historical; do not resume or merge it again.
+PR #43 merged at `5122695`. This worktree is historical; do not resume or merge it again.
 Canonical TASK-022 stays `blocked` under AP-067 until an authorized Anthropic credential plus
 explicit live spend runs two real public-safe CoS turns and the second receipt reports cache-read tokens.
 
@@ -198,6 +219,8 @@ explicit live spend runs two real public-safe CoS turns and the second receipt r
   `origin/main@5122695d8dbf3a9b74bebd79e89618771126af92`
 - Implementation source: `6e33f051b7e001efe25c949d4038730aee6a1292`
 - PR #44 merge: `b8e1db0b808806d45dd904270902dd77b132541c`
+- Closure source/PR #45 merge: `ef2b32a96149f904f4a4177ec5011d0770447397` /
+  `2e0cb730ab573c298b804e664106936411e7509f`
 
 Implemented:
 
@@ -236,6 +259,41 @@ Candidate A selected after read-only feature comparison. It had stronger rights
 intake, policy-drift checks, network regressions, live evidence, and prior
 security review. Candidate B contributes no remaining non-overlapping behavior
 and remains superseded, idle, dirty, and untouched.
+
+## TASK-015 runtime taint — MERGED 2026-07-21
+
+- Planning session: `be52e0a6-4d88-4f04-af6f-e6fe27b6bfab`; implementation session:
+  `bc1c0667-7b55-4ab5-b59b-bd9e063b4731`
+- Source/landing: `da26f46` / PR #46 merge `5857cb9`
+- Migration: `0029_task015_runtime_taint`
+- Canon: TASK-015 `done`; AP-070; ADR-142
+
+The canonical lattice/envelope, propagation, source/sink inventory, quarantine, immutable
+declassification, Approval trace UI, and two-process restart evidence are on `main`. This worktree
+is historical; do not resume or merge it.
+
+## TASK-016 database correctness — MERGED 2026-07-21
+
+- Session: `bd9850dc-696f-452b-934d-68aff3691a1e`
+- Source/landing: `0b395b1` / PR #47 merge `ba8ccc1`
+- Migration: `0030_task016_schema_alignment`
+- Canon: TASK-016 `done`; AP-071; ADR-143
+
+Location field-kind alignment, the partial-index identity arbiter, generated Drizzle metadata,
+typed pre-SQL UUID rejection, and supported four-file DB concurrency are on `main`. The 198-test DB
+package passed three consecutive official runs. This worktree is historical; do not resume it.
+
+## TASK-006 Render deployment — CERTIFIED / IDLE 2026-07-21
+
+- Session: `6cd3ce6e-8932-45cd-951e-b147102a7af0`
+- PRs #49–#52; final evidence source `3685985`; final merge `4d13073`
+- Live API/web: `https://bridge-pilot-api.onrender.com` /
+  `https://bridge-pilot-web.onrender.com`
+
+Only free Virginia API/static resources exist; no Render disk/datastore/paid resource. Supabase is
+current through `0030`; Auth, RLS/reset, restart, public/private boundary, non-disclosure, and exact
+375px passed. Resume this session only when authorized Google OAuth and a real Source credential are
+available for TASK-006's remaining proof.
 
 ## TASK-008 Relationship continuation — MERGED 2026-07-19
 

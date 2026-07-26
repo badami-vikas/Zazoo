@@ -43,14 +43,14 @@ Design Bridge AI Interface (Copy)/src/app/data/reconStaging.ts
 Design Bridge AI Interface (Copy)/data/Invitations.csv
 Design Bridge AI Interface (Copy)/data/seed_canonical.sql
 
-# Claude internal session files — ignore ephemeral state, track config+skills
-.claude/
+# Claude internal session files. Root config and skills are reviewed project exceptions.
 **/.claude/
-# Track project-level Claude config and skills
-!.claude/settings.json
-!.claude/launch.json
-!.claude/skills/
-!.claude/skills/**
+!/.claude/
+/.claude/*
+!/.claude/settings.json
+!/.claude/launch.json
+!/.claude/skills/
+!/.claude/skills/**
 
 # OS / editor
 .DS_Store
@@ -68,4 +68,12 @@ npm-debug.log*
 .pnpm-store/
 **/.playwright-cli/
 platform/output/
+platform/apps/desktop/src-tauri/binaries/*
+!platform/apps/desktop/src-tauri/binaries/.gitkeep
+platform/apps/desktop/src-tauri/generated/api/*
+!platform/apps/desktop/src-tauri/generated/api/.gitkeep
+platform/apps/desktop/src-tauri/generated/licenses/*
+!platform/apps/desktop/src-tauri/generated/licenses/.gitkeep
+platform/apps/desktop/src-tauri/generated/native/*
+!platform/apps/desktop/src-tauri/generated/native/.gitkeep
 .DS_Store

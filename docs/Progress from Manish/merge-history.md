@@ -22,7 +22,8 @@ This file prevents a new session from re-merging historical branches or reusing 
   without growing the baseline.
 - TASK-012 VOCAB2 landed through PR #27 from source `88be310`; merge commit `f6c4376`.
 - Partial VOCAB3 checkpoint `58573ba` was pushed to `main` with migration
-  `0021_vocab3_organization_module_record`. TASK-012 and VOCAB3 remain in progress.
+  `0021_vocab3_organization_module_record`. It was incomplete; PR #28 later completed VOCAB3 and
+  PR #33 closed TASK-012.
 - VOCAB3 completed through PR #28 at source `bdcedeb` and merge `dc50c33`.
 - VOCAB4 completed through PR #29 at source `80f8712`, evidence checkpoint `a07ec02`, and merge
   `611c9ad`, allocating migration `0023_vocab4_event_result_file`.
@@ -40,11 +41,24 @@ This file prevents a new session from re-merging historical branches or reusing 
 - Fresh TASK-006 continuation from `origin/main@922ca52` allocates
   `0025_task006_supabase_root_catalogs` and `0026_task006_supabase_auto_rls_alignment`; ADR-134
   keeps policyless catalogs server-only while every RLS-enabled table retains a tracked policy.
-- AP-063/ADR-137 adds the free Render Blueprint/public-cloud boundary. Live deployment is blocked
-  before resource creation on repository-owner Render GitHub App authorization.
-- TASK-022 recovery source `61e85c3` normally merges preservation checkpoint `85474fa` with
-  `origin/main@2325cc5`; PR #43 owns landing under AP-067/ADR-140. The code milestone is complete,
-  but canonical status remains blocked on authorized live Anthropic cache-read evidence.
+- AP-063/ADR-137 adds the free Render Blueprint/public-cloud boundary. Repository-specific GitHub
+  App authorization succeeded; the free Virginia API and static site are live with no disk,
+  datastore, or paid resource.
+- TASK-021 implementation PR #37, remediation PRs #40/#41, and closure PR #42 landed through
+  `2325cc5`; Corporate-training-sims PR #104 supplied the final external two-instance PASS.
+- TASK-022 recovery source `61e85c3` normally merged preservation checkpoint `85474fa` with
+  `origin/main@2325cc5`; final source `a02b5fc` landed through PR #43 at `5122695` under
+  AP-067/ADR-140. The code milestone is complete, but canonical status remains blocked on
+  authorized live Anthropic cache-read evidence.
+- TASK-023 candidate A landed through PR #44 from source `6e33f05` at merge `b8e1db0`; docs-only
+  closure source `ef2b32a` landed through PR #45 at `2e0cb73`. Candidate B remains superseded.
+- TASK-015 source `da26f46` landed through PR #46 at `5857cb9`, allocating migration
+  `0029_task015_runtime_taint`.
+- TASK-016 source `0b395b1` landed through PR #47 at `ba8ccc1`, allocating migration
+  `0030_task016_schema_alignment`; source, merge, and main trees matched.
+- Render repair PRs #49–#51 and evidence PR #52 landed through `4d13073`; the free Virginia API and
+  static site are live, while TASK-006 retains only its separate Google/Source-credential blocker.
+- Current verified central baseline is `origin/main@4d130736a873667a6ac561957ed0993144e19ee4`.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -93,8 +107,14 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `e657cc8` / PR #32 | TASK-012 VOCAB6 Module shell, Runs, symmetric panels, full Graph sources/actions, and runtime Knowledge deletion; no migration. |
 | `cd0ad97` / `e139d88` / PR #33 | TASK-012 final compatibility deletion, zero vocabulary baseline, migration `0024`, canonical Module package paths, and exact source provenance pin. |
 | `6590c71` | Preservation checkpoint for the recovered Supabase pilot deployment before reconciling newer `origin/main`; retained as a merge parent/audit source, not as the final vocabulary integration. |
-| (this merge) | Recovered Supabase session integration: migration `0022`, least-privilege/RLS context, exact hosted Auth, encrypted headless vault, Local/Cloud ledger routing, container assets, and durable recovery records. Local `main` only; no push or cloud provisioning. |
+| `6ee47e1` | Recovered Supabase session integration: migration `0022`, least-privilege/RLS context, exact hosted Auth, encrypted headless vault, Local/Cloud ledger routing, container assets, and durable recovery records. |
 | TASK-006 live continuation | Free `us-east-1` Supabase pilot, exact Auth/JWKS admission, managed-Postgres migration bundle, migrations `0025`/`0026`, desktop-local residency, and live Source↔Thesis evidence. AP-060 sets TASK-006 `blocked` on an authorized real Source credential + configured/authorized Google OAuth. |
+| `c708017` / PR #37 through `f4cf6d6` / PR #42 | TASK-021 Task Manager implementation, two remediation rounds, external Corporate PR #104 certification, and canonical closure at `2325cc5`; migrations `0027`/`0028`. |
+| `a02b5fc` / `5122695` / PR #43 | TASK-022 governed tiered inference implementation; code landed, task blocked only on authorized live Anthropic cache-read proof. |
+| `6e33f05` / `b8e1db0` / PR #44; `ef2b32a` / `2e0cb73` / PR #45 | TASK-023 anonymous governed Parallel research implementation and canonical closure; candidate B superseded. |
+| `da26f46` / `5857cb9` / PR #46 | TASK-015 RT0–RT4 runtime taint closure; migration `0029`. |
+| `0b395b1` / `ba8ccc1` / PR #47 | TASK-016 database/migration correctness closure; migration `0030`; three clean 198-test DB runs at supported concurrency. |
+| `115fdfe` / `9e3c26c` / PR #49; `202fcbc` / `76ad7ab` / PR #50; `cb93c0c` / `163562a` / PR #51; `3685985` / `4d13073` / PR #52 | Free Render live deployment: clean static dependencies, public API/static hosts, forwarded Vite API/Auth inputs, Supabase through `0030`, restart/Auth/RLS/residency/375px certification. TASK-006 remains blocked only on its separate Google/Source-credential gate. |
 
 ## Historical source branches
 
@@ -126,6 +146,16 @@ This file prevents a new session from re-merging historical branches or reusing 
   `task-012-vocab3` checkpoint `58573ba` is historical. VOCAB3/VOCAB4 landed through PRs #28/#29;
   VOCAB5 landed through PR #30 from `63a7aaa`; VOCAB6 lands through PR #32 from `e657cc8`.
   Final compatibility deletion lands through PR #33; do not resume any TASK-012 source branch.
+- TASK-015 source: `manishsbhoopalam8498-complete-runtime-taint` at `da26f46`; PR #46 merge
+  `5857cb9`; merged and done, do not resume.
+- TASK-016 source: `manishsbhoopalam8498-fix-database-correctness` at `0b395b1`; PR #47 merge
+  `ba8ccc1`; merged and done, do not resume.
+- TASK-022 source: `manishsbhoopalam8498-implement-task-022` at `a02b5fc`; PR #43 merge
+  `5122695`; landed code is historical until the external cache-read gate is available.
+- TASK-023 candidate A source: `manishsbhoopalam8498-build-governed-web-research` at `6e33f05`;
+  PRs #44/#45 merged and closed it. Candidate B remains a superseded dirty audit snapshot.
+- TASK-006 Render source: `manishsbhoopalam8498-close-dealpilot-pilot`; PRs #49–#52 merged through
+  `4d13073`. Resume only for the named Google/Source-credential blocker.
 
 ## Migration sequence
 
@@ -142,7 +172,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-006 durability: no numbered migration.
 - TASK-011: no new migration required (LANDED, application-logic only).
 - TASK-024: no new migration required (LANDED, standalone public website only).
-- TASK-012 VOCAB0–VOCAB1: no new migration required (LANDED; TASK remains in progress).
+- TASK-012 VOCAB0–VOCAB1: no new migration required (LANDED; later slices closed TASK-012).
 - `0020_vocab2_automation_engine`: TASK-012 VOCAB2, LANDED through PR #27.
 - `0021_vocab3_organization_module_record`: TASK-012 partial VOCAB3 checkpoint `58573ba`, LANDED
   as an incomplete checkpoint.
@@ -151,8 +181,12 @@ This file prevents a new session from re-merging historical branches or reusing 
 - `0024_task012_compatibility_deletion`: TASK-012 final stored-Result backfill and compatibility closure, PR #33.
 - `0025_task006_supabase_root_catalogs`: revoke client roles and restore server-only bootstrap catalogs after Supabase automatic RLS.
 - `0026_task006_supabase_auto_rls_alignment`: revoke/disable the remaining policyless auto-RLS tables; every RLS-enabled table now has a policy.
+- `0027_task021_task_manager`: recursive Task Manager storage and governed execution state.
+- `0028_task021_recertification`: durable Task Manager effects and external-certification corrections.
+- `0029_task015_runtime_taint`: canonical runtime labels, backfill, sink trace, and declassification audit.
+- `0030_task016_schema_alignment`: canonical Event Organization/time index exposed by metadata reconciliation.
 
-Next new migration allocates `0027`; do not reuse `0016` through `0026`.
+Next new migration allocates `0031`; do not reuse `0016` through `0030`.
 
 ## Approval and ADR coordination
 
@@ -165,6 +199,9 @@ Next new migration allocates `0027`; do not reuse `0016` through `0026`.
 - AP-037: Graph scope/Second Brain convergence.
 - AP-038: TASK-022.
 - AP-067: TASK-022 recovered implementation milestone, external live-cache blocker, and landing.
+- AP-068/AP-069 and ADR-141: TASK-023 implementation, rights boundary, and closure.
+- AP-070 and ADR-142: TASK-015 runtime-taint implementation and closure.
+- AP-071 and ADR-143: TASK-016 database/migration correctness and closure.
 - AP-039: TASK-023.
 - AP-042: TASK-008 central-review hardening.
 - AP-043: validated TASK-008 continuation integration.
@@ -185,8 +222,8 @@ Next new migration allocates `0027`; do not reuse `0016` through `0026`.
 Resolved branch-local collision:
 
 - TASK-022 moved from paused branch-local ADR-113 to current next-free ADR-140.
-- TASK-023 candidate A still claims branch-local ADR-113. If selected, compare against current
-  main before integration and update all companion references atomically if the number is no longer free.
+- TASK-023 candidate A was selected and its branch-local ADR-113 was reconciled to ADR-141 before
+  integration; no unresolved decision-number collision remains.
 
 ## Central merge protocol
 

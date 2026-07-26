@@ -14,11 +14,18 @@
  */
 import type { Action, ResourceType } from "./types.js";
 
-/** Governance resources an agent may never mutate (self-modification escape). */
+/** Governance resources an agent may never mutate (self-modification escape).
+ * `capability` and `organization_definition` join this set for the same reason
+ * `skill` is here: `capability.approve` and `organization.blueprint.activate`
+ * used to propose `action:"approve"` on the interim `"skill"` token (which the
+ * floor already protected) before each got its own dedicated ResourceType —
+ * moving them to dedicated tokens must not lose that protection. */
 export const AGENT_FLOOR_PROTECTED_RESOURCES: ReadonlySet<ResourceType> = new Set<ResourceType>([
   "policy",
   "policy_param",
   "skill",
+  "capability",
+  "organization_definition",
   "agent",
   "role",
   "permission",

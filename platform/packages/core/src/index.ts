@@ -132,8 +132,12 @@ export {
   type BuilderPrimitiveRequest,
   type BuilderPrimitiveResult,
 } from "./capability/builder-primitives.js";
+// InProcessJsSandboxProvider deliberately NOT re-exported here — it dynamically
+// imports Node's `node:vm` builtin, and this barrel is imported broadly by
+// browser-facing code (@bridge/web). It lives at "@bridge/core/server"
+// (src/server.ts) for Node-only consumers instead (TASK-017 D3). Everything
+// else on the port (browser-safe: no Node builtin import) stays here.
 export {
-  InProcessJsSandboxProvider,
   NotImplementedContainerSandboxProvider,
   UnsupportedSandboxRequestError,
   type SandboxIsolationTier,
@@ -378,10 +382,10 @@ export {
 } from "./run-context.js";
 
 // Onboarding profile store (ADR-033/R-029/R-030) — narrow, onboarding-scoped
-// personalization store. NOT the general Memory/Knowledge kernel primitive
-// (still absent); see onboarding-profile.ts's header comment.
+// personalization stored as private Local Plane Memory when durability exists.
 export {
   InMemoryOnboardingProfileStore,
+  MemoryBackedOnboardingProfileStore,
   profileFromRow,
   buildChiefOfStaffPersona,
   type OnboardingProfileRow,

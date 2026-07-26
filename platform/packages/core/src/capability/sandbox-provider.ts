@@ -6,18 +6,28 @@
  * code:exec = container/microVM via SandboxProvider port, E2B adapter for
  * cloud; NEVER isolated-vm for shell, never raw host."
  *
- * This module holds the port + ONE concrete adapter (`InProcessJsSandboxProvider`,
- * isolation tier "in-process-js", Node's built-in `vm` module — no new
- * dependency, no isolated-vm). It deliberately does NOT ship a container/E2B
- * adapter: `NotImplementedContainerSandboxProvider` stubs that interface with a
- * clear throw, so a caller wiring `shell:execute` in dev/test sees an explicit
- * "not implemented" failure rather than silently falling through to the JS
- * sandbox. The type-level guard against that fallthrough lives in
- * `InProcessJsSandboxProvider.run()`'s signature: it only accepts
- * `SandboxRunRequest & { kind: "js-eval" }`, so a `shell:execute`-shaped request
- * (`kind: "shell"`) is not assignable to its parameter type at all — this is
- * checked by `sandbox-provider.test.ts` (a runtime assertion mirrors the
- * compile-time guard for callers that build the request dynamically/untyped).
+ * This module holds the port + the stub container adapter
+ * (`NotImplementedContainerSandboxProvider`) — both browser-safe, no Node
+ * builtin import. It deliberately does NOT ship a container/E2B adapter:
+ * `NotImplementedContainerSandboxProvider` stubs that interface with a clear
+ * throw, so a caller wiring `shell:execute` in dev/test sees an explicit "not
+ * implemented" failure rather than silently falling through to the JS
+ * sandbox.
+ *
+ * The ONE concrete in-process adapter, `InProcessJsSandboxProvider`, lives in
+ * `../server.ts` instead (TASK-017 D3): it dynamically `import("node:vm")`s at
+ * runtime, and this file is imported by `builder-primitives.ts` (in turn
+ * re-exported from the main "@bridge/core" barrel that browser-facing code
+ * imports broadly), so the Node-dependent class must not be defined here —
+ * even an unused re-export of it from this file would put `node:vm` back in
+ * the browser bundle's import graph. The type-level guard against the
+ * shell-request fallthrough ADR-027 warns about lives on
+ * `InProcessJsSandboxProvider.run()`'s signature over there: it only accepts
+ * `SandboxRunRequest & { kind: "js-eval" }`, so a `shell:execute`-shaped
+ * request (`kind: "shell"`) is not assignable to its parameter type at all —
+ * this is checked by `sandbox-provider.test.ts` (a runtime assertion mirrors
+ * the compile-time guard for callers that build the request
+ * dynamically/untyped).
  */
 
 /** How isolated a `SandboxProvider` implementation actually is — an
@@ -103,92 +113,6 @@ export class UnsupportedSandboxRequestError extends Error {
         `shell:execute/code:exec requires isolationTier "container" or "microvm" (ADR-027).`,
     );
     this.name = "UnsupportedSandboxRequestError";
-  }
-}
-
-/**
- * The ONLY concrete adapter shipped in this module. Isolation tier
- * "in-process-js" — narrow, no-network, no-filesystem JS EXPRESSION evaluation
- * only, using Node's built-in `vm` module with a frozen/limited context. No new
- * npm dependency (no isolated-vm). This is explicitly NOT a security boundary
- * against a hostile actor (same process, same heap) — it exists only to satisfy
- * narrow "evaluate this JS transform" capability calls (e.g. a formula/template
- * expression), never `shell:execute`.
- *
- * Type-level guard against the shell fallthrough ADR-027 warns about: `run()`
- * only accepts `SandboxRunRequest & { kind: "js-eval" }`, which is narrower
- * than the `SandboxProvider` interface's `run(request: SandboxRunRequest)`.
- * TypeScript's method-parameter bivariance means this class is still
- * STRUCTURALLY assignable to `SandboxProvider` (the whole point — callers hold
- * it via the port), but any caller that narrows to this CONCRETE class first
- * and passes a `{ kind: "shell", ... }` literal gets a compile error, and any
- * caller going through the wider `SandboxProvider` interface gets the runtime
- * `UnsupportedSandboxRequestError` thrown below instead of silent shell
- * execution. Both paths are exercised in sandbox-provider.test.ts.
- */
-export class InProcessJsSandboxProvider implements SandboxProvider {
-  readonly isolationTier = "in-process-js" as const;
-
-  async run(request: SandboxRunRequest & { kind: "js-eval" }): Promise<SandboxRunResult> {
-    const start = Date.now();
-
-    // Runtime guard mirrors the type-level one: if a caller went through the
-    // wider `SandboxProvider` interface (erasing the narrowed parameter type)
-    // and handed us a "shell" request, refuse loudly rather than attempt it.
-    if ((request as SandboxRunRequest).kind !== "js-eval") {
-      throw new UnsupportedSandboxRequestError(this.isolationTier, (request as SandboxRunRequest).kind);
-    }
-
-    const vm = await import("node:vm");
-
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    let exitCode: number | null = 0;
-
-    // Frozen/limited context: no `require`, no `process`, no `globalThis`
-    // reach-through, no filesystem/network handles. `console` is shimmed to
-    // capture output rather than writing to the host's real stdout/stderr.
-    const sandboxConsole = {
-      log: (...args: unknown[]) => {
-        stdout += args.map(String).join(" ") + "\n";
-      },
-      error: (...args: unknown[]) => {
-        stderr += args.map(String).join(" ") + "\n";
-      },
-    };
-    const context = vm.createContext(
-      Object.freeze({ console: Object.freeze(sandboxConsole) }),
-      { name: "bridge-in-process-js-sandbox", codeGeneration: { strings: false, wasm: false } },
-    );
-
-    try {
-      const script = new vm.Script(request.code, { filename: "bridge-sandbox-eval.js" });
-      const result = script.runInContext(context, { timeout: request.timeoutMs });
-      if (result !== undefined) stdout += String(result) + "\n";
-    } catch (err) {
-      exitCode = 1;
-      // `vm.Script.runInContext`'s timeout error is NOT a same-realm `Error`
-      // instance (`err instanceof Error` is false for it, even though it has
-      // a `.message`/`.name`) -- duck-type on `.message` (falling back to
-      // `String(err)`) rather than gating on `instanceof Error`, which would
-      // silently miss every timeout and mis-set `timedOut`.
-      const message = typeof (err as { message?: unknown } | null)?.message === "string"
-        ? (err as { message: string }).message
-        : String(err);
-      if (/Script execution timed out/i.test(message)) {
-        timedOut = true;
-      }
-      stderr += message + "\n";
-    }
-
-    return {
-      stdout,
-      stderr,
-      exitCode: timedOut ? null : exitCode,
-      durationMs: Date.now() - start,
-      timedOut,
-    };
   }
 }
 

@@ -63,6 +63,11 @@ test("onboarding trust ceremony is bounded, visible, inspectable, and stoppable"
   assert.match(source, /trpc\.onboarding\.recordTrustCapture\.mutate/);
   assert.match(source, /dispatchCaptureEvent\(\{ kind: "apps", memoryId: memory\.id \}\)/);
   assert.match(source, /desktopInvoke<void>\("sensor_stop", \{ sensorId: "apps" \}\)/);
+  assert.match(
+    source,
+    /<DialogContent className="max-h-\[calc\(100dvh-2rem\)\] overflow-y-auto overscroll-contain sm:max-w-md">/,
+    "the trust ceremony must scroll inside the viewport so its required Continue action remains reachable",
+  );
 });
 
 test("learning controls expose re-entry, correction, deletion, and all schedule decisions", async () => {
@@ -134,6 +139,8 @@ test("Avatar preference reads accept only the canonical v2 shape", async () => {
     assert.equal(avatarStore.hasStoredPrefs(), false);
     assert.equal(avatarStore.loadAvatarPrefs(false).avatarReady, false);
     assert.equal(avatarStore.loadAvatarPrefs(true).avatarReady, true);
+    assert.equal(avatarStore.isAvatarStyle("lion"), true);
+    assert.equal(avatarStore.isAvatarStyle("unsupported"), false);
 
     const canonicalRows = new Map();
     globalThis.window = {

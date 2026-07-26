@@ -13,6 +13,7 @@
     "dev": "turbo run dev",
     "lint": "eslint .",
     "check:vocabulary": "node --test scripts/check-retired-vocabulary.test.mjs && node scripts/check-retired-vocabulary.mjs",
+    "check:agent-context": "node --test scripts/check-agent-context-budget.test.mjs scripts/task-doc-parser.test.mjs && node scripts/check-agent-context-budget.mjs",
     "check:no-dummy-runtime": "sh -c 'set -e; MATCHES=$(grep -RIn \"dummy_\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.jsx\" --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.turbo --exclude-dir=test --exclude-dir=fixtures --exclude-dir=seed --exclude=\"*.test.ts\" --exclude=\"*.spec.ts\" --exclude=\"dummy-prefix.js\" --exclude=\"eslint.config.js\" . || true); if [ -n \"$MATCHES\" ]; then echo \"$MATCHES\"; echo; echo \"check:no-dummy-runtime: found dummy_ in runtime code (see above). Runtime product code must carry zero dummy/demo data — see CLAUDE.md real-data-only policy. Any unavoidable runtime or test fixture must be tracked in docs/dummy.md.\"; exit 1; else echo \"check:no-dummy-runtime: OK — no dummy_ found outside test/fixture dirs.\"; fi'"
   },
   "devDependencies": {

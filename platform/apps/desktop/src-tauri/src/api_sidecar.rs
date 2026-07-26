@@ -1,20 +1,21 @@
 //! api_sidecar — the managed @bridge/api child process (R-001 offline desktop).
 //!
 //! The desktop shell is self-contained offline by spawning the Fastify API
-//! build (`apps/api/dist/src/server.js`) as a child Node process on a
+//! build as a child Node process on a
 //! parent-reserved loopback listener, health-checking `/health`, and injecting
 //! the resolved URL into both webviews as `window.__BRIDGE_API_URL__` (an
 //! initialization script, so it exists before the tRPC client module evaluates).
 //!
-//! Decisions (ADR-024 in docs/raw/decisions-log.md):
-//!  - `std::process::Command` child, NOT a Tauri "sidecar" externalBin: the
-//!    API is a Node build, bundling a Node runtime per-arch is out of scope
-//!    while `bundle.active` is false. System `node` (override: BRIDGE_NODE_BIN).
+//! Decisions (ADR-024 and ADR-144 in docs/raw/decisions-log.md):
+//!  - `std::process::Command` owns the child lifecycle. Release bundles carry
+//!    the portable API tree as a resource and the target Node runtime as a
+//!    signed Tauri external binary. System Node is a debug-only convenience;
+//!    BRIDGE_NODE_BIN remains an explicit power-user/test override.
 //!  - Rust binds 127.0.0.1:0, retains that listener for the webview lifetime,
 //!    and passes the same descriptor to Node. The child reports the inherited
 //!    port over stdout; a crashed child therefore cannot hand it to an attacker.
-//!  - Debug builds (`tauri dev`) NEVER spawn the sidecar — dev keeps external
-//!    servers (Vite 5173 + API 4000) exactly as before.
+//!  - Debug and release use the same managed sidecar identity boundary. Only
+//!    the frontend host changes in debug.
 //!
 //! The Local Plane is always file-backed under Tauri's app-data directory.
 //! Cloud/control-plane persistence remains independently configured through
@@ -22,7 +23,7 @@
 
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
@@ -41,10 +42,8 @@ pub struct SpawnedApi {
 
 /// Resolve the built API entrypoint. Order:
 ///  1. BRIDGE_API_SERVER_JS env override (power users / tests)
-///  2. Tauri resource dir (`<resources>/api/server.js`) — where a future
-///     bundling pass will place the API build
-///  3. Monorepo-relative path from this crate (running the release binary
-///     out of the repo without bundling)
+///  2. Tauri resource dir (`<resources>/api/dist/src/server.js`)
+///  3. Monorepo-relative path in debug builds only
 pub fn resolve_api_entry(resource_dir: Option<PathBuf>) -> Option<PathBuf> {
     if let Ok(p) = std::env::var("BRIDGE_API_SERVER_JS") {
         let p = PathBuf::from(p);
@@ -53,18 +52,78 @@ pub fn resolve_api_entry(resource_dir: Option<PathBuf>) -> Option<PathBuf> {
         }
     }
     if let Some(dir) = resource_dir {
-        let p = dir.join("api").join("server.js");
+        let p = dir.join("api").join("dist/src/server.js");
         if p.is_file() {
             return Some(p);
         }
     }
-    // apps/desktop/src-tauri → apps/api/dist/src/server.js
-    let repo_relative =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../api/dist/src/server.js");
-    if repo_relative.is_file() {
-        return Some(repo_relative);
+    if cfg!(debug_assertions) {
+        // apps/desktop/src-tauri → apps/api/dist/src/server.js
+        let repo_relative =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../api/dist/src/server.js");
+        if repo_relative.is_file() {
+            return Some(repo_relative);
+        }
     }
     None
+}
+
+fn packaged_node_at(desktop_executable: &Path) -> Option<PathBuf> {
+    let binary_name = if cfg!(windows) {
+        "bridge-node.exe"
+    } else {
+        "bridge-node"
+    };
+    desktop_executable
+        .parent()
+        .map(|parent| parent.join(binary_name))
+}
+
+#[cfg(target_os = "macos")]
+fn packaged_keyring_at(desktop_executable: &Path) -> Option<PathBuf> {
+    desktop_executable
+        .parent()?
+        .parent()
+        .map(|contents| contents.join("Frameworks/bridge-keyring.dylib"))
+}
+
+/// Resolve the Node runtime. Release builds accept only an explicit override
+/// or the Tauri-packaged external binary beside the desktop executable.
+fn resolve_node_binary() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("BRIDGE_NODE_BIN") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    if cfg!(debug_assertions) {
+        return Some(PathBuf::from("node"));
+    }
+    let packaged = packaged_node_at(&std::env::current_exe().ok()?)?;
+    packaged.is_file().then_some(packaged)
+}
+
+fn resolve_native_keyring() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        if cfg!(debug_assertions) {
+            return None;
+        }
+        let packaged = packaged_keyring_at(&std::env::current_exe().ok()?)?;
+        packaged.is_file().then_some(packaged)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+pub fn dev_web_port() -> u16 {
+    std::env::var("BRIDGE_WEB_DEV_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|port| *port > 0)
+        .unwrap_or(5173)
 }
 
 fn generate_sidecar_token() -> std::io::Result<String> {
@@ -74,13 +133,20 @@ fn generate_sidecar_token() -> std::io::Result<String> {
 }
 
 fn api_command(
+    node: &std::path::Path,
     entry: &PathBuf,
     local_dir: &PathBuf,
     token: &str,
+    native_keyring: Option<&Path>,
     inherited_listener: Option<&TcpListener>,
 ) -> Command {
-    let node = std::env::var("BRIDGE_NODE_BIN").unwrap_or_else(|_| "node".to_string());
     let mut command = Command::new(node);
+    let mut allowed_origins =
+        "tauri://localhost,http://tauri.localhost,https://tauri.localhost".to_string();
+    if cfg!(debug_assertions) {
+        let port = dev_web_port();
+        allowed_origins.push_str(&format!(",http://localhost:{port},http://127.0.0.1:{port}"));
+    }
     command
         .arg(entry)
         .env_remove("NODE_ENV")
@@ -93,14 +159,15 @@ fn api_command(
         .env("BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "os-keyring")
         .env("BRIDGE_SIDECAR_TOKEN", token)
         .env("BRIDGE_OAUTH_DESKTOP", "1")
-        .env(
-            "API_ALLOWED_ORIGINS",
-            "tauri://localhost,http://tauri.localhost,https://tauri.localhost",
-        )
+        .env("API_ALLOWED_ORIGINS", allowed_origins)
         .env("BRIDGE_PARENT_PID", std::process::id().to_string())
         .env("BRIDGE_PARENT_LIVENESS", "stdin")
+        .env_remove("NAPI_RS_NATIVE_LIBRARY_PATH")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped());
+    if let Some(native_keyring) = native_keyring {
+        command.env("BRIDGE_KEYRING_NATIVE_LIBRARY", native_keyring);
+    }
     #[cfg(unix)]
     if let Some(listener) = inherited_listener {
         use std::os::fd::AsRawFd as _;
@@ -145,12 +212,22 @@ fn reserve_sidecar_listener() -> std::io::Result<TcpListener> {
 
 /// Spawn `node server.js` with a durable Local Plane directory.
 pub fn spawn_api(
+    node: &std::path::Path,
     entry: &PathBuf,
     local_dir: &PathBuf,
     token: &str,
+    native_keyring: Option<&Path>,
     inherited_listener: Option<&TcpListener>,
 ) -> std::io::Result<Child> {
-    api_command(entry, local_dir, token, inherited_listener).spawn()
+    api_command(
+        node,
+        entry,
+        local_dir,
+        token,
+        native_keyring,
+        inherited_listener,
+    )
+    .spawn()
 }
 
 const LISTENING_PREFIX: &str = "bridge-api listening at http://127.0.0.1:";
@@ -286,10 +363,28 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
     let Some(entry) = resolve_api_entry(resource_dir) else {
         eprintln!(
             "[bridge-desktop] api sidecar: no API build found \
-             (set BRIDGE_API_SERVER_JS or build apps/api). Running shell without embedded API."
+             (set BRIDGE_API_SERVER_JS in debug, or rebuild the desktop bundle). \
+             Running shell without embedded API."
         );
         return None;
     };
+    let Some(node) = resolve_node_binary() else {
+        eprintln!(
+            "[bridge-desktop] api sidecar: no Node runtime found \
+             (set BRIDGE_NODE_BIN in debug, or rebuild the desktop bundle). \
+             Running shell without embedded API."
+        );
+        return None;
+    };
+    let native_keyring = resolve_native_keyring();
+    #[cfg(all(target_os = "macos", not(debug_assertions)))]
+    if native_keyring.is_none() {
+        eprintln!(
+            "[bridge-desktop] api sidecar: the signed macOS keyring framework is missing. \
+             Refusing a release API that cannot load the credential vault."
+        );
+        return None;
+    }
     if let Err(err) = std::fs::create_dir_all(&local_dir) {
         eprintln!(
             "[bridge-desktop] api sidecar: could not create Local Plane directory \
@@ -326,13 +421,17 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
             return None;
         }
     };
-    let mut child = match spawn_api(&entry, &local_dir, &token, Some(&listener_reservation)) {
+    let mut child = match spawn_api(
+        &node,
+        &entry,
+        &local_dir,
+        &token,
+        native_keyring.as_deref(),
+        Some(&listener_reservation),
+    ) {
         Ok(c) => c,
         Err(err) => {
-            eprintln!(
-                "[bridge-desktop] api sidecar: failed to spawn node on {entry:?}: {err} \
-                 (is Node installed? override with BRIDGE_NODE_BIN)"
-            );
+            eprintln!("[bridge-desktop] api sidecar: failed to spawn {node:?} on {entry:?}: {err}");
             return None;
         }
     };
@@ -522,9 +621,10 @@ mod tests {
 
     #[test]
     fn sidecar_command_sets_durable_local_plane_directory() {
+        let node = PathBuf::from("node");
         let entry = PathBuf::from("server.js");
         let local_dir = PathBuf::from("/test/bridge/local-plane");
-        let command = api_command(&entry, &local_dir, "test-sidecar-token", None);
+        let command = api_command(&node, &entry, &local_dir, "test-sidecar-token", None, None);
         let envs = command
             .get_envs()
             .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
@@ -570,10 +670,13 @@ mod tests {
         assert_eq!(
             envs.get(OsStr::new("API_ALLOWED_ORIGINS"))
                 .and_then(|value| value.as_deref()),
-            Some(OsStr::new(
+            Some(OsStr::new(if cfg!(debug_assertions) {
+                "tauri://localhost,http://tauri.localhost,https://tauri.localhost,http://localhost:5173,http://127.0.0.1:5173"
+            } else {
                 "tauri://localhost,http://tauri.localhost,https://tauri.localhost"
-            ))
+            }))
         );
+        assert_eq!(command.get_program(), OsStr::new("node"));
         assert_eq!(
             envs.get(OsStr::new("BRIDGE_PARENT_PID"))
                 .and_then(|value| value.as_deref()),
@@ -591,10 +694,18 @@ mod tests {
     fn sidecar_command_inherits_the_retained_loopback_listener() {
         use std::os::fd::AsRawFd as _;
 
+        let node = PathBuf::from("node");
         let entry = PathBuf::from("server.js");
         let local_dir = PathBuf::from("/test/bridge/local-plane");
         let listener = reserve_sidecar_listener().expect("loopback listener should bind");
-        let command = api_command(&entry, &local_dir, "test-sidecar-token", Some(&listener));
+        let command = api_command(
+            &node,
+            &entry,
+            &local_dir,
+            "test-sidecar-token",
+            None,
+            Some(&listener),
+        );
         let envs = command
             .get_envs()
             .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
@@ -604,6 +715,62 @@ mod tests {
             envs.get(OsStr::new("BRIDGE_LISTEN_FD"))
                 .and_then(|value| value.as_deref()),
             Some(OsStr::new(&listener.as_raw_fd().to_string()))
+        );
+    }
+
+    #[test]
+    fn packaged_node_is_resolved_beside_the_desktop_executable() {
+        let executable = PathBuf::from("/Applications/Bridge.app/Contents/MacOS/bridge");
+        assert_eq!(
+            packaged_node_at(&executable),
+            Some(executable.parent().unwrap().join(if cfg!(windows) {
+                "bridge-node.exe"
+            } else {
+                "bridge-node"
+            }))
+        );
+    }
+
+    #[test]
+    fn sidecar_command_uses_the_reviewed_signed_keyring_loader() {
+        let native_keyring =
+            PathBuf::from("/Applications/Bridge.app/Contents/Frameworks/bridge-keyring.dylib");
+        let command = api_command(
+            Path::new("node"),
+            &PathBuf::from("server.js"),
+            &PathBuf::from("/test/bridge/local-plane"),
+            "test-sidecar-token",
+            Some(&native_keyring),
+            None,
+        );
+        let envs = command
+            .get_envs()
+            .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert!(
+            matches!(
+                envs.get(OsStr::new("NAPI_RS_NATIVE_LIBRARY_PATH")),
+                Some(None)
+            ),
+            "the broken @napi-rs environment override must stay removed"
+        );
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_KEYRING_NATIVE_LIBRARY"))
+                .and_then(|value| value.as_deref()),
+            Some(native_keyring.as_os_str())
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn packaged_keyring_is_resolved_from_the_signed_frameworks_directory() {
+        let executable = PathBuf::from("/Applications/Bridge.app/Contents/MacOS/bridge-desktop");
+        assert_eq!(
+            packaged_keyring_at(&executable),
+            Some(PathBuf::from(
+                "/Applications/Bridge.app/Contents/Frameworks/bridge-keyring.dylib"
+            ))
         );
     }
 

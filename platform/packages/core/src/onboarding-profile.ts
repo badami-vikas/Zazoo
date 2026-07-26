@@ -1,14 +1,14 @@
 /**
  * Onboarding profile store (ADR-033/R-029 open question: "where is
  * onboarding-personalization data stored and how are prompts built from
- * it?"). Scoped narrowly to onboarding personalization — NOT the general
- * Memory/Knowledge kernel primitive (vector store, embeddings, retrieval)
- * that's still genuinely absent; that's a separate, larger build.
+ * it?"). Scoped narrowly to onboarding personalization.
  *
  * Avatar style is retained for cross-surface visual consistency only. It never
  * contributes to an Agent persona, tone, authority, or behavior.
  */
 import type { RunPersona } from "./run-context.js";
+import { uuidv7 } from "./determinism.js";
+import type { MemoryEntry, MemoryStore, MemoryWrite } from "./memory/memory-store.js";
 
 export interface OnboardingProfileRow {
   organizationId: string;
@@ -35,6 +35,145 @@ export class InMemoryOnboardingProfileStore implements OnboardingProfileStore {
 
   async save(row: OnboardingProfileRow): Promise<void> {
     this.rows.set(row.organizationId, row);
+  }
+}
+
+const ONBOARDING_PROFILE_MEMORY_SUBJECT = "7d5747ba-850a-4a90-992d-3bb27f6af481";
+const ONBOARDING_PROFILE_MEMORY_KIND = "onboarding_profile";
+
+interface StoredOnboardingProfile {
+  kind: typeof ONBOARDING_PROFILE_MEMORY_KIND;
+  version: 1;
+  profile: OnboardingProfileRow;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isOnboardingProfileRow(value: unknown): value is OnboardingProfileRow {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  const answers = row["answers"];
+  if (!answers || typeof answers !== "object" || Array.isArray(answers)) return false;
+  if (
+    !Object.values(answers).every(
+      (answer) => typeof answer === "string" || isStringArray(answer),
+    )
+  ) {
+    return false;
+  }
+  return (
+    typeof row["organizationId"] === "string" &&
+    typeof row["avatarStyle"] === "string" &&
+    typeof row["phoneVerified"] === "boolean" &&
+    (row["verificationMethod"] === null || typeof row["verificationMethod"] === "string") &&
+    isStringArray(row["connectedSourceIds"]) &&
+    typeof row["updatedAtISO"] === "string" &&
+    Number.isFinite(Date.parse(row["updatedAtISO"]))
+  );
+}
+
+function profileFromMemory(entry: MemoryEntry, organizationId: string): OnboardingProfileRow {
+  let value: unknown;
+  try {
+    value = JSON.parse(entry.content);
+  } catch (cause) {
+    throw new Error("Stored onboarding profile Memory is not valid JSON", { cause });
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Stored onboarding profile Memory has an invalid envelope");
+  }
+  const envelope = value as Record<string, unknown>;
+  if (
+    envelope["kind"] !== ONBOARDING_PROFILE_MEMORY_KIND ||
+    envelope["version"] !== 1 ||
+    !isOnboardingProfileRow(envelope["profile"])
+  ) {
+    throw new Error("Stored onboarding profile Memory has an unsupported contract");
+  }
+  if (envelope["profile"].organizationId !== organizationId) {
+    throw new Error("Stored onboarding profile Memory belongs to another Organization");
+  }
+  return envelope["profile"];
+}
+
+/**
+ * Local Plane binding for onboarding preferences. The profile is a private,
+ * user-owned Memory and updates append through the Memory correction lineage.
+ */
+export class MemoryBackedOnboardingProfileStore implements OnboardingProfileStore {
+  readonly #memoryStore: MemoryStore;
+  readonly #ownerUserId: string;
+  #writeLock: Promise<void> = Promise.resolve();
+
+  constructor(memoryStore: MemoryStore, ownerUserId: string) {
+    this.#memoryStore = memoryStore;
+    this.#ownerUserId = ownerUserId;
+  }
+
+  async #current(organizationId: string): Promise<MemoryEntry | null> {
+    const rows = await this.#memoryStore.retrieve(
+      {
+        type: "preference",
+        subjectRecordId: ONBOARDING_PROFILE_MEMORY_SUBJECT,
+        limit: 2,
+      },
+      { organizationId, userId: this.#ownerUserId },
+    );
+    if (rows.length > 1) {
+      throw new Error("Multiple current onboarding profile Memories exist");
+    }
+    return rows[0] ?? null;
+  }
+
+  #write(row: OnboardingProfileRow): MemoryWrite {
+    const content: StoredOnboardingProfile = {
+      kind: ONBOARDING_PROFILE_MEMORY_KIND,
+      version: 1,
+      profile: row,
+    };
+    return {
+      id: uuidv7(),
+      organizationId: row.organizationId,
+      type: "preference",
+      subjectRecordId: ONBOARDING_PROFILE_MEMORY_SUBJECT,
+      scope: "private",
+      content: JSON.stringify(content),
+      confidence: 1,
+      trustOrigin: "operator",
+      plane: "local",
+      createdBy: "onboarding",
+      ownerUserId: this.#ownerUserId,
+    };
+  }
+
+  async get(organizationId: string): Promise<OnboardingProfileRow | null> {
+    const current = await this.#current(organizationId);
+    return current ? profileFromMemory(current, organizationId) : null;
+  }
+
+  async save(row: OnboardingProfileRow): Promise<void> {
+    const previousWrite = this.#writeLock;
+    let releaseWrite!: () => void;
+    this.#writeLock = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    await previousWrite;
+    try {
+      const current = await this.#current(row.organizationId);
+      const next = this.#write(row);
+      if (current) {
+        await this.#memoryStore.compareAndSupersede(current.id, next);
+        return;
+      }
+      const inserted = await this.#memoryStore.writeIfAbsent(next);
+      if (inserted.id !== next.id) {
+        await this.#memoryStore.compareAndSupersede(inserted.id, next);
+      }
+    } finally {
+      releaseWrite();
+    }
   }
 }
 

@@ -1,6 +1,37 @@
 {
-  "generatedAt": "2026-07-21T17:32:40.812Z",
+  "generatedAt": "2026-07-26T12:30:24.360Z",
   "items": [
+    {
+      "id": "TASK-025",
+      "title": "TASK-025 — Token-efficient agent workflow",
+      "status": "completed",
+      "priority": "P1",
+      "horizon": "Developer Experience",
+      "outcome": "Routine Copilot CLI and Claude Code work uses bounded context and bookkeeping while security, canon, schema, production, and other high-risk work retains full governance.",
+      "prototypeTest": "In fresh Copilot and Claude-compatible context runs, a read-only lookup writes no repo files or ledgers, a routine isolated change reads only the compact task projection plus directly relevant docs/code and runs targeted checks, and a governed scenario still triggers approvals/evidence/affected-neighbour rules; repository documentation/tool-output bytes fall at least 60% for the first two scenarios and comparable runtime totals fall at least 30% where exposed.",
+      "scope": [
+        "docs/raw/token-efficient-development-2026-07.md",
+        "CLAUDE.md",
+        ".claude/settings.json",
+        "platform/scripts/task-doc-parser.mjs",
+        "platform/scripts/check-agent-context-budget.mjs"
+      ],
+      "evidence": [
+        "2026-07-26 baseline measured CLAUDE.md at 10,972 bytes/1,343 words and tracked guidance at 11,732 bytes",
+        "this resumed session had 78,078,128 input tokens across 533 measured turns (~146k/turn). Main ignored and lacked the project settings that docs claimed had scoped off 111 skills. PR #17 was conflicting/stale",
+        "PR #48 proposed 406 files/67,807 additions and had failed checks."
+      ],
+      "requests": [
+        "user token-consumption diagnosis and approved tiered optimization plan 2026-07-26"
+      ],
+      "approval": "AP-076 and AP-077 applied",
+      "dependencies": [],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 56,
+      "rank": 1
+    },
     {
       "id": "TASK-001",
       "title": "TASK-001 — Coherent actionable shell prototype",
@@ -32,8 +63,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 56,
-      "rank": 1
+      "sourceLine": 70,
+      "rank": 2
     },
     {
       "id": "TASK-003",
@@ -65,8 +96,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 70,
-      "rank": 2
+      "sourceLine": 84,
+      "rank": 3
     },
     {
       "id": "TASK-004",
@@ -96,8 +127,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 83,
-      "rank": 3
+      "sourceLine": 97,
+      "rank": 4
     },
     {
       "id": "TASK-005",
@@ -129,8 +160,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 96,
-      "rank": 4
+      "sourceLine": 110,
+      "rank": 5
     },
     {
       "id": "TASK-013",
@@ -164,8 +195,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 111,
-      "rank": 5
+      "sourceLine": 125,
+      "rank": 6
     },
     {
       "id": "TASK-012",
@@ -207,8 +238,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 125,
-      "rank": 6
+      "sourceLine": 139,
+      "rank": 7
     },
     {
       "id": "TASK-010",
@@ -261,8 +292,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 142,
-      "rank": 7
+      "sourceLine": 156,
+      "rank": 8
     },
     {
       "id": "TASK-008",
@@ -302,8 +333,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 156,
-      "rank": 8
+      "sourceLine": 170,
+      "rank": 9
     },
     {
       "id": "TASK-007",
@@ -340,8 +371,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 169,
-      "rank": 9
+      "sourceLine": 183,
+      "rank": 10
     },
     {
       "id": "TASK-014",
@@ -376,8 +407,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 182,
-      "rank": 10
+      "sourceLine": 196,
+      "rank": 11
     },
     {
       "id": "TASK-021",
@@ -413,8 +444,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 196,
-      "rank": 11
+      "sourceLine": 210,
+      "rank": 12
     },
     {
       "id": "TASK-015",
@@ -434,7 +465,8 @@
         "unlabeled/malformed rows become `UNKNOWN_LABEL`",
         "immutable sink/declassification tables use forced Organization RLS. Server-owned Human/system/sensor/Google/web/MCP/signed-Commons edges derive labels",
         "model, Skill, pipeline, Automation, child Run, Result, Memory, cache/queue/retry, Event, File, and restart paths join/persist them. Approval UI shows untrusted/unknown warning plus source trace. Targeted proof: 175 core/DB checks (one taint-coupled Memory regression fixed), 81 local/model/net-guard/sensor checks, 19 Google checks, 17 web-research/Agent checks, 8 approval/declassification checks, 38 culture-research/restart checks, migration fresh+upgrade+replay+RLS, one genuine file-backed A→B restart, and 3 UI trace checks",
-        "affected builds/typechecks/lint/vocabulary/no-dummy pass. GitHub Actions remain payment-blocked",
+        "affected builds/typechecks/lint/vocabulary/no-dummy pass. Source `da26f465187230b09f758b6f3e88b52af050381e` landed through PR #46 at merge `5857cb95d98c53928103df801cfc4ff30a73e8e3`",
+        "source ancestry and `origin/main` were verified. GitHub Actions remain payment-blocked",
         "no CI success is claimed."
       ],
       "requests": [
@@ -448,13 +480,13 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 210,
-      "rank": 12
+      "sourceLine": 224,
+      "rank": 13
     },
     {
       "id": "TASK-016",
       "title": "TASK-016 — Database and migration correctness backlog",
-      "status": "pending",
+      "status": "completed",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "Known schema, migration, identity-upsert, UUID-validation, and concurrent-test defects are corrected with regression coverage.",
@@ -463,29 +495,29 @@
         "docs/BUGS.md detailed database evidence"
       ],
       "evidence": [
-        "BUGS location enum",
-        "BUGS partial dedup conflict",
-        "BUGS incomplete Drizzle metadata",
-        "BUGS pglite invalid UUID",
-        "BUGS concurrent DB flake",
+        "RESOLVED 2026-07-21 location field-kind drift, partial dedup conflict target, incomplete Drizzle metadata, PGlite malformed-UUID crash path, and concurrent DB flake",
+        "migration `0030_task016_schema_alignment` restores the canonical Event Organization/time index exposed by metadata reconciliation",
         "RESOLVED 2026-07-19 Supabase least-privilege runtime role and transaction-local Organization/user RLS context, migration `0022_supabase_runtime_role`, and focused recovery evidence in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)",
-        "AP-063 public-cloud RLS/provider certification is TASK-006 evidence only and does not close this backlog"
+        "exact close evidence in [TASK-016 database correctness](../outputs/2026-07-21-task016-database-correctness.md). Source `0b395b1e6fc624ede139d4cfc5c6b6e76f428ed2` landed through PR #47 at merge `ba8ccc1ecd89b92766829a189d82c4e9015300ad`",
+        "source, merge, and `origin/main` trees matched and ancestry was verified."
       ],
-      "requests": [],
-      "approval": "AP-054 applied for the Supabase runtime-role/RLS slice; none for the remaining backlog",
+      "requests": [
+        "explicit TASK-016 completion/landing directive 2026-07-21"
+      ],
+      "approval": "AP-054 applied for the Supabase runtime-role/RLS slice; AP-071 applied for complete prototype and canonical closure",
       "dependencies": [
         "TASK-012"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 224,
-      "rank": 13
+      "sourceLine": 238,
+      "rank": 14
     },
     {
       "id": "TASK-017",
       "title": "TASK-017 — Runtime and package correctness backlog",
-      "status": "pending",
+      "status": "completed",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "Package persistence/types, Helpdesk routing, browser bundling, styling, and remaining shell persistence defects are production-correct.",
@@ -504,19 +536,20 @@
         "BUGS 2026-07-16 baseline lint/typecheck failures",
         "BUGS 2026-07-15 sensor coverage floor",
         "BUGS 2026-07-19 paginated Relationship Views filter/sort only the loaded page",
+        "BUGS 2026-07-21 three stale Relationship API taint expectations",
         "RESOLVED 2026-07-19 API container build/readiness and exact hosted Supabase Auth admission, documented in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)",
         "AP-063 Render Blueprint/public-cloud boundary is a landed slice only and does not close the remaining prototype"
       ],
       "requests": [],
-      "approval": "AP-054 applied for the Supabase container/Auth slice; none for the remaining backlog",
+      "approval": "AP-054 applied for the Supabase container/Auth slice; AP-072 applied for the remaining backlog completion and closure",
       "dependencies": [
         "TASK-012"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 237,
-      "rank": 14
+      "sourceLine": 252,
+      "rank": 15
     },
     {
       "id": "TASK-006",
@@ -531,20 +564,23 @@
         "docs/raw/dealpilot-module-plan-2026-07.md DP0–DP1"
       ],
       "evidence": [
-        "user DealPilot corrections 2026-07-14–15"
+        "user DealPilot corrections 2026-07-14–15",
+        "[2026-07-24 hosted/Supabase diagnosis](../outputs/2026-07-24-hosted-supabase-desktop-diagnosis.md) records the OPEN user-reported reliability issue: the static shell is separate from a free sleeping API, deployed source remains manually pinned at `163562a` while `main` is `cbffa3ed`, and 2,573 provider-recorded readiness probes prove at least 10,292/25,179 cumulative `bridge_app` statements while the retained same-shaped reads consumed only about 32 ms total. Supabase is healthy and small, with no disk, Auth MAU, request, or connection exhaustion found. [Local remediation](../outputs/2026-07-24-hosted-desktop-reliability-remediation.md) adds a visible, remote-only, single-flight 90-second wake gate",
+        "replay-once queries separated from never-replayed mutations",
+        "and cheap Render liveness probes. The public issue stays OPEN until reviewed source is manually deployed and natural-cold/Auth/375px/statement evidence passes. Queue order/status and provider tier remain unchanged."
       ],
       "requests": [
         "DealPilot requirements 2026-07-14–15"
       ],
-      "approval": "AP-023, AP-029, AP-044, AP-045, AP-054, AP-060, and AP-063 applied",
+      "approval": "AP-023, AP-029, AP-044, AP-045, AP-054, AP-060, AP-063, AP-074, and AP-075 applied",
       "dependencies": [
         "TASK-001"
       ],
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 250,
-      "rank": 15
+      "sourceLine": 266,
+      "rank": 16
     },
     {
       "id": "TASK-011",
@@ -572,8 +608,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 265,
-      "rank": 16
+      "sourceLine": 282,
+      "rank": 17
     },
     {
       "id": "TASK-009",
@@ -607,8 +643,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 279,
-      "rank": 17
+      "sourceLine": 296,
+      "rank": 18
     },
     {
       "id": "TASK-002",
@@ -627,7 +663,9 @@
         "BUGS 2026-07-14 blueprint-centric onboarding (resolved 2026-07-16)",
         "BUGS onboarding re-entry (resolved 2026-07-16)",
         "BUGS Radix Dialog warning remains cosmetic and non-blocking",
-        "2026-07-16 API/Memory/persistent-authority regressions plus native Tauri and exact 375px prototype evidence in outputs/2026-07-16-task002-onboarding-learning.md"
+        "2026-07-16 API/Memory/persistent-authority regressions plus native Tauri and exact 375px prototype evidence in outputs/2026-07-16-task002-onboarding-learning.md",
+        "2026-07-24 desktop-height deadlock fixed with a viewport-bounded, internally scrollable onboarding dialog and rendered Continue-to-profession proof in outputs/2026-07-24-onboarding-dialog-deadlock.md",
+        "[2026-07-24 reliability remediation](../outputs/2026-07-24-hosted-desktop-reliability-remediation.md) completes the user's recorded governed Onboarding, persists the profile as private Local Plane Memory, and proves restart-stable `Manish's Organization`, active blueprint, Lion browser preference, and visible native overlay"
       ],
       "requests": [
         "R-028",
@@ -640,8 +678,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 293,
-      "rank": 18
+      "sourceLine": 310,
+      "rank": 19
     },
     {
       "id": "TASK-020",
@@ -671,8 +709,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 306,
-      "rank": 19
+      "sourceLine": 323,
+      "rank": 20
     },
     {
       "id": "TASK-018",
@@ -687,7 +725,15 @@
       ],
       "evidence": [
         "BUGS mobile app absent from accessible refs",
-        "AP-012 desktop CI-green follow-up"
+        "AP-012 desktop CI-green follow-up",
+        "[2026-07-24 desktop diagnosis](../outputs/2026-07-24-hosted-supabase-desktop-diagnosis.md) reproduced pre-VOCAB Local Plane rejection plus non-self-contained development/release startup. [Bounded remediation](../outputs/2026-07-24-hosted-desktop-reliability-remediation.md) accepts only the exact migratable UUID shape and proves retained-row upgrade/reopen",
+        "orchestrates development",
+        "bundles allowlisted API + target-native Node",
+        "rejects secrets/stale/wrong-target inputs",
+        "signs the macOS Keyring from Frameworks with Node entitlements",
+        "disables unsupported Windows installers while retaining compile checks",
+        "and launches a 349 MB portable `Bridge.app` from Finder-like PATH through restart-stable Local Plane Onboarding and visible Lion overlay. A 2026-07-25 review caught the signed Framework's broken `NAPI_RS_NATIVE_LIBRARY_PATH` load path before deployment",
+        "the generated architecture package now uses a reviewed `process.dlopen` bridge, and final-bundle verification proves packaged Node can import `@napi-rs/keyring` and construct `AsyncEntry` with no native addon left in Resources. TASK-018 remains `blocked`: real Developer ID/notarization, Windows secure listener inheritance/installers, the full physical OS matrix, and mobile are not complete. Queue order/status is unchanged."
       ],
       "requests": [
         "cross-platform roadmap work"
@@ -699,8 +745,8 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 319,
-      "rank": 20
+      "sourceLine": 336,
+      "rank": 21
     },
     {
       "id": "TASK-019",
@@ -726,8 +772,8 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 332,
-      "rank": 21
+      "sourceLine": 349,
+      "rank": 22
     },
     {
       "id": "TASK-022",
@@ -760,8 +806,8 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 345,
-      "rank": 22
+      "sourceLine": 362,
+      "rank": 23
     },
     {
       "id": "TASK-023",
@@ -791,8 +837,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 358,
-      "rank": 23
+      "sourceLine": 375,
+      "rank": 24
     },
     {
       "id": "TASK-024",
@@ -823,8 +869,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 371,
-      "rank": 24
+      "sourceLine": 388,
+      "rank": 25
     }
   ]
 }

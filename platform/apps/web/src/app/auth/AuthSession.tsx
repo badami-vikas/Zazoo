@@ -16,6 +16,7 @@ import {
   SUPABASE_CONFIGURED,
   supabase,
 } from "../lib/supabase";
+import { createSessionActivationCoordinator } from "./session-activation";
 
 type AuthStatus =
   | "local"
@@ -44,18 +45,32 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     SUPABASE_CONFIGURATION_ERROR,
   );
   const generation = useRef(0);
+  const activationCoordinatorRef = useRef<ReturnType<
+    typeof createSessionActivationCoordinator
+  > | null>(null);
+  if (!activationCoordinatorRef.current) {
+    activationCoordinatorRef.current = createSessionActivationCoordinator();
+  }
+  const activationCoordinator = activationCoordinatorRef.current;
 
   const applySession = useCallback(async (next: Session | null) => {
     const currentGeneration = ++generation.current;
     setSession(next);
     setError(null);
     if (!next) {
+      activationCoordinator.reset();
       setStatus("anonymous");
+      return;
+    }
+    if (activationCoordinator.isActivated(next.user.id)) {
+      setStatus("authenticated");
       return;
     }
     setStatus("activating");
     try {
-      await trpc.organization.activateSession.mutate();
+      await activationCoordinator.activate(next.user.id, () =>
+        trpc.organization.activateSession.mutate(),
+      );
       if (generation.current === currentGeneration) {
         setStatus("authenticated");
       }
@@ -69,7 +84,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         );
       }
     }
-  }, []);
+  }, [activationCoordinator]);
 
   useEffect(() => {
     if (!SUPABASE_CONFIGURED) return;
@@ -99,10 +114,11 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     const { error: signOutError } = await supabase.auth.signOut();
     if (signOutError) throw signOutError;
     generation.current += 1;
+    activationCoordinator.reset();
     setSession(null);
     setError(null);
     setStatus(SUPABASE_CONFIGURED ? "anonymous" : "local");
-  }, []);
+  }, [activationCoordinator]);
 
   const value = useMemo<AuthSessionValue>(
     () => ({

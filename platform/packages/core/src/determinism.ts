@@ -53,7 +53,6 @@ export class SystemClock implements Clock {
     return new Date(this.nowMs()).toISOString();
   }
   nowMs(): number {
-    // eslint-disable-next-line no-restricted-syntax -- boundary adapter only
     return Date.now();
   }
 }

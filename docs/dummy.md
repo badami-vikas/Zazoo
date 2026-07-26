@@ -58,6 +58,7 @@ its real data source exists, and an empty state would hide the thing being revie
 
 - **2026-07-19 — Supabase deployment-boundary fixtures** (`platform/packages/db/test/rls.test.ts`,
   `platform/apps/api/test/{server,security-hardening,wiring,residency-ledger}.test.ts`,
+  `platform/apps/web/test/auth-session.test.mjs`,
   `platform/modules/dealpilot/test/encrypted-file-credentials.test.ts`,
   `.github/workflows/ci.yml`).
   **Reason:** deterministic runtime-role isolation, JWT/pilot admission, production fail-closed,

@@ -2,12 +2,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  InProcessJsSandboxProvider,
   NotImplementedContainerSandboxProvider,
   UnsupportedSandboxRequestError,
   type SandboxProvider,
   type SandboxRunRequest,
 } from "../src/capability/sandbox-provider.js";
+// InProcessJsSandboxProvider lives at ../src/server.ts (TASK-017 D3) — the one
+// Node-dependent (node:vm) adapter, kept out of capability/sandbox-provider.ts
+// so that file (reachable from the browser-facing main barrel via
+// builder-primitives.ts) never pulls in a Node builtin.
+import { InProcessJsSandboxProvider } from "../src/server.js";
 
 function test_fixture_js_eval_request(overrides: Partial<Extract<SandboxRunRequest, { kind: "js-eval" }>> = {}) {
   return {

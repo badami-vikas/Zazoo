@@ -140,3 +140,78 @@ test("start/stop lifecycle + duplicate registration rejected", async () => {
   assert.equal(p.stopped, 1);
   await assert.rejects(() => hub.start("nope"), /unknown provider/);
 });
+
+test("registered providers form a listable, paginated capability inventory scoped by organization", async () => {
+  const { hub, capabilities } = makeHub();
+  await hub.register(new FakeContextProvider("apps-1", "apps"));
+  await hub.register(new FakeContextProvider("clip-1", "clipboard"));
+  await hub.register(new FakeContextProvider("mail-1", "emails"));
+
+  // A user inspecting installed sensors sees every registered provider, not
+  // just the one they registered last — the capability inventory is a real
+  // list, not a single-row lookup.
+  const page1 = await capabilities.listManifests(WS, { limit: 2, offset: 0 });
+  assert.equal(page1.total, 3);
+  assert.equal(page1.items.length, 2);
+  const page2 = await capabilities.listManifests(WS, { limit: 2, offset: 2 });
+  assert.equal(page2.items.length, 1);
+  assert.deepEqual(
+    new Set([...page1.items, ...page2.items].map((m) => m.id)),
+    new Set(["ctx-provider:apps-1", "ctx-provider:clip-1", "ctx-provider:mail-1"]),
+  );
+  // A differently-scoped organization sees none of these manifests.
+  assert.deepEqual(await capabilities.listManifests("ws-other", { limit: 10, offset: 0 }), {
+    items: [],
+    total: 0,
+  });
+
+  // The manifest is also addressable by its natural (organization, name,
+  // version) key — how a re-registration flow checks-before-inserting
+  // instead of colliding with the store's unique constraint.
+  const byNameVersion = await capabilities.getManifestByNameVersion(
+    WS,
+    "Context provider: emails (mail-1)",
+    "0.1.0",
+  );
+  assert.equal(byNameVersion?.id, "ctx-provider:mail-1");
+  assert.equal(
+    await capabilities.getManifestByNameVersion(WS, "no such provider", "0.1.0"),
+    null,
+  );
+});
+
+test("capability store rejects a duplicate manifest id (append-only invariant the hub's own registration guard relies on)", async () => {
+  const { hub, capabilities } = makeHub();
+  await hub.register(new FakeContextProvider("dup-1", "clipboard"));
+  const existing = await capabilities.getManifest("ctx-provider:dup-1");
+  assert.ok(existing);
+  await assert.rejects(
+    () => capabilities.createManifest({ ...existing, dependencies: [] }),
+    /duplicate id ctx-provider:dup-1/,
+  );
+});
+
+test("capture ledger is append-only: a duplicate entry id is rejected, not silently overwritten", async () => {
+  const { ledger } = makeHub();
+  const entry = {
+    id: "entry-1",
+    organizationId: WS,
+    type: "capture.clipboard",
+    content: "first capture",
+    occurredAt: "2026-07-06T00:00:00.000Z",
+    createdBy: "clip-1",
+    trustOrigin: "untrusted_external" as const,
+    refs: [],
+    payload: {},
+    redactions: [],
+  };
+  await ledger.record(entry);
+  await assert.rejects(
+    () => ledger.record({ ...entry, content: "a second write attempting to reuse the same id" }),
+    /duplicate id entry-1|append-only violation/,
+  );
+  // The original entry is untouched by the rejected attempt.
+  const stored = await ledger.list(WS);
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0]!.content, "first capture");
+});

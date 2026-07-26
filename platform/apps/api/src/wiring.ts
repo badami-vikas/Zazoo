@@ -44,6 +44,7 @@ import {
   InMemoryOrganizationDefinitionStore,
   InMemoryModuleStore,
   InMemoryOnboardingProfileStore,
+  MemoryBackedOnboardingProfileStore,
   type MemoryStore,
   type MemoryAuthScope,
   type MemoryEntry,
@@ -161,6 +162,7 @@ import {
   ensureEgressAgentGovernance,
   ensureIntakeAgentGovernance,
   ensureDealPilotPrincipalGovernance,
+  ensureCapabilityApprovalPrincipalGovernance,
   InMemoryCanonicalIdentityStore,
   ensureInternalStrategistGovernance,
   ensureGovernanceAgentGovernance,
@@ -3116,6 +3118,11 @@ function seedGovernance(
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "module", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "module", resourceId: null, action: "write", effect: "allow" },
+    // modules.install's governed propose() call moved off the interim
+    // "signal" token onto its own dedicated resourceType (D5/TASK-017) —
+    // carries the SAME write grant "signal" held so authority for the
+    // module-install proposal is unchanged.
+    { resourceType: "module_installation", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "relation", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "relation", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "record", resourceId: null, action: "read", effect: "allow" },
@@ -3123,6 +3130,19 @@ function seedGovernance(
     { resourceType: "record", resourceId: null, action: "archive", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
+    // docs/BUGS.md "capability.approve/organization.blueprint.activate mutate
+    // even when the governed decision is rejected" (2026-07-22) — both
+    // handlers propose an action:"approve" request through the SAME governed
+    // pipeline capability.approve/action.decide use, specifically so a human
+    // (never an agent — the agent-floor still blocks that unconditionally)
+    // resolves it. Before this grant, the pilot user had NO capability:approve
+    // or organization_definition:approve authority, so `resolveAuthority`
+    // denied every proposal (status "rejected") and the only reason those
+    // endpoints ever mutated was a since-fixed fall-through bug that ignored
+    // the rejection. This is the intended human approver's real authority —
+    // it must NEVER be granted to an Agent.
+    { resourceType: "capability", resourceId: null, action: "approve", effect: "allow" },
+    { resourceType: "organization_definition", resourceId: null, action: "approve", effect: "allow" },
   ]);
 }
 
@@ -3202,6 +3222,15 @@ export interface ModePorts {
   ensureEgressGovernance?: () => Promise<void>;
   ensureIntakeGovernance?: () => Promise<void>;
   ensureDealPilotPrincipalGovernance?: () => Promise<void>;
+  /**
+   * docs/BUGS.md "capability.approve/organization.blueprint.activate mutate
+   * even when the governed decision is rejected" (2026-07-22 RESOLVED) —
+   * persistent-mode-only counterpart to `seedGovernance`'s in-memory pilot
+   * `capability:approve`/`organization_definition:approve` grants, mirroring
+   * `ensureDealPilotPrincipalGovernance`'s shape exactly. In-memory mode
+   * needs no hook here — `seedGovernance` seeds the equivalent directly.
+   */
+  ensureCapabilityApprovalGovernance?: () => Promise<void>;
 }
 
 /**
@@ -3300,6 +3329,11 @@ export function buildPersistentPorts(env: {
       }),
     ensureDealPilotPrincipalGovernance: () =>
       ensureDealPilotPrincipalGovernance(db, {
+        organizationId: PILOT_ORGANIZATION,
+        userId: pilotUserId,
+      }),
+    ensureCapabilityApprovalGovernance: () =>
+      ensureCapabilityApprovalPrincipalGovernance(db, {
         organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
       }),
@@ -3576,6 +3610,11 @@ export async function buildInMemoryPorts(env: {
             }),
           ensureDealPilotPrincipalGovernance: () =>
             ensureDealPilotPrincipalGovernance(localDb, {
+              organizationId: PILOT_ORGANIZATION,
+              userId: pilotUserId,
+            }),
+          ensureCapabilityApprovalGovernance: () =>
+            ensureCapabilityApprovalPrincipalGovernance(localDb, {
               organizationId: PILOT_ORGANIZATION,
               userId: pilotUserId,
             }),
@@ -3933,11 +3972,16 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const capabilityBudgets = new InMemoryAutoActivationBudgetStore();
   const capabilityKillSwitch = new InMemoryKillSwitch();
   const credentialBroker = new InMemoryCredentialBroker();
-  // Onboarding personalization profile (ADR-033/R-030) — in-memory in both
-  // modes for now, same honest-gap pattern as capabilityBudgets above: no
-  // persistent implementation exists yet, this is the onboarding-scoped slice
-  // of the still-absent general Memory/Knowledge kernel primitive.
-  const onboardingProfileStore = new InMemoryOnboardingProfileStore();
+  // Onboarding preferences are private Local Plane Memory when a durable local
+  // root exists. Public-cloud and isolated ephemeral modes retain no private
+  // profile across process restarts.
+  const onboardingProfileStore =
+    localDir && !publicCloudOnly
+      ? new MemoryBackedOnboardingProfileStore(
+          new DrizzleMemoryStore(localDatabase.db),
+          pilotUserId,
+        )
+      : new InMemoryOnboardingProfileStore();
   // P2 capability modules — now backed by DrizzleModuleStore in persistent mode
   // (ADR-023); `moduleStore` comes from modePorts (see above), same split every
   // other per-mode port already follows.
@@ -4139,6 +4183,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   await modePorts.ensureEgressGovernance?.();
   await modePorts.ensureIntakeGovernance?.();
   await modePorts.ensureDealPilotPrincipalGovernance?.();
+  await modePorts.ensureCapabilityApprovalGovernance?.();
   // Refresh the persistent manifest registry before constructing the pipeline.
   // In-memory mode registers the same catalog synchronously in its port factory.
   await modePorts.ensureSkillManifestCatalog?.();
