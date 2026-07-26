@@ -25,6 +25,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: platform/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - run: pnpm check:agent-context
       - run: pnpm check:vocabulary
       # --force: never trust turbo's remote/local cache in CI — a green run must mean THIS
       # checkout was tested, not a replayed log from an unrelated branch/worktree

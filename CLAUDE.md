@@ -1,44 +1,97 @@
-# Bridge — Project Instructions
+# Bridge - Project Instructions
 
-Bridge = **Living Software** — software that builds itself around user work. One governed Engine/runtime adapts installed Modules across web, desktop, and mobile. Modules contain Databases, Pages, Views, Records, Relations, Skills, Integrations, Agents, and Automations. Commons is the signed generalized-capability registry and never stores personal data; Bridge Cloud is separate hosted control/sync infrastructure. Local Plane and Cloud Plane are the only residency boundaries. Canonical terms: [docs/glossary.md](docs/glossary.md). Full context: [docs/wiki/index.md](docs/wiki/index.md).
+Bridge is **Living Software**: one governed Engine adapts installed Modules around user work across
+web, desktop, and mobile. Modules contain Databases, Pages, Views, Records, Relations, Skills,
+Integrations, Agents, and Automations. Commons is a signed generalized-capability registry and never
+stores personal data; Bridge Cloud is separate hosted control/sync infrastructure. Local Plane and
+Cloud Plane are the only residency boundaries. Terms: [docs/glossary.md](docs/glossary.md).
 
-## Docs protocol (IMPORTANT)
-- **Work tracker = [docs/TASKS.md](docs/TASKS.md)** — the only active execution queue and shared order source for Claude plus Task Manager. Check it at session start; update it when evidence, state, order, or verification changes. Plans define scope; `BUGS.md`, `requests.md`, and `APPROVALS.md` retain evidence/audit/gates but never create parallel work rows. `PROGRESS.md` is pointer/rules only; historical detail is archived in `docs/raw/progress-archive-2026-07.md`.
-- `docs/wiki/` = key takeaways, caveman-terse. `docs/raw/` = full depth.
-- Navigation: "where does X live" → [docs/INDEX.md](docs/INDEX.md). Load-bearing flow diagrams + schema ER → [docs/CODEMAPS/flows.md](docs/CODEMAPS/flows.md) — read these before re-reading pipeline/authority/schema source.
-- **Read `docs/wiki/` BY DEFAULT.** Reference `docs/raw/` ONLY on strong need / when wiki is insufficient.
-- Start at [docs/wiki/index.md](docs/wiki/index.md). Decision set + re-audit verdicts: [docs/wiki/decisions.md](docs/wiki/decisions.md) (nothing "locked" — pivot 2026-07-06).
-- **Draft/update wiki in CAVEMAN style** (invoke the `caveman` skill).
-- **Every `docs/raw/` doc carries YAML frontmatter**: `title · type: raw · doc_kind (design|research|requirement|plan|audit|reference) · status · companions[] · related_wiki · updated · tags[]`. Bodies stay prose for narrative/research docs; **data-shaped docs (stack/tokens/roadmap/registries) express their data in fenced ```yaml blocks**, not Markdown tables. `requirement` docs (verbatim user text) get frontmatter ONLY — never edit the body.
-- **Record substantive chat outputs in `outputs/`.** Each session that delivers plans, audits, decisions, recommendations, or implementation handoffs writes/updates a dated output file containing the user-facing outcome and File/doc links. Do not store secrets, private source payloads, hidden reasoning, raw tool output, or transient progress commentary. `docs/log.md` remains the change ledger; `outputs/` is the durable user-facing result.
-- Wiki page exceeds 1000 lines → compact + summarize it.
-- New/changed raw → update the matching wiki page + append [docs/log.md](docs/log.md).
+## Work tiers - classify first
 
-## Token rules (standing — from token-efficient-development plan)
-- Read order: wiki → raw → code. Escalate only on strong need. Orienting for a typical task should cost < ~4k tokens of docs.
-- Delegate fan-out searches to subagents (Explore); keep the main thread lean.
-- Never default-load append-only ledgers (`docs/log.md`, `docs/BUGS.md` — 800–1300 lines): link, don't load; read targeted sections only.
-- Batch independent tool calls in one turn; don't re-read files just edited; request specific line ranges.
-- Regenerate CODEMAPS on structural change only (provenance header shows staleness), via the `update-codemaps` skill.
-- One instruction source of truth = this file. Any new always-loaded context (instruction file, always-on skill) is a per-turn tax — treat as a reviewed cost. Off-project skills are scoped off in `.claude/settings.json` `skillOverrides`.
+- **A - read-only:** explanations, status, narrow lookups, code questions. No repository edits. Use
+  supplied context and targeted reads only. Do not read TASKS/log/BUGS by default, run tests, invoke
+  agents, or write TASKS/output/log/ADR/approval files.
+- **B - routine:** isolated code/docs change with no security, persistence, canon, deployment, or
+  cross-surface impact. Every repository edit, including a test-only rename, is at least Tier B.
+  Read [current tasks](docs/CODEMAPS/current-tasks.md), then only the matching task/wiki/code. Run the
+  smallest targeted check and inspect direct callers/shared types. Update ledgers only when their
+  represented state actually changes.
+- **C - governed:** security/privacy/auth, schema/migration, production/deployment, canonical
+  vocabulary/strategy, cross-plane, broad, or multi-surface work. Use the full governance,
+  documentation, affected-neighbour, and live-verification rules below.
 
-## Working rules
-- **Search for relevant skills BEFORE heavy actions.**
-- Keep docs current; log changes in `docs/log.md`.
-- **Record decisions with rationale.** Non-trivial engineering call → append an ADR entry to [docs/raw/decisions-log.md](docs/raw/decisions-log.md) (decision · why · alternatives rejected · consequences). Locked strategic one-liners still go to [docs/wiki/decisions.md](docs/wiki/decisions.md).
-- **File bugs/abnormalities the moment you spot them**, without waiting to be asked: preserve detailed evidence in [docs/BUGS.md](docs/BUGS.md), then attach it to the matching canonical task in [docs/TASKS.md](docs/TASKS.md). Create a new task only for an independently deliverable outcome/test. Fixing one → mark its evidence RESOLVED + date; never treat the bug ledger as another queue.
-- **USER-reported bugs = priority evidence (AP-004, reconciled by AP-024)**: preserve the verbatim report; search TASKS for the same outcome/root cause; attach the evidence and promote that task to P0 when it blocks the prototype or current user path. Add bounded same-surface/easy-win scope only when it shares the exit test (cap ~30%). Execute from TASKS, then resume its ordered queue. No duplicate INTERRUPT checklist or per-instance approval is needed.
-- **Blast-radius scan before finishing.** You own the neighbourhood, not just the file. Before declaring work done, check the features/modules your change touches or borders (callers, shared types, sibling skills/adapters, the pipeline/gate, the prototype surface) and confirm they still hold. Anything off → fix in scope, or log to known-issues / raise a background-task chip if out of scope. Never report green on a narrow check that ignored what the change could break.
-- **UI architecture rules are CANON**: any Page/nav/View work follows [docs/raw/ui-architecture-rules-2026-07.md](docs/raw/ui-architecture-rules-2026-07.md) (wiki: [docs/wiki/ui-architecture.md](docs/wiki/ui-architecture.md)) — data-shape→surface rules, landing Section + related Sections + Files Section, standard Views incl. Form, shared column/toggle menu, Control Panel in 3-dots, local Files under `~/Documents/Bridge/<Organization>/<Module>/<Sub-module>/`.
-- **Vocabulary canon**: [docs/glossary.md](docs/glossary.md) is the only glossary. Product copy, code identifiers, APIs, schema, Events, persisted payloads, and tests converge—no display-only aliases. Domain labels such as Deal or Help Request are allowed as Module Record types; they never become kernel primitives. Any legacy identifier needed during migration must be time-boxed in [docs/raw/vocabulary-code-migration-plan-2026-07-14.md](docs/raw/vocabulary-code-migration-plan-2026-07-14.md), with compatibility deletion as a done criterion.
-- **Module/actionability canon (AP-021)**: every installed Module is a clickable left-nav item with manifest-driven Module Detail. Skills appear only under their consuming Agents; only an attributable allowed Agent invokes a Skill. Automations start Agent Runs. Relationship primary toggles = Signals/People/Communities; Signal = surfaced participant-linked Event. Retained data stays Module-associated Memory; no global data-index surface. Second Brain = cross-Module graph UI only, never Engine vocabulary. Left Sidebar/right Chat Panel share one expand/collapse/extend contract. Interactive-looking UI must open detail/edit/filter/explanation/governed Action.
-- **NO dummy data unless unavoidable, and then TRACK it (settled 2026-07-09, AP-002)**: runtime product surfaces show real, connected data or an honest empty state — never a placeholder. Dummies (runtime OR test fixture) are allowed ONLY when genuinely unavoidable, and every unavoidable one gets a row in **[docs/dummy.md](docs/dummy.md)** (file · reason it can't be real yet · real element it stands in for · removal condition). The old "test fixtures are a separate open question" is resolved: the policy covers them. Existing `dummy_`-prefixed instances are tracked debt (see [docs/BUGS.md](docs/BUGS.md)).
-- **License-limited capability research (2026-07-11, AP-008)**: before custom-building any Skill/Agent/Automation/Integration/feature/template that resembles an existing source, run reuse intake FIRST — if reuse is permitted, prefer import/wrap/adapt/integrate over rebuilding. If license/contract/patent/trademark/data-right/dependency/access constraints limit reuse, do lawful functional research under [docs/raw/clean-room-capability-research-protocol-2026-07.md](docs/raw/clean-room-capability-research-protocol-2026-07.md): record exact source/version/terms; inventory features/Agents/Skills/Automations/IO/UI/data contracts/Integrations/orchestration/security/states/strengths/weaknesses/limitations; produce black-box benchmarks + an independently authored requirements spec. Use researcher/implementer separation when warranted (an agent that loaded restricted source must NOT author the alternative in the same run). NEVER copy/lightly-paraphrase protected code/prompts/prose/templates/distinctive-UI/datasets/naming, translate-as-disguise, train on restricted assets, treat "public GitHub" or an absent license as permission, or bypass access controls/terms. Preserve provenance; compare Bridge alternatives on outcomes, never feature-name matching. Ambiguous/commercially-material cases stop at a counsel/upstream-permission gate.
-- **Canon changes go through approval (2026-07-09, AP-001)**: edits to locked/canonical docs (vision, decisions one-liners, requirement docs), canonical TASKS scope/order changes, plan `status` flips, marking a Track/Phase DONE, roadmap sequencer reorders, or reversing an ADR → propose in **[docs/APPROVALS.md](docs/APPROVALS.md)** and wait for user APPROVED before applying. A user's explicit directive in the current task is approval and must be recorded as APPLIED. Never mark a plan/track DONE unless the repo contains the edits AND the ledger shows it approved. Routine evidence/log/output updates and code-with-tests do not need a row.
-- **Principles**: adapt before asking · learn before acting · explain before automating · govern before executing · build only what creates lasting value · simple surface, powerful underneath. Trust-first · governed execution · ambient AI · action over analytics (every surfaced Event/recommendation offers a safe Action). Capture contract: every capture → inspectable Memory entry; Avatar blink = the tell; raw capture Local Plane only.
+Uncertainty escalates B to C. Secret handling, Local/Cloud residency, governed execution, and explicit
+user approval remain universal. Never weaken a safety boundary to save tokens.
 
-## Stack (see [docs/wiki/stack.md](docs/wiki/stack.md))
-TS monorepo: React+Vite+tRPC+Fastify+Drizzle+Supabase (pgvector+pg_trgm+RLS). Kernel is surface-agnostic; web + desktop (Tauri) + mobile are thin clients. Sensor SPI is optional and desktop-only. Models use `ModelProvider`; capture defaults to local inference. Runtime uses Engine ports, Hatchet-backed Automation execution, BullMQ, Mastra components, and Mem0 behind ports. Legacy code identifiers migrate under VOCAB2.
+## Context and docs
 
-## Status
-**Current cursor:** [docs/TASKS.md](docs/TASKS.md) TASK-001→TASK-005 — coherent shell, trust-first Onboarding, movable Avatar, trusted Commons install, then combined demo certification. Broad cleanup waits behind that gate. Runtime taint remains the long-term root security gap.
+- This file is the only instruction authority. If the runtime already supplied it, do not read it
+  again. `AGENTS.md` is only a stale-instruction guard.
+- Navigation: [docs/INDEX.md](docs/INDEX.md); flows/schema:
+  [docs/CODEMAPS/flows.md](docs/CODEMAPS/flows.md); summaries:
+  [docs/wiki/index.md](docs/wiki/index.md). Read wiki -> raw -> code, escalating only when needed.
+- [docs/TASKS.md](docs/TASKS.md) is the sole execution queue. Plans scope work; BUGS, requests, and
+  APPROVALS preserve evidence/gates, never parallel task rows. Tier A skips it. Tier B/C read the
+  compact task projection first and only targeted TASK IDs.
+- `docs/wiki/` stays caveman-terse; invoke `caveman` when available. `docs/raw/` holds full depth.
+  Every raw doc needs frontmatter: `title`, `type: raw`, `doc_kind`, `status`, `companions`,
+  `related_wiki`, `updated`, `tags`. Requirement bodies are verbatim and never edited. Data-shaped
+  raw docs use fenced YAML, not Markdown tables.
+- Write `outputs/` only for Tier C decisions/audits/plans, an explicitly requested durable handoff, or
+  a Tier B result that must outlive chat. Never store secrets, private payloads, hidden reasoning, raw
+  tool output, or transient commentary. Changed raw docs require their wiki companion and log entry.
+- Never default-load append-only ledgers. Search targeted sections. Batch independent reads, bound
+  output/ranges, and do not reread files just edited. Regenerate codemaps only on structural change.
+- Optimize **total** tokens: handle simple single-repo chains inline. Delegate only independent broad
+  work whose context isolation exceeds agent startup cost; never duplicate delegated exploration.
+- Keep Tier B orientation under ~2k documentation tokens and Tier C under ~4k. Any new always-loaded
+  instruction or skill metadata is a reviewed recurring cost.
+
+## Governance and engineering
+
+- Non-trivial Tier C engineering decisions append rationale, rejected alternatives, and consequences
+  to [docs/raw/decisions-log.md](docs/raw/decisions-log.md). Strategic one-liners also update
+  `docs/wiki/decisions.md`.
+- File abnormalities immediately in targeted `docs/BUGS.md` evidence and attach them to the matching
+  TASK. A new TASK needs an independent outcome/test. Resolve evidence with date when fixed.
+- User-reported bugs preserve the verbatim report and promote the matching task to P0 when blocking
+  the prototype/current path. Same-surface scope may grow ~30% only when sharing the exit test.
+- Tier B owns direct callers/shared types. Tier C owns callers, sibling adapters, pipeline/gates,
+  persistence, and prototype surfaces. Fix in scope or record an honest blocker; narrow green checks
+  cannot hide affected failures.
+- Canon changes - locked wiki/requirements, TASK scope/order, plan status, phase completion, roadmap
+  order, or ADR reversal - require [docs/APPROVALS.md](docs/APPROVALS.md). Current explicit user
+  approval is recorded as APPLIED. Routine code/evidence updates do not need a row.
+- Runtime surfaces use real connected data or honest empty states. Any unavoidable runtime or test
+  dummy is tracked in [docs/dummy.md](docs/dummy.md) with reason, represented element, and removal
+  condition.
+- Before building a capability resembling an existing source, run reuse intake. Prefer lawful
+  import/wrap/adapt. For restricted license/contract/patent/trademark/data/access, follow the
+  [clean-room protocol](docs/raw/clean-room-capability-research-protocol-2026-07.md): preserve source
+  terms/provenance, benchmark behavior, and author requirements independently. A restricted-source
+  researcher does not implement the alternative. Never copy/lightly paraphrase/translate protected
+  assets or bypass access/terms; ambiguous commercial cases stop for counsel/upstream permission.
+
+## Product canon
+
+- UI Page/nav/View work follows [UI architecture](docs/wiki/ui-architecture.md): data-shape surfaces,
+  landing/related/Files Sections, standard Views including Form, shared menus, Control Panel in
+  3-dots, and local files under `~/Documents/Bridge/<Organization>/<Module>/<Sub-module>/`.
+- [docs/glossary.md](docs/glossary.md) governs copy, identifiers, APIs, schema, Events, payloads, and
+  tests. Domain Record labels never become kernel primitives. Legacy names need a time-boxed
+  [migration](docs/raw/vocabulary-code-migration-plan-2026-07-14.md) with deletion criteria.
+- Every installed Module is clickable with manifest-driven detail. Skills stay under consuming
+  Agents; only an attributable allowed Agent invokes them. Automations start Agent Runs. Relationship
+  toggles are Signals/People/Communities; Signal is a participant-linked Event. Retained data is
+  Module-associated Memory. Second Brain is cross-Module graph UI, not Engine vocabulary. Both side
+  panels share expand/collapse/extend. Interactive-looking UI must perform/open/explain a governed
+  action.
+- Principles: adapt before asking; learn before acting; explain before automating; govern before
+  executing; lasting value only; simple surface/powerful core; trust first; action over analytics.
+  Every capture creates inspectable Memory, Avatar blink is the tell, and raw capture stays Local.
+
+## Stack
+
+TypeScript monorepo: React/Vite/tRPC/Fastify/Drizzle/Supabase; Tauri desktop and thin web/mobile
+clients. Surface-agnostic kernel, optional desktop Sensor SPI, `ModelProvider`, local-first capture,
+Engine ports, Hatchet/BullMQ, Mastra, and Mem0. Current work comes from the compact task projection.

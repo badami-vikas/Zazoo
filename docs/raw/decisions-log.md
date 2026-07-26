@@ -5,7 +5,7 @@ doc_kind: reference
 status: active
 companions: []
 related_wiki: ../wiki/decisions.md
-updated: 2026-07-25
+updated: 2026-07-26
 tags: [adr, decisions, governance, rationale]
 ---
 
@@ -3111,3 +3111,9 @@ Ollama/Anthropic call.
 - **Why**: tRPC previously built headers before its fetch entered the wake gate. A near-expiry token could therefore age during a long Render cold start, and Supabase's initial/session-refresh event fan-out could repeatedly invoke the activation mutation. Supabase Auth 2.110.1 evaluates tokens inside a 90-second expiry margin, matching the maximum wake budget, but that protection only works when `getSession()` runs after the wake.
 - **Alternatives rejected**: refresh every token unconditionally; retry authenticated mutations after `401`; make the transport parse and rewrite bearer headers; disable Supabase auto-refresh; reactivate the Organization on every Auth event; weaken or remove the 90-second wake bound.
 - **Consequences**: Cold-start delay occurs before token capture, so Supabase can refresh immediately before API use. Duplicate initial and token-refresh events no longer create redundant activation writes or transient securing-state churn. A sent mutation is still never replayed, and an actual authorization failure remains visible rather than being converted into an ambiguous retry.
+
+## ADR-146 — Agent work uses risk-tiered context and total-token accounting (2026-07-26; AP-076)
+- **Decision**: Classify work before reading: Tier A read-only performs targeted reads with no tracker/ledger/output/test ceremony; Tier B routine uses the generated active-task projection, directly relevant docs/code, targeted validation, and direct-neighbour review; Tier C security/privacy/Auth/schema/production/canon/cross-plane/broad work retains the full approval, evidence, ADR, affected-neighbour, and live-verification protocol. Optimize total tokens, not merely parent-agent context. `CLAUDE.md` stays the only policy authority. Project settings disable global noise; path instructions and project skills are budgeted exceptions, not default copies.
+- **Why**: A resumed Bridge session measured about 146k input tokens per turn, while routine questions inherited a contract designed for production/canonical changes. Main also lacked the settings file that documentation claimed scoped 111 skills. Loading a 78 KB TASKS ledger or spawning an agent for a narrow lookup spends tokens without improving correctness.
+- **Alternatives rejected**: weaken governance globally; keep universal TASKS/output/ADR ceremony; optimize only the parent by pushing every search to subagents; merge PR #17's duplicated path policy; merge PR #48's 406-file skill bundle; force low reasoning for every task; delete historical evidence to make broad reads cheaper.
+- **Consequences**: Always-loaded guidance drops from 11,732 to 7,971 bytes and routine task navigation from 78,436 to 767 bytes. Tier A makes no repository writes. Tier C remains intentionally expensive. CI now rejects context-budget regressions, and stale PRs remain unmerged unless separately authorized.

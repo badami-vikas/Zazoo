@@ -2,10 +2,10 @@
 title: Token-Efficient Development — codemaps, diagrams, and best-practice roadmap
 type: raw
 doc_kind: plan
-status: in-execution — Month-1 (§4 "Now") DONE 2026-07-09 (INDEX.md, CODEMAPS/flows.md, CLAUDE.md token rules, skillOverrides scoping); M2/M3 tracked in docs/PROGRESS.md registry
+status: in-execution — Month-1 DONE 2026-07-09; TASK-025 tiered agent-context optimization DONE 2026-07-26; remaining M2/M3 artifacts deferred
 companions: [ARCHITECTURE.md]
 related_wiki: index.md
-updated: 2026-07-09
+updated: 2026-07-26
 tags: [tokens, codemaps, docs, efficiency, dx]
 ---
 
@@ -49,9 +49,9 @@ best practices, and gives a roadmap.
 ## 3. Token best practices (make these standing rules)
 - **Read wiki before raw; raw before code; code last.** Escalate only on strong need. (Already the
   protocol — enforce via CLAUDE.md + a project `.claude/settings.json`.)
-- **Delegate fan-out searches to subagents** (Explore/general-purpose): a subagent burns its own
-  context reading many files and returns the conclusion, keeping the main thread lean. This session's
-  audits are the pattern.
+- **Optimize total tokens, not just the main thread.** Keep simple single-repo chains inline.
+  Delegate only independent broad work whose context isolation saves more than agent startup, and
+  never repeat a delegated search in the parent.
 - **Prefer the dedicated file tools over `cat`/`sed`/`grep` dumps**; request specific line ranges.
 - **Keep append-only ledgers (log.md, BUGS.md) out of default reads** — they're 800–1300 lines; link,
   don't load. Consider quarterly rotation of `log.md` into `log-archive/` to cap its size.
@@ -80,3 +80,55 @@ Track a rough "tokens-to-orient" proxy: the sum of (CLAUDE.md + wiki/index + the
 an agent must read to start a typical task). Target: a new task should be startable from < ~4k tokens of
 docs before touching code. The codemaps' own token-estimate headers are the unit; extend the habit to
 wiki pages.
+
+## 6. TASK-025 tiered fast path (2026-07-26)
+
+Routine work now has explicit context classes:
+
+- Tier A read-only: targeted reads, no tracker/ledger/output/test ceremony.
+- Tier B routine: compact active-task projection, directly relevant docs/code, targeted test, direct
+  neighbour scan, and ledger updates only when represented state changes.
+- Tier C governed: unchanged approval, ADR, evidence, affected-neighbour, and live-verification gates
+  for security, privacy, Auth, schema, production, canon, cross-plane, and broad work.
+
+`CLAUDE.md` remains the sole instruction authority. Main now tracks only
+`.claude/settings.json`, which disables 111 off-project skills and four ceremony-heavy plugins while
+keeping all generated Claude state ignored. No project skill library or path-scoped Copilot policy is
+tracked. PR #17's duplicated Module guidance and PR #48's 406-file skill bundle are superseded as
+implementation sources; neither PR state changes under TASK-025.
+
+`docs/CODEMAPS/current-tasks.md` is a generated, non-canonical active-task projection. Agents read it
+before a targeted TASK ID instead of loading the full audit ledger. `pnpm check:agent-context`
+enforces instruction, task-index, path-guidance, and project-skill budgets in CI.
+
+```yaml
+baseline:
+  canonical_instruction_bytes: 11732
+  claude_md:
+    bytes: 10972
+    words: 1343
+  full_tasks_bytes: 78436
+optimized:
+  always_loaded_guidance_bytes: 7971
+  approximate_always_loaded_tokens: 1993
+  claude_md:
+    bytes: 7211
+    words: 878
+  active_task_index_bytes: 767
+reduction:
+  always_loaded_guidance_percent: 32.1
+  routine_guidance_plus_task_navigation_percent: 90.3
+budgets:
+  claude_md_bytes: 8192
+  claude_md_words: 1000
+  always_loaded_guidance_bytes: 10240
+  active_task_index_bytes: 4096
+  path_instruction_each_bytes: 1024
+  project_skill_count: 3
+```
+
+Fresh GPT/Claude-compatible instruction checks confirmed Tier A avoided task/ledger/test/write
+ceremony and Tier C retained the Auth/production gates. The first Claude check exposed ambiguity
+around a test-only rename; the contract was tightened so every repository edit is at least Tier B
+and runs a targeted check. Standalone Copilot/Claude executables were unavailable, so no comparable
+fresh-runtime total-token percentage is claimed.

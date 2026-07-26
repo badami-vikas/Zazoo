@@ -6,7 +6,7 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
+IDs for cross-reference: `TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
 
 Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048 — no re-rank requested.
 
@@ -51,6 +51,20 @@ There is no separate progress narrative. Report task deltas only: status change,
 The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → TASK-005. TASK-005 is the gate: do not resume broad vocabulary migration, repo cleanup, or later Modules until the combined Avatar + Commons path is usable and tested.
 
 AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now in dependency-aware waves. TASK-006/007/008 may execute in parallel with the remaining gate work; TASK-009–015 may plan now but implementation still waits for their named dependencies. No task closes without its exact Prototype test and all prerequisite evidence.
+
+## Token-efficient agent workflow
+- ID: TASK-025
+- Status: done
+- Priority: P1
+- Horizon: Developer Experience
+- Outcome: Routine Copilot CLI and Claude Code work uses bounded context and bookkeeping while security, canon, schema, production, and other high-risk work retains full governance.
+- Prototype test: In fresh Copilot and Claude-compatible context runs, a read-only lookup writes no repo files or ledgers, a routine isolated change reads only the compact task projection plus directly relevant docs/code and runs targeted checks, and a governed scenario still triggers approvals/evidence/affected-neighbour rules; repository documentation/tool-output bytes fall at least 60% for the first two scenarios and comparable runtime totals fall at least 30% where exposed.
+- Scope: docs/raw/token-efficient-development-2026-07.md; CLAUDE.md; .claude/settings.json; platform/scripts/task-doc-parser.mjs; platform/scripts/check-agent-context-budget.mjs
+- Evidence: 2026-07-26 baseline measured CLAUDE.md at 10,972 bytes/1,343 words and tracked guidance at 11,732 bytes; this resumed session had 78,078,128 input tokens across 533 measured turns (~146k/turn). Main ignored and lacked the project settings that docs claimed had scoped off 111 skills. PR #17 was conflicting/stale; PR #48 proposed 406 files/67,807 additions and had failed checks.
+- Requests: user token-consumption diagnosis and approved tiered optimization plan 2026-07-26
+- Approval: AP-076 and AP-077 applied
+- Dependencies: none
+- Verification: The GPT Tier-A run read only CLAUDE plus three directly relevant Auth files, skipped TASKS/ledgers/tests, and made no edit. The first Claude-compatible classifier exposed a test-only Tier-A ambiguity; the contract was tightened, and a fresh recheck read only CLAUDE, classified every repository edit as Tier B, and required the targeted test. The governed Auth/deployment scenario remained Tier C. Final gates passed: context/parser 10/10, pending-work 3/3, vocabulary 13/13, targeted ESLint, JSON/YAML/config/ignore checks, deterministic projection regeneration, and independent diff review. Always-loaded guidance fell 32.1%; routine guidance plus task navigation fell 90.3%. Standalone Copilot/Claude executables were unavailable, so no comparable fresh-runtime total-token percentage is claimed.
 
 ## Coherent actionable shell prototype
 - ID: TASK-001

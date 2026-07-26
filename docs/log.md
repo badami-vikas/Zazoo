@@ -1,5 +1,17 @@
 # Change Log
 
+- **2026-07-26 — Tiered agent-context budget implemented (TASK-025, AP-076/AP-077, ADR-146)**:
+  Copilot CLI and Claude Code now share one risk-tiered contract: read-only Tier A writes no
+  trackers/ledgers/outputs, routine Tier B uses targeted context/checks, and governed Tier C preserves
+  full security/canon/production gates. `CLAUDE.md` fell from 10,972 bytes/1,343 words to 7,211
+  bytes/878 words. A generated 767-byte active-task index replaces routine reads of the 78,436-byte
+  canonical ledger. Main now tracks only `.claude/settings.json`, disables 111 off-project skills and
+  four noisy plugins, and keeps generated Claude state ignored. A tested `pnpm check:agent-context`
+  CI gate caps canonical/path/task/skill context. PR #17/#48 remain unchanged and are not merge
+  sources. Fresh GPT/Claude-compatible checks kept read-only work ledger-free, caught and closed a
+  test-edit classification ambiguity, and preserved full Auth/production Tier-C handling. AP-077
+  authorizes landing this bounded change set directly on `main`.
+
 - **2026-07-25 — Hosted wake/Auth ordering hardened (ADR-145, AP-075)**:
   the remote API now wakes before Supabase session read and bearer construction, preventing a
   near-expiry token from aging through the bounded cold start. Organization activation is

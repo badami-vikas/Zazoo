@@ -18,6 +18,21 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-26 — Token docs claimed project skill scoping that main did not contain
+
+The token plan, wiki index, and 2026-07-09 log said 111 off-project skills were disabled through a
+project `.claude/settings.json`, but main ignored the entire `.claude/` directory and contained no
+such configuration. Fresh Claude Code clones therefore inherited the exact global skill/plugin noise
+the docs claimed was fixed. PR #48 contained a settings candidate but bundled it with 43 skills,
+406 files, stale launch configuration, and failing checks; PR #17 separately duplicated policy into
+six conflicting path instructions and reused TASK-024 for a meaning now owned by the Zazoo website.
+
+RESOLVED under TASK-025/AP-076: main now permits only `.claude/settings.json`, keeps all other Claude
+state ignored, disables the reviewed 111 off-project skills plus four noisy plugins, and adds no
+project skill pack or path-policy duplicate. A CI context-budget gate rejects bulk skill metadata,
+oversized path instructions, canonical instruction growth, and active-task projection growth. The
+raw/wiki/log claims now match the tracked source.
+
 ## RESOLVED 2026-07-24 — USER REPORT: onboarding clipped its required Continue action below the desktop viewport
 **User report (verbatim):** “I think you are running in circles, can you fix this deadlock instead?”
 

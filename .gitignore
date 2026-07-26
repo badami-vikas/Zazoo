@@ -43,9 +43,11 @@ Design Bridge AI Interface (Copy)/src/app/data/reconStaging.ts
 Design Bridge AI Interface (Copy)/data/Invitations.csv
 Design Bridge AI Interface (Copy)/data/seed_canonical.sql
 
-# Claude internal session files
-.claude/
+# Claude internal session files. Root settings is the only reviewed project exception.
 **/.claude/
+!/.claude/
+/.claude/*
+!/.claude/settings.json
 
 # OS / editor
 .DS_Store
