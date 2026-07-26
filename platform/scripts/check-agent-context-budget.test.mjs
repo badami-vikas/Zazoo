@@ -57,9 +57,9 @@ test('oversized canonical and path guidance fail with actionable violations', ()
   assert.ok(result.violations.some((violation) => violation.includes('pointer-only')));
 });
 
-test('bulk project skill packs fail even when each skill is small', () => {
+test('project skill growth beyond the approved bundle fails even when each skill is small', () => {
   const files = baseFiles();
-  for (let index = 0; index < 4; index += 1) {
+  for (let index = 0; index < 45; index += 1) {
     files.push({
       path: `.claude/skills/skill-${index}/SKILL.md`,
       content: `---\nname: skill-${index}\ndescription: test\n---\n`,
@@ -67,7 +67,7 @@ test('bulk project skill packs fail even when each skill is small', () => {
   }
 
   const result = analyzeAgentContext(files);
-  assert.ok(result.violations.includes('project skill count is 4, budget is 3'));
+  assert.ok(result.violations.includes('project skill count is 45, budget is 44'));
 });
 
 test('missing skill scoping and enabled plugins fail closed', () => {

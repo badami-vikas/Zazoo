@@ -1,0 +1,38 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bridge-prototype",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "Design Bridge AI Interface (Copy)", "run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "recon",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "Tools/recon", "run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "hni",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "Tools/hni", "run", "dev"],
+      "port": 3002,
+      "autoPort": false
+    },
+    {
+      "name": "platform-web",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/.bin/vite", "--port", "5174"],
+      "cwd": "platform/apps/web",
+      "port": 5174
+    },
+    {
+      "name": "platform-web-worktree",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/.bin/vite", "--port", "5175"],
+      "cwd": ".claude/worktrees/egg-commons-composition-109d78/platform/apps/web",
+      "port": 5175
+    }
+  ]
+}

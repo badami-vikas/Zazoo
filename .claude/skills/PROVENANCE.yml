@@ -1,0 +1,89 @@
+bundle:
+  contributor_commit: 6bf277eca118e2b8149ffd997463f29de9af0ba0
+  reviewed: 2026-07-26
+  skill_count: 44
+sources:
+  - repository: https://github.com/affaan-m/ECC
+    reviewed_revision: fec84fcf19d1806232b21e38a80ac9fb595442dc
+    license: MIT
+    license_file: licenses/ECC-MIT.txt
+    skills:
+      - accessibility
+      - agentic-engineering
+      - api-design
+      - backend-patterns
+      - browser-qa
+      - canary-watch
+      - configure-ecc
+      - database-migrations
+      - deployment-patterns
+      - docker-patterns
+      - e2e-testing
+      - error-handling
+      - eval-harness
+      - frontend-a11y
+      - frontend-patterns
+      - git-workflow
+      - github-ops
+      - make-interfaces-feel-better
+      - mcp-server-patterns
+      - nextjs-turbopack
+      - postgres-patterns
+      - prisma-patterns
+      - production-audit
+      - react-patterns
+      - react-performance
+      - react-testing
+      - security-review
+      - verification-loop
+      - vite-patterns
+    notes:
+      - 27 directories match the reviewed revision byte-for-byte.
+      - eval-harness and verification-loop are contributor-supplied revisions under the same license.
+  - repository: https://github.com/cloudflare/skills
+    reviewed_revision: 70215303d44a81a0db3219428f4825b604fc6061
+    license: Apache-2.0
+    license_file: licenses/Apache-2.0.txt
+    skills:
+      - agents-sdk
+      - cloudflare
+      - cloudflare-email-service
+      - durable-objects
+      - sandbox-sdk
+      - workers-best-practices
+      - wrangler
+    notes:
+      - Six SKILL.md blobs match the reviewed revision.
+      - cloudflare uses upstream blob 6d913f2d84b855dd910b6eceab3121ea7fe0f518.
+  - repository: https://github.com/JuliusBrussee/caveman
+    reviewed_revision: 31d804e5f28ffe7a98115ca86f00d947eb413333
+    license: MIT
+    license_file: licenses/Caveman-MIT.txt
+    skills: [caveman, compress]
+    notes:
+      - caveman matches the reviewed revision.
+      - compress is the contributor-supplied command-name adaptation with blob 8537948358bc8dcf584bb36fe2807955ca867cb2.
+  - repository: https://github.com/vercel-labs/skills
+    reviewed_revision: 0b8fb22aaa7f82447d4befe1b6a95d30a5b279b8
+    license: MIT
+    license_file: licenses/Vercel-Skills-MIT.txt
+    skills: [find-skills]
+  - repository: https://github.com/Leonxlnx/taste-skill
+    reviewed_revision: 98565e65bc3274ddf6eb0838734341714057178b
+    source_blob: b72132fcd466da605623ffe96e370b3991fc5285
+    license: MIT
+    license_file: licenses/Taste-Skill-MIT.txt
+    skills: [design-taste-frontend]
+  - repository: https://github.com/fcakyon/claude-codex-settings
+    source_blob: 0fb166e8e8cb12e42dff4a40905ee4d3d626fcda
+    license: Apache-2.0
+    license_file: licenses/Apache-2.0.txt
+    skills: [web-perf]
+    notes:
+      - Contributor-supplied revision of the upstream web performance skill.
+  - repository: contributor-authored
+    reviewed_revision: 6bf277eca118e2b8149ffd997463f29de9af0ba0
+    license: repository-internal
+    skills: [pg-knowledge-loop, session-checkpoint, ship-to-prod]
+    notes:
+      - pg-knowledge-loop is PeopleGamez-specific and should not be activated for Bridge work.
