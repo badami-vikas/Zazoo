@@ -135,3 +135,4 @@ panel/Page/mobile and the honest provider-unavailable, draft-preserving, no-pers
 - Wiki: [`docs/wiki/chat-panel.md`](../docs/wiki/chat-panel.md)
 - Decision: [`docs/raw/decisions-log.md`](../docs/raw/decisions-log.md) — ADR-147
 - Approval: [`docs/APPROVALS.md`](../docs/APPROVALS.md) — AP-078/AP-080
+- Fresh-session handoff: [`docs/Progress from Manish/governed-chat-release-handoff-2026-07-27.md`](../docs/Progress%20from%20Manish/governed-chat-release-handoff-2026-07-27.md)

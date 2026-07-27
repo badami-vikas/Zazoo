@@ -1,23 +1,29 @@
 # Progress from Manish
 
-User-requested restart context for the roadmap work paused on 2026-07-18.
+User-requested restart context for paused roadmap work and later release handoffs.
 
 This folder is **not** an execution queue and does not override [`docs/TASKS.md`](../TASKS.md), approvals, ADRs, plans, or prototype tests. It records what the parallel sessions delivered, what remains only in worktrees, and how to resume without repeating or losing work.
 
 ## Read first in a new session
 
-1. Read [`subagent-progress.md`](subagent-progress.md).
-2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
-3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and confirm the current baseline `4d130736a873667a6ac561957ed0993144e19ee4`
-   plus TASK-015 PR #46, TASK-016 PR #47, and Render evidence PR #52 remain in its ancestry.
-5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
-6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
+1. Read [`governed-chat-release-handoff-2026-07-27.md`](governed-chat-release-handoff-2026-07-27.md).
+2. Read [`subagent-progress.md`](subagent-progress.md).
+3. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
+4. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
+5. Fetch `origin/main` and confirm the current baseline
+   `aa5b86f5a6ee4939000bf6c94974ff8b896ddb7d` remains in its ancestry.
+6. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
+7. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
 ## State at current handoff
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
+- TASK-026 durable governed Chat landed at `1c5340d`; final certified `main` is `aa5b86f`.
+  Production migrations `0031`/`0032` are applied, final web deploy
+  `dep-d9jlog3rjlhs738nvq90` is live, and configured Auth passes settled light/dark WCAG checks.
+  Hosted answers remain honestly unavailable until an authorized cloud `ModelProvider` is configured;
+  desktop managed Qwen is complete. Read the dedicated governed-Chat handoff first.
 - TASK-012 VOCAB0–VOCAB2 landed through PRs #26/#27. VOCAB3 landed through PR #28 at source
   `bdcedeb` and merge `dc50c33`. VOCAB4 landed through PR #29 at source `80f8712`, evidence
   checkpoint `a07ec02`, and merge `611c9ad`.
@@ -92,8 +98,9 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 ## Critical resume constraints
 
 - TASK-010's post-RM4 migration `0016_new_ink` landed and merged into `main` as `e532b15` on 2026-07-18 (owner-aware `memories` RLS, DB-backed `lineage_revision`, JobPilot flag backfill+constraint).
-- Migrations through `0030_task016_schema_alignment` are allocated and represented by current
-  Drizzle metadata. The next new migration is `0031`; never reuse `0024`–`0030`.
+- Migrations through `0032_task026_chat_cloud_grants` are allocated and represented by current
+  Drizzle metadata. Production also has `0031`/`0032`. The next new migration is `0033`; never reuse
+  `0024`–`0032`.
 - TASK-012 VOCAB0–VOCAB6 plus final compatibility deletion is represented through PR #33. The task
   is complete; old planning/integration branches remain historical.
 - TASK-011 landed on `main` under AP-049 via PR #22 (branch `manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). No new migration was required.
@@ -137,6 +144,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 ## Files
 
+- [`governed-chat-release-handoff-2026-07-27.md`](governed-chat-release-handoff-2026-07-27.md) - durable Chat, production migration, Auth, and deploy resume state.
 - [`subagent-progress.md`](subagent-progress.md) — every roadmap project session and grouped background-review progress.
 - [`paused-worktrees.md`](paused-worktrees.md) — exact unfinished worktree state, validation, blockers, and next actions.
 - [`merge-history.md`](merge-history.md) — landed commits, source branches, migration sequence, and integration history.

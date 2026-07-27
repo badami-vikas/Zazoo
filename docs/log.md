@@ -1,5 +1,11 @@
 # Change Log
 
+- **2026-07-27 — Governed Chat release handoff added to Progress from Manish**:
+  fresh-session resume notes now pin final `main@aa5b86f`, exact Render deploys, production migration
+  high-water `0032`, next migration `0033`, completed local-Qwen/durable-Chat behavior, settled Auth
+  WCAG evidence, and the honest hosted-provider configuration boundary. The folder README now points
+  to this handoff first and no longer advertises stale baseline `4d1307` or migration `0031` as next.
+
 - **2026-07-27 — TASK-026 production rollout repaired; Auth contrast hardened**:
   Render API `dep-d9jkpuf41pts73cs1m6g` and web `dep-d9jkpu3tqb8s73aj5q5g` went live at
   `1c5340d`. The first signed-in Chat load exposed Supabase still at `0030`; a guarded owner
