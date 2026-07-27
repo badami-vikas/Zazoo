@@ -11,6 +11,9 @@
   configured dark-theme audit also found the submit button's white-on-light pairing, now replaced
   with inverse `background`. The first unconfigured local form check was incomplete, and a later
   audit sampled the 200 ms theme transition, so only settled configured production Axe is accepted.
+  Exact `704284c` / deploy `dep-d9jllmv41pts73cti9sg` passed all four Auth routes in settled
+  light/dark themes (8/8) with zero WCAG A/AA violations, unexpected console/page/network errors, or
+  375px overflow; the stabilized signed-in Chat regression also passed on the same release.
 
 - **2026-07-27 — Governed persistent Chat completed (TASK-026, AP-080, ADR-147)**:
   durable owner/Organization-isolated Chat now spans panel, Chief of Staff Page, and desktop Avatar.

@@ -92,7 +92,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: R-019; R-020; R-021; R-023; user shell/module/table directives 2026-07-14–15
 - Approval: AP-020, AP-021, and AP-027 applied
 - Dependencies: none
-- Verification: 2026-07-16 exact Prototype test passed at 1280×720 and emulated 375×812 against isolated API/web processes; Tauri launched and remained alive against the same API-backed Vite client. Independent integration review then closed and re-reviewed the File-root traversal and startup-stall defects with core 350/350, full API 103/103, and desktop Rust 28/28 plus clean builds/typechecks and Clippy.
+- Verification: 2026-07-16 exact Prototype test passed at 1280×720 and emulated 375×812 against isolated API/web processes; Tauri launched and remained alive against the same API-backed Vite client. Independent integration review then closed and re-reviewed the File-root traversal and startup-stall defects with core 350/350, full API 103/103, and desktop Rust 28/28 plus clean builds/typechecks and Clippy. Production Auth follow-up `704284c` / Render deploy `dep-d9jllmv41pts73cti9sg` passed all four configured Auth routes in settled light and dark themes with zero WCAG A/AA Axe violations (8/8), zero unexpected console/page/network errors, and zero 375px overflow.
 
 ## Movable cross-screen Avatar desktop prototype
 - ID: TASK-003

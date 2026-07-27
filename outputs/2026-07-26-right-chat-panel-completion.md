@@ -82,6 +82,12 @@ render:
   api_deploy: dep-d9jkpuf41pts73cs1m6g
   web_deploy: dep-d9jkpu3tqb8s73aj5q5g
   status: live
+auth_followup:
+  commit: 704284cd15e0a16c43faf445ff38808be6f4551c
+  web_deploy: dep-d9jllmv41pts73cti9sg
+  status: live
+  settled_auth_wcag_checks: 8/8
+  violations: 0
 database:
   initial_high_water: "0030"
   repaired_high_water: "1785099324343"
@@ -109,7 +115,10 @@ The same entry-flow smoke found Auth contrast debt. Navigation now uses the dark
 configured production dark-theme audit found one more settled control state: white submit text on
 light dark-theme `--color-navy`. The button now uses inverse `--color-background`. Transient
 input/link findings sampled during the 200 ms theme transition disappeared in the settled-state
-rerun. Final configured production evidence is recorded after the follow-up rollout.
+rerun. Exact commit `704284c` deployed as `dep-d9jllmv41pts73cti9sg`; all four configured Auth
+routes passed settled light/dark WCAG A/AA Axe (8/8), console/page/network, protected-route, and
+375px overflow checks. The stabilized signed-in Chat regression also retained the same thread across
+panel/Page/mobile and the honest provider-unavailable, draft-preserving, no-persistence behavior.
 
 ## Boundaries retained
 

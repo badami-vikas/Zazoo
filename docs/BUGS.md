@@ -936,7 +936,10 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
   the form, so its dark-theme pass was incomplete; a settled configured-production audit then exposed
   white submit text on dark-theme `--color-navy`. The submit label now uses inverse
   `--color-background`. An earlier audit sampled the 200 ms theme transition and produced transient
-  input/link false positives; the settled-state rerun isolated the button. Attached to TASK-001.
+  input/link false positives; the settled-state rerun isolated the button. Exact commit `704284c`
+  deployed as `dep-d9jllmv41pts73cti9sg`; all four configured Auth routes then passed settled light
+  and dark WCAG A/AA Axe checks (8/8), console/page/network checks, and 375px overflow. Attached to
+  TASK-001.
 
 - **OPEN 2026-07-06 — P1 Chief of Staff v1 / approval cards: honest gaps from ADR-019.**
   (1) `apps/web/src/app/pages/ApprovalsPage.tsx`'s blueprint-activation diff preview can only
