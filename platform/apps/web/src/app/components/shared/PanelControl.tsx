@@ -21,8 +21,7 @@ import { useState, type ReactNode } from "react";
 import {
   ChevronsLeft,
   ChevronsRight,
-  Maximize2,
-  Minimize2,
+  MoveHorizontal,
   PanelLeftClose,
   PanelRightClose,
 } from "lucide-react";
@@ -187,34 +186,6 @@ export function usePanelControl({
   };
 }
 
-export function ExtendToggleButton({
-  side,
-  extended,
-  onClick,
-}: {
-  side: PanelSide;
-  extended: boolean;
-  onClick: () => void;
-}) {
-  const target = side === "left" ? "sidebar" : "chat panel";
-  const label = extended ? `Restore ${target} width` : `Extend ${target}`;
-  const Icon = extended ? Minimize2 : Maximize2;
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={extended}
-      aria-controls={`panel-${side}`}
-      onClick={onClick}
-      className="p-1.5 rounded-lg hover:bg-[var(--color-surface)] transition-colors shrink-0"
-      style={{ color: "var(--color-warm-gray)" }}
-      title={label}
-    >
-      <Icon className="w-4 h-4" />
-    </button>
-  );
-}
-
 /**
  * CollapseToggleButton — the standardised icon-button both panels use to
  * expand/collapse. Appears at the top of the panel or in the collapsed strip.
@@ -258,8 +229,11 @@ export function CollapseToggleButton({
 }
 
 /**
- * ResizeHandle — the 6px invisible drag target on each panel's inner edge.
- * Renders a visible 1px line on hover so the affordance is discoverable.
+ * ResizeHandle — the drag target on each panel's inner edge. Renders a
+ * persistent, vertically-centred double-sided arrow (↔) chip so the resize
+ * affordance is always discoverable (user request 2026-07-27), plus a hairline
+ * that brightens on hover/focus. Dragging resizes; on a collapsed panel the
+ * surrounding empty space is what expands it (owned by the panel, not here).
  */
 export function ResizeHandle({
   side,
@@ -278,6 +252,7 @@ export function ResizeHandle({
   min: number;
   max: number;
 }) {
+  const edge = side === "left" ? "right-0" : "left-0";
   return (
     <div
       role="separator"
@@ -290,10 +265,17 @@ export function ResizeHandle({
       tabIndex={0}
       onMouseDown={onMouseDown}
       onKeyDown={onKeyDown}
-      className={`absolute top-0 ${side === "left" ? "right-0" : "left-0"} h-full w-1.5 cursor-col-resize z-10 group focus:outline-none focus:bg-[var(--color-steel-light)] ${side === "right" ? "-ml-0.5" : ""}`}
+      className={`group absolute top-0 ${edge} h-full w-2 cursor-col-resize z-20 flex items-center justify-center focus:outline-none ${side === "right" ? "-ml-1" : "-mr-1"}`}
       title={label ?? "Drag to resize"}
     >
-      <div className="w-px h-full mx-auto bg-transparent group-hover:bg-[var(--color-steel-light)] transition-colors" />
+      {/* Full-height hairline flush with the panel edge; brightens on hover/focus. */}
+      <div
+        className={`absolute inset-y-0 ${edge} w-px bg-[var(--color-border)] group-hover:bg-[var(--color-steel-light)] group-focus:bg-[var(--color-steel-light)] transition-colors`}
+      />
+      {/* Persistent double-sided arrow affordance, vertically centred. */}
+      <span className="relative z-10 flex h-7 w-4 items-center justify-center rounded-full border bg-[var(--color-background)] text-[var(--color-warm-gray)] shadow-sm opacity-60 transition-opacity group-hover:opacity-100 group-focus:opacity-100" style={{ borderColor: "var(--color-border)" }}>
+        <MoveHorizontal className="h-3 w-3" />
+      </span>
     </div>
   );
 }

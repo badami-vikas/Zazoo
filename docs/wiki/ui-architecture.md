@@ -8,7 +8,7 @@ full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-202
 - Related to module, not strongly to root/sub-modules → **new SUB-MODULE** = collapsible dropdown under module in left nav.
 - Unrelated → new module.
 
-**Page anatomy:** landing section (standard views: table, card, … + **Form view** — one input/field, collects new row, direct insert + Learning Agent applies same standard process other DB writes get e.g. enrichment) → related sections below → **Files section** (>20 → CoS agent smart-groups, not fixed rule). Landing section internally scrollable; scroll past it = page scroll. Empty states = honest, metadata-generated, never dummy rows (§6a).
+**Page anatomy:** landing section (standard views: table, card, … + **Form view** — one input/field, collects new row, direct insert + Learning Agent applies same standard process other DB writes get e.g. enrichment) → related sections below → **Files section** (>20 → CoS agent smart-groups, not fixed rule) → **Intelligence section** (tabs: Agents · Automations · Integrations, manifest-sourced, read-only, links to Module Detail — AP-081). Landing section internally scrollable; scroll past it = page scroll. Table stays visible even at zero rows (Notion-style empty body + Add row), never replaced by a message box (AP-081). Empty states = honest, metadata-generated, never dummy rows (§6a).
 
 **Record Detail:** every DB row gets routable detail. Fields + Relations/Tasks/Files/Results/Integrations/Agent activity/Event history = Sections. Detail ≠ sibling Page.
 
@@ -24,7 +24,7 @@ full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-202
 
 **Red flag:** only feedback flag. Hover/focus cell or bullet → subtle uncolored flag. Select → red, scoped, reversible, audited. No green/yellow feedback flags. Domain choices use explicit Actions.
 
-**Shell:** left Sidebar + right Chat Panel share expand/collapse/extend icons, state model, persisted width, inner-edge resize, keyboard/ARIA, responsive collision rules.
+**Shell:** left Sidebar + right Chat Panel share a single collapse icon + inner-edge double-arrow resize handle (the extend/full-screen icon was dropped — AP-081), state model, persisted width, keyboard/ARIA, responsive collision rules. Collapsed = no extra icons, double-arrow persists, empty-space click expands. Left nav: Home, then Modules (Task Manager is a default Module), then "+New"; Second Brain + Intelligence sit at the bottom above Settings (Intelligence deep-links Settings → Capabilities). Nav never shows a "Modules unavailable" state — the default Module keeps the list non-empty.
 
 **Second Brain:** below Modules. IS the Graph view (§3 BRD) at `scope: full` — all permitted Databases across all installed Modules, permission-filtered, same node/edge renderer as a single-Page graph. The Second Brain nav entry is a named preset that opens Graph view pre-configured to `scope: full`. No separate surface, no separate component (ADR-110). Filters + evidence + backlinks + source navigation + governed Actions + list fallback. No static data.
 

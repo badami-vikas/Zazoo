@@ -11,6 +11,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
+import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -436,6 +437,9 @@ export function DealPilotPage() {
               />
             </section>
             <ModuleFilesSection moduleName="deal-pilot" />
+            <div className="mt-6">
+              <ModuleIntelligenceSection moduleName="deal-pilot" />
+            </div>
           </div>
         </>
       )}
@@ -795,6 +799,9 @@ function RecordDetailSurface({
         </div>
       </section>
       <ModuleFilesSection moduleName="deal-pilot" />
+      <div className="mt-6">
+        <ModuleIntelligenceSection moduleName="deal-pilot" />
+      </div>
     </div>
   );
 }

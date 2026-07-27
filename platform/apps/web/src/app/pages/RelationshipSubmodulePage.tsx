@@ -2,6 +2,7 @@ import { ArrowLeft, Boxes, Network, Radio, Share2 } from "lucide-react";
 import { Link } from "react-router";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
+import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { Button } from "../components/ui/button";
 
 type RelationshipSubmodule = "relations" | "interactions" | "introductions" | "sources";
@@ -72,6 +73,9 @@ export function RelationshipSubmodulePage({ submodule }: { submodule: Relationsh
           </Button>
         </section>
         <ModuleFilesSection moduleName="relationship" />
+        <div className="mt-6">
+          <ModuleIntelligenceSection moduleName="relationship" />
+        </div>
       </div>
     </div>
   );

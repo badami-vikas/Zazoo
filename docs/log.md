@@ -1,5 +1,23 @@
 # Change Log
 
+- **2026-07-27 — Shell/nav + panel + page-anatomy UX realignment (AP-081)**:
+  Restored the intended `7f37e17` shell UX with five user-directed deltas. Left nav: Modules under
+  Home with **Task Manager as a default Module** (`DEFAULT_MODULES` in `Layout.tsx`, merged/deduped
+  with `modules.list`), **Second Brain + Intelligence moved to the bottom above Settings**; Intelligence
+  deep-links `/settings?section=intelligence` (SettingsPage now reads/writes the `section` query param).
+  The nav never renders "Modules unavailable" (the default Module keeps it non-empty; load failures log
+  to console). Second Brain's "read-only projections" banner removed. Standard page anatomy for every
+  non-Home page now ends table → **Files** (artefacts) → new **`ModuleIntelligenceSection`** (Agents ·
+  Automations · Integrations tabs, manifest-sourced, read-only, links to Module Detail) — applied to
+  TaskManager, Relationship, DealPilot, JobPilot, Signals, Relationship sub-module, and Helpdesk pages.
+  `TableView` keeps the table (and column headers) visible at zero rows with a Notion-style empty body +
+  Add row, instead of replacing the grid with a message box. Panels: dropped the extend/full-screen
+  control (`ExtendToggleButton` removed), kept one collapse icon plus a persistent inner-edge
+  double-arrow (`MoveHorizontal`) resize handle on both; collapsed shows no extra icons and expands on
+  empty-space click. Verified live (Vite dev, offline API): nav structure, collapse/expand both panels,
+  Intelligence→Capabilities deep-link, per-page Files+Intelligence stack. Web suite 105/105; touched
+  files typecheck clean (the 29 pre-existing `trpc.chat` errors are unrelated — see BUGS).
+
 - **2026-07-27 — Governed Chat release handoff added to Progress from Manish**:
   fresh-session resume notes now pin final `main@aa5b86f`, exact Render deploys, production migration
   high-water `0032`, next migration `0033`, completed local-Qwen/durable-Chat behavior, settled Auth

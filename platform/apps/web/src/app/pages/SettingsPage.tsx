@@ -14,7 +14,7 @@
  * they render honest "nothing configured" states, never fabricated toggles.
  */
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import {
   Settings, Users, CreditCard, Bell, Shield, Key, Building2, Sparkles, BookOpen, HelpCircle,
   MessageCircle, Keyboard, Zap, ExternalLink, Plus,
@@ -597,7 +597,29 @@ function HelpSection() {
 }
 
 export function SettingsPage() {
-  const [activeSection, setActiveSection] = useState("organization");
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Deep-linkable section (e.g. left-nav "Intelligence" → /settings?section=intelligence).
+  // Falls back to Organization for an unknown/missing param.
+  const requestedSection = searchParams.get("section");
+  const initialSection = navItems.some((item) => item.id === requestedSection)
+    ? (requestedSection as string)
+    : "organization";
+  const [activeSection, setActiveSection] = useState(initialSection);
+
+  // Keep the active section in sync if the URL param changes (e.g. clicking the
+  // same left-nav entry again, or navigating between deep links).
+  useEffect(() => {
+    if (requestedSection && navItems.some((item) => item.id === requestedSection)) {
+      setActiveSection(requestedSection);
+    }
+  }, [requestedSection]);
+
+  function changeSection(id: string) {
+    setActiveSection(id);
+    const params = new URLSearchParams(searchParams);
+    params.set("section", id);
+    setSearchParams(params, { replace: true });
+  }
 
   const renderContent = () => {
     switch (activeSection) {
@@ -669,7 +691,7 @@ export function SettingsPage() {
           <select
             id="settings-section"
             value={activeSection}
-            onChange={(event) => setActiveSection(event.target.value)}
+            onChange={(event) => changeSection(event.target.value)}
             className="w-full rounded-lg border border-[var(--color-border)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--color-navy)]"
           >
             {navItems.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
@@ -682,7 +704,7 @@ export function SettingsPage() {
             {navItems.map((item) => (
               <button
                 key={item.id}
-                onClick={() => setActiveSection(item.id)}
+                onClick={() => changeSection(item.id)}
                 className={clsx(
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left",
                   activeSection === item.id

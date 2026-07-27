@@ -16,7 +16,6 @@ import {
   usePanelControl,
   ResizeHandle,
   CollapseToggleButton,
-  ExtendToggleButton,
 } from "./PanelControl";
 
 // PANEL_DEFAULT_WIDTH = 1.3× the rail's default EXPANDED width (220*1.3≈286).
@@ -51,19 +50,34 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
   const agentName = avatarPrefs.avatarName || "Chief of Staff";
 
   if (collapsed && !mobile) {
+    // Collapsed strip: no extra chevron icons — the inner-edge double-arrow is
+    // the resize affordance, and clicking the empty strip expands the panel
+    // (user request 2026-07-27).
     return (
       <aside
         id="panel-right"
         aria-label="Collapsed chat panel"
-        className="w-12 shrink-0 border-l flex flex-col items-center gap-1.5 pt-3"
+        className="w-12 shrink-0 border-l flex flex-col items-center gap-1.5 pt-3 relative cursor-pointer"
         style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}
+        onClick={(e) => {
+          if (!(e.target as HTMLElement).closest("a, button, [role='separator']")) {
+            setCollapsedPersisted(false);
+          }
+        }}
+        title="Expand chat panel"
       >
-        <AvatarIcon style={avatarStyle} size={28} />
-        <CollapseToggleButton
+        <ResizeHandle
           side="right"
-          collapsed
-          onClick={() => setCollapsedPersisted(false)}
+          onMouseDown={(e) => panel.startDrag(e, "right")}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft" || e.key === "Enter") setCollapsedPersisted(false);
+          }}
+          label="Expand chat panel"
+          value={PANEL_MIN_WIDTH}
+          min={PANEL_MIN_WIDTH}
+          max={PANEL_MAX_WIDTH}
         />
+        <AvatarIcon style={avatarStyle} size={28} />
       </aside>
     );
   }
@@ -96,15 +110,9 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
         />
       )}
       <div className="h-14 flex items-center justify-between px-4 border-b shrink-0" style={{ borderColor: "var(--color-border)" }}>
-        {/* Shared CollapseToggleButton (§5b). */}
+        {/* Single collapse toggle — the extend/full-screen control was removed
+            per user request; width is set via the inner-edge double-arrow handle. */}
         <div className="flex items-center">
-          {!mobile && (
-            <ExtendToggleButton
-              side="right"
-              extended={panel.mode === "extended"}
-              onClick={panel.toggleExtended}
-            />
-          )}
           <CollapseToggleButton
             side="right"
             collapsed={false}

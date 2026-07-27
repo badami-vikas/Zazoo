@@ -13,6 +13,7 @@ import { Header } from "../components/shared/Header";
 import { type DashboardMetric } from "../components/shared/DashboardRow";
 import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
+import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { Button } from "../components/ui/button";
 import {
   DropdownMenu,
@@ -228,6 +229,9 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
           </section>
         )}
         <ModuleFilesSection moduleName="relationship" />
+        <div className="mt-6">
+          <ModuleIntelligenceSection moduleName="relationship" />
+        </div>
       </div>
     </div>
   );
