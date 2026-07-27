@@ -156,7 +156,7 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
             <button
               type="submit"
               disabled={pending}
-              className="w-full rounded-lg bg-[var(--color-navy)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+              className="w-full rounded-lg bg-[var(--color-navy)] px-4 py-2.5 text-sm font-medium text-[var(--color-background)] disabled:opacity-60"
             >
               {pending ? "Please wait..." : copy[mode].submit}
             </button>

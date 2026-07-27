@@ -104,9 +104,12 @@ run loaded the same durable thread in the right panel and Chief of Staff Page, r
 and passed Chat Axe. With no authorized hosted model configured, cloud preparation returns an honest
 precondition error before persistence and keeps the draft.
 
-The same entry-flow smoke found one serious Auth link contrast issue. Auth navigation now uses the
-darker existing `--color-navy-mid` token; focused local Axe checks pass all four Auth routes in both
-light and dark themes (8/8) before the follow-up web rollout.
+The same entry-flow smoke found Auth contrast debt. Navigation now uses the darker existing
+`--color-navy-mid` token. The first unconfigured local build did not render the Auth form, so a
+configured production dark-theme audit found one more settled control state: white submit text on
+light dark-theme `--color-navy`. The button now uses inverse `--color-background`. Transient
+input/link findings sampled during the 200 ms theme transition disappeared in the settled-state
+rerun. Final configured production evidence is recorded after the follow-up rollout.
 
 ## Boundaries retained
 

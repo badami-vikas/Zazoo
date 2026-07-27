@@ -929,13 +929,14 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
   added as a mechanical backstop against reintroduction. `turbo run build`/`turbo run test --force` both green
   (36/36 test tasks, 0 failures); `pnpm lint` 0 errors. See ADR-026 in decisions-log.md for full rationale.
 
-- **RESOLVED 2026-07-27 — P1 Auth entry links failed WCAG AA color contrast.**
-  Production Axe reported one serious `color-contrast` violation across the Bridge, Create account,
-  and Forgot password links: `--color-steel` on the Auth card background was too light. All Auth
-  navigation links now use the existing `--color-navy-mid` token, which retains the design system
-  and passes focused Axe checks on sign-in, sign-up, forgot-password, and reset-password in both
-  light and dark themes (8/8). Web tests 105/105, typecheck, focused ESLint, and production build pass.
-  Attached to TASK-001; no parallel task row.
+- **RESOLVED 2026-07-27 — P1 Auth entry controls failed WCAG AA color contrast.**
+  Production Axe first reported one serious `color-contrast` violation across the Bridge, Create
+  account, and Forgot password links: `--color-steel` on the Auth card background was too light.
+  Navigation now uses `--color-navy-mid`. The initial unconfigured local Auth build could not render
+  the form, so its dark-theme pass was incomplete; a settled configured-production audit then exposed
+  white submit text on dark-theme `--color-navy`. The submit label now uses inverse
+  `--color-background`. An earlier audit sampled the 200 ms theme transition and produced transient
+  input/link false positives; the settled-state rerun isolated the button. Attached to TASK-001.
 
 - **OPEN 2026-07-06 — P1 Chief of Staff v1 / approval cards: honest gaps from ADR-019.**
   (1) `apps/web/src/app/pages/ApprovalsPage.tsx`'s blueprint-activation diff preview can only

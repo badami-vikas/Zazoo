@@ -7,8 +7,10 @@
   high-water to `1785099324343`. Repeated production checks passed durable panel/Page/375px thread
   identity, Chat Axe, overflow, and unexpected console/page/network gates. Hosted cloud preparation
   honestly returns `412` before persistence because no authorized provider is configured, preserving
-  the draft. The same smoke found serious Auth link contrast; all Auth links now use `navy-mid`, with
-  105/105 web tests, typecheck, focused lint/build, and 8/8 light/dark Auth Axe checks passing.
+  the draft. The same smoke found serious Auth contrast: links now use `navy-mid`; a settled
+  configured dark-theme audit also found the submit button's white-on-light pairing, now replaced
+  with inverse `background`. The first unconfigured local form check was incomplete, and a later
+  audit sampled the 200 ms theme transition, so only settled configured production Axe is accepted.
 
 - **2026-07-27 — Governed persistent Chat completed (TASK-026, AP-080, ADR-147)**:
   durable owner/Organization-isolated Chat now spans panel, Chief of Staff Page, and desktop Avatar.
