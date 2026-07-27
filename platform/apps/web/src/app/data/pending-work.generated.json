@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-27T11:53:19.370Z",
+  "generatedAt": "2026-07-27T13:13:26.544Z",
   "items": [
     {
       "id": "TASK-026",
@@ -15,7 +15,7 @@
       "evidence": [
         "RESOLVED TASK-026 portions of BUGS P1 Chief of Staff v1 / approval cards items 3 and 5",
         "outputs/2026-07-26-right-chat-panel-completion.md",
-        "the three volatile React conversations, hardcoded CHIEF_OF_STAFF_REGISTRY, generic stageMutation routing, missing local-model setup, incomplete inline lifecycle, and all focused release-review defects are closed by durable shared Chat, governed dispatch, and regression coverage"
+        "the three volatile React conversations, hardcoded CHIEF_OF_STAFF_REGISTRY, generic stageMutation routing, missing local-model setup, incomplete inline lifecycle, all focused release-review defects, and the production owner-migration rollout incident are closed by durable shared Chat, governed dispatch, exact released migration hashes, and regression/live-production coverage"
       ],
       "requests": [
         "user report that the right side panel is still dummy-like",
@@ -81,7 +81,7 @@
         "docs/raw/brd-jobpilot-2026-07.md"
       ],
       "evidence": [
-        "RESOLVED TASK-001 portions of BUGS deprecated Tools/dead Modules, standalone Skills, asymmetric panels, Knowledge shell IA, Intelligence toolbar/Workflows, hardcoded Modules, pinned legacy surfaces, the clean-build JobPilot project-reference gap, Module File-root traversal, and synchronous sidecar health-wait regression",
+        "RESOLVED TASK-001 portions of BUGS deprecated Tools/dead Modules, standalone Skills, asymmetric panels, Knowledge shell IA, Intelligence toolbar/Workflows, hardcoded Modules, pinned legacy surfaces, the clean-build JobPilot project-reference gap, Module File-root traversal, synchronous sidecar health-wait regression, and Auth-entry link contrast",
         "broader Agent invocation, Relationship storage, Run/lifecycle, and server-copy tails remain attached to their owning follow-up tasks"
       ],
       "requests": [

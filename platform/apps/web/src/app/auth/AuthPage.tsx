@@ -102,7 +102,7 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--color-surface)] p-6">
       <section className="w-full max-w-md rounded-2xl border border-[var(--color-border)] bg-background p-8 shadow-sm">
-        <Link to="/" className="text-sm font-semibold text-[var(--color-steel)] no-underline">
+        <Link to="/" className="text-sm font-semibold text-[var(--color-navy-mid)] no-underline">
           Bridge
         </Link>
         <h1 className="mt-4 text-2xl font-semibold text-[var(--color-navy)]">
@@ -165,15 +165,15 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
         <div className="mt-5 flex justify-between gap-4 text-sm">
           {mode === "sign-in" ? (
             <>
-              <Link to="/auth/sign-up" className="text-[var(--color-steel)]">
+              <Link to="/auth/sign-up" className="text-[var(--color-navy-mid)]">
                 Create account
               </Link>
-              <Link to="/auth/forgot-password" className="text-[var(--color-steel)]">
+              <Link to="/auth/forgot-password" className="text-[var(--color-navy-mid)]">
                 Forgot password?
               </Link>
             </>
           ) : (
-            <Link to="/auth/sign-in" className="text-[var(--color-steel)]">
+            <Link to="/auth/sign-in" className="text-[var(--color-navy-mid)]">
               Back to sign in
             </Link>
           )}

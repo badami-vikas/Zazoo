@@ -73,6 +73,41 @@ database provenance/lifecycle mutation, release-signing order, supervisor lease 
 post-download cancellation, idle model-state refresh, composer draft loss, and the Task output
 discriminator. Each has focused regression coverage.
 
+## Production release
+
+```yaml
+source:
+  commit: 1c5340dd10bbbbbd32559ed10c388dceabd8c6d1
+render:
+  api_deploy: dep-d9jkpuf41pts73cs1m6g
+  web_deploy: dep-d9jkpu3tqb8s73aj5q5g
+  status: live
+database:
+  initial_high_water: "0030"
+  repaired_high_water: "1785099324343"
+  migration_0031_sha256: 24c7ce9e81805ac294849a4ce73755873189443b5a2173b2c230881733a953f3
+  migration_0032_sha256: 5de0db7d6ea4399f0bf86381e67d4f431149afa1edcc9b47306a0129e5474adf
+production:
+  authenticated_thread_panel_page: pass
+  authenticated_375px: pass
+  chat_accessibility_violations: 0
+  unexpected_console_page_network_errors: 0
+  cloud_provider_state: honestly_unavailable
+  unaccepted_draft_preserved: pass
+  unconsented_message_persisted: false
+```
+
+The first authenticated production run found that deployment had not applied owner-only migrations
+`0031`/`0032`; the runtime role correctly could not self-migrate. A guarded owner transaction required
+the released `0030` high-water/hash before applying the byte-identical Chat migrations. The repeated
+run loaded the same durable thread in the right panel and Chief of Staff Page, retained it at 375px,
+and passed Chat Axe. With no authorized hosted model configured, cloud preparation returns an honest
+precondition error before persistence and keeps the draft.
+
+The same entry-flow smoke found one serious Auth link contrast issue. Auth navigation now uses the
+darker existing `--color-navy-mid` token; focused local Axe checks pass all four Auth routes in both
+light and dark themes (8/8) before the follow-up web rollout.
+
 ## Boundaries retained
 
 - No private Chat sync between devices or Planes.

@@ -929,6 +929,14 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
   added as a mechanical backstop against reintroduction. `turbo run build`/`turbo run test --force` both green
   (36/36 test tasks, 0 failures); `pnpm lint` 0 errors. See ADR-026 in decisions-log.md for full rationale.
 
+- **RESOLVED 2026-07-27 — P1 Auth entry links failed WCAG AA color contrast.**
+  Production Axe reported one serious `color-contrast` violation across the Bridge, Create account,
+  and Forgot password links: `--color-steel` on the Auth card background was too light. All Auth
+  navigation links now use the existing `--color-navy-mid` token, which retains the design system
+  and passes focused Axe checks on sign-in, sign-up, forgot-password, and reset-password in both
+  light and dark themes (8/8). Web tests 105/105, typecheck, focused ESLint, and production build pass.
+  Attached to TASK-001; no parallel task row.
+
 - **OPEN 2026-07-06 — P1 Chief of Staff v1 / approval cards: honest gaps from ADR-019.**
   (1) `apps/web/src/app/pages/ApprovalsPage.tsx`'s blueprint-activation diff preview can only
   render a real diff when the referenced `definitionId` happens to ALSO be the currently-active
@@ -992,6 +1000,16 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
   and Task output requires `kind: task_create`. Full tests, source gates, 59 Rust tests, bundle policy,
   rebuilt-app deep verification, packaged Keyring load, exact `NATIVE_OK`, abrupt-exit recovery, and
   graceful child/capability cleanup pass. Independent re-review found no significant defect.
+  UPDATE 2026-07-27 (production rollout) — the exact `1c5340d` API/web release was live, but the
+  first signed-in Chat load failed because Supabase remained at migration `0030`; the runtime
+  `bridge_app` role correctly lacked schema-creation authority, so the application could not create
+  `chat_threads`. A guarded owner transaction required the released `0030` high-water/hash, applied
+  the byte-identical `0031`/`0032` sources and hashes, and advanced Drizzle high-water to
+  `1785099324343`. Repeated signed-in production checks loaded one durable thread across the right
+  panel and Chief of Staff Page, retained it at 375px without overflow, passed Chat Axe with zero
+  violations, and produced no unexpected console/page/network errors. Cloud preparation with no
+  configured provider returned the honest expected `412`, preserved the draft, and persisted no
+  message. This rollout incident is RESOLVED and attached to TASK-026.
   UPDATE 2026-07-06 (ADR-024) — item (1)'s KERNEL half is now closed: `workspace.blueprint.getById`
   (`{ workspaceId, definitionId }`, apps/api/src/router.ts) returns a `workspace_definition` row
   by id regardless of status (draft/active/archived), identity-scoped. `ApprovalsPage.tsx` has not

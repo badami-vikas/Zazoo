@@ -1,5 +1,15 @@
 # Change Log
 
+- **2026-07-27 — TASK-026 production rollout repaired; Auth contrast hardened**:
+  Render API `dep-d9jkpuf41pts73cs1m6g` and web `dep-d9jkpu3tqb8s73aj5q5g` went live at
+  `1c5340d`. The first signed-in Chat load exposed Supabase still at `0030`; a guarded owner
+  transaction required its released hash, applied byte-identical `0031`/`0032`, and advanced
+  high-water to `1785099324343`. Repeated production checks passed durable panel/Page/375px thread
+  identity, Chat Axe, overflow, and unexpected console/page/network gates. Hosted cloud preparation
+  honestly returns `412` before persistence because no authorized provider is configured, preserving
+  the draft. The same smoke found serious Auth link contrast; all Auth links now use `navy-mid`, with
+  105/105 web tests, typecheck, focused lint/build, and 8/8 light/dark Auth Axe checks passing.
+
 - **2026-07-27 — Governed persistent Chat completed (TASK-026, AP-080, ADR-147)**:
   durable owner/Organization-isolated Chat now spans panel, Chief of Staff Page, and desktop Avatar.
   Migrations `0031`/`0032`, server-owned bounded context, real eligible Agent-owned Skill dispatch,
