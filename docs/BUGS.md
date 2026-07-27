@@ -18,6 +18,19 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## OPEN 2026-07-27 — Web typecheck fails on stale `@bridge/api` types: `trpc.chat` missing (TASK-026)
+Discovered while realigning the shell UX (AP-081). On freshly-pulled `main`, `pnpm --filter @bridge/web
+typecheck` reports **29 errors**, all in `platform/apps/web/src/app/chat/{ChatView.tsx,useChat.ts}`:
+`Property 'chat' does not exist on type 'TRPCClient<…>'` plus consequent implicit-`any` params, and
+`'chatThreadId' does not exist in {proposalId, decision, …}`. The `chat` router **does** exist in
+`platform/apps/api/src/router.ts:5095`, so this is a **stale build artifact**: the web client imports
+`AppRouter` from `@bridge/api` and the package's emitted types were not rebuilt after the TASK-026 chat
+router was added. Type-only — Vite strips types, so the dev server and runtime chat work when the API is
+up; only `tsc --noEmit` fails. Reproduced by stashing all AP-081 edits (still 29 errors), so it is
+**pre-existing and unrelated** to the UX work. Root cause consistent with the CI-billing-blocked window
+(no gate rebuilt `@bridge/api`). Fix: rebuild `@bridge/api` types (and align `useChat.ts`'s
+`decideProposal` input to the router's schema). Attached to **TASK-026**.
+
 ## RESOLVED 2026-07-26 — Token docs claimed project skill scoping that main did not contain
 
 The token plan, wiki index, and 2026-07-09 log said 111 off-project skills were disabled through a

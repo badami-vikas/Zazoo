@@ -5,6 +5,7 @@ import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tabl
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
+import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
 import { RedFlagControl } from "../components/shared/RedFlagControl";
 import { RedFlagProvider } from "../components/shared/RedFlagProvider";
@@ -183,6 +184,9 @@ export function JobPilotPage() {
           </RedFlagProvider>
         )}
         <ModuleFilesSection moduleName="job-pilot" />
+        <div className="mt-6">
+          <ModuleIntelligenceSection moduleName="job-pilot" />
+        </div>
       </div>
     </div>
   );

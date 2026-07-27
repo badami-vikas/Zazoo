@@ -107,9 +107,6 @@ export function SecondBrainPage() {
         activeTab="Second Brain"
         onTabChange={() => {}}
       />
-      <div className="border-b px-4 py-3 text-xs text-muted-foreground">
-        All permitted Databases across Modules. Nodes and Relations are read-only projections; Actions use the owning governed path.
-      </div>
       {actionStatus && (
         <div role="status" className="border-b px-4 py-2 text-xs" style={{ color: "var(--color-navy-mid)" }}>
           {actionStatus}

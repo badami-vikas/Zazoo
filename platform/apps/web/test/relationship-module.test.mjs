@@ -133,7 +133,9 @@ test("Signal detail exposes participant, Event, and governed Action paths", () =
 test("375px shell keeps installed Modules reachable", () => {
   assert.match(layout, /aria-controls="mobile-module-menu"/);
   assert.match(layout, /Installed Modules/);
-  assert.match(layout, /installedModules\.map/);
+  // UX realignment 2026-07-27: the mobile menu renders navModules (default
+  // Task Manager + installed Modules from modules.list), not the raw list.
+  assert.match(layout, /navModules\.map/);
 });
 
 test("375px Settings and Approvals keep governed actions in the visible content flow", () => {

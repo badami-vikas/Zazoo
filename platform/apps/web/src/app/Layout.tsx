@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare } from "lucide-react";
+import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles } from "lucide-react";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -17,7 +17,6 @@ import {
   usePanelControl,
   ResizeHandle,
   CollapseToggleButton,
-  ExtendToggleButton,
 } from "./components/shared/PanelControl";
 import { DesktopWindowChrome } from "./components/shared/DesktopWindowChrome";
 import { useAuthSession } from "./auth/AuthSession";
@@ -33,6 +32,22 @@ import { useAuthSession } from "./auth/AuthSession";
  * share the same collapse/expand/resize/keyboard/ARIA contract via the shared
  * PanelControl component.
  */
+// A left-nav Module entry — either a built-in default (Task Manager) or one
+// sourced from modules.list. `icon` and `to` let defaults route to their own
+// dedicated surface (/task-manager) while API modules use /module/:name.
+type NavModule = {
+  moduleName: string;
+  displayName: string;
+  to: string;
+  icon: typeof Boxes;
+};
+
+// Task Manager is a default Module: it always appears under Home regardless of
+// modules.list state, so the Modules list is never empty and never errors out.
+const DEFAULT_MODULES: NavModule[] = [
+  { moduleName: "task-manager", displayName: "Task Manager", to: "/task-manager", icon: ListChecks },
+];
+
 export default function Layout() {
   const auth = useAuthSession();
   const location = useLocation();
@@ -86,8 +101,6 @@ export default function Layout() {
     { moduleName: string; displayName: string }[] | null
   >(null);
 
-  const [moduleLoadError, setModuleLoadError] = useState<string | null>(null);
-
   // TASK-001 VOCAB6: load installed modules from modules.list for the nav.
   // Only `available` state modules appear. Fetched once per mount.
   useEffect(() => {
@@ -109,7 +122,9 @@ export default function Layout() {
         setInstalledModules(available);
       })
       .catch((failure) => {
-        setModuleLoadError(String(failure));
+        // The nav always shows the default Modules (Task Manager), so a load
+        // failure degrades silently rather than surfacing an "unavailable" state.
+        console.error("[nav] failed to load installed modules", failure);
         setInstalledModules([]);
       });
   }, []);
@@ -200,6 +215,22 @@ export default function Layout() {
     return location.pathname === to || location.pathname.startsWith(`${to}/`);
   }
 
+  // Modules shown under Home: default Modules (Task Manager) first, then the
+  // installed Modules from modules.list, de-duplicated by moduleName. Defaults
+  // guarantee the list is never empty, so no "unavailable" state is ever shown.
+  const apiModules: NavModule[] = (installedModules ?? []).map((mod) => ({
+    moduleName: mod.moduleName,
+    displayName: mod.displayName,
+    to: `/module/${mod.moduleName}`,
+    icon: Boxes,
+  }));
+  const navModules: NavModule[] = [
+    ...DEFAULT_MODULES,
+    ...apiModules.filter(
+      (mod) => !DEFAULT_MODULES.some((def) => def.moduleName === mod.moduleName),
+    ),
+  ];
+
   // Rail nav item — TWO layouts sharing one active-state treatment.
   // Collapsed: icon + short label stacked/centered. Expanded: icon + full label in a row.
   function navItemClass(active: boolean): string {
@@ -220,7 +251,12 @@ export default function Layout() {
   }
 
   const homeActive = location.pathname === "/" || isActive("/home");
-  const settingsActive = isActive("/settings");
+  // Intelligence deep-links into Settings → Capabilities; treat it as the active
+  // bottom-nav entry (and suppress the Settings highlight) when that section is
+  // the one showing, so only one entry lights up at a time.
+  const intelligenceActive =
+    isActive("/settings") && new URLSearchParams(location.search).get("section") === "intelligence";
+  const settingsActive = isActive("/settings") && !intelligenceActive;
   const secondBrainActive = isActive("/second-brain");
 
   return (
@@ -240,7 +276,7 @@ export default function Layout() {
           borderColor: "var(--color-border)",
         }}
         onClick={(e) => {
-          if (!railExpanded && !(e.target as HTMLElement).closest("a, button")) {
+          if (!railExpanded && !(e.target as HTMLElement).closest("a, button, [role='separator']")) {
             setRailExpandedPersisted(true);
           }
         }}
@@ -293,14 +329,11 @@ export default function Layout() {
             </span>
           </button>
 
-          {/* Collapse toggle — shared CollapseToggleButton (§5b). */}
+          {/* Single collapse toggle — the full-screen/extend control was
+              removed per user request; width is adjusted via the inner-edge
+              double-arrow resize handle instead. */}
           {railExpanded && (
             <div className="flex items-center">
-              <ExtendToggleButton
-                side="left"
-                extended={rail.mode === "extended"}
-                onClick={rail.toggleExtended}
-              />
               <CollapseToggleButton
                 side="left"
                 collapsed={false}
@@ -354,61 +387,32 @@ export default function Layout() {
             Modules are sourced from modules.list (not hardcoded). Each links to
             /module/:moduleName (manifest-driven Module Detail, §4b). */}
         <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
-          {!railExpanded && (
-            <div className="flex justify-center pb-1">
-              <CollapseToggleButton
-                side="left"
-                collapsed
-                onClick={() => setRailExpandedPersisted(true)}
-              />
-            </div>
-          )}
           <Link to="/" className={navItemClass(homeActive)} title="Home">
             {homeActive && <ActiveBar />}
             <Home className="w-5 h-5 shrink-0" style={{ color: homeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Home</span>
           </Link>
 
-          {/* Installed Modules — from modules.list (real API, §5c). */}
-          {installedModules === null ? (
-            // Loading state: show a subtle indicator rather than a spinner in the nav.
-            <div
-              className="py-1.5 px-2 text-[9px]"
-              style={{ color: "var(--color-warm-gray)" }}
-              role="status"
-              aria-label="Loading installed modules"
-            >
-              {railExpanded ? "Loading modules…" : "…"}
-            </div>
-          ) : installedModules.length === 0 ? (
-            <div className="py-1.5 text-[9px] text-center" style={{ color: "var(--color-warm-gray)" }}>
-              {railExpanded ? (moduleLoadError ? "Modules unavailable" : "No modules installed") : "—"}
-            </div>
-          ) : (
-            installedModules.map((mod) => {
-              const to = `/module/${mod.moduleName}`;
-              const active = isActive(to);
-              return (
-                <Link
-                  key={mod.moduleName}
-                  to={to}
-                  className={navItemClass(active)}
-                  title={mod.displayName}
-                  aria-current={active ? "page" : undefined}
-                >
-                  {active && <ActiveBar />}
-                  <Boxes className="w-5 h-5 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-                  <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>{mod.displayName}</span>
-                </Link>
-              );
-            })
-          )}
-
-          <Link to="/second-brain" className={navItemClass(secondBrainActive)} title="Second Brain">
-            {secondBrainActive && <ActiveBar />}
-            <Network className="w-5 h-5 shrink-0" style={{ color: secondBrainActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>Second Brain</span>
-          </Link>
+          {/* Modules under Home — Task Manager (default) first, then installed
+              Modules from modules.list. Always non-empty, so no "unavailable"
+              or "no modules" state is ever rendered. */}
+          {navModules.map((mod) => {
+            const active = isActive(mod.to);
+            const Icon = mod.icon;
+            return (
+              <Link
+                key={mod.moduleName}
+                to={mod.to}
+                className={navItemClass(active)}
+                title={mod.displayName}
+                aria-current={active ? "page" : undefined}
+              >
+                {active && <ActiveBar />}
+                <Icon className="w-5 h-5 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+                <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>{mod.displayName}</span>
+              </Link>
+            );
+          })}
 
           {/* "+New" — ALWAYS below all modules. */}
           <button
@@ -423,13 +427,23 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Bottom section — Settings.
-            TASK-001 VOCAB6: Knowledge and Intelligence removed from primary nav
-            (deprecated surfaces: Tools, Knowledge, Projects). */}
+        {/* Bottom section — Second Brain + Intelligence sit above Settings.
+            Second Brain is the cross-Module Graph preset; Intelligence deep-links
+            into Settings → Capabilities (Modules · Integrations · Agents · Registry). */}
         <div
           className="border-t flex flex-col gap-0.5 px-1.5 pb-3 pt-2 shrink-0"
           style={{ borderColor: "var(--color-border)" }}
         >
+          <Link to="/second-brain" className={navItemClass(secondBrainActive)} title="Second Brain">
+            {secondBrainActive && <ActiveBar />}
+            <Network className="w-5 h-5 shrink-0" style={{ color: secondBrainActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <span className={navLabelClass()}>Second Brain</span>
+          </Link>
+          <Link to="/settings?section=intelligence" className={navItemClass(intelligenceActive)} title="Intelligence">
+            {intelligenceActive && <ActiveBar />}
+            <Sparkles className="w-5 h-5 shrink-0" style={{ color: intelligenceActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <span className={navLabelClass()}>Intelligence</span>
+          </Link>
           <Link to="/settings" className={navItemClass(settingsActive)} title="Settings">
             {settingsActive && <ActiveBar />}
             <Settings className="w-5 h-5 shrink-0" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
@@ -483,18 +497,23 @@ export default function Layout() {
               />
             </div>
             <div className="space-y-1">
-              {installedModules?.map((module) => (
-                <Link
-                  key={module.moduleName}
-                  to={`/module/${module.moduleName}`}
-                  onClick={() => setMobileModulesOpen(false)}
-                  className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
-                  style={{ color: "var(--color-navy)" }}
-                >
-                  <Boxes className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
-                  {module.displayName}
-                </Link>
-              ))}
+              {navModules.map((module) => {
+                const Icon = module.icon;
+                return (
+                  <Link
+                    key={module.moduleName}
+                    to={module.to}
+                    onClick={() => setMobileModulesOpen(false)}
+                    className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
+                    style={{ color: "var(--color-navy)" }}
+                  >
+                    <Icon className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+                    {module.displayName}
+                  </Link>
+                );
+              })}
+            </div>
+            <div className="mt-3 space-y-1 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
               <Link
                 to="/second-brain"
                 onClick={() => setMobileModulesOpen(false)}
@@ -504,7 +523,15 @@ export default function Layout() {
                 <Network className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
                 Second Brain
               </Link>
-              {moduleLoadError && <p className="px-3 py-2 text-xs text-red-600">Modules unavailable: {moduleLoadError}</p>}
+              <Link
+                to="/settings?section=intelligence"
+                onClick={() => setMobileModulesOpen(false)}
+                className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
+                style={{ color: "var(--color-navy)" }}
+              >
+                <Sparkles className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+                Intelligence
+              </Link>
             </div>
             <div className="mt-3 space-y-1 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
               <button

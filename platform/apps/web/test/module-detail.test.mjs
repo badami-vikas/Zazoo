@@ -265,15 +265,23 @@ test("Module Detail exposes inspectable recent attributable Automation Runs", ()
   assert.match(source, /run\.agentId/);
 });
 
-test("both shell panels use shared collapse, extend, and Escape controls", () => {
+test("both shell panels share a single collapse control + double-arrow resize handle (no extend button) and Escape", () => {
+  // UX realignment 2026-07-27 (AP-073): the full-screen / extend icon was
+  // dropped. Each panel keeps exactly ONE collapse control plus the inner-edge
+  // double-sided arrow (MoveHorizontal) resize handle; Escape still steps back.
   const panelSource = readFileSync(new URL("../src/app/components/shared/PanelControl.tsx", import.meta.url), "utf8");
   const layoutSource = readFileSync(new URL("../src/app/Layout.tsx", import.meta.url), "utf8");
   const chatSource = readFileSync(new URL("../src/app/components/shared/AgentPanel.tsx", import.meta.url), "utf8");
-  assert.match(panelSource, /type PanelMode = "collapsed" \| "expanded" \| "extended"/);
   assert.match(panelSource, /function handleEscape/);
-  assert.match(panelSource, /function ExtendToggleButton/);
-  assert.match(layoutSource, /<ExtendToggleButton/);
+  assert.match(panelSource, /function ResizeHandle/);
+  assert.match(panelSource, /MoveHorizontal/);
+  // The extend/full-screen control is gone from the component and both panels.
+  assert.doesNotMatch(panelSource, /function ExtendToggleButton/);
+  assert.doesNotMatch(layoutSource, /ExtendToggleButton/);
+  assert.doesNotMatch(chatSource, /ExtendToggleButton/);
+  // A single shared collapse control remains on each panel.
+  assert.match(layoutSource, /<CollapseToggleButton/);
   assert.match(layoutSource, /rail\.handleEscape\(\)/);
-  assert.match(chatSource, /<ExtendToggleButton/);
+  assert.match(chatSource, /<CollapseToggleButton/);
   assert.match(chatSource, /panel\.handleEscape\(\)/);
 });

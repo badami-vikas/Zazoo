@@ -5,6 +5,7 @@ import { normalizeViewKind, type TableSpec, type ViewConfig } from "@bridge/tabl
 import { Header } from "../components/shared/Header";
 import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
+import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { DataViews } from "../dataviews/DataViews";
 import { computeEligibleKinds, viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow } from "../dataviews/types";
@@ -203,24 +204,32 @@ export function TaskManagerPage() {
           <p role="status" className="p-6 text-sm text-muted-foreground">Loading Task Records…</p>
         ) : error ? (
           <p role="alert" className="p-6 text-sm text-red-600">Task Manager could not load: {error}</p>
-        ) : !API_TRANSPORT_CONFIGURED ? (
-          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-            No Task Database is connected. Start the Bridge API to create the first real Task.
-          </div>
         ) : (
-          <DataViews
-            spec={TASK_SPEC}
-            view={view}
-            data={rows}
-            onViewChange={changeView}
-            onInsert={insertTask}
-            onUpdate={updateTask}
-            onOpenRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
-            onEditRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
-          />
+          <>
+            {/* Notion-like: the table is always present. When no Database is
+                connected we show an honest banner above the (empty) table
+                rather than hiding it. */}
+            {!API_TRANSPORT_CONFIGURED && (
+              <div className="mb-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                No Task Database is connected. Start the Bridge API to create the first real Task.
+              </div>
+            )}
+            <DataViews
+              spec={TASK_SPEC}
+              view={view}
+              data={rows}
+              onViewChange={changeView}
+              {...(API_TRANSPORT_CONFIGURED ? { onInsert: insertTask, onUpdate: updateTask } : {})}
+              onOpenRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
+              onEditRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
+            />
+          </>
         )}
         <div className="mt-6">
           <ModuleFilesSection moduleName="task-manager" />
+        </div>
+        <div className="mt-6">
+          <ModuleIntelligenceSection moduleName="task-manager" />
         </div>
       </div>
     </div>

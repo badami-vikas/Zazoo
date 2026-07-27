@@ -49,19 +49,6 @@ export function TableView({
   // always errors is not a working governed Action (AP-021).
   const flaggable = isSupportedRedFlagModule(moduleId);
 
-  if (sorted.length === 0) {
-    return (
-      <div className="p-6 text-sm text-muted-foreground text-center border rounded-md space-y-3">
-        <div>No {spec.id} records yet.</div>
-        {onInsert && (
-          <Button size="sm" variant="outline" onClick={() => onViewChange({ ...view, kind: "form" })}>
-            <Plus className="size-3.5" /> Add row
-          </Button>
-        )}
-      </div>
-    );
-  }
-
   const table = (
     <div className="border rounded-md">
       <Table>
@@ -113,6 +100,23 @@ export function TableView({
           </TableRow>
         </TableHeader>
         <TableBody>
+          {/* Notion-like empty state: the table (with all its column headers)
+              stays visible even with zero rows; the empty note + Add row live
+              inside the body rather than replacing the whole grid. */}
+          {sorted.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={spec.columns.length + 1}>
+                <div className="flex flex-col items-center gap-3 py-8 text-sm text-muted-foreground">
+                  <span>No {spec.id} records yet.</span>
+                  {onInsert && (
+                    <Button size="sm" variant="outline" onClick={() => onViewChange({ ...view, kind: "form" })}>
+                      <Plus className="size-3.5" /> Add row
+                    </Button>
+                  )}
+                </div>
+              </TableCell>
+            </TableRow>
+          )}
           {sorted.map((row, i) => {
             // review round-4 item 6: a red flag anchor's `recordId` must be
             // a STABLE, persisted record id — never the sorted row's

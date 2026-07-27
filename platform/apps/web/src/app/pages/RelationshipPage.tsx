@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
+import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { DataViews } from "../dataviews/DataViews";
@@ -528,6 +529,9 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
       {kind === "person" && <IntakeReviewSection />}
       <div className="m-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
         <ModuleFilesSection moduleName="relationship" />
+      </div>
+      <div className="m-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
+        <ModuleIntelligenceSection moduleName="relationship" />
       </div>
     </div>
   );
