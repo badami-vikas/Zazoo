@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   access,
   chmod,
@@ -22,7 +23,9 @@ const generatedRoot = join(tauriRoot, "generated");
 const apiTarget = join(generatedRoot, "api");
 const licensesTarget = join(generatedRoot, "licenses");
 const nativeTarget = join(generatedRoot, "native");
+const llamaTarget = join(generatedRoot, "llama");
 const binariesTarget = join(tauriRoot, "binaries");
+const modelRuntimeManifestPath = join(desktopRoot, "model-runtime-manifest.json");
 const apiEntry = join(apiTarget, "dist", "src", "server.js");
 const nativeKeyringTarget = join(nativeTarget, "bridge-keyring.dylib");
 export const MAC_NATIVE_KEYRING_LOADER = `"use strict";
@@ -39,6 +42,171 @@ export function unsupportedInstallerReason(platform = process.platform) {
   return platform === "win32"
     ? "Windows installers are disabled until the managed API can inherit a reserved loopback listener securely"
     : null;
+}
+
+export function llamaAssetForTarget(manifest, target) {
+  const assets = manifest?.runtime?.assets;
+  const asset = assets?.[target];
+  if (
+    !asset ||
+    typeof asset.url !== "string" ||
+    typeof asset.sha256 !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(asset.sha256) ||
+    !["tar.gz", "zip"].includes(asset.archive)
+  ) {
+    throw new Error(`no pinned llama.cpp runtime asset for ${target}`);
+  }
+  return asset;
+}
+
+async function sha256File(path) {
+  const hash = createHash("sha256");
+  const file = await readFile(path);
+  hash.update(file);
+  return hash.digest("hex");
+}
+
+export function macRuntimeSigningArgs(path, identity, keychain) {
+  return [
+    "--force",
+    ...(identity === "-" ? [] : ["--options", "runtime", "--timestamp"]),
+    ...(keychain ? ["--keychain", keychain] : []),
+    "--sign",
+    identity,
+    path,
+  ];
+}
+
+export function macRuntimeSigningConfig(
+  environment = process.env,
+  platform = process.platform,
+) {
+  if (platform !== "darwin") return null;
+  const release = environment.BRIDGE_RELEASE_SIGNING === "1";
+  const identity = environment.APPLE_SIGNING_IDENTITY?.trim();
+  const keychain = environment.BRIDGE_CODESIGN_KEYCHAIN?.trim();
+  if (release && (!identity || identity === "-" || !keychain)) {
+    throw new Error(
+      "release bundle preparation requires an imported Developer ID identity and keychain",
+    );
+  }
+  return release
+    ? { identity, keychain }
+    : { identity: "-", keychain: undefined };
+}
+
+function signMacRuntimeFile(path) {
+  const signing = macRuntimeSigningConfig();
+  if (!signing) return;
+  const signed = spawnSync(
+    "codesign",
+    macRuntimeSigningArgs(path, signing.identity, signing.keychain),
+    { encoding: "utf8" },
+  );
+  if (signed.status !== 0) {
+    throw new Error(
+      `failed to sign managed llama.cpp runtime file ${basename(path)}: ${
+        signed.stderr || signed.stdout
+      }`,
+    );
+  }
+}
+
+export async function prepareLlamaRuntime(target) {
+  const manifest = JSON.parse(await readFile(modelRuntimeManifestPath, "utf8"));
+  const asset = llamaAssetForTarget(manifest, target);
+  const archivePath = join(
+    generatedRoot,
+    asset.archive === "zip" ? "llama-runtime.zip" : "llama-runtime.tar.gz",
+  );
+  const extractRoot = join(generatedRoot, "llama-extract");
+  await Promise.all([
+    rm(llamaTarget, { recursive: true, force: true }),
+    rm(extractRoot, { recursive: true, force: true }),
+  ]);
+  await mkdir(extractRoot, { recursive: true });
+  const response = await fetch(asset.url, { redirect: "follow" });
+  if (!response.ok) {
+    throw new Error(`failed to download pinned llama.cpp runtime: HTTP ${response.status}`);
+  }
+  await writeFile(archivePath, Buffer.from(await response.arrayBuffer()), {
+    mode: 0o600,
+  });
+  const digest = await sha256File(archivePath);
+  if (digest !== asset.sha256) {
+    throw new Error("pinned llama.cpp runtime archive SHA-256 mismatch");
+  }
+  const extracted = spawnSync("tar", ["-xf", archivePath, "-C", extractRoot], {
+    cwd: platformRoot,
+    encoding: "utf8",
+  });
+  if (extracted.status !== 0) {
+    throw new Error(`failed to extract pinned llama.cpp runtime: ${extracted.stderr}`);
+  }
+  await mkdir(llamaTarget, { recursive: true });
+  const copied = [];
+  await walkFiles(extractRoot, async (_relativePath, sourcePath) => {
+    const name = basename(sourcePath);
+    const lower = name.toLowerCase();
+    if (
+      lower === "llama-server" ||
+      lower === "llama-server.exe" ||
+      lower === "license" ||
+      lower.endsWith(".dylib") ||
+      lower.includes(".so") ||
+      lower.endsWith(".dll")
+    ) {
+      await copyFile(sourcePath, join(llamaTarget, name));
+      copied.push(name);
+    }
+  });
+  const serverName = process.platform === "win32" ? "llama-server.exe" : "llama-server";
+  if (!copied.includes(serverName) || !copied.some((name) => name.toLowerCase() === "license")) {
+    throw new Error("pinned llama.cpp runtime archive is missing llama-server or LICENSE");
+  }
+  if (process.platform !== "win32") {
+    await chmod(join(llamaTarget, serverName), 0o755);
+  }
+  for (const name of copied) {
+    if (name === serverName || name.toLowerCase().endsWith(".dylib")) {
+      signMacRuntimeFile(join(llamaTarget, name));
+    }
+  }
+  const launched = spawnSync(join(llamaTarget, serverName), ["--version"], {
+    cwd: llamaTarget,
+    encoding: "utf8",
+  });
+  if (launched.status !== 0) {
+    throw new Error(
+      `prepared llama.cpp runtime failed its launch smoke test: ${
+        launched.stderr || launched.stdout
+      }`,
+    );
+  }
+  const runtimeFiles = {};
+  for (const name of copied.sort()) {
+    runtimeFiles[name] = await sha256File(join(llamaTarget, name));
+  }
+  await writeFile(
+    join(llamaTarget, "bridge-llama-runtime.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        target,
+        runtimeRelease: manifest.runtime.release,
+        runtimeRevision: manifest.runtime.revision,
+        archiveSha256: asset.sha256,
+        files: runtimeFiles,
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o600 },
+  );
+  await Promise.all([
+    rm(archivePath, { force: true }),
+    rm(extractRoot, { recursive: true, force: true }),
+  ]);
 }
 
 export function sensitiveRuntimeFileReason(relativePath) {
@@ -197,6 +365,12 @@ async function expectedInputs() {
             "bridge-loader.cjs",
           )
         : null,
+    llamaRuntimeManifest: join(llamaTarget, "bridge-llama-runtime.json"),
+    llamaServer: join(
+      llamaTarget,
+      process.platform === "win32" ? "llama-server.exe" : "llama-server",
+    ),
+    llamaLicense: join(llamaTarget, "LICENSE"),
   };
 }
 
@@ -216,7 +390,15 @@ async function verifyInputs() {
   ) {
     throw new Error("desktop bundle inputs are stale for this Node/Rust target");
   }
-  const requiredPaths = [apiEntry, expected.nodeTarget, expected.licensePath];
+  const requiredPaths = [
+    apiEntry,
+    expected.nodeTarget,
+    expected.licensePath,
+    expected.llamaRuntimeManifest,
+    expected.llamaServer,
+    expected.llamaLicense,
+    modelRuntimeManifestPath,
+  ];
   if (expected.nativeKeyringTarget) requiredPaths.push(expected.nativeKeyringTarget);
   if (expected.nativeKeyringLoader) requiredPaths.push(expected.nativeKeyringLoader);
   await Promise.all(requiredPaths.map((path) => access(path, constants.R_OK)));
@@ -230,6 +412,39 @@ async function verifyInputs() {
   await assertNoSensitiveRuntimeFiles(apiTarget);
   if (process.platform === "darwin") {
     await assertNoMacNativeAddonsInResources(apiTarget);
+  }
+  const llamaManifest = JSON.parse(
+    await readFile(expected.llamaRuntimeManifest, "utf8"),
+  );
+  const releaseManifest = JSON.parse(
+    await readFile(modelRuntimeManifestPath, "utf8"),
+  );
+  const llamaAsset = llamaAssetForTarget(releaseManifest, expected.target);
+  const runtimeFiles = Object.entries(llamaManifest.files ?? {});
+  if (
+    runtimeFiles.length === 0 ||
+    !runtimeFiles.some(([name]) => name === basename(expected.llamaServer))
+  ) {
+    throw new Error("desktop llama.cpp runtime file inventory is missing");
+  }
+  if (
+    llamaManifest.target !== expected.target ||
+    llamaManifest.runtimeRelease !== releaseManifest.runtime.release ||
+    llamaManifest.runtimeRevision !== releaseManifest.runtime.revision ||
+    llamaManifest.archiveSha256 !== llamaAsset.sha256
+  ) {
+    throw new Error("desktop llama.cpp runtime inputs are stale or wrong-target");
+  }
+  for (const [name, digest] of runtimeFiles) {
+    if (
+      typeof name !== "string" ||
+      basename(name) !== name ||
+      typeof digest !== "string" ||
+      !/^[0-9a-f]{64}$/u.test(digest) ||
+      digest !== (await sha256File(join(llamaTarget, name)))
+    ) {
+      throw new Error(`desktop llama.cpp runtime file ${name} failed integrity verification`);
+    }
   }
 }
 
@@ -276,12 +491,14 @@ async function prepare() {
     rm(apiTarget, { recursive: true, force: true }),
     rm(licensesTarget, { recursive: true, force: true }),
     rm(nativeTarget, { recursive: true, force: true }),
+    rm(llamaTarget, { recursive: true, force: true }),
     rm(binariesTarget, { recursive: true, force: true }),
   ]);
   await Promise.all([
     mkdir(apiTarget, { recursive: true }),
     mkdir(join(licensesTarget, "node"), { recursive: true }),
     mkdir(nativeTarget, { recursive: true }),
+    mkdir(llamaTarget, { recursive: true }),
     mkdir(binariesTarget, { recursive: true }),
   ]);
 
@@ -303,6 +520,7 @@ async function prepare() {
   }
   await extractMacNativeKeyring();
   await assertNoSensitiveRuntimeFiles(apiTarget);
+  await prepareLlamaRuntime(expected.target);
 
   await copyFile(process.execPath, expected.nodeTarget);
   if (process.platform !== "win32") await chmod(expected.nodeTarget, 0o755);
@@ -338,6 +556,7 @@ async function prepare() {
     writeFile(join(apiTarget, ".gitkeep"), ""),
     writeFile(join(licensesTarget, ".gitkeep"), ""),
     writeFile(join(nativeTarget, ".gitkeep"), ""),
+    writeFile(join(llamaTarget, ".gitkeep"), ""),
     writeFile(join(binariesTarget, ".gitkeep"), ""),
   ]);
   await verifyInputs();

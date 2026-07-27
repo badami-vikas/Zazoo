@@ -348,12 +348,6 @@ test("persistent governance provisioning grants culture-research authority to Le
       "signal:write",
       "event:write",
       "external:fetch:read",
-      // TASK-011 merge reconciliation (2026-07-19) — origin/main's TASK-010
-      // added its own additional Learning Agent grant (event:write, for the
-      // red-flag-correction preference-adjustment Skill) alongside this
-      // branch's event:write/external:fetch:read grants; the persistent
-      // governance provisioning combines both.
-      "event:write",
     ]);
     assert.equal(await agents.dataScope(LEARNING_AGENT), "all");
     assert.ok((await agents.allowedSkills(LEARNING_AGENT)).includes("jobpilot.researchCultureSource"));
@@ -368,6 +362,7 @@ test("persistent governance provisioning grants culture-research authority to Le
       "stageStrategicRecommendation",
       "jobpilot.synthesizeCultureProfile",
       "task-manager.ledger-projection",
+      "task-manager.create-task",
     ]);
   } finally {
     await close();

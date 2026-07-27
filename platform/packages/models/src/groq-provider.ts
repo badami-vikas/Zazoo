@@ -33,7 +33,15 @@ export interface GroqProviderOpts {
 }
 
 const GROQ_URL = "https://api.groq.com/openai/v1";
-const DEFAULT_MODEL = "llama-3.3-70b-versatile";
+const DEFAULT_MODEL = "openai/gpt-oss-20b";
+const STRICT_JSON_SCHEMA_MODELS = new Set([
+  "openai/gpt-oss-20b",
+  "openai/gpt-oss-120b",
+]);
+const BEST_EFFORT_JSON_SCHEMA_MODELS = new Set([
+  ...STRICT_JSON_SCHEMA_MODELS,
+  "openai/gpt-oss-safeguard-20b",
+]);
 
 export class GroqProvider implements ModelProvider {
   readonly id = "groq";
@@ -68,6 +76,20 @@ export class GroqProvider implements ModelProvider {
   async complete(req: ModelCompletionRequest): Promise<ModelCompletion> {
     assertModelCompletionRequest(req, "GroqProvider.complete");
     assertTierSupported(this.id, this.tiers, req.tier);
+    const strictResponse = req.responseFormat?.strict ?? true;
+    if (
+      req.responseFormat &&
+      !(strictResponse
+        ? STRICT_JSON_SCHEMA_MODELS
+        : BEST_EFFORT_JSON_SCHEMA_MODELS
+      ).has(this.#model)
+    ) {
+      throw new Error(
+        `GroqProvider model ${this.#model} does not support ${
+          strictResponse ? "strict" : "best-effort"
+        } JSON Schema output`,
+      );
+    }
     const messages = [
       ...(req.system !== undefined ? [{ role: "system", content: req.system }] : []),
       { role: "user", content: req.prompt },
@@ -82,7 +104,20 @@ export class GroqProvider implements ModelProvider {
         model: this.#model,
         max_tokens: req.maxTokens ?? 1024,
         messages,
+        ...(req.responseFormat
+          ? {
+              response_format: {
+                type: "json_schema",
+                json_schema: {
+                  name: req.responseFormat.name,
+                  schema: req.responseFormat.schema,
+                  strict: strictResponse,
+                },
+              },
+            }
+          : {}),
       }),
+      ...(req.signal ? { signal: req.signal } : {}),
     });
     if (!res.ok) {
       throw providerRequestError("GroqProvider.complete", res.status);

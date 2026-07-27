@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import { OllamaProvider } from "../src/ollama-provider.js";
 import { AnthropicProvider } from "../src/anthropic-provider.js";
 import { GroqProvider } from "../src/groq-provider.js";
+import {
+  LlamaCppProvider,
+  MANAGED_LLAMA_MODEL_ID,
+} from "../src/llama-cpp-provider.js";
 import type { FetchLike } from "../src/fetch-types.js";
 
 /** Records requests, returns a caller-supplied protocol response. No network. */
@@ -56,6 +60,91 @@ test("OllamaProvider omits system/options when absent", async () => {
     prompt_eval_count: 1,
     eval_count: 0,
   });
+
+  test("LlamaCppProvider uses the capability file boundary and binds constrained JSON", async () => {
+    const { impl, calls } = recordingFetch({
+      model: MANAGED_LLAMA_MODEL_ID,
+      choices: [{ message: { content: "{\"type\":\"answer\",\"text\":\"ready\"}" } }],
+      usage: { prompt_tokens: 11, completion_tokens: 7 },
+    });
+    const provider = new LlamaCppProvider({
+      readCapability: () => ({
+        version: 1,
+        baseUrl: "http://127.0.0.1:49152",
+        apiKey: "a".repeat(64),
+        model: MANAGED_LLAMA_MODEL_ID,
+        runtimeRevision: "b10107",
+        pid: 123,
+      }),
+      fetchImpl: impl,
+    });
+    const schema = {
+      type: "object",
+      properties: { type: { const: "answer" }, text: { type: "string" } },
+      required: ["type", "text"],
+      additionalProperties: false,
+    };
+
+    const completion = await provider.complete({
+      system: "system",
+      prompt: "hello",
+      maxTokens: 128,
+      tier: "cheap",
+      responseFormat: {
+        type: "json_schema",
+        name: "chat_envelope",
+        schema,
+        strict: true,
+      },
+    });
+
+    assert.equal(completion.model, MANAGED_LLAMA_MODEL_ID);
+    assert.equal(completion.usage.inputTokens, 11);
+    assert.equal(calls[0]!.url, "http://127.0.0.1:49152/v1/chat/completions");
+    assert.equal(calls[0]!.init!.headers!.authorization, `Bearer ${"a".repeat(64)}`);
+    const body = JSON.parse(calls[0]!.init!.body!);
+    assert.deepEqual(body.messages, [
+      { role: "system", content: "system" },
+      { role: "user", content: "hello" },
+    ]);
+    assert.equal(body.max_tokens, 128);
+    assert.equal(body.temperature, 0);
+    assert.deepEqual(body.response_format, {
+      type: "json_object",
+      schema,
+    });
+  });
+
+  test("LlamaCppProvider rejects stale, non-loopback, and relabeled capabilities", async () => {
+    for (const capability of [
+      {
+        version: 1,
+        baseUrl: "http://localhost:49152",
+        apiKey: "a".repeat(64),
+        model: MANAGED_LLAMA_MODEL_ID,
+        runtimeRevision: "b10107",
+        pid: 1,
+      },
+      {
+        version: 1,
+        baseUrl: "http://127.0.0.1:49152",
+        apiKey: "a".repeat(64),
+        model: "wrong-model",
+        runtimeRevision: "b10107",
+        pid: 1,
+      },
+    ]) {
+      const provider = new LlamaCppProvider({
+        readCapability: () => capability,
+        fetchImpl: recordingFetch({}).impl,
+      });
+      assert.equal(provider.routingHealth(), "unavailable");
+      await assert.rejects(
+        () => provider.complete({ prompt: "q", tier: "cheap" }),
+        /loopback|unexpected model identity/,
+      );
+    }
+  });
   const p = new OllamaProvider({ baseUrl: "http://x", fetchImpl: impl });
   await p.complete({ prompt: "q", tier: "cheap" });
   const body = JSON.parse(calls[0]!.init!.body!);
@@ -72,6 +161,28 @@ test("OllamaProvider shapes /api/embed requests", async () => {
   const body = JSON.parse(calls[0]!.init!.body!);
   assert.equal(body.model, "emb");
   assert.deepEqual(body.input, ["a", "b"]);
+});
+
+test("LlamaCppProvider authenticates health probes", async () => {
+  const { impl, calls } = recordingFetch({});
+  const provider = new LlamaCppProvider({
+    readCapability: () => ({
+      version: 1,
+      baseUrl: "http://127.0.0.1:49152",
+      apiKey: "a".repeat(64),
+      model: MANAGED_LLAMA_MODEL_ID,
+      runtimeRevision: "b9000",
+      pid: 123,
+    }),
+    fetchImpl: impl,
+  });
+
+  assert.equal(await provider.probe(), "healthy");
+  assert.equal(calls[0]!.url, "http://127.0.0.1:49152/health");
+  assert.equal(
+    calls[0]!.init!.headers!.authorization,
+    `Bearer ${"a".repeat(64)}`,
+  );
 });
 
 test("AnthropicProvider shapes /v1/messages requests with headers", async () => {
@@ -101,6 +212,54 @@ test("AnthropicProvider shapes /v1/messages requests with headers", async () => 
   assert.equal(body.system, "sys");
   assert.equal(body.max_tokens, 1024);
   assert.deepEqual(body.messages, [{ role: "user", content: "q" }]);
+});
+
+test("AnthropicProvider forces and returns a schema-constrained response", async () => {
+  const response = recordingFetch({
+    model: "claude-haiku-4-5-20251001",
+    content: [{
+      type: "tool_use",
+      id: "call-1",
+      name: "BridgeChatTurn",
+      input: { kind: "answer", answer: "Ready." },
+    }],
+    usage: {
+      input_tokens: 9,
+      output_tokens: 4,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+  });
+  const provider = new AnthropicProvider({ apiKey: "k-test", fetchImpl: response.impl });
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["kind", "answer"],
+    properties: {
+      kind: { const: "answer" },
+      answer: { type: "string" },
+    },
+  };
+
+  const out = await provider.complete({
+    prompt: "q",
+    tier: "cheap",
+    responseFormat: { type: "json_schema", name: "BridgeChatTurn", schema },
+  });
+
+  assert.deepEqual(JSON.parse(out.text), { kind: "answer", answer: "Ready." });
+  const body = JSON.parse(response.calls[0]!.init!.body!);
+  assert.deepEqual(body.tools, [{
+    name: "BridgeChatTurn",
+    description: "Return the response as this schema-valid object.",
+    strict: true,
+    input_schema: schema,
+  }]);
+  assert.deepEqual(body.tool_choice, {
+    type: "tool",
+    name: "BridgeChatTurn",
+    disable_parallel_tool_use: true,
+  });
 });
 
 test("AnthropicProvider normalizes protocol-null cache counts but rejects omitted counts", async () => {
@@ -235,6 +394,54 @@ test("GroqProvider shapes /chat/completions requests with bearer auth", async ()
     { role: "system", content: "sys" },
     { role: "user", content: "q" },
   ]);
+});
+
+test("GroqProvider forwards strict JSON Schema output", async () => {
+  const response = recordingFetch({
+    model: "openai/gpt-oss-20b",
+    choices: [{ message: { content: "{\"kind\":\"answer\",\"answer\":\"Ready.\"}" } }],
+    usage: { prompt_tokens: 5, completion_tokens: 2 },
+  });
+  const provider = new GroqProvider({ apiKey: "k-test", fetchImpl: response.impl });
+  const schema = {
+    type: "object",
+    required: ["kind", "answer"],
+    properties: { kind: { const: "answer" }, answer: { type: "string" } },
+  };
+
+  await provider.complete({
+    prompt: "q",
+    tier: "cheap",
+    responseFormat: { type: "json_schema", name: "BridgeChatTurn", schema },
+  });
+
+  const body = JSON.parse(response.calls[0]!.init!.body!);
+  assert.deepEqual(body.response_format, {
+    type: "json_schema",
+    json_schema: { name: "BridgeChatTurn", schema, strict: true },
+  });
+});
+
+test("GroqProvider rejects JSON Schema output on incompatible configured models", async () => {
+  const provider = new GroqProvider({
+    apiKey: "k-test",
+    model: "llama-3.3-70b-versatile",
+    fetchImpl: recordingFetch({}).impl,
+  });
+
+  await assert.rejects(
+    () =>
+      provider.complete({
+        prompt: "q",
+        tier: "cheap",
+        responseFormat: {
+          type: "json_schema",
+          name: "BridgeChatTurn",
+          schema: { type: "object" },
+        },
+      }),
+    /does not support strict JSON Schema output/,
+  );
 });
 
 test("GroqProvider fails loud without an API key", () => {

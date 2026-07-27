@@ -798,7 +798,7 @@ test("commons approved install reconciles idempotently after a transient post-de
     const proposalId = staged.proposal.id;
     const proposalEntry = await wiring.ledger.get(proposalId);
     assert.equal(proposalEntry?.action, "write");
-    assert.equal(proposalEntry?.resourceType, "signal");
+    assert.equal(proposalEntry?.resourceType, "module_installation");
     assert.equal(proposalEntry?.resourceId, installation.id);
     assert.equal(
       (proposalEntry?.inputs as Record<string, unknown> | undefined)?.operation,
@@ -1095,11 +1095,11 @@ test("commons.installPropose reconciles the signed normalized Task Manager root 
 
     const nextManifest = {
       ...normalized,
-      version: "1.0.3",
+      version: "1.0.4",
       summary: "Task Manager signed upgrade",
       capabilities: normalized.capabilities.map((capability) => ({
         ...capability,
-        version: "1.0.3",
+        version: "1.0.4",
       })),
     };
     const nextEntry = makeEntry(nextManifest, [...builtIn.commons.tags]);

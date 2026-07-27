@@ -1,6 +1,39 @@
 {
-  "generatedAt": "2026-07-26T12:30:24.360Z",
+  "generatedAt": "2026-07-27T11:53:19.370Z",
   "items": [
+    {
+      "id": "TASK-026",
+      "title": "TASK-026 — Governed persistent Chat Panel",
+      "status": "completed",
+      "priority": "P0",
+      "horizon": "Prototype",
+      "outcome": "The right Chat Panel, full Chief of Staff Page, and desktop Avatar share one durable local-first conversation; a managed lightweight local model answers with authorized context; real Agent-owned Skills resolve through the governed pipeline; and Proposal→Decision→Run→Result stays inspectable inline.",
+      "prototypeTest": "On a real desktop build, install the pinned local model from Chat, hold a multi-turn conversation tied to a real Module/Record, route one request to a real eligible Agent-owned Skill, inspect and approve its inline proposal, observe a terminal Run/Result, open the same thread in the full Page and Avatar overlay, restart Bridge, and recover the exact thread and lifecycle state. At 375px the same flow remains usable. In hosted web, private turns fail closed and every public cloud turn requires fresh server-verified consent.",
+      "scope": [
+        "docs/raw/governed-chat-panel-plan-2026-07.md"
+      ],
+      "evidence": [
+        "RESOLVED TASK-026 portions of BUGS P1 Chief of Staff v1 / approval cards items 3 and 5",
+        "outputs/2026-07-26-right-chat-panel-completion.md",
+        "the three volatile React conversations, hardcoded CHIEF_OF_STAFF_REGISTRY, generic stageMutation routing, missing local-model setup, incomplete inline lifecycle, and all focused release-review defects are closed by durable shared Chat, governed dispatch, and regression coverage"
+      ],
+      "requests": [
+        "user report that the right side panel is still dummy-like",
+        "user request for a complete implementation plan and lightweight model",
+        "approved desktop-local/public-cloud-turn choices 2026-07-26"
+      ],
+      "approval": "AP-078 and AP-080 applied",
+      "dependencies": [
+        "TASK-001 (done)",
+        "TASK-007 (done)",
+        "TASK-015 (done)"
+      ],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 56,
+      "rank": 1
+    },
     {
       "id": "TASK-025",
       "title": "TASK-025 — Token-efficient agent workflow",
@@ -18,19 +51,19 @@
       ],
       "evidence": [
         "2026-07-26 baseline measured CLAUDE.md at 10,972 bytes/1,343 words and tracked guidance at 11,732 bytes",
-        "this resumed session had 78,078,128 input tokens across 533 measured turns (~146k/turn). Main ignored and lacked the project settings that docs claimed had scoped off 111 skills. PR #17 was conflicting/stale",
-        "PR #48 proposed 406 files/67,807 additions and had failed checks."
+        "this resumed session had 78,078,128 input tokens across 533 measured turns (~146k/turn). Main ignored and lacked the project settings that docs claimed had scoped off 111 skills. PR #17 remains conflicting/stale. PR #48 was later explicitly merged under AP-079 after its 44-file inventory, context budget, and third-party provenance/licenses were reconciled."
       ],
       "requests": [
-        "user token-consumption diagnosis and approved tiered optimization plan 2026-07-26"
+        "user token-consumption diagnosis and approved tiered optimization plan 2026-07-26",
+        "later explicit directive to merge PR #48 and use applicable skills"
       ],
-      "approval": "AP-076 and AP-077 applied",
+      "approval": "AP-076, AP-077, and AP-079 applied",
       "dependencies": [],
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 56,
-      "rank": 1
+      "sourceLine": 70,
+      "rank": 2
     },
     {
       "id": "TASK-001",
@@ -63,8 +96,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 70,
-      "rank": 2
+      "sourceLine": 84,
+      "rank": 3
     },
     {
       "id": "TASK-003",
@@ -96,8 +129,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 84,
-      "rank": 3
+      "sourceLine": 98,
+      "rank": 4
     },
     {
       "id": "TASK-004",
@@ -127,8 +160,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 97,
-      "rank": 4
+      "sourceLine": 111,
+      "rank": 5
     },
     {
       "id": "TASK-005",
@@ -160,8 +193,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 110,
-      "rank": 5
+      "sourceLine": 124,
+      "rank": 6
     },
     {
       "id": "TASK-013",
@@ -182,7 +215,8 @@
         "root audit docs moved under `docs/raw/` with frontmatter",
         "`platform/modules/manifests` is the one built-in catalog",
         "API/executable/web routes derive from it",
-        "legacy Item Detail/Associations and unrouted JobPilot fixture BUGS/dummy rows resolved"
+        "legacy Item Detail/Associations and unrouted JobPilot fixture BUGS/dummy rows resolved. OPEN BUGS legacy prototype CI now fails earlier because the workflow still points to the removed prototype `.nvmrc`",
+        "no duplicate implementation was restored."
       ],
       "requests": [
         "cleanup directives 2026-07-14"
@@ -195,8 +229,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 125,
-      "rank": 6
+      "sourceLine": 139,
+      "rank": 7
     },
     {
       "id": "TASK-012",
@@ -238,8 +272,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 139,
-      "rank": 7
+      "sourceLine": 153,
+      "rank": 8
     },
     {
       "id": "TASK-010",
@@ -292,8 +326,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 156,
-      "rank": 8
+      "sourceLine": 170,
+      "rank": 9
     },
     {
       "id": "TASK-008",
@@ -333,8 +367,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 170,
-      "rank": 9
+      "sourceLine": 184,
+      "rank": 10
     },
     {
       "id": "TASK-007",
@@ -371,8 +405,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 183,
-      "rank": 10
+      "sourceLine": 197,
+      "rank": 11
     },
     {
       "id": "TASK-014",
@@ -407,8 +441,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 196,
-      "rank": 11
+      "sourceLine": 210,
+      "rank": 12
     },
     {
       "id": "TASK-021",
@@ -444,8 +478,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 210,
-      "rank": 12
+      "sourceLine": 224,
+      "rank": 13
     },
     {
       "id": "TASK-015",
@@ -480,8 +514,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 224,
-      "rank": 13
+      "sourceLine": 238,
+      "rank": 14
     },
     {
       "id": "TASK-016",
@@ -511,8 +545,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 238,
-      "rank": 14
+      "sourceLine": 252,
+      "rank": 15
     },
     {
       "id": "TASK-017",
@@ -548,8 +582,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 252,
-      "rank": 15
+      "sourceLine": 266,
+      "rank": 16
     },
     {
       "id": "TASK-006",
@@ -579,8 +613,8 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 266,
-      "rank": 16
+      "sourceLine": 280,
+      "rank": 17
     },
     {
       "id": "TASK-011",
@@ -608,8 +642,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 282,
-      "rank": 17
+      "sourceLine": 296,
+      "rank": 18
     },
     {
       "id": "TASK-009",
@@ -643,8 +677,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 296,
-      "rank": 18
+      "sourceLine": 310,
+      "rank": 19
     },
     {
       "id": "TASK-002",
@@ -678,8 +712,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 310,
-      "rank": 19
+      "sourceLine": 324,
+      "rank": 20
     },
     {
       "id": "TASK-020",
@@ -709,8 +743,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 323,
-      "rank": 20
+      "sourceLine": 337,
+      "rank": 21
     },
     {
       "id": "TASK-018",
@@ -725,6 +759,7 @@
       ],
       "evidence": [
         "BUGS mobile app absent from accessible refs",
+        "BUGS 2026-07-26 main production-dependency audit reports seven HIGH advisories",
         "AP-012 desktop CI-green follow-up",
         "[2026-07-24 desktop diagnosis](../outputs/2026-07-24-hosted-supabase-desktop-diagnosis.md) reproduced pre-VOCAB Local Plane rejection plus non-self-contained development/release startup. [Bounded remediation](../outputs/2026-07-24-hosted-desktop-reliability-remediation.md) accepts only the exact migratable UUID shape and proves retained-row upgrade/reopen",
         "orchestrates development",
@@ -733,7 +768,7 @@
         "signs the macOS Keyring from Frameworks with Node entitlements",
         "disables unsupported Windows installers while retaining compile checks",
         "and launches a 349 MB portable `Bridge.app` from Finder-like PATH through restart-stable Local Plane Onboarding and visible Lion overlay. A 2026-07-25 review caught the signed Framework's broken `NAPI_RS_NATIVE_LIBRARY_PATH` load path before deployment",
-        "the generated architecture package now uses a reviewed `process.dlopen` bridge, and final-bundle verification proves packaged Node can import `@napi-rs/keyring` and construct `AsyncEntry` with no native addon left in Resources. TASK-018 remains `blocked`: real Developer ID/notarization, Windows secure listener inheritance/installers, the full physical OS matrix, and mobile are not complete. Queue order/status is unchanged."
+        "the generated architecture package now uses a reviewed `process.dlopen` bridge, and final-bundle verification proves packaged Node can import `@napi-rs/keyring` and construct `AsyncEntry` with no native addon left in Resources. TASK-018 remains `blocked`: real Developer ID/notarization, Windows secure listener inheritance/installers, the full physical OS matrix, mobile, and a green production-dependency audit are not complete. Queue order/status is unchanged."
       ],
       "requests": [
         "cross-platform roadmap work"
@@ -745,8 +780,8 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 336,
-      "rank": 21
+      "sourceLine": 350,
+      "rank": 22
     },
     {
       "id": "TASK-019",
@@ -772,8 +807,8 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 349,
-      "rank": 22
+      "sourceLine": 363,
+      "rank": 23
     },
     {
       "id": "TASK-022",
@@ -806,8 +841,8 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 362,
-      "rank": 23
+      "sourceLine": 376,
+      "rank": 24
     },
     {
       "id": "TASK-023",
@@ -837,8 +872,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 375,
-      "rank": 24
+      "sourceLine": 389,
+      "rank": 25
     },
     {
       "id": "TASK-024",
@@ -869,8 +904,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 388,
-      "rank": 25
+      "sourceLine": 402,
+      "rank": 26
     }
   ]
 }

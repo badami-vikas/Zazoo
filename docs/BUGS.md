@@ -756,6 +756,25 @@ The code gap is closed: macOS uses Tauri's overlay title bar with hidden title a
 
 ## OPEN 2026-07-18 — legacy prototype CI imports deliberately uncommitted PII-derived modules
 The `prototype (typecheck + build)` CI job cannot pass from a clean checkout: tracked `Design Bridge AI Interface (Copy)/src/app/components/ReconReview.tsx` and `SignalsView.tsx` import `../data/reconStaging` and `../data/dbSignals`, while `.gitignore` and the workflow's PII guard deliberately forbid those source-data modules from being committed. TypeScript reports both missing modules plus cascading implicit-`any` errors. `origin/main` run `29644303940` at `da25b97` and TASK-003 closure PR run `29648131741` fail identically; the closure branch changes no legacy-prototype files, while all other CI jobs pass. Attached to TASK-013. EXIT TEST: the legacy prototype typecheck/build passes from a clean checkout without committing private/PII-derived payloads.
+UPDATE 2026-07-26 — TASK-013 removed the legacy prototype, but `.github/workflows/ci.yml` still
+configures this job from `Design Bridge AI Interface (Copy)/.nvmrc`. Main run `30202205392` and PR
+#48 run `30216764943` now fail in `actions/setup-node` before checkout validation because that file no
+longer exists. The current fix is to retire or repoint the stale job, never restore the duplicate
+prototype. Attached to TASK-013 evidence; queue/status unchanged.
+
+## OPEN 2026-07-26 — production dependency audit reports seven HIGH advisories on main
+Main run `30202205392` and unchanged-lock PR #48 run `30216764943` both fail
+`pnpm audit --prod --audit-level=high`: `brace-expansion` via Glide/Linaria
+(`GHSA-3jxr-9vmj-r5cp`, `GHSA-mh99-v99m-4gvg`), `shell-quote` via Drizzle/Gel
+(`GHSA-395f-4hp3-45gv`), `fast-uri` via Fastify AJV
+(`GHSA-v2hh-gcrm-f6hx`, `GHSA-4c8g-83qw-93j6`), `find-my-way` via Fastify
+(`GHSA-c96f-x56v-gq3h`), and `react-router` (`GHSA-qwww-vcr4-c8h2`). PR #48 changed no dependency
+manifest or lockfile. Attached to TASK-018 hardening evidence. EXIT TEST: supported direct/transitive
+versions are upgraded or safely overridden, targeted regressions pass, and the production audit is
+green with no HIGH/CRITICAL advisory.
+UPDATE 2026-07-27 — TASK-026's unchanged `pnpm-lock.yaml` still reports the same seven HIGH
+advisories plus one MODERATE `uuid` bounds-check advisory (`GHSA-w5hq-g745-h8pq`). This remains
+TASK-018 dependency-hardening work; no Chat release claim treats the audit as green.
 
 ## RESOLVED 2026-07-16 — USER REPORT: Intelligence tabs violated the standard table/page toolbar rule; Workflows label regressed from Automations
 The obsolete Intelligence route and its Tools/Workflows/standalone-Skills tabs are no longer registered. Installed Modules are first-class nav items. DealPilot and JobPilot Pages use `StandardToolbar`, keep table headers available for honest zero-record states, and expose the standard pointer/keyboard column menu; working 3-dots entries open Module Detail rather than rendering inert rows.
@@ -931,6 +950,48 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
   configured in this repo's dev/test environment, so Chief of Staff's model-classification path
   (`classifyIntent`'s `model` branch) is exercised only via a fake `ModelProvider` in
   `packages/core/test/chief-of-staff.test.ts`, never against a live Ollama/Anthropic call.
+  UPDATE 2026-07-26 (TASK-026/AP-078) — the user confirmed the right Chat Panel still appears
+  dummy-like. The complete primary-path evidence is now attached to TASK-026: all three chat surfaces
+  keep separate volatile state; only the current message plus client-owned chain depth reaches the
+  API; ordinary routes still stage generic `stageMutation`; and Chat cannot carry its proposal through
+  Decision, attributable Run, and terminal Result. Implementation is in progress under
+  `docs/raw/governed-chat-panel-plan-2026-07.md`; this evidence remains OPEN until the exact desktop,
+  restart, shared-surface, governed-Skill, hosted-public-only, and 375px prototype passes.
+  UPDATE 2026-07-26 (TASK-026 release reviews) — two independent uncommitted-change reviews
+  found release blockers beyond the original placeholder evidence: long cloud threads changed
+  their consent digest after send insertion; provider schemas used incompatible/disagreeing
+  contracts; terminal Runs and decided processing turns could diverge on reload; polling lost
+  paginated history or stole selection/scroll; Task Manager changed immutable `1.0.2` content;
+  ad-hoc hardened-runtime signing made llama.cpp unloadable; the macOS verifier had a scoped-away
+  function; Avatar Task links lacked Router context; deleted threads, old/interleaved retries,
+  concurrent Task reconciliation, and multiple desktop supervisors could leave partial or
+  conflicting state. Focused fixes and regressions are in progress; this evidence remains OPEN
+  until the real desktop/prototype and full release gates pass.
+  UPDATE 2026-07-26 (full release gate) — the root lint/test commands also exposed two
+  generated-artifact gate defects: ESLint traversed Cargo `target/` binary assets, and
+  `@bridge/sourcing` counted imported `@bridge/core` files against its package-local 70%
+  coverage threshold. Both gate scopes are now constrained to source they own; neither
+  changes runtime behavior.
+  UPDATE 2026-07-27 — TASK-026 portions are RESOLVED. Items (3) and (5), the user-reported
+  placeholder-like Chat path, and every listed release-review defect now have focused regressions
+  plus real packaged-desktop proof: durable owner/Organization-isolated threads, managed Qwen,
+  exact-turn cloud grants, real eligible Agent-owned Skill dispatch, one shared panel/Page/Avatar
+  thread, terminal Proposal→Decision→Run→Result, restart/crash recovery, archive/delete/retry,
+  responsive layouts, and accessibility. Final clean-checkout verification found one more
+  packaging defect: Tauri's new `generated/llama/` resource directory did not exist before bundle
+  preparation, so ordinary `cargo check` failed. A tracked ignored `.gitkeep` now preserves that
+  directory while generated runtime binaries stay untracked. Items (1), (2), and (4) remain OPEN
+  under their existing owners; this mixed historical entry is not globally closed.
+  UPDATE 2026-07-27 (final full-diff review) — nine additional TASK-026 release blockers are
+  RESOLVED with focused regressions: forged Human-authored Task proposals cannot materialize;
+  deterministic Local/Cloud thread IDs are domain-separated; `bridge_app` cannot rewrite Chat
+  provenance, delete turns/refs directly, or mutate terminal lifecycle rows; release builds import
+  an ephemeral Developer ID Keychain before preparation and sign nested llama code before inventory;
+  only the supervisor lease owner clears endpoint capabilities; cancellation after download cannot
+  promote/start a model; idle polling refreshes model state; failed/cancelled sends preserve drafts;
+  and Task output requires `kind: task_create`. Full tests, source gates, 59 Rust tests, bundle policy,
+  rebuilt-app deep verification, packaged Keyring load, exact `NATIVE_OK`, abrupt-exit recovery, and
+  graceful child/capability cleanup pass. Independent re-review found no significant defect.
   UPDATE 2026-07-06 (ADR-024) — item (1)'s KERNEL half is now closed: `workspace.blueprint.getById`
   (`{ workspaceId, definitionId }`, apps/api/src/router.ts) returns a `workspace_definition` row
   by id regardless of status (draft/active/archived), identity-scoped. `ApprovalsPage.tsx` has not

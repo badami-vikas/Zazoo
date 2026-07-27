@@ -9,7 +9,7 @@
  * A `ModelRunContext` is NOT a prompt. It is the full set of inputs a model run needs,
  * structured so any number of PROJECTIONS can be derived from it — a deterministic
  * string template today (`projectToPrompt`), a structured multi-message payload or a
- * tool-call transcript tomorrow — without re-deriving the underlying assembly. This
+ * Skill-call transcript tomorrow — without re-deriving the underlying assembly. This
  * mirrors blueprint.ts's compileBlueprint() shape: a pure function over plain data, no
  * store, no I/O, no model call performed here.
  *
@@ -41,6 +41,7 @@ import type { Audience, CapabilityType } from "./capability/types.js";
 import type { ApprovalRequirement, TrustGrantView } from "./capability/approvals.js";
 import type { RunContext as EphemeralRunContext, TrustOrigin } from "./types.js";
 import { spotlightUntrusted, SPOTLIGHT_CLOSE, SPOTLIGHT_OPEN } from "./guard/content-guard.js";
+import type { TaintLabel } from "./taint.js";
 
 /** Who/what the model run is acting as — mirrors `Actor`'s shape (types.ts) but kept
  * local rather than importing `Actor` directly: a persona additionally carries the
@@ -163,6 +164,52 @@ export interface RunTraceMetadata {
   ledgerEntryIds: string[];
 }
 
+export interface ModelConversationSegment {
+  role: "user" | "assistant" | "skill";
+  content: string;
+  dataScope: "private" | "public";
+  taintLabel: TaintLabel;
+}
+
+const MAX_CONVERSATION_SEGMENTS = 24;
+const MAX_CONVERSATION_SEGMENT_CHARS = 16_000;
+const MAX_CONVERSATION_HISTORY_CHARS = 64_000;
+
+function boundedConversationHistory(
+  history: readonly ModelConversationSegment[] | undefined,
+): ModelConversationSegment[] {
+  if (!history) return [];
+  if (history.length > MAX_CONVERSATION_SEGMENTS) {
+    throw new Error(
+      `run context: conversation history exceeds ${MAX_CONVERSATION_SEGMENTS} segments`,
+    );
+  }
+  let total = 0;
+  return history.map((segment) => {
+    if (
+      !["user", "assistant", "skill"].includes(segment.role) ||
+      !["private", "public"].includes(segment.dataScope) ||
+      typeof segment.content !== "string" ||
+      segment.content.length > MAX_CONVERSATION_SEGMENT_CHARS
+    ) {
+      throw new Error("run context: invalid conversation-history segment");
+    }
+    total += segment.content.length;
+    if (total > MAX_CONVERSATION_HISTORY_CHARS) {
+      throw new Error(
+        `run context: conversation history exceeds ${MAX_CONVERSATION_HISTORY_CHARS} characters`,
+      );
+    }
+    return {
+      ...segment,
+      taintLabel: {
+        ...segment.taintLabel,
+        originChain: segment.taintLabel.originChain.map((origin) => ({ ...origin })),
+      },
+    };
+  });
+}
+
 /**
  * The full run-context shape — everything a model run needs, per ADR-027's list:
  * persona/identity, request, selected surface, ContextItem packs, disclosed
@@ -188,6 +235,9 @@ export interface ModelRunContext {
   governance: RunGovernanceState;
   /** Retrieved memory/retrieval snippets — generic slot, see `RetrievedMemorySnippet`. */
   memory: RetrievedMemorySnippet[];
+  /** Prior role-preserving turns only. The current request stays in `request`
+   * so providers can keep a stable system prefix and a volatile user turn. */
+  conversationHistory: ModelConversationSegment[];
   outputContract: RunOutputContract;
   trace: RunTraceMetadata;
 }
@@ -203,6 +253,7 @@ export interface AssembleRunContextInput {
   disclosedCapabilities?: DisclosedCapability[];
   governance: RunGovernanceState;
   memory?: RetrievedMemorySnippet[];
+  conversationHistory?: readonly ModelConversationSegment[];
   outputContract: RunOutputContract;
   /** Ledger entry ids this run is already linked to (e.g. a triggering proposal's
    * ledger row id) — defaults to an empty array for a run with no prior ledger link. */
@@ -227,6 +278,7 @@ export function assembleRunContext(input: AssembleRunContextInput, runCtx: RunCt
     disclosedCapabilities: input.disclosedCapabilities ?? [],
     governance: input.governance,
     memory: input.memory ?? [],
+    conversationHistory: boundedConversationHistory(input.conversationHistory),
     outputContract: input.outputContract,
     trace: {
       runId: runCtx.ids.next(),
@@ -241,7 +293,7 @@ export function assembleRunContext(input: AssembleRunContextInput, runCtx: RunCt
  * = one projection of run context"), deliberately a DETERMINISTIC STRING TEMPLATE, not a
  * model call. Same `ModelRunContext` in, same string out, every time — so this function
  * itself is replayable/testable without a network. A future projection (structured
- * multi-message payload, tool-call transcript) is a SIBLING function over the same
+ * multi-message payload, Skill-call transcript) is a SIBLING function over the same
  * `ModelRunContext`, not a variant of this one.
  *
  * Section order mirrors ADR-027's own listing: persona -> request -> surface ->
@@ -304,6 +356,16 @@ export function projectToPrompt(context: ModelRunContext): string {
       const rendered = `[${snippet.source}]${score} ${snippet.text}`;
       lines.push(
         snippet.trustOrigin === "untrusted_external" ? `- ${spotlightUntrusted(rendered)}` : `- ${rendered}`,
+      );
+    }
+  }
+
+  if (context.conversationHistory.length > 0) {
+    lines.push("");
+    lines.push("## Conversation history");
+    for (const segment of context.conversationHistory) {
+      lines.push(
+        `[${segment.role}; scope=${segment.dataScope}; trust=${segment.taintLabel.trust}] ${segment.content}`,
       );
     }
   }
@@ -424,6 +486,16 @@ export function projectToSystemPrompt(context: ModelRunContext): string {
       const score = snippet.score !== undefined ? ` (score=${snippet.score})` : "";
       const rendered = `[${snippet.source}]${score} ${snippet.text}`;
       lines.push(snippet.trustOrigin === "untrusted_external" ? `- ${spotlightUntrusted(rendered)}` : `- ${rendered}`);
+    }
+  }
+
+  if (context.conversationHistory.length > 0) {
+    lines.push("");
+    lines.push("## Conversation history");
+    for (const segment of context.conversationHistory) {
+      lines.push(
+        `[${segment.role}; scope=${segment.dataScope}; trust=${segment.taintLabel.trust}] ${segment.content}`,
+      );
     }
   }
 

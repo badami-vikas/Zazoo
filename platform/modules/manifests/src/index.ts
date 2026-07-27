@@ -338,6 +338,7 @@ const relationshipCapabilities = [
 ];
 
 const taskManagerSkills = [
+  ["create-task", "Internal Strategist"],
   ["goal-outcome-framing", "Internal Strategist"],
   ["candidate-task-generation", "Internal Strategist"],
   ["premortem-scenario", "Internal Strategist"],
@@ -614,7 +615,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "operational",
     manifest: {
       name: "task-manager",
-      version: "1.0.2",
+      version: "1.0.3",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:

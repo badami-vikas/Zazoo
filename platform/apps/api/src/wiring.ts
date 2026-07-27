@@ -54,6 +54,7 @@ import {
   InMemoryTaskManagerStore,
   InMemorySkillManifestRegistry,
   InMemoryChildAgentRunStore,
+  InMemoryChatStore,
   InMemoryTaintAuditStore,
   PlaneRoutingTaintAuditStore,
   EchoModelProvider,
@@ -84,6 +85,7 @@ import {
   type TaskManagerStore,
   type SkillManifestRegistry,
   type ChildAgentRunStore,
+  type ChatStore,
   type SkillManifest,
   type TaintAuditStore,
   type SearchProviderRouter,
@@ -122,7 +124,9 @@ import {
   type ClaimGroundingFailure,
 } from "@bridge/jobpilot";
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
 import { localGeocodingProviderFromEnv } from "./geocoding-provider.js";
 import { GoogleOAuthStateStore } from "./google-oauth-state.js";
@@ -155,6 +159,7 @@ import {
   DrizzleTaskManagerStore,
   DrizzleSkillManifestRegistry,
   DrizzleChildAgentRunStore,
+  DrizzleChatStore,
   DrizzleIntegrationStore,
   seedSkillManifests,
   ensureLearningAgentGovernance,
@@ -180,11 +185,15 @@ import {
   FreeDirectSearchProviderRouter,
   GroqProvider,
   OllamaProvider,
+  LlamaCppProvider,
+  MANAGED_LLAMA_PROVIDER_ID,
   ParallelSearchProvider,
   createLocalContentGuard,
   createModelRouter,
   type ModelRouter,
 } from "@bridge/models";
+import { ManagedModelService } from "./chat/model-manager.js";
+import { ResidencyRoutingChatStore } from "./chat/residency-chat-store.js";
 import {
   EgressExecutor,
   GoogleApiGatewayFactory,
@@ -419,6 +428,10 @@ export interface Wiring {
    * In-memory default; `buildPersistentPorts` binds the real, restart-durable
    * `DrizzleChildAgentRunStore` instead. */
   childAgentRuns: ChildAgentRunStore;
+  /** Plane-bound durable Chat threads, turns, and lifecycle references. */
+  chatStore: ChatStore;
+  /** Human-triggered managed local-model install/start lifecycle. */
+  managedModel: ManagedModelService;
   /** TASK-011 — durable culture-research fetch-intent records (see
    * `DurableCultureFetchStore`'s doc comment), keyed by childRunId and backed
    * by `memoryStore` — restart-durable in both persistent and zero-infra/
@@ -468,6 +481,10 @@ export interface Wiring {
     credentialVault: SourceCredentialVault;
     credentialAudit: CredentialAuditSink;
     bindings: DealPilotBindings;
+    validateSourceDiscovery(
+      organizationId: string,
+      sourceId: string,
+    ): Promise<void>;
   };
   /** Local-plane social Integration and permission records. */
   integrationStore: DrizzleIntegrationStore;
@@ -498,6 +515,10 @@ export interface BuildWiringOptions {
   geocodingProvider?: GeocodingProvider;
   /** Local Files root; injectable so tests never touch the user's home directory. */
   moduleFilesBridgeRoot?: string;
+  /** Pinned local runtime manifest; injectable for isolated model-manager tests. */
+  modelRuntimeManifestPath?: string;
+  /** Managed model state root, kept outside the PGlite database directory. */
+  modelRuntimeDir?: string;
 }
 
 /** A first skill: stage an entity mutation (echo inputs as the proposed change). */
@@ -2830,6 +2851,7 @@ export const GOOGLE_SKILL_MANIFESTS = [
 ];
 
 const TASK_MANAGER_SKILL_OWNERS: Readonly<Record<string, string>> = {
+  "task-manager.create-task": "internal-strategist",
   "task-manager.goal-outcome-framing": "internal-strategist",
   "task-manager.candidate-task-generation": "internal-strategist",
   "task-manager.premortem-scenario": "internal-strategist",
@@ -2849,6 +2871,45 @@ const TASK_MANAGER_SKILL_OWNERS: Readonly<Record<string, string>> = {
   "task-manager.completed-bay-sweep": "governance",
 };
 
+const TASK_MANAGER_CREATE_TASK_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "kind",
+    "taskId",
+    "title",
+    "outcome",
+    "exitTest",
+    "visibility",
+    "chatThreadId",
+    "chatTurnId",
+  ],
+  properties: {
+    kind: { const: "task_create" },
+    taskId: { type: "string", format: "uuid" },
+    title: { type: "string", minLength: 1, maxLength: 160 },
+    outcome: { type: "string", minLength: 1, maxLength: 2_000 },
+    exitTest: { type: "string", minLength: 1, maxLength: 2_000 },
+    visibility: { const: "private" },
+    chatThreadId: { type: "string", format: "uuid" },
+    chatTurnId: { type: "string", format: "uuid" },
+  },
+} as const;
+
+const TASK_MANAGER_CREATE_TASK_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["kind", "taskId", "title", "outcome", "exitTest", "status"],
+  properties: {
+    kind: { const: "task_create" },
+    taskId: { type: "string", format: "uuid" },
+    title: { type: "string" },
+    outcome: { type: "string" },
+    exitTest: { type: "string" },
+    status: { const: "proposed" },
+  },
+} as const;
+
 export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.entries(TASK_MANAGER_SKILL_OWNERS)
   .map(([skillId, owner]) => ({
     organizationId: PILOT_ORGANIZATION,
@@ -2856,6 +2917,12 @@ export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.ent
     version: "1.0.0",
     goalTypes: ["task-manager"],
     taskTypes: ["task"],
+    ...(skillId === "task-manager.create-task"
+      ? {
+          inputSchema: TASK_MANAGER_CREATE_TASK_INPUT_SCHEMA,
+          outputSchema: TASK_MANAGER_CREATE_TASK_OUTPUT_SCHEMA,
+        }
+      : {}),
     permissions: skillId === "task-manager.completed-bay-sweep"
       ? ["record:read", "record:archive"]
       : ["record:read", "record:write"],
@@ -3043,6 +3110,7 @@ function seedGovernance(
     "stageStrategicRecommendation",
     "jobpilot.synthesizeCultureProfile",
     "task-manager.ledger-projection",
+    "task-manager.create-task",
   ]);
   roles.roleGrants.set("role-internal-strategist", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
@@ -3187,6 +3255,7 @@ export interface ModePorts {
    * In-memory default; `buildPersistentPorts` binds the real, restart-durable
    * `DrizzleChildAgentRunStore` instead. */
   childAgentRuns: ChildAgentRunStore;
+  chatStore: ChatStore;
   /** ModelProviders this mode registers (echo double in-memory; Ollama/Anthropic persistent). */
   modelProviders: ModelProvider[];
   memory?: Wiring["memory"];
@@ -3301,10 +3370,12 @@ export function buildPersistentPorts(env: {
     taskManager: taskManagerStore,
     skillManifests: skillManifestRegistry,
     childAgentRuns: childAgentRunStore,
+    chatStore: new DrizzleChatStore(db),
     // Real providers in persistent mode: Ollama is always registered (local plane,
     // dev-default per CLAUDE.md); Anthropic/Groq only when their keys are configured —
     // no fake fallback, same fail-closed posture as the Google gateway.
     modelProviders: [
+      new LlamaCppProvider(),
       new OllamaProvider(),
       ...(process.env.ANTHROPIC_API_KEY ? [new AnthropicProvider()] : []),
       ...(process.env.GROQ_API_KEY ? [new GroqProvider()] : []),
@@ -3520,9 +3591,12 @@ export async function buildInMemoryPorts(env: {
       return registry;
     })(),
     childAgentRuns: localDirDurable ? new DrizzleChildAgentRunStore(localDb) : new InMemoryChildAgentRunStore(),
+    chatStore: localDirDurable
+      ? new DrizzleChatStore(localDb)
+      : new InMemoryChatStore(),
     // Echo double (local plane) — zero-infra mode makes no network calls, model
     // calls included; anything needing a real model runs in persistent mode.
-    modelProviders: [new EchoModelProvider()],
+    modelProviders: [new LlamaCppProvider(), new EchoModelProvider()],
     memory: { roles: mRoles, agents: mAgents, ephemeral: mEphemeral },
     // origin/main (TASK-010/restart-test infra) — when the caller supplies its
     // OWN already-open `env.localDatabase` (to avoid re-running migrations
@@ -3734,7 +3808,19 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   for (const manifest of TASK_MANAGER_SKILL_MANIFESTS) {
     skillRegistry.register({
       name: manifest.skillId,
-      async run(inputs) {
+      async run(inputs, ctx) {
+        if (manifest.skillId === "task-manager.create-task") {
+          const values = inputs as Record<string, unknown>;
+          const proposedOutput = {
+            kind: "task_create",
+            taskId: values.taskId,
+            title: values.title,
+            outcome: values.outcome,
+            exitTest: values.exitTest,
+            status: "proposed",
+          };
+          return { proposedOutput, diff: { to: proposedOutput } };
+        }
         return { proposedOutput: inputs, diff: { to: inputs } };
       },
     });
@@ -3804,10 +3890,12 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   }
 
   let modePortsForCleanup: ModePorts | undefined;
+  let managedModelForCleanup: ManagedModelService | undefined;
   let closePromise: Promise<void> | undefined;
   const closeResources = (): Promise<void> => {
     closePromise ??= (async () => {
       const errors: unknown[] = [];
+      managedModelForCleanup?.close();
       try {
         await localPlane.close();
       } catch (error) {
@@ -3917,6 +4005,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     taskManager,
     skillManifests,
     childAgentRuns,
+    chatStore: modeChatStore,
     modelProviders: modeModelProviders,
     memory,
   } = modePorts;
@@ -3929,6 +4018,12 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         modeLedger,
       )
     : modeLedger;
+  const chatStore: ChatStore = url
+    ? new ResidencyRoutingChatStore(
+        publicCloudOnly ? null : new DrizzleChatStore(localDatabase.db),
+        modeChatStore,
+      )
+    : modeChatStore;
   const taintAudit: TaintAuditStore = url
     ? new PlaneRoutingTaintAuditStore(
         localDir
@@ -3956,11 +4051,54 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // ModelProvider registry/router — resolves capability manifest modelBindings honoring
   // planeDefault (local-default bindings NEVER fall through to a cloud provider).
   const models = createModelRouter(modelProviders);
+  const managedLlamaProvider = modelProviders.find(
+    (provider): provider is LlamaCppProvider =>
+      provider.id === MANAGED_LLAMA_PROVIDER_ID &&
+      provider instanceof LlamaCppProvider,
+  );
+  const manifestCandidates = [
+    fileURLToPath(
+      new URL("../../../model-runtime-manifest.json", import.meta.url),
+    ),
+    fileURLToPath(
+      new URL("../../../desktop/model-runtime-manifest.json", import.meta.url),
+    ),
+  ];
+  const modelRuntimeManifestPath =
+    options.modelRuntimeManifestPath ??
+    process.env.BRIDGE_MODEL_RUNTIME_MANIFEST ??
+    manifestCandidates.find(existsSync);
+  const modelRuntimeDir =
+    options.modelRuntimeDir ??
+    process.env.BRIDGE_MODEL_RUNTIME_DIR ??
+    (!publicCloudOnly && localDir ? `${localDir}.model-runtime` : undefined);
+  const managedModel = new ManagedModelService({
+    ...(modelRuntimeDir ? { runtimeDir: modelRuntimeDir } : {}),
+    ...(modelRuntimeManifestPath ? { manifestPath: modelRuntimeManifestPath } : {}),
+    ...(managedLlamaProvider ? { provider: managedLlamaProvider } : {}),
+  });
+  managedModelForCleanup = managedModel;
+  const localGuardProvider = modelProviders.find(
+    (provider) =>
+      provider.plane === "local" &&
+      provider.tiers.includes("cheap") &&
+      provider.routingHealth() !== "unavailable",
+  );
   const webResearchContentGuard =
     options.webResearchContentGuard ??
-    createLocalContentGuard(
-      models.resolve({ use: "other", planeDefault: "local" }, "cheap"),
-    );
+    (localGuardProvider
+      ? createLocalContentGuard(localGuardProvider)
+      : {
+          async inspect() {
+            return {
+              safe: false,
+              categories: ["local_content_guard_unavailable"],
+              extraction: { summary: "", entities: [] },
+              reason:
+                "No healthy Local Plane content guard is configured; untrusted content remains quarantined",
+            };
+          },
+        });
   skillRegistry.register(
     createWebResearchSkill(searchProviders, webResearchContentGuard),
   );
@@ -4034,6 +4172,31 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     }),
   );
   const dealPilotDiscoveryLocks = new Map<string, Promise<SkillOutput>>();
+  const validateDealPilotSourceDiscovery = async (
+    organizationId: string,
+    sourceId: string,
+  ) => {
+    const source = await dealPilotStore.get("source", organizationId, sourceId);
+    if (!source || source.kind !== "source") {
+      throw new Error("DealPilot Source Record not found");
+    }
+    const estimate = dealPilotSourceConnector.estimateCost({
+      kind: "company",
+      hints: { organizationId: source.organizationId, sourceId: source.id },
+    });
+    assertSourceDiscoveryAllowed(source, estimate);
+    const hostname = new URL(source.link).hostname.toLowerCase();
+    if (
+      source.connectionType !== "email_alert" ||
+      (hostname !== "bizbuysell.com" &&
+        !hostname.endsWith(".bizbuysell.com"))
+    ) {
+      throw new Error(
+        "This prototype supports Deal discovery only for an authorized BizBuySell email-alert Source",
+      );
+    }
+    return { source, estimate };
+  };
   skillRegistry.register({
     name: "dealpilot.source",
     async run(inputs, ctx) {
@@ -4045,26 +4208,12 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       const active = dealPilotDiscoveryLocks.get(lockKey);
       if (active) return active;
       const operation = (async (): Promise<SkillOutput> => {
-        const source = await dealPilotStore.get("source", request.organizationId as string, request.sourceId as string);
-        if (!source || source.kind !== "source") throw new Error("DealPilot Source Record not found");
+        const { source, estimate } =
+          await validateDealPilotSourceDiscovery(
+            request.organizationId as string,
+            request.sourceId as string,
+          );
         const discoveryStartedAt = ctx.clock.nowISO();
-        const baseQuery = {
-          kind: "company" as const,
-          hints: {
-            organizationId: source.organizationId,
-            sourceId: source.id,
-            ...(source.lastCheckedAt ? { after: source.lastCheckedAt } : {}),
-          },
-        };
-        const estimate = dealPilotSourceConnector.estimateCost(baseQuery);
-        assertSourceDiscoveryAllowed(source, estimate);
-        const hostname = new URL(source.link).hostname.toLowerCase();
-        if (
-          source.connectionType !== "email_alert" ||
-          (hostname !== "bizbuysell.com" && !hostname.endsWith(".bizbuysell.com"))
-        ) {
-          throw new Error("This prototype supports Deal discovery only for an authorized BizBuySell email-alert Source");
-        }
         const remaining = source.spendCap - source.spendToDate;
         const maxResults = Math.max(1, Math.floor(remaining / estimate));
         const query = {
@@ -4362,6 +4511,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       credentialVault: dealPilotCredentialVault,
       credentialAudit: dealPilotCredentialAudit,
       bindings: dealPilotBindings,
+      async validateSourceDiscovery(organizationId, sourceId) {
+        await validateDealPilotSourceDiscovery(organizationId, sourceId);
+      },
     },
     integrationStore,
     automationRegistry,
@@ -4383,6 +4535,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     taskManager,
     skillManifests,
     childAgentRuns,
+    chatStore,
+    managedModel,
     cultureFetchStore,
     cultureSynthesisPointerStore,
     cultureLatestRunPointerStore,

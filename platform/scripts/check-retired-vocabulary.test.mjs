@@ -170,6 +170,12 @@ test("technical DOM and projection identifiers stay classified without allowing 
   );
   assert.equal(parallelMcpMethod.tool, undefined);
 
+  const appleKeyPartition = inventoryForSource(
+    "apps/desktop/scripts/import-macos-certificate.mjs",
+    `const partition = "apple-tool:,apple:,codesign:";`,
+  );
+  assert.equal(appleKeyPartition.tool, undefined);
+
   const preVocabularyAdapter = inventoryForSource(
     "packages/db/src/client-local.ts",
     `export const previousTenantColumn = "workspace_id";`,

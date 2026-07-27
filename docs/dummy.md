@@ -25,6 +25,22 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-26 — TASK-026 governed Chat fixtures** (`platform/packages/core/test/chat-store.test.ts`,
+  `platform/packages/db/test/{chat-store,migration-0031,migration-0032}.test.ts`,
+  `platform/apps/api/test/{chat,chat-model-manager,chat-residency-store}.test.ts`,
+  `platform/apps/web/test/chat.test.mjs`, `platform/apps/desktop/scripts/prepare-bundle.test.mjs`,
+  `platform/apps/desktop/src-tauri/src/model_supervisor.rs`).
+  **Reason:** exact cloud-consent digests, owner/Plane isolation, pagination, retry interleaving,
+  crash and concurrent reconciliation, artifact corruption, runtime ownership, UI merge/scroll,
+  and process-supervision failure paths must be deterministic and cannot send private Human
+  conversations to a provider, mutate a real Task queue, or corrupt an installed model/runtime.
+  **Real elements they stand in for:** private/public Chat threads and turns, Human decisions,
+  Tasks and Automation Runs, cloud providers, a Qwen installation, llama.cpp processes, desktop
+  instances, and paginated UI state.
+  **Removal condition:** retain as isolated privacy/governance/concurrency regressions; pair them
+  with the owner-approved real Local Plane model, desktop restart, shared-surface, and hosted
+  public-turn certification required by TASK-026.
+
 - **2026-07-21 — TASK-016 database/migration fixtures** (`platform/packages/db/test/{canonical-store,uuid-boundary,migration-0030,migration-concurrency,migration-metadata,organization-definition-store,schema-hardening}.test.ts`, `platform/apps/api/test/{blueprint,graph-people-communities}.test.ts`).
   **Reason:** partial-index races, null-key multiplicity, malformed UUID failure-before-SQL, migration replay/generation, RLS isolation, and Location-definition persistence must be deterministic and cannot mutate a Human's database or real identities.
   **Real elements they stand in for:** canonical People identities, Organizations/Humans, Relationship Records, Organization definitions, and fresh/upgraded Local Plane databases.

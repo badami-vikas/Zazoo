@@ -91,11 +91,11 @@ Routine work now has explicit context classes:
 - Tier C governed: unchanged approval, ADR, evidence, affected-neighbour, and live-verification gates
   for security, privacy, Auth, schema, production, canon, cross-plane, and broad work.
 
-`CLAUDE.md` remains the sole instruction authority. Main now tracks only
-`.claude/settings.json`, which disables 111 off-project skills and four ceremony-heavy plugins while
-keeping all generated Claude state ignored. No project skill library or path-scoped Copilot policy is
-tracked. PR #17's duplicated Module guidance and PR #48's 406-file skill bundle are superseded as
-implementation sources; neither PR state changes under TASK-025.
+`CLAUDE.md` remains the sole instruction authority. `.claude/settings.json` disables 111 off-project
+skills and four ceremony-heavy plugins while generated Claude state stays ignored. AP-079 later
+approved PR #48's 44-skill project library as an on-demand, provenance-tracked exception; those skills
+are guidance selected by task trigger, never a second policy source. PR #17's duplicated Module
+guidance remains superseded and unmerged.
 
 `docs/CODEMAPS/current-tasks.md` is a generated, non-canonical active-task projection. Agents read it
 before a targeted TASK ID instead of loading the full audit ledger. `pnpm check:agent-context`
@@ -124,7 +124,8 @@ budgets:
   always_loaded_guidance_bytes: 10240
   active_task_index_bytes: 4096
   path_instruction_each_bytes: 1024
-  project_skill_count: 3
+  project_skill_count: 44
+  project_skill_bytes: 524288
 ```
 
 Fresh GPT/Claude-compatible instruction checks confirmed Tier A avoided task/ledger/test/write
@@ -132,3 +133,8 @@ ceremony and Tier C retained the Auth/production gates. The first Claude check e
 around a test-only rename; the contract was tightened so every repository edit is at least Tier B
 and runs a targeted check. Standalone Copilot/Claude executables were unavailable, so no comparable
 fresh-runtime total-token percentage is claimed.
+
+AP-079 does not change the 7,971-byte always-loaded policy measurement. It replaces the three-skill
+growth ceiling with an exact reviewed-bundle ceiling: 44 `SKILL.md` files, about 448 KiB in the
+repository, maximum 512 KiB. CI rejects a 45th skill. Source revisions/blobs and MIT/Apache notices
+are recorded under `.claude/skills/`.

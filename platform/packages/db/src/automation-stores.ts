@@ -1,5 +1,5 @@
 /** Drizzle bindings for canonical Automation definitions and attributable Runs. */
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import type {
   AutomationDefinition,
@@ -107,8 +107,11 @@ export function parseAutomationSteps(raw: unknown): AutomationStepDef[] {
 function isPreliminaryCompletedOutput(output: unknown): boolean {
   if (typeof output !== "object" || output === null || Array.isArray(output)) return false;
   const keys = Object.keys(output);
-  return keys.length === 1 && keys[0] === "steps" &&
-    typeof (output as { steps?: unknown }).steps === "number";
+  return (
+    keys.includes("steps") &&
+    keys.every((key) => key === "steps" || key === "taintLabel") &&
+    typeof (output as { steps?: unknown }).steps === "number"
+  );
 }
 
 export class DrizzleAutomationRegistry implements AutomationRegistry {
@@ -340,6 +343,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
           startedAt: automationRuns.startedAt,
           finishedAt: automationRuns.finishedAt,
           taintLabel: automationRuns.taintLabel,
+          output: automationRuns.output,
         })
         .from(automationRuns)
         .where(and(
@@ -361,8 +365,57 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
           startedAt: row.startedAt.toISOString(),
           ...(row.finishedAt ? { finishedAt: row.finishedAt.toISOString() } : {}),
           taintLabel: storedTaintLabelOrUnknown(row.taintLabel).label,
+          output: row.output,
         };
       });
     });
+  }
+
+  async get(
+   organizationId: string,
+   runId: string,
+  ): Promise<AutomationRunRecord | null> {
+   return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+     const [row] = await tx
+       .select({
+         runId: automationRuns.runId,
+         id: automationRuns.id,
+         automationId: automationRuns.automationId,
+         organizationId: automationRuns.organizationId,
+         agentId: automationRuns.agentId,
+         status: automationRuns.status,
+         startedAt: automationRuns.startedAt,
+         finishedAt: automationRuns.finishedAt,
+         taintLabel: automationRuns.taintLabel,
+         output: automationRuns.output,
+       })
+       .from(automationRuns)
+       .where(
+         and(
+           eq(automationRuns.organizationId, organizationId),
+           or(eq(automationRuns.runId, runId), eq(automationRuns.id, runId)),
+         ),
+       )
+       .limit(1);
+     if (!row) return null;
+     if (
+       row.status !== "running" &&
+       row.status !== "completed" &&
+       row.status !== "halted"
+     ) {
+       throw new Error(`Invalid Automation Run status: ${row.status}`);
+     }
+     return {
+       runId: row.runId ?? row.id,
+       automationId: row.automationId,
+       organizationId: row.organizationId,
+       agentId: row.agentId,
+       status: row.status,
+       startedAt: row.startedAt.toISOString(),
+       ...(row.finishedAt ? { finishedAt: row.finishedAt.toISOString() } : {}),
+       taintLabel: storedTaintLabelOrUnknown(row.taintLabel).label,
+       output: row.output,
+     };
+   });
   }
 }

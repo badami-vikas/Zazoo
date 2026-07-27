@@ -3,6 +3,13 @@
  * their governed routers. @bridge/core stays zero-deps; HTTP adapters live here.
  */
 export { OllamaProvider, type OllamaProviderOpts } from "./ollama-provider.js";
+export {
+  LlamaCppProvider,
+  MANAGED_LLAMA_MODEL_ID,
+  MANAGED_LLAMA_PROVIDER_ID,
+  type LlamaCppCapability,
+  type LlamaCppProviderOpts,
+} from "./llama-cpp-provider.js";
 export { AnthropicProvider, type AnthropicProviderOpts } from "./anthropic-provider.js";
 export { GroqProvider, type GroqProviderOpts } from "./groq-provider.js";
 export { createModelRouter, type ModelRouter } from "./router.js";

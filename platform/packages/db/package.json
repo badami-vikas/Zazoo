@@ -16,7 +16,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "node --experimental-test-coverage --test-concurrency=4 --test-coverage-exclude='**/test/**' --test-coverage-lines=54 --test dist/test/*.test.js",
+    "test": "node --experimental-test-coverage --test-concurrency=4 --test-coverage-include='dist/src/**' --test-coverage-exclude='**/test/**' --test-coverage-lines=54 --test dist/test/*.test.js",
     "typecheck": "tsc -b --noEmit false",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate"

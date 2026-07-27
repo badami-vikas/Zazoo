@@ -77,11 +77,13 @@ export class OllamaProvider implements ModelProvider {
       ...(req.system !== undefined ? { system: req.system } : {}),
       stream: false,
       ...(req.maxTokens !== undefined ? { options: { num_predict: req.maxTokens } } : {}),
+      ...(req.responseFormat !== undefined ? { format: req.responseFormat.schema } : {}),
     };
     const res = await this.#fetchImpl(`${this.#baseUrl}/api/generate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+      ...(req.signal ? { signal: req.signal } : {}),
     });
     if (!res.ok) {
       throw providerRequestError("OllamaProvider.complete", res.status);

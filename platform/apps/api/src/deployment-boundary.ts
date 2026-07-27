@@ -6,6 +6,17 @@ const RENDER_HOST_RE =
 
 const PUBLIC_CLOUD_PROCEDURES = new Set([
   "action.propose",
+  "action.decide",
+  "chat.model.status",
+  "chat.thread.create",
+  "chat.thread.list",
+  "chat.thread.get",
+  "chat.thread.archive",
+  "chat.thread.delete",
+  "chat.turn.prepareCloud",
+  "chat.turn.send",
+  "chat.turn.retry",
+  "chat.turn.cancel",
   "health",
   "modules.list",
   "organization.activateSession",

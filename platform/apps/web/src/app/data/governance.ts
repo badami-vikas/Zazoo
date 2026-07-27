@@ -34,6 +34,8 @@ export interface LedgerEntry {
   onBehalfOf?: string | null;
   delegationId?: string | null;
   runId?: string | null;
+  chatThreadId?: string;
+  chatTurnId?: string;
   action: string;        // verb, e.g. "Send intro email"
   resourceType: 'person' | 'record' | 'community' | 'relation' | 'automation' | 'signal' | 'event' | 'external' | 'memory' | 'help';
   resource: string;      // target label, e.g. "Priya Anand"

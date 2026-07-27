@@ -156,6 +156,7 @@ export {
 } from "./organization-definition-store.js";
 export { DrizzleModuleStore, parseModuleManifestRow } from "./module-store.js";
 export { DrizzleMemoryStore } from "./memory-store.js";
+export { DrizzleChatStore } from "./chat-store.js";
 export { DrizzleGoalTaskStore } from "./goal-task-store.js";
 export { DrizzleTaskManagerStore } from "./task-manager-store.js";
 export { DrizzleSkillManifestRegistry, seedSkillManifests } from "./skill-manifest-store.js";

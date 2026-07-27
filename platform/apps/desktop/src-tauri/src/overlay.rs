@@ -1136,13 +1136,34 @@ pub fn overlay_get_position(window: WebviewWindow, app: AppHandle) -> Option<Per
     )
 }
 
-/// Bring the main Bridge window forward (the expanded panel's "Open Bridge"
-/// button). Un-minimizes + shows + focuses.
+fn is_allowed_main_route(route: &str) -> bool {
+    let Some(task_id) = route.strip_prefix("/task-manager/") else {
+        return false;
+    };
+    task_id.len() == 36
+        && task_id.chars().enumerate().all(|(index, character)| {
+            if [8, 13, 18, 23].contains(&index) {
+                character == '-'
+            } else {
+                character.is_ascii_hexdigit()
+            }
+        })
+}
+
+/// Bring the main Bridge window forward and optionally navigate it to a
+/// validated in-app Task route.
 #[tauri::command]
-pub fn focus_main_window(app: AppHandle) -> Result<(), String> {
+pub fn focus_main_window(app: AppHandle, route: Option<String>) -> Result<(), String> {
     let win = app
         .get_webview_window(MAIN_LABEL)
         .ok_or_else(|| "main window not found".to_string())?;
+    if let Some(route) = route {
+        if !is_allowed_main_route(&route) {
+            return Err("main-window route is not allowed".to_string());
+        }
+        win.emit("bridge:navigate", route)
+            .map_err(|error| error.to_string())?;
+    }
     let _ = win.unminimize();
     let _ = win.show();
     win.set_focus().map_err(|e| e.to_string())
@@ -1169,6 +1190,18 @@ mod tests {
         assert!(assert_readiness_controller(MAIN_LABEL).is_ok());
         assert!(assert_readiness_controller(OVERLAY_LABEL).is_err());
         assert!(assert_readiness_controller("overlay-1").is_err());
+    }
+
+    #[test]
+    fn main_window_navigation_accepts_only_task_detail_routes() {
+        assert!(is_allowed_main_route(
+            "/task-manager/123e4567-e89b-42d3-a456-426614174000"
+        ));
+        assert!(!is_allowed_main_route("/task-manager"));
+        assert!(!is_allowed_main_route("/approvals"));
+        assert!(!is_allowed_main_route(
+            "/task-manager/123e4567-e89b-42d3-a456-426614174000?redirect=https://example.com"
+        ));
     }
 
     // The geometric check is extracted here so it can be tested without

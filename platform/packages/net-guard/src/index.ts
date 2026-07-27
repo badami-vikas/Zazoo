@@ -57,6 +57,9 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import * as http from "node:http";
 import * as https from "node:https";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { chmod, open, stat, unlink } from "node:fs/promises";
 
 const IPV4_BLOCKS: Array<[number, number]> = [
   [0x00000000, 8], // 0.0.0.0/8
@@ -258,6 +261,13 @@ export class RequestBodyRedirectError extends Error {
   }
 }
 
+export class ResponseIntegrityError extends Error {
+  constructor(message: string) {
+    super(`guardedDownload: ${message}`);
+    this.name = "ResponseIntegrityError";
+  }
+}
+
 /** A redirect hop left the caller-supplied `allowedRedirectOrigins` allowlist
  * — TASK-011 remediation (2026-07-18 coordinator final review, issue 3). This
  * is a DIFFERENT failure mode from `SsrfBlockedError`: the target may be a
@@ -297,7 +307,13 @@ export class RedirectDowngradeError extends Error {
  * are meaningful for a stateless, unauthenticated content fetch (this
  * primitive's actual use case) are included — nothing that could plausibly
  * carry a credential or session identifier. */
-const CROSS_ORIGIN_ALLOWED_HEADERS: readonly string[] = ["accept", "accept-language", "user-agent", "content-type"];
+const CROSS_ORIGIN_ALLOWED_HEADERS: readonly string[] = [
+  "accept",
+  "accept-language",
+  "user-agent",
+  "content-type",
+  "range",
+];
 
 function stripCrossOriginHeaders(headers: Record<string, string>): Record<string, string> {
   const allowed: Record<string, string> = {};
@@ -500,6 +516,62 @@ function performOneRequest(
   });
 }
 
+function performOneStreamingRequest(
+  url: URL,
+  addresses: ResolvedAddress[],
+  options: {
+    headers: Record<string, string>;
+    timeoutMs: number;
+    signal: AbortSignal;
+  },
+): Promise<http.IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    const transport = url.protocol === "https:" ? https : http;
+    const guardedLookup = (
+      _hostname: string,
+      opts: { all?: boolean } | NodeLookupCallback,
+      cb?: NodeLookupCallback,
+    ): void => {
+      const callback = typeof opts === "function" ? opts : cb!;
+      const wantsAll =
+        typeof opts === "object" && opts !== null && opts.all === true;
+      if (wantsAll) {
+        callback(
+          null,
+          addresses.map((address) => ({
+            address: address.address,
+            family: address.family,
+          })),
+        );
+      } else {
+        const first = addresses[0]!;
+        callback(null, first.address, first.family);
+      }
+    };
+    const request = transport.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || (url.protocol === "https:" ? 443 : 80),
+        path: `${url.pathname}${url.search}`,
+        method: "GET",
+        headers: { ...options.headers, host: url.host },
+        lookup: guardedLookup as unknown as typeof import("node:dns").lookup,
+        signal: options.signal,
+        timeout: options.timeoutMs,
+      },
+      resolve,
+    );
+    request.on("timeout", () =>
+      request.destroy(
+        new Error(`guardedDownload: timed out after ${options.timeoutMs}ms`),
+      ),
+    );
+    request.on("error", reject);
+    request.end();
+  });
+}
+
 function waitWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise<T>((resolve, reject) => {
@@ -540,6 +612,286 @@ export async function guardedFetch(url: string, options: GuardedFetchOptions = {
   if (body && body.byteLength > maxRequestBytes) {
     throw new RequestTooLargeError(maxRequestBytes);
   }
+  return guardedFetchAfterRequestValidation(url, options, {
+    body,
+    maxRedirects,
+    maxBytes,
+    timeoutMs,
+    method,
+  });
+}
+
+export interface GuardedDownloadOptions {
+    expectedBytes: number;
+    expectedSha256: string;
+    maxBytes: number;
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    maxRedirects?: number;
+    signal?: AbortSignal;
+    allowedRedirectOrigins: readonly string[];
+    resume?: boolean;
+    onProgress?: (progress: {
+      downloadedBytes: number;
+      expectedBytes: number;
+    }) => void;
+    /** Test-only — see `UnsafeTestOverrides`. Never set in production code. */
+    unsafeTestOverrides?: UnsafeTestOverrides;
+  }
+
+export interface GuardedDownloadResult {
+    finalUrl: string;
+    bytes: number;
+    sha256: string;
+    resumedFrom: number;
+    redirectCount: number;
+    hopOrigins: readonly string[];
+  }
+
+async function hashExistingFile(
+    path: string,
+    hash: ReturnType<typeof createHash>,
+  ): Promise<number> {
+    let bytes = 0;
+    for await (const chunk of createReadStream(path)) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += buffer.byteLength;
+      hash.update(buffer);
+    }
+    return bytes;
+  }
+
+function sha256Matches(actual: string, expected: string): boolean {
+    if (!/^[0-9a-f]{64}$/i.test(expected)) return false;
+    return timingSafeEqual(
+      Buffer.from(actual, "hex"),
+      Buffer.from(expected.toLowerCase(), "hex"),
+    );
+  }
+
+  /**
+   * DNS-pinned, redirect-bounded streaming download for large governed artifacts.
+   * The destination is a resumable partial file; callers perform the final atomic
+   * rename only after this function returns a verified digest.
+   */
+export async function guardedDownloadToFile(
+    url: string,
+    partialPath: string,
+    options: GuardedDownloadOptions,
+  ): Promise<GuardedDownloadResult> {
+    if (
+      !Number.isSafeInteger(options.expectedBytes) ||
+      options.expectedBytes <= 0 ||
+      !Number.isSafeInteger(options.maxBytes) ||
+      options.maxBytes < options.expectedBytes
+    ) {
+      throw new ResponseIntegrityError("invalid expected/max byte bounds");
+    }
+    if (!/^[0-9a-f]{64}$/i.test(options.expectedSha256)) {
+      throw new ResponseIntegrityError("expected SHA-256 is invalid");
+    }
+    const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
+    const timeoutMs = options.timeoutMs ?? 60_000;
+    const allowedOrigins = new Set(options.allowedRedirectOrigins);
+    if (allowedOrigins.size === 0) {
+      throw new RedirectOriginNotAllowedError("(empty allowlist)");
+    }
+    let resumedFrom = 0;
+    if (options.resume !== false) {
+      try {
+        resumedFrom = (await stat(partialPath)).size;
+      } catch (error) {
+        if (
+          !(error instanceof Error && "code" in error && error.code === "ENOENT")
+        ) {
+          throw error;
+        }
+      }
+    }
+    if (resumedFrom > options.expectedBytes) {
+      await unlink(partialPath);
+      throw new ResponseIntegrityError("partial file exceeds expected size");
+    }
+    const hash = createHash("sha256");
+    if (resumedFrom > 0) {
+      const hashed = await hashExistingFile(partialPath, hash);
+      if (hashed !== resumedFrom) {
+        throw new ResponseIntegrityError("partial file changed while resuming");
+      }
+    }
+    if (resumedFrom === options.expectedBytes) {
+      const digest = hash.digest("hex");
+      if (!sha256Matches(digest, options.expectedSha256)) {
+        await unlink(partialPath);
+        throw new ResponseIntegrityError("completed partial file SHA-256 mismatch");
+      }
+      return {
+        finalUrl: url,
+        bytes: resumedFrom,
+        sha256: digest,
+        resumedFrom,
+        redirectCount: 0,
+        hopOrigins: [],
+      };
+    }
+
+    let currentUrl: URL;
+    try {
+      currentUrl = new URL(url);
+    } catch {
+      throw new SsrfBlockedError("invalid URL");
+    }
+    const visited = new Set<string>();
+    const hopOrigins: string[] = [];
+    let redirectCount = 0;
+    let currentHeaders = {
+      ...(options.headers ?? {}),
+      ...(resumedFrom > 0 ? { range: `bytes=${resumedFrom}-` } : {}),
+    };
+    for (;;) {
+      assertLawfulUrl(currentUrl);
+      const key = currentUrl.toString();
+      if (visited.has(key)) throw new RedirectCycleError(key);
+      visited.add(key);
+      if (!allowedOrigins.has(currentUrl.origin)) {
+        throw new RedirectOriginNotAllowedError(currentUrl.origin);
+      }
+      hopOrigins.push(currentUrl.origin);
+      const combinedSignal = options.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)])
+        : AbortSignal.timeout(timeoutMs);
+      const addresses = await waitWithAbort(
+        resolveGuardedAddresses(
+          currentUrl.hostname,
+          options.unsafeTestOverrides,
+        ),
+        combinedSignal,
+      );
+      const response = await performOneStreamingRequest(currentUrl, addresses, {
+        headers: currentHeaders,
+        timeoutMs,
+        signal: combinedSignal,
+      });
+      const status = response.statusCode ?? 0;
+      if (status >= 300 && status < 400 && response.headers.location) {
+        response.destroy();
+        if (redirectCount >= maxRedirects) {
+          throw new RedirectLimitExceededError(maxRedirects);
+        }
+        redirectCount += 1;
+        let nextUrl: URL;
+        try {
+          nextUrl = new URL(response.headers.location, currentUrl);
+        } catch {
+          throw new SsrfBlockedError(
+            `redirect Location header is not a valid URL: ${response.headers.location}`,
+          );
+        }
+        if (currentUrl.protocol === "https:" && nextUrl.protocol === "http:") {
+          throw new RedirectDowngradeError();
+        }
+        if (nextUrl.origin !== currentUrl.origin) {
+          currentHeaders = stripCrossOriginHeaders(currentHeaders);
+        }
+        currentUrl = nextUrl;
+        continue;
+      }
+
+      if (
+        (resumedFrom === 0 && status !== 200 && status !== 206) ||
+        (resumedFrom > 0 && status !== 206)
+      ) {
+        response.destroy();
+        throw new ResponseIntegrityError(
+          `unexpected HTTP ${status} for ${resumedFrom > 0 ? "resumed" : "initial"} download`,
+        );
+      }
+      if (status === 206) {
+        const contentRange = response.headers["content-range"];
+        const match =
+          typeof contentRange === "string"
+            ? /^bytes (\d+)-(\d+)\/(\d+)$/.exec(contentRange)
+            : null;
+        if (
+          !match ||
+          Number(match[1]) !== resumedFrom ||
+          Number(match[3]) !== options.expectedBytes
+        ) {
+          response.destroy();
+          throw new ResponseIntegrityError("invalid Content-Range for resumed download");
+        }
+      }
+      const declaredLength = response.headers["content-length"]
+        ? Number(response.headers["content-length"])
+        : null;
+      if (
+        declaredLength !== null &&
+        (!Number.isSafeInteger(declaredLength) ||
+          declaredLength < 0 ||
+          resumedFrom + declaredLength > options.expectedBytes)
+      ) {
+        response.destroy();
+        throw new ResponseTooLargeError(options.expectedBytes);
+      }
+
+      const file = await open(partialPath, resumedFrom > 0 ? "a" : "w", 0o600);
+      await chmod(partialPath, 0o600);
+      let downloaded = resumedFrom;
+      try {
+        for await (const chunk of response) {
+          if (combinedSignal.aborted) throw combinedSignal.reason;
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          downloaded += buffer.byteLength;
+          if (
+            downloaded > options.expectedBytes ||
+            downloaded > options.maxBytes
+          ) {
+            response.destroy();
+            throw new ResponseTooLargeError(options.maxBytes);
+          }
+          await file.write(buffer);
+          hash.update(buffer);
+          options.onProgress?.({
+            downloadedBytes: downloaded,
+            expectedBytes: options.expectedBytes,
+          });
+        }
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+      if (downloaded !== options.expectedBytes) {
+        throw new ResponseIntegrityError(
+          `download ended at ${downloaded} bytes; expected ${options.expectedBytes}`,
+        );
+      }
+      const digest = hash.digest("hex");
+      if (!sha256Matches(digest, options.expectedSha256)) {
+        await unlink(partialPath);
+        throw new ResponseIntegrityError("SHA-256 mismatch");
+      }
+      return {
+        finalUrl: currentUrl.toString(),
+        bytes: downloaded,
+        sha256: digest,
+        resumedFrom,
+        redirectCount,
+        hopOrigins,
+      };
+    }
+  }
+async function guardedFetchAfterRequestValidation(
+  url: string,
+  options: GuardedFetchOptions,
+  validated: {
+    body: Buffer | undefined;
+    maxRedirects: number;
+    maxBytes: number;
+    timeoutMs: number;
+    method: string;
+  },
+): Promise<GuardedFetchResult> {
+  const { body, maxRedirects, maxBytes, timeoutMs, method } = validated;
   if (body && maxRedirects !== 0) {
     throw new RequestBodyRedirectError();
   }

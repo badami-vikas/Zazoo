@@ -74,6 +74,7 @@ test("assembleRunContext: fills every ModelRunContext section from a minimal inp
   assert.deepEqual(ctx.disclosedCapabilities, []);
   assert.equal(ctx.governance.approvalRequirement, "auto");
   assert.deepEqual(ctx.memory, []);
+  assert.deepEqual(ctx.conversationHistory, []);
   assert.equal(ctx.outputContract.description, "A short natural-language reply plus an optional routing decision.");
 });
 
@@ -109,6 +110,23 @@ test("assembleRunContext: carries surface, contextItems, disclosedCapabilities, 
         },
       ],
       memory: [{ source: "test_fixture_memory_store", text: "Acme Corp deal opened 2026-06-01", score: 0.9 }],
+      conversationHistory: [
+        {
+          role: "user",
+          content: "Earlier question",
+          dataScope: "private",
+          taintLabel: {
+            version: 1,
+            trust: "authenticated_human",
+            source: "human",
+            sensitivity: "private",
+            instructionRisk: "data",
+            provenanceHash: "sha256:test",
+            originChain: [],
+            originsTruncated: false,
+          },
+        },
+      ],
       ledgerEntryIds: ["ledger_1"],
     }),
     test_fixture_run_ctx(),
@@ -121,6 +139,7 @@ test("assembleRunContext: carries surface, contextItems, disclosedCapabilities, 
   assert.equal(ctx.disclosedCapabilities[0]?.name, "dealpilot.score");
   assert.equal(ctx.memory.length, 1);
   assert.equal(ctx.memory[0]?.score, 0.9);
+  assert.equal(ctx.conversationHistory[0]?.role, "user");
   assert.deepEqual(ctx.trace.ledgerEntryIds, ["ledger_1"]);
 });
 
@@ -177,6 +196,23 @@ test("projectToPrompt: a fully-populated context renders every section in ADR-02
         ephemeralContext: { type: "automation", id: "automation_1", runId: "run_xyz" },
       },
       memory: [{ source: "test_fixture_memory_store", text: "Acme Corp deal opened 2026-06-01" }],
+      conversationHistory: [
+        {
+          role: "assistant",
+          content: "I found the prior thread.",
+          dataScope: "private",
+          taintLabel: {
+            version: 1,
+            trust: "verified_system",
+            source: "system",
+            sensitivity: "private",
+            instructionRisk: "none",
+            provenanceHash: "sha256:test-history",
+            originChain: [],
+            originsTruncated: false,
+          },
+        },
+      ],
     }),
     test_fixture_run_ctx(),
   );
@@ -189,6 +225,7 @@ test("projectToPrompt: a fully-populated context renders every section in ADR-02
     "## Available capabilities",
     "## Governance",
     "## Retrieved memory",
+    "## Conversation history",
     "## Output contract",
   ];
   let lastIndex = -1;

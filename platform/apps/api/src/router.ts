@@ -189,9 +189,19 @@ import {
   routeTaskByRequiredSkill,
   classifyTaskChangeBand,
   calibratedTaskChangeDecision,
+  assembleRunContext,
+  projectToSystemPrompt,
+  ChatCloudGrantError,
+  ChatStoreConflictError,
+  ChatStoreNotFoundError,
+  type ChatOwnerScope,
+  type ChatThread,
+  type ChatTurn,
+  type ChatTurnRef,
 } from "@bridge/core";
 import { WEB_RESEARCH_SKILL_ID } from "./web-research-skill.js";
 import type { ModelBinding } from "@bridge/capability-kit";
+import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
 import { authUrl } from "@bridge/integrations-google";
 import {
   routeHelpRequest,
@@ -1968,6 +1978,15 @@ const decideInput = z.object({
   decision: z.enum(["approve", "veto", "edit"]),
   editedOutput: z.unknown().optional(),
   reason: z.string().trim().min(1).max(500).optional(),
+  chatThreadId: z.string().uuid().optional(),
+  chatTurnId: z.string().uuid().optional(),
+}).superRefine((value, ctx) => {
+  if ((value.chatThreadId === undefined) !== (value.chatTurnId === undefined)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "chatThreadId and chatTurnId must be supplied together",
+    });
+  }
 });
 
 const relationshipNodeTypeEnum = z.enum(["person", "community", "signal", "event"]);
@@ -2849,12 +2868,15 @@ function resolveConfiguredModel(
   tier: ModelTier,
   cloudEgress?: PublicCloudModelEgress,
 ) {
-  const configured = [...models.providers().values()].filter((provider) => provider.id !== "echo");
+  const configured = [...models.providers().values()].filter(
+    (provider) =>
+      provider.id !== "echo" && provider.routingHealth() !== "unavailable",
+  );
   if (configured.length === 0) return undefined;
   const binding = cloudEgress
     ? MODEL_BINDING_BY_TIER[tier]
     : { ...MODEL_BINDING_BY_TIER[tier], planeDefault: "local" as const };
-  return models.resolve(binding, tier);
+  return createModelRouter(configured).resolve(binding, tier);
 }
 
 async function appendIntentModelReceipt(
@@ -3078,6 +3100,81 @@ const chiefOfStaffConverseInput = z.object({
    * conversation's first turn). */
   chainDepth: z.number().int().min(0).default(0),
 });
+
+const chatSurfaceInput = z.object({
+  kind: z.enum(["chat_panel", "chief_of_staff_page", "avatar_overlay", "task_manager"]),
+  id: z.string().trim().min(1).max(200).optional(),
+}).strict();
+
+const chatAssistantEnvelopeSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("answer"),
+    text: z.string().trim().min(1).max(8_000),
+  }).strict(),
+  z.object({
+    kind: z.literal("clarification"),
+    text: z.string().trim().min(1).max(2_000),
+  }).strict(),
+  z.object({
+    kind: z.literal("create_task"),
+    text: z.string().trim().min(1).max(2_000),
+    title: z.string().trim().min(1).max(160),
+    outcome: z.string().trim().min(1).max(2_000),
+    exitTest: z.string().trim().min(1).max(2_000),
+  }).strict(),
+]);
+
+const CHAT_ASSISTANT_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["kind", "title", "outcome", "exitTest", "text"],
+  properties: {
+    kind: { type: "string", enum: ["answer", "clarification", "create_task"] },
+    title: { type: "string" },
+    outcome: { type: "string" },
+    exitTest: { type: "string" },
+    text: { type: "string" },
+  },
+} as const;
+
+const CHAT_PUBLIC_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["kind", "text"],
+  properties: {
+    kind: { type: "string", enum: ["answer", "clarification"] },
+    text: { type: "string", minLength: 1, maxLength: 2_000 },
+  },
+} as const;
+
+const CHAT_LLAMA_PUBLIC_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["kind", "text"],
+  properties: {
+    kind: { type: "string", enum: ["answer", "clarification"] },
+    text: { type: "string" },
+  },
+} as const;
+
+const chatSendInput = z.object({
+  organizationId: z.string().uuid(),
+  threadId: z.string().uuid(),
+  clientRequestId: z.string().trim().min(1).max(200),
+  message: z.string().trim().min(1).max(16_000),
+  surface: chatSurfaceInput.optional(),
+  cloudGrantId: z.string().uuid().optional(),
+  retryTurnId: z.string().uuid().optional(),
+}).strict();
+
+const chatCreateTaskOutputSchema = z.object({
+  kind: z.literal("task_create"),
+  taskId: z.string().uuid(),
+  title: z.string().trim().min(1).max(160),
+  outcome: z.string().trim().min(1).max(2_000),
+  exitTest: z.string().trim().min(1).max(2_000),
+  status: z.literal("proposed"),
+}).strict();
 
 /** Build the core `CapabilityManifest` shape (risk-computation input) from a
  * `capabilityRegisterInput`-validated payload + the id assigned at creation. */
@@ -3910,6 +4007,1043 @@ async function replaceTaskProjectionFile(
   }
 }
 
+const CHAT_TASK_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f9";
+const CHAT_TASK_SKILL_ID = "task-manager.create-task";
+const CHAT_MODEL_TIER: ModelTier = "default";
+const CHAT_TURN_STALE_AFTER_MS = 10 * 60_000;
+const chatTurnAbortControllers = new Map<string, AbortController>();
+const chatTurnProposalStaging = new Set<string>();
+
+function chatOwnerScope(
+  organizationId: string,
+  ownerUserId: string,
+): ChatOwnerScope {
+  return { organizationId, ownerUserId };
+}
+
+function chatHumanTaint(
+  thread: ChatThread,
+  ref: string,
+  value: unknown,
+) {
+  return labelAtSource("human_input", {
+    ref,
+    valueHash: hashTaintValue(value),
+    sensitivity: thread.dataScope,
+    instructionRisk: "instruction_like",
+  });
+}
+
+function withHumanInputTaint(
+  run: RunCtx,
+  ref: string,
+  value: unknown,
+): RunCtx {
+  const inputLabel = labelAtSource("human_input", {
+    ref,
+    valueHash: hashTaintValue(value),
+    sensitivity: "organization",
+    instructionRisk: "instruction_like",
+  });
+  const ambientLabel =
+    run.taintLabel ??
+    (run.taint
+      ? labelFromLegacyTrustOrigin(run.taint, `${ref}:ambient`)
+      : null);
+  return {
+    ...run,
+    taintLabel: ambientLabel
+      ? joinTaintLabels(ambientLabel, inputLabel)
+      : inputLabel,
+  };
+}
+
+function resolveChatModel(wiring: Wiring, plane: "local" | "cloud"): ModelProvider | null {
+  const candidates = [...wiring.models.providers().values()]
+    .filter((provider) => provider.id !== "echo")
+    .filter((provider) => provider.plane === plane)
+    .filter((provider) => provider.tiers.includes(CHAT_MODEL_TIER))
+    .sort((left, right) => {
+      const localOrder = [MANAGED_LLAMA_PROVIDER_ID, "ollama"];
+      if (plane === "local") {
+        const leftIndex = localOrder.indexOf(left.id);
+        const rightIndex = localOrder.indexOf(right.id);
+        const leftRank = leftIndex === -1 ? localOrder.length : leftIndex;
+        const rightRank = rightIndex === -1 ? localOrder.length : rightIndex;
+        if (leftRank !== rightRank) return leftRank - rightRank;
+      }
+      return left.id.localeCompare(right.id);
+    });
+  return candidates[0] ?? null;
+}
+
+async function chatCanCreateTask(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<boolean> {
+  const page = await wiring.moduleStore.list(organizationId, { limit: 10_000, offset: 0 });
+  const installed = page.items.some(
+    (module) => module.moduleName === "task-manager" && module.status === "installed",
+  );
+  const manifests = wiring.skillManifests.forSkill(organizationId, CHAT_TASK_SKILL_ID);
+  const completeManifest = manifests.some(
+    (manifest) => manifest.inputSchema !== undefined && manifest.outputSchema !== undefined,
+  );
+  return (
+    installed &&
+    completeManifest &&
+    (await wiring.agents.organizationId(INTERNAL_STRATEGIST_AGENT)) === organizationId &&
+    await wiring.agents.isActive(INTERNAL_STRATEGIST_AGENT) &&
+    (await wiring.agents.allowedSkills(INTERNAL_STRATEGIST_AGENT)).includes(CHAT_TASK_SKILL_ID)
+  );
+}
+
+function resolvedChatSurface(
+  surface: z.infer<typeof chatSurfaceInput> | undefined,
+) {
+  const kind = surface?.kind ?? "chat_panel";
+  const labels: Record<typeof kind, string> = {
+    chat_panel: "Right Chat Panel",
+    chief_of_staff_page: "Chief of Staff",
+    avatar_overlay: "Avatar Chat",
+    task_manager: "Task Manager",
+  };
+  return {
+    kind,
+    id: surface?.id ?? kind,
+    label: labels[kind],
+  };
+}
+
+async function assembleChatCompletion(
+  ctx: Pick<ApiContext, "identity" | "run" | "wiring">,
+  thread: ChatThread,
+  message: string,
+  surface: z.infer<typeof chatSurfaceInput> | undefined,
+  provider: ModelProvider,
+  excludeTurnIds: readonly string[] = [],
+) {
+  const scope = chatOwnerScope(thread.organizationId, thread.ownerUserId);
+  const historyLimit = 24;
+  const excluded = new Set(excludeTurnIds);
+  const recent = await ctx.wiring.chatStore.listRecentTurns(
+    scope,
+    thread.id,
+    historyLimit + excluded.size,
+  );
+  const stableTurns = recent
+    .filter((turn) => !excluded.has(turn.id))
+    .filter((turn) => turn.role === "user" || turn.role === "assistant" || turn.role === "skill")
+    .filter((turn) => turn.state === "completed" || turn.state === "awaiting_decision")
+    .slice(-historyLimit);
+  const exchanges: ChatTurn[][] = [];
+  for (const turn of stableTurns) {
+    if (turn.role === "user" || exchanges.length === 0) exchanges.push([]);
+    exchanges.at(-1)!.push(turn);
+  }
+  const selectedExchanges: ChatTurn[][] = [];
+  let selectedCharacters = 0;
+  for (const exchange of [...exchanges].reverse()) {
+    const exchangeCharacters = exchange.reduce(
+      (total, turn) => total + turn.content.length,
+      0,
+    );
+    if (selectedCharacters + exchangeCharacters > 64_000) break;
+    selectedCharacters += exchangeCharacters;
+    selectedExchanges.unshift(exchange);
+  }
+  const history = selectedExchanges
+    .flat()
+    .map((turn) => ({
+      role: turn.role as "user" | "assistant" | "skill",
+      content: turn.content,
+      dataScope: thread.dataScope,
+      taintLabel: turn.taintLabel,
+    }));
+
+  const isCloud = provider.plane === "cloud";
+  const profileRow = isCloud
+    ? null
+    : await ctx.wiring.onboardingProfileStore.get(thread.organizationId);
+  const profile = profileRow ? profileFromRow(profileRow) : undefined;
+  const persona = buildChiefOfStaffPersona(
+    profile ?? { organizationId: thread.organizationId, source: "onboarding" },
+  );
+  const canCreateTask = !isCloud &&
+    await chatCanCreateTask(ctx.wiring, thread.organizationId);
+  const responseSchema = canCreateTask
+    ? CHAT_ASSISTANT_RESPONSE_SCHEMA
+    : provider.id === MANAGED_LLAMA_PROVIDER_ID
+      ? CHAT_LLAMA_PUBLIC_RESPONSE_SCHEMA
+      : CHAT_PUBLIC_RESPONSE_SCHEMA;
+
+  const memoryRows = isCloud
+    ? []
+    : await ctx.wiring.memoryStore.retrieve(
+        { limit: 8 },
+        { organizationId: thread.organizationId, userId: thread.ownerUserId },
+      );
+  const selectedMemory = memoryRows
+    .filter((entry) => entry.plane === "local")
+    .slice(0, 5);
+  const memory = selectedMemory.map((entry) => ({
+    source: `memory:${entry.id}`,
+    text: entry.content.slice(0, 4_000),
+    score: entry.confidence,
+    trustOrigin: entry.trustOrigin,
+  }));
+
+  const runContext = assembleRunContext(
+    {
+      persona,
+      request: message,
+      surface: resolvedChatSurface(surface),
+      disclosedCapabilities: canCreateTask
+        ? [{
+            manifestId: CHAT_TASK_SKILL_ID,
+            name: "Create a Task",
+            capabilityType: "skill",
+            audience: "private",
+            reason:
+              "The installed Task Manager exposes a schema-complete create-Task Skill owned by the active Internal Strategist.",
+          }]
+        : [],
+      governance: {
+        approvalRequirement: "explicit_human",
+        trustGrants: [],
+      },
+      memory,
+      conversationHistory: history,
+      outputContract: {
+        description: canCreateTask
+         ? "Return one JSON object matching the supplied schema. All five keys are required. If the person is not explicitly asking to create a Task, kind MUST be answer or clarification, put the response in text, and set title, outcome, and exitTest to empty strings. If and only if the person explicitly asks to create a Task, kind MUST be create_task, text MUST explain that the Task proposal is ready for review, and the requested Task title, outcome, and exit test MUST be copied into title, outcome, and exitTest. Never put the Task title in text instead of title. Creating a Task is a proposal and must not be described as already completed."
+          : "Return one JSON object matching the supplied schema. Answer directly or ask one clarification. No mutation capability is available in this context.",
+        schema: responseSchema,
+      },
+    },
+    ctx.run,
+  );
+  const currentTaint = chatHumanTaint(
+    thread,
+    `chat:${thread.id}:request`,
+    message,
+  );
+  const memoryTaints = selectedMemory.map(
+    (entry) =>
+      entry.taintLabel ??
+      labelFromLegacyTrustOrigin(entry.trustOrigin, `memory:${entry.id}`),
+  );
+  const taintLabel = joinTaintLabels(
+    currentTaint,
+    ...history.map((segment) => segment.taintLabel),
+    ...memoryTaints,
+  );
+  const system = projectToSystemPrompt(runContext);
+  const request = {
+    system,
+    prompt: message,
+    maxTokens: 1_024,
+    tier: CHAT_MODEL_TIER,
+    cache: { strategy: "stable_system_prefix" as const, ttl: "5m" as const },
+    responseFormat: {
+      type: "json_schema" as const,
+      name: "BridgeChatTurn",
+      schema: responseSchema,
+      strict: true,
+    },
+    taintLabel,
+  };
+  const contextDigest = hashTaintValue({
+    version: 1,
+    threadId: thread.id,
+    providerId: provider.id,
+    providerPlane: provider.plane,
+    tier: CHAT_MODEL_TIER,
+    request,
+  });
+  return {
+    request,
+    contextDigest,
+    canCreateTask,
+    disclosure: {
+      providerId: provider.id,
+      providerPlane: provider.plane,
+      modelTier: CHAT_MODEL_TIER,
+      system: request.system,
+      currentMessage: message,
+      history: history.map(({ role, content, dataScope }) => ({ role, content, dataScope })),
+      memory: memory.map(({ source, text }) => ({ source, text })),
+      surface: resolvedChatSurface(surface),
+    },
+  };
+}
+
+function parseChatAssistantEnvelope(text: string) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("chat model returned invalid JSON");
+  }
+  const wireResult = z.object({
+    kind: z.enum(["answer", "clarification", "create_task"]),
+    text: z.string(),
+    title: z.string().optional(),
+    outcome: z.string().optional(),
+    exitTest: z.string().optional(),
+  }).strict().safeParse(parsed);
+  if (!wireResult.success) {
+    throw new Error("chat model returned an invalid response envelope");
+  }
+  const candidate = wireResult.data.kind === "create_task"
+    ? wireResult.data
+    : {
+        kind: wireResult.data.kind,
+        text: wireResult.data.text,
+      };
+  const result = chatAssistantEnvelopeSchema.safeParse(candidate);
+  if (!result.success) {
+    throw new Error("chat model returned an invalid response envelope");
+  }
+  return result.data;
+}
+
+async function addChatTurnRef(
+  wiring: Wiring,
+  scope: ChatOwnerScope,
+  threadId: string,
+  turnId: string,
+  kind: ChatTurnRef["kind"],
+  refId: string,
+): Promise<void> {
+  await wiring.chatStore.addTurnRef(scope, {
+    id: idempotentUuid(`${turnId}:${kind}:${refId}`),
+    threadId,
+    turnId,
+    kind,
+    refId,
+  });
+}
+
+async function appendChatRoutingDecision(
+  ctx: Pick<ApiContext, "run" | "wiring">,
+  thread: ChatThread,
+  assistantTurnId: string,
+  decision: {
+    kind: "direct_answer" | "clarification" | "skill";
+    selectedSkillId?: string;
+    selectedAgentId?: string;
+    alternativesRejected?: readonly unknown[];
+  },
+): Promise<string> {
+  const id = idempotentUuid(`${assistantTurnId}:routing-decision`);
+  await ctx.wiring.ledger.append({
+    id,
+    organizationId: thread.organizationId,
+    actorType: "agent",
+    actorId: decision.selectedAgentId ?? INTERNAL_STRATEGIST_AGENT,
+    action: "read",
+    resourceType: "record",
+    inputs: {
+      operation: "chat_route",
+      threadId: thread.id,
+      assistantTurnId,
+      promptStored: false,
+    },
+    proposedOutput: decision,
+    userDecision: "auto",
+    policyResults: [],
+    dataScope: thread.dataScope,
+    taintLabel: chatHumanTaint(
+      thread,
+      `chat:${assistantTurnId}:routing-decision`,
+      decision,
+    ),
+    createdAt: ctx.run.clock.nowISO(),
+  });
+  return id;
+}
+
+async function resolveChatCreateTaskSkill(
+  wiring: Wiring,
+  organizationId: string,
+  goalTaskRef: { goalId: string; taskId: string },
+) {
+  const [goal, task, organization, active, capabilityScope, dataScope] =
+    await Promise.all([
+      wiring.goalTasks.getGoal(organizationId, goalTaskRef.goalId),
+      wiring.goalTasks.getTask(organizationId, goalTaskRef.taskId),
+      wiring.agents.organizationId(INTERNAL_STRATEGIST_AGENT),
+      wiring.agents.isActive(INTERNAL_STRATEGIST_AGENT),
+      wiring.agents.capabilityScope(INTERNAL_STRATEGIST_AGENT),
+      wiring.agents.dataScope(INTERNAL_STRATEGIST_AGENT),
+    ]);
+  if (!goal || !task) throw new Error("chat dispatch could not resolve its Goal/Task");
+  const candidates = wiring.skillManifests.forSkill(organizationId, CHAT_TASK_SKILL_ID);
+  const resolution = await resolveSkillForTask(candidates, {
+    goal,
+    task,
+    agent: {
+      id: INTERNAL_STRATEGIST_AGENT,
+      organizationId: organization,
+      active,
+      capabilityScope,
+      plane: "local",
+      dataScope,
+    },
+    skillId: CHAT_TASK_SKILL_ID,
+    requestedDataScope: "private",
+  });
+  if (!resolution.ok || !resolution.manifest) {
+    throw new Error(
+      `chat dispatch denied ${CHAT_TASK_SKILL_ID}: ${resolution.detail ?? resolution.reason ?? "no eligible Skill"}`,
+    );
+  }
+  if (
+    resolution.manifest.inputSchema === undefined ||
+    resolution.manifest.outputSchema === undefined
+  ) {
+    throw new Error(`chat dispatch denied ${CHAT_TASK_SKILL_ID}: incomplete schema`);
+  }
+  return { ...resolution, manifest: resolution.manifest };
+}
+
+async function stageChatTaskProposal(
+  ctx: Pick<ApiContext, "identity" | "run" | "wiring">,
+  thread: ChatThread,
+  assistantTurnId: string,
+  envelope: Extract<z.infer<typeof chatAssistantEnvelopeSchema>, { kind: "create_task" }>,
+) {
+  const scope = chatOwnerScope(thread.organizationId, thread.ownerUserId);
+  const proposalId = idempotentUuid(`${assistantTurnId}:proposal`);
+  const runId = idempotentUuid(`${assistantTurnId}:automation-run`);
+  const goalTaskRef = await ensureTaskManagerAutomation(
+    ctx.wiring,
+    thread.organizationId,
+    {
+      automationId: CHAT_TASK_AUTOMATION_ID,
+      name: "Chat Task proposal",
+      agentId: INTERNAL_STRATEGIST_AGENT,
+      skill: CHAT_TASK_SKILL_ID,
+      action: "write",
+    },
+    ctx.run,
+  );
+  const resolution = await resolveChatCreateTaskSkill(
+    ctx.wiring,
+    thread.organizationId,
+    goalTaskRef,
+  );
+  const taskId = idempotentUuid(`${assistantTurnId}:task`);
+  const existingProposal = await ctx.wiring.ledger.get(proposalId);
+  if (existingProposal) {
+    const existingInput = chatTaskProposalInput(existingProposal);
+    if (
+      !existingInput ||
+      existingInput.chatThreadId !== thread.id ||
+      existingInput.chatTurnId !== assistantTurnId ||
+      !chatLedgerEntryIsProposal(existingProposal)
+    ) {
+      throw new Error(`Chat proposal ${proposalId} conflicts with its deterministic turn binding`);
+    }
+    return {
+      proposal: { id: existingProposal.id, status: "pending_review" as const },
+      runId,
+      resolution: {
+        selectedSkillId: resolution.manifest.skillId,
+        selectedAgentId: INTERNAL_STRATEGIST_AGENT,
+        alternativesRejected: resolution.alternativesRejected,
+      },
+    };
+  }
+  await Promise.all([
+    addChatTurnRef(
+      ctx.wiring,
+      scope,
+      thread.id,
+      assistantTurnId,
+      "proposal",
+      proposalId,
+    ),
+    addChatTurnRef(
+      ctx.wiring,
+      scope,
+      thread.id,
+      assistantTurnId,
+      "automation_run",
+      runId,
+    ),
+    ctx.wiring.automationRunRecorder.start(
+      {
+        runId,
+        automationId: CHAT_TASK_AUTOMATION_ID,
+        organizationId: thread.organizationId,
+        agentId: INTERNAL_STRATEGIST_AGENT,
+      },
+      ctx.run,
+    ),
+  ]);
+  const proposal = await ctx.wiring.pipeline.propose(
+    {
+      organizationId: thread.organizationId,
+      actor: { type: "agent", id: INTERNAL_STRATEGIST_AGENT },
+      onBehalfOf: { type: "user", id: thread.ownerUserId },
+      action: "write",
+      resourceType: "record",
+      resourceId: taskId,
+      dataScope: "private",
+      inputs: {
+        kind: "task_create",
+        taskId,
+        title: envelope.title,
+        outcome: envelope.outcome,
+        exitTest: envelope.exitTest,
+        visibility: "private",
+        chatThreadId: thread.id,
+        chatTurnId: assistantTurnId,
+      },
+      skill: CHAT_TASK_SKILL_ID,
+      trustOrigin: "user_content",
+      taintLabel: chatHumanTaint(thread, `chat:${assistantTurnId}:task`, {
+        title: envelope.title,
+        outcome: envelope.outcome,
+        exitTest: envelope.exitTest,
+      }),
+      goalTaskRef,
+    },
+    ctx.run,
+    { proposalId, requireHumanReview: true },
+  );
+  return {
+    proposal,
+    runId,
+    resolution: {
+      selectedSkillId: resolution.manifest.skillId,
+      selectedAgentId: INTERNAL_STRATEGIST_AGENT,
+      alternativesRejected: resolution.alternativesRejected,
+    },
+  };
+}
+
+async function findChatRetryUser(
+  wiring: Wiring,
+  scope: ChatOwnerScope,
+  threadId: string,
+  assistant: ChatTurn,
+): Promise<ChatTurn | null> {
+  const assistantSuffix = ":assistant";
+  if (!assistant.clientRequestId.endsWith(assistantSuffix)) return null;
+  const clientRequestId = assistant.clientRequestId.slice(
+    0,
+    -assistantSuffix.length,
+  );
+  const expectedAssistantId = idempotentUuid(
+    `${threadId}:${clientRequestId}:assistant`,
+  );
+  const userTurnId = idempotentUuid(`${threadId}:${clientRequestId}:user`);
+  const user = await wiring.chatStore.getTurn(scope, threadId, userTurnId);
+  if (
+    assistant.id !== expectedAssistantId ||
+    !user ||
+    user.role !== "user" ||
+    user.clientRequestId !== clientRequestId ||
+    user.sequence >= assistant.sequence
+  ) {
+    return null;
+  }
+  return user;
+}
+
+async function resolveChatRetryPair(
+  wiring: Wiring,
+  scope: ChatOwnerScope,
+  threadId: string,
+  assistantTurnId: string,
+) {
+  const assistant = await wiring.chatStore.getTurn(
+    scope,
+    threadId,
+    assistantTurnId,
+  );
+  if (!assistant || assistant.role !== "assistant") {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Failed Chat turn not found",
+    });
+  }
+  if (assistant.state !== "failed") {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: `Chat turn is ${assistant.state}, not failed`,
+    });
+  }
+  const user = await findChatRetryUser(wiring, scope, threadId, assistant);
+  if (!user) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "The failed Chat turn has no matching user request",
+    });
+  }
+  return { assistant, user };
+}
+
+async function completeDecidedChatTurn(
+  wiring: Wiring,
+  scope: ChatOwnerScope,
+  threadId: string,
+  turn: ChatTurn,
+): Promise<ChatTurn> {
+  let current = turn;
+  try {
+    if (current.state === "queued") {
+      current = await wiring.chatStore.updateTurn(scope, {
+        threadId,
+        turnId: current.id,
+        expectedState: "queued",
+        state: "processing",
+      });
+    }
+    if (current.state === "processing" || current.state === "awaiting_decision") {
+      current = await wiring.chatStore.updateTurn(scope, {
+        threadId,
+        turnId: current.id,
+        expectedState: current.state,
+        state: "completed",
+        ...(current.content
+          ? {}
+          : { content: "This Task proposal was reviewed and recorded." }),
+      });
+    }
+    return current;
+  } catch (error) {
+    if (!(error instanceof ChatStoreConflictError)) throw error;
+    return (await wiring.chatStore.getTurn(scope, threadId, turn.id)) ?? current;
+  }
+}
+
+async function recordChatTaskResult(
+  wiring: Wiring,
+  scope: ChatOwnerScope,
+  input: { chatThreadId: string; chatTurnId: string },
+  runId: string,
+): Promise<void> {
+  const turn = await wiring.chatStore.getTurn(
+    scope,
+    input.chatThreadId,
+    input.chatTurnId,
+  );
+  if (!turn) return;
+  try {
+    await addChatTurnRef(
+      wiring,
+      scope,
+      input.chatThreadId,
+      input.chatTurnId,
+      "result",
+      runId,
+    );
+    await completeDecidedChatTurn(
+      wiring,
+      scope,
+      input.chatThreadId,
+      turn,
+    );
+  } catch (error) {
+    if (!(error instanceof ChatStoreNotFoundError)) throw error;
+  }
+}
+
+async function loadChatThreadView(
+  wiring: Wiring,
+  scope: ChatOwnerScope,
+  threadId: string,
+  run: RunCtx,
+  cursor?: { sequence: number },
+) {
+  const thread = await wiring.chatStore.getThread(scope, threadId);
+  if (!thread) throw new TRPCError({ code: "NOT_FOUND", message: "Chat thread not found" });
+  const page = await wiring.chatStore.listTurns(scope, threadId, {
+    limit: 100,
+    ...(cursor ? { cursor } : {}),
+  });
+  const now = Date.now();
+  const turns = await Promise.all(
+    page.items.map(async (turn) => {
+      let refs = await wiring.chatStore.listTurnRefs(scope, threadId, turn.id);
+      const proposalRef = refs.find((ref) => ref.kind === "proposal");
+      const linkedProposal = proposalRef
+        ? await wiring.ledger.get(proposalRef.refId)
+        : null;
+      const proposal =
+        linkedProposal &&
+        linkedProposal.organizationId === scope.organizationId &&
+        chatLedgerEntryIsProposal(linkedProposal)
+          ? linkedProposal
+          : null;
+      const decision = proposal
+        ? await wiring.ledger.decisionFor(proposal.id)
+        : null;
+      const taskInput = proposal ? chatTaskProposalInput(proposal) : null;
+      let reconciled = turn;
+
+      if (
+        proposal &&
+        !decision &&
+        (reconciled.state === "queued" || reconciled.state === "processing")
+      ) {
+        try {
+          if (reconciled.state === "queued") {
+            reconciled = await wiring.chatStore.updateTurn(scope, {
+              threadId,
+              turnId: reconciled.id,
+              expectedState: "queued",
+              state: "processing",
+            });
+          }
+          reconciled = await wiring.chatStore.updateTurn(scope, {
+            threadId,
+            turnId: reconciled.id,
+            expectedState: "processing",
+            state: "awaiting_decision",
+            ...(reconciled.content
+              ? {}
+              : { content: "This Task proposal is ready for your review." }),
+          });
+        } catch (error) {
+          if (!(error instanceof ChatStoreConflictError)) throw error;
+          reconciled =
+            (await wiring.chatStore.getTurn(scope, threadId, turn.id)) ?? reconciled;
+        }
+      }
+
+      if (
+        taskInput &&
+        decision &&
+        (decision.userDecision === "approve" ||
+          decision.userDecision === "edit" ||
+          decision.userDecision === "veto")
+      ) {
+        const taskResult = await finishChatTaskDecision(
+          wiring,
+          proposal!,
+          taskInput,
+          decision.proposedOutput,
+          decision.userDecision,
+          scope.ownerUserId,
+          run,
+        );
+        if (taskResult) {
+          await addChatTurnRef(
+            wiring,
+            scope,
+            threadId,
+            turn.id,
+            "result",
+            taskResult.runId,
+          );
+          refs = await wiring.chatStore.listTurnRefs(scope, threadId, turn.id);
+          reconciled = await completeDecidedChatTurn(
+            wiring,
+            scope,
+            threadId,
+            reconciled,
+          );
+        }
+      }
+
+      if (
+        (reconciled.state === "queued" || reconciled.state === "processing") &&
+        !chatTurnAbortControllers.has(reconciled.id)
+      ) {
+        const updatedAt = Date.parse(reconciled.updatedAt);
+        if (
+          !Number.isFinite(updatedAt) ||
+          now - updatedAt >= CHAT_TURN_STALE_AFTER_MS
+        ) {
+          try {
+            reconciled = await wiring.chatStore.updateTurn(scope, {
+              threadId,
+              turnId: reconciled.id,
+              expectedState: reconciled.state,
+              state: "failed",
+              content:
+                "This turn was interrupted before it finished. You can retry it safely.",
+              errorCode: "interrupted",
+            });
+          } catch (error) {
+            if (!(error instanceof ChatStoreConflictError)) throw error;
+            reconciled =
+              (await wiring.chatStore.getTurn(scope, threadId, turn.id)) ??
+              reconciled;
+          }
+        }
+      }
+
+      const runRef = refs.find((ref) => ref.kind === "automation_run");
+      const automationRun = runRef
+        ? await wiring.automationRunRecorder.get(scope.organizationId, runRef.refId)
+        : null;
+      const task =
+        taskInput &&
+        decision &&
+        (decision.userDecision === "approve" || decision.userDecision === "edit")
+          ? await wiring.taskManager.get(scope.organizationId, taskInput.taskId)
+          : null;
+      const retryUser =
+        reconciled.role === "assistant" && reconciled.state === "failed"
+          ? await findChatRetryUser(wiring, scope, threadId, reconciled)
+          : null;
+      return {
+        ...reconciled,
+        refs,
+        proposal,
+        decision,
+        automationRun,
+        retryRequest: retryUser
+          ? {
+              clientRequestId: retryUser.clientRequestId,
+              content: retryUser.content,
+            }
+          : null,
+        result:
+          automationRun && automationRun.status !== "running"
+            ? { output: automationRun.output ?? null, task }
+            : null,
+      };
+    }),
+  );
+  return { thread, turns, nextCursor: page.nextCursor ?? null };
+}
+
+function chatLedgerEntryIsProposal(entry: LedgerEntry): boolean {
+  return (
+    entry.refLedgerId === undefined &&
+    entry.userDecision === null &&
+    !(
+      typeof entry.diff === "object" &&
+      entry.diff !== null &&
+      !Array.isArray(entry.diff) &&
+      "rejected" in entry.diff
+    )
+  );
+}
+
+function chatTaskProposalInput(entry: LedgerEntry) {
+  const parsed = z.object({
+    kind: z.literal("task_create"),
+    taskId: z.string().uuid(),
+    title: z.string().trim().min(1),
+    outcome: z.string().trim().min(1),
+    exitTest: z.string().trim().min(1),
+    visibility: z.literal("private"),
+    chatThreadId: z.string().uuid(),
+    chatTurnId: z.string().uuid(),
+  }).strict().safeParse(entry.inputs);
+  if (!parsed.success) return null;
+  const input = parsed.data;
+  if (
+    entry.actorType !== "agent" ||
+    entry.actorId !== INTERNAL_STRATEGIST_AGENT ||
+    entry.onBehalfOfType !== "user" ||
+    !entry.onBehalfOfId ||
+    entry.action !== "write" ||
+    entry.resourceType !== "record" ||
+    entry.resourceId !== input.taskId ||
+    entry.dataScope !== "private" ||
+    entry.id !== idempotentUuid(`${input.chatTurnId}:proposal`) ||
+    input.taskId !== idempotentUuid(`${input.chatTurnId}:task`) ||
+    !chatLedgerEntryIsProposal(entry)
+  ) {
+    return null;
+  }
+  return input;
+}
+
+function entryClaimsChatTaskProposal(entry: LedgerEntry): boolean {
+  return (
+    typeof entry.inputs === "object" &&
+    entry.inputs !== null &&
+    !Array.isArray(entry.inputs) &&
+    "kind" in entry.inputs &&
+    entry.inputs.kind === "task_create"
+  );
+}
+
+async function requireChatTaskProposalBinding(
+  wiring: Wiring,
+  entry: LedgerEntry,
+  ownerUserId: string,
+) {
+  const input = chatTaskProposalInput(entry);
+  if (!input || entry.onBehalfOfId !== ownerUserId) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "Chat Task proposal provenance is invalid",
+    });
+  }
+  const scope = chatOwnerScope(entry.organizationId, ownerUserId);
+  const thread = await wiring.chatStore.getThread(scope, input.chatThreadId);
+  const turn = thread
+    ? await wiring.chatStore.getTurn(
+        scope,
+        input.chatThreadId,
+        input.chatTurnId,
+      )
+    : null;
+  const refs = turn
+    ? await wiring.chatStore.listTurnRefs(
+        scope,
+        input.chatThreadId,
+        input.chatTurnId,
+      )
+    : [];
+  if (
+    !thread ||
+    thread.plane !== "local" ||
+    thread.dataScope !== "private" ||
+    !turn ||
+    turn.role !== "assistant" ||
+    turn.actorType !== "agent" ||
+    turn.actorId !== INTERNAL_STRATEGIST_AGENT ||
+    !refs.some((ref) => ref.kind === "proposal" && ref.refId === entry.id)
+  ) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "Chat Task proposal is not bound to a genuine Chat turn",
+    });
+  }
+  return input;
+}
+
+async function finishChatTaskDecision(
+  wiring: Wiring,
+  original: LedgerEntry,
+  input: NonNullable<ReturnType<typeof chatTaskProposalInput>>,
+  resolvedOutput: unknown,
+  decision: "approve" | "edit" | "veto",
+  ownerUserId: string,
+  run: RunCtx,
+) {
+  const runId = idempotentUuid(`${input.chatTurnId}:automation-run`);
+  const existingRun = await wiring.automationRunRecorder.get(
+    original.organizationId,
+    runId,
+  );
+  if (decision === "veto") {
+    if (!existingRun || existingRun.status === "running") {
+      await wiring.automationRunRecorder.finish(
+        {
+          runId,
+          organizationId: original.organizationId,
+          status: "halted",
+          output: { proposalId: original.id, decision: "veto" },
+        },
+        run,
+      );
+    }
+    return { runId, task: null };
+  }
+  const output = chatCreateTaskOutputSchema.parse(resolvedOutput);
+  if (output.taskId !== input.taskId) {
+    throw new Error("Chat Task review cannot retarget the proposed Task");
+  }
+  if (existingRun && existingRun.status !== "running") {
+    return {
+      runId,
+      task: await wiring.taskManager.get(original.organizationId, output.taskId),
+    };
+  }
+  const createInput = {
+    id: output.taskId,
+    organizationId: original.organizationId,
+    title: output.title,
+    taskType: "execution",
+    outcomes: [{
+      id: idempotentUuid(`${output.taskId}:outcome`),
+      title: output.outcome,
+      measure: "Completion",
+      target: output.outcome,
+      indicatorKind: "lagging" as const,
+      northStar: true,
+    }],
+    exitTest: output.exitTest,
+    status: "committed" as const,
+    priority: "P1" as const,
+    ownerType: "human" as const,
+    ownerId: ownerUserId,
+    assignedAgentId: INTERNAL_STRATEGIST_AGENT,
+    requiredSkillId: CHAT_TASK_SKILL_ID,
+    visibility: "private" as const,
+  };
+  let task = await wiring.taskManager.get(original.organizationId, output.taskId);
+  if (!task) {
+    try {
+      task = (
+        await wiring.taskManager.create(
+          createInput,
+          { nextId: () => run.ids.next(), nowISO: () => run.clock.nowISO() },
+        )
+      ).task;
+    } catch (error) {
+      let taskIdConflict = false;
+      for (
+        let candidate: unknown = error, depth = 0;
+        candidate && typeof candidate === "object" && depth < 6;
+        depth += 1
+      ) {
+        const databaseError = candidate as {
+          code?: unknown;
+          constraint?: unknown;
+          message?: unknown;
+          cause?: unknown;
+        };
+        if (databaseError.code === "23505") {
+          const detail = `${String(databaseError.constraint ?? "")} ${String(
+            databaseError.message ?? "",
+          )}`;
+          taskIdConflict = detail.includes("tasks_pkey");
+          break;
+        }
+        candidate = databaseError.cause;
+      }
+      if (
+        error instanceof Error &&
+        error.message === `task-manager: duplicate Task id ${output.taskId}`
+      ) {
+        taskIdConflict = true;
+      }
+      if (!taskIdConflict) throw error;
+      task = await wiring.taskManager.get(original.organizationId, output.taskId);
+      if (!task) throw error;
+    }
+  }
+  if (
+    task.taskType !== "execution" ||
+    task.ownerId !== ownerUserId ||
+    task.assignedAgentId !== INTERNAL_STRATEGIST_AGENT ||
+    task.requiredSkillId !== CHAT_TASK_SKILL_ID ||
+    task.visibility !== "private"
+  ) {
+    throw new Error(`Chat Task ${output.taskId} conflicts with its deterministic proposal`);
+  }
+  if (!existingRun || existingRun.status === "running") {
+    await wiring.automationRunRecorder.finish(
+      {
+        runId,
+        organizationId: original.organizationId,
+        status: "completed",
+        output: {
+          kind: "result",
+          proposalId: original.id,
+          taskId: task.id,
+        },
+      },
+      run,
+    );
+  }
+  return { runId, task };
+}
+
 async function ensureTaskManagerAutomation(
   wiring: Wiring,
   organizationId: string,
@@ -3958,6 +5092,729 @@ async function ensureTaskManagerAutomation(
 }
 
 export const appRouter = t.router({
+  chat: t.router({
+    model: t.router({
+      status: authenticatedProcedure
+        .input(z.object({ organizationId: z.string().uuid() }).strict())
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const local = await ctx.wiring.managedModel.status();
+          const cloud = resolveChatModel(ctx.wiring, "cloud");
+          return {
+            local,
+            cloud: cloud
+              ? { available: true as const, providerId: cloud.id, modelTier: CHAT_MODEL_TIER }
+              : { available: false as const, providerId: null, modelTier: CHAT_MODEL_TIER },
+          };
+        }),
+      install: authenticatedProcedure
+        .input(z.object({ organizationId: z.string().uuid() }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          return ctx.wiring.managedModel.install();
+        }),
+      cancelInstall: authenticatedProcedure
+        .input(z.object({ organizationId: z.string().uuid() }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          return ctx.wiring.managedModel.cancelInstall();
+        }),
+      start: authenticatedProcedure
+        .input(z.object({ organizationId: z.string().uuid() }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          await ctx.wiring.managedModel.requestStart();
+          return ctx.wiring.managedModel.status();
+        }),
+      stop: authenticatedProcedure
+        .input(z.object({ organizationId: z.string().uuid() }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          await ctx.wiring.managedModel.requestStop();
+          return ctx.wiring.managedModel.status();
+        }),
+    }),
+
+    thread: t.router({
+      create: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          plane: z.enum(["local", "cloud"]).optional(),
+          title: z.string().trim().min(1).max(200).optional(),
+          clientRequestId: z.string().trim().min(1).max(200).optional(),
+        }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          if (ctx.wiring.publicCloudOnly && input.plane === "local") {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "The hosted web deployment cannot create Local Plane Chat threads",
+            });
+          }
+          const plane = ctx.wiring.publicCloudOnly ? "cloud" : input.plane ?? "local";
+          const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+          const thread = await ctx.wiring.chatStore.createThread(scope, {
+            id: input.clientRequestId
+              ? idempotentUuid(
+                  `${input.organizationId}:${ctx.identity.id}:chat-thread:${plane}:${input.clientRequestId}`,
+                )
+              : ctx.run.ids.next(),
+            plane,
+            dataScope: plane === "local" ? "private" : "public",
+            ...(input.title ? { title: input.title } : {}),
+          });
+          return loadChatThreadView(ctx.wiring, scope, thread.id, ctx.run);
+        }),
+      list: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          status: z.enum(["active", "archived"]).optional(),
+          cursor: z.object({
+            updatedAt: z.string().datetime(),
+            id: z.string().uuid(),
+          }).strict().optional(),
+          limit: z.number().int().min(1).max(100).optional(),
+        }).strict())
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          return ctx.wiring.chatStore.listThreads(
+            chatOwnerScope(input.organizationId, ctx.identity.id),
+            {
+              ...(input.status ? { status: input.status } : {}),
+              ...(input.cursor ? { cursor: input.cursor } : {}),
+              ...(input.limit ? { limit: input.limit } : {}),
+            },
+          );
+        }),
+      get: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          threadId: z.string().uuid(),
+          cursor: z.object({
+            sequence: z.number().int().positive(),
+          }).strict().optional(),
+        }).strict())
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          return loadChatThreadView(
+            ctx.wiring,
+            chatOwnerScope(input.organizationId, ctx.identity.id),
+            input.threadId,
+            ctx.run,
+            input.cursor,
+          );
+        }),
+      archive: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          threadId: z.string().uuid(),
+        }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const archived = await ctx.wiring.chatStore.archiveThread(
+            chatOwnerScope(input.organizationId, ctx.identity.id),
+            input.threadId,
+          );
+          if (!archived) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Chat thread not found" });
+          }
+          return archived;
+        }),
+      delete: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          threadId: z.string().uuid(),
+        }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const deleted = await ctx.wiring.chatStore.deleteThread(
+            chatOwnerScope(input.organizationId, ctx.identity.id),
+            input.threadId,
+          );
+          if (!deleted) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Chat thread not found" });
+          }
+          return { deleted: true as const };
+        }),
+    }),
+
+    turn: t.router({
+      prepareCloud: authenticatedProcedure
+        .input(chatSendInput.omit({ clientRequestId: true, cloudGrantId: true }))
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+          const thread = await ctx.wiring.chatStore.getThread(scope, input.threadId);
+          if (!thread) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Chat thread not found" });
+          }
+          if (thread.plane !== "cloud" || thread.dataScope !== "public") {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Cloud consent is available only for a public Cloud Plane thread",
+            });
+          }
+          const provider = resolveChatModel(ctx.wiring, "cloud");
+          if (!provider) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "No authorized cloud model provider is configured",
+            });
+          }
+          const retryPair = input.retryTurnId
+            ? await resolveChatRetryPair(
+                ctx.wiring,
+                scope,
+                thread.id,
+                input.retryTurnId,
+              )
+            : null;
+          if (retryPair && retryPair.user.content !== input.message) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Retry content must match the original user request",
+            });
+          }
+          const prepared = await assembleChatCompletion(
+            ctx,
+            thread,
+            input.message,
+            input.surface,
+            provider,
+            retryPair
+              ? [retryPair.user.id, retryPair.assistant.id]
+              : [],
+          );
+          const grantId = ctx.run.ids.next();
+          const expiresAt = new Date(
+            new Date(ctx.run.clock.nowISO()).getTime() + 5 * 60_000,
+          ).toISOString();
+          await ctx.wiring.chatStore.createCloudGrant(scope, {
+            id: grantId,
+            threadId: thread.id,
+            contextDigest: prepared.contextDigest,
+            providerId: provider.id,
+            modelTier: CHAT_MODEL_TIER,
+            expiresAt,
+          });
+          return {
+            grantId,
+            expiresAt,
+            contextDigest: prepared.contextDigest,
+            disclosure: prepared.disclosure,
+          };
+        }),
+
+      send: authenticatedProcedure
+        .input(chatSendInput)
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+          const thread = await ctx.wiring.chatStore.getThread(scope, input.threadId);
+          if (!thread) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Chat thread not found" });
+          }
+          const userTurnId = idempotentUuid(
+            `${thread.id}:${input.clientRequestId}:user`,
+          );
+          const assistantTurnId = idempotentUuid(
+            `${thread.id}:${input.clientRequestId}:assistant`,
+          );
+          if (input.retryTurnId) {
+            const retryPair = await resolveChatRetryPair(
+              ctx.wiring,
+              scope,
+              thread.id,
+              input.retryTurnId,
+            );
+            if (
+              retryPair.assistant.id !== assistantTurnId ||
+              retryPair.user.clientRequestId !== input.clientRequestId ||
+              retryPair.user.content !== input.message
+            ) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Retry must preserve the original Chat turn identity and content",
+              });
+            }
+          }
+          const taintLabel = chatHumanTaint(
+            thread,
+            `chat:${thread.id}:${input.clientRequestId}`,
+            input.message,
+          );
+          await ctx.wiring.chatStore.appendTurn(scope, {
+            id: userTurnId,
+            threadId: thread.id,
+            role: "user",
+            actorType: "human",
+            actorId: thread.ownerUserId,
+            content: input.message,
+            state: "completed",
+            clientRequestId: input.clientRequestId,
+            taintLabel,
+          });
+          const assistantTurn = await ctx.wiring.chatStore.appendTurn(scope, {
+            id: assistantTurnId,
+            threadId: thread.id,
+            role: "assistant",
+            actorType: "agent",
+            actorId: INTERNAL_STRATEGIST_AGENT,
+            content: "",
+            state: "queued",
+            clientRequestId: `${input.clientRequestId}:assistant`,
+            taintLabel,
+          });
+          const loadSendResponse = () =>
+            loadChatThreadView(
+              ctx.wiring,
+              scope,
+              thread.id,
+              ctx.run,
+              input.retryTurnId
+                ? { sequence: assistantTurn.sequence + 1 }
+                : undefined,
+            );
+          try {
+            if (assistantTurn.state === "queued") {
+              await ctx.wiring.chatStore.updateTurn(scope, {
+                threadId: thread.id,
+                turnId: assistantTurnId,
+                expectedState: "queued",
+                state: "processing",
+              });
+            } else if (assistantTurn.state === "failed") {
+              await ctx.wiring.chatStore.updateTurn(scope, {
+                threadId: thread.id,
+                turnId: assistantTurnId,
+                expectedState: "failed",
+                state: "processing",
+                content: "",
+                errorCode: null,
+              });
+            } else {
+              return loadSendResponse();
+            }
+          } catch (error) {
+            if (error instanceof ChatStoreConflictError) {
+              return loadSendResponse();
+            }
+            throw error;
+          }
+
+          const controller = new AbortController();
+          chatTurnAbortControllers.set(assistantTurnId, controller);
+          try {
+            const provider = resolveChatModel(ctx.wiring, thread.plane);
+            if (!provider) {
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message: thread.plane === "local"
+                  ? "No local model provider is configured"
+                  : "No authorized cloud model provider is configured",
+              });
+            }
+            if (thread.plane === "local") {
+              const status = await ctx.wiring.managedModel.status();
+              if (
+                provider.id === MANAGED_LLAMA_PROVIDER_ID &&
+                status.state !== "ready"
+              ) {
+                throw new TRPCError({
+                  code: "PRECONDITION_FAILED",
+                  message: `The local model is ${status.state}; finish setup before sending`,
+                });
+              }
+              if (input.cloudGrantId) {
+                throw new TRPCError({
+                  code: "BAD_REQUEST",
+                  message: "A cloud grant cannot be used for a Local Plane thread",
+                });
+              }
+            }
+
+            const prepared = await assembleChatCompletion(
+              ctx,
+              thread,
+              input.message,
+              input.surface,
+              provider,
+              [userTurnId, assistantTurnId],
+            );
+            let cloudEgress: PublicCloudModelEgress | undefined;
+            if (thread.plane === "cloud") {
+              if (!input.cloudGrantId) {
+                throw new TRPCError({
+                  code: "PRECONDITION_FAILED",
+                  message: "This public cloud turn needs fresh exact-context consent",
+                });
+              }
+              await ctx.wiring.chatStore.consumeCloudGrant(scope, {
+                id: input.cloudGrantId,
+                threadId: thread.id,
+                contextDigest: prepared.contextDigest,
+                providerId: provider.id,
+                modelTier: CHAT_MODEL_TIER,
+              });
+              cloudEgress = { dataScope: "public", userConfirmed: true };
+            }
+            const governed = createGovernedModelProvider(
+              ctx,
+              thread.organizationId,
+              provider,
+              "governed_chat_turn",
+              cloudEgress,
+            );
+            const completion = await governed.provider.complete({
+              ...prepared.request,
+              signal: controller.signal,
+            });
+            const receiptLedgerId = governed.receiptLedgerId();
+            if (receiptLedgerId) {
+              await addChatTurnRef(
+                ctx.wiring,
+                scope,
+                thread.id,
+                assistantTurnId,
+                "model_receipt",
+                receiptLedgerId,
+              );
+            }
+
+            let envelope: z.infer<typeof chatAssistantEnvelopeSchema>;
+            try {
+              envelope = parseChatAssistantEnvelope(completion.text);
+            } catch (parseError) {
+              if (thread.plane === "cloud") throw parseError;
+              const repair = createGovernedModelProvider(
+                ctx,
+                thread.organizationId,
+                provider,
+                "governed_chat_turn_repair",
+              );
+              const repaired = await repair.provider.complete({
+                ...prepared.request,
+                prompt:
+                  `${input.message}\n\nThe prior output was invalid. Return only one JSON object matching the response schema.`,
+                signal: controller.signal,
+              });
+              const repairReceipt = repair.receiptLedgerId();
+              if (repairReceipt) {
+                await addChatTurnRef(
+                  ctx.wiring,
+                  scope,
+                  thread.id,
+                  assistantTurnId,
+                  "model_receipt",
+                  repairReceipt,
+                );
+              }
+              envelope = parseChatAssistantEnvelope(repaired.text);
+            }
+
+            if (envelope.kind === "create_task") {
+              if (!prepared.canCreateTask) {
+                throw new Error("The model selected a capability that was not disclosed");
+              }
+              chatTurnProposalStaging.add(assistantTurnId);
+              let staged: Awaited<ReturnType<typeof stageChatTaskProposal>>;
+              try {
+                staged = await stageChatTaskProposal(
+                  ctx,
+                  thread,
+                  assistantTurnId,
+                  envelope,
+                );
+              } finally {
+                chatTurnProposalStaging.delete(assistantTurnId);
+              }
+              if (staged.proposal.status !== "pending_review") {
+                throw new Error("The governed Task proposal did not stop for Human review");
+              }
+              const routingId = await appendChatRoutingDecision(
+                ctx,
+                thread,
+                assistantTurnId,
+                { kind: "skill", ...staged.resolution },
+              );
+              await Promise.all([
+                addChatTurnRef(
+                  ctx.wiring,
+                  scope,
+                  thread.id,
+                  assistantTurnId,
+                  "routing_decision",
+                  routingId,
+                ),
+                addChatTurnRef(
+                  ctx.wiring,
+                  scope,
+                  thread.id,
+                  assistantTurnId,
+                  "proposal",
+                  staged.proposal.id,
+                ),
+                addChatTurnRef(
+                  ctx.wiring,
+                  scope,
+                  thread.id,
+                  assistantTurnId,
+                  "automation_run",
+                  staged.runId,
+                ),
+              ]);
+              await ctx.wiring.chatStore.updateTurn(scope, {
+                threadId: thread.id,
+                turnId: assistantTurnId,
+                expectedState: "processing",
+                state: "awaiting_decision",
+                content: envelope.text,
+              });
+            } else {
+              const routingId = await appendChatRoutingDecision(
+                ctx,
+                thread,
+                assistantTurnId,
+                {
+                  kind: envelope.kind === "answer" ? "direct_answer" : "clarification",
+                },
+              );
+              await addChatTurnRef(
+                ctx.wiring,
+                scope,
+                thread.id,
+                assistantTurnId,
+                "routing_decision",
+                routingId,
+              );
+              await ctx.wiring.chatStore.updateTurn(scope, {
+                threadId: thread.id,
+                turnId: assistantTurnId,
+                expectedState: "processing",
+                state: "completed",
+                content: envelope.text,
+              });
+            }
+            return loadSendResponse();
+          } catch (error) {
+            const current = await ctx.wiring.chatStore.getTurn(
+              scope,
+              thread.id,
+              assistantTurnId,
+            );
+            if (current?.state === "cancelled") {
+              return loadSendResponse();
+            }
+            if (current?.state === "processing") {
+              const refs = await ctx.wiring.chatStore.listTurnRefs(
+                scope,
+                thread.id,
+                assistantTurnId,
+              );
+              const proposalRef = refs.find((ref) => ref.kind === "proposal");
+              const proposal = proposalRef
+                ? await ctx.wiring.ledger.get(proposalRef.refId)
+                : null;
+              if (proposal && chatLedgerEntryIsProposal(proposal)) {
+                await ctx.wiring.chatStore.updateTurn(scope, {
+                  threadId: thread.id,
+                  turnId: assistantTurnId,
+                  expectedState: "processing",
+                  state: "awaiting_decision",
+                  ...(current.content
+                    ? {}
+                    : { content: "This Task proposal is ready for your review." }),
+                });
+                return loadSendResponse();
+              }
+              await ctx.wiring.chatStore.updateTurn(scope, {
+                threadId: thread.id,
+                turnId: assistantTurnId,
+                expectedState: "processing",
+                state: "failed",
+                content: "I couldn't complete this turn. You can retry it safely.",
+                errorCode: error instanceof ChatCloudGrantError
+                  ? "cloud_grant_invalid"
+                  : error instanceof DOMException && error.name === "AbortError"
+                    ? "cancelled"
+                    : "chat_turn_failed",
+              });
+              const runRef = refs.find((ref) => ref.kind === "automation_run");
+              const automationRun = runRef
+                ? await ctx.wiring.automationRunRecorder.get(
+                    thread.organizationId,
+                    runRef.refId,
+                  )
+                : null;
+              if (automationRun?.status === "running") {
+                await ctx.wiring.automationRunRecorder.finish(
+                  {
+                    runId: automationRun.runId,
+                    organizationId: thread.organizationId,
+                    status: "halted",
+                    output: {
+                      kind: "error",
+                      errorCode: "proposal_staging_failed",
+                    },
+                  },
+                  ctx.run,
+                );
+              }
+            }
+            if (error instanceof TRPCError) throw error;
+            if (error instanceof ChatCloudGrantError) {
+              throw new TRPCError({ code: "FORBIDDEN", message: error.message });
+            }
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: error instanceof Error ? error.message : "Chat turn failed",
+            });
+          } finally {
+            chatTurnAbortControllers.delete(assistantTurnId);
+          }
+        }),
+
+      cancel: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          threadId: z.string().uuid(),
+          turnId: z.string().uuid(),
+        }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+          const turn = await ctx.wiring.chatStore.getTurn(
+            scope,
+            input.threadId,
+            input.turnId,
+          );
+          if (!turn) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Chat turn not found" });
+          }
+          if (turn.state !== "processing") {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `Chat turn is ${turn.state}, not processing`,
+            });
+          }
+          if (chatTurnProposalStaging.has(turn.id)) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "This turn is staging a governed proposal and can no longer be stopped",
+            });
+          }
+          const refs = await ctx.wiring.chatStore.listTurnRefs(
+            scope,
+            input.threadId,
+            turn.id,
+          );
+          const proposalRef = refs.find((ref) => ref.kind === "proposal");
+          const proposal = proposalRef
+            ? await ctx.wiring.ledger.get(proposalRef.refId)
+            : null;
+          if (proposal && chatLedgerEntryIsProposal(proposal)) {
+            await ctx.wiring.chatStore.updateTurn(scope, {
+              threadId: input.threadId,
+              turnId: turn.id,
+              expectedState: "processing",
+              state: "awaiting_decision",
+              ...(turn.content
+                ? {}
+                : { content: "This Task proposal is ready for your review." }),
+            });
+            return loadChatThreadView(
+              ctx.wiring,
+              scope,
+              input.threadId,
+              ctx.run,
+            );
+          }
+          chatTurnAbortControllers.get(turn.id)?.abort(
+            new DOMException("Chat turn cancelled", "AbortError"),
+          );
+          await ctx.wiring.chatStore.updateTurn(scope, {
+            threadId: input.threadId,
+            turnId: input.turnId,
+            expectedState: "processing",
+            state: "cancelled",
+            content: "Stopped.",
+            errorCode: "cancelled",
+          });
+          return loadChatThreadView(
+            ctx.wiring,
+            scope,
+            input.threadId,
+            ctx.run,
+          );
+        }),
+    }),
+  }),
+
   taskManager: t.router({
     list: authenticatedProcedure.input(z.object({ organizationId: z.string().uuid() })).query(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
@@ -4536,7 +6393,11 @@ export const appRouter = t.router({
             seed: input.idempotencyKey,
             runId,
             proposalId,
-      }, ctx.run);
+      }, withHumanInputTaint(
+        ctx.run,
+        `task-manager:ledger-drift:${ctx.identity.id}:${runId}`,
+        payload,
+      ));
       const governed = run.proposals[0];
       if (!governed || governed.id !== proposalId || governed.status !== "pending_review") {
         throw new TRPCError({
@@ -4644,7 +6505,11 @@ export const appRouter = t.router({
         seed: input.idempotencyKey,
         runId,
         proposalId,
-      }, ctx.run);
+      }, withHumanInputTaint(
+        ctx.run,
+        `task-manager:completed-bay-sweep:${ctx.identity.id}:${runId}`,
+        payload,
+      ));
       const governed = run.proposals[0];
       if (!governed || governed.id !== proposalId || governed.status !== "pending_review") {
         throw new TRPCError({
@@ -5230,6 +7095,47 @@ export const appRouter = t.router({
         });
       }
       assertPrivateProposalOwner(original, ctx.identity, ctx.wiring.google);
+      const claimsChatTaskProposal = entryClaimsChatTaskProposal(original);
+      if (
+        claimsChatTaskProposal &&
+        (!input.chatThreadId || !input.chatTurnId)
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Chat Task decisions require their Chat thread and turn ids",
+        });
+      }
+      const chatTaskInput = claimsChatTaskProposal
+        ? await requireChatTaskProposalBinding(
+            ctx.wiring,
+            original,
+            ctx.identity.id,
+          )
+        : null;
+      if (input.chatThreadId && input.chatTurnId) {
+        if (
+          !chatTaskInput ||
+          chatTaskInput.chatThreadId !== input.chatThreadId ||
+          chatTaskInput.chatTurnId !== input.chatTurnId
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "The Chat lifecycle reference does not match this proposal",
+          });
+        }
+        const chatScope = chatOwnerScope(original.organizationId, ctx.identity.id);
+        const refs = await ctx.wiring.chatStore.listTurnRefs(
+          chatScope,
+          input.chatThreadId,
+          input.chatTurnId,
+        );
+        if (!refs.some((ref) => ref.kind === "proposal" && ref.refId === original.id)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "The Chat turn is not linked to this proposal",
+          });
+        }
+      }
       const isSignalEvidenceProposal =
         original.resourceType === "relation" &&
         isRelationshipSignalEvidence(original.inputs);
@@ -5243,7 +7149,7 @@ export const appRouter = t.router({
         isRecordMutationProposal ||
         isGoogleInteractionIntakeProposal;
       const isRetryablePostDecisionProposal =
-        isRelationshipProposal || isCaptureIntakeProposal;
+        isRelationshipProposal || isCaptureIntakeProposal || chatTaskInput !== null;
       let resolved: Proposal | null = null;
       let postDecisionPipelineError: unknown;
       let relationshipDecision: LedgerEntry | null = null;
@@ -5303,6 +7209,17 @@ export const appRouter = t.router({
             canonical.commonsInvocation = originalInputs.commonsInvocation;
           }
           committedEditedOutput = canonical;
+        }
+        if (chatTaskInput) {
+          const editedTask = chatCreateTaskOutputSchema.safeParse(committedEditedOutput);
+          if (!editedTask.success || editedTask.data.taskId !== chatTaskInput.taskId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "edited Chat Task output must satisfy the Task contract and cannot retarget the Task",
+            });
+          }
+          committedEditedOutput = editedTask.data;
         }
       }
       if (
@@ -5625,6 +7542,35 @@ export const appRouter = t.router({
             captureDecisionCandidate,
           );
         }
+        const persistedChatDecision = chatTaskInput
+          ? await ctx.wiring.ledger.decisionFor(input.proposalId)
+          : null;
+        const chatDecision =
+          persistedChatDecision?.userDecision === "approve" ||
+          persistedChatDecision?.userDecision === "edit" ||
+          persistedChatDecision?.userDecision === "veto"
+            ? persistedChatDecision.userDecision
+            : null;
+        const chatTaskResult = chatDecision && chatTaskInput
+          ? await finishChatTaskDecision(
+              ctx.wiring,
+              original,
+              chatTaskInput,
+              persistedChatDecision?.proposedOutput,
+              chatDecision,
+              ctx.identity.id,
+              ctx.run,
+            )
+          : null;
+        if (chatTaskInput && chatTaskResult) {
+          const scope = chatOwnerScope(original.organizationId, ctx.identity.id);
+          await recordChatTaskResult(
+            ctx.wiring,
+            scope,
+            chatTaskInput,
+            chatTaskResult.runId,
+          );
+        }
         const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
         const dealPilotEffects =
           resolved.status === "applied"
@@ -5643,6 +7589,7 @@ export const appRouter = t.router({
             recordedDecision,
             effects,
             dealPilotEffects,
+            ...(chatTaskResult ? { chatTaskResult } : {}),
             effectsStatus: "failed" as const,
             effectsError,
             effectsAuditId: undefined,
@@ -5670,6 +7617,7 @@ export const appRouter = t.router({
           recordedDecision,
           effects,
           dealPilotEffects,
+          ...(chatTaskResult ? { chatTaskResult } : {}),
           effectsStatus: "confirmed" as const,
           ...(moduleInstallation ? { moduleInstallation } : {}),
           ...(relationshipEffect?.effect.status === "applied"
@@ -6332,7 +8280,11 @@ export const appRouter = t.router({
           ...(input.params ? { params: input.params } : {}),
           ...(input.seed ? { seed: input.seed } : {}),
         },
-        ctx.run,
+        withHumanInputTaint(
+          ctx.run,
+          `automation:${automationId}:${ctx.identity.id}`,
+          input.params ?? {},
+        ),
       );
     }),
   }),
@@ -8201,6 +10153,10 @@ export const appRouter = t.router({
         assertPilotOrganization(input.organizationId);
         let proposal;
         try {
+          await ctx.wiring.dealpilot.validateSourceDiscovery(
+            input.organizationId,
+            input.sourceId,
+          );
           const result = await ctx.wiring.automationExecutor.runById(
             {
               organizationId: input.organizationId,
@@ -8208,7 +10164,11 @@ export const appRouter = t.router({
               onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
               params: { organizationId: input.organizationId, sourceId: input.sourceId },
             },
-            ctx.run,
+            withHumanInputTaint(
+              ctx.run,
+              `dealpilot:discover:${ctx.identity.id}:${input.sourceId}`,
+              input,
+            ),
           );
           proposal = result.proposals[0];
           if (!proposal) throw new Error("DealPilot discovery Automation produced no proposal");
@@ -8279,7 +10239,12 @@ export const appRouter = t.router({
           resourceType: "module" as const,
           skill: "stageMutation",
           inputs: { kind: "dealpilot_capture_commit", captureId: input.captureId },
-          trustOrigin: capture.trustOrigin ?? "untrusted_external",
+          taintLabel: labelAtSource("email_google_intake", {
+            ref: `dealpilot:capture:${input.captureId}`,
+            valueHash: hashTaintValue(capture.payload),
+            sensitivity: "organization",
+            instructionRisk: "data",
+          }),
         };
         const materialize = async (proposal?: Proposal) => {
           const committed = await ctx.wiring.dealpilot.store.commitCapture(
@@ -12250,6 +14215,13 @@ export const appRouter = t.router({
     converse: procedure.input(chiefOfStaffConverseInput).mutation(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      if (input.cloudModelEgress) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Caller-confirmed cloud egress is retired. Use chat.turn.prepareCloud and a single-use exact-context grant.",
+        });
+      }
 
       // Resolve the Chief-of-Staff persona server-side from stored onboarding
       // context. Avatar style is intentionally absent: visual choice never

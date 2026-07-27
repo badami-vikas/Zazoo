@@ -7,7 +7,12 @@
  * (not the full DOM `fetch` signature) to keep this module dependency-light.
  */
 export interface FetchLike {
-  (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<{
+  (url: string, init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    signal?: AbortSignal;
+  }): Promise<{
     ok: boolean;
     status: number;
     json(): Promise<unknown>;

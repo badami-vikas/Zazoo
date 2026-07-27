@@ -26,3 +26,53 @@ test("built-in Task Manager upgrade converges to the same canonical manifest Com
   assert.equal(canonicalizeManifest(normalized.manifest), canonicalizeManifest(expected));
   assert.deepEqual(normalized.manifest.module?.commonsNeeds, []);
 });
+
+test("built-in Task Manager publishes create-task as a new immutable version", async () => {
+  const builtIn = BUILT_IN_MODULES.find((candidate) => candidate.manifest.name === "task-manager");
+  assert.ok(builtIn);
+  assert.equal(builtIn.manifest.version, "1.0.3");
+  const createTaskCapability = "task-manager.skill.create-task";
+  const previousManifest = parseModuleManifest({
+    module: {
+      ...builtIn.manifest,
+      version: "1.0.2",
+      capabilities: builtIn.manifest.capabilities
+        .filter((capability) => capability.id !== createTaskCapability)
+        .map((capability) => ({
+          ...capability,
+          dependencies: capability.dependencies.filter(
+            (dependency) => dependency.manifestId !== createTaskCapability,
+          ),
+        })),
+      module: {
+        ...builtIn.manifest.module!,
+        agents: builtIn.manifest.module!.agents.map((agent) => ({
+          ...agent,
+          skillIds: agent.skillIds.filter((skillId) => skillId !== createTaskCapability),
+        })),
+      },
+    },
+  });
+  const store = new InMemoryModuleStore();
+  const previous = await store.create({
+    organizationId: PILOT_ORGANIZATION,
+    moduleName: previousManifest.name,
+    moduleVersion: previousManifest.version,
+    manifest: previousManifest,
+    computedRisk: builtIn.computedRisk,
+    state: "available",
+    status: "installed",
+    lineageManifestId: null,
+  });
+
+  await seedBuiltInModules(store, PILOT_ORGANIZATION);
+
+  assert.equal((await store.get(previous.id))?.state, "legacy");
+  const upgraded = await store.getAvailable(PILOT_ORGANIZATION, "task-manager");
+  assert.equal(upgraded?.moduleVersion, "1.0.3");
+  assert.ok(
+    upgraded?.manifest.capabilities.some(
+      (capability) => capability.id === createTaskCapability,
+    ),
+  );
+});

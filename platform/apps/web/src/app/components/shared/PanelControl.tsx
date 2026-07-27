@@ -266,17 +266,27 @@ export function ResizeHandle({
   onMouseDown,
   onKeyDown,
   label,
+  value,
+  min,
+  max,
 }: {
   side: PanelSide;
   onMouseDown: (e: React.MouseEvent) => void;
   onKeyDown?: (e: React.KeyboardEvent) => void;
   label?: string;
+  value: number;
+  min: number;
+  max: number;
 }) {
   return (
     <div
       role="separator"
       aria-label={label ?? `Drag to resize ${side} panel`}
       aria-orientation="vertical"
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={Math.round(value)}
+      aria-valuetext={`${Math.round(value)} pixels`}
       tabIndex={0}
       onMouseDown={onMouseDown}
       onKeyDown={onKeyDown}

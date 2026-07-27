@@ -559,6 +559,24 @@ export class InMemoryAutomationRunRecorder implements AutomationRunRecorder {
     existing.output = run.output;
     existing.finishedAt = ctx.clock.nowISO();
   }
+  async get(
+    organizationId: string,
+    runId: string,
+  ): Promise<AutomationRunRecord | null> {
+    const run = this.runs.get(runId);
+    if (!run || run.organizationId !== organizationId) return null;
+    return {
+      ...run,
+      ...(run.taintLabel
+        ? {
+            taintLabel: {
+              ...run.taintLabel,
+              originChain: run.taintLabel.originChain.map((origin) => ({ ...origin })),
+            },
+          }
+        : {}),
+    };
+  }
   async list(
     organizationId: string,
     automationIds: string[],
@@ -569,6 +587,6 @@ export class InMemoryAutomationRunRecorder implements AutomationRunRecorder {
       .filter((run) => run.organizationId === organizationId && allowed.has(run.automationId))
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
       .slice(0, Math.min(50, Math.max(1, opts.limit)))
-      .map(({ output: _output, ...run }) => run);
+      .map((run) => ({ ...run }));
   }
 }

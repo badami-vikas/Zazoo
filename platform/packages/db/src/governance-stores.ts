@@ -677,6 +677,7 @@ export async function ensureInternalStrategistGovernance(
       "stageStrategicRecommendation",
       "jobpilot.synthesizeCultureProfile",
       "task-manager.ledger-projection",
+      "task-manager.create-task",
     ],
     dataScope: "all",
   });

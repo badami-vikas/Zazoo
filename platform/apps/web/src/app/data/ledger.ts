@@ -112,6 +112,8 @@ function historyRowToEntry(row: LedgerHistoryRow): LedgerEntry {
       (row.onBehalfOfType === 'user' ? row.onBehalfOfId ?? null : null),
     delegationId: row.delegationId ?? asString(inputs?.delegationId),
     runId: asString(inputs?.runId),
+    chatThreadId: asString(inputs?.chatThreadId) ?? undefined,
+    chatTurnId: asString(inputs?.chatTurnId) ?? undefined,
     action: asString(display?.action) ?? row.action,
     resourceType: displayResourceType(row.resourceType),
     resource,
@@ -557,6 +559,12 @@ export async function recordDecisionAppend(
           : decision === 'edited_approved'
             ? 'edit'
             : 'approve',
+      ...(entry.chatThreadId && entry.chatTurnId
+        ? {
+            chatThreadId: entry.chatThreadId,
+            chatTurnId: entry.chatTurnId,
+          }
+        : {}),
       ...(editedOutput !== undefined ? { editedOutput } : {}),
       ...(reason ? { reason } : {}),
     });

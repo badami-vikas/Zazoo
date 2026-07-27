@@ -196,6 +196,16 @@ export interface ModelPromptCache {
   ttl: "5m";
 }
 
+/** Provider-neutral constrained-output request. Providers that implement this
+ * contract must bind the supplied schema at generation time; callers still
+ * validate the returned JSON because model constraints are not authority. */
+export interface ModelJsonSchemaResponseFormat {
+  type: "json_schema";
+  name: string;
+  schema: Readonly<Record<string, unknown>>;
+  strict?: boolean;
+}
+
 export interface ModelCompletionRequest {
   system?: string;
   prompt: string;
@@ -206,6 +216,11 @@ export interface ModelCompletionRequest {
   /** Provider-neutral cache intent. Providers without prefix caching may
    * ignore it; Anthropic binds it to the stable system block. */
   cache?: ModelPromptCache;
+  /** Optional constrained JSON output. A provider that cannot honor this must
+   * fail loud rather than silently returning unconstrained prose. */
+  responseFormat?: ModelJsonSchemaResponseFormat;
+  /** Cancels the real provider request when supported by the adapter. */
+  signal?: AbortSignal;
   /** Joined label for every system/user/context prompt segment. */
   taintLabel?: TaintLabel;
 }
@@ -240,6 +255,19 @@ export function assertModelCompletionRequest(
     (request.cache.strategy !== "stable_system_prefix" || request.cache.ttl !== "5m")
   ) {
     throw new Error(`${label}: unsupported cache policy`);
+  }
+  if (request.responseFormat !== undefined) {
+    const format = request.responseFormat;
+    if (
+      format.type !== "json_schema" ||
+      typeof format.name !== "string" ||
+      !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(format.name) ||
+      typeof format.schema !== "object" ||
+      format.schema === null ||
+      Array.isArray(format.schema)
+    ) {
+      throw new Error(`${label}: invalid JSON-schema response format`);
+    }
   }
 }
 
@@ -534,6 +562,7 @@ export interface AutomationRunRecord {
   startedAt: string;
   finishedAt?: string;
   taintLabel?: TaintLabel;
+  output?: unknown;
 }
 
 export interface AutomationRunRecorder {
@@ -545,6 +574,7 @@ export interface AutomationRunRecorder {
     run: { runId: string; organizationId: string; status: "completed" | "halted"; output: unknown },
     ctx: RunCtx,
   ): Promise<void>;
+  get(organizationId: string, runId: string): Promise<AutomationRunRecord | null>;
   list(
     organizationId: string,
     automationIds: string[],

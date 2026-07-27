@@ -20,7 +20,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TRPCError } from "@trpc/server";
-import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
+import {
+  SeededRng,
+  SystemClock,
+  UuidGen,
+  hashTaintValue,
+  labelAtSource,
+  type RunCtx,
+} from "@bridge/core";
 import { appRouter, deterministicUuid, anchorLineageKey } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, LEARNING_AGENT, PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE, PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE, type Wiring } from "../src/wiring.js";
 
@@ -1204,6 +1211,14 @@ test("PRIVATE PROPOSALS (review round-4 item 2): an UNRELATED (non-private) prop
         skill: "learning.proposePreferenceAdjustment",
         goalTaskRef: { goalId: goal.id, taskId: goalTask.id },
         inputs: { note: "a completely ordinary, non-private team proposal" },
+        taintLabel: labelAtSource("human_input", {
+          ref: "red-flag:team-proposal",
+          valueHash: hashTaintValue(
+            "a completely ordinary, non-private team proposal",
+          ),
+          sensitivity: "organization",
+          instructionRisk: "instruction_like",
+        }),
       },
       makeRun(),
     );

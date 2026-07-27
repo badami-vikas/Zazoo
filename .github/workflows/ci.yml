@@ -206,6 +206,14 @@ jobs:
       - name: Test desktop bundle policy
         working-directory: platform/apps/desktop
         run: pnpm test:bundle
+      - name: Import macOS signing certificate before runtime preparation
+        if: runner.os == 'macOS'
+        working-directory: platform/apps/desktop
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: node scripts/import-macos-certificate.mjs
       - name: Prepare portable API and target Node runtime
         working-directory: platform/apps/desktop
         run: pnpm prepare:bundle
@@ -224,7 +232,6 @@ jobs:
           # macOS Developer ID code-signing + notarization.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -232,9 +239,13 @@ jobs:
       - name: Verify macOS nested runtime signatures
         if: runner.os == 'macOS'
         working-directory: platform/apps/desktop
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: pnpm verify:macos-bundle
+      - name: Remove temporary macOS signing keychain
+        if: always() && runner.os == 'macOS'
+        run: |
+          if [ -n "${BRIDGE_CODESIGN_KEYCHAIN:-}" ]; then
+            security delete-keychain "$BRIDGE_CODESIGN_KEYCHAIN"
+          fi
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:

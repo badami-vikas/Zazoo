@@ -1,5 +1,49 @@
 # Change Log
 
+- **2026-07-27 — Governed persistent Chat completed (TASK-026, AP-080, ADR-147)**:
+  durable owner/Organization-isolated Chat now spans panel, Chief of Staff Page, and desktop Avatar.
+  Migrations `0031`/`0032`, server-owned bounded context, real eligible Agent-owned Skill dispatch,
+  exact single-use public cloud grants, inline Proposal→Decision→Run→Result, and retry/cancel/archive/
+  delete are complete. Desktop bundles supervised llama.cpp `b9000` and installs pinned Qwen3 4B
+  Q4_K_M on Human request. Real packaged certification passed multi-turn inference, shared surfaces,
+  Task execution, API/full-app restart, model crash recovery, responsive 375/768/1440 layouts, and
+  zero Chat Axe/console/local-HTTP errors. A final full-diff review then closed nine more release
+  blockers: proposal provenance, cross-Plane IDs, DB immutability, release-signing order, lease-owned
+  cleanup, post-download cancellation, idle model refresh, draft preservation, and Task output
+  discrimination. Full uncached tests passed 40/40 tasks; Rust 59/59; bundle 8/8; build/typecheck/
+  lint/policy gates passed; independent re-review found no significant issue. A rebuilt `.app`
+  deep-verified, loaded packaged Keyring, returned exact `NATIVE_OK`, recovered after abrupt exit,
+  and cleaned child capabilities on normal quit. Final clean-checkout verification also added
+  tracked `generated/llama/.gitkeep`, keeping Tauri `cargo check` valid before generated bundle
+  inputs exist. Seven HIGH and one MODERATE dependency advisories remain attached to TASK-018.
+
+- **2026-07-26 — PR #48 project skills/config merged by user directive (AP-079, ADR-148)**:
+  merged at `11725b0` after reconciling its two conflicts with TASK-025. The actual inventory is 44,
+  not 43. CLAUDE remains sole policy; external plugins/workflows stay disabled; CI caps the reviewed
+  bundle at 44 skills/512 KiB. Added exact upstream revisions/blobs and required MIT/Apache notices.
+  TASK-026 will use migration, eval, React-test, accessibility, and verification guidance on demand.
+  Main's pre-existing stale-prototype and seven-HIGH dependency-audit failures were preserved as BUGS
+  evidence rather than folded into this tooling PR.
+
+- **2026-07-26 — Governed persistent Chat Panel started (TASK-026, AP-078, ADR-147)**:
+  the approved P0 contract keeps desktop private Chat in the Local Plane, limits hosted Chat to explicit
+  public-safe turns, bundles a managed llama.cpp runtime with Human-triggered provenance-pinned Qwen3
+  4B intake, and requires fresh consent for every cloud turn. Implementation reuses
+  RunContextAssembler, ModelProvider, Goal/Task-bound Skill resolution, and the Universal Action
+  Pipeline; panel/Page/Avatar converge on one durable thread with inline
+  Proposal→Decision→Run→Result. The prior audit's “PromptAssembler unbuilt” statement is corrected:
+  RunContextAssembler exists but Chief of Staff has not consumed it.
+
+- **2026-07-26 — Right Chat Panel completion gap audited**:
+  confirmed the visible panel is a real Chief-of-Staff v1 transport but not a complete conversation
+  product. Turns are independent React state across the main panel, full page, and Avatar; no durable
+  history or multi-turn context is loaded; ordinary routes end in generic `stageMutation` proposals;
+  model availability/egress has no complete panel flow; and Approval/Run/Result lifecycle is not
+  rendered inline. Recorded a six-slice completion contract and exact prototype test in
+  [`outputs/2026-07-26-right-chat-panel-completion.md`](../outputs/2026-07-26-right-chat-panel-completion.md).
+  Existing TASK-001/007/015 substrate remains accurately closed; no canonical TASKS scope, status, or
+  order changed without approval.
+
 - **2026-07-26 — Tiered agent-context budget implemented (TASK-025, AP-076/AP-077, ADR-146)**:
   Copilot CLI and Claude Code now share one risk-tiered contract: read-only Tier A writes no
   trackers/ledgers/outputs, routine Tier B uses targeted context/checks, and governed Tier C preserves

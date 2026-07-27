@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TRPCError } from "@trpc/server";
-import { SeededRng, SystemClock, UuidGen, resolveSkillForTask, type RunCtx } from "@bridge/core";
+import {
+  SeededRng,
+  SystemClock,
+  UuidGen,
+  hashTaintValue,
+  labelAtSource,
+  resolveSkillForTask,
+  type RunCtx,
+} from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { AGENT_ROLE_TEMPLATES } from "../src/agent-role-templates.js";
 import {
@@ -81,6 +89,12 @@ test("agent.create: a role-template Agent is role-bound, active, and can execute
         action: "write",
         resourceType: "signal",
         inputs: { text: "a strategic recommendation" },
+        taintLabel: labelAtSource("human_input", {
+          ref: "agent-eligibility:strategic-recommendation",
+          valueHash: hashTaintValue("a strategic recommendation"),
+          sensitivity: "organization",
+          instructionRisk: "instruction_like",
+        }),
         skill: "stageStrategicRecommendation",
         goalTaskRef: { goalId: goal.id, taskId: task.id },
       },

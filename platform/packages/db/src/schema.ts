@@ -433,6 +433,248 @@ export const memories = pgTable(
   (t) => [index("memories_org_subject_idx").on(t.organizationId, t.subjectRecordId)],
 );
 
+/**
+ * Plane-bound Chat persistence. Conversation content remains in these owner-only
+ * rows; governance tables receive references, never copied prompt text.
+ */
+export const chatThreads = pgTable(
+  "chat_threads",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    plane: text("plane").notNull(),
+    dataScope: text("data_scope").notNull(),
+    status: text("status").notNull().default("active"),
+    title: text("title"),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("chat_threads_plane_check", sql`${t.plane} IN ('local', 'cloud')`),
+    check("chat_threads_data_scope_check", sql`${t.dataScope} IN ('private', 'public')`),
+    check("chat_threads_status_check", sql`${t.status} IN ('active', 'archived')`),
+    check(
+      "chat_threads_plane_scope_check",
+      sql`(${t.plane} = 'local' AND ${t.dataScope} = 'private')
+          OR (${t.plane} = 'cloud' AND ${t.dataScope} = 'public')`,
+    ),
+    check(
+      "chat_threads_title_check",
+      sql`${t.title} IS NULL OR length(btrim(${t.title})) > 0`,
+    ),
+    check("chat_threads_updated_check", sql`${t.updatedAt} >= ${t.createdAt}`),
+    index("chat_threads_owner_updated_idx").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.status,
+      t.updatedAt,
+      t.id,
+    ),
+    unique("chat_threads_organization_owner_id_uq").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.id,
+    ),
+  ],
+);
+
+export const chatTurns = pgTable(
+  "chat_turns",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    threadId: uuid("thread_id").notNull(),
+    sequence: bigint("sequence", { mode: "number" }).notNull(),
+    role: text("role").notNull(),
+    actorType: text("actor_type").notNull(),
+    actorId: text("actor_id"),
+    content: text("content").notNull(),
+    state: text("state").notNull(),
+    clientRequestId: text("client_request_id").notNull(),
+    requestFingerprint: text("request_fingerprint").notNull(),
+    taintLabel: jsonb("taint_label").notNull().default(UNKNOWN_LABEL),
+    errorCode: text("error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("chat_turns_sequence_check", sql`${t.sequence} > 0`),
+    check(
+      "chat_turns_role_check",
+      sql`${t.role} IN ('system', 'user', 'assistant', 'skill')`,
+    ),
+    check(
+      "chat_turns_actor_type_check",
+      sql`${t.actorType} IN ('human', 'agent', 'system', 'skill')`,
+    ),
+    check(
+      "chat_turns_state_check",
+      sql`${t.state} IN (
+        'queued',
+        'processing',
+        'awaiting_consent',
+        'awaiting_decision',
+        'completed',
+        'failed',
+        'cancelled'
+      )`,
+    ),
+    check(
+      "chat_turns_user_content_check",
+      sql`${t.role} <> 'user' OR length(btrim(${t.content})) > 0`,
+    ),
+    check(
+      "chat_turns_client_request_check",
+      sql`length(btrim(${t.clientRequestId})) > 0`,
+    ),
+    check(
+      "chat_turns_request_fingerprint_check",
+      sql`${t.requestFingerprint} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+    check(
+      "chat_turns_error_code_check",
+      sql`${t.errorCode} IS NULL OR length(btrim(${t.errorCode})) > 0`,
+    ),
+    check("chat_turns_updated_check", sql`${t.updatedAt} >= ${t.createdAt}`),
+    unique("chat_turns_thread_sequence_uq").on(t.threadId, t.sequence),
+    unique("chat_turns_thread_client_request_uq").on(t.threadId, t.clientRequestId),
+    unique("chat_turns_organization_owner_thread_id_uq").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.threadId,
+      t.id,
+    ),
+    index("chat_turns_owner_thread_sequence_idx").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.threadId,
+      t.sequence,
+    ),
+    foreignKey({
+      columns: [t.organizationId, t.ownerUserId, t.threadId],
+      foreignColumns: [
+        chatThreads.organizationId,
+        chatThreads.ownerUserId,
+        chatThreads.id,
+      ],
+      name: "chat_turns_organization_owner_thread_fk",
+    }).onDelete("cascade"),
+  ],
+);
+
+export const chatTurnRefs = pgTable(
+  "chat_turn_refs",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    threadId: uuid("thread_id").notNull(),
+    turnId: uuid("turn_id").notNull(),
+    kind: text("kind").notNull(),
+    refId: text("ref_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "chat_turn_refs_kind_check",
+      sql`${t.kind} IN (
+        'routing_decision',
+        'model_receipt',
+        'proposal',
+        'agent_run',
+        'automation_run',
+        'result',
+        'event',
+        'file',
+        'error'
+      )`,
+    ),
+    check("chat_turn_refs_ref_id_check", sql`length(btrim(${t.refId})) > 0`),
+    unique("chat_turn_refs_turn_kind_ref_uq").on(t.turnId, t.kind, t.refId),
+    index("chat_turn_refs_owner_turn_created_idx").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.threadId,
+      t.turnId,
+      t.createdAt,
+    ),
+    foreignKey({
+      columns: [t.organizationId, t.ownerUserId, t.threadId, t.turnId],
+      foreignColumns: [
+        chatTurns.organizationId,
+        chatTurns.ownerUserId,
+        chatTurns.threadId,
+        chatTurns.id,
+      ],
+      name: "chat_turn_refs_organization_owner_turn_fk",
+    }).onDelete("cascade"),
+  ],
+);
+
+export const chatCloudGrants = pgTable(
+  "chat_cloud_grants",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    threadId: uuid("thread_id").notNull(),
+    contextDigest: text("context_digest").notNull(),
+    providerId: text("provider_id").notNull(),
+    modelTier: text("model_tier").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, precision: 3 }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true, precision: 3 }),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "chat_cloud_grants_digest_check",
+      sql`${t.contextDigest} ~ '^sha256:[0-9a-f]{64}$'`,
+    ),
+    check("chat_cloud_grants_provider_check", sql`length(btrim(${t.providerId})) > 0`),
+    check("chat_cloud_grants_tier_check", sql`length(btrim(${t.modelTier})) > 0`),
+    check("chat_cloud_grants_expiry_check", sql`${t.expiresAt} > ${t.createdAt}`),
+    check(
+      "chat_cloud_grants_consumed_check",
+      sql`${t.consumedAt} IS NULL OR ${t.consumedAt} >= ${t.createdAt}`,
+    ),
+    index("chat_cloud_grants_owner_thread_idx").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.threadId,
+      t.createdAt,
+    ),
+    unique("chat_cloud_grants_organization_owner_thread_id_uq").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.threadId,
+      t.id,
+    ),
+    foreignKey({
+      columns: [t.organizationId, t.ownerUserId, t.threadId],
+      foreignColumns: [
+        chatThreads.organizationId,
+        chatThreads.ownerUserId,
+        chatThreads.id,
+      ],
+      name: "chat_cloud_grants_organization_owner_thread_fk",
+    }).onDelete("cascade"),
+  ],
+);
+
 
 export const files = pgTable("files", {
   id: uuidPk(),

@@ -5,46 +5,19 @@
  *
  * TASK-001 §5b: refactored to use shared PanelControl hooks/components so the
  * right panel and left sidebar share identical collapse/expand/resize/ARIA
- * behaviour. The chat state (turns, draft) is unaffected — it survives
- * collapse/expand cycles.
+ * behaviour. Chat persistence is server-owned and shared with the full page
+ * and Avatar overlay.
  */
-import { useState } from "react";
-import { trpc, PILOT_ORGANIZATION } from "../../lib/trpc";
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
-import { Badge } from "../ui/badge";
+import { PILOT_ORGANIZATION } from "../../lib/trpc";
 import { AvatarIcon } from "../../avatar/AvatarOverlay";
 import { loadAvatarPrefs } from "../../avatar/avatar-store";
-import { getRoutingDecisionDisplay } from "../../lib/routing-decision-display";
+import { ChatView } from "../../chat/ChatView";
 import {
   usePanelControl,
   ResizeHandle,
   CollapseToggleButton,
   ExtendToggleButton,
 } from "./PanelControl";
-
-type ConverseResult = Awaited<ReturnType<typeof trpc.chiefOfStaff.converse.mutate>>;
-
-interface ChatTurn {
-  role: "user" | "assistant";
-  text: string;
-  decision?: ConverseResult["decision"];
-  proposalId?: string;
-  agent?: ConverseResult["agent"];
-}
-
-/** Display names for the "agent" field ADR-033/046 added to converse's reply
- * — `@mention` any of these in the chat box to address them directly,
- * bypassing Chief of Staff's routing for that one turn. "communications" is
- * a display-only label (ADR-046: Communications is a skill, not an agent —
- * no identity/capability-scope row), kept here purely for badge continuity. */
-const AGENT_LABELS: Record<string, string> = {
-  chief_of_staff: "Chief of Staff",
-  learning: "Learning Agent",
-  communications: "Communications",
-  governance: "Governance Agent",
-  capability_builder: "Capability Builder",
-};
 
 // PANEL_DEFAULT_WIDTH = 1.3× the rail's default EXPANDED width (220*1.3≈286).
 const PANEL_DEFAULT_WIDTH = 286;
@@ -73,40 +46,9 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
     }
   }
 
-  const [turns, setTurns] = useState<ChatTurn[]>([
-    {
-      role: "assistant",
-      text: "Hi — I'm Chief of Staff. I can route requests to JobPilot, DealPilot, Calendar, Helpdesk, or Resources. Anything else, I'll say so honestly rather than guess.",
-    },
-  ]);
-  const [draft, setDraft] = useState("");
-  const [chainDepth, setChainDepth] = useState(0);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const avatarPrefs = loadAvatarPrefs(true);
   const avatarStyle = avatarPrefs.style;
   const agentName = avatarPrefs.avatarName || "Chief of Staff";
-
-  async function send() {
-    const message = draft.trim();
-    if (!message) return;
-    setDraft("");
-    setSending(true);
-    setError(null);
-    setTurns((prev) => [...prev, { role: "user", text: message }]);
-    try {
-      const result = await trpc.chiefOfStaff.converse.mutate({ organizationId: PILOT_ORGANIZATION, message, chainDepth });
-      setTurns((prev) => [
-        ...prev,
-        { role: "assistant", text: result.reply, decision: result.decision, proposalId: result.proposal?.id, agent: result.agent },
-      ]);
-      setChainDepth(result.decision.kind === "route" ? chainDepth + 1 : 0);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSending(false);
-    }
-  }
 
   if (collapsed && !mobile) {
     return (
@@ -139,15 +81,20 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
       }}
     >
       {/* Resize handle — shared ResizeHandle component (§5b), left edge. */}
-      <ResizeHandle
-        side="right"
-        onMouseDown={(e) => panel.startDrag(e, "right")}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowLeft") panel.resizeBy(16);
-          if (e.key === "ArrowRight") panel.resizeBy(-16);
-        }}
-        label="Drag to resize chat panel"
-      />
+      {!mobile && (
+        <ResizeHandle
+          side="right"
+          onMouseDown={(e) => panel.startDrag(e, "right")}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") panel.resizeBy(16);
+            if (e.key === "ArrowRight") panel.resizeBy(-16);
+          }}
+          label="Drag to resize chat panel"
+          value={dragWidth ?? panelWidth}
+          min={PANEL_MIN_WIDTH}
+          max={PANEL_MAX_WIDTH}
+        />
+      )}
       <div className="h-14 flex items-center justify-between px-4 border-b shrink-0" style={{ borderColor: "var(--color-border)" }}>
         {/* Shared CollapseToggleButton (§5b). */}
         <div className="flex items-center">
@@ -171,54 +118,7 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
         <div className="w-9" />
       </div>
 
-      <div className="flex-1 overflow-auto space-y-3 p-4">
-        {turns.map((t, i) => {
-          const decisionDisplay = t.decision ? getRoutingDecisionDisplay(t.decision) : null;
-          return <div key={i} className={t.role === "user" ? "text-right" : "text-left"}>
-            {t.role === "assistant" && t.agent && t.agent !== "chief_of_staff" && (
-              <div className="text-xs font-medium mb-0.5" style={{ color: "var(--color-steel)" }}>
-                {AGENT_LABELS[t.agent] ?? t.agent}
-              </div>
-            )}
-            <div
-              className="inline-block max-w-[85%] rounded-md px-3 py-2 text-sm"
-              style={{
-                backgroundColor: t.role === "user" ? "var(--color-steel)" : "var(--color-surface)",
-                color: t.role === "user" ? "white" : "var(--color-navy)",
-              }}
-            >
-              {t.text}
-            </div>
-            {decisionDisplay && (
-              <div className="mt-1 flex flex-wrap gap-1 justify-start">
-                <Badge variant="outline">{decisionDisplay.kindLabel}</Badge>
-                {decisionDisplay.routeLabel && <Badge variant="secondary">{decisionDisplay.routeLabel}</Badge>}
-                {t.proposalId && <Badge variant="outline">proposal pending in Approvals</Badge>}
-              </div>
-            )}
-          </div>
-        })}
-      </div>
-
-      {error && <div className="px-4 pb-2 text-xs text-red-600 break-words">{error}</div>}
-
-      <div className="px-4 pb-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-        @learning · @communications · @governance · @builder — address one directly
-      </div>
-      <div className="p-3 pt-1 border-t flex gap-2 shrink-0" style={{ borderColor: "var(--color-border)" }}>
-        <Input
-          placeholder="Ask Chief of Staff…"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !sending) send();
-          }}
-          disabled={sending}
-        />
-        <Button onClick={send} disabled={sending || !draft.trim()}>
-          {sending ? "…" : "Send"}
-        </Button>
-      </div>
+      <ChatView surface="chat_panel" compact />
     </aside>
   );
 }

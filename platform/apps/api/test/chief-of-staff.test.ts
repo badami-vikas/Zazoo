@@ -24,7 +24,6 @@ import { AnthropicProvider } from "@bridge/models";
 import { appRouter } from "../src/router.js";
 import {
   buildWiring,
-  EGRESS_AGENT,
   PILOT_ORGANIZATION,
   PILOT_USER,
   type Wiring,
@@ -52,7 +51,7 @@ async function makeCaller(wiring: Wiring, userId = PILOT_USER) {
 }
 
 class TierTrackingModel implements ModelProvider {
-  readonly plane = "cloud" as const;
+  readonly plane: "local" | "cloud";
   readonly calls: ModelCompletionRequest[] = [];
   readonly pricing: Readonly<Partial<Record<ModelTier, ModelTokenPricing>>>;
   readonly models: Readonly<Partial<Record<ModelTier, string>>>;
@@ -62,7 +61,9 @@ class TierTrackingModel implements ModelProvider {
     readonly tiers: readonly ModelTier[],
     readonly reply: string,
     pricing: Readonly<Partial<Record<ModelTier, ModelTokenPricing>>> = {},
+    plane: "local" | "cloud" = "cloud",
   ) {
+    this.plane = plane;
     this.pricing = pricing;
     this.models = Object.fromEntries(
       tiers.map((tier) => [tier, `${id}-v1`]),
@@ -178,9 +179,27 @@ test("chiefOfStaff.converse: tier routing ignores registration order and persist
     source: "test protocol price catalog",
     asOf: "2026-07-18",
   };
-  const reasoning = new TierTrackingModel("reasoning-cloud", ["reasoning"], "reasoned answer");
-  const defaultModel = new TierTrackingModel("default-cloud", ["default"], "drafted response");
-  const cheap = new TierTrackingModel("cheap-cloud", ["cheap"], "jobpilot", { cheap: pricing });
+  const reasoning = new TierTrackingModel(
+    "reasoning-local",
+    ["reasoning"],
+    "reasoned answer",
+    {},
+    "local",
+  );
+  const defaultModel = new TierTrackingModel(
+    "default-local",
+    ["default"],
+    "drafted response",
+    {},
+    "local",
+  );
+  const cheap = new TierTrackingModel(
+    "cheap-local",
+    ["cheap"],
+    "jobpilot",
+    { cheap: pricing },
+    "local",
+  );
   const wiring = await buildWiring({ modelProviders: [reasoning, defaultModel, cheap] });
   try {
     await wiring.onboardingProfileStore.save({
@@ -197,7 +216,6 @@ test("chiefOfStaff.converse: tier routing ignores registration order and persist
       organizationId: PILOT_ORGANIZATION,
       message: "check my job applications",
       chainDepth: 0,
-      cloudModelEgress: PUBLIC_CLOUD_MODEL_EGRESS,
     });
 
     assert.equal(cheap.calls.length, 1);
@@ -213,13 +231,13 @@ test("chiefOfStaff.converse: tier routing ignores registration order and persist
     });
     const receiptEntry = history.items.find((entry) => entry.id === routed.modelReceiptLedgerId);
     assert.ok(receiptEntry);
-    assert.equal(receiptEntry.actorType, "agent");
-    assert.equal(receiptEntry.actorId, EGRESS_AGENT);
-    assert.equal(receiptEntry.onBehalfOfType, "user");
-    assert.equal(receiptEntry.onBehalfOfId, PILOT_USER);
-    assert.equal(receiptEntry.resourceType, "external:fetch");
+    assert.equal(receiptEntry.actorType, "user");
+    assert.equal(receiptEntry.actorId, PILOT_USER);
+    assert.equal(receiptEntry.onBehalfOfType, undefined);
+    assert.equal(receiptEntry.onBehalfOfId, undefined);
+    assert.equal(receiptEntry.resourceType, "module");
     assert.equal(receiptEntry.resourceId, undefined);
-    assert.equal(receiptEntry.dataScope, "public");
+    assert.equal(receiptEntry.dataScope, "all");
     assert.deepEqual(
       receiptEntry.policyResults.map((result) => [result.policyId, result.effect]),
       [["pol-model-execution-plane", "allow"]],
@@ -227,7 +245,7 @@ test("chiefOfStaff.converse: tier routing ignores registration order and persist
     assert.equal((receiptEntry.inputs as { promptStored?: unknown }).promptStored, false);
     assert.equal(
       (receiptEntry.inputs as { cloudEgressConfirmed?: unknown }).cloudEgressConfirmed,
-      true,
+      false,
     );
     assert.equal(
       (receiptEntry.inputs as { modelCallRunId?: unknown }).modelCallRunId,
@@ -246,7 +264,6 @@ test("chiefOfStaff.converse: tier routing ignores registration order and persist
       organizationId: PILOT_ORGANIZATION,
       message: "@learning identify the important pattern",
       chainDepth: 0,
-      cloudModelEgress: PUBLIC_CLOUD_MODEL_EGRESS,
     });
     assert.equal(addressed.agent, "learning");
     assert.ok(addressed.modelReceiptLedgerId);
@@ -258,14 +275,13 @@ test("chiefOfStaff.converse: tier routing ignores registration order and persist
       "profile-derived context must not enter a cloud prompt",
     );
     const addressedReceipt = await wiring.ledger.get(addressed.modelReceiptLedgerId);
-    assert.equal(addressedReceipt?.actorId, EGRESS_AGENT);
-    assert.equal(addressedReceipt?.onBehalfOfId, PILOT_USER);
+    assert.equal(addressedReceipt?.actorId, PILOT_USER);
+    assert.equal(addressedReceipt?.onBehalfOfId, undefined);
 
     const drafted = await caller.chiefOfStaff.converse({
       organizationId: PILOT_ORGANIZATION,
       message: "@communications draft a short update",
       chainDepth: 0,
-      cloudModelEgress: PUBLIC_CLOUD_MODEL_EGRESS,
     });
     assert.ok(drafted.modelReceiptLedgerId);
     assert.equal(defaultModel.calls.length, 1);
@@ -276,8 +292,8 @@ test("chiefOfStaff.converse: tier routing ignores registration order and persist
       "profile-derived context must not enter a cloud prompt",
     );
     const draftedReceipt = await wiring.ledger.get(drafted.modelReceiptLedgerId);
-    assert.equal(draftedReceipt?.actorId, EGRESS_AGENT);
-    assert.equal(draftedReceipt?.onBehalfOfId, PILOT_USER);
+    assert.equal(draftedReceipt?.actorId, PILOT_USER);
+    assert.equal(draftedReceipt?.onBehalfOfId, undefined);
   } finally {
     await wiring.close();
   }
@@ -427,7 +443,7 @@ test("chiefOfStaff.converse: a non-member is rejected before any model call", as
   }
 });
 
-test("chiefOfStaff.converse: Organization membership without model-egress authority fails before provider access", async () => {
+test("chiefOfStaff.converse: caller-confirmed cloud egress is retired before provider access", async () => {
   const cheap = new TierTrackingModel("cheap-cloud", ["cheap"], "jobpilot");
   const wiring = await buildWiring({ modelProviders: [cheap] });
   try {
@@ -448,7 +464,7 @@ test("chiefOfStaff.converse: Organization membership without model-egress author
         typeof error === "object" &&
         error !== null &&
         "code" in error &&
-        (error as { code: unknown }).code === "FORBIDDEN",
+        (error as { code: unknown }).code === "PRECONDITION_FAILED",
     );
     assert.equal(cheap.calls.length, 0);
   } finally {

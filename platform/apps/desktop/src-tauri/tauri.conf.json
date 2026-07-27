@@ -26,6 +26,7 @@
       "binaries/bridge-node"
     ],
     "macOS": {
+      "minimumSystemVersion": "14.0",
       "frameworks": [
         "generated/native/bridge-keyring.dylib"
       ],
@@ -33,7 +34,9 @@
     },
     "resources": {
       "generated/api/": "api/",
-      "generated/licenses/": "licenses/"
+      "generated/licenses/": "licenses/",
+      "generated/llama/": "llama/",
+      "../model-runtime-manifest.json": "model-runtime-manifest.json"
     },
     "icon": [
       "icons/32x32.png",

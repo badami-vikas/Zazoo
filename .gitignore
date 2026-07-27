@@ -76,4 +76,6 @@ platform/apps/desktop/src-tauri/generated/licenses/*
 !platform/apps/desktop/src-tauri/generated/licenses/.gitkeep
 platform/apps/desktop/src-tauri/generated/native/*
 !platform/apps/desktop/src-tauri/generated/native/.gitkeep
+platform/apps/desktop/src-tauri/generated/llama/*
+!platform/apps/desktop/src-tauri/generated/llama/.gitkeep
 .DS_Store

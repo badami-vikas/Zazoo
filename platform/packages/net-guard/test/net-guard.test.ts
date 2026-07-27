@@ -22,6 +22,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import {
   guardedFetch,
@@ -35,8 +36,89 @@ import {
   RequestBodyRedirectError,
   RequestTooLargeError,
   ResponseTooLargeError,
+  ResponseIntegrityError,
+  guardedDownloadToFile,
   type UnsafeTestOverrides,
 } from "../src/index.js";
+
+test("guardedDownloadToFile resumes through a pinned redirect and verifies exact bytes plus SHA-256", async () => {
+  const content = Buffer.from("bridge-model-file\n".repeat(32_768));
+  const expectedSha256 = createHash("sha256").update(content).digest("hex");
+  const partialBytes = 123_457;
+  let rangeSeen = "";
+  const server = http.createServer((req, res) => {
+    if (req.url === "/start") {
+      res.writeHead(302, { location: "/model.gguf" });
+      res.end();
+      return;
+    }
+    rangeSeen = req.headers.range ?? "";
+    const start = rangeSeen ? Number(/^bytes=(\d+)-$/.exec(rangeSeen)?.[1]) : 0;
+    const body = content.subarray(start);
+    res.writeHead(start > 0 ? 206 : 200, {
+      "content-length": body.byteLength,
+      ...(start > 0
+        ? {
+            "content-range": `bytes ${start}-${content.byteLength - 1}/${content.byteLength}`,
+          }
+        : {}),
+    });
+    res.end(body);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "net-guard-download-"));
+  const partialPath = path.join(tmpDir, "model.gguf.part");
+  fs.writeFileSync(partialPath, content.subarray(0, partialBytes));
+  const origin = `http://download.test:${port}`;
+  try {
+    const result = await guardedDownloadToFile(
+      `${origin}/start`,
+      partialPath,
+      {
+        expectedBytes: content.byteLength,
+        expectedSha256,
+        maxBytes: content.byteLength,
+        allowedRedirectOrigins: [origin],
+        unsafeTestOverrides: {
+          isBlockedHostname: () => false,
+          isBlockedIp: (ip) => ip !== "127.0.0.1" && isBlockedIp(ip),
+          dnsLookup: async () => [{ address: "127.0.0.1", family: 4 }],
+        },
+      },
+    );
+    assert.equal(rangeSeen, `bytes=${partialBytes}-`);
+    assert.equal(result.resumedFrom, partialBytes);
+    assert.equal(result.redirectCount, 1);
+    assert.equal(result.sha256, expectedSha256);
+    assert.deepEqual(fs.readFileSync(partialPath), content);
+  } finally {
+    server.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("guardedDownloadToFile removes a complete partial with the wrong digest", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "net-guard-integrity-"));
+  const partialPath = path.join(tmpDir, "model.part");
+  const content = Buffer.from("wrong bytes");
+  fs.writeFileSync(partialPath, content);
+  try {
+    await assert.rejects(
+      () =>
+        guardedDownloadToFile("https://download.invalid/model", partialPath, {
+          expectedBytes: content.byteLength,
+          expectedSha256: "0".repeat(64),
+          maxBytes: content.byteLength,
+          allowedRedirectOrigins: ["https://download.invalid"],
+        }),
+      ResponseIntegrityError,
+    );
+    assert.equal(fs.existsSync(partialPath), false);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
 
 test("blocks metadata IPv4 literal end-to-end (no network attempted)", async () => {
   await assert.rejects(() => guardedFetch("http://169.254.169.254/latest/meta-data/"), SsrfBlockedError);

@@ -23,6 +23,7 @@ One production codebase: `platform/` (pnpm + Turbo monorepo). Pre-cleanup legacy
 | Local plane (OAuth tokens, raw bodies, derived T/M/S) | `platform/packages/local` | `src/ports.ts`, `src/stores/{memory,pglite}.ts` |
 | Google integration (Gmail/Calendar) | `platform/packages/integrations-google` | intake + egress services |
 | Model providers (Ollama/Claude/Groq seam) | `platform/packages/models` | `ModelProvider` port |
+| Chat Panel / Chief of Staff | `platform/apps/web`, `platform/apps/api` | `components/shared/AgentPanel.tsx`, `router.ts` (`chiefOfStaff`) |
 | Gated intake seam (manifest→quarantine→commit) | `platform/packages/capability-kit` | only DealPilot wired |
 | Sourcing/dedupe/facts/tables shared engines | `platform/packages/{sourcing,dedupe,facts,tables}` | |
 | DealPilot / JobPilot Modules | `platform/modules/{dealpilot,jobpilot}` | `src/index.ts`, `src/manifest.ts` |

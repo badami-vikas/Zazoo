@@ -590,6 +590,150 @@ test("RLS: memories isolate private/team/restricted owners while public/organiza
   }
 });
 
+test("RLS: Chat threads, turns, references, and cloud grants are owner-only under a restricted role", async () => {
+  const { db, close } = await createLocalDb();
+  const organizationId = "10000000-0000-4000-8000-000000000132";
+  const ownerId = "20000000-0000-4000-8000-000000000132";
+  const otherId = "20000000-0000-4000-8000-000000000133";
+  const threadId = "30000000-0000-4000-8000-000000000132";
+  const turnId = "40000000-0000-4000-8000-000000000132";
+  const turnRefId = "50000000-0000-4000-8000-000000000132";
+  const cloudThreadId = "30000000-0000-4000-8000-000000000133";
+  const cloudGrantId = "60000000-0000-4000-8000-000000000132";
+  try {
+    await db.insert(schema.users).values([
+      { id: ownerId, email: "chat-rls-owner@example.test" },
+      { id: otherId, email: "chat-rls-other@example.test" },
+    ]);
+    await db.insert(schema.organizations).values({
+      id: organizationId,
+      name: "Chat RLS",
+    });
+    await useRlsAppRole(db);
+    await setRlsContext(db, organizationId, ownerId);
+    await db.insert(schema.chatThreads).values({
+      id: threadId,
+      organizationId,
+      ownerUserId: ownerId,
+      plane: "local",
+      dataScope: "private",
+    });
+    await db.insert(schema.chatTurns).values({
+      id: turnId,
+      organizationId,
+      ownerUserId: ownerId,
+      threadId,
+      sequence: 1,
+      role: "user",
+      actorType: "human",
+      actorId: ownerId,
+      content: "owner-only chat content",
+      state: "completed",
+      clientRequestId: "chat-rls-owner-turn",
+      requestFingerprint: `sha256:${"0".repeat(64)}`,
+    });
+    await db.insert(schema.chatTurnRefs).values({
+      id: turnRefId,
+      organizationId,
+      ownerUserId: ownerId,
+      threadId,
+      turnId,
+      kind: "result",
+      refId: "result:owner-only",
+    });
+    await db.insert(schema.chatThreads).values({
+      id: cloudThreadId,
+      organizationId,
+      ownerUserId: ownerId,
+      plane: "cloud",
+      dataScope: "public",
+    });
+    await db.insert(schema.chatCloudGrants).values({
+      id: cloudGrantId,
+      organizationId,
+      ownerUserId: ownerId,
+      threadId: cloudThreadId,
+      contextDigest: `sha256:${"a".repeat(64)}`,
+      providerId: "anthropic",
+      modelTier: "default",
+      expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+    });
+
+    await setRlsContext(db, organizationId, otherId);
+    assert.deepEqual(await db.select().from(schema.chatThreads), []);
+    assert.deepEqual(await db.select().from(schema.chatTurns), []);
+    assert.deepEqual(await db.select().from(schema.chatTurnRefs), []);
+    assert.deepEqual(await db.select().from(schema.chatCloudGrants), []);
+    await assert.rejects(
+      db.insert(schema.chatThreads).values({
+        organizationId,
+        ownerUserId: ownerId,
+        plane: "local",
+        dataScope: "private",
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "cause" in error &&
+        /row-level security policy/i.test(String(error.cause)),
+    );
+    await assert.rejects(
+      db.insert(schema.chatCloudGrants).values({
+        organizationId,
+        ownerUserId: ownerId,
+        threadId: cloudThreadId,
+        contextDigest: `sha256:${"b".repeat(64)}`,
+        providerId: "anthropic",
+        modelTier: "default",
+        expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "cause" in error &&
+        /row-level security policy/i.test(String(error.cause)),
+    );
+    assert.equal(
+      (
+        await db
+          .update(schema.chatTurns)
+          .set({ content: "not visible" })
+          .where(sql`${schema.chatTurns.id} = ${turnId}`)
+          .returning()
+      ).length,
+      0,
+    );
+    assert.equal(
+      (
+        await db
+          .delete(schema.chatThreads)
+          .where(sql`${schema.chatThreads.id} = ${threadId}`)
+          .returning()
+      ).length,
+      0,
+    );
+
+    await setRlsContext(db, organizationId, ownerId);
+    assert.equal((await db.select().from(schema.chatThreads)).length, 2);
+    assert.equal((await db.select().from(schema.chatTurns)).length, 1);
+    assert.equal((await db.select().from(schema.chatTurnRefs)).length, 1);
+    assert.equal((await db.select().from(schema.chatCloudGrants)).length, 1);
+    assert.equal(
+      (
+        await db
+          .update(schema.chatTurnRefs)
+          .set({ refId: "result:mutated" })
+          .where(sql`${schema.chatTurnRefs.id} = ${turnRefId}`)
+          .returning()
+      ).length,
+      0,
+      "Chat lifecycle references are immutable even to their owner",
+    );
+  } finally {
+    await close();
+  }
+});
+
 test("assertRlsPosture: production rejects superuser or BYPASSRLS app roles", async () => {
   await assert.rejects(
     () =>

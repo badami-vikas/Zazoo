@@ -257,6 +257,9 @@ export default function Layout() {
             if (e.key === "ArrowLeft") rail.resizeBy(-16);
           }}
           label="Resize sidebar"
+          value={rail.dragWidth ?? rail.panelWidth}
+          min={RAIL_COLLAPSED}
+          max={RAIL_EXTENDED}
         />
 
         {/* macOS-only titlebar lane: AppKit's real traffic lights overlay this

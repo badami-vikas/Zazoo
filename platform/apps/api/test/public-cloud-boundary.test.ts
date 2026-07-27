@@ -47,6 +47,17 @@ test("public-cloud procedure and Render-origin contracts are narrow", () => {
   for (const path of [
     "health",
     "action.propose",
+    "action.decide",
+    "chat.model.status",
+    "chat.thread.create",
+    "chat.thread.list",
+    "chat.thread.get",
+    "chat.thread.archive",
+    "chat.thread.delete",
+    "chat.turn.prepareCloud",
+    "chat.turn.send",
+    "chat.turn.retry",
+    "chat.turn.cancel",
     "modules.list",
     "organization.activateSession",
     "organization.list",
@@ -55,6 +66,10 @@ test("public-cloud procedure and Render-origin contracts are narrow", () => {
   }
   for (const path of [
     "action.listHistory",
+    "chat.model.install",
+    "chat.model.cancelInstall",
+    "chat.model.start",
+    "chat.model.stop",
     "dealpilot.records",
     "modules.files",
     "relationship.helpdesk.publicCreate",
@@ -79,7 +94,7 @@ test("public-cloud procedure and Render-origin contracts are narrow", () => {
   );
 });
 
-test("public-cloud API allows only Supabase-backed shell procedures", async () => {
+test("public-cloud API allows only Supabase-backed shell and public Chat procedures", async () => {
   const root = await mkdtemp(join(tmpdir(), "bridge-public-cloud-"));
   try {
     await withPublicCloudEnv(async () => {
@@ -112,6 +127,27 @@ test("public-cloud API allows only Supabase-backed shell procedures", async () =
               item.moduleAttachment === undefined,
           ),
           true,
+        );
+        const chat = await caller.chat.thread.create({
+          organizationId: PILOT_ORGANIZATION,
+          clientRequestId: "public-cloud-default",
+        });
+        assert.equal(chat.thread.plane, "cloud");
+        assert.equal(chat.thread.dataScope, "public");
+        assert.equal(
+          (await caller.chat.thread.list({
+            organizationId: PILOT_ORGANIZATION,
+            status: "active",
+          })).items.some((thread) => thread.id === chat.thread.id),
+          true,
+        );
+        await assert.rejects(
+          caller.chat.thread.create({
+            organizationId: PILOT_ORGANIZATION,
+            plane: "local",
+            clientRequestId: "forbidden-local-thread",
+          }),
+          /cannot create Local Plane Chat threads/,
         );
         await assert.rejects(
           caller.action.propose({

@@ -151,6 +151,21 @@ export class AnthropicProvider implements ModelProvider {
       max_tokens: req.maxTokens ?? 1024,
       ...(system !== undefined ? { system } : {}),
       messages: [{ role: "user", content: req.prompt }],
+      ...(req.responseFormat
+        ? {
+            tools: [{
+              name: req.responseFormat.name,
+              description: "Return the response as this schema-valid object.",
+              strict: req.responseFormat.strict ?? true,
+              input_schema: req.responseFormat.schema,
+            }],
+            tool_choice: {
+              type: "tool",
+              name: req.responseFormat.name,
+              disable_parallel_tool_use: true,
+            },
+          }
+        : {}),
     };
     const res = await this.#fetchImpl(`${this.#baseUrl}/v1/messages`, {
       method: "POST",
@@ -160,6 +175,7 @@ export class AnthropicProvider implements ModelProvider {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify(body),
+      ...(req.signal ? { signal: req.signal } : {}),
     });
     if (!res.ok) {
       throw providerRequestError("AnthropicProvider.complete", res.status);
@@ -167,11 +183,32 @@ export class AnthropicProvider implements ModelProvider {
     const json = asRecord(await res.json(), "AnthropicProvider.complete response");
     const content = json["content"];
     if (!Array.isArray(content)) throw new Error("AnthropicProvider.complete response.content: expected an array");
-    const text = content
-      .map((block) => asRecord(block, "AnthropicProvider.complete response.content block"))
-      .filter((block) => block["type"] === "text")
-      .map((block) => requiredString(block["text"], "AnthropicProvider.complete response.content.text"))
-      .join("");
+    const blocks = content.map((block) =>
+      asRecord(block, "AnthropicProvider.complete response.content block")
+    );
+    const text = req.responseFormat
+      ? (() => {
+          const structuredBlock = blocks.find(
+            (block) =>
+              block["type"] === "tool_use" &&
+              block["name"] === req.responseFormat?.name,
+          );
+          if (
+            !structuredBlock ||
+            typeof structuredBlock["input"] !== "object" ||
+            structuredBlock["input"] === null ||
+            Array.isArray(structuredBlock["input"])
+          ) {
+            throw new Error(
+              "AnthropicProvider.complete: constrained response did not return the required schema object",
+            );
+          }
+          return JSON.stringify(structuredBlock["input"]);
+        })()
+      : blocks
+          .filter((block) => block["type"] === "text")
+          .map((block) => requiredString(block["text"], "AnthropicProvider.complete response.content.text"))
+          .join("");
     const usage = asRecord(json["usage"], "AnthropicProvider.complete response.usage");
     return {
       text,

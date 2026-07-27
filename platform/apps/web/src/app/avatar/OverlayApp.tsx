@@ -29,6 +29,7 @@
  */
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
+import { ChatView } from "../chat/ChatView";
 import { AvatarFigure } from "./AvatarOverlay";
 import {
   CAPTURE_EVENT,
@@ -37,11 +38,6 @@ import {
   setAvatarStatus,
   useAvatarStatus,
 } from "./avatar-store";
-
-interface ChatTurn {
-  role: "user" | "assistant";
-  text: string;
-}
 
 interface AvatarPointerGesture {
   pointerId: number;
@@ -129,13 +125,6 @@ export function OverlayApp() {
   // Right-click menu (Hide / Meditate / Observe).
   const [menuOpen, setMenuOpen] = useState(false);
   const [observing, setObserving] = useState(false);
-
-  // Compact inline chat — same trpc.chiefOfStaff.converse contract
-  // AgentPanel.tsx uses in the main window, condensed for the overlay.
-  const [chatTurns, setChatTurns] = useState<ChatTurn[]>([]);
-  const [chatDraft, setChatDraft] = useState("");
-  const [chatSending, setChatSending] = useState(false);
-  const [chatChainDepth, setChatChainDepth] = useState(0);
 
   const expanded = panel !== "none";
 
@@ -331,27 +320,6 @@ export function OverlayApp() {
     setPanel((prev) => (prev === "chat" ? "none" : "chat"));
   }
 
-  async function sendChat() {
-    const message = chatDraft.trim();
-    if (!message) return;
-    setChatDraft("");
-    setChatSending(true);
-    setChatTurns((prev) => [...prev, { role: "user", text: message }]);
-    try {
-      const result = await trpc.chiefOfStaff.converse.mutate({
-        organizationId: PILOT_ORGANIZATION,
-        message,
-        chainDepth: chatChainDepth,
-      });
-      setChatTurns((prev) => [...prev, { role: "assistant", text: result.reply }]);
-      setChatChainDepth(result.decision.kind === "route" ? chatChainDepth + 1 : 0);
-    } catch (e) {
-      setChatTurns((prev) => [...prev, { role: "assistant", text: `Couldn't reach Bridge: ${String(e)}` }]);
-    } finally {
-      setChatSending(false);
-    }
-  }
-
   // Right-click menu actions.
   function handleHide() {
     setMenuOpen(false);
@@ -503,51 +471,15 @@ export function OverlayApp() {
               ×
             </button>
           </div>
-          <div className="flex-1 overflow-auto px-3 py-2 space-y-2" style={{ minHeight: 0 }}>
-            {chatTurns.length === 0 && (
-              <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
-                Ask {name} anything — I'll route it or draft a reply.
-              </p>
-            )}
-            {chatTurns.map((t, i) => (
-              <div key={i} className={t.role === "user" ? "text-right" : "text-left"}>
-                <div
-                  className="inline-block max-w-[85%] rounded-md px-2.5 py-1.5 text-xs"
-                  style={{
-                    backgroundColor: t.role === "user" ? "var(--color-steel)" : "var(--color-surface)",
-                    color: t.role === "user" ? "white" : "var(--color-navy)",
-                  }}
-                >
-                  {t.text}
-                </div>
-              </div>
-            ))}
-          </div>
-          <form
-            className="flex gap-1.5 p-2 border-t"
-            style={{ borderColor: "var(--color-border)" }}
-            onSubmit={(e) => {
-              e.preventDefault();
-              void sendChat();
+          <ChatView
+            surface="avatar_overlay"
+            compact
+            onOpenTask={(taskId) => {
+              void tauriInvoke("focus_main_window", {
+                route: `/task-manager/${taskId}`,
+              });
             }}
-          >
-            <input
-              type="text"
-              value={chatDraft}
-              onChange={(e) => setChatDraft(e.target.value)}
-              disabled={chatSending}
-              placeholder={`Ask ${name}…`}
-              aria-label="Chat message"
-              className="flex-1 min-w-0 rounded-[var(--radius-button)] border border-border px-2 py-1.5 text-xs"
-            />
-            <button
-              type="submit"
-              disabled={chatSending || !chatDraft.trim()}
-              className="rounded-[var(--radius-button)] bg-[var(--color-navy)] text-[var(--color-background)] text-xs px-2.5 py-1.5 hover:opacity-90 disabled:opacity-50"
-            >
-              Send
-            </button>
-          </form>
+          />
         </div>
       )}
 

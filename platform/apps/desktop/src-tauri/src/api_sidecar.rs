@@ -155,6 +155,14 @@ fn api_command(
         // Bind loopback only — never expose the kernel API on the LAN.
         .env("API_HOST", "127.0.0.1")
         .env("BRIDGE_LOCAL_DIR", local_dir)
+        .env(
+            "BRIDGE_MODEL_RUNTIME_DIR",
+            crate::model_supervisor::runtime_dir_for_local_plane(local_dir),
+        )
+        .env(
+            "BRIDGE_LLAMA_CAPABILITY_FILE",
+            crate::model_supervisor::runtime_dir_for_local_plane(local_dir).join("endpoint.json"),
+        )
         .env("BRIDGE_LOCAL_RESIDENCY", "desktop-local")
         .env("BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "os-keyring")
         .env("BRIDGE_SIDECAR_TOKEN", token)
@@ -634,6 +642,11 @@ mod tests {
             envs.get(OsStr::new("BRIDGE_LOCAL_DIR"))
                 .and_then(|value| value.as_deref()),
             Some(local_dir.as_os_str())
+        );
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_MODEL_RUNTIME_DIR"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("/test/bridge/local-plane.model-runtime"))
         );
         assert_eq!(envs.get(OsStr::new("NODE_ENV")), Some(&None));
         assert_eq!(

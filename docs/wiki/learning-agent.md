@@ -6,15 +6,16 @@ full: [../raw/learning-agent-roadmap-2026-07.md](../raw/learning-agent-roadmap-2
 corrections, connected systems, docs; runs research; feeds every other
 agent. `neverExecutes: true` — enforced in code, only firm thing built.
 
-**Ground truth (updated 2026-07-21): early substrate now real.** @learning =
+**Ground truth (updated 2026-07-26): early substrate now real.** @learning =
 prompt + one LLM call. Durable Memory runtime ABSENT
 (historical audit); MemoryStore + Drizzle binding now exist, and TASK-002 uses
 private Local Plane preference Memories with inspect/correct/delete. Mem0 decision ratified (ADR-010f), zero
-mem0 code. PromptAssembler unbuilt. LA3 Phase 1 DONE (TASK-023, AP-069): signed Relationship
+mem0 code. RunContextAssembler exists and supersedes old PromptAssembler name; CoS still bypasses it.
+LA3 Phase 1 DONE (TASK-023, AP-069): signed Relationship
 Skill + SearchProvider + shared net-guard + ContentGuard. Raw snippets stop
 at quarantine. Cited Result + private Memory + Event keep rights, hashes,
 provider attempts, `untrusted_external`. No research-to-prompt sink.
-Onboarding profile in-memory only. Embeddings exist, no retrieval. Full
+Onboarding profile persists as private Local Plane Memory. Embeddings exist, no retrieval. Full
 runtime taint RT0–RT4 DONE (TASK-015).
 
 **TASK-002 partial:** every onboarding question says why + effect. User may skip
@@ -44,7 +45,7 @@ Unknown label fails closed. Human/validator-only declassification is immutable.
   provenance/taint/decay; onboarding profile persisted; suggested-Memory
   propose→accept/reject; **injection eval suite starts HERE, permanent
   gate, not retrofitted**.
-- LA1 PromptAssembler — persona·capabilities·context·memory·governance
+- LA1 RunContextAssembler wiring — persona·capabilities·context·memory·governance
   layers (shared build w/ Builder BA0 — one subsystem two consumers);
   profile → CoS persona (closes foundational-agents open item);
   explicit communication preferences drive tone; Avatar style visual only.

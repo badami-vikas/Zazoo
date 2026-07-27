@@ -275,6 +275,28 @@ function isAllowedTechnicalUse(family, relativePath, value, kind) {
   }
   if (family === "tool") {
     if (
+      relativePath === "apps/desktop/scripts/import-macos-certificate.mjs" &&
+      kind === "string" &&
+      value === "apple-tool:,apple:,codesign:"
+    ) {
+      return true;
+    }
+    if (
+      [
+        "packages/models/src/anthropic-provider.ts",
+        "packages/models/test/providers.test.ts",
+      ].includes(relativePath) &&
+      (
+        (
+          kind === "identifier" &&
+          ["tools", "tool_choice", "disable_parallel_tool_use"].includes(value)
+        ) ||
+        (kind === "string" && ["tool", "tool_use"].includes(value))
+      )
+    ) {
+      return true;
+    }
+    if (
       relativePath === "packages/models/src/parallel-search-provider.ts" &&
       kind === "string" &&
       value === "tools/call"

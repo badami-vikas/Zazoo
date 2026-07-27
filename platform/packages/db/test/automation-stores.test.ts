@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { eq } from "drizzle-orm";
-import { FixedClock, SeededRng, UuidGen, type RunCtx } from "@bridge/core";
+import {
+  FixedClock,
+  SeededRng,
+  UuidGen,
+  hashTaintValue,
+  labelAtSource,
+  type RunCtx,
+} from "@bridge/core";
 import {
   createLocalDb,
   DrizzleAutomationRegistry,
@@ -139,6 +146,12 @@ test("Automation Run records retain Agent attribution and organization scope", a
     const runId = "b0000000-0000-4000-a000-0000000000f5";
     const registry = new DrizzleAutomationRegistry(db);
     const recorder = new DrizzleAutomationRunRecorder(db);
+    const preliminaryTaint = labelAtSource("human_input", {
+      ref: `automation-run:${runId}`,
+      valueHash: hashTaintValue({ runId }),
+      sensitivity: "organization",
+      instructionRisk: "instruction_like",
+    });
 
     await registry.save({
       id: automationId,
@@ -158,11 +171,21 @@ test("Automation Run records retain Agent attribution and organization scope", a
       /not found in organization/,
     );
     await recorder.finish(
-      { runId, organizationId, status: "completed", output: { steps: 1 } },
+      {
+        runId,
+        organizationId,
+        status: "completed",
+        output: { steps: 1, taintLabel: preliminaryTaint },
+      },
       runCtx(),
     );
     await recorder.finish(
-      { runId, organizationId, status: "completed", output: { steps: 1 } },
+      {
+        runId,
+        organizationId,
+        status: "completed",
+        output: { steps: 1, taintLabel: preliminaryTaint },
+      },
       runCtx("2026-07-21T00:00:00.000Z"),
     );
     await recorder.finish(

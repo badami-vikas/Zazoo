@@ -27,6 +27,7 @@
 
 mod annotate;
 mod api_sidecar;
+mod model_supervisor;
 mod overlay;
 mod providers;
 mod sensor_bridge;
@@ -37,6 +38,10 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 const BOOTSTRAP_LABEL: &str = "bridge-bootstrap";
 const UNAVAILABLE_LABEL: &str = "bridge-local-plane-unavailable";
+
+pub fn run_model_guard_if_requested() -> bool {
+    model_supervisor::run_guard_if_requested()
+}
 
 #[derive(Default)]
 struct BootstrapWindowState(Mutex<Option<tauri::WebviewWindow>>);
@@ -395,6 +400,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(sensor_bridge::SensorHubState::default())
         .manage(api_sidecar::ApiSidecarState::default())
+        .manage(model_supervisor::ModelSupervisorState::default())
         .manage(overlay::DisplayTopologyState::default())
         .manage(overlay::OverlaySessionState::default())
         .manage(BootstrapWindowState::default());
@@ -463,6 +469,19 @@ pub fn run() {
                 return Ok(());
             }
             start_sidecar_in_background(app.handle(), resource_dir, local_dir);
+            model_supervisor::start(
+                app.handle().clone(),
+                app.path().resource_dir().ok(),
+                std::env::var_os("BRIDGE_LOCAL_DIR")
+                    .map(std::path::PathBuf::from)
+                    .or_else(|| {
+                        app.path()
+                            .app_data_dir()
+                            .ok()
+                            .map(|dir| dir.join("bridge").join("local-plane"))
+                    })
+                    .expect("Local Plane directory was resolved above"),
+            );
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -480,6 +499,9 @@ pub fn run() {
             // before the bounded force-kill fallback. The child also watches
             // BRIDGE_PARENT_PID so a crashed shell cannot orphan the lock owner.
             api_sidecar::shutdown(&app_handle.state::<api_sidecar::ApiSidecarState>());
+            model_supervisor::shutdown(
+                &app_handle.state::<model_supervisor::ModelSupervisorState>(),
+            );
         }
         _ => {}
     });
