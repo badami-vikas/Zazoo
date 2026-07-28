@@ -1,5 +1,21 @@
 # Change Log
 
+- **2026-07-28 — Chat Panel "No authorized cloud model provider is configured": missing `ANTHROPIC_API_KEY`**:
+  User reported the right-hand Chat Panel failing with that message on the hosted pilot. Not a code
+  defect — the API registers cloud `ModelProvider`s **only** when their key is present
+  (`wiring.ts:3387`: `...(process.env.ANTHROPIC_API_KEY ? [new AnthropicProvider()] : [])`), and
+  `AnthropicProvider` throws at construction without one, by design (no fake fallback, same fail-closed
+  posture as the Google gateway). With neither `ANTHROPIC_API_KEY` nor `GROQ_API_KEY` set on
+  `bridge-pilot-api`, `resolveChatModel(wiring, "cloud")` (`router.ts:4061`) returns `null`, so
+  `chat.model.status` reports `cloud.available: false` and `chat.turn.prepareCloud` / `chat.turn.send`
+  throw `PRECONDITION_FAILED`. The chat procedures are already open in the public-cloud boundary
+  (`deployment-boundary.ts:37-46`) and nothing blocks egress to `api.anthropic.com`, so the key is the
+  only missing piece. Declared `ANTHROPIC_API_KEY` as a `sync: false` secret on the API service in
+  `render.yaml` and documented it (plus the optional model overrides) in `platform/apps/api/.env.example`.
+  The value itself is the user's to enter in the Render dashboard — I neither hold nor handle it.
+  Verified: `render.yaml` parses and the API service now declares the key; no code change, so no
+  behavior is testable until the key is set. Local-plane chat is unaffected (Ollama/llama.cpp, no key).
+
 - **2026-07-28 — Module left-nav lands on the primary data Page, not the overview (AP-084 / ADR-152)**:
   User reported that clicking a Module still opened an "overview … homepage kind of a thing" and asked
   for the **data section to be the home page with the buttons at the top**, the same across all Modules,
@@ -18,7 +34,10 @@
   wiring and no runtime errors (the authenticated rail entries for DealPilot/JobPilot/Relationship come
   from `modules.list`, so the signed-in click-through remains the user's live check — I do not sign into
   the pilot). Updated `docs/wiki/ui-architecture.md` Actionability line and the stale `Layout.tsx`
-  "/module/:moduleName" comments. Not yet deployed (web-only change; deploy on request).
+  "/module/:moduleName" comments. Deployed by the user via the Render dashboard on 2026-07-28
+  (`autoDeploy: false` on both services, so the push alone does not ship) and confirmed by them as
+  working; my own last external check still saw the pre-change bundle hash, so the live confirmation
+  here is the user's, not an independent one.
 
 - **2026-07-28 — DealPilot in the web app + editable modules + seeded demo data (AP-083 / ADR-151)**:
   User asked for DealPilot to work in the web app, all modules editable, and dummy values seeded +

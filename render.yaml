@@ -31,6 +31,12 @@ services:
         sync: false
       - key: BRIDGE_PILOT_USER_EMAIL
         sync: false
+      # Cloud-Plane chat ModelProvider. Without this the API registers NO cloud
+      # provider and every Chat Panel turn fails closed with "No authorized
+      # cloud model provider is configured" (no fake fallback, by design).
+      # Secret — set in the Render dashboard, never committed.
+      - key: ANTHROPIC_API_KEY
+        sync: false
 
   - type: web
     name: bridge-pilot-web

@@ -2002,3 +2002,31 @@ Candidate A's old baseline carried a branch-local safe HTTP client and Workspace
 ## RESOLVED 2026-07-21 — TASK-023 unsafe quarantine verdict and request-body redirect replay gaps
 
 Final changed-scope review found two fail-closed gaps before landing. `web-research` accepted a structurally valid ContentGuard extraction even when its verdict was `safe: false`; it now drops unsafe verdicts, refuses an empty persistable citation set, validates bounded typed quarantine output again at the API sink, and has a regression proving no Result or Memory write occurs. The independent security review found no high-confidence vulnerability, but identified that shared `guardedFetch` could replay a bounded request body across a future caller-enabled redirect. Body-bearing requests now require `maxRedirects: 0` and otherwise fail before DNS or connection; Parallel already used zero redirects. Targeted quarantine, net-guard, SearchProvider, authority, persistence, and culture-research regressions pass. **Closure confirmation:** PR #44 merge `b8e1db0b808806d45dd904270902dd77b132541c` passed the real durable governed prototype; no attached TASK-023 bug remains open.
+
+## OPEN 2026-07-28 — USER REPORT: Chat Panel says "No authorized cloud model provider is configured" (blocked on a secret only the user can set)
+
+User report (verbatim): *"The chat interface at the right is not working, its saying 'No authorized cloud model provider is configured'. Kindly fix it or what do you need from my side"*.
+
+**Not a code defect — a deployment configuration gap, fail-closed by design.** `buildPersistentPorts`
+registers cloud `ModelProvider`s only when their key is present
+(`platform/apps/api/src/wiring.ts:3387` — `...(process.env.ANTHROPIC_API_KEY ? [new AnthropicProvider()] : [])`,
+same for `GROQ_API_KEY`), and `AnthropicProvider`'s constructor throws without one
+(`platform/packages/models/src/anthropic-provider.ts:86-91`) so no fake provider can ever be
+substituted. `bridge-pilot-api` had neither key, so `resolveChatModel(wiring, "cloud")`
+(`platform/apps/api/src/router.ts:4061`) returns `null` and the message is raised at
+`router.ts:5316` (`chat.turn.prepareCloud`) / `router.ts:5474` (`chat.turn.send`);
+`chat.model.status` (`router.ts:5107`) reports `cloud.available: false` for the same reason.
+
+Ruled out as causes: the public-cloud boundary already permits every chat procedure
+(`deployment-boundary.ts:37-46`); nothing restricts egress to `api.anthropic.com` (`defaultFetch` is
+plain `fetch`); `OllamaProvider` is registered but is `plane: "local"` and so is correctly never
+selected for a cloud thread.
+
+Fix landed in the repo: `ANTHROPIC_API_KEY` is now a declared `sync: false` secret on the API service
+in `render.yaml`, and documented (with the optional `ANTHROPIC_MODEL`/`ANTHROPIC_CHEAP_MODEL`/
+`ANTHROPIC_REASONING_MODEL` overrides) in `platform/apps/api/.env.example`.
+
+**Remains OPEN because the key value is the user's to enter** in the Render dashboard for
+`bridge-pilot-api`, followed by a manual redeploy (`autoDeploy: false`). Closure evidence when set:
+`chat.model.status` returns `cloud.available: true, providerId: "anthropic"`, and a Chat Panel turn
+completes. Local-plane chat is unaffected (Ollama/llama.cpp need no key).
