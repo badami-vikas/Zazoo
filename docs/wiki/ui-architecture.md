@@ -20,7 +20,7 @@ full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-202
 
 **Deep linking:** every toggle page = routable URL (§4a).
 
-**Actionability:** interactive-looking item opens detail/edit/filter/explanation/governed Action. Otherwise plain text. Every installed Module = left-nav route → one standard manifest-driven capability inventory. Module customizes content, never inventory structure.
+**Actionability:** interactive-looking item opens detail/edit/filter/explanation/governed Action. Otherwise plain text. Every installed Module = left-nav route that **lands on the Module's primary data Page** (its first manifest Page — buttons-at-top sibling toggle), NOT the `/module/:name` capability inventory (ADR-152/AP-084, supersedes VOCAB6/TASK-001 "each Module links to /module/:moduleName"). The one standard manifest-driven capability inventory (Module Detail) stays reachable from each data Page's Intelligence Section ("Manage in Module Detail") + 3-dots Control Panel. Module customizes content, never inventory structure. Landing/active-highlight derive from `moduleNavTarget` (`@bridge/module-manifests`): `landing` = first Page route, `base` = shared Page-route prefix.
 
 **Red flag:** only feedback flag. Hover/focus cell or bullet → subtle uncolored flag. Select → red, scoped, reversible, audited. No green/yellow feedback flags. Domain choices use explicit Actions.
 

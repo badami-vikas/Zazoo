@@ -670,6 +670,50 @@ export function requireBuiltInModule(moduleName: string): BuiltInModule {
   return builtIn;
 }
 
+/**
+ * Left-nav navigation target for a built-in Module (UI page-anatomy canon):
+ * clicking a Module in the rail lands on its PRIMARY data Page — the first
+ * Page's route, which renders the sibling-toggle buttons at the top — rather
+ * than the manifest capability inventory at /module/:name. The inventory stays
+ * reachable from each data Page's Intelligence Section ("Manage in Module
+ * Detail") and 3-dots Control Panel.
+ *
+ * - `landing` is where the rail entry links.
+ * - `base` is the longest shared path prefix across the Module's Page routes,
+ *   used for the rail's active-highlight so every Page under the Module lights
+ *   up its entry (e.g. /dealpilot/sources still highlights DealPilot).
+ *
+ * Returns `undefined` for Modules with no manifest `module` block (e.g. Skill
+ * Modules) so callers fall back to the /module/:name Module Detail route.
+ */
+export function moduleNavTarget(
+  moduleName: string,
+): { landing: string; base: string } | undefined {
+  const mod = BUILT_IN_MODULES.find(
+    (candidate) => candidate.manifest.name === moduleName,
+  )?.manifest.module;
+  if (!mod) return undefined;
+  const routes = mod.pages.map((page) => page.route).filter((route) => route.length > 0);
+  if (routes.length === 0) return { landing: mod.route, base: mod.route };
+  return { landing: routes[0]!, base: commonRoutePrefix(routes) };
+}
+
+/** Longest shared leading path-segment prefix across the given routes. */
+function commonRoutePrefix(routes: string[]): string {
+  const segmented = routes.map((route) => route.split("/").filter(Boolean));
+  const [first, ...rest] = segmented;
+  if (!first) return "/";
+  let shared = first.length;
+  for (const segments of rest) {
+    let index = 0;
+    while (index < shared && index < segments.length && segments[index] === first[index]) {
+      index += 1;
+    }
+    shared = index;
+  }
+  return `/${first.slice(0, shared).join("/")}`;
+}
+
 const interviewCalendarAvailability: BuiltInModule = {
   computedRisk: "informational",
   manifest: {

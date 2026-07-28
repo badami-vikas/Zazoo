@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BUILT_IN_MODULES, requireBuiltInModule } from "../src/index.js";
+import { BUILT_IN_MODULES, moduleNavTarget, requireBuiltInModule } from "../src/index.js";
 import { canonicalizeManifest, parseModuleManifest } from "@bridge/core";
 
 test("built-in Module catalog has one manifest per Module name", () => {
@@ -43,6 +43,36 @@ test("Relationship exposes governed web research only through the Learning Agent
     agent.skillIds.includes("web-research"),
   );
   assert.deepEqual(consumers?.map((agent) => agent.id), ["learning-agent"]);
+});
+
+test("moduleNavTarget lands each Module on its primary data Page with a highlight base", () => {
+  // Landing = the first Page's route (the buttons-at-top data section), NOT the
+  // /module/:name capability inventory. Base = shared Page-route prefix so every
+  // sibling Page highlights the same rail entry.
+  assert.deepEqual(moduleNavTarget("deal-pilot"), {
+    landing: "/dealpilot/deals",
+    base: "/dealpilot",
+  });
+  assert.deepEqual(moduleNavTarget("relationship"), {
+    landing: "/module/relationship/signals",
+    base: "/module/relationship",
+  });
+  // Single-Page Modules land on (and highlight from) that one route.
+  assert.deepEqual(moduleNavTarget("job-pilot"), { landing: "/jobpilot", base: "/jobpilot" });
+  assert.deepEqual(moduleNavTarget("task-manager"), {
+    landing: "/task-manager",
+    base: "/task-manager",
+  });
+  // Landing is never the capability-inventory overview.
+  for (const { manifest } of BUILT_IN_MODULES) {
+    const nav = moduleNavTarget(manifest.name);
+    assert.ok(nav);
+    assert.notEqual(nav.landing, `/module/${manifest.name}`);
+    assert.ok(nav.landing.startsWith(nav.base));
+  }
+  // Unknown / non-data Modules fall back (caller uses /module/:name instead).
+  assert.equal(moduleNavTarget("interview-calendar-availability"), undefined);
+  assert.equal(moduleNavTarget("does-not-exist"), undefined);
 });
 
 test("every built-in Module route is declared by its manifest", () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles } from "lucide-react";
+import { moduleNavTarget } from "@bridge/module-manifests";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -24,7 +25,10 @@ import { useAuthSession } from "./auth/AuthSession";
 /**
  * Shell IA v3 — TASK-001 / VOCAB6 (2026-07-16): installed Modules are
  * first-class left-nav items, sourced from modules.list (not hardcoded).
- * Each Module links to /module/:moduleName (manifest-driven Module Detail).
+ * Each Module links to its PRIMARY data Page (ADR-152/AP-084 — the first
+ * manifest Page, buttons-at-top), not the /module/:name capability inventory;
+ * the inventory stays reachable via each data Page's Intelligence Section +
+ * 3-dots Control Panel.
  * Deprecated surfaces (Knowledge, Intelligence, standalone Tools,
  * Projects) are removed from primary nav. Settings moves to its own section.
  *
@@ -33,19 +37,21 @@ import { useAuthSession } from "./auth/AuthSession";
  * PanelControl component.
  */
 // A left-nav Module entry — either a built-in default (Task Manager) or one
-// sourced from modules.list. `icon` and `to` let defaults route to their own
-// dedicated surface (/task-manager) while API modules use /module/:name.
+// sourced from modules.list. `to` is the landing route (a Module's PRIMARY data
+// Page, per UI page-anatomy canon), and `base` is the path prefix used for the
+// rail's active-highlight so every Page under the Module lights up its entry.
 type NavModule = {
   moduleName: string;
   displayName: string;
   to: string;
+  base: string;
   icon: typeof Boxes;
 };
 
 // Task Manager is a default Module: it always appears under Home regardless of
 // modules.list state, so the Modules list is never empty and never errors out.
 const DEFAULT_MODULES: NavModule[] = [
-  { moduleName: "task-manager", displayName: "Task Manager", to: "/task-manager", icon: ListChecks },
+  { moduleName: "task-manager", displayName: "Task Manager", to: "/task-manager", base: "/task-manager", icon: ListChecks },
 ];
 
 export default function Layout() {
@@ -218,12 +224,18 @@ export default function Layout() {
   // Modules shown under Home: default Modules (Task Manager) first, then the
   // installed Modules from modules.list, de-duplicated by moduleName. Defaults
   // guarantee the list is never empty, so no "unavailable" state is ever shown.
-  const apiModules: NavModule[] = (installedModules ?? []).map((mod) => ({
-    moduleName: mod.moduleName,
-    displayName: mod.displayName,
-    to: `/module/${mod.moduleName}`,
-    icon: Boxes,
-  }));
+  // Land each Module on its primary data Page (buttons-at-top), falling back to
+  // the /module/:name capability inventory only for Modules with no data Pages.
+  const apiModules: NavModule[] = (installedModules ?? []).map((mod) => {
+    const nav = moduleNavTarget(mod.moduleName);
+    return {
+      moduleName: mod.moduleName,
+      displayName: mod.displayName,
+      to: nav?.landing ?? `/module/${mod.moduleName}`,
+      base: nav?.base ?? `/module/${mod.moduleName}`,
+      icon: Boxes,
+    };
+  });
   const navModules: NavModule[] = [
     ...DEFAULT_MODULES,
     ...apiModules.filter(
@@ -385,7 +397,7 @@ export default function Layout() {
 
         {/* Top nav — Home + installed Modules (VOCAB6) + "+New", icon+label stacked.
             Modules are sourced from modules.list (not hardcoded). Each links to
-            /module/:moduleName (manifest-driven Module Detail, §4b). */}
+            its primary data Page (moduleNavTarget landing, ADR-152/AP-084). */}
         <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
           <Link to="/" className={navItemClass(homeActive)} title="Home">
             {homeActive && <ActiveBar />}
@@ -397,7 +409,10 @@ export default function Layout() {
               Modules from modules.list. Always non-empty, so no "unavailable"
               or "no modules" state is ever rendered. */}
           {navModules.map((mod) => {
-            const active = isActive(mod.to);
+            // Highlight for the Module's data Pages (base) AND its /module/:name
+            // capability inventory, so the rail entry stays lit on the overview
+            // reached from a data Page's Intelligence Section.
+            const active = isActive(mod.base) || isActive(`/module/${mod.moduleName}`);
             const Icon = mod.icon;
             return (
               <Link

@@ -1,5 +1,25 @@
 # Change Log
 
+- **2026-07-28 — Module left-nav lands on the primary data Page, not the overview (AP-084 / ADR-152)**:
+  User reported that clicking a Module still opened an "overview … homepage kind of a thing" and asked
+  for the **data section to be the home page with the buttons at the top**, the same across all Modules,
+  and the other Modules editable. Root cause: the left rail (`Layout.tsx`, VOCAB6/TASK-001) linked every
+  installed Module to `/module/:name` — the `ModuleDetailPage` **capability inventory** — even though the
+  data Pages were already editable + cloud-persisted (AP-082/AP-083) and the page-anatomy canon already
+  treats the data Page as the landing. Fix: added `moduleNavTarget(moduleName)` to
+  `@bridge/module-manifests` (returns `{ landing = first Page route, base = shared Page-route prefix }`);
+  `Layout.tsx` now links each rail entry to `landing` (DealPilot→`/dealpilot/deals`, JobPilot→`/jobpilot`,
+  Relationship→`/module/relationship/signals`, Task Manager→`/task-manager`) and highlights it for `base`
+  or the Module's own `/module/:name`. The capability inventory is retained, reachable from every data
+  Page's Intelligence Section ("Manage in Module Detail") + 3-dots Control Panel — only the default
+  landing changed. No schema/boundary/persistence change; all four Modules were already editable and
+  Supabase-persisted. Verified: `@bridge/module-manifests` unit test pins landing/base for all four
+  built-ins (5/5 pass); `@bridge/web` typecheck clean; local dev server mounts the shell with the new
+  wiring and no runtime errors (the authenticated rail entries for DealPilot/JobPilot/Relationship come
+  from `modules.list`, so the signed-in click-through remains the user's live check — I do not sign into
+  the pilot). Updated `docs/wiki/ui-architecture.md` Actionability line and the stale `Layout.tsx`
+  "/module/:moduleName" comments. Not yet deployed (web-only change; deploy on request).
+
 - **2026-07-28 — DealPilot in the web app + editable modules + seeded demo data (AP-083 / ADR-151)**:
   User asked for DealPilot to work in the web app, all modules editable, and dummy values seeded +
   persisted (choosing "everything in the cloud" for Sources but "ship core first, secrets next"). Added a
