@@ -61,6 +61,22 @@ test("public-cloud procedure and Render-origin contracts are narrow", () => {
     "modules.list",
     "organization.activateSession",
     "organization.list",
+    // AP-082 / ADR-140 — Cloud-Plane (Supabase) module surfaces now served in cloud.
+    "taskManager.list",
+    "taskManager.get",
+    "taskManager.create",
+    "taskManager.transition",
+    "taskManager.decideProposal",
+    "relationship.listPeople",
+    "relationship.createPerson",
+    "relationship.updatePerson",
+    "relationship.listCommunities",
+    "relationship.createCommunity",
+    "relationship.updateCommunity",
+    "relationship.listSignals",
+    "relationship.recordSignalAction",
+    "jobpilot.list",
+    "jobpilot.definition",
   ]) {
     assert.equal(isPublicCloudProcedureAllowed(path), true);
   }
@@ -70,8 +86,15 @@ test("public-cloud procedure and Render-origin contracts are narrow", () => {
     "chat.model.cancelInstall",
     "chat.model.start",
     "chat.model.stop",
+    // DealPilot stays fully closed — Local-Plane store + Source credentials + raw bodies.
     "dealpilot.records",
+    "dealpilot.module",
+    "dealpilot.detail",
+    "dealpilot.createDeal",
+    "dealpilot.createSource",
+    "dealpilot.captures",
     "modules.files",
+    "modules.addFile",
     "relationship.helpdesk.publicCreate",
   ]) {
     assert.equal(isPublicCloudProcedureAllowed(path), false);
@@ -170,6 +193,14 @@ test("public-cloud API allows only Supabase-backed shell and public Chat procedu
           dataScope: "public",
         });
         assert.equal(publicProposal.status, "applied");
+
+        // AP-082 / ADR-140 — a Cloud-Plane module read now passes the boundary
+        // (empty result is fine); DealPilot below still fails closed.
+        assert.ok(
+          Array.isArray(
+            await caller.taskManager.list({ organizationId: PILOT_ORGANIZATION }),
+          ),
+        );
 
         await assert.rejects(
           caller.dealpilot.records({

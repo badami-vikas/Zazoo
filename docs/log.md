@@ -1,5 +1,38 @@
 # Change Log
 
+- **2026-07-28 — Serve Cloud-Plane Modules in the cloud + view dropdown (AP-082 / ADR-150)**:
+  User reported (on the hosted web app) that most Modules were broken with *"requires the desktop
+  Local Plane"* + Retry, and asked for the DealPilot-style surface pattern with views as a dropdown,
+  choosing "serve data in the cloud." Relaxed the `public-cloud` fail-closed boundary
+  (`deployment-boundary.ts` `PUBLIC_CLOUD_PROCEDURES`) to also serve the Cloud-Plane (Supabase) module
+  surfaces — **Task Manager** (`list`/`get`/`create`/`transition`/`decideProposal`), **Relationship**
+  (`listPeople`/`createPerson`/`updatePerson`/`listCommunities`/`createCommunity`/`updateCommunity`/
+  `listSignals`/`recordSignalAction`), **JobPilot** (`list`/`definition`) — all still
+  `authenticatedProcedure` + pilot-Org guard + `bridge_app` RLS, resolving only to
+  `graphStore`/`taskManager`/`jobpilotStore` (verified: no `localPlane`/`credentialVault`/raw-body
+  access). **DealPilot stays fully closed** (Local store + Source credentials + raw capture; no
+  Cloud-Plane store exists) and now shows an honest "runs on the desktop app" state; Module Files,
+  OAuth, and Local-Plane Chat stay closed (`ModuleFilesSection` shows an honest desktop-only note). The
+  `DataViews` view switcher became a **dropdown** (`Select`, fed by the same `computeEligibleKinds` +
+  `VIEW_METADATA`; `DataViews` remains the only renderer — compatible with TASK-014). Verified: web
+  typecheck adds no new errors (29 pre-existing `trpc.chat` unchanged); web suite 105/105; API build
+  clean; `public-cloud-boundary.test.ts` asserts opened set permitted (+ e2e `taskManager.list`) and
+  closed set (DealPilot, Module Files) still 412. Pilot Org Supabase tables are empty, so Modules
+  render honest empty tables until data is created in the cloud. Evidence: `docs/BUGS.md`.
+
+- **2026-07-27 — Render redeploy of AP-081 UX to production (`e31d11d`)**:
+  Manually redeployed both free Render services from `main@e31d11d`. Web static
+  `dep-d9jqbi6rnols7398jm30` and API Docker `dep-d9jqbkbeo5us73btn5k0` both went live (18:40–18:41Z).
+  Web root `200`; API `/health` `200`; `/health/ready` `200` with `ready:true, persistent:true,
+  public-cloud, ledger:ok, localPlane:ok`. The stale web (was `f6b406a`) now serves the shell/nav +
+  panel realignment; the API redeploy only aligns its live commit (no code change from `1c5340d`).
+  Supabase was a no-op — pilot high-water is already `0032` (advanced `0030 → 0032` on 2026-07-27
+  with the chat rollout); HEAD introduces no new migration. Not independently re-verified this
+  session because the available Supabase MCP is on a different account (pilot project not visible; no
+  CLI/owner URI). `render.yaml` still names the old `badami-vikas` repo though the live services are
+  connected to `manishsbhoopalam8498/relationship-os` — stale blueprint, non-blocking. Evidence:
+  [outputs/2026-07-27-render-redeploy-ux-e31d11d.md](../outputs/2026-07-27-render-redeploy-ux-e31d11d.md).
+
 - **2026-07-27 — Shell/nav + panel + page-anatomy UX realignment (AP-081)**:
   Restored the intended `7f37e17` shell UX with five user-directed deltas. Left nav: Modules under
   Home with **Task Manager as a default Module** (`DEFAULT_MODULES` in `Layout.tsx`, merged/deduped

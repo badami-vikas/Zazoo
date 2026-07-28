@@ -104,7 +104,13 @@ export function ModuleFilesSection({
       {loading ? (
         <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>Loading local File inventory…</p>
       ) : error ? (
-        <p role="alert" className="break-words text-xs text-red-600">{error}</p>
+        /Local Plane|public cloud/i.test(error) ? (
+          <div className="rounded-lg border border-dashed p-4 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
+            <p>Local Files live on the Bridge desktop app and are not served by the public cloud.</p>
+          </div>
+        ) : (
+          <p role="alert" className="break-words text-xs text-red-600">{error}</p>
+        )
       ) : inventory && inventory.items.length > 0 ? (
         <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
           <p className="border-b p-3 text-xs break-all" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
