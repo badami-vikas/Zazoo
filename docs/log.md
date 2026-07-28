@@ -20,7 +20,15 @@
   db suite 212/212. Canon preserved (secrets/raw capture Local); Phase E (credentials/capture → cloud) deferred
   and un-approved. Tracked: `docs/dummy.md` (boot seed). Files: `platform/packages/db/src/schema.ts`,
   `migrations/0033_*`, `platform/apps/api/src/{dealpilot-store,wiring,deployment-boundary,router}.ts`,
-  `platform/apps/web/src/app/pages/{DealPilotPage,JobPilotPage}.tsx`.
+  `platform/apps/web/src/app/pages/{DealPilotPage,JobPilotPage}.tsx`. **Deployed & live‑verified
+  2026-07-28**: merged to `main` `741e6a2`; Render web + api both live at `741e6a2` (health 200/ok). The
+  API's `DATABASE_URL` is the unprivileged `bridge_app` role (no DDL), so migration `0033` was applied by
+  the user via the Supabase SQL Editor (owner role); `bridge_app` then has SELECT/INSERT on all four tables
+  and RLS scopes correctly. On boot the seed populated the pilot Org: dealpilot deals=3/sources=2/theses=2/
+  relations=1, jobpilot jobs=3/applications=3, and 0 Source credential pointers (canon held). **Maintenance
+  caveat**: because `0033` was applied out‑of‑band (SQL Editor), drizzle's `__drizzle_migrations` tracking is
+  one behind — a future `drizzle-kit migrate` with owner creds would try to re‑apply `0033` and error on the
+  existing tables; apply future migrations the same way (SQL Editor) or backfill the `0033` tracking row.
 
 - **2026-07-28 — Serve Cloud-Plane Modules in the cloud + view dropdown (AP-082 / ADR-150)**:
   User reported (on the hosted web app) that most Modules were broken with *"requires the desktop
