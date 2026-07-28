@@ -10,6 +10,24 @@
   behavior tests cover `route`, `clarify`, and `direct_reply`. Verified: focused tests 3/3, web typecheck, full
   platform typecheck 38/38, full platform tests 38/38, focused ESLint, and two-stage independent review.
 
+- **RESOLVED 2026-07-28 — Most Modules broken on the hosted web app with "requires the desktop Local Plane" + Retry (AP-082/ADR-150).**
+  User report (verbatim): *"currently most of the modules are broken saying 'retry' and 'This operation
+  requires the desktop Local Plane and is unavailable from the public cloud API', fix that."* Root cause:
+  the `public-cloud` residency runs `enforcePublicCloudBoundary` (`platform/apps/api/src/router.ts:462`),
+  which threw `PRECONDITION_FAILED` (HTTP 412) for every procedure not on the 16-path
+  `PUBLIC_CLOUD_PROCEDURES` allowlist (`deployment-boundary.ts`); each page surfaced that 412 as a raw
+  error + Retry. Fixed under AP-082 by opening the Cloud-Plane (Supabase/Drizzle) module procedures
+  (Task Manager, Relationship, JobPilot) that are already `authenticatedProcedure` + pilot-Org guard +
+  `bridge_app` RLS and resolve only to `graphStore`/`taskManager`/`jobpilotStore` (no Local
+  Plane/credential/raw access). DealPilot stays closed by design (Local store + Source credentials + raw
+  capture; no Cloud-Plane store) and now renders an honest desktop-only state; Module Files/OAuth/Local
+  Chat stay closed. Verified: `public-cloud-boundary.test.ts` (opened set permitted incl. e2e
+  `taskManager.list`; DealPilot + Module Files still 412), web suite 105/105, API build clean, web
+  typecheck adds no new errors. Attached to the hosted-deployment surface (AP-074/AP-082 line). NOTE:
+  the pilot Org's Supabase tables are empty, so opened Modules render honest empty tables until data is
+  created in the cloud. A durable cloud **DealPilot** would need a new Drizzle store — deliberately out
+  of scope (Source credentials/raw bodies must stay on the Local Plane).
+
 Cross-session ledger of bugs / gaps / abnormalities. Persist across sessions. Agents:
 spot something off → add row here, do NOT wait for user ask. Fix → mark RESOLVED + date.
 Full rationale of decisions → [../raw/decisions-log.md](../raw/decisions-log.md).

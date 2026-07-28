@@ -2,8 +2,8 @@
  * <DataViews> — the single shell every entity's views render through
  * (docs/wiki/vision.md "View grammar": "`<DataViews>` shell = enforcement
  * point -> Phase-1 critical path"). Picks the registered component for the
- * active view's kind, renders view-switcher tabs (only kinds valid for the
- * spec), column show/hide, and a filter bar.
+ * active view's kind, renders the view-switcher dropdown (only kinds valid
+ * for the spec), column show/hide, and a filter bar.
  *
  * ENFORCEMENT: the registry lookup (registry.ts's VIEW_COMPONENT_REGISTRY) is
  * the only path from a ViewConfig.kind to a rendered component. An unknown
@@ -11,14 +11,20 @@
  * import or a silently-blank view — "generation = configs of REGISTERED
  * components only" is enforced HERE, not by convention elsewhere.
  *
- * Mobile-width-safe from day 1: the switcher tabs wrap (`flex-wrap`) and the
+ * Mobile-width-safe from day 1: the switcher is a compact dropdown and the
  * column-visibility/filter controls stack under `sm:` rather than assuming
  * desktop width; each individual view component (TableView/BoardView/...)
  * carries its own mobile behavior (scroll/swipe/agenda-collapse).
  */
 import { useMemo, useRef, useState } from "react";
 import type { RowFilter, TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
-import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs.js";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select.js";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
 import {
@@ -117,20 +123,27 @@ export function DataViews({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Tabs
+        <Select
           value={activeView.kind}
           onValueChange={(kind) =>
             onViewChange(viewConfigForKind(spec, kind as ViewKind, activeView))
           }
         >
-          <TabsList className="flex-wrap h-auto">
-            {switcherKinds.map((kind) => (
-              <TabsTrigger key={kind} value={kind}>
-                {VIEW_METADATA[kind].label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+          <SelectTrigger size="sm" aria-label="Switch view" className="w-auto min-w-[8.5rem] gap-2">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {switcherKinds.map((kind) => {
+              const Icon = VIEW_METADATA[kind].icon;
+              return (
+                <SelectItem key={kind} value={kind}>
+                  <Icon className="size-4" />
+                  {VIEW_METADATA[kind].label}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
 
         <div className="flex flex-wrap items-center gap-2">
           <Input

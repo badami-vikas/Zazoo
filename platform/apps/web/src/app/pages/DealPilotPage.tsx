@@ -327,23 +327,47 @@ export function DealPilotPage() {
     if (targetPage && targetId) navigate(`/dealpilot/${targetPage}/${targetId}`);
   }
 
+  const tabs = (Object.keys(PAGE_META) as PageId[]).map((id) => ({
+    id,
+    label: PAGE_META[id].label,
+    icon: PAGE_META[id].icon,
+  }));
+
   if (error) {
+    // DealPilot is Local-Plane only (Source credentials + raw capture stay on the
+    // device), so the public cloud fails it closed. Render an honest, non-alarming
+    // state instead of a raw error + Retry for that case; keep Retry for genuine errors.
+    const desktopOnly = /Local Plane|public cloud/i.test(error);
     return (
-      <div className="flex-1 p-8">
-        <p className="text-sm text-red-700">{error}</p>
-        <button className="mt-4 text-sm underline" onClick={() => void load()}>Retry</button>
+      <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
+        <Header tabs={tabs} activeTab={pageId} onTabChange={(id) => navigate(`/dealpilot/${id}`)} />
+        <div className="grid flex-1 place-items-center p-8">
+          <div className="max-w-md space-y-3 text-center">
+            {desktopOnly ? (
+              <>
+                <h2 className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
+                  DealPilot runs on the desktop app
+                </h2>
+                <p className="text-sm" style={{ color: "var(--color-warm-gray)" }}>
+                  Deals and Sources rely on Source credentials and raw capture that stay on your device
+                  (the Local Plane), so they are not served by the public cloud. Open Bridge on desktop to
+                  work with Deals here.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-red-700">{error}</p>
+                <button className="text-sm underline" onClick={() => void load()}>Retry</button>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
   if (!manifest || (!recordId && !records) || (recordId && !detail)) {
     return <div className="flex-1 p-8 text-sm text-[var(--color-warm-gray)]">Loading DealPilot...</div>;
   }
-
-  const tabs = (Object.keys(PAGE_META) as PageId[]).map((id) => ({
-    id,
-    label: PAGE_META[id].label,
-    icon: PAGE_META[id].icon,
-  }));
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
