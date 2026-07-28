@@ -40,6 +40,8 @@ import {
   isRegisteredViewKind,
 } from "./registry.js";
 import { computeEligibleKinds, migrateViewConfig, viewConfigForKind } from "./eligibility.js";
+import { filterRowsByQuery } from "./rowSearch.js";
+import { Search } from "lucide-react";
 import type { DataRow, DataViewProps } from "./types.js";
 
 export interface DataViewsProps
@@ -54,6 +56,8 @@ export interface DataViewsProps
    * normal entity), used to build the switcher tabs. Defaults to every
    * registered kind (minus the relationship restriction, if applicable). */
   availableKinds?: ViewKind[];
+  /** Placeholder for the free-text search box (e.g. "Search deals…"). Defaults to "Search…". */
+  searchPlaceholder?: string;
 }
 
 export function DataViews({
@@ -63,12 +67,18 @@ export function DataViews({
   onViewChange,
   isRelationship: _legacyRelationshipFlag = false,
   availableKinds,
+  searchPlaceholder = "Search…",
   ...viewProps
 }: DataViewsProps) {
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [filterDraft, setFilterDraft] = useState("");
   const [filterColumn, setFilterColumn] = useState(spec.columns[0]?.id ?? "");
+  const [search, setSearch] = useState("");
   const filterInput = useRef<HTMLInputElement>(null);
+
+  // Free-text search across all columns, applied before the view's own column
+  // filters/sorts. Shared by every Module table (empty query = no filtering).
+  const searchedData = useMemo(() => filterRowsByQuery(data, search), [data, search]);
 
   const switcherKinds = useMemo(() => {
     const eligible = computeEligibleKinds(spec);
@@ -146,6 +156,17 @@ export function DataViews({
         </Select>
 
         <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-8 w-40 pl-8"
+            />
+          </div>
           <Input
             ref={filterInput}
             placeholder={`Filter ${spec.columns.find((column) => column.id === filterColumn)?.label ?? spec.id}…`}
@@ -189,7 +210,7 @@ export function DataViews({
       <ViewComponent
         spec={visibleSpec}
         view={activeView}
-        data={data}
+        data={searchedData}
         onViewChange={onViewChange}
         {...viewProps}
         onRequestFilter={(columnId) => {

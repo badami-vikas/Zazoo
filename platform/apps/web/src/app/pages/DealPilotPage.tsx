@@ -730,6 +730,7 @@ export function DealPilotPage() {
                 spec={tableSpec}
                 view={view}
                 data={dataRows}
+                searchPlaceholder={`Search ${PAGE_META[pageId].label.toLowerCase()}…`}
                 onViewChange={setView}
                 onInsert={createRecord}
                 {...(pageId !== "theses" ? { onUpdate: updateRecord } : {})}

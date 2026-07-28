@@ -1,5 +1,16 @@
 # Change Log
 
+- **2026-07-28 — Free-text search across every Module table**: User asked for a Search box on
+  DealPilot ("Search deals…") and JobPilot ("Search jobs…"), then for all Modules. Added it once to the
+  **shared** `DataViews` toolbar (`filterRowsByQuery` in `dataviews/rowSearch.ts`) rather than per page,
+  so every table that uses DataViews — Relationship, Task Manager, Second Brain, DealPilot, JobPilot —
+  gets a consistent search that filters rows across all columns (case-insensitive) before the view's own
+  column filters/sorts apply. Optional `searchPlaceholder` prop (default "Search…"); DealPilot passes
+  "Search {deals|sources|theses}…", JobPilot "Search jobs…". No backend/persistence/canon change; empty
+  query = no filtering. Verified: web typecheck; web suite 106/106; dev-server harness confirmed the box
+  renders in the shared toolbar and filters live (typing "grace" → one row). Not deployed by me — web
+  rebuild.
+
 - **2026-07-28 — DealPilot Deals page redesigned as a triage table with real editable signal columns (AP-087 / ADR-155)**:
   User supplied a target mockup and asked for the Deals page to "look like this with the table view …
   aligned." Most columns mapped to real cloud fields (DEAL/STAGE/REVENUE/EBITDA/ASK-EV; MULTIPLE derived

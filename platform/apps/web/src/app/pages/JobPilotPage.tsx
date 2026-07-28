@@ -175,6 +175,7 @@ export function JobPilotPage() {
             spec={spec}
             view={view}
             data={rows}
+            searchPlaceholder="Search jobs…"
             onViewChange={setView}
             onUpdate={moveStage}
             canUpdateRow={(row) => Boolean(row["id"])}
