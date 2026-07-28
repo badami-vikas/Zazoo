@@ -299,7 +299,7 @@ test("DealPilot credential access requires re-authentication and records value-f
     });
     assert.equal(
       "credentialProjection" in afterRevoke
-        ? afterRevoke.credentialProjection.password.state
+        ? afterRevoke.credentialProjection?.password.state
         : null,
       "unavailable",
     );

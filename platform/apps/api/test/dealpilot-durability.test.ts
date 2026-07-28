@@ -279,7 +279,7 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
     );
     assert.equal(
       "credentialProjection" in retryableDetail
-        ? retryableDetail.credentialProjection.password.state
+        ? retryableDetail.credentialProjection?.password.state
         : "unexpected-detail",
       "unavailable",
     );

@@ -25,6 +25,17 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-28 — Pilot Organization demo data (AP-083)** (`platform/apps/api/src/wiring.ts` →
+  `seedPilotDemoData`). **Reason**: the deployed public-cloud web app must show non-empty, editable
+  modules for the pilot Organization before real pilot data exists; an empty state would hide the DealPilot
+  and JobPilot surfaces the user asked to see working. **Real element it stands in for**: the pilot's actual
+  Deals/Sources/Theses and tracked Jobs. **What it seeds**: 3 DealPilot Deals, 2 Sources (no credentials —
+  credential columns stay NULL), 2 Theses, 1 deal_source Relation; 3 JobPilot Jobs + Applications. Seeded via
+  the Cloud-Plane stores at boot, idempotently (guards on an empty surface), **only** when
+  `publicCloudOnly && DATABASE_URL` (so tests and desktop/dev boots never seed). **NOT credentials or raw
+  capture** — those stay Local Plane. **Removal condition**: delete `seedPilotDemoData` (and its call) once
+  the pilot creates real Records in the cloud; the guard makes it a no-op the moment real Deals/Jobs exist.
+
 - **2026-07-26 — TASK-026 governed Chat fixtures** (`platform/packages/core/test/chat-store.test.ts`,
   `platform/packages/db/test/{chat-store,migration-0031,migration-0032}.test.ts`,
   `platform/apps/api/test/{chat,chat-model-manager,chat-residency-store}.test.ts`,

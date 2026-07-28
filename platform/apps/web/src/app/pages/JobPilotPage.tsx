@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Briefcase, MoreHorizontal } from "lucide-react";
 import { Link } from "react-router";
 import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
@@ -73,17 +73,22 @@ export function JobPilotPage() {
   const [view, setView] = useState<ViewConfig>(() => defaultViewConfig(`${JOBPILOT_DATABASE_ID}:table`));
   const [insightsOpen, setInsightsOpen] = useState(true);
 
-  useEffect(() => {
-    Promise.all([
-      trpc.jobpilot.list.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 }),
-      trpc.jobpilot.definition.query({ organizationId: PILOT_ORGANIZATION }),
-    ])
-      .then(([nextPage, nextDefinition]) => {
-        setPage(nextPage);
-        setDefinition(nextDefinition);
-      })
-      .catch((failure) => setError(String(failure)));
+  const load = useCallback(async () => {
+    try {
+      const [nextPage, nextDefinition] = await Promise.all([
+        trpc.jobpilot.list.query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 }),
+        trpc.jobpilot.definition.query({ organizationId: PILOT_ORGANIZATION }),
+      ]);
+      setPage(nextPage);
+      setDefinition(nextDefinition);
+    } catch (failure) {
+      setError(String(failure));
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const spec = definition ?? LOADING_SPEC;
   const rows = useMemo<DataRow[]>(
@@ -101,6 +106,21 @@ export function JobPilotPage() {
     })),
     [page],
   );
+
+  async function moveStage(rowId: string, patch: Partial<DataRow>) {
+    const to = patch["stage"];
+    if (to === undefined) return; // Only stage moves persist; other fields have no store contract.
+    const current = rows.find((row) => row.id === rowId);
+    const from = current?.stage;
+    if (!from || String(from) === String(to)) return;
+    await trpc.jobpilot.transition.mutate({
+      organizationId: PILOT_ORGANIZATION,
+      applicationId: rowId,
+      from: String(from),
+      to: String(to),
+    });
+    await load();
+  }
 
   if (error) return <div className="p-6 text-sm text-red-600">{error}</div>;
   if (!page || !definition) return <div className="p-6 text-sm text-muted-foreground">Loading Job records…</div>;
@@ -156,6 +176,8 @@ export function JobPilotPage() {
             view={view}
             data={rows}
             onViewChange={setView}
+            onUpdate={moveStage}
+            canUpdateRow={(row) => Boolean(row["id"])}
           />
         </section>
         {page.items.some((item) => item.application) && (

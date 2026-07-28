@@ -1,5 +1,27 @@
 # Change Log
 
+- **2026-07-28 — DealPilot in the web app + editable modules + seeded demo data (AP-083 / ADR-151)**:
+  User asked for DealPilot to work in the web app, all modules editable, and dummy values seeded +
+  persisted (choosing "everything in the cloud" for Sources but "ship core first, secrets next"). Added a
+  Cloud-Plane DealPilot **record** store: new `dealpilot_deals/sources/theses/relations` tables
+  (migration `0033`, forced tenant RLS, credential-pointer columns only — no secrets), `DrizzleDealPilotStore`
+  (in the api package to avoid a `db→dealpilot` project-reference cycle), and a `cloudRecordsDealPilotStore`
+  composite wired into `wiring.dealpilot.store` **only** in `publicCloudOnly` mode — record methods → Supabase,
+  every Gmail/capture/credential method → desktop-only refusal. Opened `dealpilot.module/records/detail/
+  createDeal/createSource/createThesis/updateDeal/updateSource` + `jobpilot.create/transition`; kept
+  `dealpilot.list/captures/commit/discoverDeals` closed; `createSource`'s credential branch self-refuses in
+  public cloud; `dealpilot.detail` skips the (throwing) credential-vault read in public cloud. Wired editing
+  through the existing `DataViews` surface (DealPilot Deal/Source via `updateDeal`/`updateSource`; JobPilot
+  stage via `transition`; Source-detail captures now fail-soft so Source Records open in the cloud). Demo data
+  (DealPilot + JobPilot) is seeded **at boot** via the stores, idempotently, gated to the public-cloud deploy
+  (a SQL seed migration was rejected — the pilot Org is created at boot, so it FK-fails on fresh DBs and
+  collides with test fixtures). **Verification**: web typecheck clean; api typecheck clean; `migration-0033`
+  forced-RLS test + boundary test (records allowed, captures/credential 412) + dealpilot-core/durability pass;
+  db suite 212/212. Canon preserved (secrets/raw capture Local); Phase E (credentials/capture → cloud) deferred
+  and un-approved. Tracked: `docs/dummy.md` (boot seed). Files: `platform/packages/db/src/schema.ts`,
+  `migrations/0033_*`, `platform/apps/api/src/{dealpilot-store,wiring,deployment-boundary,router}.ts`,
+  `platform/apps/web/src/app/pages/{DealPilotPage,JobPilotPage}.tsx`.
+
 - **2026-07-28 — Serve Cloud-Plane Modules in the cloud + view dropdown (AP-082 / ADR-150)**:
   User reported (on the hosted web app) that most Modules were broken with *"requires the desktop
   Local Plane"* + Retry, and asked for the DealPilot-style surface pattern with views as a dropdown,
