@@ -31,10 +31,15 @@ services:
         sync: false
       - key: BRIDGE_PILOT_USER_EMAIL
         sync: false
-      # Cloud-Plane chat ModelProvider. Without this the API registers NO cloud
-      # provider and every Chat Panel turn fails closed with "No authorized
-      # cloud model provider is configured" (no fake fallback, by design).
-      # Secret — set in the Render dashboard, never committed.
+      # Cloud-Plane chat ModelProvider for the hosted web app. Without at least
+      # one of these the API registers NO cloud provider and every Chat Panel
+      # turn fails closed with "No authorized cloud model provider is configured"
+      # (no fake fallback, by design). Set ONE in the Render dashboard (secret,
+      # never committed). GROQ_API_KEY (groq.com, free tier) is the recommended
+      # low/no-cost option; ANTHROPIC_API_KEY is higher quality but metered.
+      # Desktop chat uses the on-device llama runtime and needs neither.
+      - key: GROQ_API_KEY
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
 
