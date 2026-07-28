@@ -60,6 +60,23 @@ export interface ColumnSpec {
   relationParent?: boolean;
   hiddenInForm?: boolean;
   sensitive?: boolean;
+  /**
+   * Optional presentation hint for the table cell. Purely visual and
+   * backward-compatible: a column with no `display` renders exactly as before
+   * (plain text). Renderers map the raw value to a richer glyph:
+   *   - "badge"    — a coloured pill (palette keyed by value via `badgePalette`)
+   *   - "rag"      — a red/yellow/green status dot (value = "red"|"yellow"|"green")
+   *   - "meter"    — a 0..100 progress bar coloured by threshold
+   *   - "currency" — a compact money label (e.g. $4.2M)
+   *   - "multiple" — a ratio label (e.g. 10.2×)
+   * The underlying value and edit/sort/filter behaviour are unchanged.
+   */
+  display?: "badge" | "rag" | "meter" | "currency" | "multiple";
+  /** Value → colour token for `display: "badge"`. Unmapped values fall back to a neutral pill. */
+  badgePalette?: Record<string, "green" | "yellow" | "red" | "blue" | "gray">;
+  /** Value → human label for `display: "badge"`. Display-only; the stored value
+   * (used for edit/sort/filter) is unchanged. Unmapped values show as-is. */
+  badgeLabels?: Record<string, string>;
 }
 
 export interface TableSpec {

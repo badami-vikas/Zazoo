@@ -172,9 +172,19 @@ test("Settings > Learning surfaces a paginated Flags audit section (review item 
 test("no green/yellow feedback-flag semantics remain in DealPilot/JobPilot fit rendering", async () => {
   const dealPilotPage = await readFile(new URL("../src/app/pages/DealPilotPage.tsx", import.meta.url), "utf8");
   const jobPilotPage = await readFile(new URL("../src/app/pages/JobPilotPage.tsx", import.meta.url), "utf8");
-  for (const source of [dealPilotPage, jobPilotPage]) {
-    assert.doesNotMatch(source, /["']green["']/);
-    assert.doesNotMatch(source, /["']yellow["']/);
-    assert.doesNotMatch(source, /FlagIcon/);
-  }
+  // The pre-canon traffic-light flag glyph stays gone from both surfaces.
+  assert.doesNotMatch(dealPilotPage, /FlagIcon/);
+  assert.doesNotMatch(jobPilotPage, /FlagIcon/);
+  // JobPilot has no domain RAG field, so its fit rendering must carry no
+  // green/yellow colouring at all — the original AP-023 invariant, unchanged.
+  assert.doesNotMatch(jobPilotPage, /["']green["']/);
+  assert.doesNotMatch(jobPilotPage, /["']yellow["']/);
+  // DealPilot: FIT is a plain numeric column (kind "number", no `display`), never
+  // a coloured flag. The green/yellow tokens present are the DOMAIN R/Y/G pursue
+  // signal — a user-set, editable Deal field rendered via `display: "rag"` — plus
+  // the stage-badge palette. Those are domain choices, NOT platform feedback
+  // flags, which canon explicitly permits (ADR-155 refines AP-023: the
+  // feedback-flag ban stands; a user-entered domain RAG column is not one).
+  assert.match(dealPilotPage, /rag: "rag"/);
+  assert.doesNotMatch(dealPilotPage, /fitScore: "(rag|badge|meter|currency)"/);
 });

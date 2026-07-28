@@ -232,6 +232,13 @@
       "when": 1785222318931,
       "tag": "0033_dealpilot_cloud_records",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1785259230073,
+      "tag": "0034_dealpilot_deal_signals",
+      "breakpoints": true
     }
   ]
 }

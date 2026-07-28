@@ -25,16 +25,21 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
-- **2026-07-28 — Pilot Organization demo data (AP-083)** (`platform/apps/api/src/wiring.ts` →
-  `seedPilotDemoData`). **Reason**: the deployed public-cloud web app must show non-empty, editable
+- **2026-07-28 — Pilot Organization demo data (AP-083; expanded AP-087)** (`platform/apps/api/src/wiring.ts` →
+  `seedPilotDemoData`, `DEMO_DEALS`). **Reason**: the deployed public-cloud web app must show non-empty, editable
   modules for the pilot Organization before real pilot data exists; an empty state would hide the DealPilot
-  and JobPilot surfaces the user asked to see working. **Real element it stands in for**: the pilot's actual
-  Deals/Sources/Theses and tracked Jobs. **What it seeds**: 3 DealPilot Deals, 2 Sources (no credentials —
-  credential columns stay NULL), 2 Theses, 1 deal_source Relation; 3 JobPilot Jobs + Applications. Seeded via
-  the Cloud-Plane stores at boot, idempotently (guards on an empty surface), **only** when
-  `publicCloudOnly && DATABASE_URL` (so tests and desktop/dev boots never seed). **NOT credentials or raw
-  capture** — those stay Local Plane. **Removal condition**: delete `seedPilotDemoData` (and its call) once
-  the pilot creates real Records in the cloud; the guard makes it a no-op the moment real Deals/Jobs exist.
+  and JobPilot surfaces the user asked to see working, and the Deals-table redesign (ADR-155) needs the
+  triage signals populated to read as intended. **Real element it stands in for**: the pilot's actual
+  Deals/Sources/Theses and tracked Jobs. **What it seeds**: **8 DealPilot Deals** (`DEMO_DEALS`) carrying the
+  triage signals — stage, revenue/EBITDA/asking price, RAG band, fit score, evidence score, P0-flag count,
+  and thesis/source tags — plus 2 Sources (no credentials — credential columns stay NULL), 2 Theses, and
+  1 deal_source Relation; 3 JobPilot Jobs + Applications. **Idempotent AND edit-safe**: the three original
+  demo companies (Northwind/Cascade/Alpine) enrich in place by name and only when they carry NO signals yet,
+  so a human's edit is never overwritten; the other five are created only if absent. Seeded via the
+  Cloud-Plane stores at boot, **only** when `publicCloudOnly && DATABASE_URL` (so tests and desktop/dev boots
+  never seed). **NOT credentials or raw capture** — those stay Local Plane. **Removal condition**: delete
+  `seedPilotDemoData`/`DEMO_DEALS` (and the call) once the pilot creates real Records in the cloud; the guards
+  make it a no-op the moment real Deals/Jobs exist or a demo row has been scored.
 
 - **2026-07-26 — TASK-026 governed Chat fixtures** (`platform/packages/core/test/chat-store.test.ts`,
   `platform/packages/db/test/{chat-store,migration-0031,migration-0032}.test.ts`,

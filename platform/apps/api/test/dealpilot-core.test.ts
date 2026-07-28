@@ -15,6 +15,82 @@ function buildTestWiring() {
   return buildWiring({ dealPilotCredentialVault: new InMemorySourceCredentialVault() });
 }
 
+test("Deal triage signals round-trip through createDeal/records/updateDeal (ADR-155)", async () => {
+  const wiring = await buildTestWiring();
+  try {
+    const caller = appRouter.createCaller({
+      wiring,
+      run: runContext(),
+      identity: { type: "user", id: PILOT_USER },
+      authenticated: true,
+      verifying: false,
+      reauthenticatedAt: Date.now(),
+    });
+
+    // The manifest exposes the new signal columns on the Deals page.
+    const module = await caller.dealpilot.module({ organizationId: PILOT_ORGANIZATION });
+    const dealColumns = module.pages.find((page) => page.id === "deals")!.columns.map((c) => c.id);
+    for (const id of ["rag", "fitScore", "thesisTag", "sourceChannel", "evidenceScore", "p0Flags"]) {
+      assert.ok(dealColumns.includes(id), `deals manifest should expose "${id}"`);
+    }
+
+    const created = await caller.dealpilot.createDeal({
+      organizationId: PILOT_ORGANIZATION,
+      company: "test_fixture_signals",
+      revenue: 14_200_000,
+      ebitda: 4_100_000,
+      askingPrice: 42_000_000,
+      rag: "green",
+      fitScore: 87,
+      evidenceScore: 78,
+      p0Flags: 1,
+      thesisTag: "B2B SaaS",
+      sourceChannel: "Proprietary",
+    });
+    assert.equal(created.rag, "green");
+    assert.equal(created.fitScore, 87);
+    assert.equal(created.evidenceScore, 78);
+    assert.equal(created.p0Flags, 1);
+    assert.equal(created.thesisTag, "B2B SaaS");
+    assert.equal(created.sourceChannel, "Proprietary");
+
+    // Read path returns the signals so the table/stat cards can render them.
+    const page = await caller.dealpilot.records({
+      organizationId: PILOT_ORGANIZATION,
+      page: "deals",
+      limit: 50,
+      offset: 0,
+    });
+    const row = page.items.find((item) => item.id === created.id);
+    assert.ok(row && row.kind === "deal");
+    assert.equal(row.fitScore, 87);
+    assert.equal(row.rag, "green");
+
+    // A human edit persists and does not disturb untouched signals.
+    const updated = await caller.dealpilot.updateDeal({
+      organizationId: PILOT_ORGANIZATION,
+      id: created.id,
+      rag: "yellow",
+      p0Flags: 3,
+    });
+    assert.equal(updated.rag, "yellow");
+    assert.equal(updated.p0Flags, 3);
+    assert.equal(updated.fitScore, 87);
+    assert.equal(updated.evidenceScore, 78);
+
+    // Bounds are enforced (fit/evidence are 0..100).
+    await assert.rejects(
+      caller.dealpilot.createDeal({
+        organizationId: PILOT_ORGANIZATION,
+        company: "test_fixture_out_of_range",
+        fitScore: 150,
+      }),
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("DealPilot creates its three real Record types and applies reviewed Thesis-to-Source discovery", async () => {
   const wiring = await buildTestWiring();
   try {

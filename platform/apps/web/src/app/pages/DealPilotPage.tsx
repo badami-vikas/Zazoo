@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
+  Activity,
+  AlertTriangle,
   BriefcaseBusiness,
   Database,
   Eye,
+  Layers,
   LockKeyhole,
   MoreHorizontal,
+  Plus,
   RefreshCw,
   Target,
+  TrendingUp,
 } from "lucide-react";
+import type { ComponentType } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
@@ -68,8 +74,115 @@ function displayValue(record: RecordRow, field: string): string {
   return "-";
 }
 
+// ── Deals table presentation (ADR-155) ──────────────────────────────────────
+// Canonical stage value → mockup-facing label (display only; the stored value
+// stays canonical so edit/sort/filter and updateDeal keep working).
+const STAGE_LABELS: Record<string, string> = {
+  sourced: "New",
+  triage: "Triage",
+  engaged: "Pursue",
+  nda_cim: "NDA/CIM",
+  diligence: "Diligence",
+  ic: "IC",
+  loi: "LOI",
+  closing: "Closing",
+  portfolio: "Portfolio",
+  passed: "Passed",
+};
+const STAGE_TONES: Record<string, "green" | "yellow" | "red" | "blue" | "gray"> = {
+  sourced: "gray",
+  triage: "yellow",
+  engaged: "blue",
+  nda_cim: "blue",
+  diligence: "blue",
+  ic: "blue",
+  loi: "blue",
+  closing: "blue",
+  portfolio: "green",
+  passed: "gray",
+};
+const DEAL_STAGE_OPTIONS = Object.keys(STAGE_LABELS);
+// Table-cell presentation hints per deal column (opt-in; @bridge/tables ColumnSpec.display).
+const DEAL_DISPLAY: Record<string, NonNullable<ColumnSpec["display"]>> = {
+  stage: "badge",
+  rag: "rag",
+  revenue: "currency",
+  ebitda: "currency",
+  askingPrice: "currency",
+  multiple: "multiple",
+  evidenceScore: "meter",
+};
+// Deal fields kept off the redesigned Deals table (still on Record Detail / manifest).
+const DEAL_TABLE_OMIT = new Set(["sde", "evidenceHealth", "sources", "theses"]);
+
+/** Compact money label for the stat cards: 214_000_000 → "$214M". */
+function formatMoney(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (abs >= 1_000) return `$${Math.round(value / 1_000)}K`;
+  return `$${value.toLocaleString()}`;
+}
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  icon: ComponentType<{ className?: string }>;
+  tone?: "default" | "warn";
+}) {
+  return (
+    <div
+      className="flex items-center gap-3 rounded-xl border bg-white px-4 py-3"
+      style={{ borderColor: "var(--color-border)" }}
+    >
+      <span
+        className={`grid size-9 shrink-0 place-items-center rounded-lg ${
+          tone === "warn" ? "bg-rose-50 text-rose-600" : "bg-slate-50 text-[var(--color-steel)]"
+        }`}
+      >
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0">
+        <div className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>
+          {label}
+        </div>
+        <div className="text-lg font-semibold leading-tight" style={{ color: "var(--color-navy)" }}>
+          {value}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Implied EV multiple = asking price / EBITDA, when both are present and EBITDA > 0. */
+function impliedMultiple(record: RecordRow): number | undefined {
+  if (record.kind !== "deal") return undefined;
+  const { askingPrice, ebitda } = record;
+  if (typeof askingPrice === "number" && typeof ebitda === "number" && ebitda > 0) {
+    return askingPrice / ebitda;
+  }
+  return undefined;
+}
+
 const CREATE_FIELDS: Record<PageId, ReadonlySet<string>> = {
-  deals: new Set(["company", "revenue", "askingPrice"]),
+  deals: new Set([
+    "company",
+    "stage",
+    "rag",
+    "fitScore",
+    "thesisTag",
+    "sourceChannel",
+    "revenue",
+    "ebitda",
+    "askingPrice",
+    "evidenceScore",
+    "p0Flags",
+  ]),
   sources: new Set([
     "name",
     "link",
@@ -131,7 +244,48 @@ function buildTableSpec(
       ...(column.id === "rightsAttested" ? { defaultValue: false } : {}),
     };
   });
+  if (pageId === "deals") {
+    return { id: page.databaseId, columns: decorateDealsColumns(columns) };
+  }
   return { id: page.databaseId, columns };
+}
+
+/**
+ * Curates the Deals table (ADR-155) to the triage view: drops secondary columns
+ * kept on Record Detail, attaches opt-in presentation hints (stage/RAG badges,
+ * currency, evidence meter), pins explicit select options for the Form, and
+ * inserts the derived MULTIPLE column after Asking price. Purely presentational —
+ * the underlying values and governed create/update contract are unchanged.
+ */
+function decorateDealsColumns(columns: ColumnSpec[]): ColumnSpec[] {
+  const decorated = columns
+    .filter((column) => !DEAL_TABLE_OMIT.has(column.id))
+    .map((column) => {
+      const next: ColumnSpec = { ...column };
+      if (DEAL_DISPLAY[column.id]) next.display = DEAL_DISPLAY[column.id];
+      if (column.id === "stage") {
+        next.options = DEAL_STAGE_OPTIONS;
+        next.badgePalette = STAGE_TONES;
+        next.badgeLabels = STAGE_LABELS;
+        next.defaultValue = "sourced";
+      }
+      if (column.id === "rag") {
+        next.options = ["green", "yellow", "red"];
+      }
+      return next;
+    });
+  const multipleColumn: ColumnSpec = {
+    id: "multiple",
+    label: "Multiple",
+    kind: "number",
+    editable: false,
+    hiddenInForm: true,
+    display: "multiple",
+  };
+  const askIndex = decorated.findIndex((column) => column.id === "askingPrice");
+  if (askIndex === -1) decorated.push(multipleColumn);
+  else decorated.splice(askIndex + 1, 0, multipleColumn);
+  return decorated;
 }
 
 async function queryAllRecords(page: PageId): Promise<RecordPage> {
@@ -267,10 +421,38 @@ export function DealPilotPage() {
         row["userId"] = displayValue(record, "userId");
         row["password"] = displayValue(record, "password");
       }
+      if (record.kind === "deal") {
+        // Derived, read-only presentation column (ADR-155) — never persisted.
+        const multiple = impliedMultiple(record);
+        if (multiple !== undefined) row["multiple"] = multiple;
+      }
       return row;
     }),
     [records?.items],
   );
+
+  const dealStats = useMemo(() => {
+    if (pageId !== "deals" || !records) return null;
+    const deals = records.items.filter(
+      (record): record is Extract<RecordRow, { kind: "deal" }> => record.kind === "deal",
+    );
+    // Total EV excludes archived/passed deals, matching the pipeline value a
+    // partner tracks (a passed deal is no longer in the funnel).
+    const totalEv = deals
+      .filter((deal) => deal.stage !== "passed")
+      .reduce((sum, deal) => sum + (deal.askingPrice ?? 0), 0);
+    const p0Flags = deals.reduce((sum, deal) => sum + (deal.p0Flags ?? 0), 0);
+    const scored = deals.filter((deal) => typeof deal.evidenceScore === "number");
+    const avgEvidence = scored.length
+      ? Math.round(scored.reduce((sum, deal) => sum + (deal.evidenceScore ?? 0), 0) / scored.length)
+      : null;
+    return { showing: deals.length, totalEv, p0Flags, avgEvidence };
+  }, [pageId, records]);
+
+  function openAddDeal() {
+    setFormRecord(null);
+    setView(viewConfigForKind(tableSpec, "form", view));
+  }
 
   useEffect(() => {
     setView(defaultViewConfig(`${tableSpec.id}:table`));
@@ -282,7 +464,14 @@ export function DealPilotPage() {
         organizationId: PILOT_ORGANIZATION,
         company: String(draft["company"] ?? ""),
         ...(draft["revenue"] !== undefined ? { revenue: Number(draft["revenue"]) } : {}),
+        ...(draft["ebitda"] !== undefined ? { ebitda: Number(draft["ebitda"]) } : {}),
         ...(draft["askingPrice"] !== undefined ? { askingPrice: Number(draft["askingPrice"]) } : {}),
+        ...(draft["rag"] ? { rag: String(draft["rag"]) as "red" | "yellow" | "green" } : {}),
+        ...(draft["fitScore"] !== undefined ? { fitScore: Number(draft["fitScore"]) } : {}),
+        ...(draft["evidenceScore"] !== undefined ? { evidenceScore: Number(draft["evidenceScore"]) } : {}),
+        ...(draft["p0Flags"] !== undefined ? { p0Flags: Number(draft["p0Flags"]) } : {}),
+        ...(draft["thesisTag"] ? { thesisTag: String(draft["thesisTag"]) } : {}),
+        ...(draft["sourceChannel"] ? { sourceChannel: String(draft["sourceChannel"]) } : {}),
       });
       await load();
       setRouteNotice("Deal added.");
@@ -346,6 +535,12 @@ export function DealPilotPage() {
         ...(patch["ebitda"] !== undefined ? { ebitda: Number(patch["ebitda"]) } : {}),
         ...(patch["sde"] !== undefined ? { sde: Number(patch["sde"]) } : {}),
         ...(patch["askingPrice"] !== undefined ? { askingPrice: Number(patch["askingPrice"]) } : {}),
+        ...(patch["rag"] !== undefined ? { rag: String(patch["rag"]) as "red" | "yellow" | "green" } : {}),
+        ...(patch["fitScore"] !== undefined ? { fitScore: Number(patch["fitScore"]) } : {}),
+        ...(patch["evidenceScore"] !== undefined ? { evidenceScore: Number(patch["evidenceScore"]) } : {}),
+        ...(patch["p0Flags"] !== undefined ? { p0Flags: Number(patch["p0Flags"]) } : {}),
+        ...(patch["thesisTag"] !== undefined ? { thesisTag: String(patch["thesisTag"]) } : {}),
+        ...(patch["sourceChannel"] !== undefined ? { sourceChannel: String(patch["sourceChannel"]) } : {}),
       });
       await load();
       setRouteNotice("Deal updated.");
@@ -450,27 +645,34 @@ export function DealPilotPage() {
             <h2 className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
               All {PAGE_META[pageId].label}
             </h2>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            <div className="flex items-center gap-2">
+              {pageId === "deals" && (
                 <button
                   type="button"
-                  aria-label={`${PAGE_META[pageId].label} controls`}
-                  className="rounded-md border p-1.5 hover:bg-black/5"
-                  style={{ borderColor: "var(--color-border)" }}
+                  onClick={openAddDeal}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-steel)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
                 >
-                  <MoreHorizontal className="size-4" />
+                  <Plus className="size-4" /> Add Deal
                 </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-              <Link
-                to="/module/deal-pilot"
-              >
-                Control Panel / Module Detail
-              </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`${PAGE_META[pageId].label} controls`}
+                    className="rounded-md border p-1.5 hover:bg-black/5"
+                    style={{ borderColor: "var(--color-border)" }}
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem asChild>
+                    <Link to="/module/deal-pilot">Control Panel / Module Detail</Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
           {notice && (
             <div className="px-4 py-2 border-b text-sm flex items-center justify-between" style={{ borderColor: "var(--color-border)" }}>
@@ -506,6 +708,23 @@ export function DealPilotPage() {
             </div>
           )}
           <div className="flex-1 space-y-8 overflow-auto p-4">
+            {dealStats && (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <StatCard label="Showing" value={String(dealStats.showing)} icon={Layers} />
+                <StatCard label="Total EV" value={formatMoney(dealStats.totalEv)} icon={TrendingUp} />
+                <StatCard
+                  label="P0 flags"
+                  value={String(dealStats.p0Flags)}
+                  icon={AlertTriangle}
+                  tone={dealStats.p0Flags > 0 ? "warn" : "default"}
+                />
+                <StatCard
+                  label="Avg evidence"
+                  value={dealStats.avgEvidence === null ? "—" : `${dealStats.avgEvidence}%`}
+                  icon={Activity}
+                />
+              </div>
+            )}
             <section className="min-h-[18rem]" aria-label={`${PAGE_META[pageId].label} Database`}>
               <DataViews
                 spec={tableSpec}

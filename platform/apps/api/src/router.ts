@@ -10010,6 +10010,12 @@ export const appRouter = t.router({
           ebitda: z.number().optional(),
           sde: z.number().optional(),
           askingPrice: z.number().nonnegative().optional(),
+          rag: z.enum(["red", "yellow", "green"]).optional(),
+          fitScore: z.number().int().min(0).max(100).optional(),
+          evidenceScore: z.number().int().min(0).max(100).optional(),
+          p0Flags: z.number().int().min(0).max(999).optional(),
+          thesisTag: z.string().trim().max(120).optional(),
+          sourceChannel: z.string().trim().max(120).optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
@@ -10021,6 +10027,12 @@ export const appRouter = t.router({
           ...(input.ebitda != null ? { ebitda: input.ebitda } : {}),
           ...(input.sde != null ? { sde: input.sde } : {}),
           ...(input.askingPrice != null ? { askingPrice: input.askingPrice } : {}),
+          ...(input.rag != null ? { rag: input.rag } : {}),
+          ...(input.fitScore != null ? { fitScore: input.fitScore } : {}),
+          ...(input.evidenceScore != null ? { evidenceScore: input.evidenceScore } : {}),
+          ...(input.p0Flags != null ? { p0Flags: input.p0Flags } : {}),
+          ...(input.thesisTag != null ? { thesisTag: input.thesisTag } : {}),
+          ...(input.sourceChannel != null ? { sourceChannel: input.sourceChannel } : {}),
         });
       }),
 
@@ -10188,6 +10200,12 @@ export const appRouter = t.router({
           sde: z.number().optional(),
           askingPrice: z.number().nonnegative().optional(),
           evidenceHealth: z.enum(["unknown", "partial", "supported", "contradicted"]).optional(),
+          rag: z.enum(["red", "yellow", "green"]).optional(),
+          fitScore: z.number().int().min(0).max(100).optional(),
+          evidenceScore: z.number().int().min(0).max(100).optional(),
+          p0Flags: z.number().int().min(0).max(999).optional(),
+          thesisTag: z.string().trim().max(120).optional(),
+          sourceChannel: z.string().trim().max(120).optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
@@ -10200,6 +10218,12 @@ export const appRouter = t.router({
           ...(input.sde !== undefined ? { sde: input.sde } : {}),
           ...(input.askingPrice !== undefined ? { askingPrice: input.askingPrice } : {}),
           ...(input.evidenceHealth !== undefined ? { evidenceHealth: input.evidenceHealth } : {}),
+          ...(input.rag !== undefined ? { rag: input.rag } : {}),
+          ...(input.fitScore !== undefined ? { fitScore: input.fitScore } : {}),
+          ...(input.evidenceScore !== undefined ? { evidenceScore: input.evidenceScore } : {}),
+          ...(input.p0Flags !== undefined ? { p0Flags: input.p0Flags } : {}),
+          ...(input.thesisTag !== undefined ? { thesisTag: input.thesisTag } : {}),
+          ...(input.sourceChannel !== undefined ? { sourceChannel: input.sourceChannel } : {}),
         });
       }),
 

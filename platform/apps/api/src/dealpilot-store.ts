@@ -129,6 +129,12 @@ function unpackDeal(row: DealRow): DealRecord {
     ...(row.evidenceHealth
       ? { evidenceHealth: row.evidenceHealth as NonNullable<DealRecord["evidenceHealth"]> }
       : {}),
+    ...(row.rag ? { rag: row.rag as NonNullable<DealRecord["rag"]> } : {}),
+    ...(row.fitScore != null ? { fitScore: row.fitScore } : {}),
+    ...(row.evidenceScore != null ? { evidenceScore: row.evidenceScore } : {}),
+    ...(row.p0Flags != null ? { p0Flags: row.p0Flags } : {}),
+    ...(row.thesisTag ? { thesisTag: row.thesisTag } : {}),
+    ...(row.sourceChannel ? { sourceChannel: row.sourceChannel } : {}),
     ...(row.ownerId ? { ownerId: row.ownerId } : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -206,6 +212,13 @@ export class DrizzleDealPilotStore implements DealPilotStore {
           ...(input.ebitda != null ? { ebitda: input.ebitda } : {}),
           ...(input.sde != null ? { sde: input.sde } : {}),
           ...(input.askingPrice != null ? { askingPrice: input.askingPrice } : {}),
+          ...(input.evidenceHealth != null ? { evidenceHealth: input.evidenceHealth } : {}),
+          ...(input.rag != null ? { rag: input.rag } : {}),
+          ...(input.fitScore != null ? { fitScore: input.fitScore } : {}),
+          ...(input.evidenceScore != null ? { evidenceScore: input.evidenceScore } : {}),
+          ...(input.p0Flags != null ? { p0Flags: input.p0Flags } : {}),
+          ...(input.thesisTag != null ? { thesisTag: input.thesisTag } : {}),
+          ...(input.sourceChannel != null ? { sourceChannel: input.sourceChannel } : {}),
           ...(input.ownerId ? { ownerId: input.ownerId } : {}),
         })
         .returning();
@@ -341,6 +354,12 @@ export class DrizzleDealPilotStore implements DealPilotStore {
           ...(patch.sde !== undefined ? { sde: patch.sde } : {}),
           ...(patch.askingPrice !== undefined ? { askingPrice: patch.askingPrice } : {}),
           ...(patch.evidenceHealth !== undefined ? { evidenceHealth: patch.evidenceHealth } : {}),
+          ...(patch.rag !== undefined ? { rag: patch.rag } : {}),
+          ...(patch.fitScore !== undefined ? { fitScore: patch.fitScore } : {}),
+          ...(patch.evidenceScore !== undefined ? { evidenceScore: patch.evidenceScore } : {}),
+          ...(patch.p0Flags !== undefined ? { p0Flags: patch.p0Flags } : {}),
+          ...(patch.thesisTag !== undefined ? { thesisTag: patch.thesisTag } : {}),
+          ...(patch.sourceChannel !== undefined ? { sourceChannel: patch.sourceChannel } : {}),
           ...(patch.ownerId !== undefined ? { ownerId: patch.ownerId } : {}),
           updatedAt: new Date(),
         })

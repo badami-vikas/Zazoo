@@ -1692,6 +1692,17 @@ export const dealpilotDeals = pgTable(
     sde: doublePrecision("sde"),
     askingPrice: doublePrecision("asking_price"),
     evidenceHealth: text("evidence_health"),
+    // AP-087 — deal-triage signals surfaced on the Deals table (ADR-155). All
+    // nullable: an unscored deal renders an honest empty cell, never a fake value.
+    // rag: coarse red/yellow/green pursue signal (distinct from evidenceHealth and
+    // from platform Red Flag feedback). fitScore/evidenceScore: 0..100. p0Flags:
+    // count of P0 diligence flags. thesisTag/sourceChannel: lightweight triage tags.
+    rag: text("rag"),
+    fitScore: integer("fit_score"),
+    evidenceScore: integer("evidence_score"),
+    p0Flags: integer("p0_flags"),
+    thesisTag: text("thesis_tag"),
+    sourceChannel: text("source_channel"),
     ownerId: text("owner_id"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: now(),

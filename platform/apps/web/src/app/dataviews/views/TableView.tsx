@@ -8,7 +8,8 @@
  * `overflow-x-auto` container (components/ui/table.tsx), so at 375px the table
  * scrolls horizontally INSIDE its own box rather than blowing out the page.
  */
-import { applyFilters, applySorts } from "@bridge/tables";
+import { applyFilters, applySorts, type ColumnSpec } from "@bridge/tables";
+import type { ReactNode } from "react";
 import { MoreHorizontal, Plus } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table.js";
 import { Button } from "../../components/ui/button.js";
@@ -136,18 +137,21 @@ export function TableView({
               >
                 {spec.columns.map((col) => {
                   const value = row[col.id];
-                  const cell = formatCell(value);
+                  // Plain-text form is always what the red-flag anchor records,
+                  // regardless of any richer glyph rendered in the cell.
+                  const text = formatCell(value);
+                  const rich = renderCell(col, value);
                   return (
                     <TableCell key={col.id}>
                       {flaggable && isFlaggableValue(value) && stableRecordId ? (
                         <RedFlagControl
                           anchor={{ kind: "cell", moduleId, databaseId: spec.id, recordId: stableRecordId, fieldId: col.id }}
-                          renderedValue={cell}
+                          renderedValue={text}
                         >
-                          {cell}
+                          {rich}
                         </RedFlagControl>
                       ) : (
-                        cell
+                        rich
                       )}
                     </TableCell>
                   );
@@ -205,4 +209,92 @@ function formatCell(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (Array.isArray(value)) return value.join(", ");
   return String(value);
+}
+
+// ── Opt-in rich cell rendering (ADR-155) ─────────────────────────────────────
+// A column with no `display` hint renders exactly as before: plain text. Only
+// columns that opt in get a glyph, so no existing Module table changes.
+
+const BADGE_TONES: Record<string, string> = {
+  green: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  yellow: "bg-amber-50 text-amber-700 ring-amber-600/20",
+  red: "bg-rose-50 text-rose-700 ring-rose-600/20",
+  blue: "bg-sky-50 text-sky-700 ring-sky-600/20",
+  gray: "bg-slate-50 text-slate-600 ring-slate-500/20",
+};
+
+const RAG_DOT: Record<string, string> = {
+  green: "bg-emerald-500",
+  yellow: "bg-amber-400",
+  red: "bg-rose-500",
+};
+
+/** Compact money label: 4_200_000 → "$4.2M", 68_000_000 → "$68M". */
+function formatCurrency(value: number): string {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1_000_000_000) return `${sign}$${trimZero(abs / 1_000_000_000)}B`;
+  if (abs >= 1_000_000) return `${sign}$${trimZero(abs / 1_000_000)}M`;
+  if (abs >= 1_000) return `${sign}$${trimZero(abs / 1_000)}K`;
+  return `${sign}$${abs.toLocaleString()}`;
+}
+
+/** One decimal, but drop a trailing ".0" (18.0 → "18", 10.2 → "10.2"). */
+function trimZero(n: number): string {
+  return n.toFixed(1).replace(/\.0$/, "");
+}
+
+function renderCell(col: ColumnSpec, value: unknown): ReactNode {
+  if (col.display && value !== null && value !== undefined && value !== "") {
+    switch (col.display) {
+      case "rag": {
+        const tone = RAG_DOT[String(value)];
+        if (tone) {
+          return (
+            <span className="inline-flex items-center" title={String(value)}>
+              <span className={`inline-block size-2.5 rounded-full ${tone}`} aria-label={String(value)} />
+            </span>
+          );
+        }
+        break;
+      }
+      case "badge": {
+        const tone = BADGE_TONES[col.badgePalette?.[String(value)] ?? "gray"];
+        const label = col.badgeLabels?.[String(value)] ?? formatCell(value);
+        return (
+          <span
+            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${tone}`}
+          >
+            {label}
+          </span>
+        );
+      }
+      case "meter": {
+        const pct = Math.max(0, Math.min(100, Number(value)));
+        if (!Number.isNaN(pct)) {
+          const bar = pct >= 70 ? RAG_DOT.green : pct >= 40 ? RAG_DOT.yellow : RAG_DOT.red;
+          return (
+            <span className="inline-flex items-center gap-2" title={`${pct}%`}>
+              <span className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
+                <span className={`block h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
+              </span>
+              <span className="text-xs tabular-nums text-slate-500">{pct}%</span>
+            </span>
+          );
+        }
+        break;
+      }
+      case "currency": {
+        const n = Number(value);
+        if (!Number.isNaN(n)) return <span className="tabular-nums">{formatCurrency(n)}</span>;
+        break;
+      }
+      case "multiple": {
+        const n = Number(value);
+        if (!Number.isNaN(n)) return <span className="tabular-nums">{trimZero(n)}×</span>;
+        break;
+      }
+    }
+  }
+  return formatCell(value);
 }

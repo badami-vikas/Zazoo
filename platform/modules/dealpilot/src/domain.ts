@@ -14,6 +14,8 @@ interface RecordBase {
   updatedAt: string;
 }
 
+export type DealRag = "red" | "yellow" | "green";
+
 export interface DealRecord extends RecordBase {
   kind: "deal";
   company: string;
@@ -23,6 +25,17 @@ export interface DealRecord extends RecordBase {
   sde?: number;
   askingPrice?: number;
   evidenceHealth?: "unknown" | "partial" | "supported" | "contradicted";
+  /** Deal-triage signals (AP-087/ADR-155). All optional — an unscored deal
+   * renders an honest empty cell, never a fabricated value. `rag` is a coarse
+   * pursue signal, distinct from `evidenceHealth` and from platform Red Flags.
+   * fitScore/evidenceScore are 0..100; p0Flags counts P0 diligence flags;
+   * thesisTag/sourceChannel are lightweight triage labels. */
+  rag?: DealRag;
+  fitScore?: number;
+  evidenceScore?: number;
+  p0Flags?: number;
+  thesisTag?: string;
+  sourceChannel?: string;
   ownerId?: string;
 }
 
@@ -107,10 +120,16 @@ const BASE_COLUMNS: Record<DealPilotPageId, DealPilotColumn[]> = {
   deals: [
     { id: "company", label: "Company", kind: "text" },
     { id: "stage", label: "Stage", kind: "select" },
+    { id: "rag", label: "R/Y/G", kind: "select" },
+    { id: "fitScore", label: "Fit", kind: "number" },
+    { id: "thesisTag", label: "Thesis", kind: "text" },
+    { id: "sourceChannel", label: "Source", kind: "text" },
     { id: "revenue", label: "Revenue", kind: "number" },
     { id: "ebitda", label: "EBITDA", kind: "number" },
     { id: "sde", label: "SDE", kind: "number" },
     { id: "askingPrice", label: "Asking price", kind: "number" },
+    { id: "evidenceScore", label: "Evidence", kind: "number" },
+    { id: "p0Flags", label: "P0 flags", kind: "number" },
     { id: "evidenceHealth", label: "Evidence health", kind: "select" },
     { id: "sources", label: "Sources", kind: "relation" },
     { id: "theses", label: "Theses", kind: "relation" },
@@ -224,6 +243,13 @@ export interface CreateDealInput {
   ebitda?: number;
   sde?: number;
   askingPrice?: number;
+  evidenceHealth?: DealRecord["evidenceHealth"];
+  rag?: DealRag;
+  fitScore?: number;
+  evidenceScore?: number;
+  p0Flags?: number;
+  thesisTag?: string;
+  sourceChannel?: string;
   ownerId?: string;
 }
 
@@ -339,6 +365,13 @@ export class InMemoryDealPilotStore implements DealPilotStore {
       ...(input.ebitda != null ? { ebitda: input.ebitda } : {}),
       ...(input.sde != null ? { sde: input.sde } : {}),
       ...(input.askingPrice != null ? { askingPrice: input.askingPrice } : {}),
+      ...(input.evidenceHealth != null ? { evidenceHealth: input.evidenceHealth } : {}),
+      ...(input.rag != null ? { rag: input.rag } : {}),
+      ...(input.fitScore != null ? { fitScore: input.fitScore } : {}),
+      ...(input.evidenceScore != null ? { evidenceScore: input.evidenceScore } : {}),
+      ...(input.p0Flags != null ? { p0Flags: input.p0Flags } : {}),
+      ...(input.thesisTag != null ? { thesisTag: input.thesisTag } : {}),
+      ...(input.sourceChannel != null ? { sourceChannel: input.sourceChannel } : {}),
       ...(input.ownerId ? { ownerId: input.ownerId } : {}),
       createdAt: now,
       updatedAt: now,

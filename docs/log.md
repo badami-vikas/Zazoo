@@ -1,5 +1,29 @@
 # Change Log
 
+- **2026-07-28 — DealPilot Deals page redesigned as a triage table with real editable signal columns (AP-087 / ADR-155)**:
+  User supplied a target mockup and asked for the Deals page to "look like this with the table view …
+  aligned." Most columns mapped to real cloud fields (DEAL/STAGE/REVENUE/EBITDA/ASK-EV; MULTIPLE derived
+  = ask÷EBITDA; SHOWING/TOTAL EV computed), but FIT, R/Y/G, P0-flags, and a numeric evidence % had no
+  cloud field (Local-Plane projection only), and the hosted DB held three sparse demo deals. The user
+  chose to make those **real editable columns** and to **keep the three real tabs restyled** (not add the
+  mockup's OVERVIEW/WORK/REPORTS/RELATIONSHIPS/PLAYBOOKS — five unbacked, OVERVIEW removed under AP-084).
+  Added six nullable editable columns to `dealpilot_deals` (migration `0034`: rag, fit_score,
+  evidence_score, p0_flags, thesis_tag, source_channel) wired through `DealRecord`, the Local/InMemory/
+  Drizzle stores, and the create/update router inputs (fit/evidence bounded 0..100). Rendered richness via
+  an **opt-in** `@bridge/tables` `ColumnSpec.display` hint (badge/rag/meter/currency/multiple) on the
+  shared `TableView` — a column with no hint is byte-for-byte unchanged, so no other Module table changes
+  and the one-renderer canon holds. `DealPilotPage` gained stat-card chrome (Showing / Total EV / P0 flags
+  / Avg evidence), an Add Deal button, curated deal columns, and a derived read-only MULTIPLE; the
+  view-switch/filter/columns controls come from the existing DataViews toolbar. Demo seed expanded to
+  eight signal-populated deals, idempotent + edit-safe (backfills a legacy row only when it carries no
+  signals; never overwrites an edit), tracked in `docs/dummy.md`. **Refines AP-023, not a reversal**: the
+  green/yellow *feedback-flag* ban stands; the R/Y/G column is a user-entered *domain* signal (FIT is a
+  plain number), and the red-flag guard was refined to its real invariants. Verified: web typecheck; web
+  suite 106/106; dealpilot module 93/93; dealpilot-core 9/9 (new signal round-trip + bounds); durability
+  5/5; migration-0034; public-cloud-boundary 2/2; API build clean; the table screenshotted against mock
+  rows in a temporary dev-only route (the local API fail-closes unauthenticated reads), then removed. Not
+  deployed by me — needs an API redeploy (migration `0034` + seed) and a web rebuild.
+
 - **2026-07-28 — Intelligence becomes a top-level cross-Module capability inventory (AP-086 / ADR-154)**:
   User reported "intelligence is pointing to modules". Confirmed: the left-nav entry linked to
   `/settings?section=intelligence`, and that section rendered **only a list of installed Modules**,

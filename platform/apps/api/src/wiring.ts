@@ -225,6 +225,7 @@ import {
   reconcileCredentialOperations,
   type CredentialAuditSink,
   type DealPilotBindings,
+  type DealRecord,
   type DealPilotRuntimeStore,
   type DealPilotStore,
   type SourceCredentialVault,
@@ -3792,6 +3793,68 @@ export async function seedBuiltInModules(
   }
 }
 
+/** One demo Deal: economics in `base`, triage signals (AP-087/ADR-155) in
+ * `signals` so a legacy row can be signal-backfilled without touching economics. */
+type DemoDeal = {
+  company: string;
+  base: Pick<DealRecord, "stage" | "revenue" | "ebitda" | "sde" | "askingPrice">;
+  signals: Pick<
+    DealRecord,
+    "rag" | "fitScore" | "evidenceScore" | "p0Flags" | "thesisTag" | "sourceChannel"
+  >;
+};
+
+/**
+ * The pilot demo Deal set (AP-087/ADR-155). The first three are the original
+ * AP-083 companies (kept so existing hosted rows enrich in place by name); the
+ * rest fill out an eight-deal pipeline that exercises every signal — RAG bands,
+ * fit/evidence spreads, P0 flags, and thesis/source tags. Illustrative demo data,
+ * tracked in docs/dummy.md; all values are user-editable and removed once real
+ * pilot Deals exist.
+ */
+const DEMO_DEALS: readonly DemoDeal[] = [
+  {
+    company: "Northwind Traders",
+    base: { stage: "diligence", revenue: 4_200_000, ebitda: 780_000, askingPrice: 6_500_000 },
+    signals: { rag: "green", fitScore: 82, evidenceScore: 74, p0Flags: 0, thesisTag: "LMM Logistics", sourceChannel: "Broker — BizBuySell" },
+  },
+  {
+    company: "Cascade Logistics",
+    base: { stage: "triage", revenue: 12_500_000, ebitda: 1_900_000, askingPrice: 15_000_000 },
+    signals: { rag: "yellow", fitScore: 68, evidenceScore: 52, p0Flags: 1, thesisTag: "LMM Logistics", sourceChannel: "Network" },
+  },
+  {
+    company: "Alpine Dental Group",
+    base: { stage: "sourced", revenue: 2_100_000, sde: 620_000, askingPrice: 2_900_000 },
+    signals: { rag: "yellow", fitScore: 61, evidenceScore: 40, p0Flags: 2, thesisTag: "Healthcare Services", sourceChannel: "Proprietary" },
+  },
+  {
+    company: "Meridian Systems",
+    base: { stage: "ic", revenue: 14_200_000, ebitda: 4_100_000, askingPrice: 42_000_000 },
+    signals: { rag: "green", fitScore: 87, evidenceScore: 78, p0Flags: 1, thesisTag: "B2B SaaS", sourceChannel: "Proprietary" },
+  },
+  {
+    company: "Clearfield Analytics",
+    base: { stage: "diligence", revenue: 8_700_000, ebitda: 2_300_000, askingPrice: 28_000_000 },
+    signals: { rag: "yellow", fitScore: 73, evidenceScore: 55, p0Flags: 2, thesisTag: "Data Infra", sourceChannel: "Broker — Baird" },
+  },
+  {
+    company: "NorthBridge HR",
+    base: { stage: "closing", revenue: 18_600_000, ebitda: 6_200_000, askingPrice: 68_000_000 },
+    signals: { rag: "green", fitScore: 91, evidenceScore: 88, p0Flags: 0, thesisTag: "B2B SaaS", sourceChannel: "Proprietary" },
+  },
+  {
+    company: "RoofTech Pro",
+    base: { stage: "diligence", revenue: 11_400_000, ebitda: 2_900_000, askingPrice: 31_000_000 },
+    signals: { rag: "red", fitScore: 55, evidenceScore: 58, p0Flags: 3, thesisTag: "V-SMB", sourceChannel: "Broker — Raymond J." },
+  },
+  {
+    company: "Silo Data",
+    base: { stage: "passed", revenue: 6_000_000, ebitda: 400_000, askingPrice: 19_000_000 },
+    signals: { rag: "red", fitScore: 32, evidenceScore: 24, p0Flags: 2, thesisTag: "Data Infra", sourceChannel: "Broker — GS" },
+  },
+];
+
 /**
  * AP-083 — idempotent Cloud-Plane demo data for the pilot Organization so the
  * deployed web app's modules aren't empty. Seeds ONLY governed Records via the
@@ -3803,32 +3866,48 @@ async function seedPilotDemoData(
   dealpilot: DealPilotStore,
   jobpilot: DrizzleJobPilotStore,
 ): Promise<void> {
-  const deals = await dealpilot.list("deals", PILOT_ORGANIZATION, { limit: 1, offset: 0 });
-  if (deals.total === 0) {
-    const northwind = await dealpilot.createDeal({
-      organizationId: PILOT_ORGANIZATION,
-      company: "Northwind Traders",
-      stage: "diligence",
-      revenue: 4_200_000,
-      ebitda: 780_000,
-      askingPrice: 6_500_000,
-    });
-    await dealpilot.createDeal({
-      organizationId: PILOT_ORGANIZATION,
-      company: "Cascade Logistics",
-      stage: "triage",
-      revenue: 12_500_000,
-      ebitda: 1_900_000,
-      askingPrice: 15_000_000,
-    });
-    await dealpilot.createDeal({
-      organizationId: PILOT_ORGANIZATION,
-      company: "Alpine Dental Group",
-      stage: "sourced",
-      revenue: 2_100_000,
-      sde: 620_000,
-      askingPrice: 2_900_000,
-    });
+  // Demo Deals (AP-087/ADR-155). Idempotent AND edit-safe: a demo company that
+  // does not exist is created with its triage signals; a legacy demo row (seeded
+  // before the signal columns existed) is backfilled ONCE; a row a human has
+  // already scored/edited is never overwritten. `sde`-only deals (e.g. Alpine)
+  // leave EBITDA/Multiple honestly empty.
+  const existingDeals = await dealpilot.list("deals", PILOT_ORGANIZATION, { limit: 200, offset: 0 });
+  const dealByCompany = new Map(
+    existingDeals.items
+      .filter((record): record is DealRecord => record.kind === "deal")
+      .map((deal) => [deal.company, deal] as const),
+  );
+  let northwind: DealRecord | undefined;
+  for (const spec of DEMO_DEALS) {
+    const { company, signals, ...base } = spec;
+    const current = dealByCompany.get(company);
+    if (!current) {
+      const created = await dealpilot.createDeal({
+        organizationId: PILOT_ORGANIZATION,
+        company,
+        ...base,
+        ...signals,
+      });
+      if (company === "Northwind Traders") northwind = created;
+      continue;
+    }
+    // Backfill signals only when the row carries none yet (never clobber edits).
+    const unscored =
+      current.rag == null &&
+      current.fitScore == null &&
+      current.evidenceScore == null &&
+      current.p0Flags == null &&
+      current.thesisTag == null &&
+      current.sourceChannel == null;
+    if (unscored) {
+      await dealpilot.updateDeal(current.id, PILOT_ORGANIZATION, { ...signals });
+    }
+    if (company === "Northwind Traders") northwind = current;
+  }
+
+  // Sources + Theses + one Relation seed once, on a fresh Sources table.
+  const sources = await dealpilot.list("sources", PILOT_ORGANIZATION, { limit: 1, offset: 0 });
+  if (sources.total === 0) {
     const bizbuysell = await dealpilot.createSource({
       organizationId: PILOT_ORGANIZATION,
       name: "BizBuySell Weekly Alert",
@@ -3864,15 +3943,17 @@ async function seedPilotDemoData(
       exclusions: ["Single-provider practices", "Pending litigation"],
       sourcingStrategy: "Thesis-led sourcing via authorized inventory",
     });
-    await dealpilot.link({
-      organizationId: PILOT_ORGANIZATION,
-      kind: "deal_source",
-      fromId: northwind.id,
-      toId: bizbuysell.id,
-      confidence: 0.8,
-      provenance: "seed",
-      evidenceRefs: [],
-    });
+    if (northwind) {
+      await dealpilot.link({
+        organizationId: PILOT_ORGANIZATION,
+        kind: "deal_source",
+        fromId: northwind.id,
+        toId: bizbuysell.id,
+        confidence: 0.8,
+        provenance: "seed",
+        evidenceRefs: [],
+      });
+    }
   }
 
   const jobs = await jobpilot.listJobs(PILOT_ORGANIZATION, { limit: 1, offset: 0 });
