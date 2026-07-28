@@ -29,6 +29,9 @@ const RENDER_HOST_RE =
  * that must never leave the device (canon: "raw capture stays Local"). Those move
  * to the cloud only in the separately-governed Phase E. Module Files,
  * OAuth/integration, and local-plane chat likewise stay closed.
+ *
+ * Second Brain (`graph.full`) is served here under AP-085 / ADR-153 for the same
+ * reason the `relationship.*` reads are: it reads only Cloud-Plane stores.
  */
 const PUBLIC_CLOUD_PROCEDURES = new Set([
   // Governed Actions (public data scope only — enforced in the router) + auth/catalog shell.
@@ -84,6 +87,15 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
   "dealpilot.createThesis",
   "dealpilot.updateDeal",
   "dealpilot.updateSource",
+
+  // Second Brain — the cross-Module full Graph preset (ADR-110). `graph.full`
+  // composes ONLY `graphStore.listFullGraph` + `moduleStore.list` (router.ts:11799),
+  // i.e. the same DrizzleGraphStore/DrizzleModuleStore already served by
+  // `relationship.*` and `modules.list` above. No Local Plane, credential, or raw
+  // capture access. `relationship.proposeSignalAction` — the Graph's node Action —
+  // stays CLOSED: it proposes with `dataScope: "private"` (router.ts:9172), which
+  // the public shell does not serve.
+  "graph.full",
 ]);
 
 export function isPublicCloudOnly(

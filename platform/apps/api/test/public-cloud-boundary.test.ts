@@ -88,6 +88,8 @@ test("public-cloud procedure and Render-origin contracts are narrow", () => {
     "dealpilot.createThesis",
     "dealpilot.updateDeal",
     "dealpilot.updateSource",
+    // AP-085 / ADR-153 — Second Brain full-Graph preset; graphStore + moduleStore only.
+    "graph.full",
   ]) {
     assert.equal(isPublicCloudProcedureAllowed(path), true);
   }
@@ -106,6 +108,9 @@ test("public-cloud procedure and Render-origin contracts are narrow", () => {
     "modules.files",
     "modules.addFile",
     "relationship.helpdesk.publicCreate",
+    // AP-085 — the Second Brain node Action proposes with dataScope "private";
+    // opening `graph.full` must NOT drag it along.
+    "relationship.proposeSignalAction",
   ]) {
     assert.equal(isPublicCloudProcedureAllowed(path), false);
   }
@@ -227,6 +232,30 @@ test("public-cloud API allows only Supabase-backed shell and public Chat procedu
             ).items,
           ),
         );
+        // AP-085 / ADR-153 — the Second Brain full-Graph preset now passes the
+        // boundary (graphStore + moduleStore only). Its own Module/Agent nodes are
+        // composed from `modules.list`, so a non-empty graph proves the read
+        // reached the Cloud-Plane stores rather than being refused at the gate.
+        const fullGraph = await caller.graph.full({
+          organizationId: PILOT_ORGANIZATION,
+          limit: 100,
+        });
+        assert.ok(Array.isArray(fullGraph.nodes));
+        assert.ok(
+          fullGraph.nodes.some((node) => node.recordType === "module"),
+          "full graph should carry the installed-Module nodes it composes",
+        );
+
+        // ...but the Graph's node Action still fails closed: it proposes with
+        // dataScope "private", which the public shell does not serve.
+        await assert.rejects(
+          caller.relationship.proposeSignalAction({
+            organizationId: PILOT_ORGANIZATION,
+            signalId: "00000000-0000-4000-8000-000000000000",
+          }),
+          /desktop Local Plane/,
+        );
+
         // Captures (raw bodies) stay refused in public cloud.
         await assert.rejects(
           caller.dealpilot.captures({

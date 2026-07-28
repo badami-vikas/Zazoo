@@ -1,5 +1,22 @@
 # Change Log
 
+- **2026-07-28 — Second Brain served through the public-cloud API (AP-085 / ADR-153)**:
+  User reported "2nd brain is not loading" on the hosted pilot. Root cause: `SecondBrainPage` calls
+  `trpc.graph.full` (the cross-Module full-Graph preset, ADR-110), but `graph.full` was never added to
+  `PUBLIC_CLOUD_PROCEDURES` — so `enforcePublicCloudBoundary` (`router.ts:462`) threw
+  `PRECONDITION_FAILED` on every call and the page rendered its honest "Full graph could not load: …"
+  branch. Same omission class AP-082/AP-083 fixed for the Modules; Second Brain was missed because it
+  is a nav preset rather than a Module. Fix: opened `graph.full`, which composes only
+  `graphStore.listFullGraph` + `moduleStore.list` (`router.ts:11799`) — the same Cloud-Plane
+  Drizzle stores already served by `relationship.*`/`modules.list`, with no Local Plane, credential, or
+  raw-capture access. Deliberately left closed: `relationship.proposeSignalAction`, the Graph's
+  per-node governed Action, which proposes with `dataScope: "private"`; invoking a Signal node Action
+  in Second Brain still refuses with the desktop-only message (known gap, tracked in `docs/BUGS.md`).
+  Verified: `@bridge/api` build clean; `public-cloud-boundary.test.ts` 2/2, extended so the e2e caller
+  test proves `graph.full` returns a graph carrying its composed Module nodes **and** that
+  `proposeSignalAction` still rejects. Live confirmation is the user's after redeploy — the API image
+  must be rebuilt for a boundary change, and I do not sign into the pilot. Not deployed by me.
+
 - **2026-07-28 — Chat Panel "No authorized cloud model provider is configured": missing `ANTHROPIC_API_KEY`**:
   User reported the right-hand Chat Panel failing with that message on the hosted pilot. Not a code
   defect — the API registers cloud `ModelProvider`s **only** when their key is present

@@ -2030,3 +2030,32 @@ in `render.yaml`, and documented (with the optional `ANTHROPIC_MODEL`/`ANTHROPIC
 `bridge-pilot-api`, followed by a manual redeploy (`autoDeploy: false`). Closure evidence when set:
 `chat.model.status` returns `cloud.available: true, providerId: "anthropic"`, and a Chat Panel turn
 completes. Local-plane chat is unaffected (Ollama/llama.cpp need no key).
+
+## RESOLVED 2026-07-28 — USER REPORT: Second Brain does not load on the hosted web app (AP-085/ADR-153)
+
+User report (verbatim): *"2nd brain is not loading"*.
+
+Root cause: `SecondBrainPage` (`platform/apps/web/src/app/pages/SecondBrainPage.tsx:50`) loads the
+cross-Module full-Graph preset via `trpc.graph.full`, but `graph.full` was absent from
+`PUBLIC_CLOUD_PROCEDURES` (`platform/apps/api/src/deployment-boundary.ts`). On the `public-cloud`
+deployment `enforcePublicCloudBoundary` (`platform/apps/api/src/router.ts:462`) therefore threw
+`PRECONDITION_FAILED` for every call, and the page rendered its honest error branch, "Full graph could
+not load: …". Identical omission class to the AP-082 Module surfaces; Second Brain was missed because
+it is a left-nav **preset**, not a Module.
+
+Fixed by opening `graph.full`: it composes only `graphStore.listFullGraph` + `moduleStore.list`
+(`router.ts:11799`) — the same `DrizzleGraphStore`/`DrizzleModuleStore` Cloud-Plane reads already served
+by `relationship.*` and `modules.list` — and keeps `authenticatedProcedure` + pilot-Org guard +
+`bridge_app` RLS with no Local Plane, credential-vault, or raw-capture access.
+
+Verified: `@bridge/api` build clean; `public-cloud-boundary.test.ts` 2/2 with the e2e caller test
+extended to prove `graph.full` returns a graph carrying its composed Module nodes.
+
+**Known gap left open (deliberate, not a regression):** invoking a Signal node's governed Action from
+the Graph still fails closed. `relationship.proposeSignalAction` proposes with `dataScope: "private"`
+(`router.ts:9172`) and the public shell serves public-scope Actions only; opening it would be the first
+private-scope write on the public API and needs its own review (ADR-153, rejected alternative (c)). A
+pinned negative assertion in `public-cloud-boundary.test.ts` keeps it closed.
+
+**Live status:** fixed in the repo, NOT deployed by me — a boundary change needs the `bridge-pilot-api`
+image rebuilt (`autoDeploy: false`), and authenticated live verification is the user's.
