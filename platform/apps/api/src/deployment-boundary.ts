@@ -17,11 +17,18 @@ const RENDER_HOST_RE =
  *   - Task Manager  → `DrizzleTaskManagerStore(db)`  (wiring.ts:3333/3370)
  *   - Relationship  → `DrizzleGraphStore(db)`         (wiring.ts:3354)
  *   - JobPilot      → `DrizzleJobPilotStore(db)`      (wiring.ts:3355)
+ *   - DealPilot     → `DrizzleDealPilotStore(db)`     (ADR-151, AP-083) — the
+ *     RECORD half only (Deal/Source/Thesis Records + Relations). In public-cloud
+ *     mode `wiring.dealpilot.store` is the `cloudRecordsDealPilotStore` composite,
+ *     which resolves these procedures to Supabase and REFUSES every capture /
+ *     credential op.
  *
- * DEALPILOT stays fully closed: its store is `LocalDealPilotStore(localPlane)`
- * (wiring.ts:4133) — Local-Plane only, no Drizzle store exists — and it also
- * carries Source credentials + raw bodies that must never leave the device.
- * Module Files, OAuth/integration, and local-plane chat likewise stay closed.
+ * DEALPILOT capture + credential surfaces stay CLOSED: `dealpilot.captures`,
+ * `dealpilot.commit`, `dealpilot.discoverDeals`, and the credential-bearing branch
+ * of `dealpilot.createSource` all touch Source credentials or raw capture bodies
+ * that must never leave the device (canon: "raw capture stays Local"). Those move
+ * to the cloud only in the separately-governed Phase E. Module Files,
+ * OAuth/integration, and local-plane chat likewise stay closed.
  */
 const PUBLIC_CLOUD_PROCEDURES = new Set([
   // Governed Actions (public data scope only — enforced in the router) + auth/catalog shell.
@@ -59,9 +66,24 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
   "relationship.listSignals",
   "relationship.recordSignalAction",
 
-  // JobPilot — Cloud-Plane (DrizzleJobPilotStore); read-only module surface.
+  // JobPilot — Cloud-Plane (DrizzleJobPilotStore). Read + track/move applications.
   "jobpilot.list",
   "jobpilot.definition",
+  "jobpilot.create",
+  "jobpilot.transition",
+
+  // DealPilot — Cloud-Plane RECORD half (DrizzleDealPilotStore via the
+  // cloudRecordsDealPilotStore composite). Record read/create/update only;
+  // `createSource`'s credential branch self-refuses in public cloud, and the
+  // capture/commit/discover procedures below stay CLOSED (raw capture stays Local).
+  "dealpilot.module",
+  "dealpilot.records",
+  "dealpilot.detail",
+  "dealpilot.createDeal",
+  "dealpilot.createSource",
+  "dealpilot.createThesis",
+  "dealpilot.updateDeal",
+  "dealpilot.updateSource",
 ]);
 
 export function isPublicCloudOnly(

@@ -1669,3 +1669,114 @@ export const taintDeclassifications = pgTable(
     ),
   ],
 );
+
+// =====================================================================
+// DEALPILOT — Cloud-Plane Records (ADR-151, AP-083).
+// Deal/Source/Thesis Records + their Relations are governed Records that
+// live in the Cloud Plane (Supabase), so they can be served in public-cloud
+// mode. Source CREDENTIALS and raw capture bodies stay on the Local Plane
+// (canon: "raw capture stays Local") — these tables persist only the
+// credential_ref / credential_owner_id POINTERS, never any secret bytes.
+// Shaped 1:1 with the `DealPilotStore` domain types (@bridge/dealpilot
+// domain.ts) so `DrizzleDealPilotStore` binds rows straight to Records.
+// =====================================================================
+export const dealpilotDeals = pgTable(
+  "dealpilot_deals",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    company: text("company").notNull(),
+    stage: text("stage").notNull().default("sourced"),
+    revenue: doublePrecision("revenue"),
+    ebitda: doublePrecision("ebitda"),
+    sde: doublePrecision("sde"),
+    askingPrice: doublePrecision("asking_price"),
+    evidenceHealth: text("evidence_health"),
+    ownerId: text("owner_id"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: now(),
+  },
+  (t) => [
+    index("dealpilot_deals_org_created_idx").on(t.organizationId, t.createdAt),
+    unique("dealpilot_deals_org_id_uq").on(t.organizationId, t.id),
+  ],
+);
+
+export const dealpilotSources = pgTable(
+  "dealpilot_sources",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    name: text("name").notNull(),
+    link: text("link").notNull(),
+    connectionType: text("connection_type").notNull(),
+    /** POINTERS ONLY — the actual credential bytes stay in the Local-Plane
+     * vault (@bridge/dealpilot credentials.ts). Never store a secret here. */
+    credentialRef: text("credential_ref"),
+    credentialOwnerId: text("credential_owner_id"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    spendCap: doublePrecision("spend_cap").notNull().default(0),
+    spendToDate: doublePrecision("spend_to_date").notNull().default(0),
+    health: text("health").notNull().default("ready"),
+    schedule: text("schedule"),
+    yield: doublePrecision("yield"),
+    rightsState: text("rights_state").notNull().default("unattested"),
+    rightsAttestedAt: timestamp("rights_attested_at", { withTimezone: true }),
+    rightsAttestedBy: text("rights_attested_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: now(),
+  },
+  (t) => [
+    index("dealpilot_sources_org_created_idx").on(t.organizationId, t.createdAt),
+    unique("dealpilot_sources_org_id_uq").on(t.organizationId, t.id),
+  ],
+);
+
+export const dealpilotTheses = pgTable(
+  "dealpilot_theses",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    name: text("name").notNull(),
+    focus: text("focus").notNull(),
+    targetCagr: doublePrecision("target_cagr"),
+    criteria: jsonb("criteria").notNull().default([]),
+    exclusions: jsonb("exclusions").notNull().default([]),
+    sourcingStrategy: text("sourcing_strategy"),
+    version: integer("version").notNull().default(1),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: now(),
+  },
+  (t) => [
+    index("dealpilot_theses_org_created_idx").on(t.organizationId, t.createdAt),
+    unique("dealpilot_theses_org_id_uq").on(t.organizationId, t.id),
+  ],
+);
+
+/** deal_source | deal_thesis | source_thesis edges. `from_id`/`to_id` are the
+ * Record ids in the tables the `kind` implies (no cross-table FK — the target
+ * table varies by kind); org-scoped uniqueness mirrors the domain relation key. */
+export const dealpilotRelations = pgTable(
+  "dealpilot_relations",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    kind: text("kind").notNull(),
+    fromId: uuid("from_id").notNull(),
+    toId: uuid("to_id").notNull(),
+    confidence: doublePrecision("confidence").notNull().default(0),
+    provenance: text("provenance").notNull(),
+    evidenceRefs: jsonb("evidence_refs").notNull().default([]),
+    createdAt: now(),
+  },
+  (t) => [
+    index("dealpilot_relations_from_idx").on(t.organizationId, t.fromId),
+    index("dealpilot_relations_to_idx").on(t.organizationId, t.toId),
+    unique("dealpilot_relations_org_kind_from_to_uq").on(
+      t.organizationId,
+      t.kind,
+      t.fromId,
+      t.toId,
+    ),
+  ],
+);

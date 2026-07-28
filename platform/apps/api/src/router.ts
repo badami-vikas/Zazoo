@@ -9980,15 +9980,23 @@ export const appRouter = t.router({
         );
         if (!detail) throw new TRPCError({ code: "NOT_FOUND", message: `${input.kind} Record not found` });
         if (detail.record.kind !== "source") return detail;
+        // Credential metadata lives in the Local-Plane vault, which refuses reads in
+        // public-cloud mode. Serve the Source Record itself in the cloud with no
+        // credential projection; on the desktop keep the existing projection (which
+        // itself reports per-field "unavailable" when there is no stored credential).
+        const credentialProjection = ctx.wiring.publicCloudOnly
+          ? null
+          : await ctx.wiring.dealpilot.credentials.metadata(
+              { organizationId: input.organizationId, sourceId: detail.record.id },
+              detail.record.credentialRef,
+            );
         return {
           ...detail,
-          credentialProjection: await ctx.wiring.dealpilot.credentials.metadata(
-            { organizationId: input.organizationId, sourceId: detail.record.id },
-            detail.record.credentialRef,
-          ),
+          credentialProjection,
           credentialCleanupAvailable: Boolean(
             detail.record.credentialRef &&
-              detail.record.credentialOwnerId === ctx.identity.id,
+              detail.record.credentialOwnerId === ctx.identity.id &&
+              !ctx.wiring.publicCloudOnly,
           ),
         };
       }),
@@ -10044,6 +10052,16 @@ export const appRouter = t.router({
         };
         if (!input.userId && !input.password) {
           return ctx.wiring.dealpilot.store.createSource(sourceInput);
+        }
+        // A credential-bearing Source writes secret bytes to the Local-Plane
+        // vault (ADR-151/AP-083 keep that desktop-only). Record-only Source
+        // creation above is served in the cloud; entering a credential is not.
+        if (ctx.wiring.publicCloudOnly) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Source credentials are entered on the Bridge desktop app (the Local Plane) and are not accepted by the public cloud API.",
+          });
         }
         const scope = { organizationId: input.organizationId, sourceId };
         const credentialRef =
@@ -10136,10 +10154,83 @@ export const appRouter = t.router({
             resourceType: "module",
             skill: "stageMutation",
             inputs: discoveryTask,
+            // Source-inventory discovery reads only Cloud-Plane Source Records; in
+            // public-cloud mode the pipeline requires an explicit public data scope.
+            ...(ctx.wiring.publicCloudOnly ? { dataScope: "public" as const } : {}),
           },
           ctx.run,
         );
         return { thesis, discovery };
+      }),
+
+    updateDeal: dealpilotProcedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          id: z.string().min(1),
+          company: z.string().trim().min(1).max(300).optional(),
+          stage: z
+            .enum([
+              "sourced",
+              "triage",
+              "engaged",
+              "nda_cim",
+              "diligence",
+              "ic",
+              "loi",
+              "closing",
+              "portfolio",
+              "passed",
+            ])
+            .optional(),
+          revenue: z.number().nonnegative().optional(),
+          ebitda: z.number().optional(),
+          sde: z.number().optional(),
+          askingPrice: z.number().nonnegative().optional(),
+          evidenceHealth: z.enum(["unknown", "partial", "supported", "contradicted"]).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return ctx.wiring.dealpilot.store.updateDeal(input.id, input.organizationId, {
+          ...(input.company !== undefined ? { company: input.company } : {}),
+          ...(input.stage !== undefined ? { stage: input.stage } : {}),
+          ...(input.revenue !== undefined ? { revenue: input.revenue } : {}),
+          ...(input.ebitda !== undefined ? { ebitda: input.ebitda } : {}),
+          ...(input.sde !== undefined ? { sde: input.sde } : {}),
+          ...(input.askingPrice !== undefined ? { askingPrice: input.askingPrice } : {}),
+          ...(input.evidenceHealth !== undefined ? { evidenceHealth: input.evidenceHealth } : {}),
+        });
+      }),
+
+    /** Edits non-secret Source Record fields. Source credentials are never
+     * accepted here — they stay on the Local Plane (ADR-151/AP-083). */
+    updateSource: dealpilotProcedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          id: z.string().min(1),
+          name: z.string().trim().min(1).max(300).optional(),
+          link: z.string().url().optional(),
+          connectionType: z.enum(["url", "email_alert", "api", "account"]).optional(),
+          spendCap: z.number().nonnegative().optional(),
+          health: z.enum(["ready", "degraded", "paused"]).optional(),
+          schedule: z.string().trim().max(500).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        // rightsState is deliberately NOT editable here: attesting data rights is a
+        // governed act that must record rightsAttestedAt/By through its own flow, not
+        // a generic table edit (attested rights gate Source discovery).
+        return ctx.wiring.dealpilot.store.updateSource(input.id, input.organizationId, {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.link !== undefined ? { link: input.link } : {}),
+          ...(input.connectionType !== undefined ? { connectionType: input.connectionType } : {}),
+          ...(input.spendCap !== undefined ? { spendCap: input.spendCap } : {}),
+          ...(input.health !== undefined ? { health: input.health } : {}),
+          ...(input.schedule !== undefined ? { schedule: input.schedule } : {}),
+        });
       }),
 
     discoverDeals: dealpilotProcedure

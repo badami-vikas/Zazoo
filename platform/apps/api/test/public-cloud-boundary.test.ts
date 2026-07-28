@@ -77,6 +77,17 @@ test("public-cloud procedure and Render-origin contracts are narrow", () => {
     "relationship.recordSignalAction",
     "jobpilot.list",
     "jobpilot.definition",
+    "jobpilot.create",
+    "jobpilot.transition",
+    // AP-083 / ADR-151 — DealPilot Cloud-Plane record half (Drizzle).
+    "dealpilot.module",
+    "dealpilot.records",
+    "dealpilot.detail",
+    "dealpilot.createDeal",
+    "dealpilot.createSource",
+    "dealpilot.createThesis",
+    "dealpilot.updateDeal",
+    "dealpilot.updateSource",
   ]) {
     assert.equal(isPublicCloudProcedureAllowed(path), true);
   }
@@ -86,13 +97,12 @@ test("public-cloud procedure and Render-origin contracts are narrow", () => {
     "chat.model.cancelInstall",
     "chat.model.start",
     "chat.model.stop",
-    // DealPilot stays fully closed — Local-Plane store + Source credentials + raw bodies.
-    "dealpilot.records",
-    "dealpilot.module",
-    "dealpilot.detail",
-    "dealpilot.createDeal",
-    "dealpilot.createSource",
+    // DealPilot capture/credential surfaces stay closed — raw capture + Source
+    // credentials stay on the Local Plane (Phase E, not yet shipped).
+    "dealpilot.list",
     "dealpilot.captures",
+    "dealpilot.commit",
+    "dealpilot.discoverDeals",
     "modules.files",
     "modules.addFile",
     "relationship.helpdesk.publicCreate",
@@ -202,10 +212,26 @@ test("public-cloud API allows only Supabase-backed shell and public Chat procedu
           ),
         );
 
+        // AP-083 / ADR-151 — DealPilot record reads now pass the boundary. In this
+        // in-memory public-cloud harness there is no DATABASE_URL, so the composite
+        // is not wired and the Local record store answers with an empty page.
+        assert.ok(
+          Array.isArray(
+            (
+              await caller.dealpilot.records({
+                organizationId: PILOT_ORGANIZATION,
+                page: "sources",
+                limit: 50,
+                offset: 0,
+              })
+            ).items,
+          ),
+        );
+        // Captures (raw bodies) stay refused in public cloud.
         await assert.rejects(
-          caller.dealpilot.records({
+          caller.dealpilot.captures({
             organizationId: PILOT_ORGANIZATION,
-            page: "sources",
+            sourceId: "00000000-0000-4000-8000-000000000000",
             limit: 50,
             offset: 0,
           }),

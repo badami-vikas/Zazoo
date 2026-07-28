@@ -4,6 +4,11 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-28 — DealPilot Records are a Cloud-Plane store served in the web app; secrets stay Local (ADR-151, AP-083)
+- New `dealpilot_*` Supabase tables + `DrizzleDealPilotStore` + public-cloud composite that serves Deal/Source/Thesis **Records** and refuses every capture/credential op (desktop-only).
+- Modules made editable via the `DataViews` edit surface (DealPilot Deal/Source, JobPilot stage moves). Boot-time idempotent demo seed for the pilot Org (DealPilot + JobPilot), gated to the deployed cloud.
+- Canon preserved: Source credentials + raw capture stay Local Plane; "everything in the cloud" is deferred to a separately-governed Phase E.
+
 ## 2026-07-28 — Serve Cloud-Plane Modules in the cloud; Local Plane stays closed (ADR-150, AP-082)
 - Public-cloud API also serves Task Manager, Relationship, JobPilot (Supabase; auth + Org guard + `bridge_app` RLS).
 - DealPilot, Module Files, OAuth, Local-Plane Chat stay closed. DealPilot is desktop-only (Local store + Source credentials + raw capture).

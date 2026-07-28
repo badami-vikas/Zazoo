@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 import { DataViews } from "../dataviews/DataViews";
+import { viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow, GraphNode } from "../dataviews/types";
 import { defaultViewConfig, type ColumnSpec, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
@@ -166,6 +167,7 @@ export function DealPilotPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
+  const [formRecord, setFormRecord] = useState<DataRow | null>(null);
   const loadGeneration = useRef(0);
   const routeKey = `${pageId}:${recordId ?? ""}`;
   const currentRouteKey = useRef(routeKey);
@@ -198,12 +200,24 @@ export function DealPilotPage() {
             id: recordId,
           }),
           pageId === "sources"
-            ? trpc.dealpilot.captures.query({
-                organizationId: PILOT_ORGANIZATION,
-                sourceId: recordId,
-                limit: 200,
-                offset: 0,
-              })
+            ? trpc.dealpilot.captures
+                .query({
+                  organizationId: PILOT_ORGANIZATION,
+                  sourceId: recordId,
+                  limit: 200,
+                  offset: 0,
+                })
+                .catch((captureError: unknown) => {
+                  // Captures (raw bodies) stay on the Local Plane; the public cloud
+                  // refuses them. Render the Source Record with no captures rather
+                  // than failing the whole detail load.
+                  const message =
+                    captureError instanceof Error ? captureError.message : String(captureError);
+                  if (/Local Plane|public cloud/i.test(message)) {
+                    return { items: [], total: 0, hasMore: false };
+                  }
+                  throw captureError;
+                })
             : Promise.resolve({ items: [], total: 0, hasMore: false }),
         ]);
         if (!isCurrent()) return false;
@@ -307,6 +321,63 @@ export function DealPilotPage() {
     );
   }
 
+  async function updateRecord(rowId: string, patch: Partial<DataRow>) {
+    if (pageId === "deals") {
+      await trpc.dealpilot.updateDeal.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        id: rowId,
+        ...(patch["company"] !== undefined ? { company: String(patch["company"]) } : {}),
+        ...(patch["stage"] !== undefined
+          ? {
+              stage: String(patch["stage"]) as
+                | "sourced"
+                | "triage"
+                | "engaged"
+                | "nda_cim"
+                | "diligence"
+                | "ic"
+                | "loi"
+                | "closing"
+                | "portfolio"
+                | "passed",
+            }
+          : {}),
+        ...(patch["revenue"] !== undefined ? { revenue: Number(patch["revenue"]) } : {}),
+        ...(patch["ebitda"] !== undefined ? { ebitda: Number(patch["ebitda"]) } : {}),
+        ...(patch["sde"] !== undefined ? { sde: Number(patch["sde"]) } : {}),
+        ...(patch["askingPrice"] !== undefined ? { askingPrice: Number(patch["askingPrice"]) } : {}),
+      });
+      await load();
+      setRouteNotice("Deal updated.");
+      return;
+    }
+    if (pageId === "sources") {
+      await trpc.dealpilot.updateSource.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        id: rowId,
+        ...(patch["name"] !== undefined ? { name: String(patch["name"]) } : {}),
+        ...(patch["link"] !== undefined ? { link: String(patch["link"]) } : {}),
+        ...(patch["connectionType"] !== undefined
+          ? {
+              connectionType: String(patch["connectionType"]) as
+                | "url"
+                | "email_alert"
+                | "api"
+                | "account",
+            }
+          : {}),
+        ...(patch["spendCap"] !== undefined ? { spendCap: Number(patch["spendCap"]) } : {}),
+        ...(patch["health"] !== undefined
+          ? { health: String(patch["health"]) as "ready" | "degraded" | "paused" }
+          : {}),
+      });
+      await load();
+      setRouteNotice("Source updated.");
+      return;
+    }
+    // Theses are create-only in the domain contract (no updateThesis).
+  }
+
   function openRecord(row: DataRow | GraphNode) {
     if ("kind" in row && (row.kind === "deal" || row.kind === "source" || row.kind === "thesis")) {
       navigate(`/dealpilot/${recordPage(row as RecordRow)}/${String(row.id)}`);
@@ -334,32 +405,17 @@ export function DealPilotPage() {
   }));
 
   if (error) {
-    // DealPilot is Local-Plane only (Source credentials + raw capture stay on the
-    // device), so the public cloud fails it closed. Render an honest, non-alarming
-    // state instead of a raw error + Retry for that case; keep Retry for genuine errors.
-    const desktopOnly = /Local Plane|public cloud/i.test(error);
+    // Deal/Source/Thesis Records are served from the Cloud Plane (Supabase), so the
+    // list and detail load in the web app. Only entering Source credentials, running
+    // live discovery, and raw captures stay desktop-only (and self-explain inline).
+    // Anything reaching here is a genuine load error — offer a retry.
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
         <Header tabs={tabs} activeTab={pageId} onTabChange={(id) => navigate(`/dealpilot/${id}`)} />
         <div className="grid flex-1 place-items-center p-8">
           <div className="max-w-md space-y-3 text-center">
-            {desktopOnly ? (
-              <>
-                <h2 className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
-                  DealPilot runs on the desktop app
-                </h2>
-                <p className="text-sm" style={{ color: "var(--color-warm-gray)" }}>
-                  Deals and Sources rely on Source credentials and raw capture that stay on your device
-                  (the Local Plane), so they are not served by the public cloud. Open Bridge on desktop to
-                  work with Deals here.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-red-700">{error}</p>
-                <button className="text-sm underline" onClick={() => void load()}>Retry</button>
-              </>
-            )}
+            <p className="text-sm text-red-700">{error}</p>
+            <button className="text-sm underline" onClick={() => void load()}>Retry</button>
           </div>
         </div>
       </div>
@@ -457,6 +513,12 @@ export function DealPilotPage() {
                 data={dataRows}
                 onViewChange={setView}
                 onInsert={createRecord}
+                {...(pageId !== "theses" ? { onUpdate: updateRecord } : {})}
+                formRecord={formRecord}
+                onEditRecord={(row) => {
+                  setFormRecord(row);
+                  setView(viewConfigForKind(tableSpec, "form", view));
+                }}
                 onOpenRecord={openRecord}
               />
             </section>
@@ -690,7 +752,12 @@ function RecordDetailSurface({
             </button>
           </div>
           {(["userId", "password"] as const).map((field) => {
-            const projection = "credentialProjection" in detail ? detail.credentialProjection[field] : { state: "unavailable" as const };
+            // credentialProjection is null in the public cloud (credentials stay on
+            // the Local Plane) — render those Source credential slots as unavailable.
+            const projection =
+              "credentialProjection" in detail && detail.credentialProjection
+                ? detail.credentialProjection[field]
+                : { state: "unavailable" as const };
             return (
               <div key={field} className="mt-4 flex flex-wrap items-center gap-3">
                 <span className="w-24 text-sm font-medium">{field === "userId" ? "User ID" : "Password"}</span>

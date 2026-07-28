@@ -226,8 +226,10 @@ import {
   type CredentialAuditSink,
   type DealPilotBindings,
   type DealPilotRuntimeStore,
+  type DealPilotStore,
   type SourceCredentialVault,
 } from "@bridge/dealpilot";
+import { DrizzleDealPilotStore, cloudRecordsDealPilotStore } from "./dealpilot-store.js";
 import type { QuarantinedCapture } from "@bridge/capability-kit";
 import {
   BUILT_IN_MODULES,
@@ -3233,6 +3235,13 @@ export interface ModePorts {
    * local pglite `localDb` — both are the same schema.ts tables. */
   graphStore: DrizzleGraphStore;
   jobpilotStore: DrizzleJobPilotStore;
+  /** DealPilot Deal/Source/Thesis Records + Relations backed by the Cloud Plane
+   * (Supabase) — persistent mode only (ADR-151, AP-083). Undefined in in-memory
+   * mode, where records stay on the Local-Plane `LocalDealPilotStore`. Composed
+   * into `wiring.dealpilot.store` ONLY in public-cloud mode; on desktop the
+   * capture pipeline keeps its all-Local store so Records and captures stay
+   * co-located. Never holds credentials or raw capture bodies. */
+  dealPilotRecordStore?: DealPilotStore;
   helpdeskStore: DrizzleHelpdeskStore;
   resourcesStore: DrizzleResourcesStore;
   capabilityStore: CapabilityStore;
@@ -3353,6 +3362,7 @@ export function buildPersistentPorts(env: {
     organizationStore: ports.organizationStore,
     graphStore: new DrizzleGraphStore(db),
     jobpilotStore: new DrizzleJobPilotStore(db, PILOT_ORGANIZATION),
+    dealPilotRecordStore: new DrizzleDealPilotStore(db),
     helpdeskStore: new DrizzleHelpdeskStore(db, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(db),
     capabilityStore: new DrizzleCapabilityStore(db, PILOT_ORGANIZATION),
@@ -3782,6 +3792,131 @@ export async function seedBuiltInModules(
   }
 }
 
+/**
+ * AP-083 — idempotent Cloud-Plane demo data for the pilot Organization so the
+ * deployed web app's modules aren't empty. Seeds ONLY governed Records via the
+ * stores (which enforce RLS + valid row construction), guarded on an empty
+ * surface so re-boots never duplicate. NEVER seeds Source credentials or raw
+ * capture — those stay on the Local Plane (docs/dummy.md tracks removal).
+ */
+async function seedPilotDemoData(
+  dealpilot: DealPilotStore,
+  jobpilot: DrizzleJobPilotStore,
+): Promise<void> {
+  const deals = await dealpilot.list("deals", PILOT_ORGANIZATION, { limit: 1, offset: 0 });
+  if (deals.total === 0) {
+    const northwind = await dealpilot.createDeal({
+      organizationId: PILOT_ORGANIZATION,
+      company: "Northwind Traders",
+      stage: "diligence",
+      revenue: 4_200_000,
+      ebitda: 780_000,
+      askingPrice: 6_500_000,
+    });
+    await dealpilot.createDeal({
+      organizationId: PILOT_ORGANIZATION,
+      company: "Cascade Logistics",
+      stage: "triage",
+      revenue: 12_500_000,
+      ebitda: 1_900_000,
+      askingPrice: 15_000_000,
+    });
+    await dealpilot.createDeal({
+      organizationId: PILOT_ORGANIZATION,
+      company: "Alpine Dental Group",
+      stage: "sourced",
+      revenue: 2_100_000,
+      sde: 620_000,
+      askingPrice: 2_900_000,
+    });
+    const bizbuysell = await dealpilot.createSource({
+      organizationId: PILOT_ORGANIZATION,
+      name: "BizBuySell Weekly Alert",
+      link: "https://www.bizbuysell.com/",
+      connectionType: "email_alert",
+      spendCap: 100,
+      rightsState: "attested",
+      rightsAttestedBy: PILOT_USER,
+    });
+    await dealpilot.createSource({
+      organizationId: PILOT_ORGANIZATION,
+      name: "Axial Deal Network",
+      link: "https://www.axial.net/",
+      connectionType: "account",
+      spendCap: 250,
+      rightsState: "unattested",
+    });
+    await dealpilot.createThesis({
+      organizationId: PILOT_ORGANIZATION,
+      name: "Lower-Middle-Market Logistics",
+      focus: "Asset-light 3PL and last-mile rollups",
+      targetCagr: 0.18,
+      criteria: ["EBITDA $1M-$3M", "Recurring contract revenue", "Fragmented regional market"],
+      exclusions: ["Owner-operator dependent", "Single-customer concentration"],
+      sourcingStrategy: "Broker alerts + proprietary outreach",
+    });
+    await dealpilot.createThesis({
+      organizationId: PILOT_ORGANIZATION,
+      name: "Healthcare Services Consolidation",
+      focus: "Multi-site dental and dermatology platforms",
+      targetCagr: 0.22,
+      criteria: ["2+ existing locations", "Insurance + private-pay mix"],
+      exclusions: ["Single-provider practices", "Pending litigation"],
+      sourcingStrategy: "Thesis-led sourcing via authorized inventory",
+    });
+    await dealpilot.link({
+      organizationId: PILOT_ORGANIZATION,
+      kind: "deal_source",
+      fromId: northwind.id,
+      toId: bizbuysell.id,
+      confidence: 0.8,
+      provenance: "seed",
+      evidenceRefs: [],
+    });
+  }
+
+  const jobs = await jobpilot.listJobs(PILOT_ORGANIZATION, { limit: 1, offset: 0 });
+  if (jobs.total === 0) {
+    const platform = await jobpilot.createJob({
+      organizationId: PILOT_ORGANIZATION,
+      title: "Senior Platform Engineer",
+      company: "Vercel",
+      location: "Remote (US)",
+      salaryMax: 210_000,
+      url: "https://example.com/jobs/1",
+      source: "greenhouse",
+    });
+    await jobpilot.updateApplication(platform.application.id, {
+      stage: "evaluating",
+      flag: "pursue",
+      fitScore: 0.86,
+    });
+    const manager = await jobpilot.createJob({
+      organizationId: PILOT_ORGANIZATION,
+      title: "Engineering Manager",
+      company: "Ramp",
+      location: "New York, NY",
+      salaryMax: 260_000,
+      url: "https://example.com/jobs/3",
+      source: "lever",
+    });
+    await jobpilot.updateApplication(manager.application.id, {
+      stage: "tailoring",
+      flag: "review",
+      fitScore: 0.71,
+    });
+    await jobpilot.createJob({
+      organizationId: PILOT_ORGANIZATION,
+      title: "Staff Product Designer",
+      company: "Linear",
+      location: "Remote",
+      salaryMax: 190_000,
+      url: "https://example.com/jobs/2",
+      source: "ashby",
+    });
+  }
+}
+
 function runningUnderNodeTest(): boolean {
   return process.env.NODE_TEST_CONTEXT !== undefined;
 }
@@ -4131,6 +4266,16 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // robots.txt blocks the paths a fetcher needs — see docs/wiki/known-issues.md), so only
   // BizBuySell is registered.
   const dealPilotStore = new LocalDealPilotStore(localPlane.state);
+  // Public-cloud only (ADR-151, AP-083): serve DealPilot Deal/Source/Thesis
+  // Records from the Cloud Plane (Supabase) so they load in the web app, while
+  // captures + Source credentials stay refused (Local Plane). Desktop/persistent
+  // mode keeps the all-Local store so the discovery pipeline's Records and its
+  // captures stay co-located (no split-brain). The discovery closures below keep
+  // using `dealPilotStore` directly; only `wiring.dealpilot.store` is composed.
+  const dealPilotRuntimeStore: DealPilotRuntimeStore =
+    publicCloudOnly && modePorts.dealPilotRecordStore
+      ? cloudRecordsDealPilotStore(modePorts.dealPilotRecordStore)
+      : dealPilotStore;
   const localOrganizationStore = new DrizzleOrganizationStore(localDatabase.db);
   const integrationStore = new DrizzleIntegrationStore(localDatabase.db);
   const credentialVaultRoot = effectiveLocalDir ?? localDir;
@@ -4346,6 +4491,20 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // the available installation while retaining prior rows as legacy evidence.
   await seedBuiltInModules(moduleStore, PILOT_ORGANIZATION);
 
+  // AP-083 — populate the pilot Organization's Cloud-Plane demo data so the web
+  // app's modules are not empty. Runs ONLY on the deployed public cloud (which
+  // has a real Supabase DATABASE_URL), after the pilot Organization exists, so
+  // tests and desktop/dev boots are unaffected. Idempotent (guards on an empty
+  // surface) and best-effort (a failure logs and never blocks boot). Seeds only
+  // governed Records — never Source credentials or raw capture (docs/dummy.md).
+  if (publicCloudOnly && url) {
+    try {
+      await seedPilotDemoData(dealPilotRuntimeStore, modePorts.jobpilotStore);
+    } catch (seedError) {
+      console.warn("[wiring] pilot demo seed skipped:", seedError);
+    }
+  }
+
   // Signed Module manifests opt individual Automations into the executable
   // runtime with a stable Automation id. Inventory-only rows remain non-clickable.
   for (const pkg of BUILT_IN_MODULES) {
@@ -4506,7 +4665,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     pilotUserEmail,
     dealpilot: {
       integrationId: dealPilotIntegrationId,
-      store: dealPilotStore,
+      store: dealPilotRuntimeStore,
       credentials: dealPilotCredentials,
       credentialVault: dealPilotCredentialVault,
       credentialAudit: dealPilotCredentialAudit,
