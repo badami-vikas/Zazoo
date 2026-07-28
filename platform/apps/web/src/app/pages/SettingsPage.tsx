@@ -7,14 +7,15 @@
  *   Organization        → organization.list (name/id; onboarding owns rename UX)
  *   Team & Permissions  → organization.listMembers + organization.inviteMember
  *   Sources             → google.list + integration.list (connected sources)
- *   Capabilities        → modules.list (installed Modules)
- *                         + links to manifest-driven Module Detail
  *   Governance          → action.listPending (approvals) + ExecutionLedger
+ *
+ * The former "Capabilities" section moved OUT of Settings and became the
+ * top-level Intelligence page (ADR-154); `?section=intelligence` redirects there.
  * Notifications / Billing & Plan / Security / API Keys have NO backend yet —
  * they render honest "nothing configured" states, never fabricated toggles.
  */
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, Navigate, useSearchParams } from "react-router";
 import {
   Settings, Users, CreditCard, Bell, Shield, Key, Building2, Sparkles, BookOpen, HelpCircle,
   MessageCircle, Keyboard, Zap, ExternalLink, Plus,
@@ -28,7 +29,6 @@ const navItems = [
   { id: "learning", label: "Learning", icon: Sparkles },
   { id: "team", label: "Team & Permissions", icon: Users },
   { id: "sources", label: "Sources", icon: BookOpen },
-  { id: "intelligence", label: "Capabilities", icon: Sparkles },
   { id: "governance", label: "Governance", icon: Shield },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "billing", label: "Billing & Plan", icon: CreditCard },
@@ -467,65 +467,6 @@ function SourcesSection() {
   );
 }
 
-type ModulesResult = Awaited<ReturnType<typeof trpc.modules.list.query>>;
-
-function IntelligenceSection() {
-  const [result, setResult] = useState<ModulesResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    trpc.modules.list
-      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
-      .then(setResult)
-      .catch((e) => setError(String(e)));
-  }, []);
-
-  const installedModules = result?.items.filter(
-    (row) =>
-      row.state === "available"
-      && row.status === "installed"
-      && row.manifest.module !== undefined
-      && row.moduleAttachment === undefined,
-  ) ?? [];
-
-  return (
-    <div className="flex flex-col gap-6">
-      <SectionHeader title="Capabilities" desc="Installed Modules and the governed Agents, Skills, and Automations they provide." />
-
-      <Card>
-        <div className="px-6 py-4 border-b border-[var(--color-border)]">
-          <h3 className="font-semibold text-[var(--color-navy)] text-sm">Installed Modules</h3>
-        </div>
-        {error && <div className="px-6 py-4 text-sm text-red-600 break-words">{error}</div>}
-        {!error && result === null && <div className="px-6 py-4 text-sm text-[var(--color-warm-gray)]">Loading…</div>}
-        {result !== null && installedModules.length === 0 && (
-          <div className="px-6 py-8 text-center text-sm text-[var(--color-warm-gray)]">
-            No Modules installed yet. Shared Agents, Skills, and Automations will appear here once one is.
-          </div>
-        )}
-        {result !== null && installedModules.length > 0 && (
-          <div className="divide-y divide-[var(--color-border)]">
-            {installedModules.map((row) => (
-              <div key={row.id} className="flex items-center justify-between gap-3 px-6 py-3.5">
-                <div>
-                  <Link
-                    to={`/module/${encodeURIComponent(row.moduleName)}`}
-                    className="text-sm font-medium text-[var(--color-navy)] no-underline hover:text-[var(--color-steel)] hover:underline"
-                  >
-                    {row.manifest.module?.displayName ?? row.manifest.name}
-                  </Link>
-                  <span className="text-xs text-[var(--color-warm-gray)]"> · v{row.moduleVersion}</span>
-                </div>
-                <span className="text-xs border border-[var(--color-border)] rounded px-1.5 py-0.5 text-[var(--color-navy-mid)]">{row.state}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-
 type PendingResult = Awaited<ReturnType<typeof trpc.action.listPending.query>>;
 
 function GovernanceSection() {
@@ -598,9 +539,14 @@ function HelpSection() {
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  // Deep-linkable section (e.g. left-nav "Intelligence" → /settings?section=intelligence).
+  // Deep-linkable section (e.g. /settings?section=governance).
   // Falls back to Organization for an unknown/missing param.
   const requestedSection = searchParams.get("section");
+  // ADR-154 — "Capabilities" left Settings and became the top-level Intelligence
+  // page. Honour the old deep link rather than silently dropping callers onto
+  // Organization. Evaluated as a flag, not an early return: the hooks below must
+  // stay unconditional.
+  const redirectToIntelligence = requestedSection === "intelligence";
   const initialSection = navItems.some((item) => item.id === requestedSection)
     ? (requestedSection as string)
     : "organization";
@@ -631,8 +577,6 @@ export function SettingsPage() {
         return <TeamSection />;
       case "sources":
         return <SourcesSection />;
-      case "intelligence":
-        return <IntelligenceSection />;
       case "governance":
         return <GovernanceSection />;
       case "notifications":
@@ -669,6 +613,10 @@ export function SettingsPage() {
         return null;
     }
   };
+
+  if (redirectToIntelligence) {
+    return <Navigate to="/intelligence" replace />;
+  }
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#FAF9F5] overflow-hidden">

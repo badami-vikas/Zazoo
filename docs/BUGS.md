@@ -2059,3 +2059,33 @@ pinned negative assertion in `public-cloud-boundary.test.ts` keeps it closed.
 
 **Live status:** fixed in the repo, NOT deployed by me — a boundary change needs the `bridge-pilot-api`
 image rebuilt (`autoDeploy: false`), and authenticated live verification is the user's.
+
+## RESOLVED 2026-07-28 — USER REPORT: the Intelligence nav entry shows a Module list, and its own subtitle lies (AP-086/ADR-154)
+
+User report (verbatim): *"intelligence is pointing to modules"*.
+
+Confirmed as reported, plus a second defect found alongside it. The left-nav Intelligence entry linked
+to `/settings?section=intelligence` (`Layout.tsx`), and `SettingsPage.tsx`'s `IntelligenceSection`
+rendered **only a list of installed Modules**, each linking to `/module/:name` — the capability
+inventory ADR-152/AP-084 had just demoted as the "overview" the user did not want. Separately, that
+section's own subtitle read "Installed Modules and the governed Agents, Skills, and Automations they
+provide" while rendering **none** of the Agents, Skills, or Automations, even though the manifest data
+was already available (it is what `ModuleIntelligenceSection` uses on data Pages). So the surface both
+duplicated the Modules rail and described content it did not have.
+
+Because AP-081 explicitly specified the Settings deep-link, the fix was a canon change: the user was
+asked and chose a top-level page showing Agents/Automations/Skills. Resolved under AP-086/ADR-154 with
+a new `/intelligence` route and `IntelligencePage` (tabs Agents · Automations · Skills · Integrations,
+flattened across installed Modules, Module reduced to a provenance badge, Skills always attributed to
+their consuming Agent). Settings' Capabilities section deleted; `?section=intelligence` redirects.
+
+Verified: web typecheck clean; web suite 106/106 including two new pinning tests; flattening checked
+against the real built-in manifests (10 Agents, 18 Automations, 26 Skills, 4 Integration connectors);
+local dev server renders the page and the old deep link was observed redirecting.
+
+**Defect caught during verification and fixed before landing:** the Agents row rendered
+`${agent.plane} plane` unconditionally, but `plane` is optional in the manifest schema and the JobPilot
+and Relationship agents omit it — the row would have displayed "undefined plane".
+
+**Live status:** fixed in the repo, NOT deployed by me — needs a `bridge-pilot-web` rebuild
+(`autoDeploy: false`).

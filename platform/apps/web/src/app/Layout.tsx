@@ -263,12 +263,10 @@ export default function Layout() {
   }
 
   const homeActive = location.pathname === "/" || isActive("/home");
-  // Intelligence deep-links into Settings → Capabilities; treat it as the active
-  // bottom-nav entry (and suppress the Settings highlight) when that section is
-  // the one showing, so only one entry lights up at a time.
-  const intelligenceActive =
-    isActive("/settings") && new URLSearchParams(location.search).get("section") === "intelligence";
-  const settingsActive = isActive("/settings") && !intelligenceActive;
+  // Intelligence is its own top-level cross-Module capability page (ADR-154);
+  // it no longer deep-links into a Settings section.
+  const intelligenceActive = isActive("/intelligence");
+  const settingsActive = isActive("/settings");
   const secondBrainActive = isActive("/second-brain");
 
   return (
@@ -443,8 +441,9 @@ export default function Layout() {
         </div>
 
         {/* Bottom section — Second Brain + Intelligence sit above Settings.
-            Second Brain is the cross-Module Graph preset; Intelligence deep-links
-            into Settings → Capabilities (Modules · Integrations · Agents · Registry). */}
+            Second Brain is the cross-Module Graph preset; Intelligence is the
+            cross-Module capability inventory (Agents · Automations · Skills ·
+            Integrations) at its own top-level route (ADR-154). */}
         <div
           className="border-t flex flex-col gap-0.5 px-1.5 pb-3 pt-2 shrink-0"
           style={{ borderColor: "var(--color-border)" }}
@@ -454,7 +453,7 @@ export default function Layout() {
             <Network className="w-5 h-5 shrink-0" style={{ color: secondBrainActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Second Brain</span>
           </Link>
-          <Link to="/settings?section=intelligence" className={navItemClass(intelligenceActive)} title="Intelligence">
+          <Link to="/intelligence" className={navItemClass(intelligenceActive)} title="Intelligence">
             {intelligenceActive && <ActiveBar />}
             <Sparkles className="w-5 h-5 shrink-0" style={{ color: intelligenceActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Intelligence</span>
@@ -539,7 +538,7 @@ export default function Layout() {
                 Second Brain
               </Link>
               <Link
-                to="/settings?section=intelligence"
+                to="/intelligence"
                 onClick={() => setMobileModulesOpen(false)}
                 className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
                 style={{ color: "var(--color-navy)" }}

@@ -161,10 +161,42 @@ test("Module Detail route uses moduleName as route param", () => {
   }
 });
 
-test("Commons discovery stays Module-scoped and does not resurrect an Intelligence route", () => {
-  const routedSurfaces = ["home", "module/:moduleId", "module/relationship/helpdesk", "dealpilot", "jobpilot", "calendar/google"];
-  assert.equal(routedSurfaces.includes("intelligence"), false);
-  assert.equal(routedSurfaces.includes("marketplace"), false);
+test("Commons discovery stays Module-scoped; the deprecated Intelligence/marketplace prototype stays dead", () => {
+  const routes = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
+  // VOCAB6 deleted the PROTOTYPE Intelligence surface (a marketplace/tools hub
+  // built on hardcoded agent fixtures). That stays deleted.
+  assert.doesNotMatch(routes, /path: "marketplace"/);
+  assert.doesNotMatch(routes, /path: "tools"/);
+
+  // ADR-154 reintroduces /intelligence as something different in kind: the
+  // manifest-driven cross-Module capability inventory. It must stay
+  // manifest-sourced — no fixture data, no marketplace.
+  assert.match(routes, /path: "intelligence", Component: IntelligencePage/);
+  const page = readFileSync(new URL("../src/app/pages/IntelligencePage.tsx", import.meta.url), "utf8");
+  assert.match(page, /trpc\.modules\.list/);
+  assert.doesNotMatch(page, /agentsData|marketplace|AgentDetail/);
+});
+
+test("Intelligence is the cross-Module capability inventory, not a Module list (ADR-154)", () => {
+  const page = readFileSync(new URL("../src/app/pages/IntelligencePage.tsx", import.meta.url), "utf8");
+  // The four capability tabs the user asked for; Modules are provenance only.
+  for (const tab of ["Agents", "Automations", "Skills", "Integrations"]) {
+    assert.match(page, new RegExp(`"${tab}"`), `Intelligence should surface ${tab}`);
+  }
+  // Canon: a Skill is never free-standing — every row names its consuming Agent.
+  assert.match(page, /Invoked by: \$\{skill\.agentName\}/);
+  // Honest empty states, never dummy rows (UI-RULES §6a).
+  assert.match(page, /No Modules are installed yet/);
+  assert.match(page, /No attributable Agent bindings are declared/);
+
+  // The left nav points at the page, and Settings no longer owns the section.
+  const layout = readFileSync(new URL("../src/app/Layout.tsx", import.meta.url), "utf8");
+  assert.match(layout, /to="\/intelligence"/);
+  assert.doesNotMatch(layout, /settings\?section=intelligence/);
+  const settings = readFileSync(new URL("../src/app/pages/SettingsPage.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(settings, /label: "Capabilities"/);
+  // ...but the old deep link still resolves rather than silently 404-ing.
+  assert.match(settings, /<Navigate to="\/intelligence" replace \/>/);
 });
 
 test("Commons provenance uses canonical capability vocabulary", () => {

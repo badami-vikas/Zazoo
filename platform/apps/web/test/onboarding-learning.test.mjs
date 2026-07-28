@@ -11,6 +11,8 @@ const settingsUrl = new URL("../src/app/pages/SettingsPage.tsx", import.meta.url
 const layoutUrl = new URL("../src/app/Layout.tsx", import.meta.url);
 const homeUrl = new URL("../src/app/pages/HomePage.tsx", import.meta.url);
 const commonsPanelUrl = new URL("../src/app/components/CommonsCapabilityPanel.tsx", import.meta.url);
+// ADR-154 — the cross-Module capability inventory moved out of Settings.
+const intelligenceUrl = new URL("../src/app/pages/IntelligencePage.tsx", import.meta.url);
 const uiDialogUrl = new URL("../src/app/components/ui/dialog.tsx", import.meta.url);
 
 async function loadQuestionsModule() {
@@ -204,8 +206,12 @@ test("onboarding persists the chosen Organization name and refreshes the shell",
   assert.match(layout, /setOrganizationName\(organization\.name\)/);
   assert.match(layout, /setOrganizations\(\(current\) =>/);
   assert.match(settings, /open Learning and re-enter Onboarding/);
-  assert.match(settings, /row\.manifest\.module !== undefined/);
-  assert.match(settings, /row\.moduleAttachment === undefined/);
+  // ADR-154 — the installed-Module predicate moved to IntelligencePage with the
+  // capability inventory; Settings no longer carries a Capabilities section.
+  const intelligence = await readFile(intelligenceUrl, "utf8");
+  assert.match(intelligence, /row\.manifest\.module !== undefined/);
+  assert.match(intelligence, /row\.moduleAttachment === undefined/);
+  assert.doesNotMatch(settings, /IntelligenceSection/);
   assert.doesNotMatch(settings, /there's no update endpoint/);
 });
 
@@ -218,6 +224,9 @@ test("the exact demo surfaces keep retired vocabulary out of visible copy", asyn
   ]);
   assert.doesNotMatch(home, /relationships, records/);
   assert.doesNotMatch(layout, /Switching organizations/);
-  assert.match(settings, /to=\{`\/module\/\$\{encodeURIComponent\(row\.moduleName\)\}`\}/);
+  // ADR-154 — every installed Module stays clickable through to manifest-driven
+  // Module Detail, now from the Intelligence page's provenance badge.
+  const intelligence = await readFile(intelligenceUrl, "utf8");
+  assert.match(intelligence, /to=\{`\/module\/\$\{encodeURIComponent\(source\.moduleName\)\}`\}/);
   assert.doesNotMatch(commonsPanel, /Commons module/);
 });

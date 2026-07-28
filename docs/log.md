@@ -1,5 +1,28 @@
 # Change Log
 
+- **2026-07-28 — Intelligence becomes a top-level cross-Module capability inventory (AP-086 / ADR-154)**:
+  User reported "intelligence is pointing to modules". Confirmed: the left-nav entry linked to
+  `/settings?section=intelligence`, and that section rendered **only a list of installed Modules**,
+  each linking to `/module/:name` — the capability-inventory "overview" ADR-152/AP-084 had just
+  demoted — while its own subtitle promised Agents, Skills, and Automations it never rendered. Asked
+  the user, who chose (a) show Agents/Automations/Skills and (b) give it its own top-level page. New
+  route `/intelligence` + `IntelligencePage`: capability bindings flattened from every installed
+  Module's manifest into tabs **Agents · Automations · Skills · Integrations**, with the Module as a
+  provenance badge (still linking to Module Detail) rather than the payload, and Skills always listed
+  through their consuming Agent per canon. Settings' "Capabilities" section deleted (ten sections →
+  nine); `?section=intelligence` redirects so old deep links survive; left-nav + mobile menu retarget.
+  Manifest-sourced, read-only, honest empty states — no backend, boundary, or persistence change.
+  Supersedes AP-081's Settings deep-link and updates the UI-architecture Shell line. Reintroduces a
+  `/intelligence` route VOCAB6 had deleted, but that was the prototype marketplace/tools hub on
+  hardcoded fixtures; a test pins the distinction (manifest-sourced, no `agentsData`/`marketplace`/
+  `AgentDetail`, `path: "marketplace"`/`path: "tools"` still absent). Verified: web typecheck clean;
+  web suite 106/106 (two new tests covering the four tabs, Skill→Agent attribution, empty states, nav
+  target, and the Settings redirect); flattening checked against the real built-ins → 10 Agents, 18
+  Automations, 26 Skills, 4 Integration connectors; local dev server renders the page with the rail
+  entry lit, and `/settings?section=intelligence` observed redirecting to `/intelligence`. One display
+  bug caught in verification and fixed before landing: `agent.plane` is optional in the manifest schema
+  and several built-ins omit it, which rendered "undefined plane". Not deployed by me.
+
 - **2026-07-28 — Second Brain served through the public-cloud API (AP-085 / ADR-153)**:
   User reported "2nd brain is not loading" on the hosted pilot. Root cause: `SecondBrainPage` calls
   `trpc.graph.full` (the cross-Module full-Graph preset, ADR-110), but `graph.full` was never added to
