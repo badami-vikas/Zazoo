@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-27T13:13:26.544Z",
+  "generatedAt": "2026-07-29T08:53:51.428Z",
   "items": [
     {
       "id": "TASK-026",
@@ -906,6 +906,34 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 402,
       "rank": 26
+    },
+    {
+      "id": "TASK-027",
+      "title": "TASK-027 — Screen-aware companion ask prototype (clicky parity)",
+      "status": "in-progress",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "The desktop Avatar answers questions about what is on the user's screen the way the open-source clicky family does — global push-to-talk summon, one consented screenshot per ask to a cloud vision model (or a fully local text answer without one), typed on-screen pointing marks parsed from `[POINT:x,y:label]` tags, spoken answers via local TTS, and bounded ephemeral conversation memory — without weakening Local Plane residency, blink-tell capture honesty, or the un-spoofable typed annotation vocabulary.",
+      "prototypeTest": "On a real desktop build with Screen Recording granted and GROQ_API_KEY configured, hold ⌘⇧Space, speak a question about a visible app, and watch the avatar expand, blink on capture, answer aloud, and spotlight the referenced screen locations with auto-clearing marks; uncheck screen sharing (or remove the key) and confirm the same ask answers locally with an honest \"cannot see your screen\" boundary and zero image egress; deny the mic and confirm typed asks still work end to end.",
+      "scope": [
+        "docs/raw/desktop-companion-agent-roadmap-2026-07.md P3–P4 slices (real `screen` sensor, hosted-tier vision, voice, pointing)",
+        "outputs/2026-07-29-task-027-companion-clicky-parity.md capability mapping"
+      ],
+      "evidence": [
+        "implementation landed on `main` (companion.rs ask/TTS/STT pipeline, real on-demand `capture_display_jpeg` with CGPreflight/Request preflight, monitor-targeted annotate marks, ⌘⇧Space global shortcut, CompanionAsk overlay panel)",
+        "68/68 desktop Rust tests, 106/106 web tests, web typecheck and production build pass",
+        "`screencapture` verified as the capture path but TCC-denied for the build sandbox, so live capture/vision/voice certification is pending an interactive session"
+      ],
+      "requests": [
+        "R-041"
+      ],
+      "approval": "none",
+      "dependencies": [],
+      "canonicalStatus": "in_progress",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 415,
+      "rank": 27
     }
   ]
 }

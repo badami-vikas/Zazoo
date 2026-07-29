@@ -10,3 +10,4 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-018 | blocked | P3 | Cross-platform release blockers | TASK-005 |
 | TASK-019 | blocked | P4 | Approved long-term optimization rollout | TASK-005, TASK-015 |
 | TASK-022 | blocked | P2 | Inference cost optimization: prompt caching + model tiering | external authorized Anthropic credential + live-test spend authorization |
+| TASK-027 | in_progress | P2 | Screen-aware companion ask prototype (clicky parity) | none |

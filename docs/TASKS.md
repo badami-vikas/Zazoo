@@ -6,9 +6,9 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
+IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048. TASK-026 became the current P0 on 2026-07-26 under AP-078 after the user reported the primary Chat Panel remained placeholder-like and approved its implementation plan.
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048. TASK-026 became the current P0 on 2026-07-26 under AP-078 after the user reported the primary Chat Panel remained placeholder-like and approved its implementation plan. TASK-027 (clicky-parity screen-aware companion ask prototype) appended at queue end 2026-07-29 per user directive R-041.
 
 ## Operating standard
 
@@ -410,3 +410,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user website/brand storyboard directive 2026-07-19; dictionary-copy correction and task-update directive 2026-07-19; GitHub Pages publication directive 2026-07-19; GitHub Pages rollback directive 2026-07-19
 - Approval: AP-048 applied; AP-052 applied; AP-053 applied
 - Dependencies: none
+
+## Screen-aware companion ask prototype (clicky parity)
+- ID: TASK-027
+- Status: in_progress
+- Priority: P2
+- Horizon: Prototype
+- Outcome: The desktop Avatar answers questions about what is on the user's screen the way the open-source clicky family does — global push-to-talk summon, one consented screenshot per ask to a cloud vision model (or a fully local text answer without one), typed on-screen pointing marks parsed from `[POINT:x,y:label]` tags, spoken answers via local TTS, and bounded ephemeral conversation memory — without weakening Local Plane residency, blink-tell capture honesty, or the un-spoofable typed annotation vocabulary.
+- Prototype test: On a real desktop build with Screen Recording granted and GROQ_API_KEY configured, hold ⌘⇧Space, speak a question about a visible app, and watch the avatar expand, blink on capture, answer aloud, and spotlight the referenced screen locations with auto-clearing marks; uncheck screen sharing (or remove the key) and confirm the same ask answers locally with an honest "cannot see your screen" boundary and zero image egress; deny the mic and confirm typed asks still work end to end.
+- Scope: docs/raw/desktop-companion-agent-roadmap-2026-07.md P3–P4 slices (real `screen` sensor, hosted-tier vision, voice, pointing); outputs/2026-07-29-task-027-companion-clicky-parity.md capability mapping
+- Evidence: implementation landed on `main` (companion.rs ask/TTS/STT pipeline, real on-demand `capture_display_jpeg` with CGPreflight/Request preflight, monitor-targeted annotate marks, ⌘⇧Space global shortcut, CompanionAsk overlay panel); 68/68 desktop Rust tests, 106/106 web tests, web typecheck and production build pass; `screencapture` verified as the capture path but TCC-denied for the build sandbox, so live capture/vision/voice certification is pending an interactive session
+- Requests: R-041
+- Approval: none
+- Dependencies: none
+- Remaining for `done`: interactive Screen Recording + microphone grants on a real launch, a configured GROQ_API_KEY for the vision/STT paths, then the live Prototype test above

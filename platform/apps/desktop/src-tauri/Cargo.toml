@@ -23,10 +23,21 @@ tauri-build = { version = "2", features = [] }
 # `webview-data-url` supports the static, tokenless bootstrap and terminal
 # unavailable pages shown before/after the privileged Local Plane webview.
 tauri = { version = "2", features = ["macos-private-api", "webview-data-url"] }
+# Global push-to-talk summon for the companion (TASK-027 clicky-parity). The
+# plugin is registered Rust-side only — no webview capability entries — so a
+# compromised webview cannot re-bind or intercept the shortcut.
+tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 getrandom = "0.3"
 sha2 = "0.10"
+# companion.rs outbound HTTP (Groq vision/STT + managed local llama endpoint).
+# ureq is blocking-only + rustls — no tokio surface added to the shell.
+ureq = { version = "2", features = ["json"] }
+base64 = "0.22"
+# Honest screenshot dimensions: decode the real JPEG header instead of
+# assuming the display's physical size matches the captured image.
+imagesize = "0.13"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -147,12 +147,10 @@ fn create_one_annotate_window(
     Ok(())
 }
 
-/// Broadcast a validated mark list to every annotate window and show them.
-/// Validation happens HERE, in Rust, before anything reaches a webview —
-/// the frontend trusts what it's given because only this command can send
-/// it, and this command only sends what passes these checks.
-#[tauri::command]
-pub fn annotate_show(app: AppHandle, marks: Vec<AnnotationMark>) -> Result<(), AnnotateError> {
+/// Shared validation for every path that can put marks on screen — the
+/// broadcast command below AND the companion's monitor-targeted path. Rust
+/// validates before anything reaches a webview.
+fn validate_marks(marks: &[AnnotationMark]) -> Result<(), AnnotateError> {
     if marks.is_empty() {
         return Err(AnnotateError {
             code: "ANNOTATE_EMPTY",
@@ -168,7 +166,7 @@ pub fn annotate_show(app: AppHandle, marks: Vec<AnnotationMark>) -> Result<(), A
             ),
         });
     }
-    for m in &marks {
+    for m in marks {
         if !m.x.is_finite() || !m.y.is_finite() || !m.width.is_finite() || !m.height.is_finite() {
             return Err(AnnotateError {
                 code: "ANNOTATE_INVALID_GEOMETRY",
@@ -190,7 +188,16 @@ pub fn annotate_show(app: AppHandle, marks: Vec<AnnotationMark>) -> Result<(), A
             }
         }
     }
+    Ok(())
+}
 
+/// Broadcast a validated mark list to every annotate window and show them.
+/// Validation happens HERE, in Rust, before anything reaches a webview —
+/// the frontend trusts what it's given because only this command can send
+/// it, and this command only sends what passes these checks.
+#[tauri::command]
+pub fn annotate_show(app: AppHandle, marks: Vec<AnnotationMark>) -> Result<(), AnnotateError> {
+    validate_marks(&marks)?;
     for (_, win) in app.webview_windows() {
         if win.label().starts_with(ANNOTATE_LABEL) {
             let _ = win.show();
@@ -200,6 +207,39 @@ pub fn annotate_show(app: AppHandle, marks: Vec<AnnotationMark>) -> Result<(), A
         code: "ANNOTATE_EMIT_FAILED",
         message: e.to_string(),
     })
+}
+
+/// Show validated marks on ONE monitor's annotate window (the companion ask
+/// path — marks belong to the display that was captured, not every display).
+/// Same typed vocabulary, same validation; the event is targeted at that
+/// window only, and other annotate windows are hidden so a stale mark set
+/// from an earlier ask never lingers on another screen.
+pub fn show_marks_on(
+    app: &AppHandle,
+    monitor_index: usize,
+    marks: Vec<AnnotationMark>,
+) -> Result<(), String> {
+    validate_marks(&marks).map_err(|error| error.message)?;
+    let target = label_for_monitor(monitor_index);
+    let mut shown = false;
+    for (label, win) in app.webview_windows() {
+        if !label.starts_with(ANNOTATE_LABEL) {
+            continue;
+        }
+        if label == target {
+            let _ = win.show();
+            shown = true;
+        } else {
+            let _ = win.hide();
+        }
+    }
+    if !shown {
+        return Err(format!(
+            "no annotate window exists for monitor {monitor_index}"
+        ));
+    }
+    app.emit_to(target.as_str(), MARKS_EVENT, &marks)
+        .map_err(|error| error.to_string())
 }
 
 /// Clear all marks and hide every annotate window (never leaves a stale

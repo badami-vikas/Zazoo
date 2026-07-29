@@ -31,9 +31,12 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { ChatView } from "../chat/ChatView";
 import { AvatarFigure } from "./AvatarOverlay";
+import { CompanionAsk } from "./CompanionAsk";
+import { tauriInvoke, tauriListen } from "./tauri-internals";
 import {
   CAPTURE_EVENT,
   STATUS_LABEL,
+  dispatchCaptureEvent,
   loadAvatarPrefs,
   setAvatarStatus,
   useAvatarStatus,
@@ -48,6 +51,7 @@ interface AvatarPointerGesture {
 
 const AVATAR_DRAG_THRESHOLD_PX = 4;
 const AVATAR_SESSION_READY_EVENT = "bridge:avatar-session-ready";
+const COMPANION_PTT_EVENT = "bridge:companion-ptt";
 
 /** Full Invoko-spec vocabulary; v1 drives the first four (+ error). */
 export type CompanionState =
@@ -66,43 +70,17 @@ export type CompanionState =
  * webview to its own bounds, so anything rendered past the current size
  * (the status panel, the chat panel, the right-click menu) would be
  * invisible if the resize didn't happen first. */
-const WINDOW_SIZE: Record<"collapsed" | "hover" | "expanded" | "chat" | "menu", { w: number; h: number }> = {
+const WINDOW_SIZE: Record<
+  "collapsed" | "hover" | "expanded" | "chat" | "ask" | "menu",
+  { w: number; h: number }
+> = {
   collapsed: { w: 96, h: 96 },
-  hover: { w: 260, h: 96 },
+  hover: { w: 300, h: 96 },
   expanded: { w: 320, h: 400 },
   chat: { w: 320, h: 420 },
-  menu: { w: 200, h: 150 },
+  ask: { w: 380, h: 500 },
+  menu: { w: 220, h: 190 },
 };
-
-function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
-  const internals = typeof window !== "undefined" ? window.__TAURI_INTERNALS__ : undefined;
-  if (!internals?.invoke) return Promise.resolve(undefined);
-  return internals.invoke(cmd, args).catch((err: unknown) => {
-    // Never let a window-chrome failure break the avatar itself.
-    console.error("[companion] invoke failed", cmd, err);
-    return undefined;
-  });
-}
-
-async function tauriListen<T>(event: string, callback: (payload: T) => void): Promise<() => void> {
-  const internals = typeof window !== "undefined" ? window.__TAURI_INTERNALS__ : undefined;
-  if (!internals?.invoke || !internals.transformCallback) return () => undefined;
-  const handler = internals.transformCallback((data: unknown) => {
-    const eventData = data as { payload?: T };
-    if (eventData && "payload" in eventData) callback(eventData.payload as T);
-  });
-  const eventId = await internals.invoke("plugin:event|listen", {
-    event,
-    target: { kind: "Any" },
-    handler,
-  });
-  if (typeof eventId !== "number") throw new Error(`Invalid Tauri listener id for ${event}`);
-  return () => {
-    void internals.invoke("plugin:event|unlisten", { event, eventId }).catch((error: unknown) => {
-      console.error("[companion] unlisten failed", event, error);
-    });
-  };
-}
 
 export function OverlayApp() {
   // Persisted visual preferences are not proof that this launch has an active
@@ -112,7 +90,11 @@ export function OverlayApp() {
   const status = useAvatarStatus();
   // "status" = the existing pending-approvals panel (click the avatar).
   // "chat" = the hover chat bubble's compact inline chat.
-  const [panel, setPanel] = useState<"none" | "status" | "chat">("none");
+  // "ask" = the screen-aware companion ask panel (TASK-027).
+  const [panel, setPanel] = useState<"none" | "status" | "chat" | "ask">("none");
+  // True while the global push-to-talk shortcut is held (drives CompanionAsk
+  // recording).
+  const [pttActive, setPttActive] = useState(false);
   const [hovering, setHovering] = useState(false);
   const [blinking, setBlinking] = useState(false);
   const blinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -207,9 +189,10 @@ export function OverlayApp() {
       ? "hover"
       : "collapsed";
 
-  // Blink tell — same window-event contract as the in-page overlay. Events
-  // are per-webview, so this only fires for captures announced IN this
-  // window; kernel-driven blink wiring across windows is a follow-up.
+  // Blink tell — same window-event contract as the in-page overlay, PLUS a
+  // bridge from the Rust-originated `sensor.capture` Tauri event so captures
+  // announced by the shell (screenshots, provider drains) blink this avatar
+  // regardless of which webview initiated them.
   useEffect(() => {
     function onCapture() {
       setBlinking(true);
@@ -217,11 +200,42 @@ export function OverlayApp() {
       blinkTimeout.current = setTimeout(() => setBlinking(false), 200);
     }
     window.addEventListener(CAPTURE_EVENT, onCapture);
+    let unlisten: () => void = () => undefined;
+    void (async () => {
+      unlisten = await tauriListen("sensor.capture", () => {
+        dispatchCaptureEvent();
+      });
+    })().catch((error: unknown) => {
+      console.error("[companion] sensor.capture listener failed", error);
+    });
     return () => {
       window.removeEventListener(CAPTURE_EVENT, onCapture);
       if (blinkTimeout.current) clearTimeout(blinkTimeout.current);
+      unlisten();
     };
   }, []);
+
+  // Global push-to-talk (⌘⇧Space, registered Rust-side): pressing summons
+  // the ask panel and starts voice capture; releasing stops it. Only the
+  // session-ready overlay reacts — a concealed avatar stays concealed.
+  useEffect(() => {
+    let unlisten: () => void = () => undefined;
+    void (async () => {
+      unlisten = await tauriListen<string>(COMPANION_PTT_EVENT, (state) => {
+        if (!sessionReady) return;
+        if (state === "pressed") {
+          setMenuOpen(false);
+          setPanel("ask");
+          setPttActive(true);
+        } else {
+          setPttActive(false);
+        }
+      });
+    })().catch((error: unknown) => {
+      console.error("[companion] push-to-talk listener failed", error);
+    });
+    return () => unlisten();
+  }, [sessionReady]);
 
   // On mount: ask Rust to confirm the restored position is valid. This is
   // informational only — the actual restoration happens in Rust during window
@@ -242,13 +256,15 @@ export function OverlayApp() {
   useEffect(() => {
     const size = menuOpen
       ? WINDOW_SIZE.menu
-      : panel === "chat"
-        ? WINDOW_SIZE.chat
-        : panel === "status"
-          ? WINDOW_SIZE.expanded
-          : hovering
-            ? WINDOW_SIZE.hover
-            : WINDOW_SIZE.collapsed;
+      : panel === "ask"
+        ? WINDOW_SIZE.ask
+        : panel === "chat"
+          ? WINDOW_SIZE.chat
+          : panel === "status"
+            ? WINDOW_SIZE.expanded
+            : hovering
+              ? WINDOW_SIZE.hover
+              : WINDOW_SIZE.collapsed;
     void tauriInvoke("overlay_resize", { width: size.w, height: size.h });
   }, [panel, hovering, menuOpen]);
 
@@ -318,6 +334,11 @@ export function OverlayApp() {
 
   function openChatPanel() {
     setPanel((prev) => (prev === "chat" ? "none" : "chat"));
+  }
+
+  function openAskPanel() {
+    setMenuOpen(false);
+    setPanel((prev) => (prev === "ask" ? "none" : "ask"));
   }
 
   // Right-click menu actions.
@@ -407,6 +428,15 @@ export function OverlayApp() {
             >
               Observe — what am I looking at?
             </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="w-full text-left px-3 py-2 hover:bg-[var(--color-surface)]"
+              style={{ color: "var(--color-navy)" }}
+              onClick={openAskPanel}
+            >
+              Ask about my screen
+            </button>
           </div>
         </>
       )}
@@ -453,6 +483,31 @@ export function OverlayApp() {
         </div>
       )}
 
+      {!menuOpen && panel === "ask" && (
+        <div
+          role="dialog"
+          aria-label={`Ask ${name} about your screen`}
+          className="w-full mb-2 rounded-[var(--radius-card)] border border-border bg-background shadow-lg text-sm flex flex-col"
+          style={{ flex: "1 1 auto", minHeight: 0 }}
+        >
+          <div
+            className="flex items-center justify-between px-3 py-2 border-b"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <p className="font-medium text-[var(--color-navy)]">{name} — Ask</p>
+            <button
+              type="button"
+              aria-label="Close ask panel"
+              className="text-muted-foreground hover:text-[var(--color-steel)]"
+              onClick={() => setPanel("none")}
+            >
+              ×
+            </button>
+          </div>
+          <CompanionAsk name={name} pttActive={pttActive} />
+        </div>
+      )}
+
       {!menuOpen && panel === "chat" && (
         <div
           role="dialog"
@@ -487,6 +542,17 @@ export function OverlayApp() {
         <div className="flex items-center justify-end gap-2" style={{ flex: "0 0 auto" }}>
           {state === "hover" && (
             <>
+              <button
+                type="button"
+                onClick={openAskPanel}
+                aria-label={`Ask ${name} about your screen`}
+                title="Ask about my screen (⌘⇧Space)"
+                className="rounded-full bg-background border border-border shadow-md w-8 h-8 flex items-center justify-center hover:opacity-90"
+              >
+                <span aria-hidden="true" style={{ fontSize: "14px" }}>
+                  ✨
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={openChatPanel}

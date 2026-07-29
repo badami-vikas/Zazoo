@@ -67,3 +67,17 @@ Verbatim. Mapped to TASK-014 (Graph renderer + scope selector) and TASK-009 (Sec
 > "Why are we filtering out platforms like catchall, together ai, etc? I was thinking of these api's for recon capability of learning agent. If any of those 178 are relevant, use them. If not, create a seperate list of discarded api's with reasons. Also create a roadmap to provide these capabilities to learning agent and update its task. If any of these api's require user account creation and is free, make it tier 2, if its free and agent can access it directly like parallel ai mcp, then make it tier one, if they are paid or not in any other category-its tier 3. Commit, push and merge to main once done."
 
 Verbatim. Reviewed all 178 FindAll candidates (not just the 46 originally matched) against relevance to the Learning Agent's LA3 research lane. Classified 66 as relevant (3 Tier 1, 33 Tier 2, ~19-30 Tier 3 depending on grouping) and 112 as discarded with grouped reasons. Mapped to TASK-023 (new, renumbered from the original TASK-022 during main merge) and `docs/raw/learning-agent-roadmap-2026-07.md` §7. AP-039, ADR-111. Full survey: `outputs/2026-07-17-learning-agent-recon-search-integrations.md`.
+
+## R-041 — Clicky-parity desktop companion capabilities, working prototype (2026-07-29)
+
+> "Refer to the following github open source repos and get a similar desktop agent capability for macos
+> https://github.com/farzaa/clicky
+> https://github.com/emreyilmaz46/clicky_windows
+> https://github.com/Bitshank-2338/clicky-windows
+> https://github.com/CONFUZ3/ClickyWindows
+> Refer to the plans and tasks.md file and also progress from Manish folder for the current handoff and also baseline of the avatar and other overlday related things which is already present in the desktop app.
+> Need all the extra capabilities from the github links which I shared
+> Pull the latest for the latest changes
+> I need a working prototype ready for this"
+
+Verbatim. Reuse intake performed against the clicky family (all MIT-licensed): behaviors were studied from public READMEs/architecture descriptions and re-implemented natively on Bridge's existing overlay/annotate/sensor/model surfaces — no source code copied. Mapped to new TASK-027 (screen-aware companion ask prototype). Capability mapping and residency/consent design: `outputs/2026-07-29-task-027-companion-clicky-parity.md`.

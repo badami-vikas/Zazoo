@@ -6,6 +6,10 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 ## Read first in a new session
 
+0. **Validating the companion prototype?** Read
+   [`companion-clicky-parity-handoff-2026-07-29.md`](companion-clicky-parity-handoff-2026-07-29.md)
+   — TASK-027 is one commit on `main` with a full live-validation protocol (V1–V11) written for
+   a fresh session; `git pull` first.
 1. Read [`governed-chat-release-handoff-2026-07-27.md`](governed-chat-release-handoff-2026-07-27.md).
 2. Read [`subagent-progress.md`](subagent-progress.md).
 3. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
@@ -17,6 +21,11 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 ## State at current handoff
 
+- 2026-07-29: TASK-027 (clicky-parity screen-aware companion ask, R-041) is implemented and
+  pushed to `main` as one commit on top of `8cd9d46`. Compile/test/build gates pass (Rust 68/68,
+  web 106/106); live permission/vision/voice certification is pending and fully scripted in the
+  dedicated handoff above. A second concurrent session commits to the same checkout and owns
+  port 5173.
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
 - TASK-026 durable governed Chat landed at `1c5340d`; final certified `main` is `aa5b86f`.
@@ -144,6 +153,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 ## Files
 
+- [`companion-clicky-parity-handoff-2026-07-29.md`](companion-clicky-parity-handoff-2026-07-29.md) - TASK-027 screen-aware companion ask prototype: architecture, command contracts, uncommitted change set, environment setup, and the V1–V11 live-validation protocol for a fresh session.
 - [`governed-chat-release-handoff-2026-07-27.md`](governed-chat-release-handoff-2026-07-27.md) - durable Chat, production migration, Auth, and deploy resume state.
 - [`subagent-progress.md`](subagent-progress.md) — every roadmap project session and grouped background-review progress.
 - [`paused-worktrees.md`](paused-worktrees.md) — exact unfinished worktree state, validation, blockers, and next actions.

@@ -167,8 +167,43 @@ export function AnnotateApp() {
           <path d="M0,0 L10,5 L0,10 Z" fill={COLORS.arrow} />
         </marker>
       </defs>
+      {/* Entrance animation only (companion "pointing" feel): a short
+        * fade-and-settle per mark, slightly staggered. Pure CSS on the typed
+        * mark shapes — content and geometry stay entirely Rust-validated. */}
+      <style>{`
+        .annotate-mark {
+          animation: annotate-settle 0.35s ease-out backwards;
+          transform-box: fill-box;
+          transform-origin: center;
+        }
+        .annotate-mark--spotlight {
+          animation: annotate-settle 0.35s ease-out backwards,
+            annotate-pulse 2.4s ease-in-out 0.35s infinite;
+        }
+        @keyframes annotate-settle {
+          from { opacity: 0; transform: scale(1.6); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes annotate-pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.08); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .annotate-mark, .annotate-mark--spotlight { animation: none; }
+        }
+      `}</style>
       {marks.map((mark, i) => (
-        <MarkShape key={i} mark={mark} />
+        <g
+          key={i}
+          className={
+            mark.kind === "spotlight"
+              ? "annotate-mark annotate-mark--spotlight"
+              : "annotate-mark"
+          }
+          style={{ animationDelay: `${Math.min(i * 90, 540)}ms` }}
+        >
+          <MarkShape mark={mark} />
+        </g>
       ))}
     </svg>
   );

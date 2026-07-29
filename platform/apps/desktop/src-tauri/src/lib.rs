@@ -27,6 +27,7 @@
 
 mod annotate;
 mod api_sidecar;
+mod companion;
 mod model_supervisor;
 mod overlay;
 mod providers;
@@ -403,9 +404,36 @@ pub fn run() {
         .manage(model_supervisor::ModelSupervisorState::default())
         .manage(overlay::DisplayTopologyState::default())
         .manage(overlay::OverlaySessionState::default())
+        .manage(companion::CompanionState::default())
         .manage(BootstrapWindowState::default());
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
+    // Companion push-to-talk summon (TASK-027). Registered Rust-side only:
+    // the webview has no capability to (re)bind shortcuts, it merely receives
+    // the pressed/released events. Failure to register (e.g. the combo is
+    // taken) degrades gracefully — the overlay's click affordances remain.
+    let builder = {
+        use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+        use tauri::Emitter as _;
+        let push_to_talk = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
+        builder.plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(move |app, shortcut, event| {
+                    if shortcut == &push_to_talk {
+                        let state = match event.state() {
+                            ShortcutState::Pressed => "pressed",
+                            ShortcutState::Released => "released",
+                        };
+                        if let Err(error) = app.emit(companion::COMPANION_PTT_EVENT, state) {
+                            eprintln!(
+                                "[bridge-desktop] companion push-to-talk emit failed: {error}"
+                            );
+                        }
+                    }
+                })
+                .build(),
+        )
+    };
     let app = builder
         .invoke_handler(tauri::generate_handler![
             sensor_bridge::sensor_list,
@@ -426,10 +454,28 @@ pub fn run() {
             overlay::focus_main_window,
             annotate::annotate_show,
             annotate::annotate_clear,
+            companion::companion_capabilities,
+            companion::companion_ask,
+            companion::companion_speak,
+            companion::companion_stop_speaking,
+            companion::companion_transcribe,
             open_google_oauth,
             providers::accessibility::ax_permission_status,
         ])
         .setup(|app| {
+            // Register the companion push-to-talk shortcut (⌘⇧Space).
+            // Additive: a taken combo must never block the shell.
+            {
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                let push_to_talk =
+                    Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
+                if let Err(error) = app.handle().global_shortcut().register(push_to_talk) {
+                    eprintln!(
+                        "[bridge-desktop] companion push-to-talk registration failed \
+                         (continuing without the global shortcut): {error}"
+                    );
+                }
+            }
             if let Ok(url) = std::env::var("BRIDGE_API_URL") {
                 // Explicit override — e.g. pointing the shell at a remote or
                 // already-running local API. No sidecar spawned.
@@ -495,6 +541,7 @@ pub fn run() {
         }
         tauri::RunEvent::Exit => {
             overlay::stop_display_topology_watcher(app_handle);
+            companion::shutdown(&app_handle.state::<companion::CompanionState>());
             // Request a graceful API shutdown so PGlite releases its directory
             // before the bounded force-kill fallback. The child also watches
             // BRIDGE_PARENT_PID so a crashed shell cannot orphan the lock owner.
