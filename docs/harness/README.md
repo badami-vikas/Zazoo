@@ -25,9 +25,12 @@ until the matching [APPROVALS](../APPROVALS.md) row is flipped.
 
 ## Read in this order
 
+0. **[comparative-analysis.md §0](comparative-analysis.md)** — "At a glance": four tables covering the
+   whole field, the Bridge scorecard, the 15 convergent primitives, and the 2026 vendor-churn record.
+   Start here if you have two minutes.
 1. **learnings-and-next-steps.md** if you want the conclusions and the recommended work.
 2. **primitives.md** if you want the state of our own Engine, with `file:line` evidence.
-3. **comparative-analysis.md** if you want the external landscape and vocabulary discipline.
+3. **comparative-analysis.md §1 onward** for the external landscape in depth and vocabulary discipline.
 
 ## Scope
 

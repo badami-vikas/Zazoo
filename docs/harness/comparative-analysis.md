@@ -20,6 +20,101 @@ Research date **2026-07-29**. Claims marked `UNVERIFIED` were not confirmed agai
 and must not be treated as canon. Evidence for the general claims lives in
 [`learnings-and-next-steps.md`](learnings-and-next-steps.md).
 
+## 0. At a glance
+
+Scannable summary. Detail, evidence, and per-platform Bridge contrasts are in §3 onward.
+Legend: **✅** present · **◐** partial or named caveat · **❌** absent · **↯** deliberately rejected.
+
+### 0.1 The field
+
+| Platform | Shape | Durable run | HITL | Isolation | Health |
+|---|---|---|---|---|---|
+| **Bridge Engine** | governed pipeline | ❌ no resume/replay | ◐ Review Mode, no SLA | ❌ none wired | — |
+| Claude Code / Agent SDK | async-generator loop | ◐ resume + `/rewind` | ◐ `canUseTool` + hooks | ◐ OS sandbox | healthy |
+| Codex CLI | thread/turn, config layers | ◐ `codex resume` | ✅ sandbox × approval | ✅ Seatbelt/bwrap + cloud 2-phase | healthy |
+| Cursor | client-side loop | ◐ checkpoints | ✅ Run Modes + classifier | ✅ sandbox + cloud VM | healthy |
+| Devin | planner-wrapped, cloud-only | ✅ snapshots + rewind | ◐ plan + PR review | ✅ VM per session | ~14–15% autonomy |
+| opencode | client/server, OpenAPI | ◐ SQLite + git snapshots | ✅ allow/ask/deny globs | ❌ operator's problem | repo moved |
+| OpenClaw | gateway + Brain/Hands | ◐ SQLite sessions | ◐ per-tool policy | ✅ docker/ssh × 3 scopes | ⚠️ CVSS 8.8; 35% of 40k exposed |
+| Pi (pi.dev) | minimal 4-tool loop | ✅ tree sessions | ↯ none by design | ↯ BYO container | healthy |
+| CrewAI | Crew (frozen) + Flow | ◐ `@persist()` | ◐ `human_input` prompt | ❌ deprecated | ⚠️ token burn, 4 CVEs |
+| AutoGen | actor model | ◐ `save_state()` blob | ◐ `UserProxyAgent` | ❌ | ⚠️ maintenance mode |
+| AG2 v1.0 | Hub + typed channels | ✅ WAL + audit log | ✅ `HumanClient` as peer | ❌ | ⚠️ 2 days old |
+| Microsoft Agent Framework | graph, supersteps | ✅ **best** — checkpoints | ✅ **durable** pending req | ✅ VM-isolated sessions | healthy, fast churn |
+| OpenAI Agents SDK | conversation loop | ❌ none native | ◐ JS `RunState` only | ◐ sandbox agents | pre-1.0 |
+| AgentKit / Agent Builder | visual node graph | ❌ | ✅ Human approval node | ❌ | ☠️ **dead 2026-11-30** |
+| Google ADK | 3 overlapping models | ◐ opt-in, at-least-once | ✅ `LongRunningFunctionTool` | ❌ | ⚠️ naming churn |
+| LangGraph | Pregel/BSP channels | ◐ checkpoint ≠ durable | ⚠️ `interrupt()` **re-runs node** | ❌ | ⚠️ RCE chain; EL2.0 server |
+| Temporal | event-sourced replay | ✅ **reference impl** | ✅ Signals + Update | ❌ | healthy |
+| Hatchet | Postgres task queue | ✅ durable-context | ✅ durable event waits | ❌ | healthy |
+| Mastra | agent + graph library | ◐ snapshot at `suspend()` | ✅ `suspend()`/`resume()` | ❌ | ⚠️ **145 npm pkgs compromised** |
+| n8n | DAG over item stream | ◐ Wait node >65 s only | ✅ 3 mechanisms, 6 channels | ❌ | ⚠️ licence disputes |
+| Relay.app | step graph, long-lived run | ✅ retry-from-failure | ✅ **best type system** | ❌ | ☠️ **shutting down** |
+| Zapier Agents | LLM loop, no canvas | ❌ | ◐ prompt-instructed only | ❌ | ⚠️ hard quota cliffs |
+| Lindy | canvas + agent steps | ◐ listening channels | ✅ per-action confirm | ❌ | ⚠️ credit burn, 2.4/5 |
+
+### 0.2 Bridge scorecard
+
+| | Primitive | Field comparison |
+|---|---|---|
+| **Ahead** | Deterministic Authority Decision | everyone else prompt-asserts, or hands it to a second model |
+| | Local/Cloud Plane + deny-default Plane Gate | only 2 narrower equivalents exist (MAF Foundry, Temporal Codec Server) |
+| | Runtime taint lattice | **nothing surveyed has one**; CaMeL is a research prototype |
+| | Child Agent Run = 7-way authority intersection | Devin bounds children physically with VMs; we bound logically |
+| | Capability Trust Model, earned + decaying | only AG2's 2-day-old "Resume" is comparable |
+| | Ledger + Decision Trace (authority explainability) | no external observability stack models authority |
+| | **propose→decide→commit never re-executes** | LangGraph's `interrupt()` duplicates side effects — *unstated advantage* |
+| **Behind** | Compaction | **we throw** at 24 segments / 64k chars; everyone else compacts |
+| | Sandbox at any isolation rung | container adapter throws; zero `sandbox` hits in `wiring.ts` |
+| | Durable Run resume / checkpoint | MAF, Temporal, Hatchet, ADK all ship a version |
+| | Shipped eval harness | n8n and Lindy have working loops today |
+| | Retry / backoff / idempotency in the engine | Temporal and Hatchet are the references |
+| | Cost attribution + OTel export | Claude Code `/usage` and Lindy per-step credits both ahead |
+| | Approval SLA (who, by when, escalate how) | Relay.app's object is the design to copy |
+| **Rejected** | LLM-as-approver | Codex + Cursor both shipped one in 2026; Cursor disclaims its own |
+| | Free-text instruction file | measurably reduces success, +20% cost (arXiv 2602.11988) |
+| | Automation invoking a Skill directly | CrewAI delegation loops and Zapier cliffs are the counter-examples |
+
+### 0.3 The 15 convergent primitives — do we have them?
+
+| # | Primitive | Bridge | Note |
+|---|---|---|---|
+| P1 | Bounded tool loop, orchestrator owns control | ✅ | Action Pipeline; stronger than most |
+| P2 | Policy injected as data, not branched in-loop | ✅ | Authority resolver + policy layer |
+| P3 | `AGENTS.md`-style instruction file | ↯ | manifests + mandates instead — evidence supports this |
+| P4 | Progressive-disclosure skills | ◐ | Skill is a stricter object; no lazy-load model |
+| P5 | Compaction (trending to user-owned policy) | ❌ | planned Engine family, unbuilt |
+| P6 | Sub-agents for context isolation | ✅ | Child Agent Run; strongest contract in the field |
+| P7 | Lifecycle hooks outside the model context | ◐ | guard/policy run there; no registrable surface |
+| P8 | Capability × approval, two orthogonal layers | ✅ | Data Scope × Review Mode; closest match is Codex |
+| P9 | LLM-as-approver | ↯ | deliberate rejection |
+| P10 | Isolation ladder (process→sandbox→VM) | ❌ | rung zero |
+| P11 | Two-phase credential stripping | ❌ | Credential Broker is adjacent, not equivalent |
+| P12 | Session durability: resume / fork / rewind | ❌ | append-only Events, but no fork or resume |
+| P13 | Client/server split, UI is one client | ✅ | three clients over one tRPC API |
+| P14 | Observability + cost attribution | ◐ | richest governance trace, zero cost attribution |
+| P15 | Shipped evals | ❌ | designed in full, unfed |
+
+### 0.4 Vendor churn in 2026 — adoption risk, not capability risk
+
+| Vendor | Event |
+|---|---|
+| Relay.app | entire product shuts down 2026-08-15 / 09-14 |
+| OpenAI | Agent Builder + Evals dead 2026-11-30, ~13 months after launch |
+| Microsoft | AutoGen maintenance mode; users migrated 0.2 → 0.4 → MAF |
+| AG2 | v1.0 "not a drop-in"; second forced migration by a team that forked to promise stability |
+| Mastra | ~145 npm packages compromised Jun 2026 (DPRK Sapphire Sleet) — **we ship Mastra** |
+| OpenClaw | CVE-2026-25253 (8.8) + 2 command injections; 40,214 exposed, 35.4% vulnerable |
+| LangGraph | `langgraph-api` is Elastic License 2.0, not MIT; RCE chain via `get_state_history()` |
+| CrewAI | memory API unified in v1, invalidating most docs; 4 CVEs |
+| n8n | ongoing "fair-code" licensing disputes |
+
+**Implication:** everything Bridge depends on sits behind a port; everything Bridge publishes to
+Commons is content-addressed, signed, exportable, and unambiguously licensed. The two clearest
+failures of 2026 were a hosted control plane vanishing and a package registry being compromised.
+
+---
+
 ## 1. What "harness" means, and which one this document compares
 
 The word is overloaded. Three definitions are in live use:
