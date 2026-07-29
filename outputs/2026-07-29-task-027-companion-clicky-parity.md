@@ -88,3 +88,67 @@ GROQ_API_KEY=... pnpm tauri dev   # or configure {app_data}/bridge/companion.jso
 - `platform/apps/web/src/app/avatar/OverlayApp.tsx` — ask panel/PTT/blink-bridge wiring
 - `platform/apps/web/src/app/avatar/AnnotateApp.tsx` — mark entrance animation
 - `platform/apps/web/src/app/avatar/tauri-internals.ts` — NEW: shared raw-internals helpers
+
+---
+
+# Live validation session — 2026-07-29 (same day)
+
+Run on the user's machine with Screen Recording + Microphone granted and a real `GROQ_API_KEY`.
+Six defects were found and fixed; the loop now works end to end. Evidence screenshot:
+[`2026-07-29-task-027-live-marks-evidence.png`](2026-07-29-task-027-live-marks-evidence.png) —
+a yellow dashed spotlight ring plus an "Ask button" callout rendered over a fullscreen app.
+
+## Defects found and fixed
+
+| # | Defect | Root cause | Fix |
+|---|---|---|---|
+| 1 | `only alphanumeric, '-', '/', ':', '_' permitted for event names: "annotate.marks"` | Tauri v2 rejects `.` in event names. Pre-existing: `annotate.marks` AND `sensor.capture` were both dead on arrival, their emit errors discarded — so the blink tell and every annotation had never actually delivered | Renamed to `annotate:marks`, `sensor:capture`, `sensor:started` |
+| 2 | Vision replies rendered as `<think></think>` | `qwen/qwen3.6-27b` is a reasoning model | `strip_think_blocks` client-side + `reasoning_effort: "none"` |
+| 3 | Empty answers presented as success | `reasoning_format: "hidden"` still spends the token budget thinking (verified: `finish_reason=length`, empty content) | `reasoning_effort: "none"` (verified to answer directly) + typed `COMPANION_EMPTY_ANSWER` so an empty reply can never look like success |
+| 4 | Marks emitted `Ok` but never reached the webview | `capabilities/default.json` covered `["main","overlay*"]` only. `plugin:event|listen` is a CORE command, so the annotate webview was denied permission to listen — silently, because custom `#[tauri::command]`s still worked | Added `annotate*` to the capability windows |
+| 5 | Webview applied marks, nothing painted | (a) frame used `calc()` in an SVG geometry attribute → computes to 0 in WebKit; (b) marks used an entrance animation with `backwards` fill, which holds `opacity: 0` during its delay — a transparent, never-focused, click-through webview throttles animations, so marks stayed invisible permanently | Frame is a plain CSS border; marks are opaque at rest with animation as decoration only |
+| 6 | Marks invisible even when painted | The annotate window was an ordinary `always_on_top` window, so it lived in ONE Space and could never draw over a fullscreen app — unlike the Avatar, which is an NSPanel with `can_join_all_spaces` + `full_screen_auxiliary` | Annotate windows get the same NSPanel treatment (non-activating, still click-through) |
+
+## Improvements made during validation
+
+- **Vision model**: `meta-llama/llama-4-scout-17b-16e-instruct` was retired by Groq (404). Configured
+  `qwen/qwen3.6-27b` via `companion.json`.
+- **Two-stage grid locator** (user-chosen option, adapted from Bitshank's clicky-windows): the model's
+  raw `[POINT:x,y]` coordinates are discarded — measured unreliable (a target at 750,450 in a
+  1000x600 image returned 136,808; a 3x3 grid probe returned C2 for a target in C3). Instead the
+  answer call returns a `[CELL:<cell>:<label>]` tag (stage 1, free — same call as the answer), then
+  one call on a padded crop refines it (stage 2). The mark is drawn at the size of the located
+  region, so ring size honestly conveys precision.
+- **Image downscaling** to 1280px longest edge (890 KiB → 151 KiB typical). Combined with folding
+  stage 1 into the answer call, this brought a pointing ask from 3 provider calls to 2 and under the
+  free tier's 8,000 tokens/minute — stage-2 refinement only started succeeding after this.
+- **High-visibility marks**: bright yellow (#FFD400) over a near-black halo, thicker strokes, haloed
+  bold labels, plus a screen-edge frame while marks are active. The previous navy theme colour was
+  effectively invisible over dark windows.
+- **Diagnostics**: pipeline trace (image/logical dims, cell, located box, mark count, reply head),
+  annotate window geometry, and a webview-side `annotate_ready` ping that reports marks applied.
+
+## Verified live
+
+```yaml
+V1_summon_and_panel: pass        # hover ✨, right-click menu item, ⌘⇧Space from another app
+V3_capture_and_answer: pass      # real screen content described correctly, consent-gated
+V3_marks_render: pass            # yellow ring + callout + frame visible over a FULLSCREEN app
+V3_auto_clear: pass              # "applied 2" → "applied 0" after ~12s
+V4_transcription: pass           # push-to-talk → Groq Whisper transcript → auto-ask
+locator_stage2_refinement: pass  # located box narrowed from 1140x738 to 456x344
+source_gates: { rust: 72/72, web_tests: 106/106, typecheck: pass, build: pass }
+```
+
+## Honest remaining gap
+
+**Pointing accuracy.** The plumbing is proven, but `qwen/qwen3.6-27b` grounds locations poorly: in the
+evidence screenshot the ring lands a few hundred logical pixels below-left of the real Ask button
+(target ≈ (1565,597), ring centre (1140,725)), so the button sits just outside the ring. The model
+describes the screen correctly in words and picks roughly the right area, but cannot reliably convert
+"that button" into a position. Groq's current catalogue has no grounding-strong vision model.
+
+Options, in the order recommended: (1) switch the vision provider to one with real grounding
+(Anthropic / OpenAI / Gemini) — smallest change, biggest accuracy gain, consent gate unchanged;
+(2) raise the Groq tier and increase the locator to 3 stages; (3) accept coarse "look in this area"
+pointing and document it. Not yet decided by the user.

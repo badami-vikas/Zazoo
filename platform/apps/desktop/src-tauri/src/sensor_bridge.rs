@@ -270,7 +270,8 @@ pub fn sensor_start(
 
         // Fire an initial blink-tell so the overlay avatar can confirm the
         // provider came up, even before its first observation lands.
-        let _ = app.emit("sensor.started", ());
+        // Colon-separated: Tauri v2 rejects dotted event names at emit time.
+        let _ = app.emit("sensor:started", ());
         Ok(())
     }
     #[cfg(not(target_os = "macos"))]
@@ -323,7 +324,9 @@ pub fn sensor_drain(
     let mut out = Vec::with_capacity(observations.len());
     for obs in observations {
         let value = serde_json::to_value(&obs).unwrap_or(serde_json::Value::Null);
-        let _ = app.emit("sensor.capture", &value);
+        // "sensor:capture", not the historical dotted name — Tauri v2
+        // rejects '.' in event names, so the dotted emit never delivered.
+        let _ = app.emit("sensor:capture", &value);
         out.push(value);
     }
     Ok(out)
@@ -456,7 +459,7 @@ pub fn capture_display_jpeg(
         };
         with_hub(app, |inner| inner.queue.push(observation.clone()))?;
         let _ = app.emit(
-            "sensor.capture",
+            "sensor:capture",
             serde_json::to_value(&observation).unwrap_or(serde_json::Value::Null),
         );
 

@@ -38,6 +38,10 @@ base64 = "0.22"
 # Honest screenshot dimensions: decode the real JPEG header instead of
 # assuming the display's physical size matches the captured image.
 imagesize = "0.13"
+# Two-stage grid locator (companion.rs): crop a screenshot region and
+# re-encode it so a weak-grounding vision model can be asked to narrow down
+# a target inside a zoomed view. JPEG only — no other codecs pulled in.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

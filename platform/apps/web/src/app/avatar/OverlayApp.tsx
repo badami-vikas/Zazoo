@@ -190,7 +190,7 @@ export function OverlayApp() {
       : "collapsed";
 
   // Blink tell — same window-event contract as the in-page overlay, PLUS a
-  // bridge from the Rust-originated `sensor.capture` Tauri event so captures
+  // bridge from the Rust-originated `sensor:capture` Tauri event so captures
   // announced by the shell (screenshots, provider drains) blink this avatar
   // regardless of which webview initiated them.
   useEffect(() => {
@@ -202,11 +202,11 @@ export function OverlayApp() {
     window.addEventListener(CAPTURE_EVENT, onCapture);
     let unlisten: () => void = () => undefined;
     void (async () => {
-      unlisten = await tauriListen("sensor.capture", () => {
+      unlisten = await tauriListen("sensor:capture", () => {
         dispatchCaptureEvent();
       });
     })().catch((error: unknown) => {
-      console.error("[companion] sensor.capture listener failed", error);
+      console.error("[companion] sensor:capture listener failed", error);
     });
     return () => {
       window.removeEventListener(CAPTURE_EVENT, onCapture);

@@ -47,6 +47,11 @@ const GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
 /// deprecated model id never requires a rebuild.
 const DEFAULT_VISION_MODEL: &str = "meta-llama/llama-4-scout-17b-16e-instruct";
 const DEFAULT_STT_MODEL: &str = "whisper-large-v3-turbo";
+/// Retained for the legacy `[POINT:x,y:label]` vocabulary, which the pipeline
+/// no longer drives (raw coordinates proved unreliable — see the locator) but
+/// still parses and strips defensively so an older prompt or a model that
+/// volunteers point tags can never leak them into prose or marks.
+#[allow(dead_code)]
 const MAX_POINTS: usize = 5;
 const MAX_HISTORY_TURNS: usize = 10;
 const MAX_QUESTION_CHARS: usize = 4_000;
@@ -177,6 +182,7 @@ pub fn companion_capabilities(app: AppHandle) -> CompanionCapabilities {
 // [POINT:x,y:label] parsing + coordinate mapping
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedPoint {
     /// Coordinates in the SCREENSHOT IMAGE's pixel space.
@@ -188,6 +194,7 @@ pub struct ParsedPoint {
 /// Parse `[POINT:x,y:label]` tags out of a model reply. Malformed tags are
 /// skipped (the text keeps them, harmless); labels are bounded plain text.
 /// No regex crate: a small scanner keeps the dependency surface flat.
+#[allow(dead_code)]
 pub fn parse_point_tags(text: &str) -> Vec<ParsedPoint> {
     const OPEN: &str = "[POINT:";
     let mut points = Vec::new();
@@ -225,6 +232,74 @@ pub fn parse_point_tags(text: &str) -> Vec<ParsedPoint> {
     points
 }
 
+/// Remove reasoning-model `<think>…</think>` blocks (e.g. Qwen3.x on Groq).
+/// Reasoning is suppressed server-side too (`reasoning_format: "hidden"`),
+/// but this client-side strip guarantees the panel/speech never show raw
+/// thinking even when a provider ignores that parameter. An unclosed
+/// `<think>` drops the remainder — reasoning must never leak as answer text.
+pub fn strip_think_blocks(text: &str) -> String {
+    const OPEN: &str = "<think>";
+    const CLOSE: &str = "</think>";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(OPEN) {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + OPEN.len()..];
+        match after.find(CLOSE) {
+            Some(end) => rest = &after[end + CLOSE.len()..],
+            None => {
+                rest = "";
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out.trim().to_string()
+}
+
+/// A `[CELL:C3:Ask button]` tag: locator stage 1 carried inside the answer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CellTarget {
+    pub column: usize,
+    pub row: usize,
+    pub label: String,
+}
+
+/// Parse the single `[CELL:<cell>:<label>]` tag from a reply. Returns `None`
+/// when absent or malformed — the companion then answers without pointing
+/// rather than marking a guessed location.
+pub fn parse_cell_tag(text: &str) -> Option<CellTarget> {
+    const OPEN: &str = "[CELL:";
+    let start = text.find(OPEN)?;
+    let after = &text[start + OPEN.len()..];
+    let end = after.find(']')?;
+    let body = &after[..end];
+    let mut parts = body.splitn(2, ':');
+    let (column, row) = parse_grid_cell(parts.next()?.trim())?;
+    let label = sanitize_label(parts.next().unwrap_or("").trim());
+    Some(CellTarget { column, row, label })
+}
+
+/// Remove `[CELL:...]` tags from the prose shown and spoken to the user.
+pub fn strip_cell_tags(text: &str) -> String {
+    const OPEN: &str = "[CELL:";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(OPEN) {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + OPEN.len()..];
+        match after.find(']') {
+            Some(end) => rest = &after[end + 1..],
+            None => {
+                rest = "";
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Strip the tags for display/speech — the user hears/reads clean prose while
 /// the typed marks do the pointing.
 pub fn strip_point_tags(text: &str) -> String {
@@ -255,6 +330,262 @@ fn sanitize_label(label: &str) -> String {
     cleaned.trim().to_string()
 }
 
+// ---------------------------------------------------------------------------
+// Two-stage grid locator
+// ---------------------------------------------------------------------------
+//
+// Adapted from the clicky-windows (Bitshank) "two-stage grid locator for
+// pixel-perfect pointing on any LLM" behavior. Reason it exists: the vision
+// models available here describe a screen accurately in words but ground raw
+// pixel coordinates badly (measured: a target at 750,450 in a 1000x600 image
+// came back as 136,808). Asking "which cell?" twice — the second time on a
+// CROP, where the target fills far more of the frame — replaces one
+// unreliable coordinate guess with two coarse spatial judgements, and the
+// resulting box is honest about its own precision (the mark is drawn the
+// size of the located cell, not a false pinpoint).
+
+/// A located region in screenshot-image pixel space.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LocatedBox {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+const GRID: usize = 3;
+
+/// First `[A-C][1-3]` cell reference in a reply ("cell C3", "C3.", "**B2**").
+pub fn parse_grid_cell(reply: &str) -> Option<(usize, usize)> {
+    let bytes = reply.as_bytes();
+    for index in 0..bytes.len().saturating_sub(1) {
+        let column = bytes[index].to_ascii_uppercase();
+        let row = bytes[index + 1];
+        let column_ok = (b'A'..b'A' + GRID as u8).contains(&column);
+        let row_ok = (b'1'..b'1' + GRID as u8).contains(&row);
+        // Reject a match inside a longer word ("A1B2" style noise or "Bar2").
+        let preceded_by_letter = index > 0 && bytes[index - 1].is_ascii_alphanumeric();
+        if column_ok && row_ok && !preceded_by_letter {
+            return Some(((column - b'A') as usize, (row - b'1') as usize));
+        }
+    }
+    None
+}
+
+/// The sub-rectangle of `outer` at grid position (col,row).
+pub fn cell_box(outer: LocatedBox, column: usize, row: usize) -> LocatedBox {
+    let width = outer.width / GRID as f64;
+    let height = outer.height / GRID as f64;
+    LocatedBox {
+        x: outer.x + column as f64 * width,
+        y: outer.y + row as f64 * height,
+        width,
+        height,
+    }
+}
+
+/// Expand a box by `ratio` of its own size, clamped to the image — context
+/// around the cell keeps a target that straddles a grid line findable.
+pub fn padded_box(inner: LocatedBox, image_w: f64, image_h: f64, ratio: f64) -> LocatedBox {
+    let pad_x = inner.width * ratio;
+    let pad_y = inner.height * ratio;
+    let x = (inner.x - pad_x).max(0.0);
+    let y = (inner.y - pad_y).max(0.0);
+    LocatedBox {
+        x,
+        y,
+        width: (inner.width + pad_x * 2.0).min(image_w - x).max(1.0),
+        height: (inner.height + pad_y * 2.0).min(image_h - y).max(1.0),
+    }
+}
+
+fn grid_prompt(target: &str, stage: &str) -> String {
+    format!(
+        "This image is {stage}. It is divided into a 3x3 grid of equal cells labelled \
+         A1 B1 C1 across the top row (A = leftmost column), A2 B2 C2 across the middle row, \
+         and A3 B3 C3 across the bottom row. Which single cell contains: {target}? \
+         Reply with only the cell label, e.g. B2. If it is not visible, reply NONE."
+    )
+}
+
+fn ask_grid_cell(
+    key: &str,
+    model: &str,
+    jpeg: &[u8],
+    target: &str,
+    stage: &str,
+) -> Option<(usize, usize)> {
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": 12,
+        "temperature": 0.0,
+        "reasoning_effort": "none",
+        "messages": [{
+            "role": "user",
+            "content": [
+                { "type": "text", "text": grid_prompt(target, stage) },
+                { "type": "image_url", "image_url": { "url": format!(
+                    "data:image/jpeg;base64,{}",
+                    base64::engine::general_purpose::STANDARD.encode(jpeg)
+                ) } },
+            ],
+        }],
+    });
+    match post_chat(&format!("{GROQ_BASE_URL}/chat/completions"), key, body) {
+        Ok(reply) => parse_grid_cell(&strip_think_blocks(&reply)),
+        Err(error) => {
+            eprintln!(
+                "[bridge-desktop] companion locator stage failed ({}): {}",
+                error.code, error.message
+            );
+            None
+        }
+    }
+}
+
+/// Longest edge sent to the provider. A retina screenshot is ~3420px wide and
+/// costs ~2500 image tokens per call — three calls blow a free tier's 8000
+/// tokens/minute. 1280px keeps UI text legible for both the answer and the
+/// grid judgements while cutting tokens several-fold. Safe for the locator by
+/// construction: stage results are grid CELLS (scale-invariant fractions),
+/// never pixel coordinates, so they map back to the full-size image exactly.
+const MAX_PROVIDER_EDGE: u32 = 1280;
+
+fn downscale_jpeg(bytes: &[u8], max_edge: u32) -> Option<Vec<u8>> {
+    let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?;
+    let (width, height) = image::GenericImageView::dimensions(&image);
+    if width.max(height) <= max_edge {
+        return None; // already small enough — keep the original bytes
+    }
+    let resized = image.resize(max_edge, max_edge, image::imageops::FilterType::Triangle);
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 82)
+        .encode_image(&resized.to_rgb8())
+        .ok()?;
+    Some(out)
+}
+
+/// Bytes to send a provider: downscaled when oversized, original otherwise.
+fn provider_jpeg(bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    match downscale_jpeg(bytes, MAX_PROVIDER_EDGE) {
+        Some(smaller) => {
+            eprintln!(
+                "[bridge-desktop] companion image downscaled {} KiB -> {} KiB",
+                bytes.len() / 1024,
+                smaller.len() / 1024
+            );
+            std::borrow::Cow::Owned(smaller)
+        }
+        None => std::borrow::Cow::Borrowed(bytes),
+    }
+}
+
+/// Crop `region` out of a JPEG and re-encode it.
+fn crop_jpeg(bytes: &[u8], region: LocatedBox) -> Option<Vec<u8>> {
+    let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?;
+    let cropped = image::GenericImageView::view(
+        &image,
+        region.x.max(0.0) as u32,
+        region.y.max(0.0) as u32,
+        region.width.max(1.0) as u32,
+        region.height.max(1.0) as u32,
+    )
+    .to_image();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85)
+        .encode_image(&image::DynamicImage::ImageRgba8(cropped).to_rgb8())
+        .ok()?;
+    Some(out)
+}
+
+/// Stage 2: refine a cell the answer call already reported. One extra
+/// provider call, on a CROP where the target fills far more of the frame.
+/// Falls back to the coarse region whenever the refinement is unavailable
+/// (rate limit, undecodable crop, target not visible in the zoom) — a loose
+/// ring that contains the target beats no ring at all.
+fn refine_cell(
+    key: &str,
+    model: &str,
+    jpeg: &[u8],
+    image_w: f64,
+    image_h: f64,
+    target: &CellTarget,
+) -> LocatedBox {
+    let full = LocatedBox {
+        x: 0.0,
+        y: 0.0,
+        width: image_w,
+        height: image_h,
+    };
+    let coarse = padded_box(
+        cell_box(full, target.column, target.row),
+        image_w,
+        image_h,
+        0.2,
+    );
+    if target.label.is_empty() {
+        return coarse;
+    }
+    let Some(crop) = crop_jpeg(jpeg, coarse) else {
+        return coarse;
+    };
+    match ask_grid_cell(
+        key,
+        model,
+        provider_jpeg(&crop).as_ref(),
+        &target.label,
+        "a zoomed-in region of the user's screen",
+    ) {
+        Some((column, row)) => cell_box(coarse, column, row),
+        None => coarse,
+    }
+}
+
+/// Locate `target` in the screenshot: coarse cell on the full image, then a
+/// finer cell inside a padded crop of it. Returns `None` when either stage
+/// cannot see the target — the caller then points at nothing rather than
+/// guessing (honest empty beats a confident wrong arrow).
+#[allow(dead_code)]
+fn locate_target(
+    key: &str,
+    model: &str,
+    jpeg: &[u8],
+    image_w: f64,
+    image_h: f64,
+    target: &str,
+) -> Option<LocatedBox> {
+    let full = LocatedBox {
+        x: 0.0,
+        y: 0.0,
+        width: image_w,
+        height: image_h,
+    };
+    let (column, row) = ask_grid_cell(
+        key,
+        model,
+        provider_jpeg(jpeg).as_ref(),
+        target,
+        "the user's full screen",
+    )?;
+    let coarse = padded_box(cell_box(full, column, row), image_w, image_h, 0.2);
+    // Crop from the ORIGINAL capture (full detail), then downscale only if
+    // the crop itself is still oversized.
+    let Some(crop) = crop_jpeg(jpeg, coarse) else {
+        return Some(coarse);
+    };
+    let Some((column, row)) = ask_grid_cell(
+        key,
+        model,
+        provider_jpeg(&crop).as_ref(),
+        target,
+        "a zoomed-in region of the user's screen",
+    ) else {
+        // Stage 1 alone is still a usable, honestly coarse answer.
+        return Some(coarse);
+    };
+    Some(cell_box(coarse, column, row))
+}
+
 /// Map a point from screenshot-image pixel space to the monitor's logical
 /// coordinate space (what AnnotateApp renders in — its window covers the
 /// monitor at logical size).
@@ -274,50 +605,56 @@ pub fn map_image_point_to_logical(
     Some((lx, ly))
 }
 
-/// Build the typed marks for a set of parsed points: a spotlight ring on the
-/// target plus a callout with the model's (bounded, plain-text) label. Stays
-/// within annotate.rs's MAX_MARKS (5 points × 2 marks ≤ 12).
-pub fn marks_for_points(
-    points: &[ParsedPoint],
+/// Typed marks for a LOCATED region: a spotlight sized to the region itself
+/// (so the ring communicates how precisely the target was found — a coarse
+/// stage-1-only result draws a big ring, a refined one draws a small ring)
+/// plus a labeled callout beneath it.
+pub fn marks_for_box(
+    region: LocatedBox,
+    label: &str,
     image_w: f64,
     image_h: f64,
     logical_w: f64,
     logical_h: f64,
 ) -> Vec<annotate::AnnotationMark> {
-    let mut marks = Vec::new();
-    for point in points.iter().take(MAX_POINTS) {
-        let Some((lx, ly)) =
-            map_image_point_to_logical(point.x, point.y, image_w, image_h, logical_w, logical_h)
-        else {
-            continue;
+    let center_x = region.x + region.width / 2.0;
+    let center_y = region.y + region.height / 2.0;
+    let Some((cx, cy)) =
+        map_image_point_to_logical(center_x, center_y, image_w, image_h, logical_w, logical_h)
+    else {
+        return Vec::new();
+    };
+    // Region size in logical units, bounded so a ring is always a readable
+    // "look here" and never a full-screen circle.
+    let scale_x = logical_w / image_w;
+    let scale_y = logical_h / image_h;
+    let width = (region.width * scale_x).clamp(48.0, logical_w * 0.6);
+    let height = (region.height * scale_y).clamp(48.0, logical_h * 0.6);
+
+    let mut marks = vec![annotate::AnnotationMark {
+        kind: annotate::MarkKind::Spotlight,
+        x: cx - width / 2.0,
+        y: cy - height / 2.0,
+        width,
+        height,
+        label: None,
+    }];
+    if !label.is_empty() {
+        let callout_w = (label.len() as f64 * 9.0 + 24.0).clamp(80.0, 360.0);
+        let below = cy + height / 2.0 + 16.0;
+        let callout_y = if below + 30.0 <= logical_h {
+            below
+        } else {
+            (cy - height / 2.0 - 46.0).max(0.0)
         };
         marks.push(annotate::AnnotationMark {
-            kind: annotate::MarkKind::Spotlight,
-            x: lx - 26.0,
-            y: ly - 26.0,
-            width: 52.0,
-            height: 52.0,
-            label: None,
+            kind: annotate::MarkKind::Callout,
+            x: (cx - callout_w / 2.0).clamp(0.0, (logical_w - callout_w).max(0.0)),
+            y: callout_y,
+            width: callout_w,
+            height: 30.0,
+            label: Some(label.to_string()),
         });
-        if !point.label.is_empty() {
-            let width = (point.label.len() as f64 * 7.5 + 20.0).clamp(60.0, 320.0);
-            // Keep the callout on-screen: below the point when room, above
-            // otherwise; clamped horizontally.
-            let cy = if ly + 44.0 + 28.0 <= logical_h {
-                ly + 44.0
-            } else {
-                (ly - 44.0 - 28.0).max(0.0)
-            };
-            let cx = (lx - width / 2.0).clamp(0.0, (logical_w - width).max(0.0));
-            marks.push(annotate::AnnotationMark {
-                kind: annotate::MarkKind::Callout,
-                x: cx,
-                y: cy,
-                width,
-                height: 28.0,
-                label: Some(point.label.clone()),
-            });
-        }
     }
     marks
 }
@@ -380,15 +717,27 @@ fn bounded_history(history: &[HistoryTurn]) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// The answer prompt also carries locator stage 1: the model returns the
+/// grid CELL of the one thing it is pointing at, in the same reply as the
+/// answer. Folding the two together halves the provider calls per ask —
+/// which matters concretely, since a free tier meters ~2,500 tokens per
+/// image and three image calls per ask exceed 8,000 tokens/minute.
+///
+/// Cells, not pixel coordinates: these models describe a screen accurately
+/// but ground raw pixels badly (measured: a target at 750,450 in a 1000x600
+/// image came back as 136,808), while a coarse "which ninth of the screen"
+/// judgement is reliable enough to be refined by a second pass on a crop.
 fn vision_system_prompt(image_w: usize, image_h: usize) -> String {
     format!(
         "You are Bridge's on-screen companion. The user shared ONE screenshot of their current \
          display ({image_w}x{image_h} pixels) with their question. Answer briefly and concretely \
-         (2-5 sentences), in plain prose suitable for being read aloud. When you refer to a \
-         specific place on the screen, append a tag of the exact form [POINT:x,y:label] where x,y \
-         are pixel coordinates in the screenshot and label is a short name for what is there \
-         (e.g. [POINT:512,300:Save button]). Use at most {MAX_POINTS} point tags, only for \
-         locations you can actually see. Never invent coordinates."
+         (2-5 sentences), in plain prose suitable for being read aloud. \
+         The screenshot is divided into a 3x3 grid of equal cells labelled A1 B1 C1 across the \
+         top row (A = leftmost column), A2 B2 C2 across the middle row, and A3 B3 C3 across the \
+         bottom row. If your answer refers to one specific thing on screen, end your reply with \
+         a single tag of the exact form [CELL:<cell>:<short label>] naming the cell that contains \
+         it, e.g. [CELL:C3:Ask button]. Use the tag only for something you can actually see, and \
+         never more than one. Do not mention the grid or the tag in your prose."
     )
 }
 
@@ -515,7 +864,8 @@ fn run_ask(
         });
         let data_uri = format!(
             "data:image/jpeg;base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(&capture.jpeg_bytes)
+            base64::engine::general_purpose::STANDARD
+                .encode(provider_jpeg(&capture.jpeg_bytes).as_ref())
         );
         let mut messages = vec![serde_json::json!({
             "role": "system",
@@ -529,32 +879,101 @@ fn run_ask(
                 { "type": "image_url", "image_url": { "url": data_uri } },
             ],
         }));
-        let body = serde_json::json!({
+        // Reasoning models (Qwen3.x) must not spend the token budget on
+        // thinking: `reasoning_format: "hidden"` was verified to return
+        // EMPTY content (finish=length, all tokens consumed by hidden
+        // reasoning). `reasoning_effort: "none"` disables reasoning outright
+        // and was verified to answer directly. If a future model rejects the
+        // parameter, retry once without it (the client-side think-strip
+        // below still guarantees clean output either way).
+        let mut body = serde_json::json!({
             "model": vision_model(app),
             "messages": messages,
             "temperature": 0.4,
-            "max_tokens": 700,
+            "max_tokens": 1024,
+            "reasoning_effort": "none",
         });
-        let raw = post_chat(&format!("{GROQ_BASE_URL}/chat/completions"), &key, body)?;
-        let points = parse_point_tags(&raw);
+        let url = format!("{GROQ_BASE_URL}/chat/completions");
+        let raw = match post_chat(&url, &key, body.clone()) {
+            Ok(raw) => raw,
+            Err(error)
+                if error.code == "COMPANION_PROVIDER_STATUS"
+                    && error.message.contains("reasoning_effort") =>
+            {
+                body.as_object_mut()
+                    .expect("body built as an object above")
+                    .remove("reasoning_effort");
+                post_chat(&url, &key, body)?
+            }
+            Err(error) => return Err(error),
+        };
+        let raw = strip_think_blocks(&raw);
+        if raw.trim().is_empty() {
+            // Never present an empty answer as success (a reasoning model
+            // that burned its budget thinking produces exactly this shape).
+            return Err(err(
+                "COMPANION_EMPTY_ANSWER",
+                "the model returned no visible answer (its token budget was likely consumed \
+                 by internal reasoning) — ask again",
+            ));
+        }
+        // Locator stage 1 arrived WITH the answer as a [CELL:..] tag (one
+        // provider call instead of two). Stage 2 then refines it on a crop.
+        let cell = parse_cell_tag(&raw);
         // Logical size of the captured monitor (main-thread roundtrip).
         // Fallback to image dimensions keeps marks roughly placed on a 1x
         // display even if enumeration hiccups.
         let (logical_w, logical_h) = monitor_logical_size(app, monitor_index)
             .unwrap_or((capture.image_width as f64, capture.image_height as f64));
-        let marks = marks_for_points(
-            &points,
-            capture.image_width as f64,
-            capture.image_height as f64,
-            logical_w,
-            logical_h,
+        let image_w = capture.image_width as f64;
+        let image_h = capture.image_height as f64;
+        let model_id = vision_model(app);
+        let located = cell.as_ref().map(|target| {
+            (
+                refine_cell(
+                    &key,
+                    &model_id,
+                    &capture.jpeg_bytes,
+                    image_w,
+                    image_h,
+                    target,
+                ),
+                target.label.clone(),
+            )
+        });
+        let marks = match &located {
+            Some((region, label)) => {
+                marks_for_box(*region, label, image_w, image_h, logical_w, logical_h)
+            }
+            // No usable target — draw nothing rather than a confident guess.
+            None => Vec::new(),
+        };
+        // Dev-visible pipeline trace (local stdout only): enough to tell
+        // "model emitted no tags" apart from "marks failed to render".
+        eprintln!(
+            "[bridge-desktop] companion ask: image={image_w}x{image_h} \
+             logical={logical_w}x{logical_h} monitor={monitor_index} cell={:?} located={:?} \
+             marks={} reply_head={:?}",
+            cell.as_ref()
+                .map(|target| (target.column, target.row, target.label.as_str())),
+            located.as_ref().map(|(region, label)| (
+                region.x.round(),
+                region.y.round(),
+                region.width.round(),
+                region.height.round(),
+                label.as_str()
+            )),
+            marks.len(),
+            raw.chars().take(120).collect::<String>(),
         );
         return Ok(AskOutcome {
             answer: CompanionAnswer {
-                text: strip_point_tags(&raw),
+                // Both tag vocabularies are stripped: the user reads and
+                // hears prose, never locator bookkeeping.
+                text: strip_point_tags(&strip_cell_tags(&raw)),
                 provider: "groq-vision",
                 screen_shared: true,
-                points: points.len(),
+                points: usize::from(!marks.is_empty()),
                 spoke: request.speak,
                 capture_note,
             },
@@ -595,6 +1014,7 @@ fn run_ask(
         &endpoint.api_key,
         body,
     )?;
+    let raw = strip_think_blocks(&raw);
     Ok(AskOutcome {
         answer: CompanionAnswer {
             text: strip_point_tags(&raw),
@@ -899,6 +1319,26 @@ mod tests {
     }
 
     #[test]
+    fn strips_reasoning_think_blocks() {
+        assert_eq!(
+            strip_think_blocks("<think>secret reasoning</think>The answer is 4."),
+            "The answer is 4."
+        );
+        assert_eq!(
+            strip_think_blocks("a <think>x</think>b<think>y</think> c"),
+            "a b c"
+        );
+        // Unclosed think never leaks reasoning into the visible answer.
+        assert_eq!(strip_think_blocks("visible <think>never closed"), "visible");
+        assert_eq!(strip_think_blocks("no tags"), "no tags");
+        // Point tags inside think are discarded with the reasoning — only
+        // final-answer points may become marks.
+        let cleaned = strip_think_blocks("<think>[POINT:1,2:hidden]</think>Done [POINT:3,4:real]");
+        assert_eq!(parse_point_tags(&cleaned).len(), 1);
+        assert_eq!(parse_point_tags(&cleaned)[0].label, "real");
+    }
+
+    #[test]
     fn strip_removes_tags_and_collapses_whitespace() {
         assert_eq!(
             strip_point_tags("Click the  [POINT:512,300:Save button] icon."),
@@ -924,21 +1364,80 @@ mod tests {
     }
 
     #[test]
-    fn marks_stay_within_annotate_bounds() {
-        let points: Vec<ParsedPoint> = (0..MAX_POINTS)
-            .map(|i| ParsedPoint {
-                x: 100.0 * i as f64,
-                y: 100.0,
-                label: format!("target {i}"),
-            })
-            .collect();
-        let marks = marks_for_points(&points, 2880.0, 1800.0, 1440.0, 900.0);
-        // 5 spotlights + 5 callouts = 10 ≤ annotate MAX_MARKS (12).
-        assert_eq!(marks.len(), 10);
+    fn located_box_marks_stay_within_annotate_bounds() {
+        // A stage-2 cell of a 2880x1800 capture, on a 1440x900 logical screen.
+        let region = LocatedBox {
+            x: 1920.0,
+            y: 1200.0,
+            width: 320.0,
+            height: 200.0,
+        };
+        let marks = marks_for_box(region, "Save button", 2880.0, 1800.0, 1440.0, 900.0);
+        assert_eq!(marks.len(), 2); // spotlight + callout, well under MAX_MARKS
         for mark in &marks {
-            assert!(mark.x >= -30.0 && mark.y >= -30.0);
+            assert!(mark.x >= 0.0 && mark.y >= 0.0);
+            assert!(mark.x + mark.width <= 1440.0 + 1.0);
             assert!(mark.width > 0.0 && mark.height > 0.0);
+            if let Some(label) = &mark.label {
+                assert!(label.len() <= 120);
+            }
         }
+        // Spotlight is centred on the region's centre (2080,1300 image →
+        // 1040,650 logical).
+        let spotlight = &marks[0];
+        assert!((spotlight.x + spotlight.width / 2.0 - 1040.0).abs() < 0.5);
+        assert!((spotlight.y + spotlight.height / 2.0 - 650.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn a_coarse_region_draws_a_bigger_ring_than_a_refined_one() {
+        let coarse = marks_for_box(
+            LocatedBox { x: 0.0, y: 0.0, width: 960.0, height: 600.0 },
+            "x",
+            2880.0,
+            1800.0,
+            1440.0,
+            900.0,
+        );
+        let refined = marks_for_box(
+            LocatedBox { x: 0.0, y: 0.0, width: 320.0, height: 200.0 },
+            "x",
+            2880.0,
+            1800.0,
+            1440.0,
+            900.0,
+        );
+        assert!(coarse[0].width > refined[0].width);
+    }
+
+    #[test]
+    fn grid_cell_parsing_accepts_real_replies_and_rejects_noise() {
+        assert_eq!(parse_grid_cell("C3"), Some((2, 2)));
+        assert_eq!(parse_grid_cell("The cell is **B2**."), Some((1, 1)));
+        assert_eq!(parse_grid_cell("a1"), Some((0, 0)));
+        assert_eq!(parse_grid_cell("NONE"), None);
+        assert_eq!(parse_grid_cell("D4"), None);
+        // Not a cell reference embedded in a word.
+        assert_eq!(parse_grid_cell("scaleA2"), None);
+    }
+
+    #[test]
+    fn grid_cells_tile_the_image_and_padding_stays_in_bounds() {
+        let full = LocatedBox { x: 0.0, y: 0.0, width: 900.0, height: 600.0 };
+        assert_eq!(
+            cell_box(full, 2, 2),
+            LocatedBox { x: 600.0, y: 400.0, width: 300.0, height: 200.0 }
+        );
+        assert_eq!(
+            cell_box(full, 0, 0),
+            LocatedBox { x: 0.0, y: 0.0, width: 300.0, height: 200.0 }
+        );
+        // Padding never escapes the image on any edge.
+        let padded = padded_box(cell_box(full, 0, 0), 900.0, 600.0, 0.2);
+        assert!(padded.x >= 0.0 && padded.y >= 0.0);
+        let padded_far = padded_box(cell_box(full, 2, 2), 900.0, 600.0, 0.2);
+        assert!(padded_far.x + padded_far.width <= 900.0);
+        assert!(padded_far.y + padded_far.height <= 600.0);
     }
 
     #[test]

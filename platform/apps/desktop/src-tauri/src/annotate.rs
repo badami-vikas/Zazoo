@@ -26,8 +26,30 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Monitor, WebviewUrl, WebviewWindowBuilder};
 
+#[cfg(target_os = "macos")]
+use tauri_nspanel::{tauri_panel, CollectionBehavior, PanelLevel, StyleMask, WebviewWindowExt};
+
+// Same NSPanel treatment as the Avatar overlay, and for the same reason: an
+// ordinary always-on-top window belongs to ONE Space, so the moment the user
+// works in a fullscreen app the annotation surface renders its marks into a
+// Space nobody is looking at. `can_join_all_spaces` + `full_screen_auxiliary`
+// are what let a mark appear over the window it is pointing at. The panel is
+// non-activating and stays click-through, so it never steals focus or clicks.
+#[cfg(target_os = "macos")]
+tauri_panel! {
+    panel!(AnnotatePanel {
+        config: {
+            can_become_key_window: false,
+            can_become_main_window: false,
+            is_floating_panel: true
+        }
+    })
+}
+
 pub const ANNOTATE_LABEL: &str = "annotate";
-const MARKS_EVENT: &str = "annotate.marks";
+// Colon-separated: Tauri v2 event names permit only alphanumerics and
+// '-', '/', ':', '_' — a dotted name is rejected at emit time.
+const MARKS_EVENT: &str = "annotate:marks";
 
 /// Constrained mark vocabulary (desktop-companion.md's stated set) — adding a
 /// new kind means adding an enum variant + a render case in AnnotateApp.tsx,
@@ -112,6 +134,15 @@ fn create_one_annotate_window(
     index: usize,
     monitor: Option<&Monitor>,
 ) -> tauri::Result<()> {
+    // Each annotate webview learns WHICH monitor it covers at creation time.
+    // Marks are broadcast (one event, every annotate window) and filtered
+    // here rather than routed by window label: a broadcast has one
+    // delivery semantic to reason about, and the index is injected by this
+    // shell, so a webview can never claim a different monitor's marks.
+    let init_script = format!(
+        "{init_script} window.__BRIDGE_ANNOTATE_MONITOR__ = {index};"
+    );
+    let init_script = init_script.as_str();
     let builder = WebviewWindowBuilder::new(
         app,
         label_for_monitor(index),
@@ -144,6 +175,35 @@ fn create_one_annotate_window(
     // Click-through from creation — this window must NEVER intercept a real
     // click meant for whatever app is underneath it.
     let _ = win.set_ignore_cursor_events(true);
+
+    #[cfg(target_os = "macos")]
+    configure_macos_panel(&win)?;
+
+    Ok(())
+}
+
+/// Float the annotate surface above every Space, including whatever app is
+/// currently fullscreen, without ever becoming key or activating the app.
+#[cfg(target_os = "macos")]
+fn configure_macos_panel(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    let panel = window.to_panel::<AnnotatePanel>()?;
+    panel.set_level(PanelLevel::Floating.value());
+    panel.set_floating_panel(true);
+    panel.set_hides_on_deactivate(false);
+    panel.set_becomes_key_only_if_needed(true);
+    panel.set_style_mask(StyleMask::empty().nonactivating_panel().into());
+    panel.set_collection_behavior(
+        CollectionBehavior::new()
+            .full_screen_auxiliary()
+            .can_join_all_spaces()
+            .into(),
+    );
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[bridge-desktop] annotate panel ready label={} floating={} policy=nonactivating+all-spaces+fullscreen-auxiliary",
+        window.label(),
+        panel.is_floating_panel(),
+    );
     Ok(())
 }
 
@@ -203,10 +263,44 @@ pub fn annotate_show(app: AppHandle, marks: Vec<AnnotationMark>) -> Result<(), A
             let _ = win.show();
         }
     }
-    app.emit(MARKS_EVENT, &marks).map_err(|e| AnnotateError {
-        code: "ANNOTATE_EMIT_FAILED",
-        message: e.to_string(),
-    })
+    // `monitor: null` = every annotate window draws these marks.
+    app.emit(MARKS_EVENT, &MarksPayload { monitor: None, marks })
+        .map_err(|e| AnnotateError {
+            code: "ANNOTATE_EMIT_FAILED",
+            message: e.to_string(),
+        })
+}
+
+/// Broadcast envelope. `monitor: None` targets every annotate window; a
+/// value targets the window whose injected `__BRIDGE_ANNOTATE_MONITOR__`
+/// matches. Windows that do not match clear their marks, so a stale set can
+/// never linger on another display.
+#[derive(Serialize)]
+struct MarksPayload {
+    monitor: Option<usize>,
+    marks: Vec<AnnotationMark>,
+}
+
+/// Called by an annotate webview once its listener is live, and again each
+/// time it applies a mark set. Debug-only log with a bounded numeric payload
+/// (never free text): proves the annotation surface mounted AND that the
+/// broadcast actually reached it — otherwise invisible, since the window is
+/// fully transparent when it has no marks.
+#[tauri::command]
+pub fn annotate_ready(window: tauri::WebviewWindow, rendered: Option<usize>) {
+    #[cfg(debug_assertions)]
+    match rendered {
+        Some(count) => eprintln!(
+            "[bridge-desktop] annotate webview applied {count} mark(s) label={}",
+            window.label()
+        ),
+        None => eprintln!(
+            "[bridge-desktop] annotate surface ready label={}",
+            window.label()
+        ),
+    }
+    #[cfg(not(debug_assertions))]
+    let _ = (window, rendered);
 }
 
 /// Show validated marks on ONE monitor's annotate window (the companion ask
@@ -229,6 +323,14 @@ pub fn show_marks_on(
         if label == target {
             let _ = win.show();
             shown = true;
+            eprintln!(
+                "[bridge-desktop] annotate window geometry label={label} visible={:?} \
+                 position={:?} size={:?} scale={:?}",
+                win.is_visible(),
+                win.outer_position().map(|p| (p.x, p.y)),
+                win.outer_size().map(|s| (s.width, s.height)),
+                win.scale_factor(),
+            );
         } else {
             let _ = win.hide();
         }
@@ -238,8 +340,22 @@ pub fn show_marks_on(
             "no annotate window exists for monitor {monitor_index}"
         ));
     }
-    app.emit_to(target.as_str(), MARKS_EVENT, &marks)
-        .map_err(|error| error.to_string())
+    let count = marks.len();
+    let result = app
+        .emit(
+            MARKS_EVENT,
+            &MarksPayload {
+                monitor: Some(monitor_index),
+                marks,
+            },
+        )
+        .map_err(|error| error.to_string());
+    eprintln!(
+        "[bridge-desktop] annotate show_marks_on: target={target} monitor={monitor_index} \
+         marks={count} emit={:?}",
+        result.as_ref().map(|_| "ok")
+    );
+    result
 }
 
 /// Clear all marks and hide every annotate window (never leaves a stale

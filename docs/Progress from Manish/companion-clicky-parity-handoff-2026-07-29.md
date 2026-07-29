@@ -41,9 +41,10 @@ trailing (Bridge uses its typed mark vocabulary instead of a free-moving fake cu
 
 - Repository: local checkout `/Users/manishsbhoopalam/Claude Projects/relationship-os`, branch `main`
 - Baseline commit at implementation time: `8cd9d46` ("Move sign-out into the top account dropdown")
-- Implementation status: **committed and pushed to `main`** as a single TASK-027 commit (this
-  handoff file landed inside it — `git log --oneline -1 -- docs/Progress\ from\ Manish/companion-clicky-parity-handoff-2026-07-29.md`
-  shows the exact SHA). Start validation with `git pull` and confirm that commit is in ancestry.
+- Implementation status: **committed and pushed to `main`**. The initial implementation landed as
+  `5c0fe3b`; the 2026-07-29 live-validation session added a second commit with six defect fixes,
+  the two-stage locator, image downscaling, and high-visibility marks (see §4). Start with
+  `git pull` and confirm both are in ancestry.
 - **Concurrent-session hazard:** another Claude session has been committing to this same checkout
   (`8cd9d46` landed mid-implementation) and owns a Vite dev server on **port 5173** (PID visible via
   `lsof -nP -iTCP:5173 -sTCP:LISTEN`). Take a fresh `git status` snapshot before starting, stop or
@@ -99,10 +100,13 @@ companion_ask {question, shareScreenWithCloud, speak, history[≤10]}
   │    │        └─ POST Groq /chat/completions (vision model, data-URI image, POINT protocol prompt)
   │    └─ NO  → read model_supervisor endpoint.json → POST local llama /v1/chat/completions
   │             (text-only; system prompt names frontmost app; forbids POINT tags)
-  ├─ parse_point_tags(reply) → ≤5 points → map image px → logical monitor coords
-  ├─ marks_for_points → typed Spotlight+Callout marks (≤10 total, under annotate MAX_MARKS 12)
-  ├─ annotate::show_marks_on(app, monitor_index, marks) → emit_to that monitor's annotate window,
-  │    hide the others; 12 s auto-clear thread with generation guard
+  ├─ parse_cell_tag(reply) → [CELL:<cell>:<label>]  (locator stage 1, free — same call)
+  ├─ refine_cell → crop that padded cell from the ORIGINAL capture → one more provider call
+  │    → finer cell (stage 2); falls back to the coarse cell on rate limit / not-visible
+  ├─ marks_for_box → typed Spotlight+Callout sized to the LOCATED region (ring size honestly
+  │    conveys precision); raw model coordinates are never trusted
+  ├─ annotate::show_marks_on(app, monitor_index, marks) → BROADCAST with an in-payload monitor
+  │    filter, non-target annotate windows clear; 12 s auto-clear thread with generation guard
   ├─ speak? → macOS `say`, text over stdin (never argv), previous child killed first
   └─ return CompanionAnswer {text(strip tags), provider, screenShared, points, spoke, captureNote}
 ```
@@ -118,10 +122,19 @@ companion_ask {question, shareScreenWithCloud, speak, history[≤10]}
 | `companion_stop_speaking` | — | `()` | `COMPANION_STATE` |
 | `capture_screenshot_on_demand` (now REAL) | — (uses calling window) | `{base64Jpeg, imageWidth, imageHeight, permissionGranted}` | `SENSOR_CAPTURE_FAILED`, `SENSOR_NOT_IMPLEMENTED` (non-macOS) |
 
-Events: `bridge:companion-ptt` (payload `"pressed"`/`"released"`, emitted app-wide from the
-Rust shortcut handler); `sensor.capture` (existing blink-tell, now also emitted per on-demand
-screenshot and bridged to the DOM `bridge:capture` event inside OverlayApp so ALL captures blink
-the OS overlay avatar).
+Events (COLON-separated — Tauri v2 rejects `.` in event names, and the historical dotted
+`annotate.marks` / `sensor.capture` were silently never delivered): `bridge:companion-ptt`
+(payload `"pressed"`/`"released"`, emitted app-wide from the Rust shortcut handler);
+`sensor:capture` (blink tell, now also emitted per on-demand screenshot and bridged to the DOM
+`bridge:capture` event inside OverlayApp so ALL captures blink the OS overlay avatar);
+`annotate:marks` (payload `{monitor, marks}`); `annotate_ready` is a command, not an event, and
+doubles as the webview's "marks applied" trace.
+
+**Two window-system constraints that this surface depends on** (both were live bugs, see §4):
+`capabilities/default.json` must list `annotate*` — `plugin:event|listen` is a CORE command, so
+an unlisted window is denied permission to listen and renders nothing while custom commands keep
+working; and annotate windows must be macOS NSPanels with `can_join_all_spaces` +
+`full_screen_auxiliary`, or they cannot draw over a fullscreen app.
 
 ### 3.3 Configuration resolution (companion.rs)
 
@@ -168,30 +181,59 @@ coordinates are window-relative. Overlay window label ↔ monitor index: `"overl
 
 ---
 
-## 4. Already verified by the implementing session (spot-check, don't re-derive)
+## 4. Live validation status — UPDATED after the 2026-07-29 session
+
+The prototype was validated interactively on the user's machine (real Screen Recording +
+microphone grants, real `GROQ_API_KEY`). **Six defects were found and fixed during that session**;
+do not re-derive them, and do not "fix" them back:
+
+1. Tauri v2 rejects `.` in event names — `annotate.marks` and `sensor.capture` had NEVER delivered
+   (emit errors were discarded). Now `annotate:marks` / `sensor:capture` / `sensor:started`.
+2. `qwen/qwen3.6-27b` is a reasoning model: it leaked `<think>` blocks, and
+   `reasoning_format: "hidden"` still spent the whole token budget thinking (empty content,
+   `finish_reason=length`). Now `reasoning_effort: "none"` + a client-side strip + a typed
+   `COMPANION_EMPTY_ANSWER` so an empty reply can never look like success.
+3. `capabilities/default.json` listed only `["main","overlay*"]`, so the annotate webview was
+   denied the CORE `plugin:event|listen` permission — it mounted and never received a mark.
+   `annotate*` is now listed and MUST stay.
+4. The screen-edge frame used `calc()` in an SVG geometry attribute (computes to 0 in WebKit), and
+   marks used an entrance animation with `backwards` fill that holds `opacity: 0` — a transparent,
+   never-focused, click-through webview throttles animations, so marks were permanently invisible.
+   Marks are now opaque at rest; animation is decoration only.
+5. Annotate windows were ordinary `always_on_top` windows, so they lived in ONE Space and could not
+   draw over a fullscreen app. They are now NSPanels with `can_join_all_spaces` +
+   `full_screen_auxiliary`, matching the Avatar.
+6. Groq retired `meta-llama/llama-4-scout-17b-16e-instruct` (404). `qwen/qwen3.6-27b` is configured
+   via `companion.json`.
+
+### Verified live (PASS — no need to repeat unless you change that code path)
 
 ```yaml
-rust:
-  cargo_check: pass
-  cargo_build_link: pass            # CoreGraphics extern + global-shortcut plugin link OK
-  cargo_test: 68/68                 # baseline was 59; +9 new (POINT parsing/stripping/bounds,
-                                    # coord mapping/clamping, history bounding/role filter,
-                                    # multipart body, label sanitization, monitor_index_for_label)
-web:
-  typecheck: pass
-  node_tests: 106/106
-  production_build: pass            # pre-existing chunk-size warning only
-not_verified_live (this is YOUR job):
-  - screencapture under a granted Screen Recording permission (implementing sandbox was
-    TCC-denied: "could not create image from display" — expected, the in-app
-    CGRequestScreenCaptureAccess prompt is the designed grant path)
-  - any Groq call (no GROQ_API_KEY in the implementing environment)
-  - WKWebView getUserMedia/MediaRecorder mic path (needs interactive grant)
-  - global shortcut delivery + overlay summon on a real launch
-  - mark placement accuracy on retina/multi-monitor hardware
+V1_summon_and_panel: pass        # hover ✨, right-click menu item, ⌘⇧Space from another app
+V3_capture_and_answer: pass      # real screen content described correctly, consent-gated
+V3_marks_render: pass            # yellow ring + callout + frame, over a FULLSCREEN app
+V3_auto_clear: pass              # "applied 2" → "applied 0" after ~12s
+V4_transcription: pass           # push-to-talk → Groq Whisper → transcript → auto-ask
+locator_stage2: pass             # located box narrowed 1140x738 → 456x344
+source_gates: { rust: 72/72, web_tests: 106/106, typecheck: pass, build: pass }
 ```
 
----
+Evidence screenshot: `outputs/2026-07-29-task-027-live-marks-evidence.png`.
+
+### STILL OPEN — this is what a validating session should work on
+
+- **Pointing accuracy (the blocker for `done`).** The plumbing is proven; the model is the weak
+  link. `qwen/qwen3.6-27b` returned 136,808 for a target at 750,450 in a 1000x600 probe, and picked
+  C2 for a target in C3 on a 3x3 grid. Live, the ring lands a few hundred logical px from the real
+  control. Options: switch to a grounding-capable vision provider (recommended), raise the Groq
+  tier and add a third locator stage, or accept documented coarse area-pointing.
+- **V2 local-path ask** — the managed Qwen runtime is not installed on this machine, so the
+  fully-local answer path is unexercised. Install it from the Chat panel first (~2.5 GB).
+- **V7 no-key degradation**, **V8 permission-denied degradation**, **V9 multi-monitor**,
+  **V10 sensor-drain blink**, **V11 regression sweep** — all still unrun.
+- **Rate limits**: a pointing ask costs 2 provider calls (~5k tokens). The free tier allows 8,000
+  tokens/minute, so roughly one ask per minute. A 429 mid-ask is expected, not a defect; the
+  locator falls back to the coarse region.
 
 ## 5. Environment prerequisites
 

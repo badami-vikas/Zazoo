@@ -454,6 +454,7 @@ pub fn run() {
             overlay::focus_main_window,
             annotate::annotate_show,
             annotate::annotate_clear,
+            annotate::annotate_ready,
             companion::companion_capabilities,
             companion::companion_ask,
             companion::companion_speak,

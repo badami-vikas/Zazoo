@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T08:53:51.428Z",
+  "generatedAt": "2026-07-29T12:44:00.300Z",
   "items": [
     {
       "id": "TASK-026",
@@ -921,8 +921,7 @@
       ],
       "evidence": [
         "implementation landed on `main` (companion.rs ask/TTS/STT pipeline, real on-demand `capture_display_jpeg` with CGPreflight/Request preflight, monitor-targeted annotate marks, ⌘⇧Space global shortcut, CompanionAsk overlay panel)",
-        "68/68 desktop Rust tests, 106/106 web tests, web typecheck and production build pass",
-        "`screencapture` verified as the capture path but TCC-denied for the build sandbox, so live capture/vision/voice certification is pending an interactive session"
+        "72/72 desktop Rust tests, 106/106 web tests, web typecheck and production build pass. Live 2026-07-29 validation on the user's machine with real grants and key found and fixed six defects — dotted Tauri event names (`annotate.marks`/`sensor.capture` had NEVER delivered), reasoning-model `<think>` leakage and empty answers, the missing `annotate*` capability entry that denied the annotation webview `plugin:event|listen`, an SVG `calc()` frame plus an opacity-0 entrance animation that prevented painting, and an ordinary always-on-top annotate window that could not draw over a fullscreen app — then proved summon, consented capture, correct screen description, rendered yellow spotlight+callout marks over a fullscreen app, ~12s auto-clear, and push-to-talk Whisper transcription. Full record and screenshot evidence: outputs/2026-07-29-task-027-companion-clicky-parity.md"
       ],
       "requests": [
         "R-041"

@@ -8,8 +8,9 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 0. **Validating the companion prototype?** Read
    [`companion-clicky-parity-handoff-2026-07-29.md`](companion-clicky-parity-handoff-2026-07-29.md)
-   — TASK-027 is one commit on `main` with a full live-validation protocol (V1–V11) written for
-   a fresh session; `git pull` first.
+   — TASK-027 is on `main` and already live-validated for summon/capture/answer/marks/voice; §4
+   lists the six fixed defects and the ONE open issue (pointing accuracy) plus the V-items still
+   unrun. `git pull` first.
 1. Read [`governed-chat-release-handoff-2026-07-27.md`](governed-chat-release-handoff-2026-07-27.md).
 2. Read [`subagent-progress.md`](subagent-progress.md).
 3. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
@@ -21,11 +22,12 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 ## State at current handoff
 
-- 2026-07-29: TASK-027 (clicky-parity screen-aware companion ask, R-041) is implemented and
-  pushed to `main` as one commit on top of `8cd9d46`. Compile/test/build gates pass (Rust 68/68,
-  web 106/106); live permission/vision/voice certification is pending and fully scripted in the
-  dedicated handoff above. A second concurrent session commits to the same checkout and owns
-  port 5173.
+- 2026-07-29: TASK-027 (clicky-parity screen-aware companion ask, R-041) is implemented, pushed to
+  `main`, and LIVE-VALIDATED on the user's machine. Summon, consented capture, screen-aware answers,
+  rendered on-screen marks over a fullscreen app, auto-clear, and push-to-talk transcription all
+  pass; six defects found during that session are fixed. Gates: Rust 72/72, web 106/106. The task
+  stays `in_progress` on ONE open issue — pointing accuracy, limited by the vision model's weak
+  spatial grounding. A second concurrent session commits to the same checkout and owns port 5173.
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
 - TASK-026 durable governed Chat landed at `1c5340d`; final certified `main` is `aa5b86f`.
