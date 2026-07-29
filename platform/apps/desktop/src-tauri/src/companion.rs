@@ -993,18 +993,21 @@ fn run_ask(
              window contents (System Settings > Privacy & Security > Screen Recording)."
                 .to_string()
         });
+        // The answer image carries the drawn coarse grid: the model answers
+        // AND reads off a cell number in one call, which keeps a pointing
+        // ask at two provider calls (a free tier meters ~2,500 tokens per
+        // image against 8,000/minute). `unwrap_or_else`, not `unwrap_or` —
+        // the fallback re-decodes and re-encodes the full screenshot, so an
+        // eager argument would do that work on every ask for nothing.
+        let sent_image = gridded_jpeg(&capture.jpeg_bytes, COARSE_COLS, COARSE_ROWS)
+            .unwrap_or_else(|| provider_jpeg(&capture.jpeg_bytes).into_owned());
+        eprintln!(
+            "[bridge-desktop] companion answer image: {} KiB with {COARSE_COLS}x{COARSE_ROWS} grid",
+            sent_image.len() / 1024
+        );
         let data_uri = format!(
             "data:image/jpeg;base64,{}",
-            base64::engine::general_purpose::STANDARD
-                // The answer image carries the drawn coarse grid: the model
-                // answers AND reads off a cell number in one call, which
-                // keeps a pointing ask at two provider calls (a free tier
-                // meters ~2,500 tokens per image against 8,000/minute).
-                .encode(
-                    gridded_jpeg(&capture.jpeg_bytes, COARSE_COLS, COARSE_ROWS)
-                        .as_deref()
-                        .unwrap_or(provider_jpeg(&capture.jpeg_bytes).as_ref()),
-                )
+            base64::engine::general_purpose::STANDARD.encode(&sent_image)
         );
         let mut messages = vec![serde_json::json!({
             "role": "system",

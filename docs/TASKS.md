@@ -423,7 +423,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: R-041
 - Approval: none
 - Dependencies: none
-- Remaining for `done`: pointing ACCURACY. The pipeline is proven end to end, but `qwen/qwen3.6-27b` grounds locations poorly (measured: a target at 750,450 in a 1000x600 probe returned 136,808; the live ring lands a few hundred logical px off the real control), and Groq's current catalogue has no grounding-strong vision model. Decide between switching the vision provider to a grounding-capable one (recommended), raising the Groq tier to afford a third locator stage, or accepting documented coarse area-pointing. Also still unrun: V2 local-path ask (managed model not installed on this machine), V7/V8 degradation checks, and V9 multi-monitor
+- Remaining for `done`: V2 local-path ask (the managed model is not installed on the validating machine), V7/V8 degradation checks, V9 multi-monitor, V10 sensor-drain blink, and V11 regression sweep. Pointing accuracy is RESOLVED: the Set-of-Mark drawn grid brought the ring from ~440 logical px off target to ~12, with no model change (evidence: outputs/2026-07-29-task-027-accurate-pointing-evidence.png)
 
 ## Autonomous background browser research agent
 - ID: TASK-028

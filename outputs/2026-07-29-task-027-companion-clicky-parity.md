@@ -152,3 +152,52 @@ Options, in the order recommended: (1) switch the vision provider to one with re
 (Anthropic / OpenAI / Gemini) — smallest change, biggest accuracy gain, consent gate unchanged;
 (2) raise the Groq tier and increase the locator to 3 stages; (3) accept coarse "look in this area"
 pointing and document it. Not yet decided by the user.
+
+---
+
+# Pointing accuracy resolved — Set-of-Mark grid (2026-07-29, same day)
+
+The remaining gap above is closed WITHOUT changing the vision model, by adopting what
+clicky-windows actually does rather than an approximation of it.
+
+**What was wrong**: the locator asked the model to imagine a 3x3 grid. That still leaves it
+estimating positions — the exact operation these models are measurably bad at.
+
+**The fix**: draw the grid. A numbered 12x8 grid is rendered onto the answer screenshot and a 6x6
+grid onto the zoomed crop, so the model reads a printed number instead of estimating a coordinate.
+This is Set-of-Mark / Mark-Grid Scaffold prompting (arXiv:2310.11441, arXiv:2509.11548) and is the
+technique behind clicky-windows' "pixel-perfect pointing on any LLM". Grid rendering is
+self-contained: a hand-rolled 5x7 digit font avoids adding a font crate and glyph rasteriser to
+draw at most two digits per cell. Rendered overlay: `2026-07-29-task-027-set-of-mark-grid.png`.
+
+**Measured result** (`2026-07-29-task-027-accurate-pointing-evidence.png`, same target and same
+model as the failing run):
+
+```yaml
+before_imagined_grid:
+  located_region_image_px: 1140x738 (coarse) / 456x344 (refined)
+  ring_centre_logical: [1140, 725]
+  target_logical: [1565, 597]
+  error_logical_px: ~440
+after_drawn_grid:
+  coarse_cell: 60          # of 96, read off the printed grid
+  fine_cell: 15            # of 36, read off the zoomed crop's grid
+  located_region_image_px: 76x101
+  ring_centre_logical: [1577, 597]
+  target_logical: [1565, 597]
+  error_logical_px: ~12
+```
+
+The ring now sits on the control itself. Same provider, same model, same two calls per ask.
+
+**Also adopted**: Privacy Guard, applied at Bridge's egress boundary rather than at capture — a
+password manager, keychain, or authenticator window is refused for cloud egress regardless of the
+consent tick (typed `COMPANION_PRIVACY_GUARD`; the local path still answers). Deliberately not
+adopted: wake-word/ambient listening (conflicts with no-silent-sensing), lesson MP4 recording,
+SM-2 knowledge journal, per-app memory isolation, OCR fine-print fallback, drag-and-drop document
+context — each can layer onto the same seams later.
+
+**Repo survey conclusion**: none of the four clicky projects performs autonomous computer control;
+all pointing is instructional and the user always acts. The requested background browser-research
+capability is therefore Bridge's own design, planned separately as TASK-028
+(`docs/raw/autonomous-browser-research-agent-plan-2026-07.md`).
