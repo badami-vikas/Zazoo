@@ -427,13 +427,13 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Autonomous background browser research agent
 - ID: TASK-028
-- Status: ready
+- Status: in_progress
 - Priority: P2
 - Horizon: Core Modules
 - Outcome: Bridge runs a multi-step research objective on its own in the background — planning steps, searching, opening and reading real pages in a managed browser, and returning a cited brief — with every step an inspectable child Run, every irreversible browser action gated behind a Proposal, and fetched page text treated as hostile input that can never reach the planner's instruction channel.
 - Prototype test: From a real Organization, start a Research Run for an explicit public objective; it plans and executes at least three steps, reads at least one page that search alone could not answer, records per-claim citations plus `untrusted_external` taint on Result/Memory/Event, stops honestly at its step/time bound, survives an app restart, refuses to click or type without an approved Proposal, and reports rather than obeys a page that contains instructions aimed at the agent.
 - Scope: docs/raw/autonomous-browser-research-agent-plan-2026-07.md (phases BR0-BR5); docs/raw/learning-agent-roadmap-2026-07.md §3.3 injection defense; reuses TASK-023 SearchProvider, TASK-007 Agent/Skill/child-Run orchestration, TASK-026 Proposal→Decision→Run→Result, TASK-027 Set-of-Mark locator
-- Evidence: none yet — BR0 (bounded step loop over the existing keyless SearchProvider, no new binary and no new authority) is the first honest slice
+- Evidence: `@bridge/research` implements BR0 (bounded step loop, every exit path recording a StopReason), BR1 (HTTP + HTML-to-text page reading, no bundled engine per AP-089), BR3 (engine-decided green/amber/red authority with Proposal gating, AP-088), BR4 (ledger resume that replays without re-executing and carries spent budget), and BR5 (structural quarantine plus an injection tripwire; poisoned pages are reported, never obeyed) — 31 tests with no network, browser, or model. BR2 element locating and the live wiring (API procedure, Run detail Page, companion entry point) are NOT built: the engine is complete and tested but not yet reachable from the UI
 - Requests: R-042
-- Approval: none — BR3's click/type authority and BR1's managed browser binary each need an explicit approval before implementation
+- Approval: AP-088 applied (BR3 click/type authority, user directive "Im good with BR3" / "All are approved"); AP-089 proposed (defer the bundled browser engine; read pages through HTTP and, next, the existing webview)
 - Dependencies: TASK-023 (done); TASK-007 (done); TASK-026 (done); TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it)

@@ -68,6 +68,13 @@ export interface RunResearchOptions {
   runId: string;
   objective: string;
   bounds?: Partial<ResearchBounds>;
+  /**
+   * BR4: continue a Run that was interrupted (app restart, crash, stop).
+   * Prior steps are replayed from the ledger as history and evidence — they
+   * are NOT re-executed, so a resumed Run never re-clicks anything and never
+   * re-spends its page or byte budget on work already done.
+   */
+  resume?: boolean;
 }
 
 export async function runResearch(
@@ -90,6 +97,20 @@ export async function runResearch(
   let stepIndex = 0;
   let currentUrl: string | null = null;
   let stopReason: StopReason = "planner_finished";
+
+  if (options.resume && deps.ledger) {
+    const prior = await deps.ledger.load(options.runId);
+    for (const entry of prior) {
+      evidence.push(entry);
+      history.push(entry.summary);
+      if (entry.sourceUrl) citations.push(entry.sourceUrl);
+      if (entry.quarantined) observations.push(entry.quarantined);
+      if (entry.tool === "read") pagesRead += 1;
+      // Consumed budget carries over: a resumed Run must not get a fresh
+      // allowance by virtue of having been interrupted.
+      stepIndex = Math.max(stepIndex, entry.stepIndex + 1);
+    }
+  }
 
   const record = async (entry: EvidenceEntry): Promise<void> => {
     evidence.push(entry);

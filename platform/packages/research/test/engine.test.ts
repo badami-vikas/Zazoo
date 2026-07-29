@@ -453,3 +453,86 @@ test("quarantine labels external text at the boundary", () => {
   assert.equal(observation.trustOrigin, "untrusted_external");
   assert.equal(observation.taintLabel, "untrusted_external");
 });
+
+// ---------------------------------------------------------------------------
+// BR4 — interruption and restart recovery
+// ---------------------------------------------------------------------------
+
+test("a resumed Run replays prior evidence without re-executing it", async () => {
+  const stored: EvidenceEntry[] = [
+    {
+      stepIndex: 0,
+      tool: "read",
+      summary: "Read Prior Page",
+      sourceUrl: "https://prior.example",
+      quarantined: quarantine("https://prior.example", "earlier findings"),
+    },
+    { stepIndex: 1, tool: "note", summary: "Noted something", sourceUrl: null },
+  ];
+  const appended: EvidenceEntry[] = [];
+  const ledger = {
+    async append(_runId: string, entry: EvidenceEntry) {
+      appended.push(entry);
+    },
+    async load() {
+      return stored;
+    },
+  };
+
+  let seenHistory: readonly string[] = [];
+  let seenSteps = 0;
+  const planner = {
+    async next(context: { history: readonly string[]; stepsRemaining: number }) {
+      seenHistory = context.history;
+      seenSteps = context.stepsRemaining;
+      return null;
+    },
+    async synthesize() {
+      return "resumed brief";
+    },
+  };
+
+  const outcome = await runResearch(
+    { runId: "r14", objective: "resume me", resume: true, bounds: { maxSteps: 10 } },
+    baseDeps({ planner, ledger }),
+  );
+
+  // Prior work is context, not repeated work.
+  assert.equal(appended.length, 0);
+  assert.equal(outcome.evidence.length, 2);
+  assert.deepEqual(seenHistory, ["Read Prior Page", "Noted something"]);
+  assert.deepEqual(outcome.citations, ["https://prior.example"]);
+  // Budget carries over: 2 steps already spent out of 10.
+  assert.equal(seenSteps, 8);
+  assert.equal(outcome.stepsTaken, 2);
+});
+
+test("a resumed Run cannot win back a spent step budget", async () => {
+  const stored: EvidenceEntry[] = Array.from({ length: 4 }, (_, index) => ({
+    stepIndex: index,
+    tool: "note" as const,
+    summary: `step ${index}`,
+    sourceUrl: null,
+  }));
+  const ledger = {
+    async append() {},
+    async load() {
+      return stored;
+    },
+  };
+  const endless = {
+    async next(): Promise<PlannedStep> {
+      return searchStep("again");
+    },
+    async synthesize() {
+      return "brief";
+    },
+  };
+  const outcome = await runResearch(
+    { runId: "r15", objective: "spent", resume: true, bounds: { maxSteps: 5 } },
+    baseDeps({ planner: endless, ledger }),
+  );
+  assert.equal(outcome.stopReason, "bound_steps");
+  // Only the single remaining step ran.
+  assert.equal(outcome.stepsTaken, 5);
+});
