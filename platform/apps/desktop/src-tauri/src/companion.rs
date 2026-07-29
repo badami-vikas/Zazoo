@@ -260,14 +260,15 @@ pub fn strip_think_blocks(text: &str) -> String {
 /// A `[CELL:C3:Ask button]` tag: locator stage 1 carried inside the answer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CellTarget {
-    pub column: usize,
-    pub row: usize,
+    /// Printed cell number on the drawn coarse grid (1-based, row-major).
+    pub number: usize,
     pub label: String,
 }
 
-/// Parse the single `[CELL:<cell>:<label>]` tag from a reply. Returns `None`
-/// when absent or malformed — the companion then answers without pointing
-/// rather than marking a guessed location.
+/// Parse the single `[CELL:<number>:<label>]` tag from a reply, where the
+/// number is a printed cell on the drawn coarse grid. Returns `None` when
+/// absent or malformed — the companion then answers without pointing rather
+/// than marking a guessed location.
 pub fn parse_cell_tag(text: &str) -> Option<CellTarget> {
     const OPEN: &str = "[CELL:";
     let start = text.find(OPEN)?;
@@ -275,9 +276,9 @@ pub fn parse_cell_tag(text: &str) -> Option<CellTarget> {
     let end = after.find(']')?;
     let body = &after[..end];
     let mut parts = body.splitn(2, ':');
-    let (column, row) = parse_grid_cell(parts.next()?.trim())?;
+    let number = parse_cell_number(parts.next()?.trim(), COARSE_COLS, COARSE_ROWS)?;
     let label = sanitize_label(parts.next().unwrap_or("").trim());
-    Some(CellTarget { column, row, label })
+    Some(CellTarget { number, label })
 }
 
 /// Remove `[CELL:...]` tags from the prose shown and spoken to the user.
@@ -353,102 +354,132 @@ pub struct LocatedBox {
     pub height: f64,
 }
 
-const GRID: usize = 3;
+/// Coarse grid drawn on the full screenshot, and fine grid drawn on the
+/// zoomed crop. Sizes follow clicky-windows' locator (12x8 then 6x6): fine
+/// enough that one cell is a UI control rather than a region, coarse enough
+/// that a two-digit label stays legible when drawn on the image.
+const COARSE_COLS: usize = 12;
+const COARSE_ROWS: usize = 8;
+const FINE_COLS: usize = 6;
+const FINE_ROWS: usize = 6;
 
-/// First `[A-C][1-3]` cell reference in a reply ("cell C3", "C3.", "**B2**").
-pub fn parse_grid_cell(reply: &str) -> Option<(usize, usize)> {
-    let bytes = reply.as_bytes();
-    for index in 0..bytes.len().saturating_sub(1) {
-        let column = bytes[index].to_ascii_uppercase();
-        let row = bytes[index + 1];
-        let column_ok = (b'A'..b'A' + GRID as u8).contains(&column);
-        let row_ok = (b'1'..b'1' + GRID as u8).contains(&row);
-        // Reject a match inside a longer word ("A1B2" style noise or "Bar2").
-        let preceded_by_letter = index > 0 && bytes[index - 1].is_ascii_alphanumeric();
-        if column_ok && row_ok && !preceded_by_letter {
-            return Some(((column - b'A') as usize, (row - b'1') as usize));
+// ---------------------------------------------------------------------------
+// Set-of-Mark grid rendering
+// ---------------------------------------------------------------------------
+//
+// The marks are DRAWN ONTO the screenshot rather than described in words.
+// Asking a model to imagine a grid leaves it estimating positions, which is
+// exactly the thing these models are bad at; drawing numbered cells turns
+// "where is it" into "read the number printed next to it", which they are
+// good at. This is Set-of-Mark / Mark-Grid Scaffold prompting
+// (arXiv:2310.11441, arXiv:2509.11548) and the technique clicky-windows uses
+// for its "pixel-perfect pointing on any LLM".
+
+/// 5x7 bitmap digits — a hand-rolled font avoids pulling a font crate and a
+/// glyph rasteriser in just to draw at most two digits per cell.
+const DIGITS: [[u8; 7]; 10] = [
+    [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E], // 0
+    [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E], // 1
+    [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F], // 2
+    [0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E], // 3
+    [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02], // 4
+    [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E], // 5
+    [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E], // 6
+    [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08], // 7
+    [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E], // 8
+    [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C], // 9
+];
+
+const GRID_LINE: [u8; 3] = [255, 0, 220]; // magenta — rare in real UI chrome
+const LABEL_BG: [u8; 3] = [255, 0, 220];
+const LABEL_FG: [u8; 3] = [255, 255, 255];
+
+fn fill_rect(image: &mut image::RgbImage, x: i64, y: i64, w: i64, h: i64, color: [u8; 3]) {
+    let (width, height) = (image.width() as i64, image.height() as i64);
+    for py in y.max(0)..(y + h).min(height) {
+        for px in x.max(0)..(x + w).min(width) {
+            image.put_pixel(px as u32, py as u32, image::Rgb(color));
         }
     }
-    None
 }
 
-/// The sub-rectangle of `outer` at grid position (col,row).
-pub fn cell_box(outer: LocatedBox, column: usize, row: usize) -> LocatedBox {
-    let width = outer.width / GRID as f64;
-    let height = outer.height / GRID as f64;
-    LocatedBox {
-        x: outer.x + column as f64 * width,
-        y: outer.y + row as f64 * height,
-        width,
-        height,
+fn draw_digit(image: &mut image::RgbImage, x: i64, y: i64, digit: usize, scale: i64) {
+    let glyph = DIGITS[digit.min(9)];
+    for (row, bits) in glyph.iter().enumerate() {
+        for column in 0..5_i64 {
+            if bits & (1 << (4 - column)) != 0 {
+                fill_rect(
+                    image,
+                    x + column * scale,
+                    y + row as i64 * scale,
+                    scale,
+                    scale,
+                    LABEL_FG,
+                );
+            }
+        }
     }
 }
 
-/// Expand a box by `ratio` of its own size, clamped to the image — context
-/// around the cell keeps a target that straddles a grid line findable.
-pub fn padded_box(inner: LocatedBox, image_w: f64, image_h: f64, ratio: f64) -> LocatedBox {
-    let pad_x = inner.width * ratio;
-    let pad_y = inner.height * ratio;
-    let x = (inner.x - pad_x).max(0.0);
-    let y = (inner.y - pad_y).max(0.0);
-    LocatedBox {
-        x,
-        y,
-        width: (inner.width + pad_x * 2.0).min(image_w - x).max(1.0),
-        height: (inner.height + pad_y * 2.0).min(image_h - y).max(1.0),
-    }
-}
-
-fn grid_prompt(target: &str, stage: &str) -> String {
-    format!(
-        "This image is {stage}. It is divided into a 3x3 grid of equal cells labelled \
-         A1 B1 C1 across the top row (A = leftmost column), A2 B2 C2 across the middle row, \
-         and A3 B3 C3 across the bottom row. Which single cell contains: {target}? \
-         Reply with only the cell label, e.g. B2. If it is not visible, reply NONE."
-    )
-}
-
-fn ask_grid_cell(
-    key: &str,
-    model: &str,
-    jpeg: &[u8],
-    target: &str,
-    stage: &str,
-) -> Option<(usize, usize)> {
-    let body = serde_json::json!({
-        "model": model,
-        "max_tokens": 12,
-        "temperature": 0.0,
-        "reasoning_effort": "none",
-        "messages": [{
-            "role": "user",
-            "content": [
-                { "type": "text", "text": grid_prompt(target, stage) },
-                { "type": "image_url", "image_url": { "url": format!(
-                    "data:image/jpeg;base64,{}",
-                    base64::engine::general_purpose::STANDARD.encode(jpeg)
-                ) } },
-            ],
-        }],
-    });
-    match post_chat(&format!("{GROQ_BASE_URL}/chat/completions"), key, body) {
-        Ok(reply) => parse_grid_cell(&strip_think_blocks(&reply)),
-        Err(error) => {
-            eprintln!(
-                "[bridge-desktop] companion locator stage failed ({}): {}",
-                error.code, error.message
+/// Draw `number` with a solid background plate so it stays readable over any
+/// screen content. Returns the plate's width.
+fn draw_number(image: &mut image::RgbImage, x: i64, y: i64, number: usize, scale: i64) -> i64 {
+    let text = number.to_string();
+    let pad = scale;
+    let glyph_w = 5 * scale + scale; // glyph + inter-glyph gap
+    let plate_w = text.len() as i64 * glyph_w + pad;
+    let plate_h = 7 * scale + pad * 2;
+    fill_rect(image, x, y, plate_w, plate_h, LABEL_BG);
+    for (index, character) in text.chars().enumerate() {
+        if let Some(digit) = character.to_digit(10) {
+            draw_digit(
+                image,
+                x + pad + index as i64 * glyph_w,
+                y + pad,
+                digit as usize,
+                scale,
             );
-            None
+        }
+    }
+    plate_w
+}
+
+/// Overlay a numbered `cols x rows` grid. Cells are numbered row-major from
+/// 1, with the number drawn inside the cell's top-left corner.
+fn draw_numbered_grid(image: &mut image::RgbImage, cols: usize, rows: usize) {
+    let (width, height) = (image.width() as i64, image.height() as i64);
+    let line = (width.min(height) / 600).clamp(1, 3);
+    let scale = (width.min(height) / 260).clamp(2, 6);
+    let cell_w = width as f64 / cols as f64;
+    let cell_h = height as f64 / rows as f64;
+
+    for column in 1..cols {
+        let x = (column as f64 * cell_w).round() as i64;
+        fill_rect(image, x, 0, line, height, GRID_LINE);
+    }
+    for row in 1..rows {
+        let y = (row as f64 * cell_h).round() as i64;
+        fill_rect(image, 0, y, width, line, GRID_LINE);
+    }
+    for row in 0..rows {
+        for column in 0..cols {
+            let number = row * cols + column + 1;
+            draw_number(
+                image,
+                (column as f64 * cell_w).round() as i64 + line,
+                (row as f64 * cell_h).round() as i64 + line,
+                number,
+                scale,
+            );
         }
     }
 }
 
-/// Longest edge sent to the provider. A retina screenshot is ~3420px wide and
-/// costs ~2500 image tokens per call — three calls blow a free tier's 8000
-/// tokens/minute. 1280px keeps UI text legible for both the answer and the
-/// grid judgements while cutting tokens several-fold. Safe for the locator by
-/// construction: stage results are grid CELLS (scale-invariant fractions),
-/// never pixel coordinates, so they map back to the full-size image exactly.
+/// Longest edge sent to the provider. A retina screenshot is ~3420px wide;
+/// 1280px keeps UI text and the drawn grid numbers legible while cutting the
+/// payload several-fold. Safe for the locator by construction: stages return
+/// grid CELL numbers (scale-invariant), never pixel coordinates, so they map
+/// back to the full-size image exactly.
 const MAX_PROVIDER_EDGE: u32 = 1280;
 
 fn downscale_jpeg(bytes: &[u8], max_edge: u32) -> Option<Vec<u8>> {
@@ -477,6 +508,138 @@ fn provider_jpeg(bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
             std::borrow::Cow::Owned(smaller)
         }
         None => std::borrow::Cow::Borrowed(bytes),
+    }
+}
+
+/// Decode, downscale for the provider, draw the numbered grid, re-encode.
+fn gridded_jpeg(bytes: &[u8], cols: usize, rows: usize) -> Option<Vec<u8>> {
+    let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?;
+    let (width, height) = image::GenericImageView::dimensions(&image);
+    let image = if width.max(height) > MAX_PROVIDER_EDGE {
+        image.resize(
+            MAX_PROVIDER_EDGE,
+            MAX_PROVIDER_EDGE,
+            image::imageops::FilterType::Triangle,
+        )
+    } else {
+        image
+    };
+    let mut rgb = image.to_rgb8();
+    draw_numbered_grid(&mut rgb, cols, rows);
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85)
+        .encode_image(&rgb)
+        .ok()?;
+    Some(out)
+}
+
+/// Row-major 1-based cell number → its rectangle inside `outer`.
+pub fn numbered_cell_box(
+    outer: LocatedBox,
+    cols: usize,
+    rows: usize,
+    number: usize,
+) -> Option<LocatedBox> {
+    if number == 0 || number > cols * rows || cols == 0 || rows == 0 {
+        return None;
+    }
+    let index = number - 1;
+    let column = index % cols;
+    let row = index / cols;
+    let width = outer.width / cols as f64;
+    let height = outer.height / rows as f64;
+    Some(LocatedBox {
+        x: outer.x + column as f64 * width,
+        y: outer.y + row as f64 * height,
+        width,
+        height,
+    })
+}
+
+/// First integer in a reply that is a valid cell number for the grid.
+pub fn parse_cell_number(reply: &str, cols: usize, rows: usize) -> Option<usize> {
+    let mut digits = String::new();
+    for character in reply.chars().chain(std::iter::once(' ')) {
+        if character.is_ascii_digit() {
+            digits.push(character);
+            continue;
+        }
+        if !digits.is_empty() {
+            if let Ok(value) = digits.parse::<usize>() {
+                if value >= 1 && value <= cols * rows {
+                    return Some(value);
+                }
+            }
+            digits.clear();
+        }
+    }
+    None
+}
+
+/// Expand a box by `ratio` of its own size, clamped to the image — context
+/// around the cell keeps a target that straddles a grid line findable.
+pub fn padded_box(inner: LocatedBox, image_w: f64, image_h: f64, ratio: f64) -> LocatedBox {
+    let pad_x = inner.width * ratio;
+    let pad_y = inner.height * ratio;
+    let x = (inner.x - pad_x).max(0.0);
+    let y = (inner.y - pad_y).max(0.0);
+    LocatedBox {
+        x,
+        y,
+        width: (inner.width + pad_x * 2.0).min(image_w - x).max(1.0),
+        height: (inner.height + pad_y * 2.0).min(image_h - y).max(1.0),
+    }
+}
+
+fn grid_number_prompt(target: &str, cols: usize, rows: usize) -> String {
+    let cells = cols * rows;
+    format!(
+        "A magenta grid is drawn over this zoomed-in region of the user's screen, dividing it \
+         into {cols} columns and {rows} rows. Each cell has its number printed in its top-left \
+         corner, from 1 to {cells}. Which cell contains: {target}? Read the printed number off \
+         the grid rather than estimating. Reply with only that number. If it is not visible in \
+         this region, reply NONE."
+    )
+}
+
+/// Ask which numbered cell of a DRAWN grid contains the target.
+fn ask_grid_number(
+    key: &str,
+    model: &str,
+    gridded_jpeg: &[u8],
+    target: &str,
+    cols: usize,
+    rows: usize,
+) -> Option<usize> {
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": 12,
+        "temperature": 0.0,
+        "reasoning_effort": "none",
+        "messages": [{
+            "role": "user",
+            "content": [
+                { "type": "text", "text": grid_number_prompt(target, cols, rows) },
+                { "type": "image_url", "image_url": { "url": format!(
+                    "data:image/jpeg;base64,{}",
+                    base64::engine::general_purpose::STANDARD.encode(gridded_jpeg)
+                ) } },
+            ],
+        }],
+    });
+    match post_chat(&format!("{GROQ_BASE_URL}/chat/completions"), key, body) {
+        Ok(reply) => {
+            let reply = strip_think_blocks(&reply);
+            eprintln!("[bridge-desktop] companion fine-grid reply={reply:?}");
+            parse_cell_number(&reply, cols, rows)
+        }
+        Err(error) => {
+            eprintln!(
+                "[bridge-desktop] companion locator stage failed ({}): {}",
+                error.code, error.message
+            );
+            None
+        }
     }
 }
 
@@ -517,73 +680,26 @@ fn refine_cell(
         width: image_w,
         height: image_h,
     };
-    let coarse = padded_box(
-        cell_box(full, target.column, target.row),
-        image_w,
-        image_h,
-        0.2,
-    );
+    let Some(cell) = numbered_cell_box(full, COARSE_COLS, COARSE_ROWS, target.number) else {
+        return full;
+    };
+    // Pad generously: the answer call reads the number of the cell a control
+    // sits in, but a control straddling a grid line can be labelled either
+    // side, so the crop must contain its neighbours.
+    let coarse = padded_box(cell, image_w, image_h, 0.6);
     if target.label.is_empty() {
         return coarse;
     }
     let Some(crop) = crop_jpeg(jpeg, coarse) else {
         return coarse;
     };
-    match ask_grid_cell(
-        key,
-        model,
-        provider_jpeg(&crop).as_ref(),
-        &target.label,
-        "a zoomed-in region of the user's screen",
-    ) {
-        Some((column, row)) => cell_box(coarse, column, row),
+    let Some(gridded) = gridded_jpeg(&crop, FINE_COLS, FINE_ROWS) else {
+        return coarse;
+    };
+    match ask_grid_number(key, model, &gridded, &target.label, FINE_COLS, FINE_ROWS) {
+        Some(number) => numbered_cell_box(coarse, FINE_COLS, FINE_ROWS, number).unwrap_or(coarse),
         None => coarse,
     }
-}
-
-/// Locate `target` in the screenshot: coarse cell on the full image, then a
-/// finer cell inside a padded crop of it. Returns `None` when either stage
-/// cannot see the target — the caller then points at nothing rather than
-/// guessing (honest empty beats a confident wrong arrow).
-#[allow(dead_code)]
-fn locate_target(
-    key: &str,
-    model: &str,
-    jpeg: &[u8],
-    image_w: f64,
-    image_h: f64,
-    target: &str,
-) -> Option<LocatedBox> {
-    let full = LocatedBox {
-        x: 0.0,
-        y: 0.0,
-        width: image_w,
-        height: image_h,
-    };
-    let (column, row) = ask_grid_cell(
-        key,
-        model,
-        provider_jpeg(jpeg).as_ref(),
-        target,
-        "the user's full screen",
-    )?;
-    let coarse = padded_box(cell_box(full, column, row), image_w, image_h, 0.2);
-    // Crop from the ORIGINAL capture (full detail), then downscale only if
-    // the crop itself is still oversized.
-    let Some(crop) = crop_jpeg(jpeg, coarse) else {
-        return Some(coarse);
-    };
-    let Some((column, row)) = ask_grid_cell(
-        key,
-        model,
-        provider_jpeg(&crop).as_ref(),
-        target,
-        "a zoomed-in region of the user's screen",
-    ) else {
-        // Stage 1 alone is still a usable, honestly coarse answer.
-        return Some(coarse);
-    };
-    Some(cell_box(coarse, column, row))
 }
 
 /// Map a point from screenshot-image pixel space to the monitor's logical
@@ -728,16 +844,19 @@ fn bounded_history(history: &[HistoryTurn]) -> Vec<serde_json::Value> {
 /// image came back as 136,808), while a coarse "which ninth of the screen"
 /// judgement is reliable enough to be refined by a second pass on a crop.
 fn vision_system_prompt(image_w: usize, image_h: usize) -> String {
+    let cells = COARSE_COLS * COARSE_ROWS;
     format!(
         "You are Bridge's on-screen companion. The user shared ONE screenshot of their current \
          display ({image_w}x{image_h} pixels) with their question. Answer briefly and concretely \
          (2-5 sentences), in plain prose suitable for being read aloud. \
-         The screenshot is divided into a 3x3 grid of equal cells labelled A1 B1 C1 across the \
-         top row (A = leftmost column), A2 B2 C2 across the middle row, and A3 B3 C3 across the \
-         bottom row. If your answer refers to one specific thing on screen, end your reply with \
-         a single tag of the exact form [CELL:<cell>:<short label>] naming the cell that contains \
-         it, e.g. [CELL:C3:Ask button]. Use the tag only for something you can actually see, and \
-         never more than one. Do not mention the grid or the tag in your prose."
+         A magenta grid has been drawn over the screenshot, dividing it into {COARSE_COLS} \
+         columns and {COARSE_ROWS} rows; each cell has its number printed in its top-left corner, \
+         from 1 to {cells}. The grid is an aid for you only — it is not part of the user's screen, \
+         so never mention it, the numbers, or the magenta lines in your prose. \
+         If your answer refers to one specific thing on screen, end your reply with a single tag \
+         of the exact form [CELL:<number>:<short label>] giving the printed number of the cell \
+         that thing sits in, e.g. [CELL:57:Ask button]. Read the number off the grid rather than \
+         estimating it. Use the tag only for something you can actually see, never more than one."
     )
 }
 
@@ -865,7 +984,15 @@ fn run_ask(
         let data_uri = format!(
             "data:image/jpeg;base64,{}",
             base64::engine::general_purpose::STANDARD
-                .encode(provider_jpeg(&capture.jpeg_bytes).as_ref())
+                // The answer image carries the drawn coarse grid: the model
+                // answers AND reads off a cell number in one call, which
+                // keeps a pointing ask at two provider calls (a free tier
+                // meters ~2,500 tokens per image against 8,000/minute).
+                .encode(
+                    gridded_jpeg(&capture.jpeg_bytes, COARSE_COLS, COARSE_ROWS)
+                        .as_deref()
+                        .unwrap_or(provider_jpeg(&capture.jpeg_bytes).as_ref()),
+                )
         );
         let mut messages = vec![serde_json::json!({
             "role": "system",
@@ -955,7 +1082,7 @@ fn run_ask(
              logical={logical_w}x{logical_h} monitor={monitor_index} cell={:?} located={:?} \
              marks={} reply_head={:?}",
             cell.as_ref()
-                .map(|target| (target.column, target.row, target.label.as_str())),
+                .map(|target| (target.number, target.label.as_str())),
             located.as_ref().map(|(region, label)| (
                 region.x.round(),
                 region.y.round(),
@@ -1411,33 +1538,66 @@ mod tests {
     }
 
     #[test]
-    fn grid_cell_parsing_accepts_real_replies_and_rejects_noise() {
-        assert_eq!(parse_grid_cell("C3"), Some((2, 2)));
-        assert_eq!(parse_grid_cell("The cell is **B2**."), Some((1, 1)));
-        assert_eq!(parse_grid_cell("a1"), Some((0, 0)));
-        assert_eq!(parse_grid_cell("NONE"), None);
-        assert_eq!(parse_grid_cell("D4"), None);
-        // Not a cell reference embedded in a word.
-        assert_eq!(parse_grid_cell("scaleA2"), None);
+    fn numbered_cells_tile_the_image_and_padding_stays_in_bounds() {
+        let full = LocatedBox { x: 0.0, y: 0.0, width: 1200.0, height: 800.0 };
+        // 12x8 grid: cell 1 is top-left, 96 is bottom-right, 13 starts row 2.
+        assert_eq!(
+            numbered_cell_box(full, 12, 8, 1),
+            Some(LocatedBox { x: 0.0, y: 0.0, width: 100.0, height: 100.0 })
+        );
+        assert_eq!(
+            numbered_cell_box(full, 12, 8, 13),
+            Some(LocatedBox { x: 0.0, y: 100.0, width: 100.0, height: 100.0 })
+        );
+        assert_eq!(
+            numbered_cell_box(full, 12, 8, 96),
+            Some(LocatedBox { x: 1100.0, y: 700.0, width: 100.0, height: 100.0 })
+        );
+        assert_eq!(numbered_cell_box(full, 12, 8, 0), None);
+        assert_eq!(numbered_cell_box(full, 12, 8, 97), None);
+
+        // Padding never escapes the image on any edge.
+        let padded = padded_box(numbered_cell_box(full, 12, 8, 1).unwrap(), 1200.0, 800.0, 0.6);
+        assert!(padded.x >= 0.0 && padded.y >= 0.0);
+        let far = padded_box(numbered_cell_box(full, 12, 8, 96).unwrap(), 1200.0, 800.0, 0.6);
+        assert!(far.x + far.width <= 1200.0);
+        assert!(far.y + far.height <= 800.0);
     }
 
     #[test]
-    fn grid_cells_tile_the_image_and_padding_stays_in_bounds() {
-        let full = LocatedBox { x: 0.0, y: 0.0, width: 900.0, height: 600.0 };
+    fn cell_numbers_parse_from_real_replies_and_reject_out_of_range() {
+        assert_eq!(parse_cell_number("57", 12, 8), Some(57));
+        assert_eq!(parse_cell_number("Cell **57**.", 12, 8), Some(57));
+        assert_eq!(parse_cell_number("NONE", 12, 8), None);
+        assert_eq!(parse_cell_number("0", 12, 8), None);
+        assert_eq!(parse_cell_number("97", 12, 8), None);
+        // Out-of-range leading number is skipped, a valid one still found.
+        assert_eq!(parse_cell_number("not 400 but 12", 12, 8), Some(12));
+        assert_eq!(parse_cell_number("36", 6, 6), Some(36));
+        assert_eq!(parse_cell_number("37", 6, 6), None);
+    }
+
+    #[test]
+    fn cell_tag_carries_the_printed_number_and_label() {
+        let target = parse_cell_tag("Click there. [CELL:57:Ask button]").unwrap();
+        assert_eq!(target.number, 57);
+        assert_eq!(target.label, "Ask button");
+        assert!(parse_cell_tag("no tag here").is_none());
+        assert!(parse_cell_tag("[CELL:999:out of range]").is_none());
         assert_eq!(
-            cell_box(full, 2, 2),
-            LocatedBox { x: 600.0, y: 400.0, width: 300.0, height: 200.0 }
+            strip_cell_tags("Click there. [CELL:57:Ask button]"),
+            "Click there."
         );
-        assert_eq!(
-            cell_box(full, 0, 0),
-            LocatedBox { x: 0.0, y: 0.0, width: 300.0, height: 200.0 }
-        );
-        // Padding never escapes the image on any edge.
-        let padded = padded_box(cell_box(full, 0, 0), 900.0, 600.0, 0.2);
-        assert!(padded.x >= 0.0 && padded.y >= 0.0);
-        let padded_far = padded_box(cell_box(full, 2, 2), 900.0, 600.0, 0.2);
-        assert!(padded_far.x + padded_far.width <= 900.0);
-        assert!(padded_far.y + padded_far.height <= 600.0);
+    }
+
+    #[test]
+    fn drawn_grid_labels_stay_inside_the_image() {
+        // A tiny image must not panic or write out of bounds when labelled.
+        let mut image = image::RgbImage::new(64, 48);
+        draw_numbered_grid(&mut image, 12, 8);
+        assert_eq!(image.dimensions(), (64, 48));
+        // Some grid pixels were actually painted.
+        assert!(image.pixels().any(|pixel| pixel.0 == GRID_LINE));
     }
 
     #[test]
@@ -1468,5 +1628,26 @@ mod tests {
         assert!(text.contains("filename=\"a.m4a\""));
         assert!(text.contains("Content-Type: audio/mp4\r\n\r\nAUDIO"));
         assert!(text.ends_with("\r\n--BOUND--\r\n"));
+    }
+}
+
+#[cfg(test)]
+mod grid_preview {
+    use super::*;
+
+    /// Writes a gridded sample next to the source image so the overlay can be
+    /// eyeballed. Ignored by default: needs BRIDGE_GRID_PREVIEW_IN/OUT.
+    #[test]
+    #[ignore]
+    fn render_grid_preview() {
+        let (Ok(input), Ok(output)) = (
+            std::env::var("BRIDGE_GRID_PREVIEW_IN"),
+            std::env::var("BRIDGE_GRID_PREVIEW_OUT"),
+        ) else {
+            return;
+        };
+        let bytes = std::fs::read(input).expect("preview input readable");
+        let gridded = gridded_jpeg(&bytes, COARSE_COLS, COARSE_ROWS).expect("grid renders");
+        std::fs::write(output, gridded).expect("preview output writable");
     }
 }
