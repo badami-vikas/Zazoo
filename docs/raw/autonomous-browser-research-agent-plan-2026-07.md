@@ -62,7 +62,7 @@ ends the Run with partial findings and an honest `stopped_at_bound` reason — n
 Reading the public web is not the same act as pressing a button on a logged-in page.
 
 - **Green — autonomous**: search, open a public URL, read, screenshot the browser view, note.
-- **Amber — proposal required**: any click, any typing, any form, any navigation to an origin
+- **Amber — proposal required** (authorized 2026-07-29, AP-088): any click, any typing, any form, any navigation to an origin
   carrying the user's session/cookies. Emits a Proposal; the Run parks until a Decision. This reuses
   the existing inline Proposal → Decision → Run → Result surface, so a background agent's request
   appears in the same place every other governed action does.
@@ -91,7 +91,13 @@ Three candidates, in preference order:
    "research inside my session", worst for autonomy and safety; needs the permission-bounded
    extension TASK-020 already scopes.
 
-Recommendation: (1) for the autonomous lane, leaving (3) to TASK-020 for the in-session lane.
+**Decision 2026-07-29 (AP-089 proposed): start with (2), defer (1).** A bundled engine costs
+~150-200 MB on a ~349 MB bundle, makes every Chromium security release Bridge's patching duty, and
+grows the signing/notarization surface that already blocks TASK-018 — for a benefit (byte-identical
+engine everywhere) the prototype has not yet been shown to need. BR1 therefore reads pages through
+the webview Bridge already embeds, with plain HTTP + HTML-to-text as the cheap path for static
+pages. A bundled engine is revisited only against recorded evidence of pages the webview cannot
+handle; (3) remains TASK-020's in-session lane.
 
 ## 5. Surfaces
 
@@ -107,9 +113,9 @@ Recommendation: (1) for the autonomous lane, leaving (3) to TASK-020 for the in-
 | Phase | Deliverable | Exit test |
 |---|---|---|
 | BR0 | Bounded step loop over the EXISTING SearchProvider only — no browser | An objective produces a cited brief through ≥3 planned steps, inspectable as child Runs, stopping at its bound |
-| BR1 | Managed browser sidecar + `open`/`read` with net-guard + quarantine | The agent reads a page search alone could not answer, evidence tagged `untrusted_external` |
+| BR1 | `open`/`read` through the EXISTING Tauri webview (no bundled binary) + net-guard + quarantine, with plain HTTP + HTML-to-text for static pages | The agent reads a page search alone could not answer, evidence tagged `untrusted_external` |
 | BR2 | `find` via the Set-of-Mark locator over page screenshots | The agent locates a named element on a real page and reports its position |
-| BR3 | Amber gate: `click`/`type` behind Proposal → Decision | A click executes ONLY after an approved Proposal; veto leaves no Event |
+| BR3 | Amber gate: `click`/`type` behind Proposal → Decision (authority granted, AP-088) | A click executes ONLY after an approved Proposal; veto leaves no Event |
 | BR4 | Background execution, interruption, restart recovery | A Run survives app restart and resumes or fails honestly |
 | BR5 | Injection-defense regression suite | A page instructing the agent to exfiltrate or navigate away is reported, not obeyed |
 
