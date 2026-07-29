@@ -139,9 +139,7 @@ fn create_one_annotate_window(
     // here rather than routed by window label: a broadcast has one
     // delivery semantic to reason about, and the index is injected by this
     // shell, so a webview can never claim a different monitor's marks.
-    let init_script = format!(
-        "{init_script} window.__BRIDGE_ANNOTATE_MONITOR__ = {index};"
-    );
+    let init_script = format!("{init_script} window.__BRIDGE_ANNOTATE_MONITOR__ = {index};");
     let init_script = init_script.as_str();
     let builder = WebviewWindowBuilder::new(
         app,
@@ -264,11 +262,17 @@ pub fn annotate_show(app: AppHandle, marks: Vec<AnnotationMark>) -> Result<(), A
         }
     }
     // `monitor: null` = every annotate window draws these marks.
-    app.emit(MARKS_EVENT, &MarksPayload { monitor: None, marks })
-        .map_err(|e| AnnotateError {
-            code: "ANNOTATE_EMIT_FAILED",
-            message: e.to_string(),
-        })
+    app.emit(
+        MARKS_EVENT,
+        &MarksPayload {
+            monitor: None,
+            marks,
+        },
+    )
+    .map_err(|e| AnnotateError {
+        code: "ANNOTATE_EMIT_FAILED",
+        message: e.to_string(),
+    })
 }
 
 /// Broadcast envelope. `monitor: None` targets every annotate window; a

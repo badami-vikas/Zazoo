@@ -409,8 +409,7 @@ pub fn capture_display_jpeg(
         let disabled = with_hub(app, |inner| inner.disabled)?;
         if disabled {
             return Err(
-                "capture is disabled because the trusted Bridge surface is unavailable"
-                    .to_string(),
+                "capture is disabled because the trusted Bridge surface is unavailable".to_string(),
             );
         }
         let permission_granted = request_screen_permission();
@@ -478,10 +477,7 @@ pub fn capture_display_jpeg(
 }
 
 #[cfg(target_os = "macos")]
-fn with_hub<T>(
-    app: &AppHandle,
-    f: impl FnOnce(&mut SensorHubInner) -> T,
-) -> Result<T, String> {
+fn with_hub<T>(app: &AppHandle, f: impl FnOnce(&mut SensorHubInner) -> T) -> Result<T, String> {
     let state = app.state::<SensorHubState>();
     let mut inner = state
         .inner

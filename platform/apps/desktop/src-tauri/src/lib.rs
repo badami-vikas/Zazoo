@@ -31,6 +31,7 @@ mod companion;
 mod model_supervisor;
 mod overlay;
 mod providers;
+mod research_webview;
 mod sensor_bridge;
 
 use std::process::Command;
@@ -405,6 +406,7 @@ pub fn run() {
         .manage(overlay::DisplayTopologyState::default())
         .manage(overlay::OverlaySessionState::default())
         .manage(companion::CompanionState::default())
+        .manage(research_webview::ResearchState::default())
         .manage(BootstrapWindowState::default());
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
@@ -413,8 +415,8 @@ pub fn run() {
     // the pressed/released events. Failure to register (e.g. the combo is
     // taken) degrades gracefully — the overlay's click affordances remain.
     let builder = {
-        use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
         use tauri::Emitter as _;
+        use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
         let push_to_talk = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
         builder.plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -460,6 +462,9 @@ pub fn run() {
             companion::companion_speak,
             companion::companion_stop_speaking,
             companion::companion_transcribe,
+            research_webview::research_read_page,
+            research_webview::research_locate,
+            research_webview::research_close,
             open_google_oauth,
             providers::accessibility::ax_permission_status,
         ])

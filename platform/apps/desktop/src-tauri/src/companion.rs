@@ -108,14 +108,18 @@ fn load_config(app: &AppHandle) -> CompanionConfig {
     serde_json::from_slice(&bytes).unwrap_or_default()
 }
 
-fn groq_api_key(app: &AppHandle) -> Option<String> {
+pub(crate) fn groq_api_key(app: &AppHandle) -> Option<String> {
     std::env::var("GROQ_API_KEY")
         .ok()
         .filter(|key| !key.trim().is_empty())
-        .or_else(|| load_config(app).groq_api_key.filter(|k| !k.trim().is_empty()))
+        .or_else(|| {
+            load_config(app)
+                .groq_api_key
+                .filter(|k| !k.trim().is_empty())
+        })
 }
 
-fn vision_model(app: &AppHandle) -> String {
+pub(crate) fn vision_model(app: &AppHandle) -> String {
     std::env::var("BRIDGE_COMPANION_VISION_MODEL")
         .ok()
         .filter(|value| !value.trim().is_empty())
@@ -214,10 +218,7 @@ pub fn parse_point_tags(text: &str) -> Vec<ParsedPoint> {
             continue;
         };
         let label = parts.next().unwrap_or("").trim();
-        let (Ok(x), Ok(y)) = (
-            raw_x.trim().parse::<f64>(),
-            raw_y.trim().parse::<f64>(),
-        ) else {
+        let (Ok(x), Ok(y)) = (raw_x.trim().parse::<f64>(), raw_y.trim().parse::<f64>()) else {
             continue;
         };
         if !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0 {
@@ -323,11 +324,7 @@ pub fn strip_point_tags(text: &str) -> String {
 }
 
 fn sanitize_label(label: &str) -> String {
-    let cleaned: String = label
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(60)
-        .collect();
+    let cleaned: String = label.chars().filter(|c| !c.is_control()).take(60).collect();
     cleaned.trim().to_string()
 }
 
@@ -358,8 +355,8 @@ pub struct LocatedBox {
 /// zoomed crop. Sizes follow clicky-windows' locator (12x8 then 6x6): fine
 /// enough that one cell is a UI control rather than a region, coarse enough
 /// that a two-digit label stays legible when drawn on the image.
-const COARSE_COLS: usize = 12;
-const COARSE_ROWS: usize = 8;
+pub(crate) const COARSE_COLS: usize = 12;
+pub(crate) const COARSE_ROWS: usize = 8;
 const FINE_COLS: usize = 6;
 const FINE_ROWS: usize = 6;
 
@@ -512,7 +509,7 @@ fn provider_jpeg(bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
 }
 
 /// Decode, downscale for the provider, draw the numbered grid, re-encode.
-fn gridded_jpeg(bytes: &[u8], cols: usize, rows: usize) -> Option<Vec<u8>> {
+pub(crate) fn gridded_jpeg(bytes: &[u8], cols: usize, rows: usize) -> Option<Vec<u8>> {
     let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?;
     let (width, height) = image::GenericImageView::dimensions(&image);
     let image = if width.max(height) > MAX_PROVIDER_EDGE {
@@ -603,7 +600,7 @@ fn grid_number_prompt(target: &str, cols: usize, rows: usize) -> String {
 }
 
 /// Ask which numbered cell of a DRAWN grid contains the target.
-fn ask_grid_number(
+pub(crate) fn ask_grid_number(
     key: &str,
     model: &str,
     gridded_jpeg: &[u8],
@@ -666,7 +663,7 @@ fn crop_jpeg(bytes: &[u8], region: LocatedBox) -> Option<Vec<u8>> {
 /// Falls back to the coarse region whenever the refinement is unavailable
 /// (rate limit, undecodable crop, target not visible in the zoom) — a loose
 /// ring that contains the target beats no ring at all.
-fn refine_cell(
+pub(crate) fn refine_cell(
     key: &str,
     model: &str,
     jpeg: &[u8],
@@ -872,11 +869,7 @@ fn local_system_prompt(frontmost: Option<&str>) -> String {
     )
 }
 
-fn post_chat(
-    url: &str,
-    api_key: &str,
-    body: serde_json::Value,
-) -> Result<String, CompanionError> {
+fn post_chat(url: &str, api_key: &str, body: serde_json::Value) -> Result<String, CompanionError> {
     let agent = ureq::AgentBuilder::new().timeout(HTTP_TIMEOUT).build();
     let response = agent
         .post(url)
@@ -1511,9 +1504,7 @@ mod tests {
     fn skips_malformed_tags_and_bounds_count() {
         assert!(parse_point_tags("[POINT:abc,def:bad]").is_empty());
         assert!(parse_point_tags("[POINT:-5,10:negative]").is_empty());
-        let many: String = (0..9)
-            .map(|i| format!("[POINT:{i},{i}:p{i}]"))
-            .collect();
+        let many: String = (0..9).map(|i| format!("[POINT:{i},{i}:p{i}]")).collect();
         assert_eq!(parse_point_tags(&many).len(), MAX_POINTS);
     }
 
@@ -1600,7 +1591,12 @@ mod tests {
     #[test]
     fn a_coarse_region_draws_a_bigger_ring_than_a_refined_one() {
         let coarse = marks_for_box(
-            LocatedBox { x: 0.0, y: 0.0, width: 960.0, height: 600.0 },
+            LocatedBox {
+                x: 0.0,
+                y: 0.0,
+                width: 960.0,
+                height: 600.0,
+            },
             "x",
             2880.0,
             1800.0,
@@ -1608,7 +1604,12 @@ mod tests {
             900.0,
         );
         let refined = marks_for_box(
-            LocatedBox { x: 0.0, y: 0.0, width: 320.0, height: 200.0 },
+            LocatedBox {
+                x: 0.0,
+                y: 0.0,
+                width: 320.0,
+                height: 200.0,
+            },
             "x",
             2880.0,
             1800.0,
@@ -1620,27 +1621,57 @@ mod tests {
 
     #[test]
     fn numbered_cells_tile_the_image_and_padding_stays_in_bounds() {
-        let full = LocatedBox { x: 0.0, y: 0.0, width: 1200.0, height: 800.0 };
+        let full = LocatedBox {
+            x: 0.0,
+            y: 0.0,
+            width: 1200.0,
+            height: 800.0,
+        };
         // 12x8 grid: cell 1 is top-left, 96 is bottom-right, 13 starts row 2.
         assert_eq!(
             numbered_cell_box(full, 12, 8, 1),
-            Some(LocatedBox { x: 0.0, y: 0.0, width: 100.0, height: 100.0 })
+            Some(LocatedBox {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 100.0
+            })
         );
         assert_eq!(
             numbered_cell_box(full, 12, 8, 13),
-            Some(LocatedBox { x: 0.0, y: 100.0, width: 100.0, height: 100.0 })
+            Some(LocatedBox {
+                x: 0.0,
+                y: 100.0,
+                width: 100.0,
+                height: 100.0
+            })
         );
         assert_eq!(
             numbered_cell_box(full, 12, 8, 96),
-            Some(LocatedBox { x: 1100.0, y: 700.0, width: 100.0, height: 100.0 })
+            Some(LocatedBox {
+                x: 1100.0,
+                y: 700.0,
+                width: 100.0,
+                height: 100.0
+            })
         );
         assert_eq!(numbered_cell_box(full, 12, 8, 0), None);
         assert_eq!(numbered_cell_box(full, 12, 8, 97), None);
 
         // Padding never escapes the image on any edge.
-        let padded = padded_box(numbered_cell_box(full, 12, 8, 1).unwrap(), 1200.0, 800.0, 0.6);
+        let padded = padded_box(
+            numbered_cell_box(full, 12, 8, 1).unwrap(),
+            1200.0,
+            800.0,
+            0.6,
+        );
         assert!(padded.x >= 0.0 && padded.y >= 0.0);
-        let far = padded_box(numbered_cell_box(full, 12, 8, 96).unwrap(), 1200.0, 800.0, 0.6);
+        let far = padded_box(
+            numbered_cell_box(full, 12, 8, 96).unwrap(),
+            1200.0,
+            800.0,
+            0.6,
+        );
         assert!(far.x + far.width <= 1200.0);
         assert!(far.y + far.height <= 800.0);
     }
@@ -1675,7 +1706,10 @@ mod tests {
     fn privacy_guard_matches_credential_surfaces_only() {
         assert!(is_guarded_app("1Password", "com.1password.1password"));
         assert!(is_guarded_app("Bitwarden", "com.bitwarden.desktop"));
-        assert!(is_guarded_app("Keychain Access", "com.apple.keychainaccess"));
+        assert!(is_guarded_app(
+            "Keychain Access",
+            "com.apple.keychainaccess"
+        ));
         // Name match alone is enough — a browser-hosted vault has no vault bundle id.
         assert!(is_guarded_app("Bitwarden - Chrome", "com.google.Chrome"));
         assert!(is_guarded_app("Authenticator", "com.example.unknown"));
