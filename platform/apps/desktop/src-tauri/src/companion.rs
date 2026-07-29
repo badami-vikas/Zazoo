@@ -973,6 +973,18 @@ fn run_ask(
     let use_cloud_vision = request.share_screen_with_cloud && cloud_key.is_some();
 
     if use_cloud_vision {
+        // Privacy Guard runs BEFORE the capture: a credential surface is
+        // never photographed for cloud egress, whatever the consent state.
+        if let Some(guarded) = guarded_frontmost_app() {
+            return Err(err(
+                "COMPANION_PRIVACY_GUARD",
+                format!(
+                    "{guarded} looks like a password or credential window, so Bridge will not \
+                     send a screenshot of it. Switch to another window, or uncheck screen \
+                     sharing to ask locally."
+                ),
+            ));
+        }
         let key = cloud_key.expect("checked above");
         let capture = sensor_bridge::capture_display_jpeg(app, monitor_index)
             .map_err(|error| err("COMPANION_CAPTURE_FAILED", error))?;
@@ -1174,6 +1186,72 @@ fn monitor_logical_size(app: &AppHandle, index: usize) -> Option<(f64, f64)> {
     })
     .ok()?;
     receiver.recv_timeout(Duration::from_secs(3)).ok().flatten()
+}
+
+// ---------------------------------------------------------------------------
+// Privacy Guard
+// ---------------------------------------------------------------------------
+//
+// Adapted from clicky-windows' Privacy Guard: never capture a password
+// manager or a banking window. Bridge applies it at the EGRESS boundary
+// rather than the capture boundary — the local path may still answer, but a
+// screenshot of a credential surface never leaves the machine, consent
+// checkbox or not. "Govern before executing": a consent tick is permission
+// to share the screen, not permission to share a vault.
+
+/// Bundle identifiers whose windows must never be sent to a cloud provider.
+const GUARDED_BUNDLE_IDS: &[&str] = &[
+    "com.1password.1password",
+    "com.1password.7",
+    "com.agilebits.onepassword",
+    "com.agilebits.onepassword7",
+    "com.bitwarden.desktop",
+    "org.keepassxc.keepassxc",
+    "com.lastpass.lastpassmacdesktop",
+    "com.apple.keychainaccess",
+    "in.sinew.Enpass-Desktop",
+    "com.dashlane.dashlanephonefinal",
+    "com.apple.Passwords",
+];
+
+/// Substrings in an app's visible name that indicate a credential surface.
+const GUARDED_NAME_FRAGMENTS: &[&str] = &[
+    "1password",
+    "bitwarden",
+    "keepass",
+    "lastpass",
+    "dashlane",
+    "enpass",
+    "keychain access",
+    "passwords",
+    "authenticator",
+];
+
+/// True when the frontmost application is a credential surface.
+pub fn is_guarded_app(name: &str, bundle_id: &str) -> bool {
+    let bundle = bundle_id.to_ascii_lowercase();
+    if GUARDED_BUNDLE_IDS
+        .iter()
+        .any(|guarded| bundle == guarded.to_ascii_lowercase())
+    {
+        return true;
+    }
+    let name = name.to_ascii_lowercase();
+    GUARDED_NAME_FRAGMENTS
+        .iter()
+        .any(|fragment| name.contains(fragment))
+}
+
+fn guarded_frontmost_app() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let (name, bundle_id) = crate::providers::apps::frontmost_app_once()?;
+        is_guarded_app(&name, &bundle_id).then_some(name)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
 }
 
 fn frontmost_app_name() -> Option<String> {
@@ -1588,6 +1666,20 @@ mod tests {
             strip_cell_tags("Click there. [CELL:57:Ask button]"),
             "Click there."
         );
+    }
+
+    #[test]
+    fn privacy_guard_matches_credential_surfaces_only() {
+        assert!(is_guarded_app("1Password", "com.1password.1password"));
+        assert!(is_guarded_app("Bitwarden", "com.bitwarden.desktop"));
+        assert!(is_guarded_app("Keychain Access", "com.apple.keychainaccess"));
+        // Name match alone is enough — a browser-hosted vault has no vault bundle id.
+        assert!(is_guarded_app("Bitwarden - Chrome", "com.google.Chrome"));
+        assert!(is_guarded_app("Authenticator", "com.example.unknown"));
+        // Ordinary apps are not guarded.
+        assert!(!is_guarded_app("Safari", "com.apple.Safari"));
+        assert!(!is_guarded_app("Finder", "com.apple.finder"));
+        assert!(!is_guarded_app("Bridge", "ai.bridge.desktop"));
     }
 
     #[test]

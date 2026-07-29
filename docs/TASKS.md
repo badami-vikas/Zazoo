@@ -6,9 +6,9 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027`
+IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048. TASK-026 became the current P0 on 2026-07-26 under AP-078 after the user reported the primary Chat Panel remained placeholder-like and approved its implementation plan. TASK-027 (clicky-parity screen-aware companion ask prototype) appended at queue end 2026-07-29 per user directive R-041.
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048. TASK-026 became the current P0 on 2026-07-26 under AP-078 after the user reported the primary Chat Panel remained placeholder-like and approved its implementation plan. TASK-027 (clicky-parity screen-aware companion ask prototype) appended at queue end 2026-07-29 per user directive R-041; TASK-028 (autonomous background browser research agent) appended immediately after per the same day's follow-up directive R-042.
 
 ## Operating standard
 
@@ -424,3 +424,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: none
 - Dependencies: none
 - Remaining for `done`: pointing ACCURACY. The pipeline is proven end to end, but `qwen/qwen3.6-27b` grounds locations poorly (measured: a target at 750,450 in a 1000x600 probe returned 136,808; the live ring lands a few hundred logical px off the real control), and Groq's current catalogue has no grounding-strong vision model. Decide between switching the vision provider to a grounding-capable one (recommended), raising the Groq tier to afford a third locator stage, or accepting documented coarse area-pointing. Also still unrun: V2 local-path ask (managed model not installed on this machine), V7/V8 degradation checks, and V9 multi-monitor
+
+## Autonomous background browser research agent
+- ID: TASK-028
+- Status: ready
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: Bridge runs a multi-step research objective on its own in the background — planning steps, searching, opening and reading real pages in a managed browser, and returning a cited brief — with every step an inspectable child Run, every irreversible browser action gated behind a Proposal, and fetched page text treated as hostile input that can never reach the planner's instruction channel.
+- Prototype test: From a real Organization, start a Research Run for an explicit public objective; it plans and executes at least three steps, reads at least one page that search alone could not answer, records per-claim citations plus `untrusted_external` taint on Result/Memory/Event, stops honestly at its step/time bound, survives an app restart, refuses to click or type without an approved Proposal, and reports rather than obeys a page that contains instructions aimed at the agent.
+- Scope: docs/raw/autonomous-browser-research-agent-plan-2026-07.md (phases BR0-BR5); docs/raw/learning-agent-roadmap-2026-07.md §3.3 injection defense; reuses TASK-023 SearchProvider, TASK-007 Agent/Skill/child-Run orchestration, TASK-026 Proposal→Decision→Run→Result, TASK-027 Set-of-Mark locator
+- Evidence: none yet — BR0 (bounded step loop over the existing keyless SearchProvider, no new binary and no new authority) is the first honest slice
+- Requests: R-042
+- Approval: none — BR3's click/type authority and BR1's managed browser binary each need an explicit approval before implementation
+- Dependencies: TASK-023 (done); TASK-007 (done); TASK-026 (done); TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it)

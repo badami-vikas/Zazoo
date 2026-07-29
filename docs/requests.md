@@ -81,3 +81,11 @@ Verbatim. Reviewed all 178 FindAll candidates (not just the 46 originally matche
 > I need a working prototype ready for this"
 
 Verbatim. Reuse intake performed against the clicky family (all MIT-licensed): behaviors were studied from public READMEs/architecture descriptions and re-implemented natively on Bridge's existing overlay/annotate/sensor/model surfaces — no source code copied. Mapped to new TASK-027 (screen-aware companion ask prototype). Capability mapping and residency/consent design: `outputs/2026-07-29-task-027-companion-clicky-parity.md`.
+
+## R-042 — Companion pointing accuracy, further repo features, and an autonomous browser research agent (2026-07-29)
+
+> "Try to fix this pixel position problem. refer the already shared github repos if you can find a good solution instead of me changing the visual model.
+> Also go over all the similar github repos just like the other ones and see if you can fix this problem and add any other additional features from there if that'll be helpful.
+> Next task is to get control, open browser and do some research in the backend. Refer other repos or plans or tasks.md file for references on this. I need this to be a multiple step model in the background doing complex tasks."
+
+Verbatim. Pointing accuracy addressed under TASK-027 by adopting clicky-windows' actual technique — the numbered grid is DRAWN onto the screenshot (Set-of-Mark prompting) rather than described in words — with no change of vision model. Privacy Guard also adopted from the same repo. The repo survey confirmed none of the four clicky projects performs autonomous computer control, so the browser-research capability is Bridge's own: planned in docs/raw/autonomous-browser-research-agent-plan-2026-07.md and queued as TASK-028.

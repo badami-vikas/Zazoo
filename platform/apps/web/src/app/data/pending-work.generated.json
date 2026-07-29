@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T12:44:00.300Z",
+  "generatedAt": "2026-07-29T12:53:43.149Z",
   "items": [
     {
       "id": "TASK-026",
@@ -933,6 +933,38 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 415,
       "rank": 27
+    },
+    {
+      "id": "TASK-028",
+      "title": "TASK-028 — Autonomous background browser research agent",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "Bridge runs a multi-step research objective on its own in the background — planning steps, searching, opening and reading real pages in a managed browser, and returning a cited brief — with every step an inspectable child Run, every irreversible browser action gated behind a Proposal, and fetched page text treated as hostile input that can never reach the planner's instruction channel.",
+      "prototypeTest": "From a real Organization, start a Research Run for an explicit public objective; it plans and executes at least three steps, reads at least one page that search alone could not answer, records per-claim citations plus `untrusted_external` taint on Result/Memory/Event, stops honestly at its step/time bound, survives an app restart, refuses to click or type without an approved Proposal, and reports rather than obeys a page that contains instructions aimed at the agent.",
+      "scope": [
+        "docs/raw/autonomous-browser-research-agent-plan-2026-07.md (phases BR0-BR5)",
+        "docs/raw/learning-agent-roadmap-2026-07.md §3.3 injection defense",
+        "reuses TASK-023 SearchProvider, TASK-007 Agent/Skill/child-Run orchestration, TASK-026 Proposal→Decision→Run→Result, TASK-027 Set-of-Mark locator"
+      ],
+      "evidence": [
+        "none yet — BR0 (bounded step loop over the existing keyless SearchProvider, no new binary and no new authority) is the first honest slice"
+      ],
+      "requests": [
+        "R-042"
+      ],
+      "approval": "none — BR3's click/type authority and BR1's managed browser binary each need an explicit approval before implementation",
+      "dependencies": [
+        "TASK-023 (done)",
+        "TASK-007 (done)",
+        "TASK-026 (done)",
+        "TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it)"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 429,
+      "rank": 28
     }
   ]
 }
