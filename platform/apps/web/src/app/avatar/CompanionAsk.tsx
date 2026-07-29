@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dispatchCaptureEvent, setAvatarStatus } from "./avatar-store";
 import { tauriInvoke, tauriInvokeStrict } from "./tauri-internals";
+import { ResearchRun } from "./ResearchRun";
 
 interface CompanionCapabilities {
   cloudVision: boolean;
@@ -77,6 +78,7 @@ export function CompanionAsk({
   pttActive: boolean;
 }) {
   const [capabilities, setCapabilities] = useState<CompanionCapabilities | null>(null);
+  const [mode, setMode] = useState<"ask" | "research">("ask");
   const [question, setQuestion] = useState("");
   const [shareScreen, setShareScreen] = useState(false);
   const [speakAnswers, setSpeakAnswers] = useState(true);
@@ -240,8 +242,38 @@ export function CompanionAsk({
           ? "Transcribing your voice…"
           : null;
 
+  const modeTabs = (
+    <div className="flex gap-1 px-3 pt-3">
+      {(["ask", "research"] as const).map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          onClick={() => setMode(tab)}
+          className={`rounded px-2 py-0.5 text-xs ${
+            mode === tab
+              ? "bg-[var(--color-navy)] text-white"
+              : "text-[var(--color-navy-mid)]"
+          }`}
+        >
+          {tab === "ask" ? "Ask" : "Research"}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (mode === "research") {
+    return (
+      <div className="flex flex-col" style={{ minHeight: 0 }}>
+        {modeTabs}
+        <ResearchRun />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-2 p-3 text-sm" style={{ minHeight: 0, overflowY: "auto" }}>
+    <div className="flex flex-col gap-2 text-sm" style={{ minHeight: 0, overflowY: "auto" }}>
+      {modeTabs}
+      <div className="flex flex-col gap-2 p-3 pt-2">
       <label className="flex items-start gap-2 text-xs text-[var(--color-navy-mid)]">
         <input
           type="checkbox"
@@ -357,6 +389,7 @@ export function CompanionAsk({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

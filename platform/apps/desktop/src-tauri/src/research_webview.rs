@@ -427,6 +427,70 @@ pub async fn research_locate(
     .map_err(|error| err("RESEARCH_STATE", format!("locate task failed: {error}")))?
 }
 
+/// One planner chat message. Only the shapes the planner sends are accepted.
+#[derive(Deserialize)]
+pub struct ResearchChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+/// Text-only chat completion for the Research Run's PLANNER, so the Groq key
+/// never enters a webview. Deliberately narrow: no images (the locator owns
+/// vision), a small output budget, and the same model knob the companion
+/// uses. Callable only from Bridge's own capability-holding windows — the
+/// research reader window has no IPC at all.
+#[tauri::command]
+pub async fn research_chat(
+    app: AppHandle,
+    messages: Vec<ResearchChatMessage>,
+) -> Result<String, ResearchError> {
+    if messages.is_empty() || messages.len() > 8 {
+        return Err(err(
+            "RESEARCH_CHAT_INVALID",
+            "Planner chat needs between 1 and 8 messages",
+        ));
+    }
+    for message in &messages {
+        if message.role != "system" && message.role != "user" {
+            return Err(err(
+                "RESEARCH_CHAT_INVALID",
+                format!("Unsupported chat role \"{}\"", message.role),
+            ));
+        }
+    }
+    let key = companion::groq_api_key(&app).ok_or_else(|| {
+        err(
+            "RESEARCH_NO_VISION",
+            "No Groq API key is configured, so the research planner has no model",
+        )
+    })?;
+    let model = companion::vision_model(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 512,
+            "temperature": 0.2,
+            "reasoning_effort": "none",
+            "messages": messages
+                .iter()
+                .map(|message| serde_json::json!({
+                    "role": message.role,
+                    "content": message.content,
+                }))
+                .collect::<Vec<_>>(),
+        });
+        companion::post_chat(
+            &format!("{}/chat/completions", companion::GROQ_BASE_URL),
+            &key,
+            body,
+        )
+        .map(|reply| companion::strip_think_blocks(&reply))
+        .map_err(|error| err("RESEARCH_CHAT_FAILED", error.message))
+    })
+    .await
+    .map_err(|error| err("RESEARCH_STATE", format!("chat task failed: {error}")))?
+}
+
 /// Close the research reader window (Run finished or was stopped). Idempotent.
 #[tauri::command]
 pub fn research_close(app: AppHandle) -> Result<(), ResearchError> {

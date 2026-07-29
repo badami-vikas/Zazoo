@@ -464,6 +464,7 @@ pub fn run() {
             companion::companion_transcribe,
             research_webview::research_read_page,
             research_webview::research_locate,
+            research_webview::research_chat,
             research_webview::research_close,
             open_google_oauth,
             providers::accessibility::ax_permission_status,

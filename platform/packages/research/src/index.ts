@@ -9,5 +9,7 @@ export type { RunResearchOptions } from "./engine.js";
 export { detectInjection, fenceUntrusted, quarantine } from "./injection.js";
 export type { InjectionFinding } from "./injection.js";
 export { HttpPageReader, htmlToText } from "./http-reader.js";
+export { createChatPlanner } from "./chat-planner.js";
+export type { ChatFn, ChatMessage } from "./chat-planner.js";
 export type { HttpReaderOptions } from "./http-reader.js";
 export * from "./ports.js";

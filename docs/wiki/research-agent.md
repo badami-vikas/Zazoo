@@ -23,4 +23,6 @@ Agent takes an objective, plans steps, searches, reads pages, comes back with a 
 
 **Reuses**: TASK-023 keyless cited SearchProvider · TASK-007 Agent/Skill/child-Run · TASK-026 Proposal→Decision→Run→Result · TASK-027 Set-of-Mark locator (for BR2 element finding).
 
-**Open**: live wiring (API procedure, Run detail Page, "Research this" entry point in the companion panel) is not built yet; the engine and the desktop reader/locator commands exist but are not yet reachable from the UI. Live validation pending for the webview reader (a JS-rendered page returns real text; `-l` capture of an always-on-bottom window; locate accuracy on a real page).
+**Prototype wiring (2026-07-30, user-approved prototype-first)**: companion panel Research tab (`ResearchRun.tsx`) runs the engine in the overlay webview — search → governed `skill.webResearch`, read/find → shell commands, planner → `createChatPlanner` over text-only `research_chat` (key stays in Rust). Green tools only: no actuator/proposal channel wired, engine blocks amber honestly. DEVIATION recorded in TASKS.md: steps are not yet kernel child Runs.
+
+**Open**: kernel-Run migration + Run detail Page. Live validation pending: real-page extraction, `-l` capture of an always-on-bottom window, locate accuracy, overlay auth for `webResearch`.

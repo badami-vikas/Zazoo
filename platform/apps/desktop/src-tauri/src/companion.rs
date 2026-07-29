@@ -42,7 +42,7 @@ use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 pub const COMPANION_PTT_EVENT: &str = "bridge:companion-ptt";
 
-const GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
+pub(crate) const GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
 /// Vision-capable Groq model for the screen-aware path. Overridable so a
 /// deprecated model id never requires a rebuild.
 const DEFAULT_VISION_MODEL: &str = "meta-llama/llama-4-scout-17b-16e-instruct";
@@ -869,7 +869,11 @@ fn local_system_prompt(frontmost: Option<&str>) -> String {
     )
 }
 
-fn post_chat(url: &str, api_key: &str, body: serde_json::Value) -> Result<String, CompanionError> {
+pub(crate) fn post_chat(
+    url: &str,
+    api_key: &str,
+    body: serde_json::Value,
+) -> Result<String, CompanionError> {
     let agent = ureq::AgentBuilder::new().timeout(HTTP_TIMEOUT).build();
     let response = agent
         .post(url)

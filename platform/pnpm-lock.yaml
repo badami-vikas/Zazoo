@@ -108,6 +108,9 @@ importers:
       '@bridge/module-manifests':
         specifier: workspace:*
         version: link:../../modules/manifests
+      '@bridge/research':
+        specifier: workspace:*
+        version: link:../../packages/research
       '@bridge/tables':
         specifier: workspace:*
         version: link:../../packages/tables
