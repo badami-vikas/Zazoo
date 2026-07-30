@@ -2518,3 +2518,33 @@ Then executed the next open code item on TASK-028: the recorded deviation that R
   with ledger entries to show notes), is the next step.
 - Verified: platform typecheck 42/42; 3 new tests in `platform/apps/api/test/research-run-kernel.test.ts`
   pass against the real `buildWiring()` composition root.
+
+# 2026-07-31 — Queue hygiene: TASK-030 Pending Tests; TASK-022 + TASK-027 closed (AP-092)
+
+User challenge exposed three real defects in the queue, all confirmed:
+
+1. **Stale dependencies.** TASK-006 was blocked on TASK-001, TASK-018 on TASK-005, TASK-019 on
+   TASK-005 + TASK-015 — every one of those is `done`. The rows read as engineering-blocked when the
+   real gates are a manual production deploy, seven HIGH dependency advisories, and an unapplied
+   approval respectively. Corrected in place; no queue reorder.
+2. **Finished work labelled unfinished.** TASK-022 and TASK-027 were carrying blocked/in_progress
+   labels that described the state of their PROOF, not their WORK. Both closed; their live checks
+   moved to TASK-030.
+3. **An invalid status token.** TASK-029 read `in-progress` (hyphen), which is not one of the six
+   valid values, so the generated projection had been silently dropping it. Now `in_progress`.
+
+**TASK-030 "Pending Tests"** collects PT-1 Anthropic cache hit · PT-2 local tier separation ·
+PT-3 companion validation sweep · PT-4 `research_locate` live check · PT-5 hosted cold-start
+evidence · PT-6 cross-platform release checks. It deliberately excludes build work and approval
+gates — those stay on their own tasks.
+
+On the LLM-agnostic question: the harness already is. `ModelProvider` carries
+tiers/models/pricing/routingHealth/plane, `MODEL_TIERS` is cheap|default|reasoning, and four
+adapters implement it. Tier routing, Anthropic cache wire-format parsing, and receipt construction
+are already proven with no credential. Only a real second Anthropic call showing non-zero
+`cache_read_input_tokens` remains, and it cannot move to Ollama — that field is Anthropic-API
+accounting, i.e. a provider feature behind an agnostic port, not a design gap. Ollama also maps one
+model to all three tiers today, so meaningful local tier separation is a config change (PT-2).
+
+TASK-020 was deliberately NOT closed: it is unbuilt scope, not a testing gap. No browser extension
+exists in `platform/apps/` and its Avatar clause wants production assets, not the procedural SVG rig.

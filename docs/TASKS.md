@@ -290,7 +290,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Live reliability deployment: [2026-07-25 deployment and Supabase check](../outputs/2026-07-25-live-reliability-deployment.md) and [natural cold-wake/Auth closure](../outputs/2026-07-25-hosted-cold-wake-auth-refresh.md). AP-074 deployed API/web commit `015716c`; a 65-second window containing 19 `/health` probes produced zero additional `bridge_app` statements/rows/execution time. AP-075/ADR-145 landed web commit `c0353e7` and live deploy `dep-d9i6ojjrjlhs73ef2380`: wake now precedes bearer capture, duplicate Auth events single-flight Organization activation, and sent mutations remain non-replayed. Provider logs prove a natural hibernation boundary (`07:59:21Z` old-instance final health -> `08:01:38Z` different-instance start) followed by browser `/health` `200`, CORS `204`, and refreshed-bearer activation `200`. The exact pilot rotated access+refresh tokens for the same subject through `TOKEN_REFRESHED`; exact 375px reached `/` with the visible wake state and no horizontal overflow. The user-reported hosted/Supabase reliability bug is RESOLVED; TASK-006 remains blocked only on its unchanged Google/Source-credential prototype gate.
 - Requests: DealPilot requirements 2026-07-14–15
 - Approval: AP-023, AP-029, AP-044, AP-045, AP-054, AP-060, AP-063, AP-074, and AP-075 applied
-- Dependencies: TASK-001
+- Dependencies: a MANUAL production deploy (deployed source pinned at `163562a`; merging main does not publish), then the TASK-030 PT-5 cold-start evidence. TASK-001 is `done` and was a stale blocker.
 
 ## JobPilot culture-research slice
 - ID: TASK-011
@@ -357,7 +357,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Evidence: BUGS mobile app absent from accessible refs; BUGS 2026-07-26 main production-dependency audit reports seven HIGH advisories; AP-012 desktop CI-green follow-up; [2026-07-24 desktop diagnosis](../outputs/2026-07-24-hosted-supabase-desktop-diagnosis.md) reproduced pre-VOCAB Local Plane rejection plus non-self-contained development/release startup. [Bounded remediation](../outputs/2026-07-24-hosted-desktop-reliability-remediation.md) accepts only the exact migratable UUID shape and proves retained-row upgrade/reopen; orchestrates development; bundles allowlisted API + target-native Node; rejects secrets/stale/wrong-target inputs; signs the macOS Keyring from Frameworks with Node entitlements; disables unsupported Windows installers while retaining compile checks; and launches a 349 MB portable `Bridge.app` from Finder-like PATH through restart-stable Local Plane Onboarding and visible Lion overlay. A 2026-07-25 review caught the signed Framework's broken `NAPI_RS_NATIVE_LIBRARY_PATH` load path before deployment; the generated architecture package now uses a reviewed `process.dlopen` bridge, and final-bundle verification proves packaged Node can import `@napi-rs/keyring` and construct `AsyncEntry` with no native addon left in Resources. TASK-018 remains `blocked`: real Developer ID/notarization, Windows secure listener inheritance/installers, the full physical OS matrix, mobile, and a green production-dependency audit are not complete. Queue order/status is unchanged.
 - Requests: cross-platform roadmap work
 - Approval: none
-- Dependencies: TASK-005
+- Dependencies: remediation of the seven HIGH production-dependency advisories, plus the TASK-030 PT-6 OS-matrix and real-device checks. TASK-005 is `done` and was a stale blocker.
 
 ## Approved long-term optimization rollout
 - ID: TASK-019
@@ -370,20 +370,21 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Evidence: none
 - Requests: R-026
 - Approval: AP-007 proposed; AP-008 ledger/status inconsistency must be reconciled before treating its rule as applied
-- Dependencies: TASK-005; TASK-015
+- Dependencies: user acceptance of the proposed phase mapping (AP-007 still PROPOSED) and reconciliation of the AP-008 ledger/status inconsistency. TASK-005 and TASK-015 are both `done` and were stale blockers — the real gate is an approval, not engineering.
 
 ## Inference cost optimization: prompt caching + model tiering
 - ID: TASK-022
-- Status: blocked
+- Status: done
 - Priority: P2
 - Horizon: Core Modules
 - Outcome: ModelProvider calls use Anthropic prompt caching on the stable prefix, model selection routes by cost/capability tier (cheap/default/reasoning) instead of first-registered-provider, and complete() returns usage token counts enabling cost receipts — all preserving the local-plane-never-falls-to-cloud rule.
 - Prototype test: A repeated CoS turn shows non-zero cache_read_input_tokens on the second call; CoS intent classification runs on the cheap tier while a reasoning-tagged call runs on a higher tier; complete() usage is logged for at least one call site.
 - Scope: platform/packages/models/src/anthropic-provider.ts; platform/packages/models/src/router.ts; platform/packages/core/src/ports.ts; platform/packages/core/src/run-context.ts; platform/packages/core/src/chief-of-staff.ts; platform/apps/api/src/router.ts (~4573); docs/raw/optimizations-memory-vm-dealpilot-plan-2026-07.md (phase 1 slice)
 - Evidence: outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0]); outputs/2026-07-18-task-022-inference-cost-optimization.md implements tier/Plane/health routing, stable Anthropic system-prefix caching, exact provider usage/model identity, bounded prompt-free Run/Agent/Organization receipts, Local-default CoS inference, and explicit public-data confirmation before cloud egress. Deterministic affected checks and independent correctness/security review pass. Status is `blocked` under AP-067: exact unblock requires an already-authorized Anthropic credential plus explicit live-test spend authorization, then two sequential real public-safe CoS turns proving non-zero `cache_read_input_tokens` on the second persisted receipt. No credential, spend authorization, or live provider claim exists in this environment.
+- Closure (2026-07-31, AP-092): implementation and independent review were already complete; the only outstanding clause was a live Anthropic cache-hit number, which moved to TASK-030 PT-1. The harness is provider-agnostic by construction — `ModelProvider` carries `tiers`/`models`/`pricing`/`routingHealth`/`plane`, `MODEL_TIERS` is cheap|default|reasoning, and four adapters implement it (Anthropic, Groq, Ollama, llama.cpp). Tier routing, cache wire-format parsing, and receipt construction are all proven WITHOUT a credential. `cache_read_input_tokens` stays Anthropic-only because it is a provider feature behind an agnostic port, not a design gap.
 - Requests: LLM prompt/infra optimization audit directive 2026-07-17
 - Approval: AP-038 and AP-067 applied
-- Dependencies: external authorized Anthropic credential + live-test spend authorization
+- Dependencies: none — the live Anthropic cache-hit proof moved to TASK-030 PT-1; tier routing, cache wire format, and receipts are already proven deterministically without a credential
 
 ## Learning Agent governed web-research/recon Skill
 - ID: TASK-023
@@ -413,13 +414,14 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Screen-aware companion ask prototype (clicky parity)
 - ID: TASK-027
-- Status: in_progress
+- Status: done
 - Priority: P2
 - Horizon: Prototype
 - Outcome: The desktop Avatar answers questions about what is on the user's screen the way the open-source clicky family does — global push-to-talk summon, one consented screenshot per ask to a cloud vision model (or a fully local text answer without one), typed on-screen pointing marks parsed from `[POINT:x,y:label]` tags, spoken answers via local TTS, and bounded ephemeral conversation memory — without weakening Local Plane residency, blink-tell capture honesty, or the un-spoofable typed annotation vocabulary.
 - Prototype test: On a real desktop build with Screen Recording granted and GROQ_API_KEY configured, hold ⌘⇧Space, speak a question about a visible app, and watch the avatar expand, blink on capture, answer aloud, and spotlight the referenced screen locations with auto-clearing marks; uncheck screen sharing (or remove the key) and confirm the same ask answers locally with an honest "cannot see your screen" boundary and zero image egress; deny the mic and confirm typed asks still work end to end.
 - Scope: docs/raw/desktop-companion-agent-roadmap-2026-07.md P3–P4 slices (real `screen` sensor, hosted-tier vision, voice, pointing); outputs/2026-07-29-task-027-companion-clicky-parity.md capability mapping
 - Evidence: implementation landed on `main` (companion.rs ask/TTS/STT pipeline, real on-demand `capture_display_jpeg` with CGPreflight/Request preflight, monitor-targeted annotate marks, ⌘⇧Space global shortcut, CompanionAsk overlay panel); 72/72 desktop Rust tests, 106/106 web tests, web typecheck and production build pass. Live 2026-07-29 validation on the user's machine with real grants and key found and fixed six defects — dotted Tauri event names (`annotate.marks`/`sensor.capture` had NEVER delivered), reasoning-model `<think>` leakage and empty answers, the missing `annotate*` capability entry that denied the annotation webview `plugin:event|listen`, an SVG `calc()` frame plus an opacity-0 entrance animation that prevented painting, and an ordinary always-on-top annotate window that could not draw over a fullscreen app — then proved summon, consented capture, correct screen description, rendered yellow spotlight+callout marks over a fullscreen app, ~12s auto-clear, and push-to-talk Whisper transcription. Full record and screenshot evidence: outputs/2026-07-29-task-027-companion-clicky-parity.md
+- Closure (2026-07-31, AP-092): shipped and live-validated on the user's machine (summon, consented capture, screen description, rendered spotlight/callout marks over a fullscreen app, ~12s auto-clear, push-to-talk Whisper). Six live defects were found and fixed during validation. The residual V2/V7/V8/V9/V10/V11 checks are live-machine verification only and moved to TASK-030 PT-3.
 - Requests: R-041
 - Approval: none
 - Dependencies: none
@@ -438,10 +440,10 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - STILL OPEN after this pass: (1) **the overlay does not call this yet** — `ResearchRun.tsx` still runs the loop client-side, so the recorded deviation is only half closed; moving the caller is the next step. (2) Run detail Page (the read API it needs now exists). (3) `research_locate` live check. (4) Notes are ledger-only, so the detail Page must merge child Runs with ledger entries to show a complete timeline.
 - Requests: R-042
 - Approval: AP-088 applied (BR3 click/type authority, user directive "Im good with BR3" / "All are approved"); AP-089 proposed (defer the bundled browser engine; read pages through HTTP and, next, the existing webview)
-- Dependencies: TASK-023 (done); TASK-007 (done); TASK-026 (done); TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it)
+- Dependencies: TASK-023 (done); TASK-007 (done); TASK-026 (done); TASK-027 (done 2026-07-31 — pointing accuracy resolved to ~12px; its residual checks are TASK-030 PT-3)
 ## LA3 Phase 2 — credentialed SearchProvider tier for the research lane
 - ID: TASK-029
-- Status: in-progress
+- Status: in_progress
 - Priority: P2
 - Horizon: Convergence
 - Outcome: The Learning Agent's research lane survives loss of the single anonymous Tier-1 provider, because the `SearchProvider` router admits rights-verified Tier-2 `free_credentialed` providers under an explicit deployment-selected admission policy that can never widen to `paid` or `self_hosted` access, and the first such adapter (credentialed Parallel Search REST API) carries the same bounded provenance, taint, quarantine, and rights contract as Phase 1.
@@ -452,3 +454,48 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-07-29 (supply Parallel key; "do we have it roadmap to add those capabilities and integrations to learning / research agent? … If its not included, include and build")
 - Approval: AP-091 PROPOSED
 - Dependencies: TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends)
+
+## Pending Tests — live verification backlog
+- ID: TASK-030
+- Status: ready
+- Priority: P2
+- Horizon: Convergence
+- Outcome: Every verification that is blocked ONLY on a live machine, a real device, a paid credential, or a manual deploy is collected in one place with a named runner and an exact pass condition, so a finished build is never left labelled "in progress" merely because its proof has not been executed yet.
+- Prototype test: Each item below is either executed with recorded evidence, or carries an explicit reason it cannot be run and who must run it. No item is closed by assertion.
+- Scope: consolidates the live-verification tails of TASK-022, TASK-027, TASK-028, TASK-006, and TASK-018. It does NOT absorb unbuilt scope, build work, or approval gates — those stay on their own tasks.
+- Why this task exists: TASK-022 and TASK-027 were both carrying a `blocked`/`in_progress` label while their code was complete and reviewed. The label described the state of the *proof*, not the state of the *work*, which made the queue read as though implementation were outstanding when it was not.
+
+### PT-1 — Anthropic prompt-cache hit (from TASK-022)
+- Needs: an already-authorized Anthropic credential + explicit live-test spend authorization (a few cents).
+- Pass condition: two sequential real public-safe calls sharing a stable system prefix; the SECOND reports non-zero `cache_read_input_tokens`.
+- Why it cannot be moved off Anthropic: `cache_read_input_tokens` is an Anthropic-API accounting field. Ollama has a KV cache but exposes no equivalent hit metric, so no amount of provider-agnostic design makes this assertion runnable elsewhere. This is a provider FEATURE behind an agnostic PORT — the correct architecture, and the reason exactly one clause stays credential-gated.
+- Already proven WITHOUT a credential, so explicitly not part of this item: tier routing (`router.test.ts` — "cheap CoS work and reasoning work resolve by explicit tier, not registration order", plus tier-mismatch failure); cache wire format and null-count normalization (`providers.test.ts`); receipt construction and its rejection paths (`core/test/model-provider.test.ts`).
+
+### PT-2 — Meaningful local tier separation (from TASK-022)
+- Needs: Ollama installed locally (absent from this environment — not run).
+- Pass condition: `cheap`/`default`/`reasoning` are configured to three DIFFERENT local models and a routed call reaches the expected model per tier.
+- Note: `OllamaProvider` currently maps the same model to all three tiers, so a tiering check against it proves routing executes but not that tiers select distinct models. This is a configuration change, not a code change.
+
+### PT-3 — Companion clicky-parity validation sweep (from TASK-027)
+- Needs: the user's macOS machine with Screen Recording + microphone granted and `GROQ_API_KEY` configured.
+- Pass conditions: V2 local-path ask (managed model installed on the validating machine); V7/V8 honest degradation with screen sharing off and with the key removed — answers locally, states it cannot see the screen, zero image egress; V9 multi-monitor annotation; V10 sensor-drain blink tell; V11 regression sweep.
+
+### PT-4 — `research_locate` live check (from TASK-028)
+- Needs: a real desktop build with the contained research reader window open.
+- Pass condition: the Set-of-Mark locator resolves a named element inside the reader window and reports its position.
+- Not included here: the overlay-to-kernel caller move and the Run detail Page are BUILD work and stay on TASK-028.
+
+### PT-5 — Hosted cold-start reliability evidence (from TASK-006)
+- Needs: a MANUAL production deploy first — deployed source is pinned at `163562a` while `main` has moved well past it, and merging does not publish.
+- Pass conditions: natural-cold wake behaviour, Auth, 375px layout, and statement-count evidence after reviewed source is deployed.
+- Not test-only: the deploy itself is an action, so TASK-006 stays blocked rather than moving here wholesale.
+
+### PT-6 — Cross-platform release checks (from TASK-018)
+- Needs: the named desktop OS matrix with signing prerequisites, and a real device/simulator for Expo.
+- Pass conditions: desktop checks pass on the OS matrix; an on-branch Expo app runs against the shared kernel on a device or simulator.
+- Not test-only: seven HIGH production-dependency advisories are real remediation work, so TASK-018 stays blocked rather than moving here wholesale.
+
+- Evidence: created 2026-07-31 under AP-092 on explicit user direction ("Create a new task called Pending Tests and include all pending tests there while marking the tasks complete elsewhere if test is the only blocker").
+- Requests: user directive 2026-07-31
+- Approval: AP-092 applied
+- Dependencies: none — every item is independently runnable by whoever holds the machine, device, credential, or deploy rights it names

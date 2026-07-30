@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-30T21:47:17.706Z",
+  "generatedAt": "2026-07-30T23:44:03.193Z",
   "items": [
     {
       "id": "TASK-026",
@@ -608,7 +608,8 @@
       ],
       "approval": "AP-023, AP-029, AP-044, AP-045, AP-054, AP-060, AP-063, AP-074, and AP-075 applied",
       "dependencies": [
-        "TASK-001"
+        "a MANUAL production deploy (deployed source pinned at `163562a`",
+        "merging main does not publish), then the TASK-030 PT-5 cold-start evidence. TASK-001 is `done` and was a stale blocker."
       ],
       "canonicalStatus": "blocked",
       "sourceType": "task",
@@ -775,7 +776,7 @@
       ],
       "approval": "none",
       "dependencies": [
-        "TASK-005"
+        "remediation of the seven HIGH production-dependency advisories, plus the TASK-030 PT-6 OS-matrix and real-device checks. TASK-005 is `done` and was a stale blocker."
       ],
       "canonicalStatus": "blocked",
       "sourceType": "task",
@@ -801,8 +802,7 @@
       ],
       "approval": "AP-007 proposed; AP-008 ledger/status inconsistency must be reconciled before treating its rule as applied",
       "dependencies": [
-        "TASK-005",
-        "TASK-015"
+        "user acceptance of the proposed phase mapping (AP-007 still PROPOSED) and reconciliation of the AP-008 ledger/status inconsistency. TASK-005 and TASK-015 are both `done` and were stale blockers — the real gate is an approval, not engineering."
       ],
       "canonicalStatus": "blocked",
       "sourceType": "task",
@@ -813,7 +813,7 @@
     {
       "id": "TASK-022",
       "title": "TASK-022 — Inference cost optimization: prompt caching + model tiering",
-      "status": "blocked",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Core Modules",
       "outcome": "ModelProvider calls use Anthropic prompt caching on the stable prefix, model selection routes by cost/capability tier (cheap/default/reasoning) instead of first-registered-provider, and complete() returns usage token counts enabling cost receipts — all preserving the local-plane-never-falls-to-cloud rule.",
@@ -836,9 +836,10 @@
       ],
       "approval": "AP-038 and AP-067 applied",
       "dependencies": [
-        "external authorized Anthropic credential + live-test spend authorization"
+        "none — the live Anthropic cache-hit proof moved to TASK-030 PT-1",
+        "tier routing, cache wire format, and receipts are already proven deterministically without a credential"
       ],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 376,
@@ -872,7 +873,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 389,
+      "sourceLine": 390,
       "rank": 25
     },
     {
@@ -904,13 +905,13 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 402,
+      "sourceLine": 403,
       "rank": 26
     },
     {
       "id": "TASK-027",
       "title": "TASK-027 — Screen-aware companion ask prototype (clicky parity)",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Prototype",
       "outcome": "The desktop Avatar answers questions about what is on the user's screen the way the open-source clicky family does — global push-to-talk summon, one consented screenshot per ask to a cloud vision model (or a fully local text answer without one), typed on-screen pointing marks parsed from `[POINT:x,y:label]` tags, spoken answers via local TTS, and bounded ephemeral conversation memory — without weakening Local Plane residency, blink-tell capture honesty, or the un-spoofable typed annotation vocabulary.",
@@ -928,10 +929,10 @@
       ],
       "approval": "none",
       "dependencies": [],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 415,
+      "sourceLine": 416,
       "rank": 27
     },
     {
@@ -963,18 +964,19 @@
         "TASK-023 (done)",
         "TASK-007 (done)",
         "TASK-026 (done)",
-        "TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it)"
+        "TASK-027 (done 2026-07-31 — pointing accuracy resolved to ~12px",
+        "its residual checks are TASK-030 PT-3)"
       ],
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 429,
+      "sourceLine": 431,
       "rank": 28
     },
     {
       "id": "TASK-029",
       "title": "TASK-029 — LA3 Phase 2 — credentialed SearchProvider tier for the research lane",
-      "status": "open",
+      "status": "in-progress",
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "The Learning Agent's research lane survives loss of the single anonymous Tier-1 provider, because the `SearchProvider` router admits rights-verified Tier-2 `free_credentialed` providers under an explicit deployment-selected admission policy that can never widen to `paid` or `self_hosted` access, and the first such adapter (credentialed Parallel Search REST API) carries the same bounded provenance, taint, quarantine, and rights contract as Phase 1.",
@@ -999,11 +1001,38 @@
       "dependencies": [
         "TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends)"
       ],
-      "canonicalStatus": "in-progress",
+      "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 443,
+      "sourceLine": 445,
       "rank": 29
+    },
+    {
+      "id": "TASK-030",
+      "title": "TASK-030 — Pending Tests — live verification backlog",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "Every verification that is blocked ONLY on a live machine, a real device, a paid credential, or a manual deploy is collected in one place with a named runner and an exact pass condition, so a finished build is never left labelled \"in progress\" merely because its proof has not been executed yet.",
+      "prototypeTest": "Each item below is either executed with recorded evidence, or carries an explicit reason it cannot be run and who must run it. No item is closed by assertion.",
+      "scope": [
+        "consolidates the live-verification tails of TASK-022, TASK-027, TASK-028, TASK-006, and TASK-018. It does NOT absorb unbuilt scope, build work, or approval gates — those stay on their own tasks."
+      ],
+      "evidence": [
+        "created 2026-07-31 under AP-092 on explicit user direction (\"Create a new task called Pending Tests and include all pending tests there while marking the tasks complete elsewhere if test is the only blocker\")."
+      ],
+      "requests": [
+        "user directive 2026-07-31"
+      ],
+      "approval": "AP-092 applied",
+      "dependencies": [
+        "none — every item is independently runnable by whoever holds the machine, device, credential, or deploy rights it names"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 459,
+      "rank": 30
     }
   ]
 }
