@@ -27,9 +27,11 @@
 
 mod annotate;
 mod api_sidecar;
+mod companion;
 mod model_supervisor;
 mod overlay;
 mod providers;
+mod research_webview;
 mod sensor_bridge;
 
 use std::process::Command;
@@ -127,7 +129,8 @@ fn open_google_oauth(url: String) -> Result<(), String> {
 fn create_windows(
     app: &tauri::AppHandle,
     main_init_script: &str,
-    companion_init_script: &str,
+    overlay_init_script: &str,
+    annotate_init_script: &str,
 ) -> bool {
     let main_builder = WebviewWindowBuilder::new(app, overlay::MAIN_LABEL, WebviewUrl::default())
         .title("Bridge")
@@ -153,15 +156,15 @@ fn create_windows(
     if let Err(err) = main.set_focus() {
         eprintln!("[bridge-desktop] failed to focus main window: {err}");
     }
-    if let Err(err) = overlay::create_overlay_windows(app, companion_init_script) {
+    if let Err(err) = overlay::create_overlay_windows(app, overlay_init_script) {
         // The companion is additive: never block the main app on it.
         eprintln!("[bridge-desktop] failed to create overlay window(s): {err}");
     }
-    if let Err(err) = annotate::create_annotate_windows(app, companion_init_script) {
+    if let Err(err) = annotate::create_annotate_windows(app, annotate_init_script) {
         // Also additive — annotation is a help feature, never load-bearing.
         eprintln!("[bridge-desktop] failed to create annotate window(s): {err}");
     }
-    overlay::start_display_topology_watcher(app.clone(), companion_init_script.to_string());
+    overlay::start_display_topology_watcher(app.clone(), overlay_init_script.to_string());
     true
 }
 
@@ -356,8 +359,19 @@ fn finish_sidecar_bootstrap(app: &tauri::AppHandle, spawned: Option<api_sidecar:
         retire_window(&bootstrap, "bootstrap window");
     }
     let main_init_script = build_init_script(Some(&api_url), Some(&token));
-    let companion_init_script = build_init_script(Some(&api_url), None);
-    if !create_windows(app, &main_init_script, &companion_init_script) {
+    // The overlay performs governed, user-initiated API actions (Research
+    // Runs are mutations behind the SEC-1 gate), so it carries the sidecar
+    // capability like the main window — the script itself still gates the
+    // token to trusted origins. The click-through annotate surface never
+    // calls the API and stays tokenless (least privilege).
+    let overlay_init_script = main_init_script.clone();
+    let annotate_init_script = build_init_script(Some(&api_url), None);
+    if !create_windows(
+        app,
+        &main_init_script,
+        &overlay_init_script,
+        &annotate_init_script,
+    ) {
         show_sidecar_unavailable(app);
         stop_sidecar_in_background(app);
         return;
@@ -403,9 +417,37 @@ pub fn run() {
         .manage(model_supervisor::ModelSupervisorState::default())
         .manage(overlay::DisplayTopologyState::default())
         .manage(overlay::OverlaySessionState::default())
+        .manage(companion::CompanionState::default())
+        .manage(research_webview::ResearchState::default())
         .manage(BootstrapWindowState::default());
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
+    // Companion push-to-talk summon (TASK-027). Registered Rust-side only:
+    // the webview has no capability to (re)bind shortcuts, it merely receives
+    // the pressed/released events. Failure to register (e.g. the combo is
+    // taken) degrades gracefully — the overlay's click affordances remain.
+    let builder = {
+        use tauri::Emitter as _;
+        use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+        let push_to_talk = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
+        builder.plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(move |app, shortcut, event| {
+                    if shortcut == &push_to_talk {
+                        let state = match event.state() {
+                            ShortcutState::Pressed => "pressed",
+                            ShortcutState::Released => "released",
+                        };
+                        if let Err(error) = app.emit(companion::COMPANION_PTT_EVENT, state) {
+                            eprintln!(
+                                "[bridge-desktop] companion push-to-talk emit failed: {error}"
+                            );
+                        }
+                    }
+                })
+                .build(),
+        )
+    };
     let app = builder
         .invoke_handler(tauri::generate_handler![
             sensor_bridge::sensor_list,
@@ -426,15 +468,38 @@ pub fn run() {
             overlay::focus_main_window,
             annotate::annotate_show,
             annotate::annotate_clear,
+            annotate::annotate_ready,
+            companion::companion_capabilities,
+            companion::companion_ask,
+            companion::companion_speak,
+            companion::companion_stop_speaking,
+            companion::companion_transcribe,
+            research_webview::research_read_page,
+            research_webview::research_locate,
+            research_webview::research_chat,
+            research_webview::research_close,
             open_google_oauth,
             providers::accessibility::ax_permission_status,
         ])
         .setup(|app| {
+            // Register the companion push-to-talk shortcut (⌘⇧Space).
+            // Additive: a taken combo must never block the shell.
+            {
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                let push_to_talk =
+                    Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
+                if let Err(error) = app.handle().global_shortcut().register(push_to_talk) {
+                    eprintln!(
+                        "[bridge-desktop] companion push-to-talk registration failed \
+                         (continuing without the global shortcut): {error}"
+                    );
+                }
+            }
             if let Ok(url) = std::env::var("BRIDGE_API_URL") {
                 // Explicit override — e.g. pointing the shell at a remote or
                 // already-running local API. No sidecar spawned.
                 let init_script = build_init_script(Some(&url), None);
-                if !create_windows(app.handle(), &init_script, &init_script) {
+                if !create_windows(app.handle(), &init_script, &init_script, &init_script) {
                     show_sidecar_unavailable(app.handle());
                 }
                 return Ok(());
@@ -495,6 +560,7 @@ pub fn run() {
         }
         tauri::RunEvent::Exit => {
             overlay::stop_display_topology_watcher(app_handle);
+            companion::shutdown(&app_handle.state::<companion::CompanionState>());
             // Request a graceful API shutdown so PGlite releases its directory
             // before the bounded force-kill fallback. The child also watches
             // BRIDGE_PARENT_PID so a crashed shell cannot orphan the lock owner.

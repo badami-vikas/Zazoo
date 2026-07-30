@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the app bundle by tauri-build. Usage descriptions are the
+     macOS permission-prompt copy; each names the exact user-visible feature
+     so the grant decision is informed (no silent sensing, ever). -->
+<plist version="1.0">
+<dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Bridge records your voice only while you hold the companion push-to-talk shortcut, to transcribe your question. Nothing is recorded in the background.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Bridge takes a single screenshot only when you ask the companion about your screen. There is no rolling screen recording.</string>
+</dict>
+</plist>

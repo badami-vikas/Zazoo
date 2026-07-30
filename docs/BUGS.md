@@ -2089,3 +2089,9 @@ and Relationship agents omit it — the row would have displayed "undefined plan
 
 **Live status:** fixed in the repo, NOT deployed by me — needs a `bridge-pilot-web` rebuild
 (`autoDeploy: false`).
+
+## BUG-2026-07-30 — Tauri commands answering after ~60s abort the desktop app (TASK-028)
+- Evidence: two crash reports (`bridge-desktop-2026-07-30-161158.ips`, `-162553.ips`), both `__rust_foreign_exception` → abort in tao's run-loop observer, each ~3s after a `research_chat` that had waited 90s on a wedged local llama-server then fallen back to Groq. WKWebView stops in-page resource loads (including Tauri's IPC scheme task) at ~60s; completing the stopped task raises an ObjC exception Rust cannot catch.
+- Mitigation applied: every provider call made inside a webview-invoked command now has a short deadline (research planner: 20s local / 15s cloud / one 10s-spaced retry; companion `HTTP_TIMEOUT` 90s→40s).
+- Residual risk: `research_locate` and `companion_ask` can still stack two provider calls (~80s worst case). Structural fix — start-then-poll command shape for long work — belongs to the kernel-Run migration. Attached to TASK-028.
+- Related: managed llama-server wedged on its first real request (accepted connection, no response; prior llama-server crash reports on this machine from 2026-07-27). Planner degrades to cloud fast now; supervisor health/restart behaviour for a wedged-but-alive server is untested.

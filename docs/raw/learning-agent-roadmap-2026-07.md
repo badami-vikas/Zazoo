@@ -416,7 +416,7 @@ rollout:
   phase_2:
     intent: "$0 at eval volume — add 2-4 proven Tier-2 providers (not all 33) as fallback adapters once Tier-1 coverage proves insufficient for a real need"
     trigger_fired: "2026-07-29 — the sole anonymous Tier-1 endpoint rate-limited during live research use; a research lane with one unauthenticated shared provider has no fallback, no attribution, and no quota"
-    status: "MECHANISM COMPLETE FOR ONE PROVIDER (TASK-027, ADR-157, AP-089 PROPOSED) — breadth NOT built"
+    status: "MECHANISM COMPLETE FOR ONE PROVIDER (TASK-029, ADR-157, AP-091 PROPOSED) — breadth NOT built"
     mechanism:
       admission_policy: "tier/access moved out of the router body into SearchProviderAdmissionPolicy in @bridge/core; FREE_DIRECT_SEARCH_ADMISSION stays the DEFAULT so an unconfigured deployment keeps Phase 1 posture exactly; FREE_CREDENTIALED_SEARCH_ADMISSION is opt-in"
       spend_guard: "router refuses at construction any policy admitting paid or self_hosted — widening admission can never become spend; Tier-3 still needs the phase_3 cost/ROI gate"

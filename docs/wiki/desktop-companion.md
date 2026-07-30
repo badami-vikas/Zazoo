@@ -11,6 +11,15 @@ Floating always-on-top avatar that annotates the screen + helps in-context.
 - Human certification complete: physical cross-display pointer drag + quit/relaunch restoration, VoiceOver activation of native close/minimize/fullscreen, and physical display detach/reconnect pass. TASK-003 done.
 - Hover chat and right-click Hide/Meditate/Observe remain. CSP remains closed.
 
+**Screen-aware ask shipped (TASK-027, 2026-07-29, clicky parity)**: ⌘⇧Space push-to-talk (Rust-registered
+global shortcut) or hover ✨ opens the CompanionAsk panel. One CONSENTED screenshot per ask → Groq vision
+(`GROQ_API_KEY`, model overridable) → `[POINT:x,y:label]` tags parsed in Rust → typed spotlight+callout marks
+on the captured monitor only, 12 s auto-clear, animated entrance. No key or no consent → managed local Qwen
+answers text-only + says it cannot see the screen. Voice = hold-to-record → Groq Whisper (typed fallback);
+answers spoken by local `say`, cancellable. `screen` sensor = REAL on-demand now (`screencapture` +
+CGPreflight/Request), every capture → observation + blink; overlay bridges `sensor.capture` → DOM blink.
+Live grant/vision/voice certification still pending an interactive run (see TASK-027).
+
 **Annotation output exists**: one display-sized `annotate.rs` window per monitor; click-through from
 creation (`set_ignore_cursor_events(true)`). Typed highlight/arrow/callout/spotlight marks only.
 Rust validates finite geometry, positive size, ≤12 marks, and ≤120-char labels before emit. Frontend

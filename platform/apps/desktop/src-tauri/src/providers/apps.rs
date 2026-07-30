@@ -64,6 +64,13 @@ impl AppsProvider {
     }
 }
 
+/// One-shot frontmost-app read for callers outside the polling provider
+/// (companion.rs uses it as the single lightweight context signal on the
+/// local ask path). Same derived-metadata-only contract as the provider.
+pub(crate) fn frontmost_app_once() -> Option<(String, String)> {
+    frontmost_app()
+}
+
 /// Reads NSWorkspace.shared.frontmostApplication, returning (localizedName,
 /// bundleIdentifier). Wrapped in an autorelease pool since this runs off the
 /// main thread on a fresh Cocoa call each poll tick.

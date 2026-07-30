@@ -92,7 +92,7 @@ No paid escalation code. Full list: `../raw/learning-agent-roadmap-2026-07.md`
 §7. Real durable governed proof + landing:
 `../../outputs/2026-07-18-task023-governed-web-research.md`.
 
-**Phase 2 = MECHANISM ONLY, one provider (TASK-027, ADR-157, AP-089 PROPOSED, 2026-07-29).**
+**Phase 2 = MECHANISM ONLY, one provider (TASK-029, ADR-157, AP-091 PROPOSED, 2026-07-29).**
 Trigger fired: sole anonymous Tier-1 endpoint rate-limited under real use — one
 unauthenticated shared provider = no fallback, no attribution, no quota.
 Admission moved out of the router body into `SearchProviderAdmissionPolicy`

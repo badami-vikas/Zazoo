@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-30T21:17:07.822Z",
+  "generatedAt": "2026-07-30T21:26:54.326Z",
   "items": [
     {
       "id": "TASK-026",
@@ -909,7 +909,71 @@
     },
     {
       "id": "TASK-027",
-      "title": "TASK-027 — LA3 Phase 2 — credentialed SearchProvider tier for the research lane",
+      "title": "TASK-027 — Screen-aware companion ask prototype (clicky parity)",
+      "status": "in-progress",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "The desktop Avatar answers questions about what is on the user's screen the way the open-source clicky family does — global push-to-talk summon, one consented screenshot per ask to a cloud vision model (or a fully local text answer without one), typed on-screen pointing marks parsed from `[POINT:x,y:label]` tags, spoken answers via local TTS, and bounded ephemeral conversation memory — without weakening Local Plane residency, blink-tell capture honesty, or the un-spoofable typed annotation vocabulary.",
+      "prototypeTest": "On a real desktop build with Screen Recording granted and GROQ_API_KEY configured, hold ⌘⇧Space, speak a question about a visible app, and watch the avatar expand, blink on capture, answer aloud, and spotlight the referenced screen locations with auto-clearing marks; uncheck screen sharing (or remove the key) and confirm the same ask answers locally with an honest \"cannot see your screen\" boundary and zero image egress; deny the mic and confirm typed asks still work end to end.",
+      "scope": [
+        "docs/raw/desktop-companion-agent-roadmap-2026-07.md P3–P4 slices (real `screen` sensor, hosted-tier vision, voice, pointing)",
+        "outputs/2026-07-29-task-027-companion-clicky-parity.md capability mapping"
+      ],
+      "evidence": [
+        "implementation landed on `main` (companion.rs ask/TTS/STT pipeline, real on-demand `capture_display_jpeg` with CGPreflight/Request preflight, monitor-targeted annotate marks, ⌘⇧Space global shortcut, CompanionAsk overlay panel)",
+        "72/72 desktop Rust tests, 106/106 web tests, web typecheck and production build pass. Live 2026-07-29 validation on the user's machine with real grants and key found and fixed six defects — dotted Tauri event names (`annotate.marks`/`sensor.capture` had NEVER delivered), reasoning-model `<think>` leakage and empty answers, the missing `annotate*` capability entry that denied the annotation webview `plugin:event|listen`, an SVG `calc()` frame plus an opacity-0 entrance animation that prevented painting, and an ordinary always-on-top annotate window that could not draw over a fullscreen app — then proved summon, consented capture, correct screen description, rendered yellow spotlight+callout marks over a fullscreen app, ~12s auto-clear, and push-to-talk Whisper transcription. Full record and screenshot evidence: outputs/2026-07-29-task-027-companion-clicky-parity.md"
+      ],
+      "requests": [
+        "R-041"
+      ],
+      "approval": "none",
+      "dependencies": [],
+      "canonicalStatus": "in_progress",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 415,
+      "rank": 27
+    },
+    {
+      "id": "TASK-028",
+      "title": "TASK-028 — Autonomous background browser research agent",
+      "status": "in-progress",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "Bridge runs a multi-step research objective on its own in the background — planning steps, searching, opening and reading real pages in a managed browser, and returning a cited brief — with every step an inspectable child Run, every irreversible browser action gated behind a Proposal, and fetched page text treated as hostile input that can never reach the planner's instruction channel.",
+      "prototypeTest": "From a real Organization, start a Research Run for an explicit public objective; it plans and executes at least three steps, reads at least one page that search alone could not answer, records per-claim citations plus `untrusted_external` taint on Result/Memory/Event, stops honestly at its step/time bound, survives an app restart, refuses to click or type without an approved Proposal, and reports rather than obeys a page that contains instructions aimed at the agent.",
+      "scope": [
+        "docs/raw/autonomous-browser-research-agent-plan-2026-07.md (phases BR0-BR5)",
+        "docs/raw/learning-agent-roadmap-2026-07.md §3.3 injection defense",
+        "reuses TASK-023 SearchProvider, TASK-007 Agent/Skill/child-Run orchestration, TASK-026 Proposal→Decision→Run→Result, TASK-027 Set-of-Mark locator"
+      ],
+      "evidence": [
+        "`@bridge/research` implements BR0 (bounded step loop, every exit path recording a StopReason), BR1 (HTTP + HTML-to-text page reading, no bundled engine per AP-089), BR3 (engine-decided green/amber/red authority with Proposal gating, AP-088), BR4 (ledger resume that replays without re-executing and carries spent budget), and BR5 (structural quarantine plus an injection tripwire",
+        "poisoned pages are reported, never obeyed) — 31 tests with no network, browser, or model. BR2's desktop surface exists: `research_webview.rs` gives the shell a contained research webview (zero-capability window label, external origin without IPC, http(s)-only navigation, outbound-only `bridge-extract:` text channel, visible always-on-bottom window — no silent browsing) with `research_read_page`/`research_locate`/`research_close`",
+        "the locator reuses TASK-027's drawn-grid pipeline against a capture of the reader window's own image. 5 new Rust unit tests (navigation policy, payload decode, char-boundary truncation)",
+        "desktop suite 80 passing. Prototype live wiring landed 2026-07-30 per the user's explicit prototype-first choice: the companion panel gains a Research tab (`ResearchRun.tsx`) running the engine in the overlay webview with search → governed `agentOrchestration.skill.webResearch`, read → `research_read_page`, find → `research_locate`, planner → `createChatPlanner` over `research_chat` (key never enters the webview)",
+        "no actuator/proposal channel is wired, so amber steps are engine-blocked (green tools only). RECORDED DEVIATION: steps run in the overlay, not yet as kernel child Runs — the kernel-Run migration and the Run detail Page are the follow-up. LIVE-VALIDATED 2026-07-30 on the user's machine: an 8-step Run searched (governed webResearch through the Local Plane content guard), read real pages in the contained reader window, and returned a cited brief, stopping honestly at bound_wall_clock with 22 citations. Live debugging fixed six defects along the way: overlay lacked the sidecar capability (SEC-1 401s), boot-time content-guard snapshot never saw the late-starting local model (now resolved per-inspection), the model install was stranded in the wrong runtime dir, dev builds lacked the pinned llama-server (provisioned via prepareLlamaRuntime), opaque [object Object] errors blinded planner and user, and commands outliving WKWebView's ~60s IPC deadline aborted the app (BUGS.md 2026-07-30",
+        "all provider calls now hard-capped). Planner runs local-first with cloud fallback. Still open: research_locate live check, kernel-Run migration, Run detail Page"
+      ],
+      "requests": [
+        "R-042"
+      ],
+      "approval": "AP-088 applied (BR3 click/type authority, user directive \"Im good with BR3\" / \"All are approved\"); AP-089 proposed (defer the bundled browser engine; read pages through HTTP and, next, the existing webview)",
+      "dependencies": [
+        "TASK-023 (done)",
+        "TASK-007 (done)",
+        "TASK-026 (done)",
+        "TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it)"
+      ],
+      "canonicalStatus": "in_progress",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 429,
+      "rank": 28
+    },
+    {
+      "id": "TASK-029",
+      "title": "TASK-029 — LA3 Phase 2 — credentialed SearchProvider tier for the research lane",
       "status": "open",
       "priority": "P2",
       "horizon": "Convergence",
@@ -931,15 +995,15 @@
         "user directive 2026-07-29 (supply Parallel key",
         "\"do we have it roadmap to add those capabilities and integrations to learning / research agent? … If its not included, include and build\")"
       ],
-      "approval": "AP-089 PROPOSED",
+      "approval": "AP-091 PROPOSED",
       "dependencies": [
         "TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends)"
       ],
       "canonicalStatus": "in-progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 415,
-      "rank": 27
+      "sourceLine": 441,
+      "rank": 29
     }
   ]
 }

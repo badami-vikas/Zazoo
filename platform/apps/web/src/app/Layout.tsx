@@ -357,7 +357,7 @@ export default function Layout() {
               <div className="fixed inset-0 z-40" onClick={() => setOrgMenuOpen(false)} />
               <div
                 role="menu"
-                aria-label="Switch organization"
+                aria-label="Account"
                 className="absolute top-full left-1 w-52 mt-1 border rounded-xl shadow-lg z-50 overflow-hidden"
                 style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}
               >
@@ -388,6 +388,29 @@ export default function Layout() {
                     );
                   })}
                 </div>
+
+                {/* Sign out lives at the bottom of the account menu (Notion
+                    pattern), not as a standalone rail item. */}
+                {auth.configured && (
+                  <>
+                    <div className="border-t" style={{ borderColor: "var(--color-border)" }} />
+                    <div className="p-1.5">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setOrgMenuOpen(false);
+                          void signOut();
+                        }}
+                        className="flex w-full items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors hover:bg-[color-mix(in_srgb,var(--color-navy)_8%,transparent)]"
+                        title="Sign out"
+                      >
+                        <LogOut className="h-4 w-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
+                        <span className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>Sign out</span>
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </>
           )}
@@ -463,18 +486,6 @@ export default function Layout() {
             <Settings className="w-5 h-5 shrink-0" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Settings</span>
           </Link>
-          {auth.configured && (
-            <button
-              type="button"
-              className={navItemClass(false)}
-              onClick={() => void signOut()}
-              title="Sign out"
-            >
-              <LogOut className="h-5 w-5 shrink-0 text-[var(--color-warm-gray)]" />
-              <span className={navLabelClass()}>Sign out</span>
-            </button>
-          )}
-
         </div>
       </nav>
 

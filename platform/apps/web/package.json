@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Real platform frontend — ports the prototype's design, routed entirely through @bridge/api's governed tRPC surface (docs/raw/frontend-migration-scoping.md).",
+  "description": "Real platform frontend \u2014 ports the prototype's design, routed entirely through @bridge/api's governed tRPC surface (docs/raw/frontend-migration-scoping.md).",
   "scripts": {
     "generate:pending-work": "node ../../scripts/generate-pending-work.mjs",
     "prebuild": "pnpm generate:pending-work",
@@ -66,7 +66,8 @@
     "tailwind-merge": "3.2.0",
     "tesseract.js": "^5.1.1",
     "topojson-client": "3.1.0",
-    "world-atlas": "2.0.2"
+    "world-atlas": "2.0.2",
+    "@bridge/research": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

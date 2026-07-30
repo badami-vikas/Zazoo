@@ -335,6 +335,20 @@ fn label_for_monitor(index: usize) -> String {
     }
 }
 
+/// Monitor index encoded in an overlay/annotate-style window label
+/// ("overlay" → 0, "overlay-2" → 2). Non-overlay labels (e.g. "main") map to
+/// the primary display, 0 — the honest default for a window that isn't
+/// monitor-bound.
+pub(crate) fn monitor_index_for_label(label: &str) -> usize {
+    if !is_overlay_label(label) {
+        return 0;
+    }
+    label
+        .strip_prefix(&format!("{OVERLAY_LABEL}-"))
+        .and_then(|suffix| suffix.parse::<usize>().ok())
+        .unwrap_or(0)
+}
+
 pub(crate) fn is_overlay_label(label: &str) -> bool {
     label == OVERLAY_LABEL
         || label
@@ -1515,6 +1529,15 @@ mod tests {
         assert!(!is_overlay_label("overlay-menu"));
         assert!(!is_overlay_label("overlay-"));
         assert!(!is_overlay_label("annotate"));
+    }
+
+    #[test]
+    fn monitor_index_decodes_from_window_label() {
+        assert_eq!(monitor_index_for_label("overlay"), 0);
+        assert_eq!(monitor_index_for_label("overlay-1"), 1);
+        assert_eq!(monitor_index_for_label("overlay-12"), 12);
+        assert_eq!(monitor_index_for_label("main"), 0);
+        assert_eq!(monitor_index_for_label("overlay-menu"), 0);
     }
 
     #[test]

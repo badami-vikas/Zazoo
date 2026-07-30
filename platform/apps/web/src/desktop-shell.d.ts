@@ -12,6 +12,10 @@ interface Window {
   __BRIDGE_API_URL__?: string;
   /** Per-launch capability for the managed loopback API. Never persisted or put in a URL. */
   __BRIDGE_SIDECAR_TOKEN__?: string;
+  /** Annotate windows only: the 0-indexed monitor this window covers,
+   * injected by the shell so broadcast marks can be filtered to the display
+   * they belong to. See apps/desktop src-tauri/src/annotate.rs. */
+  __BRIDGE_ANNOTATE_MONITOR__?: number;
   /** Tauri v2 runtime internals — used for `invoke` (and, for the annotate
    * window, event `listen`) without adding @tauri-apps/api as a dependency
    * of the (browser-first) web app. `transformCallback` registers a JS
