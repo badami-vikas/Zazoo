@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 
 import {
+  FREE_CREDENTIALED_SEARCH_ADMISSION,
   SearchProviderError,
   SearchProviderPolicyError,
   SearchProvidersUnavailableError,
@@ -20,9 +21,11 @@ import {
   type GuardedFetchResult,
 } from "@bridge/net-guard";
 import {
-  FreeDirectSearchProviderRouter,
+  RightsVerifiedSearchProviderRouter,
+  PARALLEL_SEARCH_API_URL,
   PARALLEL_SEARCH_PRIVACY_URL,
   PARALLEL_SEARCH_TERMS_URL,
+  ParallelSearchApiProvider,
   ParallelSearchProvider,
   type SearchFetchPort,
 } from "../src/index.js";
@@ -144,7 +147,7 @@ test("router selects deterministically by health then id and attributes failover
     called.push("c-healthy");
     return result(healthy);
   });
-  const router = new FreeDirectSearchProviderRouter(
+  const router = new RightsVerifiedSearchProviderRouter(
     [degraded, healthy, unavailable],
     { now: () => Date.parse("2026-07-19T00:00:00.000Z") },
   );
@@ -179,7 +182,7 @@ test("router honors the explicit provider-attempt budget and never reaches a lat
     laterCalls += 1;
     return result(later);
   });
-  const router = new FreeDirectSearchProviderRouter([later, first], {
+  const router = new RightsVerifiedSearchProviderRouter([later, first], {
     now: () => Date.parse("2026-07-19T00:00:00.000Z"),
   });
 
@@ -203,7 +206,7 @@ test("router reports unavailable health without invoking the provider", async ()
     calls += 1;
     return result(offline);
   });
-  const router = new FreeDirectSearchProviderRouter([offline], {
+  const router = new RightsVerifiedSearchProviderRouter([offline], {
     now: () => Date.parse("2026-07-19T00:00:00.000Z"),
   });
   await assert.rejects(
@@ -223,7 +226,7 @@ test("router validates bounds and cancellation before provider network access", 
     calls += 1;
     return result(bounded);
   });
-  const router = new FreeDirectSearchProviderRouter([bounded], {
+  const router = new RightsVerifiedSearchProviderRouter([bounded], {
     now: () => Date.parse("2026-07-19T00:00:00.000Z"),
   });
   await assert.rejects(
@@ -252,7 +255,7 @@ test("Phase 1 rejects paid, Tier-3, and stale-rights providers before search", (
   };
   assert.throws(
     () =>
-      new FreeDirectSearchProviderRouter([paid], {
+      new RightsVerifiedSearchProviderRouter([paid], {
         now: () => Date.parse("2026-07-19T00:00:00.000Z"),
       }),
     SearchProviderPolicyError,
@@ -265,7 +268,7 @@ test("Phase 1 rejects paid, Tier-3, and stale-rights providers before search", (
   };
   assert.throws(
     () =>
-      new FreeDirectSearchProviderRouter([stale], {
+      new RightsVerifiedSearchProviderRouter([stale], {
         now: () => Date.parse("2026-07-19T00:00:00.000Z"),
       }),
     /stale/,
@@ -488,4 +491,181 @@ test("Parallel rejects compressed, invalid UTF-8, and over-budget responses", as
       error instanceof SearchProviderError && error.code === "degraded",
   );
   assert.equal(observedMaxBytes, 2_048);
+});
+
+// --- LA3 Phase 2: Tier-2 credentialed admission ------------------------------
+
+const API_KEY = "test-key-never-leaves-the-adapter";
+
+function credentialedProvider(
+  fetchPort: SearchFetchPort,
+): ParallelSearchApiProvider {
+  return new ParallelSearchApiProvider({ apiKey: API_KEY, fetch: fetchPort });
+}
+
+function apiResponse(payload: unknown): GuardedFetchResult {
+  return {
+    finalUrl: PARALLEL_SEARCH_API_URL,
+    status: 200,
+    headers: { "content-type": "application/json" },
+    body: Buffer.from(JSON.stringify(payload)),
+    truncated: false,
+    redirectCount: 0,
+    hopOrigins: ["https://api.parallel.ai"],
+  };
+}
+
+test("default admission still refuses a Tier-2 credentialed provider", () => {
+  assert.throws(
+    () =>
+      new RightsVerifiedSearchProviderRouter([
+        credentialedProvider(async () => apiResponse({})),
+      ]),
+    (error) =>
+      error instanceof SearchProviderPolicyError &&
+      /free-direct-only/.test(error.message),
+  );
+});
+
+test("credentialed admission accepts Tier-2 but never paid or self-hosted", () => {
+  const router = new RightsVerifiedSearchProviderRouter(
+    [credentialedProvider(async () => apiResponse({}))],
+    {
+      admission: FREE_CREDENTIALED_SEARCH_ADMISSION,
+      now: () => Date.parse("2026-07-30T00:00:00.000Z"),
+    },
+  );
+  assert.equal(router.providers().size, 1);
+
+  assert.throws(
+    () =>
+      new RightsVerifiedSearchProviderRouter([], {
+        admission: {
+          id: "spend",
+          allowedTiers: [3],
+          allowedAccess: ["paid"],
+        },
+      }),
+    (error) =>
+      error instanceof SearchProviderPolicyError &&
+      /never admit paid or self-hosted/.test(error.message),
+  );
+});
+
+test("credentialed provider sends the key as a header and never leaks it", async () => {
+  const calls: { url: string; options?: GuardedFetchOptions }[] = [];
+  const provider = credentialedProvider(async (url, options) => {
+    calls.push({ url, ...(options ? { options } : {}) });
+    return apiResponse({
+      search_id: "search_api_1",
+      results: [
+        {
+          url: "https://example.com/doc",
+          title: "Doc",
+          publish_date: null,
+          excerpts: ["evidence"],
+        },
+      ],
+      warnings: [{ type: "warning", message: "deprecated field" }],
+    });
+  });
+
+  const outcome = await provider.search({
+    ...REQUEST,
+    requestedAt: "2026-07-30T00:00:00.000Z",
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.url, PARALLEL_SEARCH_API_URL);
+  const headers = calls[0]!.options?.headers as Record<string, string>;
+  assert.equal(headers["x-api-key"], API_KEY);
+  assert.equal(calls[0]!.options?.maxRedirects, 0);
+
+  // The credential must not reach provenance, citations, warnings, or taint.
+  assert.ok(!JSON.stringify(outcome).includes(API_KEY));
+  assert.equal(outcome.provenance.providerId, "parallel-search-api");
+  assert.equal(outcome.provenance.providerTier, 2);
+  assert.equal(outcome.provenance.providerAccess, "free_credentialed");
+  assert.equal(outcome.provenance.providerRequestId, "search_api_1");
+  assert.equal(outcome.trustOrigin, "untrusted_external");
+  assert.equal(outcome.citations.length, 1);
+  assert.equal(outcome.citations[0]!.trustOrigin, "untrusted_external");
+  assert.deepEqual(outcome.warnings, ["deprecated field"]);
+});
+
+test("credentialed provider refuses an empty key and blocks unknown taint", async () => {
+  assert.throws(
+    () => new ParallelSearchApiProvider({ apiKey: "   " }),
+    (error) =>
+      error instanceof SearchProviderError && error.code === "access_blocked",
+  );
+
+  let called = false;
+  const provider = credentialedProvider(async () => {
+    called = true;
+    return apiResponse({});
+  });
+  await assert.rejects(
+    () => provider.search({ ...REQUEST, taintLabel: UNKNOWN_LABEL }),
+    (error) =>
+      error instanceof SearchProviderError && error.code === "access_blocked",
+  );
+  assert.equal(called, false);
+});
+
+test("credentialed provider maps HTTP 429 to a retryable rate_limited failover", async () => {
+  const provider = credentialedProvider(async () => ({
+    ...apiResponse({}),
+    status: 429,
+  }));
+  await assert.rejects(
+    () => provider.search(REQUEST),
+    (error) =>
+      error instanceof SearchProviderError &&
+      error.code === "rate_limited" &&
+      error.retryable,
+  );
+});
+
+test("router fails over from the anonymous tier to the credentialed tier", async () => {
+  const anonymous = provider("parallel-search-mcp", "healthy", async () => {
+    throw new SearchProviderError({
+      providerId: "parallel-search-mcp",
+      code: "rate_limited",
+      message: "anonymous tier exhausted",
+      retryable: true,
+    });
+  });
+  const credentialed = credentialedProvider(async () =>
+    apiResponse({
+      search_id: "search_api_2",
+      results: [
+        {
+          url: "https://example.com/fallback",
+          title: "Fallback",
+          publish_date: null,
+          excerpts: ["evidence"],
+        },
+      ],
+    }),
+  );
+
+  const router = new RightsVerifiedSearchProviderRouter(
+    [anonymous, credentialed],
+    {
+      admission: FREE_CREDENTIALED_SEARCH_ADMISSION,
+      now: () => Date.parse("2026-07-30T00:00:00.000Z"),
+    },
+  );
+
+  const outcome = await router.search({
+    ...REQUEST,
+    requestedAt: "2026-07-30T00:00:00.000Z",
+  });
+
+  assert.equal(outcome.provenance.providerId, "parallel-search-api");
+  assert.equal(outcome.attempts.length, 2);
+  assert.equal(outcome.attempts[0]!.status, "unavailable");
+  assert.equal(outcome.attempts[0]!.code, "rate_limited");
+  assert.equal(outcome.attempts[1]!.status, "succeeded");
 });

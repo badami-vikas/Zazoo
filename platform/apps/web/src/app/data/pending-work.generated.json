@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-27T13:13:26.544Z",
+  "generatedAt": "2026-07-30T21:17:07.822Z",
   "items": [
     {
       "id": "TASK-026",
@@ -906,6 +906,40 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 402,
       "rank": 26
+    },
+    {
+      "id": "TASK-027",
+      "title": "TASK-027 — LA3 Phase 2 — credentialed SearchProvider tier for the research lane",
+      "status": "open",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "The Learning Agent's research lane survives loss of the single anonymous Tier-1 provider, because the `SearchProvider` router admits rights-verified Tier-2 `free_credentialed` providers under an explicit deployment-selected admission policy that can never widen to `paid` or `self_hosted` access, and the first such adapter (credentialed Parallel Search REST API) carries the same bounded provenance, taint, quarantine, and rights contract as Phase 1.",
+      "prototypeTest": "With no `PARALLEL_API_KEY` configured, the deployment registers only the anonymous Tier-1 provider and refuses a Tier-2 provider at construction. With a key configured, the router admits both, tries the anonymous provider first, fails over to the credentialed provider when the anonymous tier returns `rate_limited`, records `providerTier: 2` / `providerAccess: free_credentialed` with a real `providerRequestId` in provenance, labels every citation `untrusted_external` with `trust: untrusted` / `source: web`, and the API key appears nowhere in the Result, provenance, warnings, taint label, or any Event.",
+      "scope": [
+        "docs/raw/learning-agent-roadmap-2026-07.md §7 (`rollout.phase_2`)",
+        "platform/packages/core/src/search-provider.ts (admission policy)",
+        "platform/packages/models/src/{parallel-search-shared,parallel-search-api-provider,search-provider-router}.ts",
+        "platform/apps/api/src/wiring.ts"
+      ],
+      "evidence": [
+        "`SearchProviderAdmissionPolicy` + `FREE_DIRECT_SEARCH_ADMISSION` (default, unchanged posture) + `FREE_CREDENTIALED_SEARCH_ADMISSION` in core",
+        "`RightsVerifiedSearchProviderRouter` (renamed from `FreeDirectSearchProviderRouter` — the old name asserted a policy that is now configurable) rejects any policy admitting `paid`/`self_hosted` at construction",
+        "shared parsing extracted to `parallel-search-shared.ts` so the two Parallel adapters cannot drift on citation validation, URL safety, taint labelling, or truncation bounds. Verified: platform typecheck 40/40",
+        "`@bridge/models` tests 42/42 (6 new — default admission refuses Tier-2, credentialed admission accepts Tier-2 but not paid, key sent as header and absent from output, empty key + unknown taint both blocked before network, HTTP 429 maps to retryable `rate_limited`, anonymous→credentialed failover attributed in `attempts`). Live end-to-end against the real `api.parallel.ai/v1beta/search`: 3 citations, `providerTier: 2`, `providerAccess: free_credentialed`, `providerRequestId: search_fa7e850327cf0de5405f9fde9d5c9bb3`, `trustOrigin: untrusted_external`, citation taint `trust: untrusted` / `source: web` / `instructionRisk: data`, and no credential in the serialized result."
+      ],
+      "requests": [
+        "user directive 2026-07-29 (supply Parallel key",
+        "\"do we have it roadmap to add those capabilities and integrations to learning / research agent? … If its not included, include and build\")"
+      ],
+      "approval": "AP-089 PROPOSED",
+      "dependencies": [
+        "TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends)"
+      ],
+      "canonicalStatus": "in-progress",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 415,
+      "rank": 27
     }
   ]
 }

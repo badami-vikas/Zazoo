@@ -92,6 +92,54 @@ export interface SearchProviderRights {
   restrictions: readonly string[];
 }
 
+/**
+ * Which provider tiers and access modes a router may admit. The rights,
+ * freshness, HTTPS-metadata, and plane checks are NOT part of this policy —
+ * they are unconditional and apply to every admitted provider regardless of
+ * tier. This governs only the commercial-access question the LA3 provider
+ * survey left open: whether a deployment has cleared credentialed access in
+ * addition to anonymous direct access.
+ */
+export interface SearchProviderAdmissionPolicy {
+  readonly id: string;
+  readonly allowedTiers: readonly SearchProviderTier[];
+  readonly allowedAccess: readonly SearchProviderAccess[];
+}
+
+/**
+ * Phase 1 (ADR-111/141, TASK-023): anonymous rights-verified direct access
+ * only. No credential is ever presented, so there is no account to attribute,
+ * bill, or leak. This remains the default for every deployment.
+ */
+export const FREE_DIRECT_SEARCH_ADMISSION: SearchProviderAdmissionPolicy = {
+  id: "free-direct-only",
+  allowedTiers: [1],
+  allowedAccess: ["free_direct"],
+};
+
+/**
+ * Phase 2: additionally admits Tier-2 providers whose free tier requires an
+ * account credential. Still $0 — `paid` and `self_hosted` access stay out,
+ * so this policy can never silently escalate into spend. Selecting it is a
+ * deployment decision, not a caller decision.
+ */
+export const FREE_CREDENTIALED_SEARCH_ADMISSION: SearchProviderAdmissionPolicy =
+  {
+    id: "free-direct-and-credentialed",
+    allowedTiers: [1, 2],
+    allowedAccess: ["free_direct", "free_credentialed"],
+  };
+
+export function admitsProvider(
+  policy: SearchProviderAdmissionPolicy,
+  provider: Pick<SearchProvider, "tier" | "access">,
+): boolean {
+  return (
+    policy.allowedTiers.includes(provider.tier) &&
+    policy.allowedAccess.includes(provider.access)
+  );
+}
+
 export interface SearchProvider {
   id: string;
   tier: SearchProviderTier;

@@ -1,12 +1,8 @@
-import { createHash } from "node:crypto";
-import { isIP } from "node:net";
 import { performance } from "node:perf_hooks";
-import { TextDecoder } from "node:util";
 
 import {
   SEARCH_PROVIDER_RESULT_LIMITS,
   SearchProviderError,
-  hashTaintValue,
   evaluateTaintSink,
   labelAtSource,
   normalizeSearchRequest,
@@ -15,16 +11,24 @@ import {
   type SearchProviderResult,
   type SearchRequest,
 } from "@bridge/core";
+import { guardedFetch, type GuardedFetchResult } from "@bridge/net-guard";
+
 import {
-  RequestTooLargeError,
-  ResponseTooLargeError,
-  SsrfBlockedError,
-  guardedFetch,
-  isBlockedHostname,
-  isBlockedIp,
-  type GuardedFetchOptions,
-  type GuardedFetchResult,
-} from "@bridge/net-guard";
+  assertSearchPayload,
+  isRecord,
+  resultsWereTruncated,
+  safeWarnings,
+  sha256,
+  decodeResponse as sharedDecodeResponse,
+  invalidResponse as sharedInvalidResponse,
+  parseJson as sharedParseJson,
+  providerError as sharedProviderError,
+  requireSuccessfulStatus as sharedRequireSuccessfulStatus,
+  toCitation as sharedToCitation,
+  type ParallelSearchPayload,
+  type SearchFetchPort,
+  type SearchHttpResponse,
+} from "./parallel-search-shared.js";
 
 export const PARALLEL_SEARCH_PROVIDER_ID = "parallel-search-mcp";
 export const PARALLEL_SEARCH_MCP_URL = "https://search.parallel.ai/mcp";
@@ -39,29 +43,10 @@ const MAX_SSE_MESSAGES = 100;
 const MAX_REQUEST_BYTES = 16 * 1024;
 const PARALLEL_ORIGIN = new URL(PARALLEL_SEARCH_MCP_URL).origin;
 
-export type SearchFetchPort = (
-  url: string,
-  options?: GuardedFetchOptions,
-) => Promise<GuardedFetchResult>;
-
 interface JsonRpcSuccess {
   jsonrpc: "2.0";
   id: string | number;
   result: unknown;
-}
-
-interface ParallelSearchPayload {
-  search_id: string;
-  results: unknown[];
-  warnings?: unknown[];
-}
-
-interface SearchHttpResponse {
-  status: number;
-  headers: Readonly<Record<string, string>>;
-  contentType: "application/json" | "text/event-stream" | null;
-  body: string;
-  bytes: number;
 }
 
 export interface ParallelSearchProviderOptions {
@@ -69,35 +54,14 @@ export interface ParallelSearchProviderOptions {
   nowMs?: () => number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function sha256(value: string): string {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
-}
-
-function normalizePublishedAt(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
-}
+const LABEL = "Parallel Search MCP";
 
 function invalidResponse(message: string): SearchProviderError {
-  return new SearchProviderError({
-    providerId: PARALLEL_SEARCH_PROVIDER_ID,
-    code: "invalid_response",
-    message,
-    retryable: false,
-  });
+  return sharedInvalidResponse(PARALLEL_SEARCH_PROVIDER_ID, message);
 }
 
 function parseJson(value: string, detail: string): unknown {
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    throw invalidResponse(detail);
-  }
+  return sharedParseJson(PARALLEL_SEARCH_PROVIDER_ID, value, detail);
 }
 
 function parseSseMessages(body: string): unknown[] {
@@ -180,144 +144,28 @@ function parseJsonRpc(
   return parsed as unknown as JsonRpcSuccess;
 }
 
-function normalizedHeaders(
-  headers: GuardedFetchResult["headers"],
-): Record<string, string> {
-  const output: Record<string, string> = {};
-  for (const [key, value] of Object.entries(headers)) {
-    if (typeof value === "string") output[key.toLowerCase()] = value;
-    else if (Array.isArray(value)) output[key.toLowerCase()] = value.join(", ");
-  }
-  return output;
-}
-
-function responseContentType(
-  raw: string | undefined,
-  allowEmptyBody: boolean,
-): SearchHttpResponse["contentType"] {
-  if (!raw) {
-    if (allowEmptyBody) return null;
-    throw invalidResponse("Parallel Search MCP omitted Content-Type");
-  }
-  const [mediaType, ...parameters] = raw
-    .toLowerCase()
-    .split(";")
-    .map((part) => part.trim());
-  if (mediaType !== "application/json" && mediaType !== "text/event-stream") {
-    throw invalidResponse(
-      `Parallel Search MCP returned unsupported Content-Type ${mediaType}`,
-    );
-  }
-  if (
-    parameters.some(
-      (parameter) =>
-        parameter.length > 0 &&
-        parameter !== "charset=utf-8" &&
-        parameter !== 'charset="utf-8"',
-    )
-  ) {
-    throw invalidResponse(
-      "Parallel Search MCP returned a non-UTF-8 Content-Type",
-    );
-  }
-  return mediaType;
-}
-
 function decodeResponse(
   result: GuardedFetchResult,
   allowEmptyBody: boolean,
 ): SearchHttpResponse {
-  const headers = normalizedHeaders(result.headers);
-  const encoding = headers["content-encoding"]?.toLowerCase();
-  if (encoding && encoding !== "identity") {
-    throw invalidResponse(
-      "Parallel Search MCP returned a compressed or unsupported encoding",
-    );
-  }
-  const contentType = responseContentType(
-    headers["content-type"],
-    allowEmptyBody && result.body.byteLength === 0,
+  return sharedDecodeResponse(
+    PARALLEL_SEARCH_PROVIDER_ID,
+    LABEL,
+    result,
+    allowEmptyBody,
+    ["application/json", "text/event-stream"],
   );
-  let body: string;
-  try {
-    body = new TextDecoder("utf-8", { fatal: true }).decode(result.body);
-  } catch {
-    throw invalidResponse("Parallel Search MCP returned invalid UTF-8");
-  }
-  if (!allowEmptyBody && body.length === 0) {
-    throw invalidResponse("Parallel Search MCP returned an empty response");
-  }
-  return {
-    status: result.status,
-    headers,
-    contentType,
-    body,
-    bytes: result.body.byteLength,
-  };
 }
 
 function requireSuccessfulStatus(response: SearchHttpResponse): void {
-  if (response.status >= 200 && response.status < 300) return;
-  const code =
-    response.status === 429
-      ? "rate_limited"
-      : response.status === 401 || response.status === 403
-        ? "access_blocked"
-        : response.status >= 500
-          ? "unavailable"
-          : "invalid_response";
-  throw new SearchProviderError({
-    providerId: PARALLEL_SEARCH_PROVIDER_ID,
-    code,
-    message: `Parallel Search MCP returned HTTP ${response.status}`,
-    retryable: code === "rate_limited" || code === "unavailable",
-    status: response.status,
-  });
+  sharedRequireSuccessfulStatus(PARALLEL_SEARCH_PROVIDER_ID, LABEL, response);
 }
 
-function providerError(error: unknown, signal: AbortSignal | undefined): SearchProviderError {
-  if (error instanceof SearchProviderError) return error;
-  if (signal?.aborted) {
-    return new SearchProviderError({
-      providerId: PARALLEL_SEARCH_PROVIDER_ID,
-      code: "cancelled",
-      message: "Parallel Search MCP request was cancelled",
-      retryable: false,
-    });
-  }
-  if (error instanceof DOMException && error.name === "TimeoutError") {
-    return new SearchProviderError({
-      providerId: PARALLEL_SEARCH_PROVIDER_ID,
-      code: "timeout",
-      message: "Parallel Search MCP exceeded the bounded search deadline",
-      retryable: true,
-    });
-  }
-  if (
-    error instanceof SsrfBlockedError ||
-    error instanceof RequestTooLargeError
-  ) {
-    return new SearchProviderError({
-      providerId: PARALLEL_SEARCH_PROVIDER_ID,
-      code: "access_blocked",
-      message: "Parallel Search MCP request was blocked by the network policy",
-      retryable: false,
-    });
-  }
-  if (error instanceof ResponseTooLargeError) {
-    return new SearchProviderError({
-      providerId: PARALLEL_SEARCH_PROVIDER_ID,
-      code: "degraded",
-      message: "Parallel Search MCP exceeded the response byte budget",
-      retryable: true,
-    });
-  }
-  return new SearchProviderError({
-    providerId: PARALLEL_SEARCH_PROVIDER_ID,
-    code: "unavailable",
-    message: "Parallel Search MCP failed with an unclassified transport error",
-    retryable: true,
-  });
+function providerError(
+  error: unknown,
+  signal: AbortSignal | undefined,
+): SearchProviderError {
+  return sharedProviderError(PARALLEL_SEARCH_PROVIDER_ID, LABEL, error, signal);
 }
 
 function parseSearchPayload(
@@ -353,107 +201,14 @@ function parseSearchPayload(
     textBlocks[0]!.text,
     "Parallel Search MCP operation content was not valid JSON",
   );
-  if (
-    !isRecord(payload) ||
-    typeof payload.search_id !== "string" ||
-    payload.search_id.length === 0 ||
-    payload.search_id.length >
-      SEARCH_PROVIDER_RESULT_LIMITS.maxProviderRequestIdChars ||
-    !/^[\x21-\x7e]+$/.test(payload.search_id) ||
-    !Array.isArray(payload.results) ||
-    (payload.warnings !== undefined &&
-      payload.warnings !== null &&
-      !Array.isArray(payload.warnings))
-  ) {
-    throw invalidResponse(
-      "Parallel Search MCP returned an invalid search payload",
-    );
-  }
-  return {
-    search_id: payload.search_id,
-    results: payload.results,
-    ...(Array.isArray(payload.warnings) ? { warnings: payload.warnings } : {}),
-  };
-}
-
-function isSafePublicCitationUrl(value: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    return false;
-  }
-  if (
-    (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
-    parsed.username.length > 0 ||
-    parsed.password.length > 0 ||
-    isBlockedHostname(parsed.hostname)
-  ) {
-    return false;
-  }
-  return isIP(parsed.hostname) === 0 || !isBlockedIp(parsed.hostname);
+  return assertSearchPayload(PARALLEL_SEARCH_PROVIDER_ID, LABEL, payload);
 }
 
 function toCitation(
   value: unknown,
   retrievedAt: string,
 ): SearchCitation | null {
-  if (
-    !isRecord(value) ||
-    typeof value.url !== "string" ||
-    value.url.length > SEARCH_PROVIDER_RESULT_LIMITS.maxUrlChars ||
-    !isSafePublicCitationUrl(value.url) ||
-    (value.title !== undefined &&
-      value.title !== null &&
-      typeof value.title !== "string") ||
-    (value.publish_date !== undefined &&
-      value.publish_date !== null &&
-      typeof value.publish_date !== "string") ||
-    !Array.isArray(value.excerpts) ||
-    value.excerpts.some((excerpt) => typeof excerpt !== "string")
-  ) {
-    return null;
-  }
-  const title =
-    typeof value.title === "string"
-      ? value.title.slice(0, SEARCH_PROVIDER_RESULT_LIMITS.maxTitleChars)
-      : null;
-  const excerpts = value.excerpts
-    .slice(0, SEARCH_PROVIDER_RESULT_LIMITS.maxExcerptsPerCitation)
-    .map((excerpt) =>
-      excerpt.slice(0, SEARCH_PROVIDER_RESULT_LIMITS.maxExcerptChars),
-    );
-  return {
-    url: value.url,
-    title,
-    publishedAt: normalizePublishedAt(value.publish_date),
-    excerpts,
-    providerId: PARALLEL_SEARCH_PROVIDER_ID,
-    retrievedAt,
-    contentHash: sha256(JSON.stringify({ url: value.url, title, excerpts })),
-    trustOrigin: "untrusted_external",
-    taintLabel: labelAtSource("web_search", {
-      ref: value.url,
-      valueHash: hashTaintValue({ title, excerpts }),
-      sensitivity: "public",
-      instructionRisk: "data",
-    }),
-  };
-}
-
-function safeWarnings(values: readonly unknown[] | undefined): string[] {
-  return (values ?? [])
-    .map((value) => {
-      if (typeof value === "string") return value;
-      return isRecord(value) && typeof value.message === "string"
-        ? value.message
-        : null;
-    })
-    .filter((value): value is string => value !== null)
-    .slice(0, SEARCH_PROVIDER_RESULT_LIMITS.maxWarnings - 2)
-    .map((value) =>
-      value.slice(0, SEARCH_PROVIDER_RESULT_LIMITS.maxWarningChars),
-    );
+  return sharedToCitation(PARALLEL_SEARCH_PROVIDER_ID, value, retrievedAt);
 }
 
 function rpcBody(
@@ -656,21 +411,7 @@ export class ParallelSearchProvider implements SearchProvider {
       const dropped = parsedCitations.filter(
         (citation) => citation === null,
       ).length;
-      const truncated = payload.results.some(
-        (value) =>
-          isRecord(value) &&
-          ((typeof value.title === "string" &&
-            value.title.length > SEARCH_PROVIDER_RESULT_LIMITS.maxTitleChars) ||
-            (Array.isArray(value.excerpts) &&
-              (value.excerpts.length >
-                SEARCH_PROVIDER_RESULT_LIMITS.maxExcerptsPerCitation ||
-                value.excerpts.some(
-                  (excerpt) =>
-                    typeof excerpt === "string" &&
-                    excerpt.length >
-                      SEARCH_PROVIDER_RESULT_LIMITS.maxExcerptChars,
-                )))),
-      );
+      const truncated = resultsWereTruncated(payload.results);
       const citations = parsedCitations
         .filter((citation): citation is SearchCitation => citation !== null)
         .slice(0, bounded.maxResults);

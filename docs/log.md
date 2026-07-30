@@ -2424,3 +2424,29 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Two corrections to the brief's premises recorded: pi.dev is Mario Zechner's Pi harness (Earendil Inc.), not Parallel or "pi Labs", and OpenClaw's runtime is Pi in RPC mode; Relay.app is shutting down 2026-08-15 (free) / 2026-09-14 (paid), so it is documented as a post-mortem.
 - No code, schema, task-state or canon-doc changes. Recommendations remain proposals pending AP-088. Parallel Search MCP hit its free-tier rate limit partway through; affected sections say so inline and unverified claims are labelled.
 - Follow-up same day: added `docs/harness/comparative-analysis.md` §0 "At a glance" — four scannable tables (the 22-platform field matrix, the Bridge ahead/behind/rejected scorecard, the 15 convergent primitives with our coverage, and the 2026 vendor-churn record) ahead of the existing YAML depth, per user request for a tabulated read. README reading order updated to start there. No claims changed.
+
+# 2026-07-29 — LA3 Phase 2: credentialed SearchProvider tier (TASK-027, ADR-157, AP-089 PROPOSED)
+
+User asked whether the earlier 178-candidate Parallel.ai competitor survey was on the Learning/research Agent
+roadmap, how far along it was, and to "include and build" if not. It **was** on the roadmap
+(`learning-agent-roadmap-2026-07.md` §7, three phases) and had **never been tasked** past Phase 1.
+
+- Phase 2's blockers were not named in the survey: the router *hardcoded* `tier === 1 && access === "free_direct"`,
+  and `CredentialBroker` is `InMemoryCredentialBroker` so there was no durable home for a key.
+- Built the mechanism for one provider: `SearchProviderAdmissionPolicy` in `@bridge/core`
+  (`FREE_DIRECT_SEARCH_ADMISSION` = unchanged default; `FREE_CREDENTIALED_SEARCH_ADMISSION` = opt-in);
+  router refuses `paid`/`self_hosted` at construction; `FreeDirectSearchProviderRouter` →
+  `RightsVerifiedSearchProviderRouter` (no alias); `ParallelSearchApiProvider` (tier 2, `free_credentialed`)
+  registered only when `PARALLEL_API_KEY` is set; shared parsing extracted to `parallel-search-shared.ts`
+  so the two Parallel adapters cannot drift on security-critical checks.
+- Verified: platform typecheck 40/40; `@bridge/models` 42/42 (6 new); all 9 pre-existing Parallel/router tests
+  pass unchanged after the refactor; live end-to-end against the real API returned 3 citations with
+  `providerTier: 2`, `providerAccess: free_credentialed`, `trustOrigin: untrusted_external`, citation taint
+  `trust: untrusted`/`source: web`, and no credential anywhere in the result.
+- **Not closed**: rights re-verification is a human gate (URLs return 200 ≠ terms permit this use);
+  durable credential storage still unbuilt; the remaining 2–4 Tier-2 vendors are NOT built (each needs its
+  own rights verification — ADR-141's whole point).
+- Pre-existing, unrelated: `@bridge/db` "Drizzle metadata is rebased through 0033" test fails on main;
+  no schema or migration touched here.
+- Security: the API key was supplied in chat, so it is in the session transcript and should be rotated at
+  parallel.ai. It was not written into any repository file.

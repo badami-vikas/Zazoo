@@ -2,13 +2,16 @@ import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 
 import {
+  FREE_DIRECT_SEARCH_ADMISSION,
   SEARCH_PROVIDER_HEALTH,
   SEARCH_PROVIDER_RESULT_LIMITS,
   SearchProviderError,
   SearchProviderPolicyError,
   SearchProvidersUnavailableError,
+  admitsProvider,
   normalizeSearchRequest,
   type SearchProvider,
+  type SearchProviderAdmissionPolicy,
   type SearchProviderAttempt,
   type SearchProviderHealth,
   type SearchProviderOutcome,
@@ -27,9 +30,15 @@ const HEALTH_RANK: Readonly<Record<SearchProviderHealth, number>> = {
   unavailable: 3,
 };
 
-export interface FreeDirectSearchProviderRouterOptions {
+export interface RightsVerifiedSearchProviderRouterOptions {
   now?: () => number;
   rightsMaxAgeMs?: number;
+  /**
+   * Which tiers/access modes this deployment has cleared. Defaults to
+   * Phase 1's anonymous-direct-only policy, so a deployment that says nothing
+   * keeps the original posture.
+   */
+  admission?: SearchProviderAdmissionPolicy;
 }
 
 function routingHealth(provider: SearchProvider): SearchProviderHealth {
@@ -65,16 +74,16 @@ function assertVerifiedProvider(
   provider: SearchProvider,
   now: number,
   maxAgeMs: number,
+  admission: SearchProviderAdmissionPolicy,
 ): void {
   if (
     !/^[a-z0-9][a-z0-9-]{0,99}$/.test(provider.id) ||
-    provider.tier !== 1 ||
-    provider.access !== "free_direct" ||
+    !admitsProvider(admission, provider) ||
     provider.plane !== "cloud"
   ) {
     throw new SearchProviderPolicyError(
       provider.id,
-      "Phase 1 search permits only rights-verified Tier-1 free-direct providers",
+      `admission policy "${admission.id}" permits only rights-verified cloud-plane providers in tiers [${admission.allowedTiers.join(", ")}] with access [${admission.allowedAccess.join(", ")}]`,
     );
   }
   routingHealth(provider);
@@ -235,16 +244,30 @@ function failedAttempt(
   };
 }
 
-export class FreeDirectSearchProviderRouter implements SearchProviderRouter {
+export class RightsVerifiedSearchProviderRouter implements SearchProviderRouter {
   readonly #providers: ReadonlyMap<string, SearchProvider>;
   readonly #now: () => number;
   readonly #rightsMaxAgeMs: number;
+  readonly #admission: SearchProviderAdmissionPolicy;
 
   constructor(
     providers: readonly SearchProvider[],
-    options: FreeDirectSearchProviderRouterOptions = {},
+    options: RightsVerifiedSearchProviderRouterOptions = {},
   ) {
     this.#now = options.now ?? Date.now;
+    this.#admission = options.admission ?? FREE_DIRECT_SEARCH_ADMISSION;
+    if (
+      this.#admission.allowedTiers.length === 0 ||
+      this.#admission.allowedAccess.length === 0 ||
+      this.#admission.allowedAccess.some(
+        (access) => access === "paid" || access === "self_hosted",
+      )
+    ) {
+      throw new SearchProviderPolicyError(
+        "none",
+        "admission policy must permit at least one tier and access mode, and must never admit paid or self-hosted access without a separate cost gate",
+      );
+    }
     this.#rightsMaxAgeMs =
       options.rightsMaxAgeMs ?? DEFAULT_RIGHTS_MAX_AGE_MS;
     if (
@@ -265,7 +288,7 @@ export class FreeDirectSearchProviderRouter implements SearchProviderRouter {
           "duplicate SearchProvider id",
         );
       }
-      assertVerifiedProvider(provider, now, this.#rightsMaxAgeMs);
+      assertVerifiedProvider(provider, now, this.#rightsMaxAgeMs, this.#admission);
       byId.set(provider.id, provider);
     }
     if (byId.size === 0) {
@@ -309,6 +332,7 @@ export class FreeDirectSearchProviderRouter implements SearchProviderRouter {
         provider,
         this.#now(),
         this.#rightsMaxAgeMs,
+        this.#admission,
       );
       if (health === "unavailable") {
         attempts.push({

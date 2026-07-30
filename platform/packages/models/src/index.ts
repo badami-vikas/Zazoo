@@ -16,4 +16,6 @@ export { createModelRouter, type ModelRouter } from "./router.js";
 export { createLocalContentGuard, CloudContentGuardError } from "./local-content-guard.js";
 export { defaultFetch, type FetchLike } from "./fetch-types.js";
 export * from "./search-provider-router.js";
+export * from "./parallel-search-shared.js";
 export * from "./parallel-search-provider.js";
+export * from "./parallel-search-api-provider.js";
