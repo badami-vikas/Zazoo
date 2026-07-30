@@ -2490,3 +2490,31 @@ roadmap, how far along it was, and to "include and build" if not. It **was** on 
   no schema or migration touched here.
 - Security: the API key was supplied in chat, so it is in the session transcript and should be rotated at
   parallel.ai. It was not written into any repository file.
+
+# 2026-07-31 — TASK-028 kernel-Run migration: the destination (research.run.*)
+
+Merged origin/main first (11 commits: TASK-027 screen-aware companion, TASK-028 research agent) and
+de-collided three ids main had independently consumed — this branch's TASK-027 -> TASK-029,
+AP-088 -> AP-090, AP-089 -> AP-091. Main's landed work was left untouched because TASK-028 already
+references it.
+
+Then executed the next open code item on TASK-028: the recorded deviation that Research Run steps
+"run in the overlay, not yet as kernel child Runs".
+
+- Added `research.run.start` and `research.run.recordStep`. An acting step now becomes a real child
+  Agent Run via the existing `createChildAgentRun` + ledger path, reusing the Learning Agent's
+  already-signed `web-research` Goal/Task binding — no new manifest, no new signature.
+- **No schema change.** Child Agent Runs and the ledger are already durable, so the step ordinal
+  lives in a server-authored `stopCondition` prefix instead of a new table. Reads needed no new
+  endpoint either: `agentOrchestration.childRun.listByParentRun` already returns the timeline.
+- Governance properties pinned by tests: server-owned 12-step ceiling; replayed ordinals refused
+  rather than forking the timeline; `click`/`type` absent from the input enum so no client can mint
+  an audit trail for an unapproved BR3 actuation; `delegatedScope` derived from the tool.
+- `note` steps are ledger-only, not Runs. The child-run model refuses an empty delegated scope, and
+  granting a note `external:fetch:read` just to make it representable would give it authority it
+  never uses. Notes stay durable and inspectable; they are not Runs because they did not act.
+- **Half done, stated plainly**: the destination exists, the caller has not moved. `ResearchRun.tsx`
+  still runs the loop client-side. Moving it, plus the Run detail Page (which must merge child Runs
+  with ledger entries to show notes), is the next step.
+- Verified: platform typecheck 42/42; 3 new tests in `platform/apps/api/test/research-run-kernel.test.ts`
+  pass against the real `buildWiring()` composition root.
