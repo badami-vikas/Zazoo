@@ -128,9 +128,11 @@ test("the page bound stops reading before the planner is done", async () => {
       };
     },
   };
+  let pageIndex = 0;
   const alwaysRead = {
     async next(): Promise<PlannedStep> {
-      return { tool: "read", argument: "https://example.com/page", rationale: "read it" };
+      pageIndex += 1;
+      return { tool: "read", argument: `https://example.com/page-${pageIndex}`, rationale: "read it" };
     },
     async synthesize() {
       return "brief";
@@ -141,6 +143,43 @@ test("the page bound stops reading before the planner is done", async () => {
     baseDeps({ planner: alwaysRead, reader }),
   );
   assert.equal(outcome.stopReason, "bound_pages");
+});
+
+test("a URL is read once — repeats spend a step but never a page", async () => {
+  let reads = 0;
+  const reader = {
+    async read(url: string) {
+      reads += 1;
+      return {
+        url,
+        title: "page",
+        text: "content",
+        retrievedAt: "2026-07-29T00:00:00.000Z",
+        contentHash: "hash",
+        bytes: 100,
+      };
+    },
+  };
+  const steps: (PlannedStep | null)[] = [
+    { tool: "read", argument: "https://example.com/same", rationale: "read" },
+    { tool: "read", argument: "https://example.com/same", rationale: "read again" },
+    null,
+  ];
+  const planner = {
+    async next() {
+      return steps.shift() ?? null;
+    },
+    async synthesize() {
+      return "brief";
+    },
+  };
+  const outcome = await runResearch(
+    { runId: "r-dedupe", objective: "no rereads" },
+    baseDeps({ planner, reader }),
+  );
+  assert.equal(reads, 1);
+  assert.equal(outcome.stopReason, "planner_finished");
+  assert.ok(outcome.evidence.some((entry) => entry.summary.includes("Already read")));
 });
 
 test("the byte bound stops a Run that pulls too much page text", async () => {
@@ -156,9 +195,11 @@ test("the byte bound stops a Run that pulls too much page text", async () => {
       };
     },
   };
+  let bigIndex = 0;
   const alwaysRead = {
     async next(): Promise<PlannedStep> {
-      return { tool: "read", argument: "https://example.com/big", rationale: "read it" };
+      bigIndex += 1;
+      return { tool: "read", argument: `https://example.com/big-${bigIndex}`, rationale: "read it" };
     },
     async synthesize() {
       return "brief";

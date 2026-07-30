@@ -269,6 +269,35 @@ fn ensure_window(app: &AppHandle) -> Result<tauri::WebviewWindow, ResearchError>
     Ok(window)
 }
 
+/// Create/reuse the reader window and navigate it, ON THE MAIN THREAD.
+/// AppKit window creation and mutation are main-thread-only; doing this from
+/// a command's worker thread risks an Objective-C exception that Rust cannot
+/// catch — the whole process aborts. One hop, result channelled back.
+fn open_page_on_main_thread(app: &AppHandle, target: tauri::Url) -> Result<(), ResearchError> {
+    let (sender, receiver) = mpsc::channel::<Result<(), ResearchError>>();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let outcome = ensure_window(&handle).and_then(|window| {
+            window.navigate(target).map_err(|error| {
+                err(
+                    "RESEARCH_NAVIGATE_FAILED",
+                    format!("Could not navigate the research reader: {error}"),
+                )
+            })
+        });
+        let _ = sender.send(outcome);
+    })
+    .map_err(|error| {
+        err(
+            "RESEARCH_STATE",
+            format!("main-thread dispatch failed: {error}"),
+        )
+    })?;
+    receiver
+        .recv_timeout(Duration::from_secs(10))
+        .map_err(|_| err("RESEARCH_STATE", "the reader window did not open in time"))?
+}
+
 /// Releases the busy flag on every exit path, including errors.
 struct BusyGuard(Arc<AtomicBool>);
 
@@ -310,13 +339,7 @@ pub async fn research_read_page(
     }
     let slot = state.slot.clone();
 
-    let window = ensure_window(&app)?;
-    window.navigate(target).map_err(|error| {
-        err(
-            "RESEARCH_NAVIGATE_FAILED",
-            format!("Could not navigate the research reader: {error}"),
-        )
-    })?;
+    open_page_on_main_thread(&app, target)?;
 
     let received = tauri::async_runtime::spawn_blocking(move || {
         receiver.recv_timeout(Duration::from_millis(EXTRACT_TIMEOUT_MS))
@@ -364,9 +387,10 @@ pub async fn research_locate(
         .inner_size()
         .map(|size| (size.width as f64 / scale, size.height as f64 / scale))
         .unwrap_or((VIEWPORT_W, VIEWPORT_H));
+    let number = window_number_on_main_thread(&app, &window)?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        let jpeg = capture_window_jpeg(&window)?;
+        let jpeg = capture_window_jpeg(number)?;
         let (image_w, image_h) = image::load_from_memory(&jpeg)
             .map(|decoded| {
                 let rgb = decoded.to_rgb8();
@@ -458,34 +482,82 @@ pub async fn research_chat(
             ));
         }
     }
-    let key = companion::groq_api_key(&app).ok_or_else(|| {
-        err(
+    // Local Plane first: the managed model has no rate limit and the
+    // planner's context (which embeds fenced page text) never leaves the
+    // machine. Groq is the fallback, with one respectful retry on a 429 —
+    // its free tier's 8k tokens/minute is exactly what a multi-step Run
+    // trips over at synthesis time.
+    let local = companion::local_endpoint(&app);
+    let cloud_key = companion::groq_api_key(&app);
+    if local.is_none() && cloud_key.is_none() {
+        return Err(err(
             "RESEARCH_NO_VISION",
-            "No Groq API key is configured, so the research planner has no model",
-        )
-    })?;
+            "Neither the managed local model nor a Groq API key is available for planning",
+        ));
+    }
     let model = companion::vision_model(&app);
     tauri::async_runtime::spawn_blocking(move || {
-        let body = serde_json::json!({
-            "model": model,
-            "max_tokens": 512,
-            "temperature": 0.2,
-            "reasoning_effort": "none",
-            "messages": messages
-                .iter()
-                .map(|message| serde_json::json!({
+        let message_values = messages
+            .iter()
+            .map(|message| {
+                serde_json::json!({
                     "role": message.role,
                     "content": message.content,
-                }))
-                .collect::<Vec<_>>(),
+                })
+            })
+            .collect::<Vec<_>>();
+        if let Some(endpoint) = local {
+            let body = serde_json::json!({
+                "model": endpoint.model,
+                "max_tokens": 1200,
+                "temperature": 0.2,
+                "messages": message_values,
+            });
+            // Short deadline: a healthy 4B plans in seconds; a wedged server
+            // must fail FAST so the whole command stays far inside WKWebView's
+            // ~60s IPC deadline (see post_chat_with_timeout).
+            match companion::post_chat_with_timeout(
+                &format!("{}/chat/completions", endpoint.base_url.trim_end_matches('/')),
+                &endpoint.api_key,
+                body,
+                std::time::Duration::from_secs(20),
+            ) {
+                Ok(reply) => return Ok(companion::strip_think_blocks(&reply)),
+                Err(error) => eprintln!(
+                    "[bridge-desktop] research planner local model failed ({}): {} —                      falling back to cloud",
+                    error.code, error.message
+                ),
+            }
+        }
+        let key = cloud_key.ok_or_else(|| {
+            err(
+                "RESEARCH_CHAT_FAILED",
+                "The managed local model failed and no Groq API key is configured",
+            )
+        })?;
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 1200,
+            "temperature": 0.2,
+            "reasoning_effort": "none",
+            "messages": message_values,
         });
-        companion::post_chat(
-            &format!("{}/chat/completions", companion::GROQ_BASE_URL),
-            &key,
-            body,
-        )
-        .map(|reply| companion::strip_think_blocks(&reply))
-        .map_err(|error| err("RESEARCH_CHAT_FAILED", error.message))
+        let url = format!("{}/chat/completions", companion::GROQ_BASE_URL);
+        let groq_deadline = std::time::Duration::from_secs(15);
+        match companion::post_chat_with_timeout(&url, &key, body.clone(), groq_deadline) {
+            Ok(reply) => Ok(companion::strip_think_blocks(&reply)),
+            Err(error) if error.message.contains("429") => {
+                // The 429 body names its own retry window (~8s on the free
+                // tier); wait it out once. Worst case whole-command budget:
+                // 20s local + 15s cloud + 10s wait + 15s retry = 60s ceiling
+                // never reached in practice, and each leg fails fast.
+                std::thread::sleep(std::time::Duration::from_secs(10));
+                companion::post_chat_with_timeout(&url, &key, body, groq_deadline)
+                    .map(|reply| companion::strip_think_blocks(&reply))
+                    .map_err(|error| err("RESEARCH_CHAT_FAILED", error.message))
+            }
+            Err(error) => Err(err("RESEARCH_CHAT_FAILED", error.message)),
+        }
     })
     .await
     .map_err(|error| err("RESEARCH_STATE", format!("chat task failed: {error}")))?
@@ -494,15 +566,20 @@ pub async fn research_chat(
 /// Close the research reader window (Run finished or was stopped). Idempotent.
 #[tauri::command]
 pub fn research_close(app: AppHandle) -> Result<(), ResearchError> {
-    if let Some(window) = app.get_webview_window(RESEARCH_LABEL) {
-        window.close().map_err(|error| {
-            err(
-                "RESEARCH_WINDOW_FAILED",
-                format!("Could not close the research reader: {error}"),
-            )
-        })?;
-    }
-    Ok(())
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        if let Some(window) = handle.get_webview_window(RESEARCH_LABEL) {
+            if let Err(error) = window.close() {
+                eprintln!("[bridge-desktop] research reader close failed: {error}");
+            }
+        }
+    })
+    .map_err(|error| {
+        err(
+            "RESEARCH_STATE",
+            format!("main-thread dispatch failed: {error}"),
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -511,15 +588,16 @@ pub fn research_close(app: AppHandle) -> Result<(), ResearchError> {
 
 /// Capture the reader window's OWN image — `screencapture -l` renders the
 /// window's backing store, so overlapping windows never appear in the frame.
+/// Takes a pre-resolved window number: the NSWindow lookup happens on the
+/// main thread, never here.
 #[cfg(target_os = "macos")]
-fn capture_window_jpeg(window: &tauri::WebviewWindow) -> Result<Vec<u8>, ResearchError> {
+fn capture_window_jpeg(number: i64) -> Result<Vec<u8>, ResearchError> {
     if !crate::sensor_bridge::screen_permission_granted() {
         return Err(err(
             "RESEARCH_NO_SCREEN_PERMISSION",
             "Screen Recording permission is required to capture the research page",
         ));
     }
-    let number = window_number(window)?;
     let path = std::env::temp_dir().join(format!(
         "bridge-research-capture-{}.jpg",
         std::process::id()
@@ -550,21 +628,52 @@ fn capture_window_jpeg(window: &tauri::WebviewWindow) -> Result<Vec<u8>, Researc
     Ok(bytes)
 }
 
+/// NSWindow lookup on the MAIN thread (AppKit rule), result channelled back.
 #[cfg(target_os = "macos")]
-fn window_number(window: &tauri::WebviewWindow) -> Result<i64, ResearchError> {
-    let ns = window
-        .ns_window()
-        .map_err(|error| err("RESEARCH_CAPTURE_FAILED", format!("No NSWindow: {error}")))?
-        as *mut objc2::runtime::AnyObject;
-    if ns.is_null() {
-        return Err(err("RESEARCH_CAPTURE_FAILED", "NSWindow is null"));
-    }
-    let number: isize = unsafe { objc2::msg_send![&*ns, windowNumber] };
-    Ok(number as i64)
+fn window_number_on_main_thread(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+) -> Result<i64, ResearchError> {
+    let (sender, receiver) = mpsc::channel::<Result<i64, ResearchError>>();
+    let window = window.clone();
+    app.run_on_main_thread(move || {
+        let outcome = (|| {
+            let ns = window
+                .ns_window()
+                .map_err(|error| err("RESEARCH_CAPTURE_FAILED", format!("No NSWindow: {error}")))?
+                as *mut objc2::runtime::AnyObject;
+            if ns.is_null() {
+                return Err(err("RESEARCH_CAPTURE_FAILED", "NSWindow is null"));
+            }
+            let number: isize = unsafe { objc2::msg_send![&*ns, windowNumber] };
+            Ok(number as i64)
+        })();
+        let _ = sender.send(outcome);
+    })
+    .map_err(|error| {
+        err(
+            "RESEARCH_STATE",
+            format!("main-thread dispatch failed: {error}"),
+        )
+    })?;
+    receiver
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|_| err("RESEARCH_STATE", "NSWindow lookup did not answer in time"))?
 }
 
 #[cfg(not(target_os = "macos"))]
-fn capture_window_jpeg(_window: &tauri::WebviewWindow) -> Result<Vec<u8>, ResearchError> {
+fn window_number_on_main_thread(
+    _app: &AppHandle,
+    _window: &tauri::WebviewWindow,
+) -> Result<i64, ResearchError> {
+    Err(err(
+        "RESEARCH_UNSUPPORTED",
+        "Research page capture is only implemented on macOS",
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn capture_window_jpeg(_number: i64) -> Result<Vec<u8>, ResearchError> {
     Err(err(
         "RESEARCH_UNSUPPORTED",
         "Research page capture is only implemented on macOS",

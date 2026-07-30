@@ -56,7 +56,10 @@ const MAX_POINTS: usize = 5;
 const MAX_HISTORY_TURNS: usize = 10;
 const MAX_QUESTION_CHARS: usize = 4_000;
 const MARKS_AUTO_CLEAR: Duration = Duration::from_secs(12);
-const HTTP_TIMEOUT: Duration = Duration::from_secs(90);
+// Must stay well under WKWebView's ~60s in-page resource deadline: a Tauri
+// command that answers later completes a scheme task WebKit already stopped,
+// raising an ObjC exception that aborts the process (2026-07-30 crashes).
+const HTTP_TIMEOUT: Duration = Duration::from_secs(40);
 
 #[derive(Default)]
 pub struct CompanionState {
@@ -130,7 +133,7 @@ pub(crate) fn vision_model(app: &AppHandle) -> String {
 /// Resolve the managed local model endpoint published by model_supervisor
 /// (`{runtime_dir}/endpoint.json`). Same Local Plane directory resolution as
 /// lib.rs — env override first, then app-data default.
-fn local_endpoint(app: &AppHandle) -> Option<LocalEndpoint> {
+pub(crate) fn local_endpoint(app: &AppHandle) -> Option<LocalEndpoint> {
     let local_dir = std::env::var_os("BRIDGE_LOCAL_DIR")
         .map(PathBuf::from)
         .or_else(|| {
@@ -147,10 +150,10 @@ fn local_endpoint(app: &AppHandle) -> Option<LocalEndpoint> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LocalEndpoint {
-    base_url: String,
-    api_key: String,
-    model: String,
+pub(crate) struct LocalEndpoint {
+    pub(crate) base_url: String,
+    pub(crate) api_key: String,
+    pub(crate) model: String,
 }
 
 #[derive(Serialize)]
@@ -874,7 +877,20 @@ pub(crate) fn post_chat(
     api_key: &str,
     body: serde_json::Value,
 ) -> Result<String, CompanionError> {
-    let agent = ureq::AgentBuilder::new().timeout(HTTP_TIMEOUT).build();
+    post_chat_with_timeout(url, api_key, body, HTTP_TIMEOUT)
+}
+
+/// Variant with a caller-chosen deadline. The research planner NEEDS short
+/// timeouts: a Tauri command that outlives WKWebView's ~60s resource-load
+/// deadline answers into a scheme task WebKit has already stopped, which
+/// raises an Objective-C exception Rust cannot catch — the process aborts.
+pub(crate) fn post_chat_with_timeout(
+    url: &str,
+    api_key: &str,
+    body: serde_json::Value,
+    timeout: Duration,
+) -> Result<String, CompanionError> {
+    let agent = ureq::AgentBuilder::new().timeout(timeout).build();
     let response = agent
         .post(url)
         .set("Authorization", &format!("Bearer {api_key}"))

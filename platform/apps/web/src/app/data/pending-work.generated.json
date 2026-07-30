@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-29T19:09:19.940Z",
+  "generatedAt": "2026-07-30T11:35:15.796Z",
   "items": [
     {
       "id": "TASK-026",
@@ -951,7 +951,8 @@
         "`@bridge/research` implements BR0 (bounded step loop, every exit path recording a StopReason), BR1 (HTTP + HTML-to-text page reading, no bundled engine per AP-089), BR3 (engine-decided green/amber/red authority with Proposal gating, AP-088), BR4 (ledger resume that replays without re-executing and carries spent budget), and BR5 (structural quarantine plus an injection tripwire",
         "poisoned pages are reported, never obeyed) — 31 tests with no network, browser, or model. BR2's desktop surface exists: `research_webview.rs` gives the shell a contained research webview (zero-capability window label, external origin without IPC, http(s)-only navigation, outbound-only `bridge-extract:` text channel, visible always-on-bottom window — no silent browsing) with `research_read_page`/`research_locate`/`research_close`",
         "the locator reuses TASK-027's drawn-grid pipeline against a capture of the reader window's own image. 5 new Rust unit tests (navigation policy, payload decode, char-boundary truncation)",
-        "desktop suite 80 passing. The live wiring (API procedure, Run detail Page, companion entry point) is NOT built and the webview reader/locator are NOT yet live-validated: the engine and shell commands exist but are not reachable from the UI"
+        "desktop suite 80 passing. Prototype live wiring landed 2026-07-30 per the user's explicit prototype-first choice: the companion panel gains a Research tab (`ResearchRun.tsx`) running the engine in the overlay webview with search → governed `agentOrchestration.skill.webResearch`, read → `research_read_page`, find → `research_locate`, planner → `createChatPlanner` over `research_chat` (key never enters the webview)",
+        "no actuator/proposal channel is wired, so amber steps are engine-blocked (green tools only). RECORDED DEVIATION: steps run in the overlay, not yet as kernel child Runs — the kernel-Run migration and the Run detail Page are the follow-up. NOT yet live-validated end to end (real page extraction, `-l` capture, locate accuracy, webResearch auth from the overlay)"
       ],
       "requests": [
         "R-042"

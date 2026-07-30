@@ -4294,27 +4294,39 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     ...(managedLlamaProvider ? { provider: managedLlamaProvider } : {}),
   });
   managedModelForCleanup = managedModel;
-  const localGuardProvider = modelProviders.find(
-    (provider) =>
-      provider.plane === "local" &&
-      provider.tiers.includes("cheap") &&
-      provider.routingHealth() !== "unavailable",
-  );
+  // Resolved PER INSPECTION, not at boot: on desktop the managed local model
+  // becomes healthy ~30s after this wiring runs (the supervisor clears its
+  // endpoint capability on start and republishes it only after the model
+  // passes health), so a boot-time snapshot would leave the guard dead for
+  // the whole process lifetime. Lazy resolution adds RECOVERY only — an
+  // unavailable local model still fails closed exactly as before.
+  const findLocalGuardProvider = () =>
+    modelProviders.find(
+      (provider) =>
+        provider.plane === "local" &&
+        provider.tiers.includes("cheap") &&
+        provider.routingHealth() !== "unavailable",
+    );
+  let localGuard: { provider: ModelProvider; guard: ContentGuard } | null = null;
   const webResearchContentGuard =
-    options.webResearchContentGuard ??
-    (localGuardProvider
-      ? createLocalContentGuard(localGuardProvider)
-      : {
-          async inspect() {
-            return {
-              safe: false,
-              categories: ["local_content_guard_unavailable"],
-              extraction: { summary: "", entities: [] },
-              reason:
-                "No healthy Local Plane content guard is configured; untrusted content remains quarantined",
-            };
-          },
-        });
+    options.webResearchContentGuard ?? {
+      async inspect(input: Parameters<ContentGuard["inspect"]>[0]) {
+        const provider = findLocalGuardProvider();
+        if (!provider) {
+          return {
+            safe: false,
+            categories: ["local_content_guard_unavailable"],
+            extraction: { summary: "", entities: [] },
+            reason:
+              "No healthy Local Plane content guard is configured; untrusted content remains quarantined",
+          };
+        }
+        if (!localGuard || localGuard.provider !== provider) {
+          localGuard = { provider, guard: createLocalContentGuard(provider) };
+        }
+        return localGuard.guard.inspect(input);
+      },
+    };
   skillRegistry.register(
     createWebResearchSkill(searchProviders, webResearchContentGuard),
   );

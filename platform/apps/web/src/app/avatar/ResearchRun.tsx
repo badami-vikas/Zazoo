@@ -47,6 +47,27 @@ interface Located {
   height: number;
 }
 
+/**
+ * Shell commands reject with typed {code, message} objects and tRPC with its
+ * own error class; normalise BOTH into real Errors so the engine's history —
+ * which the planner reads to decide its next step — never says
+ * "[object Object]" where the cause should be.
+ */
+function toError(caught: unknown): Error {
+  if (caught instanceof Error) return caught;
+  if (caught && typeof caught === "object") {
+    const record = caught as Record<string, unknown>;
+    if (typeof record.message === "string") {
+      return new Error(
+        typeof record.code === "string"
+          ? `${record.code}: ${record.message}`
+          : record.message,
+      );
+    }
+  }
+  return new Error(String(caught));
+}
+
 /** FNV-1a — same evidence fingerprint the HTTP reader records. */
 function fingerprint(value: string): string {
   let hash = 0x811c9dc5;
@@ -115,34 +136,52 @@ export function ResearchRun() {
     const deps: ResearchDeps = {
       signal: abortRef.current,
       planner: createChatPlanner(async (messages: readonly ChatMessage[]) => {
-        return (await tauriInvokeStrict("research_chat", {
-          messages: messages.map((message) => ({ ...message })),
-        })) as string;
+        try {
+          return (await tauriInvokeStrict("research_chat", {
+            messages: messages.map((message) => ({ ...message })),
+          })) as string;
+        } catch (caught) {
+          throw toError(caught);
+        }
       }),
       search: {
         async search(runObjective, query) {
           report(`Searching: ${query}`);
-          const raw: unknown = await trpc.agentOrchestration.skill.webResearch.mutate({
-            organizationId: PILOT_ORGANIZATION,
-            objective: runObjective.slice(0, 500),
-            scope: "public_web",
-            searchQueries: [query.slice(0, 160)],
-            budget: {
-              maxResults: 5,
-              maxResponseBytes: 256 * 1024,
-              maxProviderAttempts: 2,
-              timeoutMs: 10_000,
-            },
-          });
-          return findCitations(raw) ?? [];
+          let raw: unknown;
+          try {
+            raw = await trpc.agentOrchestration.skill.webResearch.mutate({
+              organizationId: PILOT_ORGANIZATION,
+              objective: runObjective.slice(0, 500),
+              scope: "public_web",
+              searchQueries: [query.slice(0, 160)],
+              budget: {
+                maxResults: 5,
+                maxResponseBytes: 256 * 1024,
+                maxProviderAttempts: 2,
+                timeoutMs: 10_000,
+              },
+            });
+          } catch (caught) {
+            const normalised = toError(caught);
+            report(`Search failed: ${normalised.message}`);
+            throw normalised;
+          }
+          const hits = findCitations(raw) ?? [];
+          report(hits.length > 0 ? `Found ${hits.length} result(s)` : "No results");
+          return hits;
         },
       },
       reader: {
         async read(url) {
           report(`Reading: ${url}`);
-          const page = (await tauriInvokeStrict("research_read_page", {
-            url,
-          })) as PageExtract;
+          let page: PageExtract;
+          try {
+            page = (await tauriInvokeStrict("research_read_page", { url })) as PageExtract;
+          } catch (caught) {
+            const normalised = toError(caught);
+            report(`Read failed: ${normalised.message}`);
+            throw normalised;
+          }
           return {
             url: page.url,
             title: page.title || null,
@@ -156,9 +195,16 @@ export function ResearchRun() {
       locator: {
         async find(description) {
           report(`Locating: ${description}`);
-          const located = (await tauriInvokeStrict("research_locate", {
-            description,
-          })) as Located | null;
+          let located: Located | null;
+          try {
+            located = (await tauriInvokeStrict("research_locate", {
+              description,
+            })) as Located | null;
+          } catch (caught) {
+            const normalised = toError(caught);
+            report(`Locate failed: ${normalised.message}`);
+            throw normalised;
+          }
           return located
             ? { ...located, ref: located.ref, description: located.description }
             : null;

@@ -94,6 +94,7 @@ export async function runResearch(
 
   let pagesRead = 0;
   let totalBytes = 0;
+  const readUrls = new Set<string>();
   let stepIndex = 0;
   let currentUrl: string | null = null;
   let stopReason: StopReason = "planner_finished";
@@ -105,7 +106,10 @@ export async function runResearch(
       history.push(entry.summary);
       if (entry.sourceUrl) citations.push(entry.sourceUrl);
       if (entry.quarantined) observations.push(entry.quarantined);
-      if (entry.tool === "read") pagesRead += 1;
+      if (entry.tool === "read") {
+        pagesRead += 1;
+        if (entry.sourceUrl) readUrls.add(entry.sourceUrl);
+      }
       // Consumed budget carries over: a resumed Run must not get a fresh
       // allowance by virtue of having been interrupted.
       stepIndex = Math.max(stepIndex, entry.stepIndex + 1);
@@ -229,11 +233,21 @@ export async function runResearch(
             history.push("Reading pages is unavailable in this Run.");
             break;
           }
+          if (readUrls.has(step.argument)) {
+            // A planner that loops on one URL must not drain the page budget;
+            // the notice lands in its history so it can choose differently.
+            const notice = `Already read ${truncate(step.argument, 80)} — its text is in the evidence.`;
+            history.push(notice);
+            await record({ stepIndex, tool: "read", summary: notice, sourceUrl: step.argument });
+            break;
+          }
           if (pagesRead >= bounds.maxPages) {
             stopReason = "bound_pages";
             return finish();
           }
           const page = await deps.reader.read(step.argument);
+          readUrls.add(step.argument);
+          readUrls.add(page.url);
           pagesRead += 1;
           totalBytes += page.bytes;
           currentUrl = page.url;
@@ -368,7 +382,23 @@ function truncate(value: string, max: number): string {
 }
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    // Typed shell/tRPC errors are plain {code, message} objects — surface
+    // them readably; "[object Object]" blinds the UI AND the planner.
+    const record = error as Record<string, unknown>;
+    if (typeof record.message === "string") {
+      return typeof record.code === "string"
+        ? `${record.code}: ${record.message}`
+        : record.message;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
 }
 
 export type { ResearchToolName };

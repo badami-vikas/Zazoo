@@ -129,7 +129,8 @@ fn open_google_oauth(url: String) -> Result<(), String> {
 fn create_windows(
     app: &tauri::AppHandle,
     main_init_script: &str,
-    companion_init_script: &str,
+    overlay_init_script: &str,
+    annotate_init_script: &str,
 ) -> bool {
     let main_builder = WebviewWindowBuilder::new(app, overlay::MAIN_LABEL, WebviewUrl::default())
         .title("Bridge")
@@ -155,15 +156,15 @@ fn create_windows(
     if let Err(err) = main.set_focus() {
         eprintln!("[bridge-desktop] failed to focus main window: {err}");
     }
-    if let Err(err) = overlay::create_overlay_windows(app, companion_init_script) {
+    if let Err(err) = overlay::create_overlay_windows(app, overlay_init_script) {
         // The companion is additive: never block the main app on it.
         eprintln!("[bridge-desktop] failed to create overlay window(s): {err}");
     }
-    if let Err(err) = annotate::create_annotate_windows(app, companion_init_script) {
+    if let Err(err) = annotate::create_annotate_windows(app, annotate_init_script) {
         // Also additive — annotation is a help feature, never load-bearing.
         eprintln!("[bridge-desktop] failed to create annotate window(s): {err}");
     }
-    overlay::start_display_topology_watcher(app.clone(), companion_init_script.to_string());
+    overlay::start_display_topology_watcher(app.clone(), overlay_init_script.to_string());
     true
 }
 
@@ -358,8 +359,19 @@ fn finish_sidecar_bootstrap(app: &tauri::AppHandle, spawned: Option<api_sidecar:
         retire_window(&bootstrap, "bootstrap window");
     }
     let main_init_script = build_init_script(Some(&api_url), Some(&token));
-    let companion_init_script = build_init_script(Some(&api_url), None);
-    if !create_windows(app, &main_init_script, &companion_init_script) {
+    // The overlay performs governed, user-initiated API actions (Research
+    // Runs are mutations behind the SEC-1 gate), so it carries the sidecar
+    // capability like the main window — the script itself still gates the
+    // token to trusted origins. The click-through annotate surface never
+    // calls the API and stays tokenless (least privilege).
+    let overlay_init_script = main_init_script.clone();
+    let annotate_init_script = build_init_script(Some(&api_url), None);
+    if !create_windows(
+        app,
+        &main_init_script,
+        &overlay_init_script,
+        &annotate_init_script,
+    ) {
         show_sidecar_unavailable(app);
         stop_sidecar_in_background(app);
         return;
@@ -487,7 +499,7 @@ pub fn run() {
                 // Explicit override — e.g. pointing the shell at a remote or
                 // already-running local API. No sidecar spawned.
                 let init_script = build_init_script(Some(&url), None);
-                if !create_windows(app.handle(), &init_script, &init_script) {
+                if !create_windows(app.handle(), &init_script, &init_script, &init_script) {
                     show_sidecar_unavailable(app.handle());
                 }
                 return Ok(());
