@@ -734,6 +734,103 @@ test("RLS: Chat threads, turns, references, and cloud grants are owner-only unde
   }
 });
 
+test("RLS: Research Runs and their steps are owner-only under a restricted role", async () => {
+  const { db, close } = await createLocalDb();
+  const organizationId = "10000000-0000-4000-8000-000000000135";
+  const ownerId = "20000000-0000-4000-8000-000000000135";
+  const otherId = "20000000-0000-4000-8000-000000000136";
+  const runId = "30000000-0000-4000-8000-000000000135";
+  const stepId = "40000000-0000-4000-8000-000000000135";
+  try {
+    await db.insert(schema.users).values([
+      { id: ownerId, email: "research-rls-owner@example.test" },
+      { id: otherId, email: "research-rls-other@example.test" },
+    ]);
+    await db.insert(schema.organizations).values({
+      id: organizationId,
+      name: "Research RLS",
+    });
+    await useRlsAppRole(db);
+    await setRlsContext(db, organizationId, ownerId);
+    await db.insert(schema.researchRuns).values({
+      id: runId,
+      organizationId,
+      ownerUserId: ownerId,
+      objective: "owner-only research objective",
+      parentRunId: "50000000-0000-4000-8000-000000000135",
+      goalId: "60000000-0000-4000-8000-000000000135",
+      taskId: "70000000-0000-4000-8000-000000000135",
+    });
+    await db.insert(schema.researchRunSteps).values({
+      id: stepId,
+      organizationId,
+      ownerUserId: ownerId,
+      runId,
+      stepIndex: 0,
+      tool: "read",
+      summary: "owner-only step evidence",
+      quarantinedText: "untrusted page text",
+      quarantinedSourceUrl: "https://example.com/private-read",
+    });
+
+    await setRlsContext(db, organizationId, otherId);
+    assert.deepEqual(await db.select().from(schema.researchRuns), []);
+    assert.deepEqual(await db.select().from(schema.researchRunSteps), []);
+    await assert.rejects(
+      db.insert(schema.researchRuns).values({
+        organizationId,
+        ownerUserId: ownerId,
+        objective: "forged for another owner",
+        parentRunId: "50000000-0000-4000-8000-000000000136",
+        goalId: "60000000-0000-4000-8000-000000000136",
+        taskId: "70000000-0000-4000-8000-000000000136",
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "cause" in error &&
+        /row-level security policy/i.test(String(error.cause)),
+    );
+    assert.equal(
+      (
+        await db
+          .update(schema.researchRuns)
+          .set({ stopRequested: true })
+          .where(sql`${schema.researchRuns.id} = ${runId}`)
+          .returning()
+      ).length,
+      0,
+    );
+
+    await setRlsContext(db, organizationId, ownerId);
+    assert.equal((await db.select().from(schema.researchRuns)).length, 1);
+    assert.equal((await db.select().from(schema.researchRunSteps)).length, 1);
+    assert.equal(
+      (
+        await db
+          .update(schema.researchRunSteps)
+          .set({ summary: "mutated evidence" })
+          .where(sql`${schema.researchRunSteps.id} = ${stepId}`)
+          .returning()
+      ).length,
+      0,
+      "step evidence is append-only even to its owner",
+    );
+    assert.equal(
+      (
+        await db
+          .delete(schema.researchRuns)
+          .where(sql`${schema.researchRuns.id} = ${runId}`)
+          .returning()
+      ).length,
+      0,
+      "Research Run history is retained even against its owner",
+    );
+  } finally {
+    await close();
+  }
+});
+
 test("assertRlsPosture: production rejects superuser or BYPASSRLS app roles", async () => {
   await assert.rejects(
     () =>

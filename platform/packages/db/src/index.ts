@@ -161,6 +161,7 @@ export { DrizzleGoalTaskStore } from "./goal-task-store.js";
 export { DrizzleTaskManagerStore } from "./task-manager-store.js";
 export { DrizzleSkillManifestRegistry, seedSkillManifests } from "./skill-manifest-store.js";
 export { DrizzleChildAgentRunStore } from "./child-agent-run-store.js";
+export { DrizzleResearchRunStore } from "./research-run-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";

@@ -54,6 +54,7 @@ import {
   InMemoryTaskManagerStore,
   InMemorySkillManifestRegistry,
   InMemoryChildAgentRunStore,
+  InMemoryResearchRunStore,
   InMemoryChatStore,
   InMemoryTaintAuditStore,
   PlaneRoutingTaintAuditStore,
@@ -85,6 +86,7 @@ import {
   type TaskManagerStore,
   type SkillManifestRegistry,
   type ChildAgentRunStore,
+  type ResearchRunStore,
   type ChatStore,
   type SkillManifest,
   type TaintAuditStore,
@@ -159,6 +161,7 @@ import {
   DrizzleTaskManagerStore,
   DrizzleSkillManifestRegistry,
   DrizzleChildAgentRunStore,
+  DrizzleResearchRunStore,
   DrizzleChatStore,
   DrizzleIntegrationStore,
   seedSkillManifests,
@@ -431,6 +434,11 @@ export interface Wiring {
    * In-memory default; `buildPersistentPorts` binds the real, restart-durable
    * `DrizzleChildAgentRunStore` instead. */
   childAgentRuns: ChildAgentRunStore;
+  /** TASK-028 — durable, owner-scoped Research Run records + step evidence
+   * (the kernel projection of an @bridge/research engine loop; step child
+   * Runs live in `childAgentRuns`). In-memory default; `buildPersistentPorts`
+   * and the local-durable path bind `DrizzleResearchRunStore`. */
+  researchRuns: ResearchRunStore;
   /** Plane-bound durable Chat threads, turns, and lifecycle references. */
   chatStore: ChatStore;
   /** Human-triggered managed local-model install/start lifecycle. */
@@ -599,6 +607,11 @@ export const LEARNING_ROLE_MODEL_GOAL_TYPE = "learning.role_model_recommendation
 export const PRODUCE_RECOMMENDATION_TASK_TYPE = "produce_recommendation";
 export const LEARNING_WEB_RESEARCH_GOAL_TYPE = "learning.web_research";
 export const RESEARCH_PUBLIC_WEB_TASK_TYPE = "research_public_web";
+/** TASK-028 — one durable Goal for background Research Runs; each Run mints
+ * its own bounded Task (the same durable-Goal/fresh-Task split every other
+ * governed lane uses). */
+export const LEARNING_RESEARCH_RUN_GOAL_TYPE = "learning.research_run";
+export const RESEARCH_RUN_TASK_TYPE = "research_run";
 
 export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
   organizationId: PILOT_ORGANIZATION,
@@ -3265,6 +3278,9 @@ export interface ModePorts {
    * In-memory default; `buildPersistentPorts` binds the real, restart-durable
    * `DrizzleChildAgentRunStore` instead. */
   childAgentRuns: ChildAgentRunStore;
+  /** TASK-028 — Research Run records/steps. In-memory default;
+   * `buildPersistentPorts` binds `DrizzleResearchRunStore`. */
+  researchRuns: ResearchRunStore;
   chatStore: ChatStore;
   /** ModelProviders this mode registers (echo double in-memory; Ollama/Anthropic persistent). */
   modelProviders: ModelProvider[];
@@ -3346,6 +3362,7 @@ export function buildPersistentPorts(env: {
     PILOT_ORGANIZATION,
   );
   const childAgentRunStore = new DrizzleChildAgentRunStore(db);
+  const researchRunStore = new DrizzleResearchRunStore(db);
 
   return {
     roles: ports.roles,
@@ -3381,6 +3398,7 @@ export function buildPersistentPorts(env: {
     taskManager: taskManagerStore,
     skillManifests: skillManifestRegistry,
     childAgentRuns: childAgentRunStore,
+    researchRuns: researchRunStore,
     chatStore: new DrizzleChatStore(db),
     // Real providers in persistent mode: Ollama is always registered (local plane,
     // dev-default per CLAUDE.md); Anthropic/Groq only when their keys are configured —
@@ -3602,6 +3620,7 @@ export async function buildInMemoryPorts(env: {
       return registry;
     })(),
     childAgentRuns: localDirDurable ? new DrizzleChildAgentRunStore(localDb) : new InMemoryChildAgentRunStore(),
+    researchRuns: localDirDurable ? new DrizzleResearchRunStore(localDb) : new InMemoryResearchRunStore(),
     chatStore: localDirDurable
       ? new DrizzleChatStore(localDb)
       : new InMemoryChatStore(),
@@ -4221,6 +4240,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     taskManager,
     skillManifests,
     childAgentRuns,
+    researchRuns,
     chatStore: modeChatStore,
     modelProviders: modeModelProviders,
     memory,
@@ -4787,6 +4807,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     taskManager,
     skillManifests,
     childAgentRuns,
+    researchRuns,
     chatStore,
     managedModel,
     cultureFetchStore,

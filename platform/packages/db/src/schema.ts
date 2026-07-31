@@ -1791,3 +1791,131 @@ export const dealpilotRelations = pgTable(
     ),
   ],
 );
+
+// =====================================================================
+// LAYER 8 — RESEARCH RUNS (TASK-028 kernel-Run migration)
+// =====================================================================
+
+/** One background Research Run per objective — the kernel's durable projection
+ * of an @bridge/research engine loop. Owner-scoped like `chat_threads`: a
+ * Research Run is private to the human who started it. Step child Agent Runs
+ * live in `child_agent_runs` under `parent_run_id`; this row owns objective,
+ * lifecycle, the cross-surface `stop_requested` interrupt, and the outcome. */
+export const researchRuns = pgTable(
+  "research_runs",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    objective: text("objective").notNull(),
+    status: text("status").notNull().default("running"),
+    stopRequested: boolean("stop_requested").notNull().default(false),
+    parentRunId: uuid("parent_run_id").notNull(),
+    goalId: uuid("goal_id").notNull(),
+    taskId: uuid("task_id").notNull(),
+    stopReason: text("stop_reason"),
+    brief: text("brief"),
+    citations: jsonb("citations").notNull().default([]),
+    blockedActions: jsonb("blocked_actions").notNull().default([]),
+    injectionReports: jsonb("injection_reports").notNull().default([]),
+    stepsTaken: integer("steps_taken").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true, precision: 3 }),
+  },
+  (t) => [
+    check("research_runs_objective_check", sql`length(btrim(${t.objective})) > 0`),
+    check(
+      "research_runs_status_check",
+      sql`${t.status} IN ('running', 'completed', 'cancelled', 'failed')`,
+    ),
+    check(
+      "research_runs_stop_reason_check",
+      sql`${t.stopReason} IS NULL OR ${t.stopReason} IN (
+        'planner_finished',
+        'bound_steps',
+        'bound_pages',
+        'bound_wall_clock',
+        'bound_bytes',
+        'cancelled',
+        'refused_red_action',
+        'injection_detected',
+        'planner_failed',
+        'executor_error'
+      )`,
+    ),
+    // Terminal state is all-or-nothing: a running Run has no outcome fields,
+    // a terminal Run always has its end time and stop reason.
+    check(
+      "research_runs_terminal_check",
+      sql`(${t.status} = 'running' AND ${t.stopReason} IS NULL AND ${t.endedAt} IS NULL)
+          OR (${t.status} <> 'running' AND ${t.stopReason} IS NOT NULL AND ${t.endedAt} IS NOT NULL)`,
+    ),
+    check("research_runs_ended_check", sql`${t.endedAt} IS NULL OR ${t.endedAt} >= ${t.createdAt}`),
+    check("research_runs_steps_taken_check", sql`${t.stepsTaken} >= 0`),
+    check("research_runs_citations_check", sql`jsonb_typeof(${t.citations}) = 'array'`),
+    check(
+      "research_runs_blocked_actions_check",
+      sql`jsonb_typeof(${t.blockedActions}) = 'array'`,
+    ),
+    check(
+      "research_runs_injection_reports_check",
+      sql`jsonb_typeof(${t.injectionReports}) = 'array'`,
+    ),
+    index("research_runs_owner_created_idx").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.createdAt,
+      t.id,
+    ),
+    unique("research_runs_organization_owner_id_uq").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.id,
+    ),
+  ],
+);
+
+/** One executed engine step of a Research Run — append-only, the durable
+ * evidence ledger BR4 resume replays. `quarantined_text` is untrusted external
+ * page/search text and must NEVER enter an instruction channel (it exists so a
+ * resumed Run keeps its observations); `summary` is engine-authored, trusted. */
+export const researchRunSteps = pgTable(
+  "research_run_steps",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    runId: uuid("run_id").notNull().references(() => researchRuns.id),
+    stepIndex: integer("step_index").notNull(),
+    tool: text("tool").notNull(),
+    summary: text("summary").notNull(),
+    sourceUrl: text("source_url"),
+    childRunId: uuid("child_run_id"),
+    quarantinedText: text("quarantined_text"),
+    quarantinedSourceUrl: text("quarantined_source_url"),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("research_run_steps_step_index_check", sql`${t.stepIndex} >= 0`),
+    check(
+      "research_run_steps_tool_check",
+      sql`${t.tool} IN ('search', 'read', 'find', 'click', 'type', 'note')`,
+    ),
+    check("research_run_steps_summary_check", sql`length(btrim(${t.summary})) > 0`),
+    // Quarantined text always names where it came from.
+    check(
+      "research_run_steps_quarantine_check",
+      sql`${t.quarantinedText} IS NULL OR ${t.quarantinedSourceUrl} IS NOT NULL`,
+    ),
+    index("research_run_steps_run_idx").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.runId,
+      t.stepIndex,
+    ),
+  ],
+);
