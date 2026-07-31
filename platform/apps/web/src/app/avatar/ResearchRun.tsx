@@ -33,7 +33,7 @@ import {
   type SearchHit,
 } from "@bridge/research";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
-import { tauriInvokeStrict } from "./tauri-internals";
+import { tauriInvokeJob, tauriInvokeStrict } from "./tauri-internals";
 import { setAvatarStatus } from "./avatar-store";
 
 interface PageExtract {
@@ -289,9 +289,15 @@ export function ResearchRun() {
       },
       planner: createChatPlanner(async (messages: readonly ChatMessage[]) => {
         try {
-          return (await tauriInvokeStrict("research_chat", {
-            messages: messages.map((message) => ({ ...message })),
-          })) as string;
+          // Start-then-poll: the provider legs (local + cloud fallback +
+          // spaced retry) run detached in the shell, so no IPC reply is ever
+          // held open near WKWebView's ~60s abort deadline.
+          return await tauriInvokeJob<string>(
+            "research_chat_start",
+            "research_chat_poll",
+            { messages: messages.map((message) => ({ ...message })) },
+            { valueKey: "value", timeoutMs: 90_000, intervalMs: 700 },
+          );
         } catch (caught) {
           throw toError(caught);
         }
@@ -349,9 +355,12 @@ export function ResearchRun() {
           report(`Locating: ${description}`);
           let located: Located | null;
           try {
-            located = (await tauriInvokeStrict("research_locate", {
-              description,
-            })) as Located | null;
+            located = await tauriInvokeJob<Located | null>(
+              "research_locate_start",
+              "research_locate_poll",
+              { description },
+              { valueKey: "value", timeoutMs: 120_000 },
+            );
           } catch (caught) {
             const normalised = toError(caught);
             report(`Locate failed: ${normalised.message}`);

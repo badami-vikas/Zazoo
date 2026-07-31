@@ -359,15 +359,57 @@ pub async fn research_read_page(
     })
 }
 
-/// Locate a described element on the CURRENT research page via the TASK-027
-/// Set-of-Mark grid pipeline (drawn coarse grid → zoomed fine grid), against
-/// a screenshot of the reader window only. Returns `None` when the model
-/// cannot see the target — never a guessed rectangle.
+/// Start-then-poll job state for the two research commands whose worst case
+/// stacks provider calls — a locate is capture + two vision calls, a planner
+/// chat is local + cloud fallback + spaced retry. Neither may hold an IPC
+/// reply open that long (see jobs.rs's WKWebView ~60s abort rationale).
+#[derive(Default)]
+pub struct ResearchJobs {
+    locate: Arc<crate::jobs::JobTable<Result<Option<ResearchLocated>, ResearchError>>>,
+    chat: Arc<crate::jobs::JobTable<Result<String, ResearchError>>>,
+}
+
+/// Poll envelope: `done:false` = still running; `done:true` carries the value
+/// (which is itself null for "locate finished, target not found" — a nested
+/// Option would be JSON-ambiguous against pending).
+#[derive(Serialize)]
+pub struct ResearchJobPoll<T> {
+    pub done: bool,
+    pub value: Option<T>,
+}
+
+fn poll_envelope<T>(
+    state: crate::jobs::JobPollState<Result<T, ResearchError>>,
+) -> Result<ResearchJobPoll<T>, ResearchError> {
+    match state {
+        crate::jobs::JobPollState::Unknown => Err(err(
+            "RESEARCH_JOB_UNKNOWN",
+            "No such research job — it may have expired unpolled or already been delivered",
+        )),
+        crate::jobs::JobPollState::Pending => Ok(ResearchJobPoll {
+            done: false,
+            value: None,
+        }),
+        crate::jobs::JobPollState::Ready(Ok(value)) => Ok(ResearchJobPoll {
+            done: true,
+            value: Some(value),
+        }),
+        crate::jobs::JobPollState::Ready(Err(error)) => Err(error),
+    }
+}
+
+/// Start locating a described element on the CURRENT research page via the
+/// TASK-027 Set-of-Mark grid pipeline (drawn coarse grid → zoomed fine grid),
+/// against a screenshot of the reader window only. Validation and window
+/// lookups happen here; the capture + vision calls run detached, delivered
+/// through `research_locate_poll`. The finished job yields `None` when the
+/// model cannot see the target — never a guessed rectangle.
 #[tauri::command]
-pub async fn research_locate(
+pub fn research_locate_start(
     app: AppHandle,
+    jobs: tauri::State<'_, ResearchJobs>,
     description: String,
-) -> Result<Option<ResearchLocated>, ResearchError> {
+) -> Result<u64, ResearchError> {
     let description = description.trim().to_string();
     if description.is_empty() {
         return Err(err("RESEARCH_LOCATE_INVALID", "Nothing to locate"));
@@ -389,7 +431,34 @@ pub async fn research_locate(
         .unwrap_or((VIEWPORT_W, VIEWPORT_H));
     let number = window_number_on_main_thread(&app, &window)?;
 
+    let job = jobs
+        .locate
+        .start()
+        .map_err(|message| err("RESEARCH_JOBS", message))?;
+    let table = jobs.locate.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let result = locate_blocking(key, model, description, logical, number);
+        table.finish(job, result);
+    });
+    Ok(job)
+}
+
+#[tauri::command]
+pub fn research_locate_poll(
+    jobs: tauri::State<'_, ResearchJobs>,
+    job: u64,
+) -> Result<ResearchJobPoll<Option<ResearchLocated>>, ResearchError> {
+    poll_envelope(jobs.locate.take(job))
+}
+
+fn locate_blocking(
+    key: String,
+    model: String,
+    description: String,
+    logical: (f64, f64),
+    number: i64,
+) -> Result<Option<ResearchLocated>, ResearchError> {
+    {
         let jpeg = capture_window_jpeg(number)?;
         let (image_w, image_h) = image::load_from_memory(&jpeg)
             .map(|decoded| {
@@ -446,9 +515,7 @@ pub async fn research_locate(
             width: (x2 - x1).max(1.0),
             height: (y2 - y1).max(1.0),
         }))
-    })
-    .await
-    .map_err(|error| err("RESEARCH_STATE", format!("locate task failed: {error}")))?
+    }
 }
 
 /// One planner chat message. Only the shapes the planner sends are accepted.
@@ -458,16 +525,20 @@ pub struct ResearchChatMessage {
     pub content: String,
 }
 
-/// Text-only chat completion for the Research Run's PLANNER, so the Groq key
-/// never enters a webview. Deliberately narrow: no images (the locator owns
-/// vision), a small output budget, and the same model knob the companion
-/// uses. Callable only from Bridge's own capability-holding windows — the
-/// research reader window has no IPC at all.
+/// Start a text-only chat completion for the Research Run's PLANNER, so the
+/// Groq key never enters a webview. Deliberately narrow: no images (the
+/// locator owns vision), a small output budget, and the same model knob the
+/// companion uses. Callable only from Bridge's own capability-holding windows
+/// — the research reader window has no IPC at all. The provider legs (local
+/// 20s + cloud 15s + spaced 429 retry) run detached and are delivered through
+/// `research_chat_poll`, so no IPC reply is ever held open near WKWebView's
+/// ~60s deadline.
 #[tauri::command]
-pub async fn research_chat(
+pub fn research_chat_start(
     app: AppHandle,
+    jobs: tauri::State<'_, ResearchJobs>,
     messages: Vec<ResearchChatMessage>,
-) -> Result<String, ResearchError> {
+) -> Result<u64, ResearchError> {
     if messages.is_empty() || messages.len() > 8 {
         return Err(err(
             "RESEARCH_CHAT_INVALID",
@@ -496,7 +567,33 @@ pub async fn research_chat(
         ));
     }
     let model = companion::vision_model(&app);
+    let job = jobs
+        .chat
+        .start()
+        .map_err(|message| err("RESEARCH_JOBS", message))?;
+    let table = jobs.chat.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let result = chat_blocking(local, cloud_key, model, messages);
+        table.finish(job, result);
+    });
+    Ok(job)
+}
+
+#[tauri::command]
+pub fn research_chat_poll(
+    jobs: tauri::State<'_, ResearchJobs>,
+    job: u64,
+) -> Result<ResearchJobPoll<String>, ResearchError> {
+    poll_envelope(jobs.chat.take(job))
+}
+
+fn chat_blocking(
+    local: Option<companion::LocalEndpoint>,
+    cloud_key: Option<String>,
+    model: String,
+    messages: Vec<ResearchChatMessage>,
+) -> Result<String, ResearchError> {
+    {
         let message_values = messages
             .iter()
             .map(|message| {
@@ -558,9 +655,7 @@ pub async fn research_chat(
             }
             Err(error) => Err(err("RESEARCH_CHAT_FAILED", error.message)),
         }
-    })
-    .await
-    .map_err(|error| err("RESEARCH_STATE", format!("chat task failed: {error}")))?
+    }
 }
 
 /// Close the research reader window (Run finished or was stopped). Idempotent.

@@ -928,14 +928,32 @@ pub(crate) fn post_chat_with_timeout(
         })
 }
 
-/// The screen-aware companion ask. Runs blocking work (capture + HTTP) off
-/// the main thread via the async command runtime.
+/// Start-then-poll job state for the screen-aware ask, whose worst case
+/// stacks a vision call over capture/TTS work — it must never hold an IPC
+/// reply open near WKWebView's ~60s abort deadline (jobs.rs).
+#[derive(Default)]
+pub struct CompanionAskJobs {
+    asks: std::sync::Arc<crate::jobs::JobTable<Result<(usize, AskOutcome), CompanionError>>>,
+}
+
+/// Poll envelope for an in-flight ask.
+#[derive(Serialize)]
+pub struct CompanionAskPoll {
+    pub done: bool,
+    pub answer: Option<CompanionAnswer>,
+}
+
+/// The screen-aware companion ask, start half: validates, then runs the
+/// blocking work (capture + HTTP) detached. The answer — and its completion
+/// side effects (annotation marks, speech) — are delivered exactly once
+/// through `companion_ask_poll`.
 #[tauri::command]
-pub async fn companion_ask(
+pub fn companion_ask_start(
     app: AppHandle,
     window: WebviewWindow,
+    jobs: tauri::State<'_, CompanionAskJobs>,
     request: CompanionAskRequest,
-) -> Result<CompanionAnswer, CompanionError> {
+) -> Result<u64, CompanionError> {
     let question = request.question.trim().to_string();
     if question.is_empty() {
         return Err(err("COMPANION_EMPTY_QUESTION", "ask a question first"));
@@ -948,27 +966,56 @@ pub async fn companion_ask(
     }
 
     // The overlay window's label encodes which monitor it lives on — a
-    // thread-safe lookup (async commands don't run on the main thread, and
+    // thread-safe lookup (commands don't run on the main thread, and
     // monitor enumeration is main-thread territory on macOS).
     let monitor_index = crate::overlay::monitor_index_for_label(window.label());
+    let job = jobs
+        .asks
+        .start()
+        .map_err(|message| err("COMPANION_JOBS", message))?;
+    let table = jobs.asks.clone();
     let app_for_task = app.clone();
-    let outcome = tauri::async_runtime::spawn_blocking(move || {
-        run_ask(&app_for_task, monitor_index, request, question)
-    })
-    .await
-    .map_err(|error| err("COMPANION_TASK_FAILED", error.to_string()))??;
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = run_ask(&app_for_task, monitor_index, request, question)
+            .map(|outcome| (monitor_index, outcome));
+        table.finish(job, result);
+    });
+    Ok(job)
+}
 
-    // Show marks + schedule auto-clear from the command context (main-thread
-    // friendly Tauri handle operations).
-    if !outcome.marks.is_empty() {
-        annotate::show_marks_on(&app, monitor_index, outcome.marks.clone())
-            .map_err(|error| err("COMPANION_ANNOTATE_FAILED", error))?;
-        schedule_marks_clear(&app);
+#[tauri::command]
+pub fn companion_ask_poll(
+    app: AppHandle,
+    jobs: tauri::State<'_, CompanionAskJobs>,
+    job: u64,
+) -> Result<CompanionAskPoll, CompanionError> {
+    match jobs.asks.take(job) {
+        crate::jobs::JobPollState::Unknown => Err(err(
+            "COMPANION_JOB_UNKNOWN",
+            "No such ask job — it may have expired unpolled or already been delivered",
+        )),
+        crate::jobs::JobPollState::Pending => Ok(CompanionAskPoll {
+            done: false,
+            answer: None,
+        }),
+        crate::jobs::JobPollState::Ready(Err(error)) => Err(error),
+        crate::jobs::JobPollState::Ready(Ok((monitor_index, outcome))) => {
+            // Completion side effects run HERE, on the poll that first observes
+            // the finished job — take-once semantics guarantee exactly once.
+            if !outcome.marks.is_empty() {
+                annotate::show_marks_on(&app, monitor_index, outcome.marks.clone())
+                    .map_err(|error| err("COMPANION_ANNOTATE_FAILED", error))?;
+                schedule_marks_clear(&app);
+            }
+            if outcome.answer.spoke {
+                speak(&app, &outcome.answer.text);
+            }
+            Ok(CompanionAskPoll {
+                done: true,
+                answer: Some(outcome.answer),
+            })
+        }
     }
-    if outcome.answer.spoke {
-        speak(&app, &outcome.answer.text);
-    }
-    Ok(outcome.answer)
 }
 
 struct AskOutcome {
