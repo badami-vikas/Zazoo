@@ -103,7 +103,9 @@ export function CompanionAsk({
       void tauriInvoke("companion_stop_speaking");
       stopStream();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Mount-only on purpose. (No react-hooks plugin is registered in this
+    // repo's ESLint config, so a rule-name suppression here would itself be
+    // a lint error — see BUGS 2026-07-17.)
   }, []);
 
   function stopStream() {

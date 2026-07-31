@@ -1889,12 +1889,28 @@ saved tokens to a head scan, retains scan-wide token history to reject cross-run
 message IDs only after captures/spend persist, and advances
 `lastCheckedAt` only after a complete scan. Google/DealPilot/API regressions cover each boundary.
 
-## OPEN 2026-07-17 — Full ESLint fails on an unregistered React Hooks suppression
+## RESOLVED 2026-07-31 — Full ESLint fails on an unregistered React Hooks suppression (2026-07-17)
 `apps/web/src/app/avatar/zazoo/ZazooAvatar.tsx:214` disables
 `react-hooks/exhaustive-deps`, but the repository ESLint configuration does not register that rule,
 so `pnpm exec eslint . --quiet` fails before evaluating the suppression. TASK-006 changed-file lint
 passes and this Avatar file is outside its blast radius. Fix by registering the existing React Hooks
 plugin/rule or removing the stale suppression after verifying the effect dependencies.
+**Resolution 2026-07-31**: the ZazooAvatar suppression had already disappeared in later work; the
+same class had recurred at `CompanionAsk.tsx:106` (TASK-027 mount effect). The stale suppression is
+removed — the rule is not registered, so the comment was inert except as a lint break — with a plain
+comment recording the mount-only intent. Registering the react-hooks plugin repo-wide remains a
+deliberate, separate decision (it would surface new findings across every React file).
+
+## OPEN 2026-07-31 — repo-wide lint red on main: 40 `bridge/no-crm-vocab` findings from the DealPilot cloud-records landing
+`pnpm lint` fails with 40 `no-crm-vocab` errors in `apps/api/src/dealpilot-store.ts`,
+`apps/api/src/router.ts` (demo seed), and `apps/api/src/wiring.ts` — Deal-vocabulary identifiers
+(`DealRecord`, `CreateDealInput`, `unpackDeal`, `DEMO_DEALS`, …) introduced by the DealPilot
+Cloud-Plane records work (`e8738cd`, `76734a1`; AP-083/ADR-151, AP-087/ADR-155) in Engine-level
+paths where the rule intentionally bites. TASK-017's carve-out covered `platform/modules/` only;
+ADR-151 moved DealPilot record storage into `apps/api`, so either the carve-out should be widened to
+the new DealPilot-specific files (they ARE an explicit DealPilot Module Record API, which is what
+the rule's message permits) or the identifiers namespaced. That is the DealPilot stream's governed
+call — deliberately NOT patched from the TASK-028 stream. Attached to TASK-006's surface.
 
 ## RESOLVED 2026-07-17 — @bridge/core build broken on main: InMemoryAgentStore no longer satisfies AgentQuery
 `platform/packages/core/src/memory/stores.ts:59` — `InMemoryAgentStore` fails `tsc -b` against the `AgentQuery` interface (missing `workspaceId`, `isActive`); six test files (`capture-pipeline`, `conformance`, `pipeline-ags1`, `pipeline`, `postcommit-effect-types`, `redteam-egress`) also fail to typecheck against it, and `pipeline-ags1.test.ts` additionally references now-missing `workspaces`/`statuses` properties. Reproduced via `pnpm turbo run build --filter=@bridge/core` on a clean worktree checked out at `1f69633` (post TASK-007 orchestration merge, ADR-104). Blocks `platform-web` from starting in any fresh worktree/checkout — the web app fails at Vite import-analysis on `@bridge/core` because `dist/` was never produced. Root cause looks like the TASK-007 orchestration work (`goal-task.ts`/`skill-manifest.ts`) widened `AgentQuery` without updating the in-memory test double. Fix belongs with whoever owns TASK-007 follow-up; out of scope for the Task Manager docs work that surfaced it.
@@ -2096,3 +2112,26 @@ and Relationship agents omit it — the row would have displayed "undefined plan
 - Residual risk: `research_locate` and `companion_ask` can still stack two provider calls (~80s worst case). Structural fix — start-then-poll command shape for long work — belongs to the kernel-Run migration. Attached to TASK-028.
 - RESOLVED 2026-07-31: the structural fix landed. `companion_ask`, `research_locate`, and `research_chat` are now `_start`/`_poll` command pairs over a shared take-once job table (`jobs.rs`: stale-purged, growth-capped, ids never reused; completion side effects — marks, speech — run on the first poll that observes the finished job, exactly once). No command holds an IPC reply open while a provider call runs, so the ~60s abort class is closed by construction rather than by budgeting. The direct single-call command forms are deleted. Frontend drives the pair via `tauriInvokeJob` with client-side deadlines (ask/locate 120s, chat 90s). 4 job-table unit tests; desktop Rust 84 pass + 1 ignored; web 106/106 + typecheck + build.
 - Related: managed llama-server wedged on its first real request (accepted connection, no response; prior llama-server crash reports on this machine from 2026-07-27). Planner degrades to cloud fast now; supervisor health/restart behaviour for a wedged-but-alive server is untested.
+
+## OPEN 2026-07-31 — llama-server can outlive an abnormal app death (guard gap), observed as a 2.5GB orphan
+Found live: llama-server pid 8366 (started 2026-07-30 16:31) still running parented to init on
+2026-07-31, one day and several app relaunches later — its guard process was gone without having
+killed it, its runtime capability had been cleared and token rotated, so nothing could reach it; it
+only held ~2.5GB resident. The guard design (guard child in its own process group, kills the server
+on stdin EOF) covers normal exits and SIGKILL of the app's group, but SOME abnormal-death sequence
+on 2026-07-30 (a day of repeated aborts and dev-watcher rebuild kills) left the server alive. The
+orphan was terminated manually. Residual: the supervisor could sweep for pre-existing llama-server
+processes bound to ITS model path at startup, or the guard could take a kill-on-parent-death signal
+(`PR_SET_PDEATHSIG` has no macOS equivalent; kqueue EVFILT_PROC on the parent pid would work).
+Attached to TASK-028's surface; low urgency now that the runtime capability rotates per launch.
+
+## RESOLVED 2026-07-31 — dev-build model start stalls for an hour+ in SHA-256 verification
+The model supervisor re-verifies the pinned ~2.5GB model artifact's SHA-256 on every llama-server
+launch (deliberate, uncached fail-closed supply-chain check). In an unoptimized dev build, sha2's
+software fallback made that hash so slow the supervisor thread sat in `launch → sha256_file` for
+over an hour after a dev-watcher rebuild (observed live via `sample` on pid 40396) — during which
+the Local Plane model, and everything gated on it (webResearch content guard verdicts, the
+local-first research planner, the local companion ask), was unavailable with no error anywhere.
+**Fix**: `[profile.dev.package.sha2/digest/block-buffer/cpufeatures] opt-level = 3` in
+`src-tauri/Cargo.toml` — debug builds now hash at near-release speed; release profiles unchanged.
+The verification itself is deliberately NOT cached or weakened.

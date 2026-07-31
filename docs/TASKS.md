@@ -423,7 +423,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: R-041
 - Approval: none
 - Dependencies: none
-- Remaining for `done`: V2 local-path ask (the managed model is not installed on the validating machine), V7/V8 degradation checks, V9 multi-monitor, V10 sensor-drain blink, and V11 regression sweep. Pointing accuracy is RESOLVED: the Set-of-Mark drawn grid brought the ring from ~440 logical px off target to ~12, with no model change (evidence: outputs/2026-07-29-task-027-accurate-pointing-evidence.png)
+- Remaining for `done`: V2 local-path ask live check (UNBLOCKED 2026-07-31 — the managed Qwen is installed and running on the validating machine, the local text-only path is code-complete, and the dev-build SHA-256 stall that kept the model unavailable after rebuilds is fixed; needs one at-keyboard ask with screen sharing off), V7/V8 degradation checks, V9 multi-monitor, and V10 sensor-drain blink — all requiring the user at the keyboard. V11 regression sweep RAN 2026-07-31: full monorepo `turbo run test` 42/42 tasks successful on the tree carrying all companion changes plus the TASK-028 kernel-Run migration; desktop Rust 84 pass + 1 ignored. NOTE: `companion_ask` became `companion_ask_start`/`companion_ask_poll` on 2026-07-31 (WKWebView ~60s abort fix, BUGS 2026-07-30 resolution) — the remaining live V-items will exercise the new shape. Pointing accuracy is RESOLVED: the Set-of-Mark drawn grid brought the ring from ~440 logical px off target to ~12, with no model change (evidence: outputs/2026-07-29-task-027-accurate-pointing-evidence.png)
 
 ## Autonomous background browser research agent
 - ID: TASK-028
