@@ -14,8 +14,9 @@
  */
 import { useEffect, useRef } from "react";
 import { ZazooDirector, type ZazooFrame } from "./director";
-import suitTieUrl from "./assets/suit-front.webp";
-import suitPlainUrl from "./assets/suit-notie.webp";
+import { MOUTH_PARTS, MOUTH_SHAPES, BROW_PARTS, BROW_SHAPES, LOOP_N, type Loop } from "./parts";
+import suitUrl from "./assets/suit-notie.webp";
+import tieUrl from "./assets/tie.webp";
 import earUrl from "./assets/ear-front.webp";
 import patchUrl from "./assets/eye-patch.webp";
 import snoutUrl from "./assets/snout.webp";
@@ -26,6 +27,8 @@ export interface ZazooAppearance {
   body: string;
   /** Suit color — screened over the painted charcoal fabric. */
   suit: string;
+  /** Tie color. The tie is its own painted layer, so it tints independently. */
+  tie: string;
   accessory: "tie" | "bowtie" | "scarf" | "none";
   /** Spectacles are an accessory, not anatomy. */
   glasses: boolean;
@@ -33,7 +36,8 @@ export interface ZazooAppearance {
 
 export const DEFAULT_APPEARANCE: ZazooAppearance = {
   body: "#FAF1E7",
-  suit: "#15151A",
+  suit: "#7E2732",
+  tie: "#E8B93C",
   accessory: "tie",
   glasses: false,
 };
@@ -53,11 +57,12 @@ const RIG = {
   // the glossy eye sits UP AND INWARD of the patch centre, where the source
   // art puts it; dead-centred pupils read as a doll's stare
   eye: { lx: 92.05, rx: 147.95, y: 124.8, rx_: 3.9, ry_: 5.2, tilt: 20 },
-  // brow length and weight measured off the reference: 9.5 long, 2.3 thick —
-  // a third of what a generic "eyebrow stroke" wants to be
-  brow: { lx: 91, rx: 149, y: 108.8, len: 9.5, weight: 2.3 },
+  // brow anchor; the shape itself comes from the sheet, already scaled so the
+  // default `arch` matches the reference's 9.48 × 4.87
+  brow: { lx: 91, rx: 149, y: 106.4 },
   snout: { y: 130.7, w: 17.81, aspect: 1.499 },
-  mouth: { y: 140.9, w: 15.05 },
+  // the lip line the sheet's mouth parts hang from
+  mouth: { y: 140.3 },
   // high and inboard, so the blush lands on cheek fur and stays clear of the
   // collar even at full head-drop
   cheek: { lx: 76, rx: 164, y: 143 },
@@ -66,11 +71,48 @@ const RIG = {
   // white collar points and sit on the lapels
   paw: { lx: 92, rx: 148, y: 193, w: 24, aspect: 1.133, tilt: 26 },
   suit: { x: 40.54, y: 137.17, w: 159.05, h: 150.64 },
+  // lifted off the same 3840² canvas as the suit, so it drops back into the
+  // collar with no alignment of its own
+  tie: { x: 109.04, y: 165.87, w: 21.71, h: 41.27 },
 } as const;
+
+// The sheet's parts, indexed to match the director's weight vectors.
+const mouthOuter = MOUTH_SHAPES.map((s) => MOUTH_PARTS[s].outer);
+const mouthInner = MOUTH_SHAPES.map((s) => MOUTH_PARTS[s].inner);
+const browLoops = BROW_SHAPES.map((s) => BROW_PARTS[s] as Loop);
+
+/** Tongue, sampled from the fill-colour mouths on the parts sheet. */
+const TONGUE = "#E2646F";
 
 /** Body silhouette traced from `Avatar/base front shape.png`. */
 const BODY_PATH =
   "M 119.87,76.16 C 123.79,76.16 127.80,76.60 131.64,77.38 C 135.48,78.16 139.32,79.33 142.92,80.85 C 146.51,82.36 149.99,84.37 153.22,86.49 C 156.46,88.62 159.50,91.11 162.34,93.62 C 165.19,96.13 167.84,98.82 170.29,101.57 C 172.74,104.32 174.98,107.21 177.05,110.11 C 179.11,113.02 181.02,115.97 182.68,119.00 C 184.33,122.03 185.74,125.18 186.98,128.29 C 188.22,131.40 189.17,134.59 190.12,137.67 C 191.07,140.74 191.90,143.76 192.69,146.74 C 193.48,149.72 194.23,152.64 194.87,155.56 C 195.51,158.49 196.05,161.40 196.54,164.31 C 197.03,167.22 197.47,170.11 197.82,173.02 C 198.18,175.94 198.45,178.86 198.66,181.81 C 198.86,184.76 199.00,187.72 199.04,190.73 C 199.09,193.73 199.04,196.76 198.91,199.85 C 198.79,202.93 198.59,206.06 198.27,209.24 C 197.95,212.42 197.54,215.65 196.99,218.95 C 196.44,222.24 195.78,225.59 194.95,228.98 C 194.12,232.38 193.18,235.86 191.99,239.32 C 190.79,242.77 189.48,246.36 187.78,249.71 C 186.08,253.07 184.07,256.40 181.78,259.43 C 179.48,262.47 176.82,265.33 173.99,267.94 C 171.17,270.56 168.07,273.00 164.81,275.13 C 161.56,277.26 158.06,279.13 154.48,280.72 C 150.90,282.30 147.14,283.61 143.34,284.63 C 139.54,285.65 135.61,286.34 131.70,286.81 C 127.79,287.28 123.81,287.52 119.87,287.45 C 115.94,287.39 111.97,287.02 108.08,286.43 C 104.20,285.84 100.31,285.04 96.56,283.92 C 92.82,282.81 89.12,281.40 85.60,279.75 C 82.08,278.10 78.65,276.19 75.45,274.04 C 72.26,271.89 69.23,269.43 66.44,266.85 C 63.65,264.26 61.02,261.46 58.71,258.51 C 56.39,255.55 54.38,252.32 52.57,249.10 C 50.77,245.89 49.23,242.54 47.89,239.21 C 46.55,235.88 45.46,232.49 44.55,229.13 C 43.64,225.78 43.00,222.40 42.43,219.10 C 41.87,215.80 41.47,212.55 41.18,209.34 C 40.89,206.14 40.76,202.98 40.70,199.88 C 40.64,196.77 40.70,193.73 40.83,190.71 C 40.96,187.70 41.19,184.74 41.47,181.81 C 41.75,178.87 42.09,175.98 42.50,173.09 C 42.90,170.20 43.37,167.34 43.91,164.47 C 44.44,161.60 45.03,158.74 45.71,155.86 C 46.38,152.97 47.14,150.10 47.95,147.17 C 48.77,144.24 49.63,141.30 50.58,138.27 C 51.54,135.24 52.47,132.11 53.67,129.01 C 54.86,125.91 56.17,122.74 57.74,119.68 C 59.31,116.61 61.11,113.58 63.10,110.62 C 65.09,107.66 67.26,104.70 69.66,101.90 C 72.06,99.10 74.68,96.36 77.49,93.81 C 80.31,91.27 83.34,88.77 86.56,86.62 C 89.79,84.47 93.25,82.45 96.84,80.91 C 100.43,79.37 104.27,78.17 108.11,77.38 C 111.94,76.59 115.95,76.16 119.87,76.16 Z";
+
+/**
+ * Blend a family of traced loops by weight into `dst`, and return the path
+ * for it — scaled about the lip line and placed at (cx, y).
+ *
+ * Loops are pre-corresponded point-for-point, so this is a plain weighted sum:
+ * no shape matching, no re-parameterisation, and the result is always a valid
+ * in-between of the artist's parts rather than an invented shape.
+ */
+function blendPath(
+  loops: readonly Loop[], w: readonly number[], dst: Float64Array,
+  cx: number, y: number, sx: number, sy: number,
+): string {
+  dst.fill(0);
+  for (let s = 0; s < loops.length; s++) {
+    const k = w[s];
+    if (k < 0.0005) continue;
+    const L = loops[s];
+    for (let i = 0; i < dst.length; i++) dst[i] += L[i] * k;
+  }
+  let d = "";
+  for (let i = 0; i < LOOP_N; i++) {
+    d += `${i ? "L" : "M"}${(cx + dst[i * 2] * sx).toFixed(2)},${(y + dst[i * 2 + 1] * sy).toFixed(2)}`;
+  }
+  return d + "Z";
+}
 
 /** Mix hex color toward white (amt>0) or black (amt<0). */
 function shade(hex: string, amt: number): string {
@@ -117,6 +159,8 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
     browR: useRef<SVGPathElement>(null),
     specs: useRef<SVGGElement>(null),
     mouth: useRef<SVGPathElement>(null),
+    tongueG: useRef<SVGGElement>(null),
+    tongueFill: useRef<SVGPathElement>(null),
     cheekFace: useRef<SVGGElement>(null),
     cheekG: useRef<SVGGElement>(null),
     cheekL: useRef<SVGEllipseElement>(null),
@@ -129,6 +173,12 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
 
   useEffect(() => {
     let raf = 0;
+    // scratch for the shape blends — allocated once per mounted avatar so the
+    // animation loop never touches the allocator
+    const mouthBufA = new Float64Array(LOOP_N * 2);
+    const mouthBufB = new Float64Array(LOOP_N * 2);
+    const browBuf = new Float64Array(LOOP_N * 2);
+
     const apply = (f: ZazooFrame) => {
       const r = refs;
       if (!r.root.current) return;
@@ -212,16 +262,18 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       r.sparkleL.current!.setAttribute("opacity", (0.5 + f.sparkle * 0.5).toFixed(2));
       r.sparkleR.current!.setAttribute("opacity", (0.5 + f.sparkle * 0.5).toFixed(2));
 
-      // brows: raise + sorrow (inner-up) + furrow (inner-down, draw in) +
-      // LENGTH variation (raised brows lengthen, furrowed brows shorten).
-      // Rest length is the reference's 9.5, so the deltas stay proportionate.
+      // BROWS come from the sheet — the artist drew arch / perk / wave, and
+      // the director picks between them. The rig only stretches the chosen
+      // part (raised brows lengthen, furrowed ones shorten) and moves it;
+      // it no longer invents a curve.
       const by = RIG.brow.y;
       const braise = -f.browRaise * 4;
       const furrowIn = f.browFurrow * 1.8;
-      const bLen = RIG.brow.len * (1 + f.browRaise * 0.22 - f.browFurrow * 0.2 + f.browSorrow * 0.1);
-      const bArc = -4.8 - f.browRaise * 2 + f.browFurrow * 2.4;
-      r.browL.current!.setAttribute("d", `M ${(RIG.brow.lx - bLen / 2).toFixed(2)},${by} q ${(bLen / 2).toFixed(2)},${bArc.toFixed(2)} ${bLen.toFixed(2)},-1`);
-      r.browR.current!.setAttribute("d", `M ${(RIG.brow.rx + bLen / 2).toFixed(2)},${by} q ${(-bLen / 2).toFixed(2)},${bArc.toFixed(2)} ${(-bLen).toFixed(2)},-1`);
+      const bsx = 1 + f.browRaise * 0.2 - f.browFurrow * 0.18;
+      const bsy = 1 + f.browRaise * 0.12 + f.browSorrow * 0.1;
+      r.browL.current!.setAttribute("d", blendPath(browLoops, f.browW, browBuf, RIG.brow.lx, by, bsx, bsy));
+      // the right brow is the same part mirrored, so both read as one pair
+      r.browR.current!.setAttribute("d", blendPath(browLoops, f.browW, browBuf, RIG.brow.rx, by, -bsx, bsy));
       r.browL.current!.setAttribute(
         "transform",
         `translate(${furrowIn.toFixed(2)} ${braise.toFixed(2)}) rotate(${(f.browSorrow * 16 - f.browFurrow * 13).toFixed(2)} ${RIG.brow.lx} ${by})`,
@@ -233,57 +285,46 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
 
       r.specs.current?.setAttribute("transform", `translate(${(f.specJiggle * 0.6).toFixed(2)} ${(Math.abs(f.specJiggle) * 0.5 + f.pawLift * 1.5).toFixed(2)})`);
 
-      // ONE mouth element, driven by THREE independent axes so the shape —
-      // not just the smile depth — changes with the emotion:
-      //   curve  corners rise and the twin lobes deepen; negative inverts the
-      //          lobes and drops the corners into a frown
-      //   wide   corner spread — pursed "thinking" vs stretched "celebrating"
-      //   open   the jaw drops, and it drops most at the CENTRE, so the
-      //          interior opens as an offset lip rather than a symmetric lens
-      // The outgoing and return edges are generated by the same function, so
-      // at open=0 they coincide exactly and a shut mouth is a single line.
-      const cu = f.mouthCurve;
-      const mo = f.mouthOpen;
-      const mw = RIG.mouth.w * (1 + f.mouthWide * 0.32 - mo * 0.1);
-      const y0 = RIG.mouth.y;
-      const xl = 120 - mw / 2, xr = 120 + mw / 2;
-      // Rest geometry is the reference's: lobes ~3.9 deep with the corners
-      // barely lifted. Lifting the corners hard is what turns a soft panda
-      // smile into a cartoon "W", so that coefficient stays small.
-      const yCorner = y0 - Math.max(0, cu) * 1.2 + Math.max(0, -cu) * 1.8;
-      // a frown collapses the twin lobes into one arc lifted at the middle
-      const lobe = 3 + cu * 2.6;
-      const yMid = y0 - Math.max(0, -cu) * 3.6;
-      // control y that forces a quadratic through `depth` at its midpoint
-      const ctrl = (ya: number, yb: number, depth: number) => 2 * (y0 + depth) - (ya + yb) / 2;
-      /**
-       * The mouth line, dropped by `d` — d=0 is the upper lip, d>0 the lower.
-       * The twin lobes fade out as the jaw drops: a lower lip that kept them
-       * would hang lower at the quarters than at the centre, which reads as a
-       * beard rather than an open mouth. Wide open, it is a single bowl.
-       */
-      const edge = (d: number) => {
-        const flat = Math.min(1, d / 6);
-        return {
-          yc: yCorner + d * 0.25,
-          ym: yMid + d,
-          yq: ctrl(yCorner + d * 0.25, yMid + d, lobe * (1 - flat) + d * 0.55),
-        };
-      };
-      const lipU = edge(0);
-      const lipL = edge(mo * 9);
-      const q1 = (120 - mw / 4).toFixed(2), q2 = (120 + mw / 4).toFixed(2);
-      r.mouth.current!.setAttribute(
-        "d",
-        `M ${xl.toFixed(2)},${lipU.yc.toFixed(2)}` +
-          ` Q ${q1},${lipU.yq.toFixed(2)} 120,${lipU.ym.toFixed(2)}` +
-          ` Q ${q2},${lipU.yq.toFixed(2)} ${xr.toFixed(2)},${lipU.yc.toFixed(2)}` +
-          // …and back along the lower lip, right to left
-          ` L ${xr.toFixed(2)},${lipL.yc.toFixed(2)}` +
-          ` Q ${q2},${lipL.yq.toFixed(2)} 120,${lipL.ym.toFixed(2)}` +
-          ` Q ${q1},${lipL.yq.toFixed(2)} ${xl.toFixed(2)},${lipL.yc.toFixed(2)} Z`,
-      );
-      r.mouth.current!.setAttribute("fill-opacity", mo > 0.04 ? "0.92" : "0");
+      // MOUTH: a weighted blend of the artist's standard parts. The director
+      // says which part; the weights arrive mid-morph, so what is drawn here
+      // is a genuine in-between of two of the sheet's own shapes.
+      //
+      // Scale is anisotropic on purpose — `mouthScale` sizes the whole part
+      // while the jaw stretches it vertically, so breathing and a slack jaw
+      // read on the same shape without needing another traced part.
+      const ms = f.mouthScale;
+      const jaw = 1 + f.mouthOpen * 0.55;
+      r.mouth.current!.setAttribute("d", blendPath(mouthOuter, f.mouthW, mouthBufA, 120, RIG.mouth.y, ms, ms * jaw));
+
+      // …and the cavity, which is a speck on a closed mouth and the real
+      // opening on an open one. The tongue is the cavity's OWN shape, shrunk
+      // about its centre and dropped toward the jaw — deriving it from the
+      // cavity rather than clipping an ellipse to it means it can never spill
+      // past the lips no matter which parts are being blended.
+      blendPath(mouthInner, f.mouthW, mouthBufB, 120, RIG.mouth.y, ms, ms * jaw);
+      let iy0 = Infinity, iy1 = -Infinity, ix0 = Infinity, ix1 = -Infinity;
+      for (let i = 0; i < LOOP_N; i++) {
+        const x = mouthBufB[i * 2] * ms, y = mouthBufB[i * 2 + 1] * ms * jaw;
+        if (x < ix0) ix0 = x;
+        if (x > ix1) ix1 = x;
+        if (y < iy0) iy0 = y;
+        if (y > iy1) iy1 = y;
+      }
+      const openH = iy1 - iy0;
+      // fades in with the opening, so it can never show on a shut mouth
+      const tongueOn = Math.max(0, Math.min(1, (openH - 2.5) / 4));
+      r.tongueG.current!.setAttribute("opacity", tongueOn.toFixed(3));
+      if (tongueOn > 0.002) {
+        const tcx = (ix0 + ix1) / 2, tcy = (iy0 + iy1) / 2;
+        const drop = openH * 0.2;
+        let td = "";
+        for (let i = 0; i < LOOP_N; i++) {
+          const x = tcx + (mouthBufB[i * 2] * ms - tcx) * 0.62;
+          const y = tcy + (mouthBufB[i * 2 + 1] * ms * jaw - tcy) * 0.62 + drop;
+          td += `${i ? "L" : "M"}${(120 + x).toFixed(2)},${(RIG.mouth.y + y).toFixed(2)}`;
+        }
+        r.tongueFill.current!.setAttribute("d", td + "Z");
+      }
 
       // cheeks: opacity + puff scale + emotional color temperature
       const cc = cheekColor(Math.max(0, Math.min(1, f.cheekWarm)));
@@ -324,14 +365,13 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
     return () => cancelAnimationFrame(raf);
   }, [director]);
 
-  const { body, suit, accessory } = appearance;
+  const { body, suit, tie, accessory } = appearance;
   const bodyLight = shade(body, 0.5);
   const bodyDark = shade(body, -0.1);
   const bodyDeep = shade(body, -0.32);
   const suitDark = shade(suit, -0.25);
   const patchInk = "#141519";
   const ink = "#22232A";
-  const suitUrl = accessory === "tie" ? suitTieUrl : suitPlainUrl;
 
   const snoutH = RIG.snout.w / RIG.snout.aspect;
   const pawH = RIG.paw.w / RIG.paw.aspect;
@@ -375,7 +415,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
           <feGaussianBlur stdDeviation="7" />
         </filter>
         <filter id="zz-soft2" x="-40%" y="-40%" width="180%" height="180%">
-          <feGaussianBlur stdDeviation="3" />
+          <feGaussianBlur stdDeviation="4.5" />
         </filter>
         {/* Bevels the charcoal mitts so they read against the charcoal suit:
             a lit edge up-left, a cast shadow down-right. */}
@@ -386,9 +426,12 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
         <clipPath id="zz-bodyclip">
           <path d={BODY_PATH} />
         </clipPath>
-        {/* Alpha mask so a suit tint only lands on painted fabric. */}
+        {/* Alpha masks so each tint only lands on its own painted layer. */}
         <mask id="zz-suitmask" style={{ maskType: "alpha" }}>
           <image href={suitUrl} x={RIG.suit.x} y={RIG.suit.y} width={RIG.suit.w} height={RIG.suit.h} />
+        </mask>
+        <mask id="zz-tiemask" style={{ maskType: "alpha" }}>
+          <image href={tieUrl} x={RIG.tie.x} y={RIG.tie.y} width={RIG.tie.w} height={RIG.tie.h} />
         </mask>
       </defs>
 
@@ -445,7 +488,11 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
               </g>
             </g>
 
-            {/* painted suit — charcoal fabric, white collar, brass buttons */}
+            {/* Painted suit — the fabric sheet carries the weave, folds and
+                collar; the colour is screened onto it through its own alpha,
+                so a tint lands on cloth and nowhere else. The tie is a
+                separate sheet for exactly this reason: it has to take a
+                different colour from the jacket it sits on. */}
             <g style={{ isolation: "isolate" }}>
               <image href={suitUrl} x={RIG.suit.x} y={RIG.suit.y} width={RIG.suit.w} height={RIG.suit.h} />
               <rect
@@ -453,11 +500,22 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 fill={suit} mask="url(#zz-suitmask)" style={{ mixBlendMode: "screen" }}
               />
             </g>
-            {/* the head sits in front of the collar, so it drops a soft
+            {accessory === "tie" && (
+              <g style={{ isolation: "isolate" }}>
+                <image href={tieUrl} x={RIG.tie.x} y={RIG.tie.y} width={RIG.tie.w} height={RIG.tie.h} />
+                <rect
+                  x={RIG.tie.x} y={RIG.tie.y} width={RIG.tie.w} height={RIG.tie.h}
+                  fill={tie} mask="url(#zz-tiemask)" style={{ mixBlendMode: "screen" }}
+                />
+              </g>
+            )}
+            {/* The head sits in front of the collar, so it drops a soft
                 occlusion onto the fabric — masked to the suit so the fur above
-                the chin line stays clean */}
+                the chin line stays clean. It sits BELOW the collar edge and
+                stays faint: straddling the edge makes the mask cut the shadow
+                in half, and a half-cut blur reads as a painted-on band. */}
             <g mask="url(#zz-suitmask)">
-              <path d="M 44,138 Q 120,194 196,138" fill="none" stroke="#000" strokeWidth="9" opacity="0.3" filter="url(#zz-soft2)" />
+              <path d="M 44,146 Q 120,202 196,146" fill="none" stroke="#000" strokeWidth="7" opacity="0.18" filter="url(#zz-soft2)" />
             </g>
 
             {accessory === "bowtie" && (
@@ -484,8 +542,9 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 <image href={patchUrl} x={RIG.patch.rx} y={RIG.patch.y} width={RIG.patch.w} height={RIG.patch.h} />
               </g>
 
-              <path ref={refs.browL} d="" stroke={ink} strokeWidth={RIG.brow.weight} strokeLinecap="round" fill="none" />
-              <path ref={refs.browR} d="" stroke={ink} strokeWidth={RIG.brow.weight} strokeLinecap="round" fill="none" />
+              {/* brows are solid parts off the sheet, not strokes we draw */}
+              <path ref={refs.browL} d="" fill={ink} />
+              <path ref={refs.browR} d="" fill={ink} />
 
               {/* glossy eyes, kept from the cat rig, tilted with the patch and
                   set where the art puts them: up and toward the nose. Both
@@ -527,9 +586,13 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 </g>
               )}
 
-              {/* painted snout, then the thread-line mouth beneath it */}
+              {/* painted snout, then the mouth part beneath it — silhouette
+                  first, tongue clipped into the cavity on top */}
               <image href={snoutUrl} x={120 - RIG.snout.w / 2} y={RIG.snout.y - snoutH / 2} width={RIG.snout.w} height={snoutH} />
-              <path ref={refs.mouth} d="" fill="#202126" fillOpacity="0" stroke="#202126" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+              <path ref={refs.mouth} d="" fill="#202126" />
+              <g ref={refs.tongueG} opacity="0">
+                <path ref={refs.tongueFill} d="" fill={TONGUE} />
+              </g>
             </g>
 
             {/* painted mitts, mirrored from the one source limb */}

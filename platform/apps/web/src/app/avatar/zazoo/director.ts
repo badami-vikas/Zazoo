@@ -17,6 +17,8 @@
  * spectacles) lags primary motion for follow-through.
  */
 
+import { MOUTH_SHAPES, BROW_SHAPES, type MouthShape, type BrowShape } from "./parts";
+
 export type ZazooEmotion =
   | "calm"
   | "curious"
@@ -58,9 +60,14 @@ interface Pose {
   browRaise: number; // -1 lowered .. 1 raised (also lengthens the brow)
   browSorrow: number; // 0..1 inner-raise (worry)
   browFurrow: number; // 0..1 inner-lower (focus) — also shortens the brow
-  mouthCurve: number; // -1 frown .. 1 broad smile
-  mouthOpen: number; // 0..1 — opens the ONE mouth element, never adds a second
-  mouthWide: number; // -1 pursed/small .. 1 stretched wide (corner spread)
+  /**
+   * Extra jaw travel on top of whichever standard mouth part is showing —
+   * this is the LIVE part of the mouth (it rides the breath), not the shape
+   * itself. The shape comes from the artist's sheet via `mouth` below.
+   */
+  mouthOpen: number;
+  /** Size of the mouth part relative to how the sheet draws it. */
+  mouthScale: number;
   earL: number; // deg, + = perked
   earR: number;
   earScale: number; // 1 = rest; listening exaggerates (mild)
@@ -89,8 +96,15 @@ interface Pose {
   gazeBiasY: number;
 }
 
-/** Non-springed behavior settings. */
+/**
+ * Non-springed behavior settings — including which of the artist's standard
+ * parts is showing. Shapes are picked, not springed: the renderer crossfades
+ * between the chosen part and the previous one, so a switch is still smooth
+ * without the director having to interpolate geometry it does not own.
+ */
 interface Behavior {
+  mouth: MouthShape;
+  brow: BrowShape;
   breathRate: number; // Hz — varies with emotion; actions may override
   breathDepth: number; // 0..1.2
   blinkEvery: number; // mean seconds between blinks
@@ -119,17 +133,25 @@ export interface ZazooFrame extends Pose {
   whiskerSway: number; // deg — whiskers floating in air
   sparkle: number;
   zzz: number;
+  /**
+   * Blend weights over MOUTH_SHAPES / BROW_SHAPES, summing to 1. The renderer
+   * mixes the traced loops by these, which is how a switch between two of the
+   * artist's parts becomes a continuous morph instead of a cut.
+   */
+  mouthW: readonly number[];
+  browW: readonly number[];
 }
 
 const CALM: Pose = {
   eyeOpen: 0.9, pupilScale: 1, browRaise: 0, browSorrow: 0, browFurrow: 0,
-  mouthCurve: 0.35, mouthOpen: 0, mouthWide: 0, earL: 0, earR: 0, earScale: 1,
+  mouthOpen: 0, mouthScale: 1, earL: 0, earR: 0, earScale: 1,
   headTilt: 0, headDrop: 0, cheek: 0.45, cheekWarm: 0.4, cheekPuff: 0.2,
   whiskerDroop: 0.1, whiskerFloat: 0.6, tailCurl: 0.3, bodyLean: 0,
   posture: 0.5, pawChest: 0, pawMeditate: 0, squash: 0, hide: 0,
   levitate: 0, gazeBiasX: 0, gazeBiasY: 0,
 };
 const CALM_B: Behavior = {
+  mouth: "smileTwin", brow: "arch",
   breathRate: 0.22, breathDepth: 0.6, blinkEvery: 4.2, blinkSpeed: 1,
   saccadeAmp: 0.5, tailWag: 0.08, nod: 0, giggle: 0, creep: 0,
 };
@@ -137,57 +159,57 @@ const CALM_B: Behavior = {
 /**
  * EMOTION layer — face, brows, cheeks, breath rhythm.
  *
- * Every emotion states a full MOUTH SHAPE (curve + open + wide) and a body
- * SQUASH bias. Those two carry most of the read at a glance: a mouth that only
- * changed its smile depth, on a body that never changed volume, is what makes
- * a rig look like a decal instead of a character.
+ * Every emotion picks a MOUTH PART and a BROW PART from the artist's standard
+ * sheet, and states a body SQUASH bias. Those carry most of the read at a
+ * glance: a mouth that only changed its smile depth, on a body that never
+ * changed volume, is what makes a rig look like a decal instead of a character.
  */
 const EMOTIONS: Record<ZazooEmotion, [Partial<Pose>, Partial<Behavior>]> = {
   calm: [{}, {}],
   curious: [
     // lips part on the unspoken question; body lifts slightly toward it
-    { eyeOpen: 1.12, pupilScale: 1.18, browRaise: 0.75, headTilt: 9, earL: 8, earR: 8, earScale: 1.08, mouthCurve: 0.2, mouthOpen: 0.2, mouthWide: -0.25, squash: -0.14, cheekPuff: 0.3, whiskerFloat: 0.9 },
-    { blinkEvery: 7, saccadeAmp: 0.25, breathRate: 0.3, breathDepth: 0.5 },
+    { eyeOpen: 1.12, pupilScale: 1.18, browRaise: 0.75, headTilt: 9, earL: 8, earR: 8, earScale: 1.08, mouthScale: 0.42, squash: -0.14, cheekPuff: 0.3, whiskerFloat: 0.9 },
+    { mouth: "openRound", brow: "perk", blinkEvery: 7, saccadeAmp: 0.25, breathRate: 0.3, breathDepth: 0.5 },
   ],
   thinking: [
-    // pursed and shut — the mouth narrows while the brow does the work
-    { eyeOpen: 0.78, browRaise: 0.2, browFurrow: 0.6, headTilt: -6, mouthCurve: 0.06, mouthOpen: 0, mouthWide: -0.5, squash: 0.08, gazeBiasY: -0.8, gazeBiasX: 0.35, earL: 3, earR: -2, cheekPuff: 0.1 },
-    { blinkEvery: 5.5, saccadeAmp: 0.3, breathRate: 0.16, breathDepth: 0.8 },
+    // small and shut — the mouth gets out of the way while the brow works
+    { eyeOpen: 0.78, browRaise: 0.2, browFurrow: 0.6, headTilt: -6, mouthScale: 0.78, squash: 0.08, gazeBiasY: -0.8, gazeBiasX: 0.35, earL: 3, earR: -2, cheekPuff: 0.1 },
+    { mouth: "smile", brow: "wave", blinkEvery: 5.5, saccadeAmp: 0.3, breathRate: 0.16, breathDepth: 0.8 },
   ],
   listening: [
     // Ears enlarge — mild Pixar exaggeration: the feature doing the work grows.
-    { eyeOpen: 0.98, earL: 12, earR: 12, earScale: 1.28, mouthCurve: 0.3, mouthOpen: 0.06, mouthWide: 0.1, squash: -0.06, headTilt: 3, posture: 0.65, whiskerFloat: 0.3, browRaise: 0.25 },
-    { blinkEvery: 5, saccadeAmp: 0.15, nod: 0.6, breathRate: 0.2, breathDepth: 0.5 },
+    { eyeOpen: 0.98, earL: 12, earR: 12, earScale: 1.28, mouthOpen: 0.08, squash: -0.06, headTilt: 3, posture: 0.65, whiskerFloat: 0.3, browRaise: 0.25 },
+    { mouth: "smileTwin", brow: "arch", blinkEvery: 5, saccadeAmp: 0.15, nod: 0.6, breathRate: 0.2, breathDepth: 0.5 },
   ],
   happy: [
-    { eyeOpen: 0.66, mouthCurve: 0.85, mouthOpen: 0.26, mouthWide: 0.45, squash: -0.16, cheek: 0.9, cheekWarm: 0.85, cheekPuff: 0.8, earL: 4, earR: 4, tailCurl: 0.5, whiskerFloat: 1, browRaise: 0.4 },
-    { tailWag: 0.45, breathRate: 0.28, breathDepth: 0.55, blinkEvery: 4.5 },
+    { eyeOpen: 0.66, mouthScale: 1.05, mouthOpen: 0.12, squash: -0.16, cheek: 0.9, cheekWarm: 0.85, cheekPuff: 0.8, earL: 4, earR: 4, tailCurl: 0.5, whiskerFloat: 1, browRaise: 0.4 },
+    { mouth: "arch", brow: "perk", tailWag: 0.45, breathRate: 0.28, breathDepth: 0.55, blinkEvery: 4.5 },
   ],
   proud: [
     // chest up, drawn tall — stretch is the pose, not a decoration on it
-    { eyeOpen: 0.75, mouthCurve: 0.55, mouthOpen: 0.08, mouthWide: 0.2, squash: -0.3, posture: 1, headTilt: -2, cheek: 0.55, cheekWarm: 0.6, cheekPuff: 0.5, earL: 6, earR: 6, browRaise: 0.3 },
-    { breathRate: 0.18, breathDepth: 0.9, blinkEvery: 5 },
+    { eyeOpen: 0.75, mouthScale: 0.95, squash: -0.3, posture: 1, headTilt: -2, cheek: 0.55, cheekWarm: 0.6, cheekPuff: 0.5, earL: 6, earR: 6, browRaise: 0.3 },
+    { mouth: "arch", brow: "perk", breathRate: 0.18, breathDepth: 0.9, blinkEvery: 5 },
   ],
   unsure: [
-    { eyeOpen: 0.8, browSorrow: 0.7, headTilt: -5, headDrop: 4, mouthCurve: 0.08, mouthOpen: 0.1, mouthWide: -0.4, squash: 0.14, tailCurl: 0.85, earL: -6, earR: -8, gazeBiasX: -0.5, cheek: 0.5, cheekWarm: 0.3, cheekPuff: 0.15 },
-    { blinkEvery: 2.6, saccadeAmp: 0.7, breathRate: 0.33, breathDepth: 0.45 },
+    { eyeOpen: 0.8, browSorrow: 0.7, headTilt: -5, headDrop: 4, mouthScale: 0.88, squash: 0.14, tailCurl: 0.85, earL: -6, earR: -8, gazeBiasX: -0.5, cheek: 0.5, cheekWarm: 0.3, cheekPuff: 0.15 },
+    { mouth: "wavy", brow: "wave", blinkEvery: 2.6, saccadeAmp: 0.7, breathRate: 0.33, breathDepth: 0.45 },
   ],
   concerned: [
-    { eyeOpen: 0.92, browSorrow: 1, mouthCurve: -0.45, mouthOpen: 0.06, mouthWide: -0.2, squash: 0.1, bodyLean: 4, cheek: 0.15, cheekWarm: 0.1, earL: -4, earR: -4, whiskerDroop: 0.5, whiskerFloat: 0.2 },
-    { blinkEvery: 4, breathRate: 0.27, breathDepth: 0.5, saccadeAmp: 0.2 },
+    { eyeOpen: 0.92, browSorrow: 1, squash: 0.1, bodyLean: 4, cheek: 0.15, cheekWarm: 0.1, earL: -4, earR: -4, whiskerDroop: 0.5, whiskerFloat: 0.2 },
+    { mouth: "wavy", brow: "wave", blinkEvery: 4, breathRate: 0.27, breathDepth: 0.5, saccadeAmp: 0.2 },
   ],
   comforting: [
-    { eyeOpen: 0.6, mouthCurve: 0.5, mouthOpen: 0, mouthWide: 0.12, squash: 0.1, cheek: 0.6, cheekWarm: 0.55, cheekPuff: 0.5, pawChest: 1, headTilt: 4, earL: -2, earR: -2, browSorrow: 0.25 },
-    { blinkEvery: 6, blinkSpeed: 0.45, breathRate: 0.13, breathDepth: 1.1, nod: 0.3 },
+    { eyeOpen: 0.6, squash: 0.1, cheek: 0.6, cheekWarm: 0.55, cheekPuff: 0.5, pawChest: 1, headTilt: 4, earL: -2, earR: -2, browSorrow: 0.25 },
+    { mouth: "smile", brow: "arch", blinkEvery: 6, blinkSpeed: 0.45, breathRate: 0.13, breathDepth: 1.1, nod: 0.3 },
   ],
   celebrating: [
-    { eyeOpen: 1.08, mouthCurve: 1, mouthOpen: 0.8, mouthWide: 0.7, squash: -0.34, cheek: 1, cheekWarm: 1, cheekPuff: 1, earL: 12, earR: 12, earScale: 1.1, tailCurl: 0.6, whiskerFloat: 1, browRaise: 0.9 },
-    { tailWag: 1, breathRate: 0.42, breathDepth: 0.4, blinkEvery: 5, saccadeAmp: 0.3 },
+    { eyeOpen: 1.08, mouthScale: 0.92, mouthOpen: 0.35, squash: -0.34, cheek: 1, cheekWarm: 1, cheekPuff: 1, earL: 12, earR: 12, earScale: 1.1, tailCurl: 0.6, whiskerFloat: 1, browRaise: 0.9 },
+    { mouth: "openWide", brow: "perk", tailWag: 1, breathRate: 0.42, breathDepth: 0.4, blinkEvery: 5, saccadeAmp: 0.3 },
   ],
   sleepy: [
     // slack jaw, and the whole panda settles into itself under its own weight
-    { eyeOpen: 0.3, mouthCurve: 0.1, mouthOpen: 0.3, mouthWide: -0.3, squash: 0.3, earL: -12, earR: -12, earScale: 0.94, headTilt: 5, headDrop: 5, whiskerDroop: 0.8, whiskerFloat: 0.15, tailCurl: 0.7, cheek: 0.35, cheekWarm: 0.3, browRaise: -0.3 },
-    { blinkEvery: 3, blinkSpeed: 0.3, breathRate: 0.1, breathDepth: 1.2, saccadeAmp: 0.1 },
+    { eyeOpen: 0.3, mouthScale: 0.4, mouthOpen: 0.25, squash: 0.3, earL: -12, earR: -12, earScale: 0.94, headTilt: 5, headDrop: 5, whiskerDroop: 0.8, whiskerFloat: 0.15, tailCurl: 0.7, cheek: 0.35, cheekWarm: 0.3, browRaise: -0.3 },
+    { mouth: "openTall", brow: "wave", blinkEvery: 3, blinkSpeed: 0.3, breathRate: 0.1, breathDepth: 1.2, saccadeAmp: 0.1 },
   ],
 };
 
@@ -208,10 +230,20 @@ const ACTIONS: Record<ZazooAction, [Partial<Pose>, Partial<Behavior>]> = {
   ],
 };
 
-type GestureName = "specAdjust" | "hop" | "nodOnce" | "yawn";
+type GestureName = "specAdjust" | "hop" | "nodOnce" | "yawn" | "tiltIn" | "earFlick";
 interface Gesture { name: GestureName; start: number; dur: number }
 
 const POSE_KEYS = Object.keys(CALM) as (keyof Pose)[];
+
+/**
+ * Move a weight vector toward one-hot on `i`, in place. Because every weight
+ * steps by the same fraction toward its target, the sum is preserved at 1 —
+ * so the blend it drives is always a valid convex mix, mid-morph included.
+ */
+function fadeTo(w: number[], i: number, rate: number) {
+  const k = Math.max(0, Math.min(1, rate));
+  for (let j = 0; j < w.length; j++) w[j] += ((j === i ? 1 : 0) - w[j]) * k;
+}
 
 function spring(x: number, v: number, target: number, dt: number, hz: number): [number, number] {
   const w = 2 * Math.PI * hz;
@@ -237,6 +269,10 @@ export class ZazooDirector {
 
   private petting = false;
   private cursor: { x: number; y: number } | null = null;
+
+  // one-hot at rest, mid-morph in between
+  private mouthW = MOUTH_SHAPES.map((s) => (s === CALM_B.mouth ? 1 : 0));
+  private browW = BROW_SHAPES.map((s) => (s === CALM_B.brow ? 1 : 0));
 
   private nextBlink = 1.5;
   private blinkT = -1;
@@ -273,9 +309,15 @@ export class ZazooDirector {
     // own timing, so no two transitions read identically.
     this.vel.squash += 5.5;
     this.specJiggleV += 14; // spectacles settle on every shift
+    // A blink on the turn. Animators cut on a blink for the same reason
+    // editors cut on a blink: it hides the change of expression and makes the
+    // new one feel arrived-at rather than swapped in.
+    if (p.emotion && this.blinkT < 0) this.nextBlink = Math.min(this.nextBlink, 0.06);
     if (p.emotion === "thinking" || p.emotion === "unsure") this.trigger("specAdjust", now, 0.4);
     if (p.emotion === "celebrating") this.trigger("hop", now);
     if (p.emotion === "proud") this.trigger("nodOnce", now, 0.3);
+    if (p.emotion === "curious") this.trigger("tiltIn", now);
+    if (p.emotion === "happy" || p.emotion === "comforting") this.trigger("earFlick", now);
     if (p.emotion === "unsure") this.doubleBlink = true;
   }
 
@@ -285,7 +327,7 @@ export class ZazooDirector {
   setCursor(c: { x: number; y: number } | null) { this.cursor = c; }
 
   private trigger(name: GestureName, now: number, delay = 0) {
-    const dur = { specAdjust: 1.6, hop: 1.3, nodOnce: 1.2, yawn: 2.2 }[name];
+    const dur = { specAdjust: 1.6, hop: 1.3, nodOnce: 1.2, yawn: 2.2, tiltIn: 1.1, earFlick: 0.7 }[name];
     this.gestures.push({ name, start: now + delay, dur });
   }
 
@@ -306,7 +348,7 @@ export class ZazooDirector {
     const target: Pose = { ...CALM, ...ep, ...ap };
     const beh: Behavior = { ...CALM_B, ...eb, ...ab };
 
-    target.mouthCurve += (this.warmth - 0.5) * 0.35;
+    target.mouthScale *= 1 + (this.warmth - 0.5) * 0.24;
     target.cheek = Math.min(1, target.cheek + (this.warmth - 0.5) * 0.4);
     target.cheekWarm = Math.min(1, target.cheekWarm + (this.warmth - 0.5) * 0.3);
     target.posture += (this.confidence - 0.5) * 0.4;
@@ -317,9 +359,8 @@ export class ZazooDirector {
     let giggle = beh.giggle;
     if (this.petting && this.action !== "hiding") {
       target.eyeOpen = 0.06;
-      target.mouthCurve = 0.9;
-      target.mouthOpen = 0.35;
-      target.mouthWide = 0.5;
+      target.mouthOpen = 0.3;
+      target.mouthScale = 0.8;
       target.squash = 0.2;
       target.cheek = 1; target.cheekWarm = 0.95; target.cheekPuff = 1;
       target.earL = -4; target.earR = -4;
@@ -391,6 +432,7 @@ export class ZazooDirector {
 
     // gestures — hop carries anticipation (crouch) then squash-and-stretch
     let hopY = 0, pawLift = 0, armsUp = 0, nodOnceY = 0, yawnOpen = 0, hopSquash = 0;
+    let leanIn = 0, flick = 0;
     this.gestures = this.gestures.filter((g) => now < g.start + g.dur);
     for (const g of this.gestures) {
       if (now < g.start) continue;
@@ -412,8 +454,22 @@ export class ZazooDirector {
         nodOnceY = Math.sin(p * Math.PI * 2) * 3.5 * env;
       } else if (g.name === "yawn") {
         yawnOpen = env;
+      } else if (g.name === "tiltIn") {
+        // curiosity leans in and then settles back — the lean IS the question
+        leanIn = env;
+      } else if (g.name === "earFlick") {
+        flick = Math.sin(p * Math.PI * 2) * env;
       }
     }
+
+    // Shape crossfade. Weights move toward one-hot on the chosen part at a
+    // rate that scales with energy, so an excited switch snaps and a sleepy
+    // one drifts. A yawn borrows the tall-open part on top of whatever is
+    // showing, which is why it can interrupt any expression cleanly.
+    const mouthTarget = this.petting && this.action !== "hiding" ? "openWide" : beh.mouth;
+    fadeTo(this.mouthW, MOUTH_SHAPES.indexOf(mouthTarget), dt * 8 * speed);
+    if (yawnOpen > 0.01) fadeTo(this.mouthW, MOUTH_SHAPES.indexOf("openTall"), yawnOpen * 0.5);
+    fadeTo(this.browW, BROW_SHAPES.indexOf(beh.brow), dt * 8 * speed);
 
     const [jx, jv] = spring(this.specJiggleX, this.specJiggleV, 0, dt, 3.2);
     this.specJiggleX = jx; this.specJiggleV = jv;
@@ -452,9 +508,14 @@ export class ZazooDirector {
       wagAmount: beh.tailWag,
       nodY,
       whiskerSway,
-      earL: this.pose.earL + earTwitch,
+      earL: this.pose.earL + earTwitch + flick * 10,
+      earR: this.pose.earR - flick * 7, // the two ears never flick together
+      headTilt: this.pose.headTilt + leanIn * 4,
+      bodyLean: this.pose.bodyLean + leanIn * 5,
       sparkle: this.emotion === "celebrating" || this.emotion === "curious" ? 1 : 0,
       zzz: this.emotion === "sleepy" ? 1 : 0,
+      mouthW: this.mouthW,
+      browW: this.browW,
     };
   }
 }

@@ -8,12 +8,13 @@
 import { useMemo, useRef, useState } from "react";
 import { ZazooAvatar, DEFAULT_APPEARANCE, type ZazooAppearance } from "./ZazooAvatar";
 import { ZazooDirector, ZAZOO_EMOTIONS, ZAZOO_ACTIONS, type ZazooEmotion, type ZazooAction } from "./director";
-import { RigInspector, ZOOM_MAX, ZOOM_MIN, type RigPin } from "./RigInspector";
+import { RigInspector, ZOOM_MAX, ZOOM_MIN } from "./RigInspector";
 
 const BODY_COLORS = ["#FAF1E7", "#F0DFC2", "#D8DCE4", "#CFE0D2", "#F2C9B0", "#D6CBEB"];
-// Tints are screened over the painted charcoal fabric, so the first swatch is
-// a near-black no-op — the suit as the source art draws it.
-const SUIT_COLORS = ["#15151A", "#3E5A7E", "#4A4E5A", "#7E937E", "#8E4A55"];
+// Tints are screened over the painted charcoal fabric, so a swatch is the
+// colour the cloth reads as; the near-black one is the source art untinted.
+const SUIT_COLORS = ["#7E2732", "#15151A", "#3E5A7E", "#4A4E5A", "#7E937E", "#2F4A44"];
+const TIE_COLORS = ["#E8B93C", "#B8323C", "#2E5E8C", "#D9D5CC", "#4F7F5A"];
 const ACCESSORIES = ["tie", "bowtie", "scarf", "none"] as const;
 
 const S: Record<string, React.CSSProperties> = {
@@ -114,14 +115,7 @@ export function ZazooLab() {
   const [zoom, setZoom] = useState(1);
   const [showGrid, setShowGrid] = useState(true);
   const [refOpacity, setRefOpacity] = useState(0);
-  const [pins, setPins] = useState<RigPin[]>([]);
   const [probe, setProbe] = useState<{ x: number; y: number } | null>(null);
-  const nextPinId = useRef(1);
-
-  const addPin = (x: number, y: number) => setPins((p) => [...p, { id: nextPinId.current++, x, y, note: "" }]);
-  const pinsAsText = pins
-    .map((p, i) => `#${i + 1} (${p.x}, ${p.y})${p.note ? ` — ${p.note}` : ""}`)
-    .join("\n");
 
   const sendEmotion = (e: ZazooEmotion) => {
     setEmotionState(e);
@@ -155,7 +149,7 @@ export function ZazooLab() {
           onPointerCancel={() => director.setPetting(false)}
           onPointerLeave={() => director.setPetting(false)}
           style={{ touchAction: "none", marginTop: 90 }}
-          title={inspect ? "Inspect mode — scroll to zoom, drag to pan, click to pin" : "Press and hold to pet Zazoo"}
+          title={inspect ? "Inspect mode — scroll to zoom, drag to pan" : "Press and hold to pet Zazoo"}
         >
           <RigInspector
             width={330}
@@ -164,8 +158,6 @@ export function ZazooLab() {
             onZoom={setZoom}
             showGrid={inspect && showGrid}
             referenceOpacity={inspect ? refOpacity : 0}
-            pins={inspect ? pins : []}
-            onAddPin={addPin}
             onProbe={setProbe}
           >
             <ZazooAvatar director={director} width={330} appearance={appearance} />
@@ -173,7 +165,7 @@ export function ZazooLab() {
         </div>
         <div style={S.hint}>
           {inspect
-            ? "inspect — scroll to zoom · drag to pan · click to drop a pin"
+            ? "inspect — scroll to zoom · drag to pan"
             : "move cursor — Zazoo watches · press & hold to pet · hover the notch up top"}
         </div>
         {inspect && (
@@ -257,6 +249,15 @@ export function ZazooLab() {
         </div>
 
         <div>
+          <div style={{ ...S.label, marginBottom: 7 }}>Tie</div>
+          <div style={S.swatchRow}>
+            {TIE_COLORS.map((c) => (
+              <div key={c} style={swatchStyle(c, appearance.tie === c)} onClick={() => setAppearance({ ...appearance, tie: c })} />
+            ))}
+          </div>
+        </div>
+
+        <div>
           <div style={{ ...S.label, marginBottom: 7 }}>Accessory</div>
           <div style={S.grid}>
             {ACCESSORIES.map((a) => (
@@ -317,39 +318,6 @@ export function ZazooLab() {
                 />
               </div>
 
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 7 }}>
-                  <span style={S.label}>pins ({pins.length})</span>
-                  {pins.length > 0 && (
-                    <span style={{ ...S.label, cursor: "pointer", opacity: 0.8 }} onClick={() => setPins([])}>clear</span>
-                  )}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {pins.map((p, i) => (
-                    <div key={p.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <span style={{ fontSize: 11, fontFamily: "ui-monospace, monospace", opacity: 0.65, whiteSpace: "nowrap" }}>
-                        #{i + 1} {p.x},{p.y}
-                      </span>
-                      <input
-                        value={p.note} placeholder="what's wrong here?"
-                        onChange={(ev) => setPins((all) => all.map((q) => (q.id === p.id ? { ...q, note: ev.target.value } : q)))}
-                        style={{
-                          flex: 1, minWidth: 0, fontSize: 11.5, padding: "4px 6px", borderRadius: 6,
-                          border: "1px solid rgba(255,250,240,0.14)", background: "rgba(255,250,240,0.05)", color: "#EFE6D6",
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-                {pins.length > 0 && (
-                  <button
-                    style={{ ...btnStyle(false), width: "100%", marginTop: 8 }}
-                    onClick={() => navigator.clipboard?.writeText(pinsAsText)}
-                  >
-                    copy notes
-                  </button>
-                )}
-              </div>
             </div>
           )}
         </div>
