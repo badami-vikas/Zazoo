@@ -16,6 +16,7 @@ import { useEffect, useRef } from "react";
 import { ZazooDirector, type ZazooFrame } from "./director";
 import suitTieUrl from "./assets/suit-front.webp";
 import suitPlainUrl from "./assets/suit-notie.webp";
+import earUrl from "./assets/ear-front.webp";
 import snoutUrl from "./assets/snout.webp";
 import armUrl from "./assets/arm-front.webp";
 
@@ -41,15 +42,19 @@ export const DEFAULT_APPEARANCE: ZazooAppearance = {
  * and carried through the same transform as the painted layers.
  */
 const RIG = {
-  ear: { lx: 74.8, rx: 163.5, y: 94, rx2: 21.5, ry2: 19.5 },
-  eye: { lx: 88.9, rx: 151.1, y: 125.4, r: 8.8 },
+  // ear box solved by fitting the extended-ear sheet against the reference
+  // composite (IoU 0.98); the right ear is the same box mirrored about x=120
+  ear: { lx: 53.83, rx: 135.35, y: 78.12, w: 50.83, h: 47.5, pivotLx: 93, pivotRx: 147, pivotY: 111 },
+  eye: { lx: 88.9, rx: 151.1, y: 125.4, r: 4.4 },
   patch: { rx: 13.2, ry: 15.4, tilt: 13 },
   browY: 105.5,
   snout: { y: 130.6, w: 18.6, aspect: 1.4953 },
   mouth: { y: 142.2, w: 17 },
   cheek: { lx: 74.5, rx: 165.5, y: 148 },
   head: { x: 120, y: 152 },
-  paw: { lx: 102, rx: 138, y: 226, w: 24, aspect: 1.133, tilt: 26 },
+  // mitts rest at tie level just below the chin, set wide enough to clear the
+  // white collar points and sit on the lapels
+  paw: { lx: 92, rx: 148, y: 193, w: 24, aspect: 1.133, tilt: 26 },
   suit: { x: 40.54, y: 137.17, w: 159.05, h: 150.64 },
 } as const;
 
@@ -153,14 +158,17 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       const wag = Math.sin(f.tailWagPhase) * (3 + f.wagAmount * 22);
       r.tail.current!.setAttribute("transform", `rotate(${(f.tailCurl * 16 - 6 + wag).toFixed(2)} 190 238)`);
 
+      // ears scale and swivel about their BASE, where they meet the skull —
+      // pivoting at the lobe would make the whole ear slide off the head
       const es = f.earScale.toFixed(3);
+      const { pivotLx, pivotRx, pivotY } = RIG.ear;
       r.earL.current!.setAttribute(
         "transform",
-        `translate(${RIG.ear.lx} ${RIG.ear.y}) scale(${es}) translate(${-RIG.ear.lx} ${-RIG.ear.y}) rotate(${(-f.earL * 0.8).toFixed(2)} ${RIG.ear.lx} ${RIG.ear.y})`,
+        `translate(${pivotLx} ${pivotY}) scale(${es}) translate(${-pivotLx} ${-pivotY}) rotate(${(-f.earL * 0.8).toFixed(2)} ${pivotLx} ${pivotY})`,
       );
       r.earR.current!.setAttribute(
         "transform",
-        `translate(${RIG.ear.rx} ${RIG.ear.y}) scale(${es}) translate(${-RIG.ear.rx} ${-RIG.ear.y}) rotate(${(f.earR * 0.8).toFixed(2)} ${RIG.ear.rx} ${RIG.ear.y})`,
+        `translate(${pivotRx} ${pivotY}) scale(${es}) translate(${-pivotRx} ${-pivotY}) rotate(${(f.earR * 0.8).toFixed(2)} ${pivotRx} ${pivotY})`,
       );
 
       const fx = f.gazeX * 4.2;
@@ -229,24 +237,24 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       r.cheekL.current!.setAttribute("transform", `translate(${RIG.cheek.lx} ${RIG.cheek.y}) scale(${puff}) translate(${-RIG.cheek.lx} ${-RIG.cheek.y})`);
       r.cheekR.current!.setAttribute("transform", `translate(${RIG.cheek.rx} ${RIG.cheek.y}) scale(${puff}) translate(${-RIG.cheek.rx} ${-RIG.cheek.y})`);
 
-      // painted mitts rest IN FRONT on the suit by default (source art), not
+      // painted mitts rest IN FRONT at tie level, just below the chin, not
       // at the sides — celebration > spectacle-adjust > meditate > chest > rest
       const lift = f.pawLift, up = f.armsUp, chest = f.pawChest, med = f.pawMeditate;
       let rx = 0, ry = 0, rrot = 0, lx = 0, ly = 0, lrot = 0;
       if (up > 0.01) {
-        rx = 14 * up; ry = -52 * up; rrot = 34 * up;
-        lx = -14 * up; ly = -52 * up; lrot = -34 * up;
+        rx = 12 * up; ry = -34 * up; rrot = 34 * up;
+        lx = -12 * up; ly = -34 * up; lrot = -34 * up;
       } else if (lift > 0.01) {
-        rx = -6 * lift; ry = -40 * lift; rrot = -20 * lift;
+        rx = -5 * lift; ry = -26 * lift; rrot = -20 * lift;
       } else if (med > 0.01) {
         rx = 8 * med; ry = 3 * med; rrot = -12 * med;
         lx = -8 * med; ly = 3 * med; lrot = 12 * med;
       } else if (chest > 0.01) {
-        rx = -5 * chest; ry = -14 * chest; rrot = -24 * chest;
+        rx = -5 * chest; ry = -9 * chest; rrot = -24 * chest;
       }
-      const pivotY = (RIG.paw.y - 20).toFixed(1);
-      r.pawR.current!.setAttribute("transform", `translate(${rx.toFixed(2)} ${ry.toFixed(2)}) rotate(${rrot.toFixed(2)} ${RIG.paw.rx + 10} ${pivotY})`);
-      r.pawL.current!.setAttribute("transform", `translate(${lx.toFixed(2)} ${ly.toFixed(2)}) rotate(${lrot.toFixed(2)} ${RIG.paw.lx - 10} ${pivotY})`);
+      const shoulderY = (RIG.paw.y - 20).toFixed(1);
+      r.pawR.current!.setAttribute("transform", `translate(${rx.toFixed(2)} ${ry.toFixed(2)}) rotate(${rrot.toFixed(2)} ${RIG.paw.rx + 10} ${shoulderY})`);
+      r.pawL.current!.setAttribute("transform", `translate(${lx.toFixed(2)} ${ly.toFixed(2)}) rotate(${lrot.toFixed(2)} ${RIG.paw.lx - 10} ${shoulderY})`);
 
       r.zzz.current!.setAttribute("opacity", f.zzz ? (0.35 + 0.3 * Math.sin(f.tailWagPhase * 0.5)).toFixed(2) : "0");
     };
@@ -270,6 +278,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
 
   const snoutH = RIG.snout.w / RIG.snout.aspect;
   const pawH = RIG.paw.w / RIG.paw.aspect;
+  const er = RIG.eye.r;
 
   return (
     <svg
@@ -343,12 +352,15 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
           </g>
 
           <g ref={refs.body}>
-            {/* black ear caps — behind the head, so only the outer arc shows */}
+            {/* painted ear caps — behind the head, so only the outer arc
+                shows and the tapered root tucks under the skull */}
             <g ref={refs.earL}>
-              <ellipse cx={RIG.ear.lx} cy={RIG.ear.y} rx={RIG.ear.rx2} ry={RIG.ear.ry2} fill="url(#zz-ear)" />
+              <image href={earUrl} x={RIG.ear.lx} y={RIG.ear.y} width={RIG.ear.w} height={RIG.ear.h} />
             </g>
             <g ref={refs.earR}>
-              <ellipse cx={RIG.ear.rx} cy={RIG.ear.y} rx={RIG.ear.rx2} ry={RIG.ear.ry2} fill="url(#zz-ear)" />
+              <g transform={`translate(${2 * (RIG.ear.rx + RIG.ear.w / 2)} 0) scale(-1 1)`}>
+                <image href={earUrl} x={RIG.ear.rx} y={RIG.ear.y} width={RIG.ear.w} height={RIG.ear.h} />
+              </g>
             </g>
 
             {/* cream felt body traced from the source art — the ink line is
@@ -404,35 +416,30 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 transform={`rotate(${-RIG.patch.tilt} ${RIG.eye.rx} ${RIG.eye.y})`}
               />
 
-              <path ref={refs.browL} d="" stroke={ink} strokeWidth="2.2" strokeLinecap="round" fill="none" />
-              <path ref={refs.browR} d="" stroke={ink} strokeWidth="2.2" strokeLinecap="round" fill="none" />
+              <path ref={refs.browL} d="" stroke={ink} strokeWidth="4.4" strokeLinecap="round" fill="none" />
+              <path ref={refs.browR} d="" stroke={ink} strokeWidth="4.4" strokeLinecap="round" fill="none" />
 
-              {/* huge glossy eyes, kept from the cat rig and set into the patches */}
-              <g ref={refs.eyeL}>
-                <circle cx={RIG.eye.lx} cy={RIG.eye.y} r={RIG.eye.r} fill="url(#zz-eye)" stroke="#FFF" strokeOpacity="0.16" strokeWidth="0.8" />
-                <g ref={refs.pupilL}>
-                  <circle cx={RIG.eye.lx} cy={RIG.eye.y} r={RIG.eye.r} fill="url(#zz-eye)" />
-                  <circle cx={RIG.eye.lx - 3.1} cy={RIG.eye.y - 3.2} r="3.2" fill="#FFF" opacity="0.95" />
-                  <circle ref={refs.sparkleL} cx={RIG.eye.lx + 2.8} cy={RIG.eye.y + 3.0} r="1.4" fill="#FFF" opacity="0.5" />
-                </g>
-              </g>
-              <g ref={refs.eyeR}>
-                <circle cx={RIG.eye.rx} cy={RIG.eye.y} r={RIG.eye.r} fill="url(#zz-eye)" stroke="#FFF" strokeOpacity="0.16" strokeWidth="0.8" />
-                <g ref={refs.pupilR}>
-                  <circle cx={RIG.eye.rx} cy={RIG.eye.y} r={RIG.eye.r} fill="url(#zz-eye)" />
-                  <circle cx={RIG.eye.rx - 3.1} cy={RIG.eye.y - 3.2} r="3.2" fill="#FFF" opacity="0.95" />
-                  <circle ref={refs.sparkleR} cx={RIG.eye.rx + 2.8} cy={RIG.eye.y + 3.0} r="1.4" fill="#FFF" opacity="0.5" />
-                </g>
-              </g>
+              {/* glossy eyes, kept from the cat rig and set into the patches;
+                  every feature scales off RIG.eye.r so resizing is one number */}
+              {([[RIG.eye.lx, refs.eyeL, refs.pupilL, refs.sparkleL], [RIG.eye.rx, refs.eyeR, refs.pupilR, refs.sparkleR]] as const).map(
+                ([ex, eyeRef, pupilRef, sparkRef], i) => (
+                  <g key={i} ref={eyeRef}>
+                    <circle cx={ex} cy={RIG.eye.y} r={er} fill="url(#zz-eye)" stroke="#FFF" strokeOpacity="0.16" strokeWidth={er * 0.09} />
+                    <g ref={pupilRef}>
+                      <circle cx={ex} cy={RIG.eye.y} r={er} fill="url(#zz-eye)" />
+                      <circle cx={ex - er * 0.35} cy={RIG.eye.y - er * 0.36} r={er * 0.36} fill="#FFF" opacity="0.95" />
+                      <circle ref={sparkRef} cx={ex + er * 0.32} cy={RIG.eye.y + er * 0.34} r={er * 0.16} fill="#FFF" opacity="0.5" />
+                    </g>
+                  </g>
+                ),
+              )}
 
-              <path
-                ref={refs.lidL} opacity="0" fill="none" stroke={bodyLight} strokeWidth="1.9" strokeLinecap="round"
-                d={`M ${RIG.eye.lx - 7.4},${RIG.eye.y + 1.2} q 7.4,-5 14.8,0`}
-              />
-              <path
-                ref={refs.lidR} opacity="0" fill="none" stroke={bodyLight} strokeWidth="1.9" strokeLinecap="round"
-                d={`M ${RIG.eye.rx - 7.4},${RIG.eye.y + 1.2} q 7.4,-5 14.8,0`}
-              />
+              {([[RIG.eye.lx, refs.lidL], [RIG.eye.rx, refs.lidR]] as const).map(([ex, lidRef], i) => (
+                <path
+                  key={i} ref={lidRef} opacity="0" fill="none" stroke={bodyLight} strokeWidth={er * 0.34} strokeLinecap="round"
+                  d={`M ${(ex - er * 1.7).toFixed(2)},${(RIG.eye.y + er * 0.28).toFixed(2)} q ${(er * 1.7).toFixed(2)},${(-er * 1.15).toFixed(2)} ${(er * 3.4).toFixed(2)},0`}
+                />
+              ))}
 
               {/* round spectacles — an ACCESSORY (add/remove), never anatomy */}
               {appearance.glasses && (
@@ -453,7 +460,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
 
               {/* painted snout, then the thread-line mouth beneath it */}
               <image href={snoutUrl} x={120 - RIG.snout.w / 2} y={RIG.snout.y - snoutH / 2} width={RIG.snout.w} height={snoutH} />
-              <path ref={refs.mouth} d="" fill="#202126" fillOpacity="0" stroke="#202126" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+              <path ref={refs.mouth} d="" fill="#202126" fillOpacity="0" stroke="#202126" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
             </g>
 
             {/* painted mitts, mirrored from the one source limb */}
