@@ -9,8 +9,10 @@ import { useMemo, useRef, useState } from "react";
 import { ZazooAvatar, DEFAULT_APPEARANCE, type ZazooAppearance } from "./ZazooAvatar";
 import { ZazooDirector, ZAZOO_EMOTIONS, ZAZOO_ACTIONS, type ZazooEmotion, type ZazooAction } from "./director";
 
-const BODY_COLORS = ["#F0DFC2", "#C9CCD4", "#BFD8C2", "#F2C9B0", "#CDBFE3", "#BCD3E8"];
-const SUIT_COLORS = ["#3E5A7E", "#4A4E5A", "#7E937E", "#B08968", "#8E4A55"];
+const BODY_COLORS = ["#FAF1E7", "#F0DFC2", "#D8DCE4", "#CFE0D2", "#F2C9B0", "#D6CBEB"];
+// Tints are screened over the painted charcoal fabric, so the first swatch is
+// a near-black no-op — the suit as the source art draws it.
+const SUIT_COLORS = ["#15151A", "#3E5A7E", "#4A4E5A", "#7E937E", "#8E4A55"];
 const ACCESSORIES = ["tie", "bowtie", "scarf", "none"] as const;
 
 const S: Record<string, React.CSSProperties> = {
@@ -200,7 +202,7 @@ export function ZazooLab() {
         ))}
 
         <div>
-          <div style={{ ...S.label, marginBottom: 7 }}>Cat color</div>
+          <div style={{ ...S.label, marginBottom: 7 }}>Fur color</div>
           <div style={S.swatchRow}>
             {BODY_COLORS.map((c) => (
               <div key={c} style={swatchStyle(c, appearance.body === c)} onClick={() => setAppearance({ ...appearance, body: c })} />
