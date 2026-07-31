@@ -8,6 +8,7 @@
 import { useMemo, useRef, useState } from "react";
 import { ZazooAvatar, DEFAULT_APPEARANCE, type ZazooAppearance } from "./ZazooAvatar";
 import { ZazooDirector, ZAZOO_EMOTIONS, ZAZOO_ACTIONS, type ZazooEmotion, type ZazooAction } from "./director";
+import { RigInspector, ZOOM_MAX, ZOOM_MIN, type RigPin } from "./RigInspector";
 
 const BODY_COLORS = ["#FAF1E7", "#F0DFC2", "#D8DCE4", "#CFE0D2", "#F2C9B0", "#D6CBEB"];
 // Tints are screened over the painted charcoal fabric, so the first swatch is
@@ -107,6 +108,21 @@ export function ZazooLab() {
   const [peek, setPeek] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
 
+  // Rig inspection — measuring the live rig against the source art. Off by
+  // default so the lab still opens as a performance surface, not a ruler.
+  const [inspect, setInspect] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [showGrid, setShowGrid] = useState(true);
+  const [refOpacity, setRefOpacity] = useState(0);
+  const [pins, setPins] = useState<RigPin[]>([]);
+  const [probe, setProbe] = useState<{ x: number; y: number } | null>(null);
+  const nextPinId = useRef(1);
+
+  const addPin = (x: number, y: number) => setPins((p) => [...p, { id: nextPinId.current++, x, y, note: "" }]);
+  const pinsAsText = pins
+    .map((p, i) => `#${i + 1} (${p.x}, ${p.y})${p.note ? ` — ${p.note}` : ""}`)
+    .join("\n");
+
   const sendEmotion = (e: ZazooEmotion) => {
     setEmotionState(e);
     director.perform({ emotion: e, warmth, confidence, energy, attention: "cursor" });
@@ -134,16 +150,37 @@ export function ZazooLab() {
       <div style={S.stage} ref={stageRef}>
         <NotchPeek appearance={appearance} peek={peek} />
         <div
-          onPointerDown={() => director.setPetting(true)}
+          onPointerDown={() => !inspect && director.setPetting(true)}
           onPointerUp={() => director.setPetting(false)}
           onPointerCancel={() => director.setPetting(false)}
           onPointerLeave={() => director.setPetting(false)}
-          style={{ cursor: "grab", touchAction: "none", marginTop: 90 }}
-          title="Press and hold to pet Zazoo"
+          style={{ touchAction: "none", marginTop: 90 }}
+          title={inspect ? "Inspect mode — scroll to zoom, drag to pan, click to pin" : "Press and hold to pet Zazoo"}
         >
-          <ZazooAvatar director={director} width={330} appearance={appearance} />
+          <RigInspector
+            width={330}
+            active={inspect}
+            zoom={zoom}
+            onZoom={setZoom}
+            showGrid={inspect && showGrid}
+            referenceOpacity={inspect ? refOpacity : 0}
+            pins={inspect ? pins : []}
+            onAddPin={addPin}
+            onProbe={setProbe}
+          >
+            <ZazooAvatar director={director} width={330} appearance={appearance} />
+          </RigInspector>
         </div>
-        <div style={S.hint}>move cursor — Zazoo watches · press &amp; hold to pet · hover the notch up top</div>
+        <div style={S.hint}>
+          {inspect
+            ? "inspect — scroll to zoom · drag to pan · click to drop a pin"
+            : "move cursor — Zazoo watches · press & hold to pet · hover the notch up top"}
+        </div>
+        {inspect && (
+          <div style={{ ...S.hint, fontFamily: "ui-monospace, monospace", opacity: 0.75 }}>
+            {probe ? `x ${probe.x.toFixed(1)}  y ${probe.y.toFixed(1)}` : "— · —"} · {zoom.toFixed(2)}×
+          </div>
+        )}
       </div>
 
       <div style={S.panel}>
@@ -234,6 +271,87 @@ export function ZazooLab() {
             <button style={btnStyle(appearance.glasses)} onClick={() => setAppearance({ ...appearance, glasses: true })}>on</button>
             <button style={btnStyle(!appearance.glasses)} onClick={() => setAppearance({ ...appearance, glasses: false })}>off</button>
           </div>
+        </div>
+
+        {/* Rig inspection — measure the live rig in the same viewBox units the
+            RIG constant is written in, and ghost the source art over it. */}
+        <div>
+          <div style={{ ...S.label, marginBottom: 7 }}>Rig inspector</div>
+          <div style={S.grid}>
+            <button style={btnStyle(inspect)} onClick={() => setInspect(true)}>inspect</button>
+            <button style={btnStyle(!inspect)} onClick={() => { setInspect(false); setZoom(1); }}>perform</button>
+          </div>
+
+          {inspect && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 12 }}>
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={S.label}>zoom</span>
+                  <span style={{ ...S.label, opacity: 0.8 }}>{zoom.toFixed(2)}×</span>
+                </div>
+                <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+                  <button style={{ ...btnStyle(false), padding: "4px 10px" }} onClick={() => setZoom((z) => Math.max(ZOOM_MIN, Number((z / 1.4).toFixed(3))))}>−</button>
+                  <input
+                    type="range" min={ZOOM_MIN} max={ZOOM_MAX} step={0.05} value={zoom}
+                    style={{ flex: 1, accentColor: "#D98356" }}
+                    onChange={(ev) => setZoom(Number(ev.target.value))}
+                  />
+                  <button style={{ ...btnStyle(false), padding: "4px 10px" }} onClick={() => setZoom((z) => Math.min(ZOOM_MAX, Number((z * 1.4).toFixed(3))))}>+</button>
+                </div>
+              </div>
+
+              <div style={S.grid}>
+                <button style={btnStyle(showGrid)} onClick={() => setShowGrid(!showGrid)}>grid</button>
+                <button style={btnStyle(false)} onClick={() => setZoom(1)}>reset view</button>
+              </div>
+
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={S.label}>source art overlay</span>
+                  <span style={{ ...S.label, opacity: 0.8 }}>{refOpacity.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range" min={0} max={1} step={0.01} value={refOpacity}
+                  style={{ width: "100%", accentColor: "#D98356" }}
+                  onChange={(ev) => setRefOpacity(Number(ev.target.value))}
+                />
+              </div>
+
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 7 }}>
+                  <span style={S.label}>pins ({pins.length})</span>
+                  {pins.length > 0 && (
+                    <span style={{ ...S.label, cursor: "pointer", opacity: 0.8 }} onClick={() => setPins([])}>clear</span>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {pins.map((p, i) => (
+                    <div key={p.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ fontSize: 11, fontFamily: "ui-monospace, monospace", opacity: 0.65, whiteSpace: "nowrap" }}>
+                        #{i + 1} {p.x},{p.y}
+                      </span>
+                      <input
+                        value={p.note} placeholder="what's wrong here?"
+                        onChange={(ev) => setPins((all) => all.map((q) => (q.id === p.id ? { ...q, note: ev.target.value } : q)))}
+                        style={{
+                          flex: 1, minWidth: 0, fontSize: 11.5, padding: "4px 6px", borderRadius: 6,
+                          border: "1px solid rgba(255,250,240,0.14)", background: "rgba(255,250,240,0.05)", color: "#EFE6D6",
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                {pins.length > 0 && (
+                  <button
+                    style={{ ...btnStyle(false), width: "100%", marginTop: 8 }}
+                    onClick={() => navigator.clipboard?.writeText(pinsAsText)}
+                  >
+                    copy notes
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div>

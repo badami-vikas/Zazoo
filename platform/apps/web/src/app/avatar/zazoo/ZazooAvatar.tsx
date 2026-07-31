@@ -17,6 +17,7 @@ import { ZazooDirector, type ZazooFrame } from "./director";
 import suitTieUrl from "./assets/suit-front.webp";
 import suitPlainUrl from "./assets/suit-notie.webp";
 import earUrl from "./assets/ear-front.webp";
+import patchUrl from "./assets/eye-patch.webp";
 import snoutUrl from "./assets/snout.webp";
 import armUrl from "./assets/arm-front.webp";
 
@@ -45,12 +46,21 @@ const RIG = {
   // ear box solved by fitting the extended-ear sheet against the reference
   // composite (IoU 0.98); the right ear is the same box mirrored about x=120
   ear: { lx: 53.83, rx: 135.35, y: 78.12, w: 50.83, h: 47.5, pivotLx: 93, pivotRx: 147, pivotY: 111 },
-  eye: { lx: 88.9, rx: 151.1, y: 125.4, r: 4.4 },
-  patch: { rx: 13.2, ry: 15.4, tilt: 13 },
-  browY: 105.5,
-  snout: { y: 130.6, w: 18.6, aspect: 1.4953 },
-  mouth: { y: 142.2, w: 17 },
-  cheek: { lx: 74.5, rx: 165.5, y: 148 },
+  // painted eye patch (`eye out.png`) dropped straight onto the bbox the same
+  // shape occupies in the reference composite — the art's tilt comes with it,
+  // so nothing here has to guess an angle. Right patch = mirrored about x=120.
+  patch: { lx: 79.32, rx: 141.4, y: 115.49, w: 19.28, h: 19.86 },
+  // the glossy eye sits UP AND INWARD of the patch centre, where the source
+  // art puts it; dead-centred pupils read as a doll's stare
+  eye: { lx: 92.05, rx: 147.95, y: 124.8, rx_: 3.9, ry_: 5.2, tilt: 20 },
+  // brow length and weight measured off the reference: 9.5 long, 2.3 thick —
+  // a third of what a generic "eyebrow stroke" wants to be
+  brow: { lx: 91, rx: 149, y: 108.8, len: 9.5, weight: 2.3 },
+  snout: { y: 130.7, w: 17.81, aspect: 1.499 },
+  mouth: { y: 140.9, w: 15.05 },
+  // high and inboard, so the blush lands on cheek fur and stays clear of the
+  // collar even at full head-drop
+  cheek: { lx: 76, rx: 164, y: 143 },
   head: { x: 120, y: 152 },
   // mitts rest at tie level just below the chin, set wide enough to clear the
   // white collar points and sit on the lapels
@@ -107,6 +117,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
     browR: useRef<SVGPathElement>(null),
     specs: useRef<SVGGElement>(null),
     mouth: useRef<SVGPathElement>(null),
+    cheekFace: useRef<SVGGElement>(null),
     cheekG: useRef<SVGGElement>(null),
     cheekL: useRef<SVGEllipseElement>(null),
     cheekR: useRef<SVGEllipseElement>(null),
@@ -141,13 +152,19 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
         `translate(${(120 + (1 - Math.min(1, h * 1.1)) * 4).toFixed(1)} 272) rotate(${((1 - Math.min(1, h * 1.1)) * 140).toFixed(1)}) scale(${(0.55 + h * 0.45).toFixed(3)}) translate(-120 -272)`,
       );
 
-      // breath + posture + squash-and-stretch
+      // breath + posture + squash-and-stretch.
+      //
+      // VOLUME IS PRESERVED: x is the reciprocal of y, so squashing widens by
+      // exactly as much as it flattens and the panda never appears to gain or
+      // lose mass. The anchor is the FLOOR (y=288), not the centre — a body
+      // that squashes about its middle floats; one that squashes about its
+      // base plants, which is where the weight reads from.
       const sq = f.squash;
-      const bScaleY = (1 + f.breath * 0.014 + (f.posture - 0.5) * 0.03) * (1 - sq * 0.16);
-      const bScaleX = (1 - f.breath * 0.007) * (1 + sq * 0.08);
+      const sy = (1 + f.breath * 0.014 + (f.posture - 0.5) * 0.03) * (1 - sq * 0.2);
+      const sx = (1 - f.breath * 0.007) / sy;
       r.body.current!.setAttribute(
         "transform",
-        `rotate(${(f.bodyLean * 0.5).toFixed(2)} 120 282) translate(120 288) scale(${bScaleX.toFixed(4)} ${bScaleY.toFixed(4)}) translate(-120 -288)`,
+        `rotate(${(f.bodyLean * 0.5).toFixed(2)} 120 282) translate(120 288) scale(${sx.toFixed(4)} ${sy.toFixed(4)}) translate(-120 -288)`,
       );
 
       // grounding: shadow reacts to hop height (Pixar weight cue)
@@ -173,10 +190,11 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
 
       const fx = f.gazeX * 4.2;
       const fy = f.gazeY * 2.6 + f.headDrop + f.nodY;
-      r.face.current!.setAttribute(
-        "transform",
-        `translate(${fx.toFixed(2)} ${fy.toFixed(2)}) rotate(${f.headTilt.toFixed(2)} ${RIG.head.x} ${RIG.head.y})`,
-      );
+      const headXf = `translate(${fx.toFixed(2)} ${fy.toFixed(2)}) rotate(${f.headTilt.toFixed(2)} ${RIG.head.x} ${RIG.head.y})`;
+      r.face.current!.setAttribute("transform", headXf);
+      // the cheeks sit in a different layer (under the suit) but belong to the
+      // same head, so they take the identical transform
+      r.cheekFace.current!.setAttribute("transform", headXf);
 
       const eo = Math.max(0.04, Math.min(1.15, f.eyeOpen));
       r.eyeL.current!.setAttribute("transform", `translate(${RIG.eye.lx} ${RIG.eye.y}) scale(1 ${eo.toFixed(3)}) translate(${-RIG.eye.lx} ${-RIG.eye.y})`);
@@ -187,7 +205,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       r.lidL.current!.setAttribute("opacity", lid);
       r.lidR.current!.setAttribute("opacity", lid);
 
-      const px = f.gazeX * 2.6, py = f.gazeY * 2.0;
+      const px = f.gazeX * 2.2, py = f.gazeY * 1.7;
       const ps = f.pupilScale.toFixed(3);
       r.pupilL.current!.setAttribute("transform", `translate(${px.toFixed(2)} ${py.toFixed(2)}) translate(${RIG.eye.lx} ${RIG.eye.y}) scale(${ps}) translate(${-RIG.eye.lx} ${-RIG.eye.y})`);
       r.pupilR.current!.setAttribute("transform", `translate(${px.toFixed(2)} ${py.toFixed(2)}) translate(${RIG.eye.rx} ${RIG.eye.y}) scale(${ps}) translate(${-RIG.eye.rx} ${-RIG.eye.y})`);
@@ -195,37 +213,76 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       r.sparkleR.current!.setAttribute("opacity", (0.5 + f.sparkle * 0.5).toFixed(2));
 
       // brows: raise + sorrow (inner-up) + furrow (inner-down, draw in) +
-      // LENGTH variation (raised brows lengthen, furrowed brows shorten)
-      const by = RIG.browY;
-      const braise = -f.browRaise * 5;
-      const furrowIn = f.browFurrow * 2.4;
-      const bLen = 15 + f.browRaise * 5 - f.browFurrow * 4 + f.browSorrow * 2;
-      const bArc = -4.5 - f.browRaise * 2.5 + f.browFurrow * 2;
-      r.browL.current!.setAttribute("d", `M ${(RIG.eye.lx - bLen / 2).toFixed(1)},${by} q ${(bLen / 2).toFixed(1)},${bArc.toFixed(1)} ${bLen.toFixed(1)},-1.5`);
-      r.browR.current!.setAttribute("d", `M ${(RIG.eye.rx + bLen / 2).toFixed(1)},${by} q ${(-bLen / 2).toFixed(1)},${bArc.toFixed(1)} ${(-bLen).toFixed(1)},-1.5`);
+      // LENGTH variation (raised brows lengthen, furrowed brows shorten).
+      // Rest length is the reference's 9.5, so the deltas stay proportionate.
+      const by = RIG.brow.y;
+      const braise = -f.browRaise * 4;
+      const furrowIn = f.browFurrow * 1.8;
+      const bLen = RIG.brow.len * (1 + f.browRaise * 0.22 - f.browFurrow * 0.2 + f.browSorrow * 0.1);
+      const bArc = -4.8 - f.browRaise * 2 + f.browFurrow * 2.4;
+      r.browL.current!.setAttribute("d", `M ${(RIG.brow.lx - bLen / 2).toFixed(2)},${by} q ${(bLen / 2).toFixed(2)},${bArc.toFixed(2)} ${bLen.toFixed(2)},-1`);
+      r.browR.current!.setAttribute("d", `M ${(RIG.brow.rx + bLen / 2).toFixed(2)},${by} q ${(-bLen / 2).toFixed(2)},${bArc.toFixed(2)} ${(-bLen).toFixed(2)},-1`);
       r.browL.current!.setAttribute(
         "transform",
-        `translate(${furrowIn.toFixed(2)} ${braise.toFixed(2)}) rotate(${(f.browSorrow * 16 - f.browFurrow * 13).toFixed(2)} ${RIG.eye.lx} ${by})`,
+        `translate(${furrowIn.toFixed(2)} ${braise.toFixed(2)}) rotate(${(f.browSorrow * 16 - f.browFurrow * 13).toFixed(2)} ${RIG.brow.lx} ${by})`,
       );
       r.browR.current!.setAttribute(
         "transform",
-        `translate(${(-furrowIn).toFixed(2)} ${braise.toFixed(2)}) rotate(${(-f.browSorrow * 16 + f.browFurrow * 13).toFixed(2)} ${RIG.eye.rx} ${by})`,
+        `translate(${(-furrowIn).toFixed(2)} ${braise.toFixed(2)}) rotate(${(-f.browSorrow * 16 + f.browFurrow * 13).toFixed(2)} ${RIG.brow.rx} ${by})`,
       );
 
       r.specs.current?.setAttribute("transform", `translate(${(f.specJiggle * 0.6).toFixed(2)} ${(Math.abs(f.specJiggle) * 0.5 + f.pawLift * 1.5).toFixed(2)})`);
 
-      // ONE mouth element: the panda's two-lobe thread-line smile whose
-      // interior opens into a lens for speech/joy — the outgoing and return
-      // edges coincide exactly at rest, so a shut mouth is a single line and
-      // never a second mark below the smile. The snout takes no part in it.
-      const c = f.mouthCurve;
+      // ONE mouth element, driven by THREE independent axes so the shape —
+      // not just the smile depth — changes with the emotion:
+      //   curve  corners rise and the twin lobes deepen; negative inverts the
+      //          lobes and drops the corners into a frown
+      //   wide   corner spread — pursed "thinking" vs stretched "celebrating"
+      //   open   the jaw drops, and it drops most at the CENTRE, so the
+      //          interior opens as an offset lip rather than a symmetric lens
+      // The outgoing and return edges are generated by the same function, so
+      // at open=0 they coincide exactly and a shut mouth is a single line.
+      const cu = f.mouthCurve;
       const mo = f.mouthOpen;
-      const w = RIG.mouth.w, x0 = 120 - w / 2, y0 = RIG.mouth.y;
-      const lobe = 2.4 + c * 3.2;
-      const back = lobe + mo * 9;
-      const q = (dy: number) => `q ${(w / 4).toFixed(2)},${dy.toFixed(2)} ${(w / 2).toFixed(2)},0`;
-      const qBack = (dy: number) => `q ${(-w / 4).toFixed(2)},${dy.toFixed(2)} ${(-w / 2).toFixed(2)},0`;
-      r.mouth.current!.setAttribute("d", `M ${x0.toFixed(1)},${y0} ${q(lobe)} ${q(lobe)} ${qBack(back)} ${qBack(back)} Z`);
+      const mw = RIG.mouth.w * (1 + f.mouthWide * 0.32 - mo * 0.1);
+      const y0 = RIG.mouth.y;
+      const xl = 120 - mw / 2, xr = 120 + mw / 2;
+      // Rest geometry is the reference's: lobes ~3.9 deep with the corners
+      // barely lifted. Lifting the corners hard is what turns a soft panda
+      // smile into a cartoon "W", so that coefficient stays small.
+      const yCorner = y0 - Math.max(0, cu) * 1.2 + Math.max(0, -cu) * 1.8;
+      // a frown collapses the twin lobes into one arc lifted at the middle
+      const lobe = 3 + cu * 2.6;
+      const yMid = y0 - Math.max(0, -cu) * 3.6;
+      // control y that forces a quadratic through `depth` at its midpoint
+      const ctrl = (ya: number, yb: number, depth: number) => 2 * (y0 + depth) - (ya + yb) / 2;
+      /**
+       * The mouth line, dropped by `d` — d=0 is the upper lip, d>0 the lower.
+       * The twin lobes fade out as the jaw drops: a lower lip that kept them
+       * would hang lower at the quarters than at the centre, which reads as a
+       * beard rather than an open mouth. Wide open, it is a single bowl.
+       */
+      const edge = (d: number) => {
+        const flat = Math.min(1, d / 6);
+        return {
+          yc: yCorner + d * 0.25,
+          ym: yMid + d,
+          yq: ctrl(yCorner + d * 0.25, yMid + d, lobe * (1 - flat) + d * 0.55),
+        };
+      };
+      const lipU = edge(0);
+      const lipL = edge(mo * 9);
+      const q1 = (120 - mw / 4).toFixed(2), q2 = (120 + mw / 4).toFixed(2);
+      r.mouth.current!.setAttribute(
+        "d",
+        `M ${xl.toFixed(2)},${lipU.yc.toFixed(2)}` +
+          ` Q ${q1},${lipU.yq.toFixed(2)} 120,${lipU.ym.toFixed(2)}` +
+          ` Q ${q2},${lipU.yq.toFixed(2)} ${xr.toFixed(2)},${lipU.yc.toFixed(2)}` +
+          // …and back along the lower lip, right to left
+          ` L ${xr.toFixed(2)},${lipL.yc.toFixed(2)}` +
+          ` Q ${q2},${lipL.yq.toFixed(2)} 120,${lipL.ym.toFixed(2)}` +
+          ` Q ${q1},${lipL.yq.toFixed(2)} ${xl.toFixed(2)},${lipL.yc.toFixed(2)} Z`,
+      );
       r.mouth.current!.setAttribute("fill-opacity", mo > 0.04 ? "0.92" : "0");
 
       // cheeks: opacity + puff scale + emotional color temperature
@@ -278,7 +335,8 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
 
   const snoutH = RIG.snout.w / RIG.snout.aspect;
   const pawH = RIG.paw.w / RIG.paw.aspect;
-  const er = RIG.eye.r;
+  const erx = RIG.eye.rx_;
+  const ery = RIG.eye.ry_;
 
   return (
     <svg
@@ -375,6 +433,18 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
               <path d={BODY_PATH} fill="none" stroke={shade(body, -0.42)} strokeWidth="2.2" />
             </g>
 
+            {/* Cheeks — colour + puff driven by emotion. They live BEFORE the
+                suit on purpose: blush belongs to fur, so when the head drops or
+                the cheeks puff past the chin line the collar has to cover them.
+                Painted over the fabric they read as a stain on the jacket. They
+                still ride the head, so `apply` gives them the face transform. */}
+            <g ref={refs.cheekFace}>
+              <g ref={refs.cheekG} opacity="0.4">
+                <ellipse ref={refs.cheekL} cx={RIG.cheek.lx} cy={RIG.cheek.y} rx="7" ry="5" fill="#F2C7C0" />
+                <ellipse ref={refs.cheekR} cx={RIG.cheek.rx} cy={RIG.cheek.y} rx="7" ry="5" fill="#F2C7C0" />
+              </g>
+            </g>
+
             {/* painted suit — charcoal fabric, white collar, brass buttons */}
             <g style={{ isolation: "isolate" }}>
               <image href={suitUrl} x={RIG.suit.x} y={RIG.suit.y} width={RIG.suit.w} height={RIG.suit.h} />
@@ -406,38 +476,43 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
 
             {/* face */}
             <g ref={refs.face}>
-              {/* black eye patches — panda anatomy, they never blink */}
-              <ellipse
-                cx={RIG.eye.lx} cy={RIG.eye.y} rx={RIG.patch.rx} ry={RIG.patch.ry} fill="url(#zz-patch)"
-                transform={`rotate(${RIG.patch.tilt} ${RIG.eye.lx} ${RIG.eye.y})`}
-              />
-              <ellipse
-                cx={RIG.eye.rx} cy={RIG.eye.y} rx={RIG.patch.rx} ry={RIG.patch.ry} fill="url(#zz-patch)"
-                transform={`rotate(${-RIG.patch.tilt} ${RIG.eye.rx} ${RIG.eye.y})`}
-              />
+              {/* painted eye patches — panda anatomy, they never blink. The
+                  sheet carries the art's own tilt, ink rim and soft interior,
+                  so there is no angle left for the rig to approximate. */}
+              <image href={patchUrl} x={RIG.patch.lx} y={RIG.patch.y} width={RIG.patch.w} height={RIG.patch.h} />
+              <g transform={`translate(${2 * (RIG.patch.rx + RIG.patch.w / 2)} 0) scale(-1 1)`}>
+                <image href={patchUrl} x={RIG.patch.rx} y={RIG.patch.y} width={RIG.patch.w} height={RIG.patch.h} />
+              </g>
 
-              <path ref={refs.browL} d="" stroke={ink} strokeWidth="4.4" strokeLinecap="round" fill="none" />
-              <path ref={refs.browR} d="" stroke={ink} strokeWidth="4.4" strokeLinecap="round" fill="none" />
+              <path ref={refs.browL} d="" stroke={ink} strokeWidth={RIG.brow.weight} strokeLinecap="round" fill="none" />
+              <path ref={refs.browR} d="" stroke={ink} strokeWidth={RIG.brow.weight} strokeLinecap="round" fill="none" />
 
-              {/* glossy eyes, kept from the cat rig and set into the patches;
-                  every feature scales off RIG.eye.r so resizing is one number */}
-              {([[RIG.eye.lx, refs.eyeL, refs.pupilL, refs.sparkleL], [RIG.eye.rx, refs.eyeR, refs.pupilR, refs.sparkleR]] as const).map(
-                ([ex, eyeRef, pupilRef, sparkRef], i) => (
-                  <g key={i} ref={eyeRef}>
-                    <circle cx={ex} cy={RIG.eye.y} r={er} fill="url(#zz-eye)" stroke="#FFF" strokeOpacity="0.16" strokeWidth={er * 0.09} />
+              {/* glossy eyes, kept from the cat rig, tilted with the patch and
+                  set where the art puts them: up and toward the nose. Both
+                  highlights read INWARD, mirrored — that pair of catchlights is
+                  what makes the two eyes look like one gaze. */}
+              {(
+                [
+                  [RIG.eye.lx, 1, refs.eyeL, refs.pupilL, refs.sparkleL],
+                  [RIG.eye.rx, -1, refs.eyeR, refs.pupilR, refs.sparkleR],
+                ] as const
+              ).map(([ex, dir, eyeRef, pupilRef, sparkRef], i) => (
+                <g key={i} ref={eyeRef}>
+                  <g transform={`rotate(${-dir * RIG.eye.tilt} ${ex} ${RIG.eye.y})`}>
+                    <ellipse cx={ex} cy={RIG.eye.y} rx={erx} ry={ery} fill="url(#zz-eye)" />
                     <g ref={pupilRef}>
-                      <circle cx={ex} cy={RIG.eye.y} r={er} fill="url(#zz-eye)" />
-                      <circle cx={ex - er * 0.35} cy={RIG.eye.y - er * 0.36} r={er * 0.36} fill="#FFF" opacity="0.95" />
-                      <circle ref={sparkRef} cx={ex + er * 0.32} cy={RIG.eye.y + er * 0.34} r={er * 0.16} fill="#FFF" opacity="0.5" />
+                      <ellipse cx={ex} cy={RIG.eye.y} rx={erx} ry={ery} fill="url(#zz-eye)" />
+                      <circle cx={ex + dir * 0.45} cy={RIG.eye.y - 2.3} r={1.25} fill="#FFF" opacity="0.97" />
+                      <circle ref={sparkRef} cx={ex - dir * 1.9} cy={RIG.eye.y + 2.4} r={0.72} fill="#FFF" opacity="0.5" />
                     </g>
                   </g>
-                ),
-              )}
+                </g>
+              ))}
 
               {([[RIG.eye.lx, refs.lidL], [RIG.eye.rx, refs.lidR]] as const).map(([ex, lidRef], i) => (
                 <path
-                  key={i} ref={lidRef} opacity="0" fill="none" stroke={bodyLight} strokeWidth={er * 0.34} strokeLinecap="round"
-                  d={`M ${(ex - er * 1.7).toFixed(2)},${(RIG.eye.y + er * 0.28).toFixed(2)} q ${(er * 1.7).toFixed(2)},${(-er * 1.15).toFixed(2)} ${(er * 3.4).toFixed(2)},0`}
+                  key={i} ref={lidRef} opacity="0" fill="none" stroke={bodyLight} strokeWidth={1.5} strokeLinecap="round"
+                  d={`M ${(ex - erx * 1.5).toFixed(2)},${(RIG.eye.y + 1.2).toFixed(2)} q ${(erx * 1.5).toFixed(2)},-4.6 ${(erx * 3).toFixed(2)},0`}
                 />
               ))}
 
@@ -451,12 +526,6 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                   <path d={`M ${RIG.eye.rx + 16.5},${RIG.eye.y - 2} L 180,${RIG.eye.y - 7}`} stroke="#6C7382" strokeWidth="2.2" strokeLinecap="round" />
                 </g>
               )}
-
-              {/* cheeks — color + puff driven by emotion */}
-              <g ref={refs.cheekG} opacity="0.4">
-                <ellipse ref={refs.cheekL} cx={RIG.cheek.lx} cy={RIG.cheek.y} rx="7" ry="5" fill="#F2C7C0" />
-                <ellipse ref={refs.cheekR} cx={RIG.cheek.rx} cy={RIG.cheek.y} rx="7" ry="5" fill="#F2C7C0" />
-              </g>
 
               {/* painted snout, then the thread-line mouth beneath it */}
               <image href={snoutUrl} x={120 - RIG.snout.w / 2} y={RIG.snout.y - snoutH / 2} width={RIG.snout.w} height={snoutH} />
