@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BUILT_IN_MODULES, moduleNavTarget, requireBuiltInModule } from "../src/index.js";
+import {
+  BUILT_IN_MODULES,
+  COMMONS_BUILT_IN_MODULES,
+  moduleNavTarget,
+  requireBuiltInModule,
+} from "../src/index.js";
 import { canonicalizeManifest, parseModuleManifest } from "@bridge/core";
 
 test("built-in Module catalog has one manifest per Module name", () => {
   const names = BUILT_IN_MODULES.map(({ manifest }) => manifest.name);
-  assert.deepEqual(names, ["deal-pilot", "job-pilot", "relationship", "task-manager"]);
+  assert.deepEqual(names, ["deal-pilot", "job-pilot", "relationship", "whatsapp", "task-manager"]);
   assert.equal(new Set(names).size, names.length);
 });
 
@@ -84,4 +89,39 @@ test("every built-in Module route is declared by its manifest", () => {
     }
     assert.equal(requireBuiltInModule(manifest.name).manifest, manifest);
   }
+});
+
+test("WhatsApp is an installable Module with Chats and Tools Pages", () => {
+  const whatsapp = requireBuiltInModule("whatsapp").manifest;
+  assert.equal(whatsapp.module?.displayName, "WhatsApp");
+  assert.deepEqual(whatsapp.module?.pages.map((page) => page.id), ["chats", "tools"]);
+  assert.deepEqual(moduleNavTarget("whatsapp"), {
+    landing: "/module/whatsapp/chats",
+    base: "/module/whatsapp",
+  });
+  const normalized = parseModuleManifest({ module: whatsapp });
+  assert.equal(
+    canonicalizeManifest(parseModuleManifest({ module: normalized })),
+    canonicalizeManifest(normalized),
+  );
+});
+
+test("WhatsApp v1 declares no egress and no Automation", () => {
+  const whatsapp = requireBuiltInModule("whatsapp").manifest;
+  // v1 is read-only over the owner's own session. An egress permission here
+  // would mean the manifest had drifted from the desktop op allowlist.
+  for (const capability of whatsapp.capabilities) {
+    for (const permission of capability.permissions) {
+      assert.equal(permission.egress, false, `${capability.id} declares egress`);
+      assert.equal(permission.dataScope, "private", `${capability.id} is not private-scoped`);
+    }
+  }
+  // No Automation may run a WhatsApp read — every extraction is user-clicked.
+  assert.deepEqual(whatsapp.module?.automations, []);
+});
+
+test("WhatsApp is withheld from Commons", () => {
+  const published = COMMONS_BUILT_IN_MODULES.map(({ manifest }) => manifest.name);
+  assert.ok(!published.includes("whatsapp"));
+  assert.ok(!published.includes("relationship"));
 });

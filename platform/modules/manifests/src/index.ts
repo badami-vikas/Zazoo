@@ -73,6 +73,7 @@ const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   "job-pilot": "platform/modules/jobpilot/src/manifest.ts",
   relationship: "platform/apps/web/src/app/pages/RelationshipPage.tsx",
   "task-manager": "platform/packages/core/src/task-manager.ts",
+  whatsapp: "platform/modules/whatsapp/src/index.ts",
 };
 
 function builtInSourceRef(moduleName: string): string {
@@ -334,6 +335,34 @@ const relationshipCapabilities = [
       egress: true,
     }],
     [{ id: "google-gmail" }, { id: "google-calendar" }],
+  ),
+];
+
+/**
+ * WhatsApp Module capabilities.
+ *
+ * Every permission here is `private` scope and NONE declares egress: v1 reads
+ * the owner's own WhatsApp session and writes nothing outbound. The read-only
+ * guarantee is enforced in the desktop shell's op allowlist
+ * (`whatsapp_webview.rs::script_for_op`); this manifest is the declaration
+ * that matches it, and the manifest test asserts the two stay honest.
+ */
+const whatsappCapabilities = [
+  capability("whatsapp.page.chats", "Chats", "view", [readPrivate("event")]),
+  capability("whatsapp.page.tools", "Tools", "view", [readPrivate("record")]),
+  capability("whatsapp.tool.contact-extractor", "Contact Extractor", "skill", [
+    readPrivate("person"),
+    writePrivate("person"),
+    writePrivate("community"),
+    writePrivate("signal"),
+  ]),
+  capability(
+    "whatsapp.agent.contact-steward",
+    "WhatsApp Contact Steward",
+    "agent",
+    [readPrivate("person"), writePrivate("person"), writePrivate("community")],
+    [],
+    [{ manifestId: "whatsapp.tool.contact-extractor", versionRange: "0.2.0" }],
   ),
 ];
 
@@ -612,6 +641,57 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     },
   },
   {
+    // External: the Module renders a third-party site inside the desktop shell
+    // and reads the owner's private contact graph out of it.
+    computedRisk: "external",
+    manifest: {
+      name: "whatsapp",
+      version: "0.1.0",
+      kind: "organization_definition",
+      summary: "Your WhatsApp Web session, with Tools that turn it into People and Communities.",
+      description:
+        "Runs the owner's own WhatsApp Web session inside the Bridge desktop shell and hosts a Tool list over it. v1 is read-only: the Contact Extractor stages individual contacts as People and selected groups as Communities with participant membership, all through draft-then-approve. Raw capture and phone numbers stay on the Local Plane.",
+      lineageManifestId: null,
+      dependencies: [],
+      capabilities: whatsappCapabilities,
+      contextProviders: [{ kind: "capture", required: false }],
+      organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      module: {
+        displayName: "WhatsApp",
+        route: "/module/whatsapp/chats",
+        pages: [
+          {
+            id: "chats",
+            name: "Chats",
+            route: "/module/whatsapp/chats",
+            databaseId: "whatsapp.chats",
+            capabilityId: "whatsapp.page.chats",
+          },
+          {
+            id: "tools",
+            name: "Tools",
+            route: "/module/whatsapp/tools",
+            databaseId: "whatsapp.tools",
+            capabilityId: "whatsapp.page.tools",
+          },
+        ],
+        agents: [
+          {
+            id: "contact-steward",
+            name: "WhatsApp Contact Steward",
+            capabilityId: "whatsapp.agent.contact-steward",
+            skillIds: ["whatsapp.tool.contact-extractor"],
+            // The session is desktop-local and never leaves the machine.
+            plane: "local",
+          },
+        ],
+        // Deliberately empty: no Automation may run a WhatsApp read. Every
+        // extraction is a user-clicked Tool run.
+        automations: [],
+      },
+    },
+  },
+  {
     computedRisk: "operational",
     manifest: {
       name: "task-manager",
@@ -776,7 +856,13 @@ export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
   // Relationship's current full capability union forms the lethal trifecta.
   // It remains a local built-in Module but cannot enter Commons until split
   // into independently safe generalized Results.
-  ...BUILT_IN_MODULES.filter((pkg) => pkg.manifest.name !== "relationship").map((pkg) => ({
+  //
+  // WhatsApp is excluded for the same class of reason: reading the owner's
+  // private contact graph out of a third-party session it also renders is not
+  // a generalized capability anyone else could safely install.
+  ...BUILT_IN_MODULES.filter(
+    (pkg) => pkg.manifest.name !== "relationship" && pkg.manifest.name !== "whatsapp",
+  ).map((pkg) => ({
     ...pkg,
     commons: {
       provenance: provenance(builtInSourceRef(pkg.manifest.name)),
