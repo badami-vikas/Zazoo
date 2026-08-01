@@ -10,11 +10,13 @@
  *
  * Nothing here commits. The Approvals path turns proposals into Records.
  */
-import { dedupeKeyFor, displayNameFor, groupDedupeKeyFor, phoneFor } from "./normalize.js";
+import { dedupeKeyFor, displayNameFor, groupDedupeKeyFor, isLidId, phoneFor } from "./normalize.js";
 import type {
   CommunityProposal,
   ExistingPersonIndex,
   ExtractionResult,
+  GroupExtractionOptions,
+  ParticipantPolicy,
   PersonProposal,
   RelationProposal,
   WhatsAppContact,
@@ -38,9 +40,33 @@ export function personIndexFrom(
   return { byDedupeKey };
 }
 
+/**
+ * Default when a run supplies no options: address book plus anyone the owner
+ * has actually messaged. Chosen over `all` because a group's membership is not
+ * a relationship — measured on a live account, `all` would stage 35,298 People
+ * against 998 who are genuinely known.
+ */
+const DEFAULT_OPTIONS: GroupExtractionOptions = { defaultPolicy: "contacts_and_messaged" };
+
+/** Does this participant clear the policy applied to their group? */
+function isIncluded(
+  participant: WhatsAppContact,
+  policy: ParticipantPolicy,
+  options: GroupExtractionOptions,
+): boolean {
+  if (policy === "all") return true;
+  const known = options.contactIds
+    ? options.contactIds.has(participant.id)
+    : participant.isMyContact;
+  if (known) return true;
+  if (policy === "contacts") return false;
+  return options.messagedIds?.has(participant.id) ?? false;
+}
+
 export function mapExtraction(
   extraction: WhatsAppExtraction,
   existing: ExistingPersonIndex,
+  options: GroupExtractionOptions = DEFAULT_OPTIONS,
 ): ExtractionResult {
   const result: ExtractionResult = { people: [], communities: [], relations: [], signals: [] };
   // One proposal per identity per run, even when a contact appears in several
@@ -76,6 +102,7 @@ export function mapExtraction(
     const proposal: PersonProposal = {
       dedupeKey,
       displayName: displayNameFor(contact),
+      identityKind: isLidId(contact.id) || !phoneE164 ? "lid" : "phone",
       runId: extraction.runId,
       ...(matches[0] ? { matchedPersonId: matches[0] } : {}),
       ...(phoneE164 ? { phoneE164 } : {}),
@@ -90,18 +117,15 @@ export function mapExtraction(
   }
 
   for (const group of extraction.groups) {
+    const policy = options.policyByGroupId?.[group.id] ?? options.defaultPolicy;
     const communityDedupeKey = groupDedupeKeyFor(group.id);
-    const community: CommunityProposal = {
-      dedupeKey: communityDedupeKey,
-      name: group.name,
-      sourceGroupId: group.id,
-      runId: extraction.runId,
-    };
-    result.communities.push(community);
+    let proposedMemberCount = 0;
 
     for (const participant of group.participants) {
+      if (!isIncluded(participant, policy, options)) continue;
       const personDedupeKey = considerPerson(participant);
       if (!personDedupeKey) continue;
+      proposedMemberCount += 1;
       const relation: RelationProposal = {
         personDedupeKey,
         communityDedupeKey,
@@ -110,6 +134,19 @@ export function mapExtraction(
       };
       result.relations.push(relation);
     }
+
+    const community: CommunityProposal = {
+      dedupeKey: communityDedupeKey,
+      name: group.name,
+      sourceGroupId: group.id,
+      // The full size is kept even though most members get no Person Record,
+      // so the Community reads honestly as "12 of 1,146 known to you".
+      participantCount: group.participants.length,
+      proposedMemberCount,
+      policy,
+      runId: extraction.runId,
+    };
+    result.communities.push(community);
   }
 
   return result;

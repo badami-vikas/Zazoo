@@ -85,7 +85,7 @@ test("a group becomes a Community with participant People and membership Relatio
     ],
   };
 
-  const result = mapExtraction(extraction, emptyPersonIndex());
+  const result = mapExtraction(extraction, emptyPersonIndex(), { defaultPolicy: "all" });
 
   assert.equal(result.communities.length, 1);
   assert.equal(result.communities[0]?.name, "Deal Team");
@@ -108,7 +108,7 @@ test("a participant in two groups yields one Person proposal and two memberships
     ],
   };
 
-  const result = mapExtraction(extraction, emptyPersonIndex());
+  const result = mapExtraction(extraction, emptyPersonIndex(), { defaultPolicy: "all" });
 
   assert.equal(result.people.length, 1);
   assert.equal(result.communities.length, 2);
@@ -132,9 +132,92 @@ test("every proposal carries the run id so an approval traces to its capture", (
     groups: [{ id: "1@g.us", name: "Deal Team", participants: [contact("+919876543210")] }],
   };
 
-  const result = mapExtraction(extraction, emptyPersonIndex());
+  const result = mapExtraction(extraction, emptyPersonIndex(), { defaultPolicy: "all" });
 
   for (const row of [...result.people, ...result.communities, ...result.relations]) {
     assert.equal(row.runId, RUN);
   }
+});
+
+// ── Participant policy ───────────────────────────────────────────────────────
+// Measured on a live account: 817 groups, 35,298 unique participants, of whom
+// 998 were in the address book. Policy is what keeps Approvals reviewable.
+
+function group(participants: WhatsAppContact[]): WhatsAppExtraction {
+  return {
+    kind: "groups",
+    runId: RUN,
+    capturedAt: AT,
+    groups: [{ id: "1@g.us", name: "Deal Team", participants }],
+  };
+}
+
+const known = contact("+919876543210", { name: "Asha" });
+const messaged = contact("+14155550100", { name: "Ben" });
+const stranger = contact("+61255550111");
+
+test("the default policy proposes contacts and people you have messaged", () => {
+  const result = mapExtraction(group([known, messaged, stranger]), emptyPersonIndex(), {
+    defaultPolicy: "contacts_and_messaged",
+    contactIds: new Set([known.id]),
+    messagedIds: new Set([messaged.id]),
+  });
+
+  assert.equal(result.people.length, 2);
+  assert.equal(result.relations.length, 2);
+  assert.ok(!result.people.some((p) => p.displayName === stranger.id));
+});
+
+test("the contacts policy excludes people you have merely messaged", () => {
+  const result = mapExtraction(group([known, messaged, stranger]), emptyPersonIndex(), {
+    defaultPolicy: "contacts",
+    contactIds: new Set([known.id]),
+    messagedIds: new Set([messaged.id]),
+  });
+
+  assert.equal(result.people.length, 1);
+  assert.equal(result.people[0]?.displayName, "Asha");
+});
+
+test("a per-group override beats the default policy", () => {
+  const result = mapExtraction(group([known, messaged, stranger]), emptyPersonIndex(), {
+    defaultPolicy: "contacts",
+    policyByGroupId: { "1@g.us": "all" },
+    contactIds: new Set([known.id]),
+  });
+
+  assert.equal(result.people.length, 3);
+});
+
+test("the Community records full size alongside what the policy proposed", () => {
+  const result = mapExtraction(group([known, messaged, stranger]), emptyPersonIndex(), {
+    defaultPolicy: "contacts",
+    contactIds: new Set([known.id]),
+  });
+
+  const community = result.communities[0]!;
+  assert.equal(community.participantCount, 3);
+  assert.equal(community.proposedMemberCount, 1);
+  assert.equal(community.policy, "contacts");
+});
+
+test("a number-hidden contact is proposed and marked as such", () => {
+  const lid: WhatsAppContact = {
+    id: "209876543210@lid",
+    name: "Chandra",
+    isMyContact: true,
+    isGroup: false,
+  };
+  const result = mapExtraction(contactsRun([lid]), emptyPersonIndex());
+
+  assert.equal(result.people.length, 1);
+  assert.equal(result.people[0]?.identityKind, "lid");
+  assert.equal(result.people[0]?.phoneE164, undefined);
+  assert.equal(result.people[0]?.displayName, "Chandra");
+});
+
+test("a phone-bearing contact is marked as a phone identity", () => {
+  const result = mapExtraction(contactsRun([known]), emptyPersonIndex());
+  assert.equal(result.people[0]?.identityKind, "phone");
+  assert.equal(result.people[0]?.phoneE164, "+919876543210");
 });
