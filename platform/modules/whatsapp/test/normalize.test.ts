@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { dedupeKeyFor, displayNameFor, toE164 } from "../src/normalize.js";
+import { dedupeKeyFor, displayNameFor, isLidId, phoneFor, toE164 } from "../src/normalize.js";
 import type { WhatsAppContact } from "../src/types.js";
 
 function contact(overrides: Partial<WhatsAppContact> = {}): WhatsAppContact {
@@ -56,4 +56,42 @@ test("dedupeKeyFor falls back to the WhatsApp id when no phone is reported", () 
 
 test("dedupeKeyFor returns undefined when no identity can be derived", () => {
   assert.equal(dedupeKeyFor(contact({ id: "unknown" })), undefined);
+});
+
+// ── Linked ID (@lid) — measured against a live 8,384-contact address book on
+// 2026-08-01, where 4,203 contacts reported @lid ids rather than @c.us.
+
+test("a @lid id is never mistaken for a phone number", () => {
+  assert.equal(toE164("209876543210@lid"), undefined);
+  assert.equal(isLidId("209876543210@lid"), true);
+  assert.equal(isLidId("919876543210@c.us"), false);
+});
+
+test("a @lid contact gets a lid-spaced key, never a phone-spaced one", () => {
+  const key = dedupeKeyFor(contact({ id: "209876543210@lid" }));
+  assert.equal(key, "whatsapp-lid:209876543210@lid");
+});
+
+test("a @lid contact exposes no phone number", () => {
+  assert.equal(phoneFor(contact({ id: "209876543210@lid" })), undefined);
+});
+
+test("lid and phone key spaces cannot collide", () => {
+  const lid = dedupeKeyFor(contact({ id: "919876543210@lid" }));
+  const phone = dedupeKeyFor(contact({ id: "919876543210@c.us" }));
+  assert.notEqual(lid, phone);
+});
+
+test("a @lid contact still gets a readable label from its saved name", () => {
+  assert.equal(displayNameFor(contact({ id: "209876543210@lid", name: "Asha" })), "Asha");
+  // With no name at all the id itself is shown — never a fabricated number.
+  assert.equal(displayNameFor(contact({ id: "209876543210@lid" })), "209876543210@lid");
+});
+
+test("a laundered phone field on a @lid contact is still refused", () => {
+  // An extraction layer that strips "@lid" off the id and stores the digits as
+  // `phone` must not be able to smuggle a fabricated number past the guard.
+  const laundered = contact({ id: "209876543210@lid", phone: "209876543210" });
+  assert.equal(phoneFor(laundered), undefined);
+  assert.equal(dedupeKeyFor(laundered), "whatsapp-lid:209876543210@lid");
 });

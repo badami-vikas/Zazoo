@@ -10,7 +10,7 @@
  *
  * Nothing here commits. The Approvals path turns proposals into Records.
  */
-import { dedupeKeyFor, displayNameFor, groupDedupeKeyFor, toE164 } from "./normalize.js";
+import { dedupeKeyFor, displayNameFor, groupDedupeKeyFor, phoneFor } from "./normalize.js";
 import type {
   CommunityProposal,
   ExistingPersonIndex,
@@ -70,7 +70,9 @@ export function mapExtraction(
     }
 
     seenPeople.add(dedupeKey);
-    const phoneE164 = toE164(contact.phone) ?? toE164(contact.id);
+    // Absent for @lid contacts — WhatsApp discloses no number for those, and
+    // the proposal must say so rather than fabricate one.
+    const phoneE164 = phoneFor(contact);
     const proposal: PersonProposal = {
       dedupeKey,
       displayName: displayNameFor(contact),
