@@ -41,7 +41,15 @@ interface CompanionAnswer {
 interface HistoryTurn {
   role: "user" | "assistant";
   content: string;
+  /** This turn's text came from an answer produced with screen sharing ON —
+   * the tag mirrors Rust's `HistoryTurn.screen_derived` and travels with the
+   * turn so egress policy can reason about it. */
+  screenDerived?: boolean;
 }
+
+/** Conversation memory is per-session and idle-bounded: a gap longer than
+ * this clears it, matching how a human would treat a stale conversation. */
+const HISTORY_IDLE_TTL_MS = 15 * 60_000;
 
 interface AskError {
   code: string;
@@ -72,10 +80,14 @@ async function blobToBase64(blob: Blob): Promise<string> {
 export function CompanionAsk({
   name,
   pttActive,
+  onAnswered,
 }: {
   name: string;
   /** True while the global push-to-talk shortcut is held. */
   pttActive: boolean;
+  /** Fired once per successfully delivered answer — lets the shell play a
+   * transient celebration on the avatar rig. Visual-only. */
+  onAnswered?: () => void;
 }) {
   const [capabilities, setCapabilities] = useState<CompanionCapabilities | null>(null);
   const [mode, setMode] = useState<"ask" | "research">("ask");
@@ -88,6 +100,7 @@ export function CompanionAsk({
   const [micNote, setMicNote] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const historyRef = useRef<HistoryTurn[]>([]);
+  const lastAskAtRef = useRef(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const busyRef = useRef(false);
@@ -124,6 +137,12 @@ export function CompanionAsk({
       setError(null);
       setAnswer(null);
       const sharing = shareScreen && Boolean(capabilities?.cloudVision);
+      // Stale conversation = new conversation. Lazily enforced on the next
+      // ask, mirroring the jobs-table purge-on-start discipline.
+      if (Date.now() - lastAskAtRef.current > HISTORY_IDLE_TTL_MS) {
+        historyRef.current = [];
+      }
+      lastAskAtRef.current = Date.now();
       setBusy(sharing ? "capturing" : "thinking");
       setAvatarStatus(sharing ? "reading_context" : "drafting");
       try {
@@ -144,8 +163,11 @@ export function CompanionAsk({
         historyRef.current = [
           ...historyRef.current.slice(-8),
           { role: "user", content: trimmed },
-          { role: "assistant", content: result.text },
+          // Answers produced while sharing carry screen-derived text; the tag
+          // keeps that provenance when the turn rides along on a later ask.
+          { role: "assistant", content: result.text, screenDerived: result.screenShared },
         ];
+        onAnswered?.();
         setAnswer(result);
         setQuestion("");
       } catch (raised) {
@@ -292,8 +314,9 @@ export function CompanionAsk({
         <span>
           {canSeeScreen ? (
             <>
-              Share this screen for each question — one screenshot of this display is sent to{" "}
-              {capabilities?.visionModel} (Groq) per ask. Off = fully local, no screen view.
+              Share this screen for each question — one screenshot of this display, plus this
+              conversation's recent turns, is sent to {capabilities?.visionModel} (Groq) per ask.
+              Off = fully local, no screen view.
             </>
           ) : (
             <>
