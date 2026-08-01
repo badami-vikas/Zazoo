@@ -7,6 +7,7 @@
  */
 import { useMemo, useRef, useState } from "react";
 import { ZazooAvatar, DEFAULT_APPEARANCE, type ZazooAppearance } from "./ZazooAvatar";
+import { CompanionZazooFace } from "./CompanionZazooFace";
 import { ZazooDirector, ZAZOO_EMOTIONS, ZAZOO_ACTIONS, type ZazooEmotion, type ZazooAction } from "./director";
 
 const BODY_COLORS = ["#F0DFC2", "#C9CCD4", "#BFD8C2", "#F2C9B0", "#CDBFE3", "#BCD3E8"];
@@ -140,6 +141,29 @@ export function ZazooLab() {
           title="Press and hold to pet Zazoo"
         >
           <ZazooAvatar director={director} width={330} appearance={appearance} />
+        </div>
+        {/* The EXACT component the desktop companion overlay ships as its
+            collapsed face (same director, so it mirrors every performance) —
+            rendered here at overlay size for visual verification. */}
+        <div
+          data-testid="companion-face-preview"
+          style={{
+            position: "absolute",
+            right: 18,
+            bottom: 18,
+            width: 56,
+            height: 56,
+            borderRadius: "50%",
+            background: "#fff",
+            border: "1px solid #d8d2c6",
+            boxShadow: "0 2px 10px rgba(0,0,0,0.15)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          title="Companion overlay face (44px), live"
+        >
+          <CompanionZazooFace director={director} size={44} label="Companion face preview" />
         </div>
         <div style={S.hint}>move cursor — Zazoo watches · press &amp; hold to pet · hover the notch up top</div>
       </div>

@@ -30,7 +30,15 @@ test("browser and desktop Avatar surfaces render the selected visual style", () 
   assert.match(avatarOverlay, /<AvatarFigure avatarStyle=\{style\}/);
   assert.match(avatarOverlay, /<AvatarFigure avatarStyle=\{avatarStyle\}/);
   assert.doesNotMatch(avatarOverlay, /style: _style/);
-  assert.match(overlayApp, /avatarStyle=\{prefs\.style\}/);
+  // The desktop companion's face is the Zazoo rig (desktop-companion wiki,
+  // Zazoo v1): a stable director instance, the status→performance mapping,
+  // and the capture one-shot alongside the 200ms blink flag. Emotion is a
+  // pure derived rendering of AvatarStatus — never stored.
+  assert.match(overlayApp, /new ZazooDirector\(\)/);
+  assert.match(overlayApp, /director\.perform\(statusToPerformance\(status\)\)/);
+  assert.match(overlayApp, /director\.perform\(CAPTURE_PERFORMANCE\)/);
+  assert.match(overlayApp, /<CompanionZazooFace/);
+  assert.doesNotMatch(overlayApp, /<AvatarFigure/);
   assert.match(overlayApp, /loadAvatarPrefs\(false\)/);
   assert.match(overlayApp, /window\.addEventListener\("storage", onStorage\)/);
   assert.match(overlayApp, /event\.key === null \|\| event\.key === "bridge\.avatar\.v2"/);
