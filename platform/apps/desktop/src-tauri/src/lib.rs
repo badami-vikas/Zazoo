@@ -33,6 +33,7 @@ mod model_supervisor;
 mod overlay;
 mod providers;
 mod research_webview;
+mod whatsapp_webview;
 mod sensor_bridge;
 
 use std::process::Command;
@@ -420,6 +421,8 @@ pub fn run() {
         .manage(overlay::OverlaySessionState::default())
         .manage(companion::CompanionState::default())
         .manage(companion::CompanionAskJobs::default())
+        .manage(whatsapp_webview::WhatsAppState::default())
+        .manage(whatsapp_webview::WhatsAppJobs::default())
         .manage(research_webview::ResearchState::default())
         .manage(research_webview::ResearchJobs::default())
         .manage(BootstrapWindowState::default());
@@ -478,6 +481,12 @@ pub fn run() {
             companion::companion_speak,
             companion::companion_stop_speaking,
             companion::companion_transcribe,
+            whatsapp_webview::whatsapp_open,
+            whatsapp_webview::whatsapp_position,
+            whatsapp_webview::whatsapp_hide,
+            whatsapp_webview::whatsapp_status,
+            whatsapp_webview::whatsapp_extract_start,
+            whatsapp_webview::whatsapp_extract_poll,
             research_webview::research_read_page,
             research_webview::research_locate_start,
             research_webview::research_locate_poll,

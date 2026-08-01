@@ -11,6 +11,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# Verifies the pinned wa-js bundle hash at build time (see build.rs).
+sha2 = "0.10"
 
 [dependencies]
 # `macos-private-api` is required by tauri.conf.json's `macOSPrivateApi: true`
