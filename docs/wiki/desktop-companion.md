@@ -69,9 +69,20 @@ spec verbatim: `docs/raw/requirement-zazoo-avatar-spec-2026-07-15.md`. Plan:
   ZazooAvatar.tsx (ref-mutated SVG, no per-frame React render) + lab at `/zazoo.html`.
 - Agent plane drive it via `perform({emotion, warmth, confidence, energy, attention, intent,
   duration})` — same JSON contract as user spec.
-- Next: v1 = default in AvatarOverlay + status→emotion map + capture-blink tell + Tauri drag/pet
-  (rides EG0). v2 = pipeline events→perform, long-idle scenes, hatch→Zazoo, persona axes. v3 =
-  voice sync, Commons character packages.
+- **v1 LANDED for the floating overlay (2026-07-31)**: Zazoo is the collapsed companion face
+  (`CompanionZazooFace`, 44px head crop, reduced-motion → static `ZazooCompact`); pure
+  `statusToPerformance` maps AvatarStatus → `perform()` (no new taxonomy, nothing persisted);
+  capture blink = one-shot curious lift auto-reverting via `duration`; ⌘⇧Space perks ears on
+  keypress; delivered answer plays a transient happy one-shot. Drag was already live. **Pet NOT
+  wired** — the collapsed button's press is ambiguous with drag (`suppressAvatarClick`); wire only
+  after the drag threshold is declined. In-page `AvatarFigure` surfaces unchanged. Verified live in
+  the lab (shared director drove full rig + shipped face; ears enlarged on `listening`).
+  Still open for v1: hatch→Zazoo, in-page default swap. v2 = pipeline events→perform, long-idle
+  scenes, persona axes. v3 = voice sync, Commons character packages.
+- **Companion session memory governed (2026-07-31)**: role filter before take (injected turns can't
+  shrink the window), per-path char budgets (vision 800/4,800 vs local 2,000/8,000, oldest dropped
+  first), 15-min idle TTL, `screenDerived` provenance tag on turns, consent copy now discloses that
+  recent turns ride along on consented asks.
 - Platform rename Bridge→Zazoo = separate canon question → AP-022 PROPOSED.
 
 ### v0.5 crew redesign (same day, user feedback + reference image)

@@ -2562,3 +2562,32 @@ model to all three tiers today, so meaningful local tier separation is a config 
 
 TASK-020 was deliberately NOT closed: it is unbuilt scope, not a testing gap. No browser extension
 exists in `platform/apps/` and its Avatar clause wants production assets, not the procedural SVG rig.
+
+# 2026-07-31 — Session sprint: merge dedup · Zazoo companion face · governed session memory
+
+Sequential execution on explicit user direction ("execute all in one session sequentially"), with
+two Explore agents mapping the overlay-avatar and ask-memory seams in parallel.
+
+1. **Merge dedup (d40f333)**: main's `8bc1337` independently built the TASK-028 kernel-Run
+   migration, strictly more completely than this branch's `d43601e` (migration 0035 + FORCE RLS +
+   terminal freeze, real BR4 kernel resume, `/research` Page, requestStop/complete). Deleted this
+   branch's narrower `research.run.*` router + tests in the merge — one recording surface, not two.
+   Merged tree: typecheck 42/42; research-runs + agent-orchestration 21/21.
+2. **Zazoo v1 on the overlay (f136974)**: the wiki's recorded next step, done for the floating
+   window. Pure status→performance mapping (visual-only canon respected), 44px head-crop face with
+   reduced-motion fallback, capture one-shot, PTT ear-perk, answer celebration. Live browser proof
+   via the lab: one director drove both the full rig and the shipped face. NOT claimed: TASK-020's
+   production-asset clause (Zazoo is also procedural SVG). Pet deliberately unwired (drag
+   ambiguity).
+3. **Governed session memory (5b4e188)**: continuity existed ungoverned; now role-filter-before-
+   take, per-path char budgets, 15-min idle TTL, `screenDerived` provenance, honest consent copy.
+   cargo companion tests 17/17; web 99/99.
+4. **At-keyboard checks NOT executed, on purpose**: TASK-030 PT-3 (V2/V7–V10) requires the user
+   physically at the Mac (press ⌘⇧Space, revoke sharing, detach a monitor). No agent can perform
+   them; they remain open in TASK-030 with named pass conditions. Recorded here so the sprint's
+   "execute all" does not silently imply they ran.
+
+Environment note: the Browser-pane preview tool failed to spawn its helper this session; the
+worktree dev server was started manually (new `platform-web-parallel-worktree` launch.json entry)
+and the pane attached by URL — screenshots captured fine, so the playwright fallback in memory was
+not needed.
