@@ -28,6 +28,7 @@
 mod annotate;
 mod api_sidecar;
 mod companion;
+mod jobs;
 mod model_supervisor;
 mod overlay;
 mod providers;
@@ -418,7 +419,9 @@ pub fn run() {
         .manage(overlay::DisplayTopologyState::default())
         .manage(overlay::OverlaySessionState::default())
         .manage(companion::CompanionState::default())
+        .manage(companion::CompanionAskJobs::default())
         .manage(research_webview::ResearchState::default())
+        .manage(research_webview::ResearchJobs::default())
         .manage(BootstrapWindowState::default());
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
@@ -470,13 +473,16 @@ pub fn run() {
             annotate::annotate_clear,
             annotate::annotate_ready,
             companion::companion_capabilities,
-            companion::companion_ask,
+            companion::companion_ask_start,
+            companion::companion_ask_poll,
             companion::companion_speak,
             companion::companion_stop_speaking,
             companion::companion_transcribe,
             research_webview::research_read_page,
-            research_webview::research_locate,
-            research_webview::research_chat,
+            research_webview::research_locate_start,
+            research_webview::research_locate_poll,
+            research_webview::research_chat_start,
+            research_webview::research_chat_poll,
             research_webview::research_close,
             open_google_oauth,
             providers::accessibility::ax_permission_status,

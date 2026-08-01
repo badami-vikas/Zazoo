@@ -27,6 +27,39 @@ export function tauriInvokeStrict(cmd: string, args?: Record<string, unknown>): 
   return internals.invoke(cmd, args);
 }
 
+/**
+ * Start-then-poll invocation (BUGS 2026-07-30 residual, fixed): WKWebView
+ * aborts the whole app when a command answers after ~60s, so long-running
+ * shell commands (`companion_ask`, `research_locate`, `research_chat`) are
+ * split into a `_start` returning a job id and an instant `_poll`. This
+ * helper drives that pair: start, then poll until `done` or the client-side
+ * deadline. The poll envelope is `{ done, <valueKey> }` where the value may
+ * itself be null (e.g. "locate finished, target not found").
+ */
+export async function tauriInvokeJob<T>(
+  startCmd: string,
+  pollCmd: string,
+  args: Record<string, unknown>,
+  options: { valueKey: string; timeoutMs: number; intervalMs?: number },
+): Promise<T> {
+  const job = (await tauriInvokeStrict(startCmd, args)) as number;
+  if (typeof job !== "number") {
+    throw new Error(`${startCmd} returned no job id`);
+  }
+  const intervalMs = options.intervalMs ?? 900;
+  const deadline = Date.now() + options.timeoutMs;
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    const envelope = (await tauriInvokeStrict(pollCmd, { job })) as {
+      done: boolean;
+    } & Record<string, unknown>;
+    if (envelope.done) return envelope[options.valueKey] as T;
+    if (Date.now() > deadline) {
+      throw new Error(`${startCmd} did not finish within ${Math.round(options.timeoutMs / 1000)}s`);
+    }
+  }
+}
+
 export async function tauriListen<T>(
   event: string,
   callback: (payload: T) => void,

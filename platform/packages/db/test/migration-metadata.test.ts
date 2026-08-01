@@ -16,7 +16,7 @@ const dbRoot = resolve(here, "../..");
 const migrationsFolder = resolve(dbRoot, "migrations");
 const drizzleKitBin = resolve(dbRoot, "node_modules/drizzle-kit/bin.cjs");
 
-test("Drizzle metadata is rebased through 0033 and generate is a deterministic no-op", () => {
+test("Drizzle metadata is rebased through 0035 and generate is a deterministic no-op", () => {
   const probe = mkdtempSync(resolve(dbRoot, ".drizzle-noop-"));
   const probeMigrations = join(probe, "migrations");
   try {
@@ -28,10 +28,10 @@ test("Drizzle metadata is rebased through 0033 and generate is a deterministic n
     };
     const last = journal.entries.at(-1);
     assert.deepEqual(last, {
-      idx: 33,
+      idx: 35,
       version: "7",
-      when: 1785222318931,
-      tag: "0033_dealpilot_cloud_records",
+      when: 1785484725856,
+      tag: "0035_task028_research_runs",
       breakpoints: true,
     });
     assert.ok(
@@ -53,6 +53,14 @@ test("Drizzle metadata is rebased through 0033 and generate is a deterministic n
     assert.ok(
       readdirSync(join(probeMigrations, "meta")).includes("0033_snapshot.json"),
       "DealPilot Cloud-Plane snapshot must be tracked",
+    );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0034_snapshot.json"),
+      "DealPilot deal-signals snapshot must be tracked",
+    );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0035_snapshot.json"),
+      "current Research Run snapshot must be tracked",
     );
 
     const generated = spawnSync(
@@ -81,7 +89,7 @@ test("Drizzle metadata is rebased through 0033 and generate is a deterministic n
     assert.match(output, /No schema changes, nothing to migrate/);
     assert.equal(readFileSync(journalPath, "utf8"), journalBefore);
     assert.ok(
-      !readdirSync(probeMigrations).some((name) => /^0034_.*\.sql$/.test(name)),
+      !readdirSync(probeMigrations).some((name) => /^0036_.*\.sql$/.test(name)),
       "no-op generation must not allocate another migration",
     );
   } finally {

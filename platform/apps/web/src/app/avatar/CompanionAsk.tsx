@@ -17,7 +17,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dispatchCaptureEvent, setAvatarStatus } from "./avatar-store";
-import { tauriInvoke, tauriInvokeStrict } from "./tauri-internals";
+import { tauriInvoke, tauriInvokeJob, tauriInvokeStrict } from "./tauri-internals";
 import { ResearchRun } from "./ResearchRun";
 
 interface CompanionCapabilities {
@@ -103,7 +103,9 @@ export function CompanionAsk({
       void tauriInvoke("companion_stop_speaking");
       stopStream();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Mount-only on purpose. (No react-hooks plugin is registered in this
+    // repo's ESLint config, so a rule-name suppression here would itself be
+    // a lint error — see BUGS 2026-07-17.)
   }, []);
 
   function stopStream() {
@@ -125,14 +127,19 @@ export function CompanionAsk({
       setBusy(sharing ? "capturing" : "thinking");
       setAvatarStatus(sharing ? "reading_context" : "drafting");
       try {
-        const result = (await tauriInvokeStrict("companion_ask", {
-          request: {
-            question: trimmed,
-            shareScreenWithCloud: sharing,
-            speak: speakAnswers && Boolean(capabilities?.tts),
-            history: historyRef.current.slice(-10),
+        const result = await tauriInvokeJob<CompanionAnswer>(
+          "companion_ask_start",
+          "companion_ask_poll",
+          {
+            request: {
+              question: trimmed,
+              shareScreenWithCloud: sharing,
+              speak: speakAnswers && Boolean(capabilities?.tts),
+              history: historyRef.current.slice(-10),
+            },
           },
-        })) as CompanionAnswer;
+          { valueKey: "answer", timeoutMs: 120_000 },
+        );
         if (result.screenShared) dispatchCaptureEvent({ kind: "screen" });
         historyRef.current = [
           ...historyRef.current.slice(-8),

@@ -16,6 +16,8 @@ import { HomePage } from "./pages/HomePage";
 import { SecondBrainPage } from "./pages/SecondBrainPage";
 // AP-086 / ADR-154: Intelligence is its own top-level cross-Module capability page.
 import { IntelligencePage } from "./pages/IntelligencePage";
+// TASK-028: background Research Run timeline/interrupt Page (plan §5).
+import { ResearchRunsPage } from "./pages/ResearchRunsPage";
 // TASK-001 / VOCAB6: manifest-driven Module Detail (§4b)
 import { ModuleDetailPage } from "./pages/ModuleDetailPage";
 import { InstalledModuleBoundary } from "./components/InstalledModuleBoundary";
@@ -132,6 +134,7 @@ export const router = createBrowserRouter([
       { path: `${childPath(relationshipModule.route)}/:page`, Component: RelationshipPage },
 
       { path: "second-brain", Component: SecondBrainPage },
+      { path: "research", Component: ResearchRunsPage },
       { path: "intelligence", Component: IntelligencePage },
       { path: "task-manager", Component: TaskManagerPage },
       { path: "task-manager/:taskId", Component: TaskRecordDetailPage },

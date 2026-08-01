@@ -76,3 +76,23 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSPasteboardItem",
     "NSApplication",
 ] }
+
+# Debug-build crypto at release speed. The model supervisor re-verifies the
+# pinned ~2.5GB model artifact's SHA-256 on EVERY llama-server launch — a
+# deliberate, uncached fail-closed supply-chain check — and sha2's software
+# fallback in an unoptimized build hashes so slowly that a dev app sat in
+# `launch → sha256_file` for over an hour after a rebuild (observed live
+# 2026-07-31 via `sample`), leaving the Local Plane model, and everything
+# gated on it (webResearch content guard, local-first planner, local ask),
+# unavailable the whole time. Release profiles are unaffected.
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.digest]
+opt-level = 3
+
+[profile.dev.package.block-buffer]
+opt-level = 3
+
+[profile.dev.package.cpufeatures]
+opt-level = 3

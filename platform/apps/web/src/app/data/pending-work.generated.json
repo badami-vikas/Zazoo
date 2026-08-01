@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-30T23:44:03.193Z",
+  "generatedAt": "2026-08-01T19:56:28.833Z",
   "items": [
     {
       "id": "TASK-026",
@@ -954,7 +954,11 @@
         "the locator reuses TASK-027's drawn-grid pipeline against a capture of the reader window's own image. 5 new Rust unit tests (navigation policy, payload decode, char-boundary truncation)",
         "desktop suite 80 passing. Prototype live wiring landed 2026-07-30 per the user's explicit prototype-first choice: the companion panel gains a Research tab (`ResearchRun.tsx`) running the engine in the overlay webview with search → governed `agentOrchestration.skill.webResearch`, read → `research_read_page`, find → `research_locate`, planner → `createChatPlanner` over `research_chat` (key never enters the webview)",
         "no actuator/proposal channel is wired, so amber steps are engine-blocked (green tools only). RECORDED DEVIATION: steps run in the overlay, not yet as kernel child Runs — the kernel-Run migration and the Run detail Page are the follow-up. LIVE-VALIDATED 2026-07-30 on the user's machine: an 8-step Run searched (governed webResearch through the Local Plane content guard), read real pages in the contained reader window, and returned a cited brief, stopping honestly at bound_wall_clock with 22 citations. Live debugging fixed six defects along the way: overlay lacked the sidecar capability (SEC-1 401s), boot-time content-guard snapshot never saw the late-starting local model (now resolved per-inspection), the model install was stranded in the wrong runtime dir, dev builds lacked the pinned llama-server (provisioned via prepareLlamaRuntime), opaque [object Object] errors blinded planner and user, and commands outliving WKWebView's ~60s IPC deadline aborted the app (BUGS.md 2026-07-30",
-        "all provider calls now hard-capped). Planner runs local-first with cloud fallback. Still open: research_locate live check, kernel-Run migration, Run detail Page"
+        "all provider calls now hard-capped). Planner runs local-first with cloud fallback. KERNEL-RUN MIGRATION landed 2026-07-31 (ADR-156): Research Runs are durable owner-scoped kernel records (migration `0035`, chat-style FORCE RLS, append-only step evidence, terminal rows trigger-frozen)",
+        "every executed step is recorded as a TERMINAL child Agent Run under one parent envelope, inspectable through the standard `childRun.*` surface",
+        "`requestStop` is the cooperative cross-surface interrupt",
+        "BR4 resume now replays the kernel step ledger across app restarts",
+        "the `/research` Run detail Page renders the step timeline (tool, trusted summary, untrusted-external markers, child-Run ids), brief, citations, and Stop/mark-interrupted. Verified core 485/485, db 217/217, api 388+1 skip, web 106/106 + build. Still open: executor runs in the overlay (kernel-executor bridge is the follow-up), run-level brief as a governed Result, research_locate live check, live browser evidence of the Page"
       ],
       "requests": [
         "R-042"
@@ -1004,7 +1008,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 445,
+      "sourceLine": 444,
       "rank": 29
     },
     {
@@ -1031,7 +1035,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 459,
+      "sourceLine": 458,
       "rank": 30
     }
   ]

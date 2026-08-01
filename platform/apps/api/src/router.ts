@@ -61,6 +61,8 @@ import {
   DRAFT_OUTREACH_TASK_TYPE,
   LEARNING_WEB_RESEARCH_GOAL_TYPE,
   RESEARCH_PUBLIC_WEB_TASK_TYPE,
+  LEARNING_RESEARCH_RUN_GOAL_TYPE,
+  RESEARCH_RUN_TASK_TYPE,
   JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE,
   RESEARCH_CULTURE_SOURCE_TASK_TYPE,
   SYNTHESIZE_CULTURE_PROFILE_TASK_TYPE,
@@ -151,6 +153,11 @@ import {
   SearchProvidersUnavailableError,
   completeChildAgentRun,
   createChildAgentRun,
+  failChildAgentRun,
+  ResearchRunAlreadyTerminalError,
+  ResearchRunNotFoundError,
+  RESEARCH_STEP_TOOLS,
+  RESEARCH_STOP_REASONS,
   labelFromLegacyTrustOrigin,
   declassifyTaintLabel,
   deriveDeclassifiedLabel,
@@ -950,24 +957,19 @@ async function provisionWebResearchTask(
   );
 }
 
-/**
- * TASK-028 — server-owned step ceiling for a Research Run. Mirrors
- * `DEFAULT_RESEARCH_BOUNDS.maxSteps` in `@bridge/research`, but is enforced
- * HERE so a client cannot claim a larger run than the engine would grant
- * itself. The engine bound stops an honest loop; this one stops a dishonest
- * caller.
- */
-const MAX_RESEARCH_STEPS_PER_RUN = 12;
-
-/**
- * Stable prefix identifying which step of a Research Run a child Agent Run
- * represents. `ChildAgentRun` has no step ordinal, and this migration
- * deliberately adds no table — child Runs plus the ledger are already durable
- * — so the ordinal lives in `stopCondition`, which is server-authored and
- * never client-supplied.
- */
-function researchStepMarker(stepIndex: number): string {
-  return `research step ${stepIndex} · `;
+/** TASK-028 — one bounded Task per background Research Run. */
+async function provisionResearchRunTask(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    organizationId,
+    LEARNING_RESEARCH_RUN_GOAL_TYPE,
+    "Background browser Research Runs",
+    RESEARCH_RUN_TASK_TYPE,
+    LEARNING_AGENT,
+  );
 }
 
 const sha256Schema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
@@ -14600,254 +14602,6 @@ export const appRouter = t.router({
    * (see pipeline.ts's AGS1 gate) — this router adds no separate enforcement
    * path, only a more ergonomic Goal/Task-shaped surface over the same gate.
    */
-  /**
-   * TASK-028 kernel-Run migration — the recorded deviation closed.
-   *
-   * The prototype ran a Research Run entirely inside the companion overlay, so
-   * its steps existed only in the webview: nothing durable, nothing
-   * inspectable, nothing attributable to an Agent. BR0's exit test requires
-   * steps to be "inspectable as child Runs", and §5 "Watch" requires a Run
-   * detail Page — neither is possible while the loop is client-only.
-   *
-   * This surface makes the kernel the system of record. The overlay still
-   * DRIVES the loop (it owns the webview the reader and locator need), but it
-   * now reports each step here, where the step becomes a real child Agent Run
-   * with a ledger entry. Reads need no new endpoint:
-   * `agentOrchestration.childRun.listByParentRun` already returns the timeline.
-   *
-   * Deliberately NOT a general step-recording API:
-   * - `click`/`type` are refused outright. They are BR3 amber actions that
-   *   must go through Proposal -> Decision; accepting them here would let a
-   *   client mint an audit trail for an actuation the gate never approved.
-   * - The step budget is SERVER-owned and matches the engine's own
-   *   `DEFAULT_RESEARCH_BOUNDS.maxSteps`, so a client cannot buy itself more
-   *   authority by claiming a larger run.
-   * - `delegatedScope` is derived from the tool here, never accepted from the
-   *   caller.
-   */
-  research: t.router({
-    run: t.router({
-      /**
-       * Open a Research Run: provision the Learning Agent's existing
-       * rights-approved public-web Goal/Task (no new signed binding needed —
-       * a Research Run *is* that work) and return the parent run id the
-       * overlay will report steps against.
-       */
-      start: authenticatedProcedure
-        .input(
-          z.object({
-            organizationId: z.string().min(1),
-            objective: z.string().min(1).max(500),
-          }),
-        )
-        .mutation(async ({ input, ctx }) => {
-          assertPilotOrganization(input.organizationId);
-          await assertMembership(
-            ctx.wiring.organizationStore,
-            input.organizationId,
-            ctx.identity.id,
-          );
-          const { goalId, taskId } = await provisionWebResearchTask(
-            ctx.wiring,
-            input.organizationId,
-          );
-          const runId = uuidv7();
-          await ctx.wiring.ledger.append({
-            id: uuidv7(),
-            organizationId: input.organizationId,
-            actorType: "agent",
-            actorId: LEARNING_AGENT,
-            onBehalfOfType: ctx.identity.type === "team" ? "team" : "user",
-            onBehalfOfId: ctx.identity.id,
-            action: "execute",
-            resourceType: "agent",
-            resourceId: LEARNING_AGENT,
-            inputs: {
-              researchRunId: runId,
-              objective: input.objective,
-              goalId,
-              taskId,
-              maxSteps: MAX_RESEARCH_STEPS_PER_RUN,
-            },
-            proposedOutput: { kind: "research_run_started", runId },
-            userDecision: "auto",
-            policyResults: [],
-            // No `context` here on purpose: `RunContext` has no agent-run
-            // variant, and the run has not spawned a child yet. Every step
-            // recorded afterwards DOES carry `child_agent_run` context, so the
-            // timeline is reachable from `runId` in `inputs` without
-            // mislabelling this opening entry as something it is not.
-            createdAt: new Date().toISOString(),
-          });
-          return {
-            runId,
-            goalId,
-            taskId,
-            maxSteps: MAX_RESEARCH_STEPS_PER_RUN,
-          };
-        }),
-
-      /**
-       * Record one executed step as a child Agent Run. The overlay calls this
-       * per step; the ledger entry `createChildAgentRun` appends is what makes
-       * the step auditable and replayable.
-       */
-      recordStep: authenticatedProcedure
-        .input(
-          z.object({
-            organizationId: z.string().min(1),
-            runId: z.string().min(1),
-            objective: z.string().min(1).max(500),
-            stepIndex: z.number().int().min(0).max(MAX_RESEARCH_STEPS_PER_RUN - 1),
-            // click/type are BR3 amber actions and are refused below; they are
-            // absent from this enum so the refusal is a schema fact, not a
-            // runtime branch that could be edited away.
-            tool: z.enum(["search", "read", "find", "note"]),
-            argument: z.string().min(1).max(2_048),
-            rationale: z.string().min(1).max(500),
-            summary: z.string().min(1).max(2_000),
-            sourceUrl: z.string().max(2_048).nullable().optional(),
-          }),
-        )
-        .mutation(async ({ input, ctx }) => {
-          assertPilotOrganization(input.organizationId);
-          await assertMembership(
-            ctx.wiring.organizationStore,
-            input.organizationId,
-            ctx.identity.id,
-          );
-
-          const existing = await ctx.wiring.childAgentRuns.listByParentRun(
-            input.organizationId,
-            input.runId,
-          );
-          if (existing.length >= MAX_RESEARCH_STEPS_PER_RUN) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message:
-                "This Research Run has reached the server-owned step bound; start a new Run.",
-            });
-          }
-          // A child Run carries no step ordinal of its own, so the step's
-          // identity lives in the stable `stopCondition` prefix below. That
-          // keeps this migration schema-free: child Agent Runs plus the ledger
-          // are already durable, so a Research Run needs no new table.
-          if (
-            existing.some((run) =>
-              run.stopCondition.startsWith(researchStepMarker(input.stepIndex)),
-            )
-          ) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: "That step index is already recorded for this Run.",
-            });
-          }
-
-          const { goalId, taskId } = await provisionWebResearchTask(
-            ctx.wiring,
-            input.organizationId,
-          );
-          const [learningScope, learningDataScope] = await Promise.all([
-            ctx.wiring.agents.capabilityScope(LEARNING_AGENT),
-            ctx.wiring.agents.dataScope(LEARNING_AGENT),
-          ]);
-
-          // `note` is engine-authored bookkeeping: it touches nothing external
-          // and therefore needs no delegated authority. The child-run model
-          // (correctly) refuses an empty delegated scope, and granting a note
-          // `external:fetch:read` just to make it representable would hand it
-          // authority it never uses — the opposite of least privilege. So a
-          // note is recorded as a LEDGER entry only. It stays durable and
-          // inspectable; it simply is not a Run, because it did not act.
-          if (input.tool === "note") {
-            await ctx.wiring.ledger.append({
-              id: uuidv7(),
-              organizationId: input.organizationId,
-              actorType: "agent",
-              actorId: LEARNING_AGENT,
-              onBehalfOfType: ctx.identity.type === "team" ? "team" : "user",
-              onBehalfOfId: ctx.identity.id,
-              action: "execute",
-              resourceType: "agent",
-              resourceId: LEARNING_AGENT,
-              inputs: {
-                researchRunId: input.runId,
-                stepIndex: input.stepIndex,
-                tool: input.tool,
-                argument: input.argument,
-                rationale: input.rationale,
-              },
-              proposedOutput: {
-                kind: "research_run_note",
-                summary: input.summary,
-              },
-              userDecision: "auto",
-              policyResults: [],
-              createdAt: new Date().toISOString(),
-            });
-            return {
-              childRunId: null,
-              stepIndex: input.stepIndex,
-              stepsRecorded: existing.length,
-              maxSteps: MAX_RESEARCH_STEPS_PER_RUN,
-            };
-          }
-
-          const touchesExternal = true;
-          const parentEnvelope: ParentRunEnvelope = {
-            runId: input.runId,
-            agentId: LEARNING_AGENT,
-            organizationId: input.organizationId,
-            authorityScope: learningScope,
-            eligibleSkills: [WEB_RESEARCH_SKILL_ID],
-            dataScope: learningDataScope,
-            plane: "cloud",
-            // Server-owned, fixed — never derived from the caller.
-            budgetRemaining: {
-              calls: MAX_RESEARCH_STEPS_PER_RUN,
-              cost: MAX_RESEARCH_STEPS_PER_RUN,
-            },
-            reviewMode: "approve",
-            childRunPolicy: "allowed",
-            delegationDepth: 0,
-            onBehalfOf: {
-              type: (ctx.identity.type === "team" ? "team" : "user") as
-                | "user"
-                | "team",
-              id: ctx.identity.id,
-            },
-          };
-
-          const childRun = await createChildAgentRun(
-            {
-              store: ctx.wiring.childAgentRuns,
-              ledger: ctx.wiring.ledger,
-            },
-            parentEnvelope,
-            {
-              goalId,
-              taskId,
-              delegatedScope: touchesExternal ? ["external:fetch:read"] : [],
-              selectedSkills: touchesExternal ? [WEB_RESEARCH_SKILL_ID] : [],
-              budget: { maxCalls: 1, maxCost: 1 },
-              deadline: new Date(Date.now() + 5 * 60_000).toISOString(),
-              stopCondition: `${researchStepMarker(input.stepIndex)}${input.tool} · "${input.objective}": perform once and stop`,
-              requestedDataScope: "public",
-              touchesExternalRisk: touchesExternal,
-            },
-            ctx.run,
-          );
-
-          return {
-            childRunId: childRun.id,
-            stepIndex: input.stepIndex,
-            stepsRecorded: existing.length + 1,
-            maxSteps: MAX_RESEARCH_STEPS_PER_RUN,
-          };
-        }),
-    }),
-  }),
-
   agentOrchestration: t.router({
     goal: t.router({
       create: authenticatedProcedure.input(goalCreateInput).mutation(async ({ input, ctx }) => {
@@ -15068,6 +14822,310 @@ export const appRouter = t.router({
           ...(input.requestedDataScope ? { requestedDataScope: input.requestedDataScope as DataScope } : {}),
         });
       }),
+    }),
+
+    /**
+     * TASK-028 kernel-Run migration — durable, owner-scoped Research Run
+     * records. The @bridge/research engine still EXECUTES wherever the
+     * executor lives (today: the desktop overlay, per the user-approved
+     * prototype-first path); this surface is the kernel's authoritative
+     * projection of that loop: `start` mints the Run + its Goal/Task +
+     * parent-Run envelope id, `recordStep` lands each executed step as a
+     * TERMINAL child Agent Run (inspectable via `childRun.listByParentRun`
+     * like every other delegation) plus an append-only step-evidence row
+     * BR4 resume replays, `requestStop` is the cross-surface cooperative
+     * interrupt the executor polls, and `complete` freezes the outcome
+     * exactly once (enforced by store CAS + the 0035 DB trigger).
+     */
+    research: t.router({
+      start: authenticatedProcedure
+        .input(
+          z
+            .object({
+              organizationId: z.string().min(1),
+              objective: z.string().trim().min(1).max(500),
+            })
+            .strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const goalTaskRef = await provisionResearchRunTask(ctx.wiring, input.organizationId);
+          return ctx.wiring.researchRuns.create({
+            id: ctx.run.ids.next(),
+            organizationId: input.organizationId,
+            ownerUserId: ctx.identity.id,
+            objective: input.objective,
+            status: "running",
+            stopRequested: false,
+            parentRunId: ctx.run.ids.next(),
+            goalId: goalTaskRef.goalId,
+            taskId: goalTaskRef.taskId,
+            stopReason: null,
+            brief: null,
+            citations: [],
+            blockedActions: [],
+            injectionReports: [],
+            stepsTaken: 0,
+            startedAt: ctx.run.clock.nowISO(),
+            endedAt: null,
+          });
+        }),
+
+      recordStep: authenticatedProcedure
+        .input(
+          z
+            .object({
+              organizationId: z.string().min(1),
+              researchRunId: z.string().min(1),
+              stepIndex: z.number().int().min(0).max(999),
+              tool: z.enum(RESEARCH_STEP_TOOLS),
+              summary: z.string().trim().min(1).max(4_000),
+              sourceUrl: z.string().trim().min(1).max(2_048).nullish(),
+              /** Untrusted external text this step gathered — kept ONLY so a
+               * resumed Run replays its observations; never instructions. */
+              quarantined: z
+                .object({
+                  sourceUrl: z.string().trim().min(1).max(2_048),
+                  text: z.string().max(400_000),
+                })
+                .strict()
+                .nullish(),
+              /** The executor marks a step whose tool call itself failed. */
+              failed: z.boolean().optional(),
+            })
+            .strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const run = await ctx.wiring.researchRuns.get(
+            input.organizationId,
+            ctx.identity.id,
+            input.researchRunId,
+          );
+          if (!run) throw new TRPCError({ code: "NOT_FOUND", message: "unknown Research Run" });
+          if (run.status !== "running") {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `Research Run is already ${run.status}`,
+            });
+          }
+
+          const onBehalfOf = {
+            type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team",
+            id: ctx.identity.id,
+          };
+          const [learningScope, learningDataScope] = await Promise.all([
+            ctx.wiring.agents.capabilityScope(LEARNING_AGENT),
+            ctx.wiring.agents.dataScope(LEARNING_AGENT),
+          ]);
+          // The step already executed under the engine's green-tier authority
+          // (AP-088): reading the public web is autonomous, so the child Run
+          // records at "notify", never a retroactive "approve" that would
+          // imply a Human decision existed. Steps run on the user's machine —
+          // the LOCAL plane; the quarantined text they carry is untrusted web.
+          const parentEnvelope: ParentRunEnvelope = {
+            runId: run.parentRunId,
+            agentId: LEARNING_AGENT,
+            organizationId: input.organizationId,
+            authorityScope: learningScope,
+            eligibleSkills: [WEB_RESEARCH_SKILL_ID],
+            dataScope: learningDataScope,
+            plane: "local",
+            budgetRemaining: { calls: 1_000, cost: 1_000 },
+            reviewMode: "notify",
+            childRunPolicy: "allowed",
+            delegationDepth: 0,
+            onBehalfOf,
+            taintLabel: labelAtSource("human_input", {
+              ref: `research-run:${run.id}`,
+              valueHash: hashTaintValue({ objective: run.objective }),
+              sensitivity: "public",
+              instructionRisk: "instruction_like",
+            }),
+          };
+          const childRun = await createChildAgentRun(
+            { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
+            parentEnvelope,
+            {
+              goalId: run.goalId,
+              taskId: run.taskId,
+              delegatedScope: ["external:fetch:read"],
+              selectedSkills: [WEB_RESEARCH_SKILL_ID],
+              budget: { maxCalls: 1, maxCost: 1 },
+              deadline: new Date(Date.now() + 10 * 60_000).toISOString(),
+              stopCondition: `record one ${input.tool} step of Research Run ${run.id} and stop`,
+              requestedDataScope: "public",
+              ...(input.quarantined
+                ? {
+                    requestedTaintLabel: labelAtSource("web_search", {
+                      ref: input.quarantined.sourceUrl,
+                      valueHash: hashTaintValue({ text: input.quarantined.text }),
+                      sensitivity: "public",
+                      instructionRisk: "instruction_like",
+                    }),
+                  }
+                : {}),
+            },
+            ctx.run,
+          );
+          const transition = input.failed ? failChildAgentRun : completeChildAgentRun;
+          await transition(
+            { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
+            input.organizationId,
+            childRun.id,
+            { type: "agent", id: LEARNING_AGENT },
+            ctx.run,
+          );
+
+          try {
+            const step = await ctx.wiring.researchRuns.appendStep({
+              id: ctx.run.ids.next(),
+              runId: run.id,
+              organizationId: input.organizationId,
+              ownerUserId: ctx.identity.id,
+              stepIndex: input.stepIndex,
+              tool: input.tool,
+              summary: input.summary,
+              sourceUrl: input.sourceUrl ?? null,
+              childRunId: childRun.id,
+              quarantinedText: input.quarantined?.text ?? null,
+              quarantinedSourceUrl: input.quarantined?.sourceUrl ?? null,
+              createdAt: ctx.run.clock.nowISO(),
+            });
+            return { step, childRunId: childRun.id };
+          } catch (error) {
+            if (error instanceof ResearchRunAlreadyTerminalError) {
+              throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+            }
+            if (error instanceof ResearchRunNotFoundError) {
+              throw new TRPCError({ code: "NOT_FOUND", message: error.message });
+            }
+            throw error;
+          }
+        }),
+
+      requestStop: authenticatedProcedure
+        .input(
+          z.object({ organizationId: z.string().min(1), researchRunId: z.string().min(1) }).strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          try {
+            return await ctx.wiring.researchRuns.requestStop(
+              input.organizationId,
+              ctx.identity.id,
+              input.researchRunId,
+            );
+          } catch (error) {
+            if (error instanceof ResearchRunNotFoundError) {
+              throw new TRPCError({ code: "NOT_FOUND", message: error.message });
+            }
+            throw error;
+          }
+        }),
+
+      complete: authenticatedProcedure
+        .input(
+          z
+            .object({
+              organizationId: z.string().min(1),
+              researchRunId: z.string().min(1),
+              status: z.enum(["completed", "cancelled", "failed"]),
+              stopReason: z.enum(RESEARCH_STOP_REASONS),
+              brief: z.string().max(20_000).nullable(),
+              citations: z.array(z.string().min(1).max(2_048)).max(200),
+              blockedActions: z.array(z.string().min(1).max(2_000)).max(50),
+              injectionReports: z.array(z.string().min(1).max(2_000)).max(50),
+              stepsTaken: z.number().int().min(0).max(999),
+            })
+            .strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          try {
+            return await ctx.wiring.researchRuns.complete(
+              input.organizationId,
+              ctx.identity.id,
+              input.researchRunId,
+              {
+                status: input.status,
+                stopReason: input.stopReason,
+                brief: input.brief,
+                citations: input.citations,
+                blockedActions: input.blockedActions,
+                injectionReports: input.injectionReports,
+                stepsTaken: input.stepsTaken,
+              },
+              ctx.run.clock.nowISO(),
+            );
+          } catch (error) {
+            if (error instanceof ResearchRunAlreadyTerminalError) {
+              throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+            }
+            if (error instanceof ResearchRunNotFoundError) {
+              throw new TRPCError({ code: "NOT_FOUND", message: error.message });
+            }
+            throw error;
+          }
+        }),
+
+      /** Light poll target for the executor (stopRequested) — run row only. */
+      get: authenticatedProcedure
+        .input(
+          z.object({ organizationId: z.string().min(1), researchRunId: z.string().min(1) }).strict(),
+        )
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          return ctx.wiring.researchRuns.get(input.organizationId, ctx.identity.id, input.researchRunId);
+        }),
+
+      list: authenticatedProcedure
+        .input(
+          z
+            .object({
+              organizationId: z.string().min(1),
+              limit: z.number().int().min(1).max(100).default(25),
+            })
+            .strict(),
+        )
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          return ctx.wiring.researchRuns.list(input.organizationId, ctx.identity.id, input.limit);
+        }),
+
+      /** Step timeline. Quarantined text stays out of responses unless the
+       * caller is the executor resuming a Run (`includeQuarantined`) — the
+       * Page renders engine-authored summaries, never raw page text. */
+      steps: authenticatedProcedure
+        .input(
+          z
+            .object({
+              organizationId: z.string().min(1),
+              researchRunId: z.string().min(1),
+              includeQuarantined: z.boolean().default(false),
+            })
+            .strict(),
+        )
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const steps = await ctx.wiring.researchRuns.listSteps(
+            input.organizationId,
+            ctx.identity.id,
+            input.researchRunId,
+          );
+          if (input.includeQuarantined) return steps;
+          return steps.map((step) => ({
+            ...step,
+            quarantinedText: step.quarantinedText === null ? null : "[quarantined external text withheld]",
+          }));
+        }),
     }),
 
     childRun: t.router({

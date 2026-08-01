@@ -1,6 +1,5 @@
 /**
- * ResearchRun — the "Research this" prototype surface (TASK-028 live wiring,
- * user-approved prototype-first path 2026-07-30).
+ * ResearchRun — the "Research this" surface (TASK-028).
  *
  * Runs the @bridge/research engine IN THIS OVERLAY WEBVIEW with its ports
  * wired to what the desktop already provides:
@@ -13,12 +12,17 @@
  *  - planner → createChatPlanner over `research_chat` (the Groq key never
  *              enters this webview)
  *
- * PROTOTYPE DEVIATION, recorded in TASKS.md: steps run here, not as kernel
- * child Runs, and there is no actuator and no proposal channel — so every
- * amber (click/type) step is blocked honestly by the engine itself. Green
- * tools only. The kernel-Run migration is the follow-up.
+ * KERNEL-RUN MIGRATION (this slice): the Run itself is now a durable,
+ * owner-scoped kernel record — `agentOrchestration.research.start` mints it,
+ * every executed step lands through `recordStep` as a terminal child Agent
+ * Run plus append-only evidence (the engine's ledger port), `requestStop` is
+ * honored cross-surface via a light `get` poll, and the outcome freezes
+ * exactly once through `complete`. An interrupted Run (executor died) is
+ * offered for BR4 resume here, replaying the kernel step ledger without
+ * re-executing anything. Still no actuator and no proposal channel: green
+ * tools only; the engine blocks amber steps honestly.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   runResearch,
   createChatPlanner,
@@ -29,7 +33,7 @@ import {
   type SearchHit,
 } from "@bridge/research";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
-import { tauriInvokeStrict } from "./tauri-internals";
+import { tauriInvokeJob, tauriInvokeStrict } from "./tauri-internals";
 import { setAvatarStatus } from "./avatar-store";
 
 interface PageExtract {
@@ -45,6 +49,11 @@ interface Located {
   y: number;
   width: number;
   height: number;
+}
+
+interface KernelRunRef {
+  id: string;
+  objective: string;
 }
 
 /**
@@ -76,6 +85,18 @@ function fingerprint(value: string): string {
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
   return hash.toString(16).padStart(8, "0");
+}
+
+/** Server-side zod bounds, applied defensively before the wire. */
+function cap(value: string, max: number): string {
+  return value.length > max ? value.slice(0, max) : value;
+}
+
+function boundedUrl(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  // Truncating a URL corrupts it; a degenerate over-long one is dropped.
+  return trimmed.length > 0 && trimmed.length <= 2_048 ? trimmed : null;
 }
 
 /**
@@ -117,14 +138,62 @@ export function ResearchRun() {
   const [steps, setSteps] = useState<string[]>([]);
   const [outcome, setOutcome] = useState<ResearchOutcome | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [resumable, setResumable] = useState<KernelRunRef | null>(null);
   const abortRef = useRef({ aborted: false });
+  const kernelRunRef = useRef<string | null>(null);
 
   function report(line: string) {
     setSteps((prior) => [...prior, line]);
   }
 
-  async function start() {
-    const trimmed = objective.trim();
+  // BR4 — surface the newest Run whose executor died mid-loop (status still
+  // "running" in the kernel with nothing driving it) for an honest resume.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const runs = await trpc.agentOrchestration.research.list.query({
+          organizationId: PILOT_ORGANIZATION,
+        });
+        const interrupted = runs.find((run) => run.status === "running");
+        if (!cancelled && interrupted) {
+          setResumable({ id: interrupted.id, objective: interrupted.objective });
+        }
+      } catch {
+        // The kernel may be starting up; resume stays unavailable, honestly.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function discardResumable() {
+    if (!resumable) return;
+    try {
+      await trpc.agentOrchestration.research.requestStop.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        researchRunId: resumable.id,
+      });
+      await trpc.agentOrchestration.research.complete.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        researchRunId: resumable.id,
+        status: "cancelled",
+        stopReason: "cancelled",
+        brief: null,
+        citations: [],
+        blockedActions: [],
+        injectionReports: [],
+        stepsTaken: 0,
+      });
+    } catch (caught) {
+      report(`Could not close the interrupted Run: ${toError(caught).message}`);
+    }
+    setResumable(null);
+  }
+
+  async function start(resume?: KernelRunRef) {
+    const trimmed = resume ? resume.objective : objective.trim();
     if (!trimmed || running) return;
     setRunning(true);
     setSteps([]);
@@ -133,13 +202,102 @@ export function ResearchRun() {
     abortRef.current = { aborted: false };
     setAvatarStatus("reading_context");
 
+    // The kernel Run record is minted FIRST — no kernel, no Run. Every step
+    // below lands against it as an inspectable child Run.
+    let kernelRun: KernelRunRef;
+    try {
+      if (resume) {
+        kernelRun = resume;
+        report("Resuming the interrupted Run from its kernel ledger…");
+      } else {
+        const created = await trpc.agentOrchestration.research.start.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          objective: cap(trimmed, 500),
+        });
+        kernelRun = { id: created.id, objective: created.objective };
+      }
+    } catch (caught) {
+      setError(`Could not start a kernel Research Run: ${toError(caught).message}`);
+      setRunning(false);
+      setAvatarStatus("idle");
+      return;
+    }
+    kernelRunRef.current = kernelRun.id;
+    setResumable(null);
+
+    // Cross-surface interrupt: the Run detail Page's Stop button raises
+    // stopRequested in the kernel; this poll folds it into the engine's
+    // cooperative abort signal at the next step edge.
+    const stopPoll = setInterval(() => {
+      void trpc.agentOrchestration.research.get
+        .query({ organizationId: PILOT_ORGANIZATION, researchRunId: kernelRun.id })
+        .then((run) => {
+          if (run?.stopRequested) abortRef.current.aborted = true;
+        })
+        .catch(() => undefined);
+    }, 3_000);
+
     const deps: ResearchDeps = {
       signal: abortRef.current,
+      ledger: {
+        async append(runId, entry) {
+          try {
+            await trpc.agentOrchestration.research.recordStep.mutate({
+              organizationId: PILOT_ORGANIZATION,
+              researchRunId: runId,
+              stepIndex: entry.stepIndex,
+              tool: entry.tool,
+              summary: cap(entry.summary, 4_000),
+              sourceUrl: boundedUrl(entry.sourceUrl),
+              quarantined:
+                entry.quarantined && boundedUrl(entry.quarantined.sourceUrl)
+                  ? {
+                      sourceUrl: boundedUrl(entry.quarantined.sourceUrl) as string,
+                      text: cap(entry.quarantined.text, 400_000),
+                    }
+                  : null,
+            });
+          } catch (caught) {
+            // Losing one kernel step record must not kill a live Run; it is
+            // reported, and the engine's own in-memory evidence still stands.
+            report(`Step record failed: ${toError(caught).message}`);
+          }
+        },
+        async load(runId) {
+          const rows = await trpc.agentOrchestration.research.steps.query({
+            organizationId: PILOT_ORGANIZATION,
+            researchRunId: runId,
+            includeQuarantined: true,
+          });
+          return rows.map((row) => ({
+            stepIndex: row.stepIndex,
+            tool: row.tool,
+            summary: row.summary,
+            sourceUrl: row.sourceUrl,
+            ...(row.quarantinedText && row.quarantinedSourceUrl
+              ? {
+                  quarantined: {
+                    trustOrigin: "untrusted_external" as const,
+                    taintLabel: "untrusted_external" as const,
+                    sourceUrl: row.quarantinedSourceUrl,
+                    text: row.quarantinedText,
+                  },
+                }
+              : {}),
+          }));
+        },
+      },
       planner: createChatPlanner(async (messages: readonly ChatMessage[]) => {
         try {
-          return (await tauriInvokeStrict("research_chat", {
-            messages: messages.map((message) => ({ ...message })),
-          })) as string;
+          // Start-then-poll: the provider legs (local + cloud fallback +
+          // spaced retry) run detached in the shell, so no IPC reply is ever
+          // held open near WKWebView's ~60s abort deadline.
+          return await tauriInvokeJob<string>(
+            "research_chat_start",
+            "research_chat_poll",
+            { messages: messages.map((message) => ({ ...message })) },
+            { valueKey: "value", timeoutMs: 90_000, intervalMs: 700 },
+          );
         } catch (caught) {
           throw toError(caught);
         }
@@ -197,9 +355,12 @@ export function ResearchRun() {
           report(`Locating: ${description}`);
           let located: Located | null;
           try {
-            located = (await tauriInvokeStrict("research_locate", {
-              description,
-            })) as Located | null;
+            located = await tauriInvokeJob<Located | null>(
+              "research_locate_start",
+              "research_locate_poll",
+              { description },
+              { valueKey: "value", timeoutMs: 120_000 },
+            );
           } catch (caught) {
             const normalised = toError(caught);
             report(`Locate failed: ${normalised.message}`);
@@ -216,17 +377,56 @@ export function ResearchRun() {
 
     try {
       const result = await runResearch(
-        { runId: `overlay-${Date.now()}`, objective: trimmed },
+        { runId: kernelRun.id, objective: trimmed, ...(resume ? { resume: true } : {}) },
         deps,
       );
       setOutcome(result);
+      try {
+        const brief = result.brief.trim();
+        await trpc.agentOrchestration.research.complete.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          researchRunId: kernelRun.id,
+          status:
+            result.stopReason === "cancelled"
+              ? "cancelled"
+              : result.stopReason === "planner_failed"
+                ? "failed"
+                : "completed",
+          stopReason: result.stopReason,
+          brief: brief.length > 0 ? cap(brief, 20_000) : null,
+          citations: [...new Set(result.citations)]
+            .filter((url) => url.length > 0 && url.length <= 2_048)
+            .slice(0, 200),
+          blockedActions: result.blockedActions.map((line) => cap(line, 2_000)).slice(0, 50),
+          injectionReports: result.injectionReports
+            .map((line) => cap(line, 2_000))
+            .slice(0, 50),
+          stepsTaken: Math.min(result.stepsTaken, 999),
+        });
+      } catch (caught) {
+        report(`Outcome record failed: ${toError(caught).message}`);
+      }
     } catch (caught) {
-      setError(
-        caught && typeof caught === "object" && "message" in caught
-          ? String((caught as { message: unknown }).message)
-          : String(caught),
-      );
+      const normalised = toError(caught);
+      setError(normalised.message);
+      // The executor itself failed — freeze the kernel record honestly so it
+      // is never offered for resume as if it were merely interrupted.
+      void trpc.agentOrchestration.research.complete
+        .mutate({
+          organizationId: PILOT_ORGANIZATION,
+          researchRunId: kernelRun.id,
+          status: "failed",
+          stopReason: "executor_error",
+          brief: null,
+          citations: [],
+          blockedActions: [],
+          injectionReports: [],
+          stepsTaken: 0,
+        })
+        .catch(() => undefined);
     } finally {
+      clearInterval(stopPoll);
+      kernelRunRef.current = null;
       setRunning(false);
       setAvatarStatus("idle");
       // The reader window has served its purpose for this Run.
@@ -236,6 +436,12 @@ export function ResearchRun() {
 
   function stop() {
     abortRef.current.aborted = true;
+    const kernelRunId = kernelRunRef.current;
+    if (kernelRunId) {
+      void trpc.agentOrchestration.research.requestStop
+        .mutate({ organizationId: PILOT_ORGANIZATION, researchRunId: kernelRunId })
+        .catch(() => undefined);
+    }
     report("Stopping after the current step…");
   }
 
@@ -244,8 +450,31 @@ export function ResearchRun() {
       <p className="text-xs text-[var(--color-navy-mid)]">
         A background Research Run: searches the public web, reads pages in a contained
         always-on-bottom browser window you can watch, and returns a cited brief. It never
-        clicks, types, or signs in.
+        clicks, types, or signs in. Every step is inspectable on the Research Runs page.
       </p>
+      {resumable && !running && (
+        <div className="flex flex-col gap-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+          <p className="text-xs">
+            An earlier Run was interrupted: <em>{resumable.objective}</em>
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void start(resumable)}
+              className="rounded bg-[var(--color-navy)] px-2 py-0.5 text-xs text-white"
+            >
+              Resume
+            </button>
+            <button
+              type="button"
+              onClick={() => void discardResumable()}
+              className="rounded border border-[var(--color-border)] px-2 py-0.5 text-xs"
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
       <textarea
         value={objective}
         onChange={(event) => setObjective(event.target.value)}
