@@ -9,6 +9,7 @@ import type {
   LocalEntityRecord,
   LocalGraphStore,
   LocalPerson,
+  LocalPersonList,
   LocalPlane,
   LocalStateMutation,
   LocalStateStore,
@@ -166,6 +167,8 @@ export class InMemoryBodyStore implements BodyStore {
 export class InMemoryLocalGraphStore implements LocalGraphStore {
   readonly people: LocalPerson[] = [];
   readonly entities: LocalEntityRecord[] = [];
+  readonly lists: LocalPersonList[] = [];
+  readonly listMembers: { listId: string; personId: string }[] = [];
   readonly external: ExternalRecordRow[] = [];
   readonly cursors = new Map<string, string>();
 
@@ -182,6 +185,34 @@ export class InMemoryLocalGraphStore implements LocalGraphStore {
   }
   async listPeople(organizationId: string): Promise<LocalPerson[]> {
     return this.people.filter((p) => p.organizationId === organizationId);
+  }
+  async findPeopleByDedupeKey(organizationId: string, dedupeKey: string): Promise<LocalPerson[]> {
+    return this.people.filter(
+      (p) => p.organizationId === organizationId && p.dedupeKey === dedupeKey,
+    );
+  }
+  async ensurePersonList(list: LocalPersonList): Promise<LocalPersonList> {
+    const existing = this.lists.find(
+      (l) => l.organizationId === list.organizationId && l.name === list.name,
+    );
+    if (existing) return existing;
+    this.lists.push({ ...list });
+    return list;
+  }
+  async listPersonLists(organizationId: string): Promise<LocalPersonList[]> {
+    return this.lists.filter((l) => l.organizationId === organizationId);
+  }
+  async addPeopleToList(listId: string, personIds: readonly string[]): Promise<void> {
+    for (const personId of personIds) {
+      if (this.listMembers.some((m) => m.listId === listId && m.personId === personId)) continue;
+      this.listMembers.push({ listId, personId });
+    }
+  }
+  async listPeopleInList(listId: string): Promise<LocalPerson[]> {
+    const ids = new Set(
+      this.listMembers.filter((m) => m.listId === listId).map((m) => m.personId),
+    );
+    return this.people.filter((p) => ids.has(p.id));
   }
   async commitEntity(entry: LocalEntityRecord): Promise<void> {
     // Idempotent: a retry after a partial dual-write failure re-commits the same

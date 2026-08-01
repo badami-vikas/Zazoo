@@ -514,3 +514,67 @@ test("pglite local plane refuses concurrent ownership of one directory", async (
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("pglite local plane: person lists keep bulk imports out of the graph", async () => {
+  const plane = await createPgliteLocalPlane();
+  try {
+    const org = "org-wa";
+    // A phone-bearing contact and a WhatsApp LID contact with no number at all.
+    await plane.graph.upsertPerson({
+      id: "p-1",
+      organizationId: org,
+      fullName: "Asha Rao",
+      emails: [],
+      phones: ["+919876543210"],
+      dedupeKey: "whatsapp:+919876543210",
+    });
+    await plane.graph.upsertPerson({
+      id: "p-2",
+      organizationId: org,
+      fullName: "Chandra",
+      emails: [],
+      dedupeKey: "whatsapp-lid:2098@lid",
+    });
+
+    // Source-scoped matching works without any email.
+    const matched = await plane.graph.findPeopleByDedupeKey(org, "whatsapp:+919876543210");
+    assert.equal(matched.length, 1);
+    assert.deepEqual(matched[0]?.phones, ["+919876543210"]);
+    // A number is never invented for a LID contact.
+    const lid = await plane.graph.findPeopleByDedupeKey(org, "whatsapp-lid:2098@lid");
+    assert.equal(lid[0]?.phones, undefined);
+
+    // Nothing crossed to cloud canonical.
+    for (const person of await plane.graph.listPeople(org)) {
+      assert.equal(person.canonicalPersonId, undefined);
+    }
+
+    const list = await plane.graph.ensurePersonList({
+      id: "list-1",
+      organizationId: org,
+      name: "WhatsApp",
+      source: "whatsapp",
+      createdAt: new Date().toISOString(),
+    });
+    // Re-running an import reuses the list rather than creating "WhatsApp (2)".
+    const again = await plane.graph.ensurePersonList({
+      id: "list-2",
+      organizationId: org,
+      name: "WhatsApp",
+      source: "whatsapp",
+      createdAt: new Date().toISOString(),
+    });
+    assert.equal(again.id, list.id);
+    assert.equal((await plane.graph.listPersonLists(org)).length, 1);
+
+    await plane.graph.addPeopleToList(list.id, ["p-1", "p-2"]);
+    await plane.graph.addPeopleToList(list.id, ["p-1"]); // idempotent
+    const members = await plane.graph.listPeopleInList(list.id);
+    assert.equal(members.length, 2);
+
+    // A roster is not a relationship: the import created no graph entities.
+    assert.equal((await plane.graph.listEntities(org)).length, 0);
+  } finally {
+    await plane.close?.();
+  }
+});

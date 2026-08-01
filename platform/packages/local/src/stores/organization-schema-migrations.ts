@@ -41,3 +41,28 @@ export async function migrateOrganizationColumns(db: PGlite): Promise<void> {
     );
   }
 }
+
+/**
+ * Additive columns introduced after `local_people` shipped. `CREATE TABLE IF
+ * NOT EXISTS` leaves an existing table untouched, so an installed Local Plane
+ * would keep the old three-column shape and every insert naming `phones` or
+ * `dedupe_key` would fail. Adding them here is idempotent and preserves data.
+ *
+ * `phones` is deliberately local-only: unlike `emails`, it is never dual-written
+ * to cloud canonical without an explicit promote.
+ */
+export async function migrateLocalPeopleIdentityColumns(db: PGlite): Promise<void> {
+  const existing = await db.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'local_people'`,
+  );
+  const names = new Set(existing.rows.map((row) => row.column_name));
+  // No table yet — INIT_SQL creates it complete, so there is nothing to migrate.
+  if (names.size === 0) return;
+  if (!names.has("phones")) {
+    await db.exec(`ALTER TABLE local_people ADD COLUMN phones jsonb NOT NULL DEFAULT '[]'`);
+  }
+  if (!names.has("dedupe_key")) {
+    await db.exec(`ALTER TABLE local_people ADD COLUMN dedupe_key text`);
+  }
+}

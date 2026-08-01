@@ -17,6 +17,7 @@ import type {
   LocalEntityRecord,
   LocalGraphStore,
   LocalPerson,
+  LocalPersonList,
   LocalPlane,
   LocalStateMutation,
   LocalStateStore,
@@ -24,7 +25,10 @@ import type {
   SecretStore,
   StoredBody,
 } from "../ports.js";
-import { migrateOrganizationColumns } from "./organization-schema-migrations.js";
+import {
+  migrateLocalPeopleIdentityColumns,
+  migrateOrganizationColumns,
+} from "./organization-schema-migrations.js";
 
 const INIT_SQL = `
 CREATE TABLE IF NOT EXISTS oauth_tokens (
@@ -52,7 +56,30 @@ CREATE TABLE IF NOT EXISTS local_people (
   organization_id text NOT NULL,
   full_name text,
   emails jsonb NOT NULL DEFAULT '[]',
+  -- LOCAL ONLY. Phone numbers never cross to cloud canonical without an
+  -- explicit promote, unlike emails.
+  phones jsonb NOT NULL DEFAULT '[]',
+  -- Source-scoped identity (e.g. whatsapp:+9198..., whatsapp-lid:123@lid) for
+  -- sources whose people have no email.
+  dedupe_key text,
   canonical_person_id text
+);
+CREATE INDEX IF NOT EXISTS local_people_dedupe_idx ON local_people (organization_id, dedupe_key);
+-- Local-plane lists: the roster surface for bulk imports, deliberately kept out
+-- of the relationship graph.
+CREATE TABLE IF NOT EXISTS local_person_lists (
+  id text PRIMARY KEY,
+  organization_id text NOT NULL,
+  name text NOT NULL,
+  source text NOT NULL,
+  created_at text NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS local_person_lists_name_idx
+  ON local_person_lists (organization_id, name);
+CREATE TABLE IF NOT EXISTS local_person_list_members (
+  list_id text NOT NULL,
+  person_id text NOT NULL,
+  PRIMARY KEY (list_id, person_id)
 );
 CREATE TABLE IF NOT EXISTS local_entities (
   id text PRIMARY KEY,
@@ -497,7 +524,17 @@ interface PersonRow {
   organization_id: string;
   full_name: string | null;
   emails: string[];
+  phones: string[] | null;
+  dedupe_key: string | null;
   canonical_person_id: string | null;
+}
+
+interface ListRow {
+  id: string;
+  organization_id: string;
+  name: string;
+  source: string;
+  created_at: string;
 }
 
 function rowToPerson(r: PersonRow): LocalPerson {
@@ -506,7 +543,19 @@ function rowToPerson(r: PersonRow): LocalPerson {
     organizationId: r.organization_id,
     ...(r.full_name ? { fullName: r.full_name } : {}),
     emails: Array.isArray(r.emails) ? r.emails : [],
+    ...(Array.isArray(r.phones) && r.phones.length ? { phones: r.phones } : {}),
+    ...(r.dedupe_key ? { dedupeKey: r.dedupe_key } : {}),
     ...(r.canonical_person_id ? { canonicalPersonId: r.canonical_person_id } : {}),
+  };
+}
+
+function rowToList(r: ListRow): LocalPersonList {
+  return {
+    id: r.id,
+    organizationId: r.organization_id,
+    name: r.name,
+    source: r.source,
+    createdAt: r.created_at,
   };
 }
 
@@ -521,21 +570,72 @@ class PgliteLocalGraphStore implements LocalGraphStore {
   }
   async upsertPerson(person: LocalPerson): Promise<void> {
     await this.db.query(
-      `INSERT INTO local_people (id, organization_id, full_name, emails, canonical_person_id)
-       VALUES ($1,$2,$3,$4::jsonb,$5)
+      `INSERT INTO local_people (id, organization_id, full_name, emails, phones, dedupe_key, canonical_person_id)
+       VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7)
        ON CONFLICT (id) DO UPDATE SET
-         organization_id=$2, full_name=$3, emails=$4::jsonb, canonical_person_id=$5`,
+         organization_id=$2, full_name=$3, emails=$4::jsonb, phones=$5::jsonb,
+         dedupe_key=$6, canonical_person_id=$7`,
       [
         person.id,
         person.organizationId,
         person.fullName ?? null,
         JSON.stringify(person.emails),
+        JSON.stringify(person.phones ?? []),
+        person.dedupeKey ?? null,
         person.canonicalPersonId ?? null,
       ],
     );
   }
   async listPeople(organizationId: string): Promise<LocalPerson[]> {
     const res = await this.db.query<PersonRow>(`SELECT * FROM local_people WHERE organization_id=$1`, [organizationId]);
+    return res.rows.map(rowToPerson);
+  }
+  async findPeopleByDedupeKey(organizationId: string, dedupeKey: string): Promise<LocalPerson[]> {
+    const res = await this.db.query<PersonRow>(
+      `SELECT * FROM local_people WHERE organization_id=$1 AND dedupe_key=$2`,
+      [organizationId, dedupeKey],
+    );
+    return res.rows.map(rowToPerson);
+  }
+  async ensurePersonList(list: LocalPersonList): Promise<LocalPersonList> {
+    // Name is unique per organization, so a re-import reuses the same list
+    // rather than creating "WhatsApp (2)".
+    await this.db.query(
+      `INSERT INTO local_person_lists (id, organization_id, name, source, created_at)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (organization_id, name) DO NOTHING`,
+      [list.id, list.organizationId, list.name, list.source, list.createdAt],
+    );
+    const res = await this.db.query<ListRow>(
+      `SELECT * FROM local_person_lists WHERE organization_id=$1 AND name=$2`,
+      [list.organizationId, list.name],
+    );
+    const row = res.rows[0];
+    return row ? rowToList(row) : list;
+  }
+  async listPersonLists(organizationId: string): Promise<LocalPersonList[]> {
+    const res = await this.db.query<ListRow>(
+      `SELECT * FROM local_person_lists WHERE organization_id=$1 ORDER BY name`,
+      [organizationId],
+    );
+    return res.rows.map(rowToList);
+  }
+  async addPeopleToList(listId: string, personIds: readonly string[]): Promise<void> {
+    for (const personId of personIds) {
+      await this.db.query(
+        `INSERT INTO local_person_list_members (list_id, person_id) VALUES ($1,$2)
+         ON CONFLICT (list_id, person_id) DO NOTHING`,
+        [listId, personId],
+      );
+    }
+  }
+  async listPeopleInList(listId: string): Promise<LocalPerson[]> {
+    const res = await this.db.query<PersonRow>(
+      `SELECT p.* FROM local_people p
+       JOIN local_person_list_members m ON m.person_id = p.id
+       WHERE m.list_id = $1`,
+      [listId],
+    );
     return res.rows.map(rowToPerson);
   }
   async commitEntity(entry: LocalEntityRecord): Promise<void> {
@@ -793,6 +893,9 @@ export async function createPgliteLocalPlane(
     (ownership ? new PGlite(ownership.dataDir) : new PGlite());
   try {
     await migrateOrganizationColumns(db);
+    // Additive local_people columns must land BEFORE INIT_SQL's indexes, which
+    // reference dedupe_key on an already-installed table.
+    await migrateLocalPeopleIdentityColumns(db);
     await db.exec(INIT_SQL);
     await migrateLegacyExternalRecords(db);
   } catch (error) {

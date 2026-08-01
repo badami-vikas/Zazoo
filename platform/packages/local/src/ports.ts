@@ -80,8 +80,38 @@ export interface LocalPerson {
   organizationId: string;
   fullName?: string;
   emails: string[];
-  /** Link to the cloud canonical identity (set when dual-written). */
+  /**
+   * E.164 phone numbers. LOCAL ONLY — a number never crosses to cloud canonical
+   * without an explicit promote, unlike `emails`, which is dual-written.
+   */
+  phones?: string[];
+  /**
+   * Source-scoped identity key, e.g. `whatsapp:+919876543210` or
+   * `whatsapp-lid:1234@lid`. Lets a source match its own people deterministically
+   * without an email — WhatsApp contacts frequently have no email at all, and
+   * roughly half disclose no phone number either.
+   */
+  dedupeKey?: string;
+  /**
+   * Link to the cloud canonical identity. Null until an explicit promote —
+   * a local-only Person is a complete Person, not a pending one.
+   */
   canonicalPersonId?: string;
+}
+
+/**
+ * A named local list of People — the local-plane equivalent of the cloud
+ * `communities kind='list'` surface. Bulk imports land here rather than in the
+ * relationship graph: a WhatsApp address book is a roster, not 8,384
+ * relationships.
+ */
+export interface LocalPersonList {
+  id: string;
+  organizationId: string;
+  name: string;
+  /** Which Module/import produced it, e.g. "whatsapp". */
+  source: string;
+  createdAt: string;
 }
 
 /** A committed graph entry. Interactions are Events. */
@@ -111,8 +141,21 @@ export interface ExternalRecordRow {
 export interface LocalGraphStore {
   /** People whose email set contains `email` (case-insensitive). Drives matching. */
   findPeopleByEmail(organizationId: string, email: string): Promise<LocalPerson[]>;
+  /**
+   * People carrying this source-scoped identity key. Returns a LIST because
+   * "more than one match" must stay representable — an ambiguous match becomes
+   * a possible_duplicate Signal, never a silent pick.
+   */
+  findPeopleByDedupeKey(organizationId: string, dedupeKey: string): Promise<LocalPerson[]>;
   upsertPerson(person: LocalPerson): Promise<void>;
   listPeople(organizationId: string): Promise<LocalPerson[]>;
+
+  /** Create the list if absent, and return it either way. */
+  ensurePersonList(list: LocalPersonList): Promise<LocalPersonList>;
+  listPersonLists(organizationId: string): Promise<LocalPersonList[]>;
+  /** Idempotent: re-running an import re-adds the same members as a no-op. */
+  addPeopleToList(listId: string, personIds: readonly string[]): Promise<void>;
+  listPeopleInList(listId: string): Promise<LocalPerson[]>;
 
   /** Commit a derived entity (post-approval). Local only. */
   commitEntity(entry: LocalEntityRecord): Promise<void>;
