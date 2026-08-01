@@ -237,6 +237,10 @@ import {
   type GroundedClaimInput,
 } from "@bridge/jobpilot";
 import {
+  mapExtraction as mapWhatsAppExtraction,
+  personIndexFrom as whatsAppPersonIndexFrom,
+} from "@bridge/whatsapp";
+import {
   BUILT_IN_MODULES,
   COMMONS_BUILT_IN_MODULES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
@@ -7979,6 +7983,114 @@ export const appRouter = t.router({
           }),
         );
         return { items };
+      }),
+  }),
+
+  /**
+   * WhatsApp Module — staging a Contact Extractor run.
+   *
+   * Residency: the raw payload and every phone number stay on the LOCAL plane.
+   * A WhatsApp address book is a firehose import, so it lands as a local list —
+   * a roster — and deliberately creates NO graph entities. Nothing here writes
+   * to cloud canonical; promoting an identity is a separate, explicit act.
+   */
+  whatsapp: t.router({
+    stageExtraction: authenticatedProcedure
+      .input(
+        z.object({
+          runId: z.string().min(1).max(128),
+          capturedAt: z.string().min(1),
+          listName: z.string().min(1).max(120).default("WhatsApp"),
+          contacts: z
+            .array(
+              z.object({
+                id: z.string().min(1),
+                name: z.string().optional(),
+                pushname: z.string().optional(),
+                phone: z.string().optional(),
+                isMyContact: z.boolean(),
+                isGroup: z.boolean(),
+              }),
+            )
+            .max(50_000),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        // Single-tenant by construction, exactly like every other Module
+        // surface here (see the PILOT_ORGANIZATION note above).
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const localPlane = ctx.wiring.localPlane;
+
+        // 1. Raw capture → LOCAL body store. Never the cloud plane.
+        await localPlane.bodies.put({
+          organizationId,
+          source: "whatsapp",
+          sourceRecordId: `capture:${input.runId}`,
+          // Structurally private: these bodies cannot egress.
+          dataScope: "private",
+          content: { capturedAt: input.capturedAt, contacts: input.contacts },
+          capturedAt: input.capturedAt,
+        });
+
+        // 2. Map, matching against people this source has seen before.
+        const existingRows: { personId: string; dedupeKey: string }[] = [];
+        for (const person of await localPlane.graph.listPeople(organizationId)) {
+          if (person.dedupeKey) {
+            existingRows.push({ personId: person.id, dedupeKey: person.dedupeKey });
+          }
+        }
+        const contacts = input.contacts.map((contact) => ({
+          id: contact.id,
+          isMyContact: contact.isMyContact,
+          isGroup: contact.isGroup,
+          ...(contact.name !== undefined ? { name: contact.name } : {}),
+          ...(contact.pushname !== undefined ? { pushname: contact.pushname } : {}),
+          ...(contact.phone !== undefined ? { phone: contact.phone } : {}),
+        }));
+        const result = mapWhatsAppExtraction(
+          { kind: "contacts", runId: input.runId, capturedAt: input.capturedAt, contacts },
+          whatsAppPersonIndexFrom(existingRows),
+        );
+
+        // 3. Commit the roster locally. Ambiguous matches produced no proposal
+        //    at all — they are Signals for a human, not rows to guess at.
+        const list = await localPlane.graph.ensurePersonList({
+          id: uuidv7(),
+          organizationId,
+          name: input.listName,
+          source: "whatsapp",
+          createdAt: new Date().toISOString(),
+        });
+
+        const memberIds: string[] = [];
+        for (const proposal of result.people) {
+          const personId = proposal.matchedPersonId ?? uuidv7();
+          await localPlane.graph.upsertPerson({
+            id: personId,
+            organizationId,
+            ...(proposal.displayName ? { fullName: proposal.displayName } : {}),
+            emails: [],
+            // Absent for every LID identity — a hidden number is never invented.
+            ...(proposal.phoneE164 ? { phones: [proposal.phoneE164] } : {}),
+            dedupeKey: proposal.dedupeKey,
+          });
+          memberIds.push(personId);
+        }
+        await localPlane.graph.addPeopleToList(list.id, memberIds);
+
+        return {
+          runId: input.runId,
+          listId: list.id,
+          listName: list.name,
+          staged: {
+            people: result.people.length,
+            withPhone: result.people.filter((person) => person.phoneE164).length,
+            numberHidden: result.people.filter((person) => !person.phoneE164).length,
+            ambiguous: result.signals.length,
+            skipped: contacts.length - result.people.length - result.signals.length,
+          },
+        };
       }),
   }),
 

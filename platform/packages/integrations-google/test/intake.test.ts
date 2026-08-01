@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { FixedClock, SeededRng, UuidGen, type Proposal, type RunCtx } from "@bridge/core";
-import type { BodyStore, LocalEntityRecord, LocalGraphStore, LocalPerson, StoredBody } from "@bridge/local";
+import type { BodyStore, LocalEntityRecord, LocalGraphStore, LocalPerson,
+  LocalPersonList, StoredBody } from "@bridge/local";
 import { IntakeMaterializer, IntakeService, type IntakeDirective, type IntakeServiceDeps } from "../src/intake.js";
 import { CALENDAR_SOURCE, GMAIL_SOURCE, type CalendarEvent, type GmailThread } from "../src/contracts.js";
 
@@ -100,6 +101,22 @@ class test_fixture_Graph implements LocalGraphStore {
 
   async upsertPerson(_person: LocalPerson): Promise<void> {}
   async listPeople(_organizationId: string): Promise<LocalPerson[]> {
+    return [];
+  }
+  // Source-scoped identity and person lists exist for imports whose people have
+  // no email (WhatsApp). Google intake matches on email and uses neither, so
+  // these stay inert here rather than pretending to support a list.
+  async findPeopleByDedupeKey(_organizationId: string, _dedupeKey: string): Promise<LocalPerson[]> {
+    return [];
+  }
+  async ensurePersonList(list: LocalPersonList): Promise<LocalPersonList> {
+    return list;
+  }
+  async listPersonLists(_organizationId: string): Promise<LocalPersonList[]> {
+    return [];
+  }
+  async addPeopleToList(_listId: string, _personIds: readonly string[]): Promise<void> {}
+  async listPeopleInList(_listId: string): Promise<LocalPerson[]> {
     return [];
   }
   async commitEntity(entry: LocalEntityRecord): Promise<void> {
