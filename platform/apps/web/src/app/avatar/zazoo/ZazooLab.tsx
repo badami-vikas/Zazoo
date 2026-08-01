@@ -9,6 +9,10 @@ import { useMemo, useRef, useState } from "react";
 import { ZazooAvatar, DEFAULT_APPEARANCE, type ZazooAppearance } from "./ZazooAvatar";
 import { ZazooDirector, ZAZOO_EMOTIONS, ZAZOO_ACTIONS, type ZazooEmotion, type ZazooAction } from "./director";
 import { RigInspector, ZOOM_MAX, ZOOM_MIN } from "./RigInspector";
+import { SPECIES, DEFAULT_SPECIES, type ZazooSpecies } from "./species";
+
+/** Named rig layers the inspector can outline (via data-layer attributes). */
+const LAYERS = ["body", "ears", "eyes", "brows", "nose", "mouth", "cheeks", "whiskers", "suit", "tie", "paws", "tail", "shadow"];
 
 const BODY_COLORS = ["#FAF1E7", "#F0DFC2", "#D8DCE4", "#CFE0D2", "#F2C9B0", "#D6CBEB"];
 // Tints are screened over the painted charcoal fabric, so a swatch is the
@@ -57,7 +61,7 @@ function swatchStyle(color: string, active: boolean): React.CSSProperties {
  * notch (M2 Air class). It peeks HEAD-ONLY to the LEFT of the notch on
  * hover — never centered under it, never full-body.
  */
-function NotchPeek({ appearance, peek }: { appearance: ZazooAppearance; peek: boolean }) {
+function NotchPeek({ appearance, species, peek }: { appearance: ZazooAppearance; species: ZazooSpecies; peek: boolean }) {
   const director = useMemo(() => {
     const d = new ZazooDirector();
     d.perform({ emotion: "curious", attention: "user" });
@@ -81,7 +85,7 @@ function NotchPeek({ appearance, peek }: { appearance: ZazooAppearance; peek: bo
             transition: "transform 0.9s cubic-bezier(0.34, 1.45, 0.5, 1)",
           }}
         >
-          <ZazooAvatar director={director} width={110} appearance={appearance} />
+          <ZazooAvatar director={director} width={110} appearance={appearance} species={species} />
         </div>
       </div>
       {/* menu bar + camera notch, above the peek window so the head emerges from behind it */}
@@ -109,8 +113,38 @@ export function ZazooLab() {
   const [attention, setAttention] = useState<"user" | "cursor" | "away">("cursor");
   const [copied, setCopied] = useState(false);
   const [appearance, setAppearance] = useState<ZazooAppearance>(DEFAULT_APPEARANCE);
+  const [species, setSpecies] = useState<ZazooSpecies>(DEFAULT_SPECIES);
   const [peek, setPeek] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
+  const rigRef = useRef<HTMLDivElement>(null);
+
+  // switching species keeps the wardrobe, adopts the species' default felt
+  const pickSpecies = (s: ZazooSpecies) => {
+    setSpecies(s);
+    setAppearance((a) => ({ ...a, body: s.body }));
+    setLayerRects([]);
+    setSelectedLayer(null);
+  };
+
+  // layer outline overlay — snapshot of the tagged groups' screen bounds
+  const [selectedLayer, setSelectedLayer] = useState<string | null>(null);
+  const [layerRects, setLayerRects] = useState<{ x: number; y: number; w: number; h: number }[]>([]);
+  const pickLayer = (name: string) => {
+    if (selectedLayer === name) {
+      setSelectedLayer(null);
+      setLayerRects([]);
+      return;
+    }
+    const host = rigRef.current;
+    if (!host) return;
+    const origin = host.getBoundingClientRect();
+    const rects = [...host.querySelectorAll(`[data-layer="${name}"]`)].map((el) => {
+      const b = el.getBoundingClientRect();
+      return { x: b.left - origin.left, y: b.top - origin.top, w: b.width, h: b.height };
+    }).filter((r) => r.w > 0.5 && r.h > 0.5);
+    setSelectedLayer(name);
+    setLayerRects(rects);
+  };
 
   // Rig inspection — measuring the live rig against the source art. Off by
   // default so the lab still opens as a performance surface, not a ruler.
@@ -157,13 +191,14 @@ export function ZazooLab() {
   return (
     <div style={S.page} onPointerMove={onMove} onPointerLeave={() => { director.setCursor(null); setPeek(false); }}>
       <div style={S.stage} ref={stageRef}>
-        <NotchPeek appearance={appearance} peek={peek} />
+        <NotchPeek appearance={appearance} species={species} peek={peek} />
         <div
           onPointerDown={() => !inspect && director.setPetting(true)}
           onPointerUp={() => director.setPetting(false)}
           onPointerCancel={() => director.setPetting(false)}
           onPointerLeave={() => director.setPetting(false)}
-          style={{ touchAction: "none", marginTop: 90 }}
+          style={{ touchAction: "none", marginTop: 90, position: "relative" }}
+          ref={rigRef}
           title={inspect ? "Inspect mode — scroll to zoom, drag to pan" : "Press and hold to pet Zazoo"}
         >
           <RigInspector
@@ -175,8 +210,18 @@ export function ZazooLab() {
             referenceOpacity={inspect ? refOpacity : 0}
             onProbe={setProbe}
           >
-            <ZazooAvatar director={director} width={330} appearance={appearance} />
+            <ZazooAvatar director={director} width={330} appearance={appearance} species={species} />
           </RigInspector>
+          {inspect && layerRects.map((b, i) => (
+            <div
+              key={i}
+              style={{
+                position: "absolute", left: b.x, top: b.y, width: b.w, height: b.h,
+                border: "1.5px solid #D98356", borderRadius: 3, pointerEvents: "none",
+                boxShadow: "0 0 0 1px rgba(0,0,0,0.4)",
+              }}
+            />
+          ))}
         </div>
         <div style={S.hint}>
           {inspect
@@ -196,6 +241,15 @@ export function ZazooLab() {
           <p style={S.sub}>
             Emotional performance engine — same <code>perform(&#123;emotion, warmth, confidence, energy&#125;)</code> contract the agent plane uses.
           </p>
+        </div>
+
+        <div>
+          <div style={{ ...S.label, marginBottom: 7 }}>Character — a small delta on the same rig</div>
+          <div style={{ ...S.grid, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            {SPECIES.map((s) => (
+              <button key={s.id} style={btnStyle(s.id === species.id)} onClick={() => pickSpecies(s)}>{s.name}</button>
+            ))}
+          </div>
         </div>
 
         <div>
@@ -349,6 +403,17 @@ export function ZazooLab() {
               <div style={S.grid}>
                 <button style={btnStyle(showGrid)} onClick={() => setShowGrid(!showGrid)}>grid</button>
                 <button style={btnStyle(false)} onClick={() => setZoom(1)}>reset view</button>
+              </div>
+
+              <div>
+                <div style={{ ...S.label, marginBottom: 7 }}>Layers — click to outline on the rig</div>
+                <div style={{ ...S.grid, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  {LAYERS.map((name) => (
+                    <button key={name} style={{ ...btnStyle(name === selectedLayer), padding: "5px 2px", fontSize: 11 }} onClick={() => pickLayer(name)}>
+                      {name}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div>

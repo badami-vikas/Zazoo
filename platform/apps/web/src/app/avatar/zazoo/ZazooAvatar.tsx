@@ -15,6 +15,7 @@
 import { useEffect, useRef } from "react";
 import { ZazooDirector, type ZazooFrame } from "./director";
 import { MOUTH_PARTS, MOUTH_SHAPES, BROW_PARTS, BROW_SHAPES, LOOP_N, type Loop } from "./parts";
+import { DEFAULT_SPECIES, type ZazooSpecies } from "./species";
 import suitUrl from "./assets/suit-notie.webp";
 import tieUrl from "./assets/tie.webp";
 import earUrl from "./assets/ear-front.webp";
@@ -136,9 +137,11 @@ interface Props {
   director: ZazooDirector;
   width?: number;
   appearance?: ZazooAppearance;
+  /** Which character is on the rig — a small delta on the shared baseline. */
+  species?: ZazooSpecies;
 }
 
-export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEARANCE }: Props) {
+export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEARANCE, species = DEFAULT_SPECIES }: Props) {
   const refs = {
     root: useRef<SVGGElement>(null),
     cat: useRef<SVGGElement>(null),
@@ -168,6 +171,8 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
     cheekR: useRef<SVGEllipseElement>(null),
     pawL: useRef<SVGGElement>(null),
     pawR: useRef<SVGGElement>(null),
+    whiskerL: useRef<SVGGElement>(null),
+    whiskerR: useRef<SVGGElement>(null),
     shadow: useRef<SVGEllipseElement>(null),
     zzz: useRef<SVGTextElement>(null),
   };
@@ -239,8 +244,11 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
         `translate(${pivotRx} ${pivotY}) scale(${es}) translate(${-pivotRx} ${-pivotY}) rotate(${(f.earR * 0.8).toFixed(2)} ${pivotRx} ${pivotY})`,
       );
 
-      const fx = f.gazeX * 4.2;
-      const fy = f.gazeY * 2.6 + f.headDrop + f.nodY;
+      // eyes lead, head follows: the face turns on the LAGGED gaze while the
+      // pupils (below) take the raw one — a saccade reads as a decision, not
+      // as the whole head being dragged by the cursor
+      const fx = f.headGazeX * 4.2;
+      const fy = f.headGazeY * 2.6 + f.headDrop + f.nodY;
       const headXf = `translate(${fx.toFixed(2)} ${fy.toFixed(2)}) rotate(${f.headTilt.toFixed(2)} ${RIG.head.x} ${RIG.head.y})`;
       r.face.current!.setAttribute("transform", headXf);
       // the cheeks sit in a different layer (under the suit) but belong to the
@@ -273,15 +281,17 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       const bsx = 1 + f.browRaise * 0.2 - f.browFurrow * 0.18;
       const bsy = 1 + f.browRaise * 0.12 + f.browSorrow * 0.1;
       r.browL.current!.setAttribute("d", blendPath(browLoops, f.browW, browBuf, RIG.brow.lx, by, bsx, bsy));
-      // the right brow is the same part mirrored, so both read as one pair
-      r.browR.current!.setAttribute("d", blendPath(browLoops, f.browW, browBuf, RIG.brow.rx, by, -bsx, bsy));
+      // the right brow is the same part mirrored — but NOT to the pixel. It
+      // raises 94% as far and drifts a fraction of a degree with the breath:
+      // perfect symmetry is the strongest "printed on" tell a face can give.
+      r.browR.current!.setAttribute("d", blendPath(browLoops, f.browW, browBuf, RIG.brow.rx, by, -bsx, bsy * 0.97));
       r.browL.current!.setAttribute(
         "transform",
         `translate(${furrowIn.toFixed(2)} ${braise.toFixed(2)}) rotate(${(f.browSorrow * 16 - f.browFurrow * 13).toFixed(2)} ${RIG.brow.lx} ${by})`,
       );
       r.browR.current!.setAttribute(
         "transform",
-        `translate(${(-furrowIn).toFixed(2)} ${braise.toFixed(2)}) rotate(${(-f.browSorrow * 16 + f.browFurrow * 13).toFixed(2)} ${RIG.brow.rx} ${by})`,
+        `translate(${(-furrowIn).toFixed(2)} ${(braise * 0.94 + f.breath * 0.22).toFixed(2)}) rotate(${(-f.browSorrow * 16 + f.browFurrow * 13 + f.breath * 0.6).toFixed(2)} ${RIG.brow.rx} ${by})`,
       );
 
       r.specs.current?.setAttribute("transform", `translate(${(f.specJiggle * 0.6).toFixed(2)} ${(Math.abs(f.specJiggle) * 0.5 + f.pawLift * 1.5).toFixed(2)})`);
@@ -336,6 +346,17 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       r.cheekL.current!.setAttribute("transform", `translate(${RIG.cheek.lx} ${RIG.cheek.y}) scale(${puff}) translate(${-RIG.cheek.lx} ${-RIG.cheek.y})`);
       r.cheekR.current!.setAttribute("transform", `translate(${RIG.cheek.rx} ${RIG.cheek.y}) scale(${puff}) translate(${-RIG.cheek.rx} ${-RIG.cheek.y})`);
 
+      // whiskers (whiskered species only) — pure secondary action, consuming
+      // the director's whiskerSway/whiskerDroop channels: they float on the
+      // idle air, and hang when the mood does. Signs differ because a left
+      // whisker's tip is at -x, so the same on-screen "tips up" is +deg on
+      // the left group and -deg on the right.
+      if (r.whiskerL.current) {
+        const tipsUp = f.whiskerSway - f.whiskerDroop * 13;
+        r.whiskerL.current.setAttribute("transform", `rotate(${tipsUp.toFixed(2)} 98 138)`);
+        r.whiskerR.current!.setAttribute("transform", `rotate(${(-tipsUp).toFixed(2)} 142 138)`);
+      }
+
       // HAND CHOREOGRAPHY — every channel is a weighted offset from the quiet
       // rest pose, summed rather than switched. Channels are springed in the
       // director, so mid-transition the paws draw a real arc between stages
@@ -382,6 +403,47 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
   const suitDark = shade(suit, -0.25);
   const patchInk = "#141519";
   const ink = "#22232A";
+  const feltLine = shade(body, -0.42);
+
+  /**
+   * Vector felt ear, one per side, drawn at the same anchors the painted cap
+   * uses so the existing ear pivots (scale/swivel at the skull) keep working.
+   * `m` mirrors the x-offsets; everything else is shared.
+   */
+  const vectorEar = (side: "L" | "R") => {
+    const ex = side === "L" ? 79 : 161;
+    const m = side === "L" ? 1 : -1;
+    const X = (dx: number) => (ex + m * dx).toFixed(1);
+    if (species.ears === "point") {
+      return (
+        <>
+          <path
+            d={`M ${X(-17)},112 Q ${X(-21)},88 ${X(-8)},72 Q ${X(-1)},64 ${X(6)},76 Q ${X(14)},92 ${X(11)},110 Z`}
+            fill={body} stroke={feltLine} strokeWidth="2"
+          />
+          <path
+            d={`M ${X(-10)},106 Q ${X(-12)},90 ${X(-4)},79 Q ${X(1)},74 ${X(5)},84 Q ${X(9)},94 ${X(7)},104 Z`}
+            fill={species.earInner} opacity="0.85"
+          />
+        </>
+      );
+    }
+    if (species.ears === "tall") {
+      return (
+        <g transform={`rotate(${m * -11} ${ex} 96)`}>
+          <ellipse cx={ex} cy={58} rx={11.5} ry={34} fill={body} stroke={feltLine} strokeWidth="2" />
+          <ellipse cx={ex} cy={61} rx={5.5} ry={24} fill={species.earInner} opacity="0.85" />
+        </g>
+      );
+    }
+    // bud — small round felt ear (bear / rhino family)
+    return (
+      <>
+        <circle cx={ex} cy={89} r={15} fill={body} stroke={feltLine} strokeWidth="2" />
+        <circle cx={ex} cy={89} r={8} fill={species.earInner} opacity="0.8" />
+      </>
+    );
+  };
 
   const snoutH = RIG.snout.w / RIG.snout.aspect;
   const pawH = RIG.paw.w / RIG.paw.aspect;
@@ -446,7 +508,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       </defs>
 
       <g ref={refs.root}>
-        <ellipse ref={refs.shadow} cx="120" cy="294" rx="62" ry="7" fill="#000" opacity="0.10" />
+        <ellipse ref={refs.shadow} data-layer="shadow" cx="120" cy="294" rx="62" ry="7" fill="#000" opacity="0.10" />
 
         {/* Compact cloth bundle shown in the hide pose. */}
         <g ref={refs.bundle} opacity="0">
@@ -455,29 +517,53 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
         </g>
 
         <g ref={refs.cat}>
-          {/* stubby panda tail — barely clears the silhouette from the front,
-              but still carries the director's wag */}
-          <g ref={refs.tail}>
-            <ellipse cx="190" cy="248" rx="8.5" ry="6.5" fill={shade(suit, -0.1)} />
-            <ellipse cx="192" cy="246" rx="3.6" ry="2.6" fill={shade(suit, 0.22)} opacity="0.7" />
+          {/* tail — species delta on the same wag pivot: panda/bear keep the
+              suit-colored stub, cat gets a felt curl, rabbit a cotton puff */}
+          <g ref={refs.tail} data-layer="tail">
+            {species.tail === "curl" ? (
+              <path
+                d="M 186,254 Q 208,250 210,232 Q 211,220 200,219 Q 192,219 192,227"
+                fill="none" stroke={bodyDark} strokeWidth="8" strokeLinecap="round"
+              />
+            ) : species.tail === "puff" ? (
+              <>
+                <circle cx="192" cy="248" r="9.5" fill={bodyLight} stroke={feltLine} strokeWidth="1.6" />
+                <circle cx="189" cy="245" r="4" fill="#FFF" opacity="0.7" />
+              </>
+            ) : (
+              <>
+                <ellipse cx="190" cy="248" rx="8.5" ry="6.5" fill={shade(suit, -0.1)} />
+                <ellipse cx="192" cy="246" rx="3.6" ry="2.6" fill={shade(suit, 0.22)} opacity="0.7" />
+              </>
+            )}
           </g>
 
           <g ref={refs.body}>
-            {/* painted ear caps — behind the head, so only the outer arc
-                shows and the tapered root tucks under the skull */}
-            <g ref={refs.earL}>
-              <image href={earUrl} x={RIG.ear.lx} y={RIG.ear.y} width={RIG.ear.w} height={RIG.ear.h} />
+            {/* ears — behind the head, so only the outer arc shows and the
+                root tucks under the skull. Panda keeps the painted cap; other
+                species swap in a vector felt shape at the same pivots, which
+                is all it takes for the earScale/earPerk acting to carry over. */}
+            <g ref={refs.earL} data-layer="ears">
+              {species.ears === "cap" ? (
+                <image href={earUrl} x={RIG.ear.lx} y={RIG.ear.y} width={RIG.ear.w} height={RIG.ear.h} />
+              ) : (
+                vectorEar("L")
+              )}
             </g>
-            <g ref={refs.earR}>
-              <g transform={`translate(${2 * (RIG.ear.rx + RIG.ear.w / 2)} 0) scale(-1 1)`}>
-                <image href={earUrl} x={RIG.ear.rx} y={RIG.ear.y} width={RIG.ear.w} height={RIG.ear.h} />
-              </g>
+            <g ref={refs.earR} data-layer="ears">
+              {species.ears === "cap" ? (
+                <g transform={`translate(${2 * (RIG.ear.rx + RIG.ear.w / 2)} 0) scale(-1 1)`}>
+                  <image href={earUrl} x={RIG.ear.rx} y={RIG.ear.y} width={RIG.ear.w} height={RIG.ear.h} />
+                </g>
+              ) : (
+                vectorEar("R")
+              )}
             </g>
 
             {/* cream felt body traced from the source art — the ink line is
                 stroked INSIDE the clip so the body never grows past the
                 silhouette the painted suit was registered against */}
-            <path d={BODY_PATH} fill="url(#zz-body)" />
+            <path d={BODY_PATH} fill="url(#zz-body)" data-layer="body" />
             <g clipPath="url(#zz-bodyclip)">
               <ellipse cx="88" cy="112" rx="34" ry="26" fill="#FFF" opacity="0.34" filter="url(#zz-soft)" />
               {/* rim light down the shaded side, opposite the key */}
@@ -492,7 +578,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 Painted over the fabric they read as a stain on the jacket. They
                 still ride the head, so `apply` gives them the face transform. */}
             <g ref={refs.cheekFace}>
-              <g ref={refs.cheekG} opacity="0.4">
+              <g ref={refs.cheekG} data-layer="cheeks" opacity="0.4">
                 <ellipse ref={refs.cheekL} cx={RIG.cheek.lx} cy={RIG.cheek.y} rx="7" ry="5" fill="#F2C7C0" />
                 <ellipse ref={refs.cheekR} cx={RIG.cheek.rx} cy={RIG.cheek.y} rx="7" ry="5" fill="#F2C7C0" />
               </g>
@@ -503,7 +589,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 so a tint lands on cloth and nowhere else. The tie is a
                 separate sheet for exactly this reason: it has to take a
                 different colour from the jacket it sits on. */}
-            <g style={{ isolation: "isolate" }}>
+            <g style={{ isolation: "isolate" }} data-layer="suit">
               <image href={suitUrl} x={RIG.suit.x} y={RIG.suit.y} width={RIG.suit.w} height={RIG.suit.h} />
               <rect
                 x={RIG.suit.x} y={RIG.suit.y} width={RIG.suit.w} height={RIG.suit.h}
@@ -511,7 +597,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
               />
             </g>
             {accessory === "tie" && (
-              <g style={{ isolation: "isolate" }}>
+              <g style={{ isolation: "isolate" }} data-layer="tie">
                 <image href={tieUrl} x={RIG.tie.x} y={RIG.tie.y} width={RIG.tie.w} height={RIG.tie.h} />
                 <rect
                   x={RIG.tie.x} y={RIG.tie.y} width={RIG.tie.w} height={RIG.tie.h}
@@ -543,18 +629,22 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
             )}
 
             {/* face */}
-            <g ref={refs.face}>
+            <g ref={refs.face} data-layer="face">
               {/* painted eye patches — panda anatomy, they never blink. The
                   sheet carries the art's own tilt, ink rim and soft interior,
                   so there is no angle left for the rig to approximate. */}
-              <image href={patchUrl} x={RIG.patch.lx} y={RIG.patch.y} width={RIG.patch.w} height={RIG.patch.h} />
-              <g transform={`translate(${2 * (RIG.patch.rx + RIG.patch.w / 2)} 0) scale(-1 1)`}>
-                <image href={patchUrl} x={RIG.patch.rx} y={RIG.patch.y} width={RIG.patch.w} height={RIG.patch.h} />
-              </g>
+              {species.patches && (
+                <>
+                  <image href={patchUrl} x={RIG.patch.lx} y={RIG.patch.y} width={RIG.patch.w} height={RIG.patch.h} />
+                  <g transform={`translate(${2 * (RIG.patch.rx + RIG.patch.w / 2)} 0) scale(-1 1)`}>
+                    <image href={patchUrl} x={RIG.patch.rx} y={RIG.patch.y} width={RIG.patch.w} height={RIG.patch.h} />
+                  </g>
+                </>
+              )}
 
               {/* brows are solid parts off the sheet, not strokes we draw */}
-              <path ref={refs.browL} d="" fill={ink} />
-              <path ref={refs.browR} d="" fill={ink} />
+              <path ref={refs.browL} d="" fill={ink} data-layer="brows" />
+              <path ref={refs.browR} d="" fill={ink} data-layer="brows" />
 
               {/* glossy eyes, kept from the cat rig, tilted with the patch and
                   set where the art puts them: up and toward the nose. Both
@@ -566,7 +656,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                   [RIG.eye.rx, -1, refs.eyeR, refs.pupilR, refs.sparkleR],
                 ] as const
               ).map(([ex, dir, eyeRef, pupilRef, sparkRef], i) => (
-                <g key={i} ref={eyeRef}>
+                <g key={i} ref={eyeRef} data-layer="eyes">
                   <g transform={`rotate(${-dir * RIG.eye.tilt} ${ex} ${RIG.eye.y})`}>
                     <ellipse cx={ex} cy={RIG.eye.y} rx={erx} ry={ery} fill="url(#zz-eye)" />
                     <g ref={pupilRef}>
@@ -596,22 +686,65 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 </g>
               )}
 
-              {/* painted snout, then the mouth part beneath it — silhouette
-                  first, tongue clipped into the cavity on top */}
-              <image href={snoutUrl} x={120 - RIG.snout.w / 2} y={RIG.snout.y - snoutH / 2} width={RIG.snout.w} height={snoutH} />
-              <path ref={refs.mouth} d="" fill="#202126" />
+              {/* muzzle field (bear family) — a light patch the nose and
+                  mouth sit on, drawn before both */}
+              {species.muzzle && (
+                <ellipse cx="120" cy="135" rx="15" ry="10.5" fill={shade(body, 0.4)} opacity="0.9" data-layer="nose" />
+              )}
+
+              {/* whiskers — secondary action riding whiskerSway/whiskerDroop;
+                  anchored at the muzzle so they fan past the cheeks */}
+              {species.whiskers && (
+                <>
+                  <g ref={refs.whiskerL} data-layer="whiskers" stroke={feltLine} strokeWidth="1.1" strokeLinecap="round" opacity="0.55" fill="none">
+                    <path d="M 97,135 Q 78,130 63,132" />
+                    <path d="M 97,139 Q 75,138 59,142" />
+                    <path d="M 97,143 Q 79,146 66,152" />
+                  </g>
+                  <g ref={refs.whiskerR} data-layer="whiskers" stroke={feltLine} strokeWidth="1.1" strokeLinecap="round" opacity="0.55" fill="none">
+                    <path d="M 143,135 Q 162,130 177,132" />
+                    <path d="M 143,139 Q 165,138 181,142" />
+                    <path d="M 143,143 Q 161,146 174,152" />
+                  </g>
+                </>
+              )}
+
+              {/* nose: panda keeps the painted snout sheet; everyone else
+                  gets a small vector felt nose at the same anchor */}
+              {species.nose === "painted" ? (
+                <image href={snoutUrl} x={120 - RIG.snout.w / 2} y={RIG.snout.y - snoutH / 2} width={RIG.snout.w} height={snoutH} data-layer="nose" />
+              ) : species.nose === "tri" ? (
+                <g data-layer="nose">
+                  <path d="M 114.5,127.5 Q 120,124.5 125.5,127.5 Q 124,133 120,134.2 Q 116,133 114.5,127.5 Z" fill={species.noseColor} stroke={shade(species.noseColor, -0.3)} strokeWidth="0.8" />
+                  <ellipse cx="117.6" cy="127.8" rx="1.5" ry="0.9" fill="#FFF" opacity="0.5" />
+                </g>
+              ) : (
+                <g data-layer="nose">
+                  <ellipse cx="120" cy="129.5" rx="6.5" ry="4.6" fill={species.noseColor} />
+                  <ellipse cx="117.5" cy="127.8" rx="2" ry="1.2" fill="#FFF" opacity="0.35" />
+                </g>
+              )}
+
+              {/* horn — rhino identity: one felt cone rising off the snout */}
+              {species.horn && (
+                <path d="M 113,125 Q 120,102 127,125 Q 120,130 113,125 Z" fill="#EFE9DC" stroke={shade("#EFE9DC", -0.4)} strokeWidth="1.4" data-layer="nose" />
+              )}
+
+              {/* the mouth part beneath — silhouette first, tongue derived
+                  from the cavity on top */}
+              <path ref={refs.mouth} d="" fill="#202126" data-layer="mouth" />
               <g ref={refs.tongueG} opacity="0">
                 <path ref={refs.tongueFill} d="" fill={TONGUE} />
               </g>
             </g>
 
             {/* painted mitts, mirrored from the one source limb */}
-            <g ref={refs.pawL} filter="url(#zz-mitt)">
+            <g ref={refs.pawL} data-layer="paws" filter="url(#zz-mitt)">
               <g transform={`rotate(${-RIG.paw.tilt} ${RIG.paw.lx} ${RIG.paw.y}) translate(${2 * RIG.paw.lx} 0) scale(-1 1)`}>
                 <image href={armUrl} x={RIG.paw.lx - RIG.paw.w / 2} y={RIG.paw.y - pawH / 2} width={RIG.paw.w} height={pawH} />
               </g>
             </g>
-            <g ref={refs.pawR} filter="url(#zz-mitt)">
+            <g ref={refs.pawR} data-layer="paws" filter="url(#zz-mitt)">
               <g transform={`rotate(${RIG.paw.tilt} ${RIG.paw.rx} ${RIG.paw.y})`}>
                 <image href={armUrl} x={RIG.paw.rx - RIG.paw.w / 2} y={RIG.paw.y - pawH / 2} width={RIG.paw.w} height={pawH} />
               </g>

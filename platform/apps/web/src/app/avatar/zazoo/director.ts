@@ -136,6 +136,14 @@ export interface ZazooFrame extends Pose {
   breath: number; // -1..1 oscillation at the current rhythm
   gazeX: number;
   gazeY: number;
+  /**
+   * The head's own, LAGGED copy of the gaze. Lasseter: the eyes lead every
+   * action — a dart is instant, the head follows because it decided to. The
+   * renderer points pupils at gazeX/Y and the face at headGazeX/Y; the gap
+   * between them is the visible thought.
+   */
+  headGazeX: number;
+  headGazeY: number;
   hopY: number; // px vertical offset (gestures + levitate + creep)
   wiggle: number; // deg root rotation (giggle)
   pawLift: number; // 0..1 right paw to spectacles
@@ -312,6 +320,7 @@ export class ZazooDirector {
   private doubleBlink = false;
   private nextSaccade = 0.8;
   private sacX = 0; private sacY = 0;
+  private hgX = 0; private hgY = 0; // head's lagged gaze
   private nextEarTwitch = 6;
   private earTwitchT = -1;
   private nextIdleGesture = 12;
@@ -464,6 +473,11 @@ export class ZazooDirector {
     }
     gx = Math.max(-1, Math.min(1, gx));
     gy = Math.max(-1, Math.min(1, gy));
+    // eyes lead, head follows — the head chases the gaze at ~1/4 second, so
+    // a glance stays a glance and only a HELD look turns the whole face
+    const chase = Math.min(1, dt * 3.6);
+    this.hgX += (gx - this.hgX) * chase;
+    this.hgY += (gy - this.hgY) * chase;
 
     let earTwitch = 0;
     if (this.earTwitchT >= 0) {
@@ -557,6 +571,8 @@ export class ZazooDirector {
       breath,
       gazeX: gx,
       gazeY: gy,
+      headGazeX: this.hgX,
+      headGazeY: this.hgY,
       hopY: hopY + creepY + levitateY,
       wiggle,
       pawLift,
