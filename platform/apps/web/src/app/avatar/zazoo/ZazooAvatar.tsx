@@ -255,7 +255,10 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       // same head, so they take the identical transform
       r.cheekFace.current!.setAttribute("transform", headXf);
 
-      const eo = Math.max(0.04, Math.min(1.15, f.eyeOpen));
+      // fully-closable: 0 collapses the eye to nothing and the drawn lid arc
+      // (opacity ramps in below) takes over — meditation is a CLOSED eye,
+      // not a squint
+      const eo = Math.max(0, Math.min(1.15, f.eyeOpen));
       r.eyeL.current!.setAttribute("transform", `translate(${RIG.eye.lx} ${RIG.eye.y}) scale(1 ${eo.toFixed(3)}) translate(${-RIG.eye.lx} ${-RIG.eye.y})`);
       r.eyeR.current!.setAttribute("transform", `translate(${RIG.eye.rx} ${RIG.eye.y}) scale(1 ${eo.toFixed(3)}) translate(${-RIG.eye.rx} ${-RIG.eye.y})`);
       // A shut dark eye would vanish inside the black patch, so the closing
@@ -414,8 +417,28 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
     const ex = side === "L" ? 79 : 161;
     const m = side === "L" ? 1 : -1;
     const X = (dx: number) => (ex + m * dx).toFixed(1);
+    const sz = species.earSize ?? 1;
+    // antlers ride the ear groups on purpose: they share the skull pivot, so
+    // ear perks and listening scale carry them — cheap secondary life
+    const antlers = species.horn === "antlers" && (
+      <g stroke="#9A7B54" strokeWidth="2.6" strokeLinecap="round" fill="none">
+        <path d={`M ${X(7)},92 Q ${X(9)},72 ${X(16)},60`} />
+        <path d={`M ${X(10)},76 Q ${X(4)},70 ${X(0)},70`} />
+        <path d={`M ${X(13)},66 Q ${X(19)},62 ${X(22)},63`} />
+      </g>
+    );
+    const scaled = (inner: React.ReactNode) =>
+      sz === 1 ? (
+        <>{antlers}{inner}</>
+      ) : (
+        <>
+          {antlers}
+          <g transform={`translate(${ex} 108) scale(${sz}) translate(${-ex} -108)`}>{inner}</g>
+        </>
+      );
+    if (species.ears === "none") return antlers || null;
     if (species.ears === "point") {
-      return (
+      return scaled(
         <>
           <path
             d={`M ${X(-17)},112 Q ${X(-21)},88 ${X(-8)},72 Q ${X(-1)},64 ${X(6)},76 Q ${X(14)},92 ${X(11)},110 Z`}
@@ -425,23 +448,23 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
             d={`M ${X(-10)},106 Q ${X(-12)},90 ${X(-4)},79 Q ${X(1)},74 ${X(5)},84 Q ${X(9)},94 ${X(7)},104 Z`}
             fill={species.earInner} opacity="0.85"
           />
-        </>
+        </>,
       );
     }
     if (species.ears === "tall") {
-      return (
+      return scaled(
         <g transform={`rotate(${m * -11} ${ex} 96)`}>
           <ellipse cx={ex} cy={58} rx={11.5} ry={34} fill={body} stroke={feltLine} strokeWidth="2" />
           <ellipse cx={ex} cy={61} rx={5.5} ry={24} fill={species.earInner} opacity="0.85" />
-        </g>
+        </g>,
       );
     }
     // bud — small round felt ear (bear / rhino family)
-    return (
+    return scaled(
       <>
         <circle cx={ex} cy={89} r={15} fill={body} stroke={feltLine} strokeWidth="2" />
         <circle cx={ex} cy={89} r={8} fill={species.earInner} opacity="0.8" />
-      </>
+      </>,
     );
   };
 
@@ -517,8 +540,10 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
         </g>
 
         <g ref={refs.cat}>
-          {/* tail — species delta on the same wag pivot: panda/bear keep the
-              suit-colored stub, cat gets a felt curl, rabbit a cotton puff */}
+          {/* tail — species delta on the same wag pivot. ALWAYS the animal's
+              own color: a tail is anatomy, the suit is clothes. (Yes, pandas
+              have tails — a short white stub, which is exactly what the felt
+              stub in body color gives Zazoo.) */}
           <g ref={refs.tail} data-layer="tail">
             {species.tail === "curl" ? (
               <path
@@ -530,10 +555,22 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 <circle cx="192" cy="248" r="9.5" fill={bodyLight} stroke={feltLine} strokeWidth="1.6" />
                 <circle cx="189" cy="245" r="4" fill="#FFF" opacity="0.7" />
               </>
+            ) : species.tail === "fan" ? (
+              // small folded train — five felt feathers with eyespots,
+              // rocking on the same wag pivot
+              <g>
+                {[-52, -26, 0, 26, 52].map((a, i) => (
+                  <g key={a} transform={`rotate(${a + 14} 188 250)`}>
+                    <ellipse cx="188" cy="234" rx="4.6" ry="12.5" fill={i % 2 ? shade(body, -0.22) : shade(body, 0.12)} stroke={feltLine} strokeWidth="1" />
+                    <circle cx="188" cy="228" r="2" fill={shade(body, -0.5)} />
+                    <circle cx="188" cy="228" r="0.9" fill={shade(body, 0.5)} />
+                  </g>
+                ))}
+              </g>
             ) : (
               <>
-                <ellipse cx="190" cy="248" rx="8.5" ry="6.5" fill={shade(suit, -0.1)} />
-                <ellipse cx="192" cy="246" rx="3.6" ry="2.6" fill={shade(suit, 0.22)} opacity="0.7" />
+                <ellipse cx="190" cy="248" rx="8.5" ry="6.5" fill={body} stroke={feltLine} strokeWidth="1.6" />
+                <ellipse cx="192" cy="246" rx="3.6" ry="2.6" fill={bodyLight} opacity="0.8" />
               </>
             )}
           </g>
@@ -655,22 +692,39 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                   [RIG.eye.lx, 1, refs.eyeL, refs.pupilL, refs.sparkleL],
                   [RIG.eye.rx, -1, refs.eyeR, refs.pupilR, refs.sparkleR],
                 ] as const
-              ).map(([ex, dir, eyeRef, pupilRef, sparkRef], i) => (
-                <g key={i} ref={eyeRef} data-layer="eyes">
-                  <g transform={`rotate(${-dir * RIG.eye.tilt} ${ex} ${RIG.eye.y})`}>
-                    <ellipse cx={ex} cy={RIG.eye.y} rx={erx} ry={ery} fill="url(#zz-eye)" />
-                    <g ref={pupilRef}>
+              ).map(([ex, dir, eyeRef, pupilRef, sparkRef], i) =>
+                species.eye === "dark" ? (
+                  // panda: the whole eye is the dark gloss, tilted with its
+                  // patch; the catchlights carry the gaze
+                  <g key={i} ref={eyeRef} data-layer="eyes">
+                    <g transform={`rotate(${-dir * RIG.eye.tilt} ${ex} ${RIG.eye.y})`}>
                       <ellipse cx={ex} cy={RIG.eye.y} rx={erx} ry={ery} fill="url(#zz-eye)" />
-                      <circle cx={ex + dir * 0.45} cy={RIG.eye.y - 2.3} r={1.25} fill="#FFF" opacity="0.97" />
-                      <circle ref={sparkRef} cx={ex - dir * 1.9} cy={RIG.eye.y + 2.4} r={0.72} fill="#FFF" opacity="0.5" />
+                      <g ref={pupilRef}>
+                        <ellipse cx={ex} cy={RIG.eye.y} rx={erx} ry={ery} fill="url(#zz-eye)" />
+                        <circle cx={ex + dir * 0.45} cy={RIG.eye.y - 2.3} r={1.25} fill="#FFF" opacity="0.97" />
+                        <circle ref={sparkRef} cx={ex - dir * 1.9} cy={RIG.eye.y + 2.4} r={0.72} fill="#FFF" opacity="0.5" />
+                      </g>
                     </g>
                   </g>
-                </g>
-              ))}
+                ) : (
+                  // everyone else: white sclera, rounder and upright, with a
+                  // centered dark pupil — the sclera stays put, only the
+                  // pupil travels, which is what sells a LOOK rather than a
+                  // whole eye sliding around
+                  <g key={i} ref={eyeRef} data-layer="eyes">
+                    <ellipse cx={ex} cy={RIG.eye.y} rx={4.7} ry={5.15} fill="#FFFEFA" stroke={feltLine} strokeWidth="1" />
+                    <g ref={pupilRef}>
+                      <circle cx={ex} cy={RIG.eye.y} r={2.6} fill="#2A2530" />
+                      <circle cx={ex - dir * 0.8} cy={RIG.eye.y - 0.9} r={0.85} fill="#FFF" opacity="0.95" />
+                      <circle ref={sparkRef} cx={ex + dir * 1.1} cy={RIG.eye.y + 1.2} r={0.5} fill="#FFF" opacity="0.5" />
+                    </g>
+                  </g>
+                ),
+              )}
 
               {([[RIG.eye.lx, refs.lidL], [RIG.eye.rx, refs.lidR]] as const).map(([ex, lidRef], i) => (
                 <path
-                  key={i} ref={lidRef} opacity="0" fill="none" stroke={bodyLight} strokeWidth={1.5} strokeLinecap="round"
+                  key={i} ref={lidRef} opacity="0" fill="none" stroke={species.eye === "dark" ? bodyLight : shade(body, -0.52)} strokeWidth={1.5} strokeLinecap="round"
                   d={`M ${(ex - erx * 1.5).toFixed(2)},${(RIG.eye.y + 1.2).toFixed(2)} q ${(erx * 1.5).toFixed(2)},-4.6 ${(erx * 3).toFixed(2)},0`}
                 />
               ))}
@@ -709,14 +763,39 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 </>
               )}
 
-              {/* nose: panda keeps the painted snout sheet; everyone else
-                  gets a small vector felt nose at the same anchor */}
+              {/* crest — peacock head filaments, tipped with dots */}
+              {species.crest && (
+                <g data-layer="nose" stroke={shade(body, -0.35)} strokeWidth="1.6" strokeLinecap="round" fill="none">
+                  <path d="M 112,80 Q 109,68 105,63" />
+                  <path d="M 120,77 Q 120,64 120,59" />
+                  <path d="M 128,80 Q 131,68 135,63" />
+                  <circle cx="105" cy="62" r="2.2" fill={shade(body, -0.2)} stroke="none" />
+                  <circle cx="120" cy="58" r="2.2" fill={shade(body, -0.2)} stroke="none" />
+                  <circle cx="135" cy="62" r="2.2" fill={shade(body, -0.2)} stroke="none" />
+                </g>
+              )}
+
+              {/* nose: panda keeps the painted snout sheet; the rest get a
+                  vector treatment at the same anchor. Rhinos deliberately do
+                  NOT get a button nose — the horn grows from the snout, so
+                  they get a felt mound with nostrils and the cone on top. */}
               {species.nose === "painted" ? (
                 <image href={snoutUrl} x={120 - RIG.snout.w / 2} y={RIG.snout.y - snoutH / 2} width={RIG.snout.w} height={snoutH} data-layer="nose" />
               ) : species.nose === "tri" ? (
                 <g data-layer="nose">
                   <path d="M 114.5,127.5 Q 120,124.5 125.5,127.5 Q 124,133 120,134.2 Q 116,133 114.5,127.5 Z" fill={species.noseColor} stroke={shade(species.noseColor, -0.3)} strokeWidth="0.8" />
                   <ellipse cx="117.6" cy="127.8" rx="1.5" ry="0.9" fill="#FFF" opacity="0.5" />
+                </g>
+              ) : species.nose === "nostrils" ? (
+                <g data-layer="nose">
+                  <ellipse cx="120" cy="130" rx="9" ry="6.2" fill={shade(body, 0.22)} stroke={feltLine} strokeWidth="1" opacity="0.95" />
+                  <ellipse cx="116.4" cy="131" rx="1.7" ry="1.15" fill={species.noseColor} />
+                  <ellipse cx="123.6" cy="131" rx="1.7" ry="1.15" fill={species.noseColor} />
+                </g>
+              ) : species.nose === "beak" ? (
+                <g data-layer="nose">
+                  <path d="M 113.5,126 Q 120,122.5 126.5,126 Q 123.5,135.5 120,137 Q 116.5,135.5 113.5,126 Z" fill={species.noseColor} stroke={shade(species.noseColor, -0.35)} strokeWidth="1" />
+                  <path d="M 114.5,127.6 Q 120,125.2 125.5,127.6" fill="none" stroke={shade(species.noseColor, -0.3)} strokeWidth="0.7" opacity="0.7" />
                 </g>
               ) : (
                 <g data-layer="nose">
@@ -725,9 +804,9 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 </g>
               )}
 
-              {/* horn — rhino identity: one felt cone rising off the snout */}
-              {species.horn && (
-                <path d="M 113,125 Q 120,102 127,125 Q 120,130 113,125 Z" fill="#EFE9DC" stroke={shade("#EFE9DC", -0.4)} strokeWidth="1.4" data-layer="nose" />
+              {/* horn — rhino: one felt cone rising off the snout mound */}
+              {species.horn === "cone" && (
+                <path d="M 114,126 Q 120,104 126,126 Q 120,130 114,126 Z" fill="#EFE9DC" stroke={shade("#EFE9DC", -0.4)} strokeWidth="1.4" data-layer="nose" />
               )}
 
               {/* the mouth part beneath — silhouette first, tongue derived

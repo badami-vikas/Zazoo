@@ -38,6 +38,11 @@ const S: Record<string, React.CSSProperties> = {
   label: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: 1.2, opacity: 0.5 },
   hint: { fontSize: 12, opacity: 0.45, textAlign: "center" },
   swatchRow: { display: "flex", gap: 8, flexWrap: "wrap" },
+  select: {
+    width: "100%", padding: "9px 10px", borderRadius: 10, fontSize: 13, cursor: "pointer",
+    border: "1px solid rgba(255,250,240,0.18)", background: "#2A2620", color: "#EFE6D6",
+    fontFamily: "inherit",
+  },
 };
 
 function btnStyle(active: boolean): React.CSSProperties {
@@ -245,20 +250,31 @@ export function ZazooLab() {
 
         <div>
           <div style={{ ...S.label, marginBottom: 7 }}>Character — a small delta on the same rig</div>
-          <div style={{ ...S.grid, gridTemplateColumns: "1fr 1fr 1fr" }}>
+          <select
+            style={S.select}
+            value={species.id}
+            onChange={(ev) => {
+              const s = SPECIES.find((x) => x.id === ev.target.value);
+              if (s) pickSpecies(s);
+            }}
+          >
             {SPECIES.map((s) => (
-              <button key={s.id} style={btnStyle(s.id === species.id)} onClick={() => pickSpecies(s)}>{s.name}</button>
+              <option key={s.id} value={s.id}>{s.name} — {s.kind}</option>
             ))}
-          </div>
+          </select>
         </div>
 
         <div>
           <div style={{ ...S.label, marginBottom: 7 }}>Emotion — how Zazoo feels</div>
-          <div style={S.grid}>
+          <select
+            style={S.select}
+            value={emotion}
+            onChange={(ev) => sendEmotion(ev.target.value as ZazooEmotion)}
+          >
             {ZAZOO_EMOTIONS.map((e) => (
-              <button key={e} style={btnStyle(e === emotion)} onClick={() => sendEmotion(e)}>{e}</button>
+              <option key={e} value={e}>{e[0].toUpperCase() + e.slice(1)}</option>
             ))}
-          </div>
+          </select>
         </div>
 
         <div>

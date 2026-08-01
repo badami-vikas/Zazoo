@@ -257,7 +257,8 @@ const EMOTIONS: Record<ZazooEmotion, [Partial<Pose>, Partial<Behavior>]> = {
 const ACTIONS: Record<ZazooAction, [Partial<Pose>, Partial<Behavior>]> = {
   idle: [{}, {}],
   meditating: [
-    { eyeOpen: 0.05, pawMeditate: 1, levitate: 1, posture: 0.8, earL: 2, earR: 2, whiskerFloat: 0.8, headTilt: 0, headDrop: 0 },
+    // eyes FULLY closed — the renderer draws the lid arc once eyeOpen hits 0
+    { eyeOpen: 0, pawMeditate: 1, levitate: 1, posture: 0.8, earL: 2, earR: 2, whiskerFloat: 0.8, headTilt: 0, headDrop: 0 },
     { breathRate: 0.07, breathDepth: 1.2, blinkEvery: 999, saccadeAmp: 0, tailWag: 0 },
   ],
   sneaking: [
@@ -559,7 +560,7 @@ export class ZazooDirector {
 
     return {
       ...this.pose,
-      eyeOpen: Math.max(0.02, this.pose.eyeOpen * (1 - blink) - yawnOpen * 0.6),
+      eyeOpen: Math.max(0, this.pose.eyeOpen * (1 - blink) - yawnOpen * 0.6),
       // A parted mouth never holds still: the jaw rides the breath, so idling
       // reads as alive rather than as a paused frame.
       mouthOpen: Math.max(
