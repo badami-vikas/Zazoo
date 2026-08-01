@@ -67,9 +67,10 @@ const RIG = {
   // collar even at full head-drop
   cheek: { lx: 76, rx: 164, y: 143 },
   head: { x: 120, y: 152 },
-  // mitts rest at tie level just below the chin, set wide enough to clear the
-  // white collar points and sit on the lapels
-  paw: { lx: 92, rx: 148, y: 193, w: 24, aspect: 1.133, tilt: 26 },
+  // mitts rest LOW and quiet at the belly — the reference art is a clean egg,
+  // so at rest the hands stay out of the statement; every gesture channel
+  // LIFTS them from here into one meaningful stage position and back
+  paw: { lx: 99, rx: 141, y: 212, w: 24, aspect: 1.133, tilt: 16 },
   suit: { x: 40.54, y: 137.17, w: 159.05, h: 150.64 },
   // lifted off the same 3840² canvas as the suit, so it drops back into the
   // collar with no alignment of its own
@@ -335,21 +336,30 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       r.cheekL.current!.setAttribute("transform", `translate(${RIG.cheek.lx} ${RIG.cheek.y}) scale(${puff}) translate(${-RIG.cheek.lx} ${-RIG.cheek.y})`);
       r.cheekR.current!.setAttribute("transform", `translate(${RIG.cheek.rx} ${RIG.cheek.y}) scale(${puff}) translate(${-RIG.cheek.rx} ${-RIG.cheek.y})`);
 
-      // painted mitts rest IN FRONT at tie level, just below the chin, not
-      // at the sides — celebration > spectacle-adjust > meditate > chest > rest
-      const lift = f.pawLift, up = f.armsUp, chest = f.pawChest, med = f.pawMeditate;
-      let rx = 0, ry = 0, rrot = 0, lx = 0, ly = 0, lrot = 0;
-      if (up > 0.01) {
-        rx = 12 * up; ry = -34 * up; rrot = 34 * up;
-        lx = -12 * up; ly = -34 * up; lrot = -34 * up;
-      } else if (lift > 0.01) {
-        rx = -5 * lift; ry = -26 * lift; rrot = -20 * lift;
-      } else if (med > 0.01) {
-        rx = 8 * med; ry = 3 * med; rrot = -12 * med;
-        lx = -8 * med; ly = 3 * med; lrot = 12 * med;
-      } else if (chest > 0.01) {
-        rx = -5 * chest; ry = -9 * chest; rrot = -24 * chest;
-      }
+      // HAND CHOREOGRAPHY — every channel is a weighted offset from the quiet
+      // rest pose, summed rather than switched. Channels are springed in the
+      // director, so mid-transition the paws draw a real arc between stages
+      // instead of teleporting when a priority ladder flips. At rest only the
+      // breath moves them (a hand that is pixel-frozen reads as painted on).
+      let rx = 0, ry = f.breath * 0.9, rrot = 0, lx = 0, ly = f.breath * 0.9, lrot = 0;
+      const stage = (w: number, dxr: number, dyr: number, rr: number, dxl: number, dyl: number, rl: number) => {
+        if (w < 0.005) return;
+        rx += dxr * w; ry += dyr * w; rrot += rr * w;
+        lx += dxl * w; ly += dyl * w; lrot += rl * w;
+      };
+      stage(f.pawChin, -12, -60, -26, -2, -4, -4); // right paw to the chin; left barely stirs
+      stage(f.pawFold, -14, -28, -30, 14, -28, 30); // both meet at the chest
+      stage(f.pawOpen, 8, -22, 44, -8, -22, -44); // palms turned out, offering
+      stage(f.pawUp, 15, -68, 40, -15, -68, -40); // held celebration, cheek-high
+      stage(f.pawDroop, 7, 8, -14, -7, 8, 14); // sleepy weight
+      stage(f.pawMeditate, 8, 3, -12, -8, 3, 12);
+      stage(f.pawChest, -5, -9, -24, 0, 0, 0);
+      stage(f.armsUp, 12, -34, 34, -12, -34, -34); // hop throws them higher still
+      stage(f.pawLift, -5, -26, -20, 0, 0, 0); // spectacle adjust
+      stage(f.wave, 11, -48, 30, 0, -3, 0); // greeting…
+      rrot += f.wave * f.waveOsc * 17; // …and the wave itself
+      ry += f.pawTap; // thinking: the chin paw taps
+      rx += f.fidgetX; lx -= f.fidgetX; // unsure: folded paws rub
       const shoulderY = (RIG.paw.y - 20).toFixed(1);
       r.pawR.current!.setAttribute("transform", `translate(${rx.toFixed(2)} ${ry.toFixed(2)}) rotate(${rrot.toFixed(2)} ${RIG.paw.rx + 10} ${shoulderY})`);
       r.pawL.current!.setAttribute("transform", `translate(${lx.toFixed(2)} ${ly.toFixed(2)}) rotate(${lrot.toFixed(2)} ${RIG.paw.lx - 10} ${shoulderY})`);

@@ -105,6 +105,9 @@ export function ZazooLab() {
   const [warmth, setWarmth] = useState(0.7);
   const [confidence, setConfidence] = useState(0.7);
   const [energy, setEnergy] = useState(0.5);
+  const [talking, setTalking] = useState(false);
+  const [attention, setAttention] = useState<"user" | "cursor" | "away">("cursor");
+  const [copied, setCopied] = useState(false);
   const [appearance, setAppearance] = useState<ZazooAppearance>(DEFAULT_APPEARANCE);
   const [peek, setPeek] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -119,12 +122,24 @@ export function ZazooLab() {
 
   const sendEmotion = (e: ZazooEmotion) => {
     setEmotionState(e);
-    director.perform({ emotion: e, warmth, confidence, energy, attention: "cursor" });
+    director.perform({ emotion: e, warmth, confidence, energy, attention });
   };
   const sendAction = (a: ZazooAction) => {
     setActionState(a);
-    director.perform({ action: a, warmth, confidence, energy, attention: "cursor" });
+    director.perform({ action: a, warmth, confidence, energy, attention });
   };
+  const sendAttention = (att: "user" | "cursor" | "away") => {
+    setAttention(att);
+    director.perform({ attention: att });
+  };
+  const toggleTalking = () => {
+    setTalking((t) => {
+      director.setTalking(!t);
+      return !t;
+    });
+  };
+  // the same call an agent would make to reproduce what is on stage right now
+  const apiSnippet = `perform({ emotion: '${emotion}', action: '${action}', warmth: ${warmth.toFixed(2)}, confidence: ${confidence.toFixed(2)}, energy: ${energy.toFixed(2)} })`;
 
   const onMove = (ev: React.PointerEvent) => {
     const el = stageRef.current;
@@ -198,6 +213,17 @@ export function ZazooLab() {
             {ZAZOO_ACTIONS.map((a) => (
               <button key={a} style={btnStyle(a === action)} onClick={() => sendAction(a)}>{a}</button>
             ))}
+            <button style={btnStyle(talking)} onClick={toggleTalking}>{talking ? "talking…" : "talk"}</button>
+            <button style={btnStyle(false)} onClick={() => director.waveHello()}>👋 wave</button>
+          </div>
+        </div>
+
+        <div>
+          <div style={{ ...S.label, marginBottom: 7 }}>Attention — where Zazoo looks</div>
+          <div style={{ ...S.grid, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            {(["user", "cursor", "away"] as const).map((att) => (
+              <button key={att} style={btnStyle(att === attention)} onClick={() => sendAttention(att)}>{att}</button>
+            ))}
           </div>
         </div>
 
@@ -229,6 +255,25 @@ export function ZazooLab() {
             />
           </div>
         ))}
+
+        <div>
+          <div style={{ ...S.label, marginBottom: 7 }}>Agent call — reproduces the stage</div>
+          <div style={{ display: "flex", gap: 7, alignItems: "stretch" }}>
+            <code style={{ flex: 1, fontSize: 10, lineHeight: 1.5, opacity: 0.65, background: "rgba(0,0,0,0.25)", borderRadius: 8, padding: "7px 9px", wordBreak: "break-all" }}>
+              {apiSnippet}
+            </code>
+            <button
+              style={{ ...btnStyle(copied), padding: "4px 10px", alignSelf: "center" }}
+              onClick={async () => {
+                await navigator.clipboard?.writeText(apiSnippet);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              }}
+            >
+              {copied ? "✓" : "copy"}
+            </button>
+          </div>
+        </div>
 
         <div>
           <div style={{ ...S.label, marginBottom: 7 }}>Fur color</div>
