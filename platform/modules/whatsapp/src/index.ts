@@ -10,3 +10,7 @@ export * from "./policy.js";
 export * from "./outbound.js";
 // v2 — message capture: raw → attributed, plus the incremental-sync cursor.
 export * from "./messages.js";
+// v2 — Bridge's own tags and internal notes about a subject. Local Plane only.
+export * from "./annotations.js";
+// v2 — the audit log over Bridge's own actions, and its analytics rollup.
+export * from "./audit.js";

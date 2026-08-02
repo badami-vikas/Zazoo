@@ -16,6 +16,7 @@ import {
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
+import type { LocalPlane } from "@bridge/local";
 import { isPublicCloudProcedureAllowed } from "./deployment-boundary.js";
 import { LocalGeocodingProviderError } from "./geocoding-provider.js";
 import {
@@ -246,6 +247,23 @@ import {
   summarizeSync as summarizeWhatsAppSync,
   syncedThreads as whatsAppSyncedThreads,
   type RawMessage as RawWhatsAppMessage,
+  // Bridge's OWN data about a subject — no WhatsApp surface is touched.
+  WHATSAPP_ANNOTATIONS_NAMESPACE,
+  readAnnotationState,
+  addTags as addWhatsAppTags,
+  removeTag as removeWhatsAppTag,
+  addNote as addWhatsAppNote,
+  removeNote as removeWhatsAppNote,
+  listAnnotations as listWhatsAppAnnotations,
+  tagCounts as whatsAppTagCounts,
+  // Bridge's own action log, and its analytics rollup.
+  WHATSAPP_AUDIT_NAMESPACE,
+  readAuditState,
+  appendAuditEvent,
+  listAuditEvents,
+  summarizeAudit,
+  type AuditEvent as WhatsAppAuditEvent,
+  type AuditEventKind as WhatsAppAuditEventKind,
 } from "@bridge/whatsapp";
 import {
   BUILT_IN_MODULES,
@@ -306,6 +324,35 @@ const WHATSAPP_SOURCE = "whatsapp";
 
 /** Local state-store namespace holding the per-chat message sync cursors. */
 const WHATSAPP_SYNC_NAMESPACE = "whatsapp:message-sync";
+
+/**
+ * Append one row to the WhatsApp audit log, on the LOCAL plane.
+ *
+ * Deliberately never throws into its caller. The audit log records what Bridge
+ * did; it must not become a reason the thing itself fails. A sync that worked
+ * and whose audit row was lost is strictly better than a sync that was rolled
+ * back because its bookkeeping failed — and the loss is visible, because the
+ * log's own `dropped`/window reporting makes a gap legible rather than silent.
+ */
+async function recordWhatsAppAudit(
+  localPlane: LocalPlane,
+  organizationId: string,
+  event: WhatsAppAuditEvent,
+): Promise<void> {
+  try {
+    await localPlane.state.update(
+      organizationId,
+      WHATSAPP_AUDIT_NAMESPACE,
+      readAuditState(null),
+      (current) => ({
+        state: appendAuditEvent(readAuditState(current), event),
+        result: null,
+      }),
+    );
+  } catch {
+    // Intentionally swallowed — see the note above.
+  }
+}
 
 function moduleInstallationLedgerResourceId(
   organizationId: string,
@@ -8092,6 +8139,20 @@ export const appRouter = t.router({
         }
         await localPlane.graph.addPeopleToList(list.id, memberIds);
 
+        // Bridge did something; the audit log records it. Counts only —
+        // no name, no number, no body ever enters an audit row.
+        await recordWhatsAppAudit(localPlane, organizationId, {
+          id: uuidv7(),
+          kind: "extraction_run",
+          at: new Date().toISOString(),
+          detail: {
+            runId: input.runId,
+            listName: list.name,
+            staged: result.people.length,
+            ambiguous: result.signals.length,
+          },
+        });
+
         return {
           runId: input.runId,
           listId: list.id,
@@ -8205,6 +8266,28 @@ export const appRouter = t.router({
           },
         );
 
+        // One row per sync pass that actually stored something. A pass that
+        // found nothing new is not recorded: it is the common case, and logging
+        // it would bury the passes that mattered under polling noise.
+        // `skipped` is per-reason; the audit row carries the total plus each
+        // non-zero reason, so "the sync keeps refusing things" stays diagnosable
+        // without the row growing a column per reason that never occurs.
+        const refusedByReason = Object.entries(mapped.skipped).filter(([, count]) => count > 0);
+        const refusedTotal = refusedByReason.reduce((sum, [, count]) => sum + count, 0);
+        if (fresh.length > 0 || refusedTotal > 0) {
+          await recordWhatsAppAudit(localPlane, organizationId, {
+            id: uuidv7(),
+            kind: "sync_run",
+            at: new Date().toISOString(),
+            subjectKey: `chat:${input.chatId}`,
+            detail: {
+              stored: fresh.length,
+              refused: refusedTotal,
+              ...Object.fromEntries(refusedByReason.map(([reason, count]) => [`refused_${reason}`, count])),
+            },
+          });
+        }
+
         return {
           chatId: input.chatId,
           stored: fresh.length,
@@ -8286,6 +8369,201 @@ export const appRouter = t.router({
           // store may not have loaded, and a silently degraded search that
           // returns nothing looks identical to "no matches".
           capabilities: await ctx.wiring.localPlane.graph.messageSearchCapabilities(),
+        };
+      }),
+
+    // ── Tags and internal notes (TASK-030) ──────────────────────────────────
+    //
+    // Bridge's OWN data about a subject. Nothing below reads or writes any
+    // WhatsApp surface: a tag and a note are things the owner wrote, held on
+    // the LOCAL plane, invisible to the counterparty and with no promote path.
+
+    /** Everything annotated, plus the tag vocabulary actually in use. */
+    annotations: authenticatedProcedure.query(async ({ ctx }) => {
+      const organizationId = PILOT_ORGANIZATION;
+      await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+      const state = readAnnotationState(
+        await ctx.wiring.localPlane.state.read(organizationId, WHATSAPP_ANNOTATIONS_NAMESPACE),
+      );
+      // An empty store returns empty arrays. The surface says "nothing yet"
+      // rather than showing an example row.
+      return { subjects: listWhatsAppAnnotations(state), tags: whatsAppTagCounts(state) };
+    }),
+
+    /** Add one or more tags to a subject. Idempotent. */
+    addTags: authenticatedProcedure
+      .input(
+        z.object({
+          kind: z.enum(["chat", "person", "community"]),
+          id: z.string().min(1).max(300),
+          tags: z.array(z.string().min(1).max(48)).min(1).max(25),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const at = new Date().toISOString();
+        return ctx.wiring.localPlane.state.update(
+          organizationId,
+          WHATSAPP_ANNOTATIONS_NAMESPACE,
+          readAnnotationState(null),
+          (current) => {
+            const next = addWhatsAppTags(
+              readAnnotationState(current),
+              { kind: input.kind, id: input.id },
+              input.tags,
+              at,
+            );
+            return { state: next, result: { subjects: listWhatsAppAnnotations(next), tags: whatsAppTagCounts(next) } };
+          },
+        );
+      }),
+
+    removeTag: authenticatedProcedure
+      .input(
+        z.object({
+          kind: z.enum(["chat", "person", "community"]),
+          id: z.string().min(1).max(300),
+          tag: z.string().min(1).max(48),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const at = new Date().toISOString();
+        return ctx.wiring.localPlane.state.update(
+          organizationId,
+          WHATSAPP_ANNOTATIONS_NAMESPACE,
+          readAnnotationState(null),
+          (current) => {
+            const next = removeWhatsAppTag(
+              readAnnotationState(current),
+              { kind: input.kind, id: input.id },
+              input.tag,
+              at,
+            );
+            return { state: next, result: { subjects: listWhatsAppAnnotations(next), tags: whatsAppTagCounts(next) } };
+          },
+        );
+      }),
+
+    /**
+     * Write an internal note. The author is the AUTHENTICATED identity, never a
+     * client-supplied field — a note's provenance is the one thing about it a
+     * caller must not be able to choose.
+     */
+    addNote: authenticatedProcedure
+      .input(
+        z.object({
+          kind: z.enum(["chat", "person", "community"]),
+          id: z.string().min(1).max(300),
+          body: z.string().trim().min(1).max(4_096),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const at = new Date().toISOString();
+        const noteId = uuidv7();
+        const authorId = ctx.identity.id;
+        return ctx.wiring.localPlane.state.update(
+          organizationId,
+          WHATSAPP_ANNOTATIONS_NAMESPACE,
+          readAnnotationState(null),
+          (current) => {
+            const next = addWhatsAppNote(
+              readAnnotationState(current),
+              { kind: input.kind, id: input.id },
+              { id: noteId, body: input.body, authorId },
+              at,
+            );
+            return { state: next, result: { subjects: listWhatsAppAnnotations(next), tags: whatsAppTagCounts(next) } };
+          },
+        );
+      }),
+
+    removeNote: authenticatedProcedure
+      .input(
+        z.object({
+          kind: z.enum(["chat", "person", "community"]),
+          id: z.string().min(1).max(300),
+          noteId: z.string().min(1).max(128),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const at = new Date().toISOString();
+        return ctx.wiring.localPlane.state.update(
+          organizationId,
+          WHATSAPP_ANNOTATIONS_NAMESPACE,
+          readAnnotationState(null),
+          (current) => {
+            const next = removeWhatsAppNote(
+              readAnnotationState(current),
+              { kind: input.kind, id: input.id },
+              input.noteId,
+              at,
+            );
+            return { state: next, result: { subjects: listWhatsAppAnnotations(next), tags: whatsAppTagCounts(next) } };
+          },
+        );
+      }),
+
+    // ── Analytics and audit (TASK-030) ──────────────────────────────────────
+
+    /**
+     * What Bridge itself has done, and the rollup over it.
+     *
+     * Built ONLY from rows Bridge wrote as it acted. Nothing here reads the
+     * WhatsApp account — there is no scraped engagement metric, no per-contact
+     * message count, and no backfill, because there would be nothing honest to
+     * backfill from.
+     */
+    auditLog: authenticatedProcedure
+      .input(
+        z
+          .object({
+            kinds: z
+              .array(
+                z.enum([
+                  "send_attempted",
+                  "send_sent",
+                  "send_refused",
+                  "send_deferred",
+                  "send_needs_approval",
+                  "sync_run",
+                  "extraction_run",
+                  "rule_fired",
+                  "rule_skipped",
+                  "automation_halted",
+                  "automation_rearmed",
+                ]),
+              )
+              .optional(),
+            sinceIso: z.string().min(1).optional(),
+            limit: z.number().int().min(1).max(500).default(100),
+          })
+          .default({ limit: 100 }),
+      )
+      .query(async ({ input, ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const state = readAuditState(
+          await ctx.wiring.localPlane.state.read(organizationId, WHATSAPP_AUDIT_NAMESPACE),
+        );
+        return {
+          events: listAuditEvents(state, {
+            limit: input.limit,
+            ...(input.kinds ? { kinds: input.kinds as WhatsAppAuditEventKind[] } : {}),
+            ...(input.sinceIso ? { sinceIso: input.sinceIso } : {}),
+          }),
+          // The rollup deliberately spans the whole retained log, not the
+          // truncated page above it, so the counts do not silently mean "of the
+          // first 100 rows".
+          summary: summarizeAudit(state, {
+            ...(input.sinceIso ? { sinceIso: input.sinceIso } : {}),
+          }),
         };
       }),
   }),
