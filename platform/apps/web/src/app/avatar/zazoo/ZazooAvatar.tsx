@@ -16,12 +16,6 @@ import { useEffect, useRef } from "react";
 import { ZazooDirector, type ZazooFrame } from "./director";
 import { MOUTH_PARTS, MOUTH_SHAPES, BROW_PARTS, BROW_SHAPES, LOOP_N, type Loop } from "./parts";
 import { DEFAULT_SPECIES, type ZazooSpecies } from "./species";
-import suitUrl from "./assets/suit-notie.webp";
-import tieUrl from "./assets/tie.webp";
-import earUrl from "./assets/ear-front.webp";
-import patchUrl from "./assets/eye-patch.webp";
-import snoutUrl from "./assets/snout.webp";
-import armUrl from "./assets/arm-front.webp";
 
 export interface ZazooAppearance {
   /** Base felt color of the panda's fur. */
@@ -89,6 +83,14 @@ const TONGUE = "#E2646F";
 /** Body silhouette traced from `Avatar/base front shape.png`. */
 const BODY_PATH =
   "M 119.87,76.16 C 123.79,76.16 127.80,76.60 131.64,77.38 C 135.48,78.16 139.32,79.33 142.92,80.85 C 146.51,82.36 149.99,84.37 153.22,86.49 C 156.46,88.62 159.50,91.11 162.34,93.62 C 165.19,96.13 167.84,98.82 170.29,101.57 C 172.74,104.32 174.98,107.21 177.05,110.11 C 179.11,113.02 181.02,115.97 182.68,119.00 C 184.33,122.03 185.74,125.18 186.98,128.29 C 188.22,131.40 189.17,134.59 190.12,137.67 C 191.07,140.74 191.90,143.76 192.69,146.74 C 193.48,149.72 194.23,152.64 194.87,155.56 C 195.51,158.49 196.05,161.40 196.54,164.31 C 197.03,167.22 197.47,170.11 197.82,173.02 C 198.18,175.94 198.45,178.86 198.66,181.81 C 198.86,184.76 199.00,187.72 199.04,190.73 C 199.09,193.73 199.04,196.76 198.91,199.85 C 198.79,202.93 198.59,206.06 198.27,209.24 C 197.95,212.42 197.54,215.65 196.99,218.95 C 196.44,222.24 195.78,225.59 194.95,228.98 C 194.12,232.38 193.18,235.86 191.99,239.32 C 190.79,242.77 189.48,246.36 187.78,249.71 C 186.08,253.07 184.07,256.40 181.78,259.43 C 179.48,262.47 176.82,265.33 173.99,267.94 C 171.17,270.56 168.07,273.00 164.81,275.13 C 161.56,277.26 158.06,279.13 154.48,280.72 C 150.90,282.30 147.14,283.61 143.34,284.63 C 139.54,285.65 135.61,286.34 131.70,286.81 C 127.79,287.28 123.81,287.52 119.87,287.45 C 115.94,287.39 111.97,287.02 108.08,286.43 C 104.20,285.84 100.31,285.04 96.56,283.92 C 92.82,282.81 89.12,281.40 85.60,279.75 C 82.08,278.10 78.65,276.19 75.45,274.04 C 72.26,271.89 69.23,269.43 66.44,266.85 C 63.65,264.26 61.02,261.46 58.71,258.51 C 56.39,255.55 54.38,252.32 52.57,249.10 C 50.77,245.89 49.23,242.54 47.89,239.21 C 46.55,235.88 45.46,232.49 44.55,229.13 C 43.64,225.78 43.00,222.40 42.43,219.10 C 41.87,215.80 41.47,212.55 41.18,209.34 C 40.89,206.14 40.76,202.98 40.70,199.88 C 40.64,196.77 40.70,193.73 40.83,190.71 C 40.96,187.70 41.19,184.74 41.47,181.81 C 41.75,178.87 42.09,175.98 42.50,173.09 C 42.90,170.20 43.37,167.34 43.91,164.47 C 44.44,161.60 45.03,158.74 45.71,155.86 C 46.38,152.97 47.14,150.10 47.95,147.17 C 48.77,144.24 49.63,141.30 50.58,138.27 C 51.54,135.24 52.47,132.11 53.67,129.01 C 54.86,125.91 56.17,122.74 57.74,119.68 C 59.31,116.61 61.11,113.58 63.10,110.62 C 65.09,107.66 67.26,104.70 69.66,101.90 C 72.06,99.10 74.68,96.36 77.49,93.81 C 80.31,91.27 83.34,88.77 86.56,86.62 C 89.79,84.47 93.25,82.45 96.84,80.91 C 100.43,79.37 104.27,78.17 108.11,77.38 C 111.94,76.59 115.95,76.16 119.87,76.16 Z";
+
+/**
+ * Vector suit, drawn to the reference's geometry and clipped to the egg —
+ * the jacket's top edge rises over the shoulders and dips into the collar,
+ * exactly where the painted sheet's silhouette sat.
+ */
+const SUIT_JACKET =
+  "M 34,153 Q 70,139 96,147 Q 120,161 144,147 Q 170,139 206,153 L 206,296 L 34,296 Z";
 
 /**
  * Blend a family of traced loops by weight into `dst`, and return the path
@@ -522,8 +524,6 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
     );
   };
 
-  const snoutH = RIG.snout.w / RIG.snout.aspect;
-  const pawH = RIG.paw.w / RIG.paw.aspect;
   const erx = RIG.eye.rx_;
   const ery = RIG.eye.ry_;
 
@@ -575,13 +575,20 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
         <clipPath id="zz-bodyclip">
           <path d={BODY_PATH} />
         </clipPath>
-        {/* Alpha masks so each tint only lands on its own painted layer. */}
-        <mask id="zz-suitmask" style={{ maskType: "alpha" }}>
-          <image href={suitUrl} x={RIG.suit.x} y={RIG.suit.y} width={RIG.suit.w} height={RIG.suit.h} />
-        </mask>
-        <mask id="zz-tiemask" style={{ maskType: "alpha" }}>
-          <image href={tieUrl} x={RIG.tie.x} y={RIG.tie.y} width={RIG.tie.w} height={RIG.tie.h} />
-        </mask>
+        {/* The suit is fully vector now, so tints are direct fills — no
+            alpha masks, no screen blending, no raster sheets. */}
+        <clipPath id="zz-suitclip">
+          <path d={SUIT_JACKET} />
+        </clipPath>
+        <radialGradient id="zz-suitg" cx="0.42" cy="0.2" r="1.05">
+          <stop offset="0%" stopColor={shade(suit, 0.14)} />
+          <stop offset="55%" stopColor={suit} />
+          <stop offset="100%" stopColor={shade(suit, -0.28)} />
+        </radialGradient>
+        <radialGradient id="zz-mittg" cx="0.38" cy="0.28" r="0.95">
+          <stop offset="0%" stopColor="#34353E" />
+          <stop offset="100%" stopColor="#17181D" />
+        </radialGradient>
       </defs>
 
       <g ref={refs.root}>
@@ -705,16 +712,20 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 is all it takes for the earScale/earPerk acting to carry over. */}
             <g ref={refs.earL} data-layer="ears">
               {species.ears === "cap" ? (
-                <image href={earUrl} x={RIG.ear.lx} y={RIG.ear.y} width={RIG.ear.w} height={RIG.ear.h} />
+                <>
+                  <ellipse cx={79} cy={101} rx={24.5} ry={23} fill="url(#zz-ear)" stroke="#0B0C0F" strokeWidth="1.2" />
+                  <ellipse cx={73} cy={94} rx={10} ry={8} fill="#3E3F49" opacity="0.5" />
+                </>
               ) : (
                 vectorEar("L")
               )}
             </g>
             <g ref={refs.earR} data-layer="ears">
               {species.ears === "cap" ? (
-                <g transform={`translate(${2 * (RIG.ear.rx + RIG.ear.w / 2)} 0) scale(-1 1)`}>
-                  <image href={earUrl} x={RIG.ear.rx} y={RIG.ear.y} width={RIG.ear.w} height={RIG.ear.h} />
-                </g>
+                <>
+                  <ellipse cx={161} cy={101} rx={24.5} ry={23} fill="url(#zz-ear)" stroke="#0B0C0F" strokeWidth="1.2" />
+                  <ellipse cx={167} cy={94} rx={10} ry={8} fill="#3E3F49" opacity="0.5" />
+                </>
               ) : (
                 vectorEar("R")
               )}
@@ -744,35 +755,51 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
               </g>
             </g>
 
-            {/* Painted suit — the fabric sheet carries the weave, folds and
-                collar; the colour is screened onto it through its own alpha,
-                so a tint lands on cloth and nowhere else. The tie is a
-                separate sheet for exactly this reason: it has to take a
-                different colour from the jacket it sits on. */}
-            <g style={{ isolation: "isolate" }} data-layer="suit">
-              <image href={suitUrl} x={RIG.suit.x} y={RIG.suit.y} width={RIG.suit.w} height={RIG.suit.h} />
-              <rect
-                x={RIG.suit.x} y={RIG.suit.y} width={RIG.suit.w} height={RIG.suit.h}
-                fill={suit} mask="url(#zz-suitmask)" style={{ mixBlendMode: "screen" }}
+            {/* VECTOR SUIT — the reference projected on the standardized egg:
+                jacket clipped to the body silhouette, white shirt V, notch
+                lapels, center seam and buttons. Being vector, the suit and
+                tie tint by direct fill — no masks, no screen blending. */}
+            <g data-layer="suit">
+              <g clipPath="url(#zz-bodyclip)">
+                <path d={SUIT_JACKET} fill="url(#zz-suitg)" />
+                <path d={SUIT_JACKET} fill="none" stroke={shade(suit, -0.42)} strokeWidth="2" />
+                {/* chin occlusion — clipped inside the jacket so the blur
+                    can't band across the collar edge */}
+                <g clipPath="url(#zz-suitclip)">
+                  <path d="M 56,150 Q 120,198 184,150" fill="none" stroke="#000" strokeWidth="7" opacity="0.15" filter="url(#zz-soft2)" />
+                </g>
+              </g>
+              {/* shirt V */}
+              <path d="M 96,146.5 Q 120,160 144,146.5 L 133,201 Q 120,210 107,201 Z" fill="#F8F4EA" />
+              <path d="M 96,146.5 Q 120,160 144,146.5" fill="none" stroke="#DAD3C1" strokeWidth="1" opacity="0.8" />
+              {/* notch lapels — a shade darker than the jacket, tips folding
+                  in toward the button seam */}
+              <path
+                d="M 96,146.5 Q 90,176 105,202 L 113,206 Q 103,178 104,154 Q 111,159.5 120,161 Q 107,155 96,146.5 Z"
+                fill={shade(suit, -0.14)} stroke={shade(suit, -0.4)} strokeWidth="1" strokeLinejoin="round"
               />
+              <path
+                d="M 144,146.5 Q 150,176 135,202 L 127,206 Q 137,178 136,154 Q 129,159.5 120,161 Q 133,155 144,146.5 Z"
+                fill={shade(suit, -0.14)} stroke={shade(suit, -0.4)} strokeWidth="1" strokeLinejoin="round"
+              />
+              {/* seam + buttons */}
+              <path d="M 120,211 L 120,285" stroke={shade(suit, -0.3)} strokeWidth="1.1" opacity="0.7" />
+              {[227, 251].map((by) => (
+                <g key={by}>
+                  <circle cx="120.5" cy={by} r="4.6" fill="#B4713A" stroke="#7E4C24" strokeWidth="1" />
+                  {[[-1.4, -1.4], [1.4, -1.4], [-1.4, 1.4], [1.4, 1.4]].map(([dx, dy], i) => (
+                    <circle key={i} cx={120.5 + dx} cy={by + dy} r="0.55" fill="#7E4C24" />
+                  ))}
+                </g>
+              ))}
             </g>
             {accessory === "tie" && (
-              <g style={{ isolation: "isolate" }} data-layer="tie">
-                <image href={tieUrl} x={RIG.tie.x} y={RIG.tie.y} width={RIG.tie.w} height={RIG.tie.h} />
-                <rect
-                  x={RIG.tie.x} y={RIG.tie.y} width={RIG.tie.w} height={RIG.tie.h}
-                  fill={tie} mask="url(#zz-tiemask)" style={{ mixBlendMode: "screen" }}
-                />
+              <g data-layer="tie">
+                <path d="M 113,172 L 127,172 L 131.5,201 L 120,211 L 108.5,201 Z" fill={tie} stroke={shade(tie, -0.35)} strokeWidth="1" strokeLinejoin="round" />
+                <path d="M 116,177 L 117.5,196" stroke={shade(tie, 0.35)} strokeWidth="1.2" opacity="0.55" strokeLinecap="round" />
+                <path d="M 112.5,161 L 127.5,161 Q 130.5,167.5 127.5,173 L 112.5,173 Q 109.5,167.5 112.5,161 Z" fill={shade(tie, -0.12)} stroke={shade(tie, -0.4)} strokeWidth="0.9" />
               </g>
             )}
-            {/* The head sits in front of the collar, so it drops a soft
-                occlusion onto the fabric — masked to the suit so the fur above
-                the chin line stays clean. It sits BELOW the collar edge and
-                stays faint: straddling the edge makes the mask cut the shadow
-                in half, and a half-cut blur reads as a painted-on band. */}
-            <g mask="url(#zz-suitmask)">
-              <path d="M 44,146 Q 120,202 196,146" fill="none" stroke="#000" strokeWidth="7" opacity="0.18" filter="url(#zz-soft2)" />
-            </g>
 
             {accessory === "bowtie" && (
               <g fill="#1D1E23">
@@ -790,15 +817,25 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
 
             {/* face */}
             <g ref={refs.face} data-layer="face">
+              {/* hair — a three-strand felt cowlick on the crown; rides the
+                  head, skipped where headgear (crest/wool/quills) lives */}
+              {(species.hair ?? true) && (
+                <g
+                  data-layer="ears" fill="none" strokeLinecap="round" strokeWidth="2.2"
+                  stroke={species.eye === "dark" ? "#17181D" : feltLine}
+                >
+                  <path d="M 114.5,80 Q 111,71 116,64.5" />
+                  <path d="M 120,78.5 Q 119,67.5 125,63" />
+                  <path d="M 125.5,80.5 Q 125.5,71.5 131,67.5" />
+                </g>
+              )}
               {/* painted eye patches — panda anatomy, they never blink. The
                   sheet carries the art's own tilt, ink rim and soft interior,
                   so there is no angle left for the rig to approximate. */}
               {species.patches && (
                 <>
-                  <image href={patchUrl} x={RIG.patch.lx} y={RIG.patch.y} width={RIG.patch.w} height={RIG.patch.h} />
-                  <g transform={`translate(${2 * (RIG.patch.rx + RIG.patch.w / 2)} 0) scale(-1 1)`}>
-                    <image href={patchUrl} x={RIG.patch.rx} y={RIG.patch.y} width={RIG.patch.w} height={RIG.patch.h} />
-                  </g>
+                  <ellipse cx={88.9} cy={125.4} rx={10.4} ry={8.6} fill="url(#zz-patch)" transform="rotate(-26 88.9 125.4)" />
+                  <ellipse cx={151.1} cy={125.4} rx={10.4} ry={8.6} fill="url(#zz-patch)" transform="rotate(26 151.1 125.4)" />
                 </>
               )}
 
@@ -912,7 +949,14 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                   NOT get a button nose — the horn grows from the snout, so
                   they get a felt mound with nostrils and the cone on top. */}
               {species.nose === "painted" ? (
-                <image href={snoutUrl} x={120 - RIG.snout.w / 2} y={RIG.snout.y - snoutH / 2} width={RIG.snout.w} height={snoutH} data-layer="nose" />
+                // panda snout, vectorized off the painted sheet: light felt
+                // mound, ink tri-nose with a highlight, philtrum to the lip
+                <g data-layer="nose">
+                  <ellipse cx="120" cy="130.9" rx="9.4" ry="6" fill={bodyLight} opacity="0.95" />
+                  <path d="M 115.4,127.4 Q 120,124.9 124.6,127.4 Q 123.1,132.2 120,133.3 Q 116.9,132.2 115.4,127.4 Z" fill="#22232A" />
+                  <circle cx="117.9" cy="127.7" r="1" fill="#FFF" opacity="0.5" />
+                  <path d="M 120,133.3 L 120,136.8" stroke="#22232A" strokeWidth="0.9" strokeLinecap="round" />
+                </g>
               ) : species.nose === "tri" ? (
                 <g data-layer="nose">
                   <path d="M 114.5,127.5 Q 120,124.5 125.5,127.5 Q 124,133 120,134.2 Q 116,133 114.5,127.5 Z" fill={species.noseColor} stroke={shade(species.noseColor, -0.3)} strokeWidth="0.8" />
@@ -962,17 +1006,20 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
               )}
             </g>
 
-            {/* painted mitts, mirrored from the one source limb */}
-            <g ref={refs.pawL} data-layer="paws" filter="url(#zz-mitt)">
-              <g transform={`rotate(${-RIG.paw.tilt} ${RIG.paw.lx} ${RIG.paw.y}) translate(${2 * RIG.paw.lx} 0) scale(-1 1)`}>
-                <image href={armUrl} x={RIG.paw.lx - RIG.paw.w / 2} y={RIG.paw.y - pawH / 2} width={RIG.paw.w} height={pawH} />
+            {/* vector felt mitts — rounded mitten + thumb bump at the same
+                anchors and tilts the painted limb used; the bevel filter is
+                what keeps charcoal readable on charcoal */}
+            {([
+              [RIG.paw.lx, -1, refs.pawL],
+              [RIG.paw.rx, 1, refs.pawR],
+            ] as const).map(([px, dir, pawRef], i) => (
+              <g key={i} ref={pawRef} data-layer="paws" filter="url(#zz-mitt)">
+                <g transform={`rotate(${dir * RIG.paw.tilt} ${px} ${RIG.paw.y})`}>
+                  <ellipse cx={px} cy={RIG.paw.y} rx={9.8} ry={10.3} fill="url(#zz-mittg)" />
+                  <ellipse cx={px + dir * 6.8} cy={RIG.paw.y - 5.2} rx={3.8} ry={4.6} fill="url(#zz-mittg)" transform={`rotate(${dir * 24} ${px + dir * 6.8} ${RIG.paw.y - 5.2})`} />
+                </g>
               </g>
-            </g>
-            <g ref={refs.pawR} data-layer="paws" filter="url(#zz-mitt)">
-              <g transform={`rotate(${RIG.paw.tilt} ${RIG.paw.rx} ${RIG.paw.y})`}>
-                <image href={armUrl} x={RIG.paw.rx - RIG.paw.w / 2} y={RIG.paw.y - pawH / 2} width={RIG.paw.w} height={pawH} />
-              </g>
-            </g>
+            ))}
           </g>
 
           <text ref={refs.zzz} x="182" y="86" fontSize="20" fontFamily="Georgia, serif" fill="#9DB0C2" opacity="0">
