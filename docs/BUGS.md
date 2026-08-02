@@ -2135,3 +2135,26 @@ local-first research planner, the local companion ask), was unavailable with no 
 **Fix**: `[profile.dev.package.sha2/digest/block-buffer/cpufeatures] opt-level = 3` in
 `src-tauri/Cargo.toml` — debug builds now hash at near-release speed; release profiles unchanged.
 The verification itself is deliberately NOT cached or weakened.
+
+## OPEN 2026-08-02 — WhatsApp session webview: downloads silently do nothing, no macOS data store identity (TASK-029)
+Found by reuse intake against `karem505/whatRust` (MIT, Tauri v2), then verified against our own
+`platform/apps/desktop/src-tauri/src/whatsapp_webview.rs` — both gaps confirmed absent by grep, not
+inferred.
+
+1. **Downloads are inert.** No `on_download` handler is registered on the session webview. wry only
+   wires up the platform download machinery when a handler exists, so WhatsApp Web's download control
+   fires with no file written and no error surfaced anywhere — the failure is silent on every plane.
+   Not yet observed live because the exit test has not reached a media download; filed on verified
+   code absence rather than waiting for a report.
+2. **No `data_store_identifier`.** The session window is built without a persisted WKWebView data
+   store identity (available macOS >= 14). This is the leading candidate for the
+   `aquire-persistent-storage-denied` console error previously dismissed as noise after a restart
+   test showed the session surviving — survival does not prove the store is the one we intend, only
+   that *a* store persisted. Unproven; to be confirmed or refuted when the fix is attempted.
+
+Not reproduced as user-facing reports; both are code-absence defects in already-landed work. Neither
+depends on the pending engine/UI decision, so both are scheduled as fixes (not features) in the
+adapter phase. Deliberately NOT copied from whatRust: its `navigator.userAgentData` client-hints shim,
+which exists because it advertises a Chrome UA. We advertise Safari, and real Safari does not
+implement `userAgentData` — adding the shim would make our fingerprint self-contradictory rather than
+consistent. Attached to TASK-029.
