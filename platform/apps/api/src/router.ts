@@ -260,6 +260,7 @@ import {
   WHATSAPP_AUDIT_NAMESPACE,
   readAuditState,
   appendAuditEvent,
+  auditEventFromOutcome,
   listAuditEvents,
   summarizeAudit,
   type AuditEvent as WhatsAppAuditEvent,
@@ -8511,6 +8512,89 @@ export const appRouter = t.router({
       }),
 
     // ── Analytics and audit (TASK-030) ──────────────────────────────────────
+
+    /**
+     * Record the outcome of one attempted send.
+     *
+     * This is the seam, not the send. The gate itself lives in the renderer's
+     * engine (`performAutomatedSend` → the Rust ceiling) and is untouched by
+     * this Tool; the call site simply hands the OUTCOME here afterwards so the
+     * audit log holds it. Deliberately not a send procedure: adding one would
+     * be a second write path to WhatsApp, which the ordered gate exists to
+     * prevent.
+     *
+     * The status is what the gate decided, so a caller cannot report a refusal
+     * as a success — but it also cannot use this to send anything, because
+     * nothing here touches a transport.
+     */
+    recordSendOutcome: authenticatedProcedure
+      .input(
+        z.object({
+          recipientKey: z.string().min(1).max(300),
+          status: z.enum(["sent", "refused", "deferred", "needs_approval"]),
+          reason: z.string().max(1_000).optional(),
+          /** The policy or shell rule that decided it. */
+          code: z.string().max(120).optional(),
+          delaySeconds: z.number().int().min(0).max(86_400).optional(),
+          earliestAtMs: z.number().int().min(0).optional(),
+          subjectKey: z.string().max(300).optional(),
+          ruleId: z.string().max(128).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+
+        // Rebuilt as the outcome shape so the row is produced by the same
+        // mapping the Module tests cover, rather than a second hand-written one.
+        const outcome =
+          input.status === "sent"
+            ? ({
+                status: "sent",
+                request: {
+                  targetKind: "person",
+                  targetId: "",
+                  recipientKey: input.recipientKey,
+                  body: "",
+                },
+                delaySeconds: input.delaySeconds ?? 0,
+              } as const)
+            : input.status === "needs_approval"
+              ? ({
+                  status: "needs_approval",
+                  request: {
+                    targetKind: "person",
+                    targetId: "",
+                    recipientKey: input.recipientKey,
+                    body: "",
+                  },
+                  reason: input.reason ?? "",
+                } as const)
+              : input.status === "refused"
+                ? ({
+                    status: "refused",
+                    reason: input.reason ?? "",
+                    ...(input.code !== undefined ? { code: input.code } : {}),
+                  } as const)
+                : ({
+                    status: "deferred",
+                    reason: input.reason ?? "",
+                    ...(input.code !== undefined ? { code: input.code } : {}),
+                    ...(input.earliestAtMs !== undefined
+                      ? { earliestAtMs: input.earliestAtMs }
+                      : {}),
+                  } as const);
+
+        await recordWhatsAppAudit(
+          ctx.wiring.localPlane,
+          organizationId,
+          auditEventFromOutcome(uuidv7(), new Date().toISOString(), input.recipientKey, outcome, {
+            ...(input.subjectKey !== undefined ? { subjectKey: input.subjectKey } : {}),
+            ...(input.ruleId !== undefined ? { ruleId: input.ruleId } : {}),
+          }),
+        );
+        return { recorded: true };
+      }),
 
     /**
      * What Bridge itself has done, and the rollup over it.

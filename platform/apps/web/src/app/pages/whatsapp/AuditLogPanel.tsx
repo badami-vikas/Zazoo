@@ -95,6 +95,12 @@ export function AuditLogPanel() {
   }
 
   const { summary, events } = log;
+  const sendTotal =
+    summary.sends.attempted +
+    summary.sends.sent +
+    summary.sends.refused +
+    summary.sends.deferred +
+    summary.sends.needsApproval;
 
   return (
     <div className="space-y-4">
@@ -128,26 +134,41 @@ export function AuditLogPanel() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            {[
-              { label: "Attempted", value: summary.sends.attempted },
-              { label: "Sent", value: summary.sends.sent },
-              { label: "Refused", value: summary.sends.refused },
-              { label: "Deferred", value: summary.sends.deferred },
-              { label: "Needs approval", value: summary.sends.needsApproval },
-            ].map((cell) => (
-              <div key={cell.label} className="rounded-md border p-2" style={border}>
-                <div className="text-lg font-medium" style={{ color: "var(--color-navy)" }}>
-                  {cell.value}
-                </div>
-                <div className="text-xs" style={muted}>{cell.label}</div>
+          {sendTotal === 0 ? (
+            // Five zero tiles would read as "nothing was refused", which is a
+            // different claim from "no send has been recorded at all". Say the
+            // true one.
+            <div className="rounded-md border p-3 text-sm" style={border}>
+              <p>No send has been recorded in this window.</p>
+              <p className="mt-1 text-xs" style={muted}>
+                Send outcomes — delivered, refused, deferred, or awaiting your
+                approval — appear here once Bridge attempts one.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {[
+                  { label: "Attempted", value: summary.sends.attempted },
+                  { label: "Sent", value: summary.sends.sent },
+                  { label: "Refused", value: summary.sends.refused },
+                  { label: "Deferred", value: summary.sends.deferred },
+                  { label: "Needs approval", value: summary.sends.needsApproval },
+                ].map((cell) => (
+                  <div key={cell.label} className="rounded-md border p-2" style={border}>
+                    <div className="text-lg font-medium" style={{ color: "var(--color-navy)" }}>
+                      {cell.value}
+                    </div>
+                    <div className="text-xs" style={muted}>{cell.label}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <p className="text-xs" style={muted}>
-            Send counts only. Bridge does not measure your WhatsApp account —
-            everything above is an action Bridge itself took.
-          </p>
+              <p className="text-xs" style={muted}>
+                Send counts only. Bridge does not measure your WhatsApp account —
+                everything above is an action Bridge itself took.
+              </p>
+            </>
+          )}
 
           {summary.refusalsByRule.length > 0 ? (
             <div className="space-y-1">
