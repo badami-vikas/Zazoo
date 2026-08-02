@@ -3307,3 +3307,39 @@ slots; the Rust and TypeScript limit constants agree (the test reads `policy.ts`
 FAIL when one number was changed); a hostile body containing quotes, backslashes, newlines,
 `</script>`, backticks and U+2028/U+2029 cannot leave its string literal. **Unverified**: nothing has
 run against a live WhatsApp session — no message has actually been sent by this code.
+
+### ADR-158 addendum (2026-08-02) — the first write op, and where the ceiling actually binds
+
+The write path landed. Five decisions worth recording because each could reasonably have gone the
+other way:
+
+1. **The read allowlist still refuses `send_message`.** `script_for_op` — the function the read
+   command calls — is unchanged in what it refuses. The send script lives behind a separate
+   `script_for_write_op`, reachable only from the gated send command. The obsolete "no write op
+   exists anywhere" assertion was REWRITTEN rather than deleted: it still proves the read path
+   refuses `send_message`, `eval`, `Function`, arbitrary expressions, empty and whitespace names,
+   case variants, and anything unlisted. Deleting a security assertion because a decision made it
+   obsolete would have silently removed a guarantee that is still worth having.
+2. **Body escaping targets the JavaScript lexer, not HTML.** Bodies are arbitrary user text crossing
+   into a JS string literal, so U+2028 and U+2029 are escaped alongside the obvious characters —
+   they terminate a line to a JS lexer specifically and are the classic gap in a naive escaper.
+   Ordinary Devanagari, Japanese and emoji pass through untouched.
+3. **The ledger is durable, and a corrupt ledger HALTS rather than reading as empty.** A cap that
+   resets on restart is not a cap — restarting Bridge would have been the bypass. State is a JSON
+   ledger under `app_data_dir`, written temp-then-rename, reusing `overlay.rs`'s existing persisted
+   mechanism rather than inventing one. Failing closed on corruption is the only safe reading:
+   treating an unreadable ledger as "no sends yet" would make corruption a way to reset the cap.
+4. **The send is counted BEFORE it is attempted.** An attempt that fails ambiguously (sent but not
+   confirmed) must consume allowance, otherwise a flaky send path becomes an unlimited one.
+5. **The ledger stores `sha256(recipient)` and no bodies or numbers.** The rate-limiter needs
+   identity equality, not identity — so it does not get identity.
+
+**Honest limit, stated rather than papered over:** deleting the ledger file resets the counter to a
+warm-up day-one allowance. This is not defensible against the machine's owner and is not claimed to
+be. What it does defend is the case ADR-158 named — a cap that binds when the renderer is bypassed
+and across an app restart — and that is proven by a test which spends the allowance, discards every
+in-memory structure, and re-reads from disk sharing nothing but a file path.
+
+**Accepted trade:** `WPP.chat.sendTextMessage` is deliberately absent from `WPP_DEPENDENCIES`, so the
+health op keeps its tested guarantee of mentioning no send function. The cost is that wa-js drift on
+the send path surfaces at first send rather than at link time.
