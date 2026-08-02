@@ -8,3 +8,5 @@ export * from "./send.js";
 export * from "./policy.js";
 // v2 — the ordered outbound path, ending at the Rust-enforced ceiling.
 export * from "./outbound.js";
+// v2 — message capture: raw → attributed, plus the incremental-sync cursor.
+export * from "./messages.js";

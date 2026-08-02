@@ -477,7 +477,9 @@ pub fn script_for_op(op: &str, arg: Option<&str>) -> Option<String> {
                  })
                )"#,
         )),
-        _ => None,
+        // Message reads live in their own module; delegate rather than
+        // widening this match. Both paths remain read-only.
+        _ => crate::whatsapp_message_ops::script_for_message_op(op, arg),
     }
 }
 

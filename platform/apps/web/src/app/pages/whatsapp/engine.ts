@@ -30,6 +30,7 @@ import {
   haltSending,
   hideSession,
   isDesktopShell,
+  isOpRefused,
   openSession,
   positionSession,
   rearmSending,
@@ -49,18 +50,35 @@ import {
 import { tauriListen } from "../../avatar/tauri-internals";
 import { performAutomatedSend, type OutboundOutcome, type SendPort } from "@bridge/whatsapp";
 import type { RecipientApproval, SendPolicyContext, SendRequest } from "@bridge/whatsapp";
+import type { RawChatSummary, RawMessage } from "@bridge/whatsapp";
 
 export type {
   OutboundOutcome,
   PnLidPair,
+  RawChatSummary,
   RawContact,
   RawGroup,
+  RawMessage,
   SendCeilingStatus,
   SendMessageResult,
   SessionRect,
   WhatsAppStatus,
 };
-export { rectOf };
+export { rectOf, isOpRefused };
+
+/**
+ * Where the session window is parked when it is running as the ENGINE rather
+ * than as a visible surface.
+ *
+ * Far off any display and one logical pixel: the window still exists, still
+ * holds the linked session, and still answers `eval`, but it is never
+ * composited anywhere the user can see. The spike (2026-08-02) measured a
+ * never-ordered-in WKWebView keeping a long-lived server-push connection open
+ * and answering host `evaluateJavaScript` for the full run, with timer
+ * throttling no worse than an ordered-in but occluded window - so hiding costs
+ * nothing the app was not already paying whenever the user left the Page.
+ */
+const PARKED_RECT: SessionRect = { x: -20_000, y: -20_000, width: 1, height: 1 };
 
 /** Connection/sync state of the one linked session. */
 export type ConnectionState = WhatsAppStatus;
@@ -115,7 +133,40 @@ export interface WhatsAppEngine {
   /** WhatsApp's OWN phone ↔ LID mapping. Never inferred by us. */
   pnLidMap(): Promise<PnLidPair[]>;
 
+  // ── Message capture ───────────────────────────────────────────────────────
+  /**
+   * The thread inventory: ids, labels, and last-activity times. NO bodies —
+   * scheduling sync must not become a way to stream every conversation.
+   */
+  listChatSummaries(): Promise<RawChatSummary[]>;
+  /**
+   * One thread's messages newer than `since` (epoch SECONDS, exclusive).
+   *
+   * The three arguments are packed into the shell's single op argument and
+   * re-validated in Rust before they touch a script; nothing here can widen
+   * that, because nothing here supplies an expression.
+   */
+  listMessages(chatId: string, since: number, limit: number): Promise<RawMessage[]>;
+  /**
+   * Whether this build of the desktop shell can read messages at all.
+   *
+   * Probed, not assumed: the ops above live behind a shell allowlist this app
+   * cannot inspect, so the only honest answer comes from asking. Returns
+   * `false` when the shell refuses the op by name, and REJECTS on any other
+   * failure — "the shell cannot do this" and "the read broke" are different
+   * facts and the surface says different things about them.
+   */
+  canReadMessages(): Promise<boolean>;
+
   // ── The session surface ───────────────────────────────────────────────────
+  /**
+   * Start the session and leave it INVISIBLE, running as the engine.
+   *
+   * This is the normal path. The user never sees the WhatsApp window; chats are
+   * rendered by Bridge from the Local Plane store. `showSession` exists only for
+   * device linking, where a QR code genuinely has to be looked at.
+   */
+  ensureHiddenSession(): Promise<void>;
   /** Show the contained session webview pinned to a viewport-relative rect. */
   showSession(rect: SessionRect): Promise<void>;
   /** Re-pin the session webview after the anchor moved or resized. */
@@ -203,6 +254,38 @@ class DesktopWhatsAppEngine implements WhatsAppEngine {
 
   pnLidMap(): Promise<PnLidPair[]> {
     return runReadOp<PnLidPair[]>("pn_lid_map");
+  }
+
+  listChatSummaries(): Promise<RawChatSummary[]> {
+    return runReadOp<RawChatSummary[]>("list_chats");
+  }
+
+  listMessages(chatId: string, since: number, limit: number): Promise<RawMessage[]> {
+    // Packed into the shell's one op argument. Every field is re-parsed and
+    // shape-checked in Rust; this side only has to not mangle it.
+    const argument = `${chatId}|${Math.max(0, Math.floor(since))}|${Math.max(1, Math.floor(limit))}`;
+    return runReadOp<RawMessage[]>("list_messages", argument);
+  }
+
+  async canReadMessages(): Promise<boolean> {
+    if (!isDesktopShell()) return false;
+    try {
+      await this.listChatSummaries();
+      return true;
+    } catch (failure) {
+      if (isOpRefused(failure)) return false;
+      throw failure;
+    }
+  }
+
+  async ensureHiddenSession(): Promise<void> {
+    if (!isDesktopShell()) return;
+    // Open parked rather than opening and then moving: the window is created at
+    // a rect no display contains, so there is no frame in which it appears over
+    // the app. `hide()` afterwards is what actually makes it invisible; the
+    // parked rect only removes the flash before that lands.
+    await openSession(PARKED_RECT);
+    await hideSession();
   }
 
   showSession(rect: SessionRect): Promise<void> {

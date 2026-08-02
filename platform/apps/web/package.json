@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Real platform frontend \u2014 ports the prototype's design, routed entirely through @bridge/api's governed tRPC surface (docs/raw/frontend-migration-scoping.md).",
+  "description": "Real platform frontend — ports the prototype's design, routed entirely through @bridge/api's governed tRPC surface (docs/raw/frontend-migration-scoping.md).",
   "scripts": {
     "generate:pending-work": "node ../../scripts/generate-pending-work.mjs",
     "prebuild": "pnpm generate:pending-work",
@@ -72,6 +72,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@tanstack/react-virtual": "^3.14.9",
     "@types/geojson": "7946.0.16",
     "@types/leaflet": "^1.9.21",
     "@types/lodash": "^4.17.24",
