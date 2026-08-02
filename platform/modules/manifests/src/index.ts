@@ -356,6 +356,18 @@ const whatsappCapabilities = [
     writePrivate("community"),
     writePrivate("signal"),
   ]),
+  // Bridge's OWN data about a subject. No WhatsApp permission of any kind
+  // appears here because the Tool touches no WhatsApp surface: it reads and
+  // writes local Records the owner authored themselves.
+  capability("whatsapp.tool.annotations", "Tags and Internal Notes", "skill", [
+    readPrivate("record"),
+    writePrivate("record"),
+  ]),
+  // Read-only over Bridge's own action log. No WhatsApp read permission: the
+  // analytics are built from what Bridge did, never from the account.
+  capability("whatsapp.tool.audit", "Analytics and Audit Log", "skill", [
+    readPrivate("record"),
+  ]),
   capability(
     "whatsapp.agent.contact-steward",
     "WhatsApp Contact Steward",

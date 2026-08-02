@@ -2,9 +2,18 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { WHATSAPP_TOOLS, requireTool } from "../src/tools.js";
 
-test("v1 ships exactly one Tool", () => {
-  assert.equal(WHATSAPP_TOOLS.length, 1);
-  assert.equal(WHATSAPP_TOOLS[0]?.id, "contact-extractor");
+// Deliberately not a count assertion. The registry is designed to grow — a
+// Tool is an entry plus a panel — so asserting its length would fail every time
+// the Module gains a Tool while proving nothing about any of them. What must
+// hold is that ids stay unique, since the Page dispatches on `tool.id` and a
+// duplicate would silently render one panel twice.
+test("Tool ids are unique", () => {
+  const ids = WHATSAPP_TOOLS.map((tool) => tool.id);
+  assert.equal(new Set(ids).size, ids.length, `duplicate Tool id in ${ids.join(", ")}`);
+});
+
+test("the Contact Extractor is registered", () => {
+  assert.ok(WHATSAPP_TOOLS.some((tool) => tool.id === "contact-extractor"));
 });
 
 test("every Tool declares a name, description, modes, and gating capability", () => {
