@@ -2,6 +2,9 @@ export * from "./types.js";
 export * from "./normalize.js";
 export * from "./extract.js";
 export * from "./tools.js";
+// The seam to the Relationship Module: which Person a chat belongs to, and the
+// honest "unknown" states for when that cannot be answered.
+export * from "./link.js";
 // v2 — outbound messages and the per-recipient approval gate.
 export * from "./send.js";
 // v2 — the rate/ban discipline that composes with it (ADR-158).

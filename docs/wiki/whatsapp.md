@@ -123,3 +123,22 @@ would read a real conversation at session start).
 2. **Event names**: single colon, kebab (`whatsapp:session-events`). Dotted names have NEVER
    delivered in this codebase (BUGS 2026-07-29). Two parallel tracks picked two different names and
    nothing failed loudly, because the listener degraded silently.
+
+## Relationship link (ADR-159)
+
+- Chat → Person is an EXACT lookup: chat id → `whatsapp:+E164` / `whatsapp-lid:<id>` key →
+  `local_people.dedupe_key`. No fuzzy tier, ever. `modules/whatsapp/src/link.ts`.
+- Link states: `linked` / `ambiguous` / `unlinked` / `community_unsupported` / `unaddressable`.
+  Each is a different sentence on the surface; never collapsed. LID chat + phone Person = unlinked
+  — honest, WhatsApp hid the number.
+- Ambiguous = `possible_duplicate` Signal committed to `local_entities` (was computed and DROPPED
+  by `stageExtraction` before this). Deterministic id per dedupe key → re-runs no-op, no flood.
+- API: `whatsapp.relationshipLinks` (all chats + counts), `whatsapp.chatLink` (one),
+  `relationship.whatsappTimeline` (a Record's WhatsApp activity: counts/timestamps only — no body,
+  no phone, no key crosses the wire).
+- Person page Timeline renders a "WhatsApp activity" subsection from the Local Plane, joined at
+  RENDER time. WhatsApp rows never become cloud `events` rows — that would break residency.
+- Honest limit: cloud↔local person bridge is ID EQUALITY only (Google/Capture mint one uuid for
+  both planes). WhatsApp-origin local People have NO cloud row, so their chats have no cloud page
+  yet; reported as `no_local_record`/`no_whatsapp_identity`, not as empty activity. Promote path =
+  future work.

@@ -265,6 +265,13 @@ import {
   summarizeAudit,
   type AuditEvent as WhatsAppAuditEvent,
   type AuditEventKind as WhatsAppAuditEventKind,
+  // The Relationship seam: which Person a chat belongs to, and the Signal
+  // raised when that question has more than one answer.
+  resolveChatLink as resolveWhatsAppChatLink,
+  duplicateSignalId as whatsAppDuplicateSignalId,
+  possibleDuplicatePayload as whatsAppPossibleDuplicatePayload,
+  identityKindOfDedupeKey as whatsAppIdentityKindOfDedupeKey,
+  chatsLinkedToPerson as whatsAppChatsLinkedToPerson,
 } from "@bridge/whatsapp";
 import {
   BUILT_IN_MODULES,
@@ -8140,6 +8147,33 @@ export const appRouter = t.router({
         }
         await localPlane.graph.addPeopleToList(list.id, memberIds);
 
+        // 4. File the ambiguous ones as Signals for a human to resolve.
+        //
+        //    These were previously computed and thrown away, which made the
+        //    "never auto-merge" rule invisible: the run refused to guess, said
+        //    so in a counter, and left no way to act on it. A Signal is the
+        //    reviewable artefact that refusal is supposed to produce.
+        //
+        //    The id is deterministic on the identity key, so re-running an
+        //    extraction over the same address book re-commits the same rows
+        //    (`commitEntity` is a no-op on conflict) instead of minting a fresh
+        //    Signal per run. `personId` is deliberately left unset — the whole
+        //    point of this Signal is that nobody knows which Person it is.
+        for (const signal of result.signals) {
+          await localPlane.graph.commitEntity({
+            id: whatsAppDuplicateSignalId(signal.dedupeKey),
+            organizationId,
+            kind: "signal",
+            payload: whatsAppPossibleDuplicatePayload(
+              signal,
+              whatsAppIdentityKindOfDedupeKey(signal.dedupeKey),
+            ),
+            source: WHATSAPP_SOURCE,
+            sourceRecordId: `possible_duplicate:${signal.dedupeKey}`,
+            createdAt: new Date().toISOString(),
+          });
+        }
+
         // Bridge did something; the audit log records it. Counts only —
         // no name, no number, no body ever enters an audit row.
         await recordWhatsAppAudit(localPlane, organizationId, {
@@ -8370,6 +8404,92 @@ export const appRouter = t.router({
           // store may not have loaded, and a silently degraded search that
           // returns nothing looks identical to "no matches".
           capabilities: await ctx.wiring.localPlane.graph.messageSearchCapabilities(),
+        };
+      }),
+
+    // ── Relationship links (TASK-030, ADR-159) ──────────────────────────────
+    //
+    // "Whose chat is this?" — the seam between this Module and the Relationship
+    // Module. Both procedures below are READ-ONLY and commit nothing: resolving
+    // a link is a lookup, and a lookup must not have the side effect of writing
+    // a Person. Ambiguity discovered here is reported, not filed; the Signal is
+    // written by `stageExtraction`, which is the run the user actually asked for.
+    //
+    // RESIDENCY: identity keys embed phone numbers, and every read here is
+    // against the LOCAL plane. Nothing in this section touches cloud canonical
+    // and no message body is returned by either procedure.
+
+    /**
+     * The Relationship subject for every synced chat, with its link state.
+     *
+     * Returns real rows or an empty list — a chat with no Person reads as
+     * `unlinked`, never as a placeholder Person.
+     */
+    relationshipLinks: authenticatedProcedure.query(async ({ ctx }) => {
+      const organizationId = PILOT_ORGANIZATION;
+      await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+      const localPlane = ctx.wiring.localPlane;
+
+      const people = await localPlane.graph.listPeople(organizationId);
+      const index = whatsAppPersonIndexFrom(
+        people.flatMap((person) =>
+          person.dedupeKey ? [{ personId: person.id, dedupeKey: person.dedupeKey }] : [],
+        ),
+      );
+      // Names come from the local People rows, so a linked chat can be labelled
+      // with the Person Bridge knows rather than the name WhatsApp reports.
+      const nameById = new Map(people.map((person) => [person.id, person.fullName ?? ""]));
+
+      const state = readWhatsAppSyncState(
+        await localPlane.state.read(organizationId, WHATSAPP_SYNC_NAMESPACE),
+      );
+      const links = whatsAppSyncedThreads(state).map((thread) => {
+        const link = resolveWhatsAppChatLink(thread.chatId, index);
+        return {
+          chatId: thread.chatId,
+          // A label, never an identifier — see `ChatSyncCursor.name`.
+          ...(thread.name !== undefined ? { chatName: thread.name } : {}),
+          messageCount: thread.messageCount,
+          link,
+          ...(link.state === "linked"
+            ? { personName: nameById.get(link.personId) || undefined }
+            : {}),
+        };
+      });
+
+      // Counted per state so the surface can lead with the honest headline
+      // ("142 chats, 38 linked") instead of implying the rest matched.
+      const counts = links.reduce<Record<string, number>>((acc, row) => {
+        acc[row.link.state] = (acc[row.link.state] ?? 0) + 1;
+        return acc;
+      }, {});
+      return { links, counts, totalChats: links.length, knownPeople: people.length };
+    }),
+
+    /** The Relationship subject for one chat. */
+    chatLink: authenticatedProcedure
+      .input(z.object({ chatId: z.string().min(1).max(128) }))
+      .query(async ({ input, ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const localPlane = ctx.wiring.localPlane;
+        const people = await localPlane.graph.listPeople(organizationId);
+        const link = resolveWhatsAppChatLink(
+          input.chatId,
+          whatsAppPersonIndexFrom(
+            people.flatMap((person) =>
+              person.dedupeKey ? [{ personId: person.id, dedupeKey: person.dedupeKey }] : [],
+            ),
+          ),
+        );
+        const person =
+          link.state === "linked" ? people.find((row) => row.id === link.personId) : undefined;
+        return {
+          chatId: input.chatId,
+          link,
+          // Identity-grade fields only. No phone number is returned here: the
+          // surface needs to know WHO, not how to dial them.
+          ...(person ? { person: { id: person.id, fullName: person.fullName } } : {}),
         };
       }),
 
@@ -9799,6 +9919,111 @@ export const appRouter = t.router({
             : null,
           hasMore: page.nextCursor !== null,
         };
+      }),
+
+    /**
+     * WhatsApp activity for one Relationship Record, for its Timeline (ADR-159).
+     *
+     * ── Why this is a SEPARATE procedure from `timeline` ─────────────────────
+     * `timeline` reads cloud Events. This reads the LOCAL plane. They are not
+     * merged server-side and the WhatsApp rows are never written into `events`,
+     * because that would copy Local-Plane facts into cloud canonical storage —
+     * the one thing the residency rule forbids. The join happens at RENDER time
+     * in the client, which is what keeps the two planes separate on disk while
+     * still giving the user one Timeline to read.
+     *
+     * ── What crosses the wire ────────────────────────────────────────────────
+     * Activity FACTS only: counts, timestamps, direction. No message body, no
+     * phone number, no identity key. Bodies stay in the WhatsApp Module's own
+     * thread surface, which the client links to.
+     *
+     * ── The identity bridge, stated honestly ─────────────────────────────────
+     * A cloud Person id and a Local Plane person id are different key spaces.
+     * The only bridge that exists today is ID EQUALITY — the Google intake and
+     * Capture paths mint one uuid and write it as both `people.id` and
+     * `local_people.id`. This procedure relies on that same bridge and invents
+     * no new one. A Person whose local row was created by the WhatsApp Contact
+     * Extractor has NO cloud row at all, so their chats cannot appear on a
+     * cloud Person page until an explicit promote exists. That is reported as
+     * `linkage: "no_local_record"`, not disguised as "no activity".
+     */
+    whatsappTimeline: authenticatedProcedure
+      .input(
+        z.object({
+          organizationId: z.string().uuid(),
+          recordType: z.enum(["person", "community"]),
+          recordId: z.string().uuid(),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const organizationId = PILOT_ORGANIZATION;
+        const localPlane = ctx.wiring.localPlane;
+
+        // A WhatsApp group maps to a Community identity key, but the Local
+        // Plane has no Community store and nothing stages WhatsApp groups as
+        // Communities yet. Say so, rather than returning an empty list that
+        // would read as "this Community has no WhatsApp activity".
+        if (input.recordType === "community") {
+          return { linkage: "community_unsupported" as const, entries: [] };
+        }
+
+        const people = await localPlane.graph.listPeople(organizationId);
+        const local = people.find((person) => person.id === input.recordId);
+        if (!local) return { linkage: "no_local_record" as const, entries: [] };
+        if (!local.dedupeKey?.startsWith("whatsapp")) {
+          // A local Person exists, but nothing has tied a WhatsApp identity to
+          // them. Distinct from "no messages": there is no channel to read.
+          return { linkage: "no_whatsapp_identity" as const, entries: [] };
+        }
+
+        const index = whatsAppPersonIndexFrom(
+          people.flatMap((person) =>
+            person.dedupeKey ? [{ personId: person.id, dedupeKey: person.dedupeKey }] : [],
+          ),
+        );
+        const state = readWhatsAppSyncState(
+          await localPlane.state.read(organizationId, WHATSAPP_SYNC_NAMESPACE),
+        );
+        const threads = whatsAppSyncedThreads(state);
+        const mine = new Set(
+          whatsAppChatsLinkedToPerson(
+            input.recordId,
+            threads.map((thread) => thread.chatId),
+            index,
+          ),
+        );
+
+        const entries = [];
+        for (const thread of threads) {
+          if (!mine.has(thread.chatId)) continue;
+          const activity = await localPlane.graph.getThreadActivity(
+            organizationId,
+            WHATSAPP_SOURCE,
+            thread.chatId,
+          );
+          entries.push({
+            chatId: thread.chatId,
+            // A label WhatsApp reported, never an identifier.
+            ...(thread.name !== undefined ? { chatName: thread.name } : {}),
+            messageCount: thread.messageCount,
+            inboundCount: activity.inboundCount,
+            outboundCount: activity.outboundCount,
+            ...(activity.firstInboundAt ? { firstInboundAt: activity.firstInboundAt } : {}),
+            ...(activity.lastInboundAt ? { lastInboundAt: activity.lastInboundAt } : {}),
+            ...(activity.lastOutboundAt ? { lastOutboundAt: activity.lastOutboundAt } : {}),
+            // Sort key for the merged Timeline: the most recent thing that
+            // happened in this thread, whichever direction it went.
+            occurredAt:
+              [activity.lastInboundAt, activity.lastOutboundAt]
+                .filter((at): at is string => Boolean(at))
+                .sort()
+                .at(-1) ?? null,
+          });
+        }
+        entries.sort((a, b) => (b.occurredAt ?? "").localeCompare(a.occurredAt ?? ""));
+        return { linkage: "linked" as const, entries };
       }),
 
     listSignals: authenticatedProcedure
