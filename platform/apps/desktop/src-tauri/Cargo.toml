@@ -69,6 +69,10 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSObject",
     "NSValue",
     "NSGeometry",
+    # `NSProcessInfo` is the runtime macOS version check guarding the WhatsApp
+    # session's `data_store_identifier` (WKWebView custom data stores are
+    # macOS >= 14 only). See whatsapp_webview::supports_data_store_identifier.
+    "NSProcessInfo",
 ] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
