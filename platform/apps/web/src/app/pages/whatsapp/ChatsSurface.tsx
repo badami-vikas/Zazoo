@@ -119,14 +119,26 @@ export function ChatsSurface() {
     void whatsAppEngine.ensureHiddenSession();
     void refreshThreads();
 
+    // A probe that could not run is NOT evidence of anything.
+    //
+    // The shell serialises WhatsApp operations behind one busy flag, so every
+    // status poll during a sync is refused with WHATSAPP_BUSY and the shell
+    // wrapper returns a socket of "UNKNOWN". Overwriting the real status with
+    // that made a live, actively-syncing session announce "This device is not
+    // linked" (user-hit, 2026-08-02) — the same mistake as reading a failed
+    // read as an empty result. Keep the last known answer instead; only a
+    // probe that actually reached the session may replace it.
+    const applyStatus = (next: ConnectionState) => {
+      if (stopped.current) return;
+      setStatus((previous) =>
+        next.socket === "UNKNOWN" && previous !== null ? previous : next,
+      );
+    };
+
     const poll = window.setInterval(() => {
-      void whatsAppEngine.getConnectionState().then((next) => {
-        if (!stopped.current) setStatus(next);
-      });
+      void whatsAppEngine.getConnectionState().then(applyStatus);
     }, 3_000);
-    void whatsAppEngine.getConnectionState().then((next) => {
-      if (!stopped.current) setStatus(next);
-    });
+    void whatsAppEngine.getConnectionState().then(applyStatus);
 
     return () => {
       stopped.current = true;
@@ -301,7 +313,12 @@ export function ChatsSurface() {
   // unknown verdict (null) keeps the button visible with a populated store as
   // the only exception — offering a needless re-link is recoverable; hiding
   // the only way in is not.
+  // An unreachable session (socket "UNKNOWN") is excluded outright: it means
+  // the probe failed, not that the device is unlinked, and offering "Reset
+  // session" on a probe failure invites a needless re-link.
+  const reachable = status !== null && status.socket !== "UNKNOWN";
   const needsLink =
+    reachable &&
     status !== null &&
     (status.authenticated === false || (status.authenticated === null && !status.live));
   // "Connected — waiting for your chats" that never resolves is the OTHER wedge
@@ -345,7 +362,11 @@ export function ChatsSurface() {
                   ? `WhatsApp is downloading your messages (${status.chats} chats so far) · ${storedLabel}`
                   : status.socket === "CONNECTED"
                     ? `Connected — waiting for your chats · ${storedLabel}`
-                    : "This device is not linked"}
+                    : status.socket === "UNKNOWN"
+                      ? // Not a claim about the device — the probe could not
+                        // reach the session (it is busy, or still starting).
+                        "Checking the WhatsApp session…"
+                      : "This device is not linked"}
         </span>
         <div className="ml-auto flex items-center gap-2">
           {needsLink || connectedButEmpty ? (

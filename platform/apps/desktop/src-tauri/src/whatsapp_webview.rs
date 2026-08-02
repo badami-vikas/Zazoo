@@ -1351,9 +1351,15 @@ fn ensure_window(app: &AppHandle) -> Result<tauri::WebviewWindow, WhatsAppError>
         .title("WhatsApp")
         .inner_size(1280.0, 800.0)
         .decorations(false)
-        // Focusable and NOT always-on-bottom, unlike the research reader: the
-        // user reads and types in this one.
-        .focused(true)
+        // The session is an ENGINE, not an application. It spends its whole
+        // life parked off-screen and is shown only for the QR scan, so it must
+        // not advertise itself as a second app: without these two it took its
+        // own Dock tile and window-list entry, which is the blank second
+        // "Bridge" icon (user-hit, 2026-08-02). Bridge is one application.
+        .skip_taskbar(true)
+        // Created unfocused. Stealing focus at startup is wrong for a window
+        // nobody can see; the linking path focuses it when it is actually shown.
+        .focused(false)
         // Without this WhatsApp Web serves its unsupported-browser wall.
         .user_agent(SAFARI_USER_AGENT)
         .initialization_script(&init)
