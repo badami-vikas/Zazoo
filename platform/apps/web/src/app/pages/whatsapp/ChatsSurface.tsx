@@ -1,13 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  hideSession,
-  isDesktopShell,
-  openSession,
-  positionSession,
-  rectOf,
-  sessionStatus,
-  type WhatsAppStatus,
-} from "./whatsapp-shell";
+import { rectOf, whatsAppEngine, type ConnectionState } from "./engine";
 
 /**
  * The live WhatsApp Web surface.
@@ -22,20 +14,26 @@ import {
  */
 export function ChatsSurface() {
   const anchor = useRef<HTMLDivElement | null>(null);
-  const [status, setStatus] = useState<WhatsAppStatus | null>(null);
+  const [status, setStatus] = useState<ConnectionState | null>(null);
 
   useEffect(() => {
-    if (!isDesktopShell()) return;
+    if (!whatsAppEngine.isAvailable()) return;
     const element = anchor.current;
     if (!element) return;
 
     let cancelled = false;
     const track = () => {
       if (cancelled || !anchor.current) return;
-      void positionSession(rectOf(anchor.current));
+      void whatsAppEngine.positionSession(rectOf(anchor.current));
     };
 
-    void openSession(rectOf(element));
+    const refreshStatus = () => {
+      void whatsAppEngine.getConnectionState().then((next) => {
+        if (!cancelled) setStatus(next);
+      });
+    };
+
+    void whatsAppEngine.showSession(rectOf(element));
 
     const observer = new ResizeObserver(track);
     observer.observe(element);
@@ -48,11 +46,14 @@ export function ChatsSurface() {
     // session the instant it appeared, every time. Hiding on unmount and route
     // change is enough, and those are the cases that actually matter.
 
-    const poll = window.setInterval(() => {
-      void sessionStatus().then((next) => {
-        if (!cancelled) setStatus(next);
-      });
-    }, 3_000);
+    const poll = window.setInterval(refreshStatus, 3_000);
+
+    // The batched session channel, when it exists. It only ever makes the
+    // status fresher than the 3s poll already makes it — the poll stays as the
+    // sole guarantee, so a channel that never fires changes nothing here.
+    const unsubscribe = whatsAppEngine.subscribe(() => {
+      if (!cancelled) refreshStatus();
+    });
 
     return () => {
       cancelled = true;
@@ -60,11 +61,12 @@ export function ChatsSurface() {
       window.removeEventListener("scroll", track, true);
       window.removeEventListener("resize", track);
       window.clearInterval(poll);
-      void hideSession();
+      unsubscribe();
+      void whatsAppEngine.hideSession();
     };
   }, []);
 
-  if (!isDesktopShell()) {
+  if (!whatsAppEngine.isAvailable()) {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="max-w-md space-y-2 text-center">

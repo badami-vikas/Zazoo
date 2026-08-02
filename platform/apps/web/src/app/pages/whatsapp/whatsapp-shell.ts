@@ -1,5 +1,11 @@
 /**
- * Typed wrappers over the desktop shell's WhatsApp commands.
+ * Typed wrappers over the desktop shell's WhatsApp commands — the TRANSPORT
+ * layer only.
+ *
+ * Surfaces do not import this module. They consume `WhatsAppEngine` from
+ * `./engine`, which is the single adapter over everything here (ADR-158). The
+ * split is deliberate: this file knows how to reach the shell, the engine
+ * defines what the app is allowed to ask it for.
  *
  * Every function feature-detects the shell and returns an `unavailable` result
  * in a plain browser rather than throwing: the session cannot exist there at
