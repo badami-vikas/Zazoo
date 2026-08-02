@@ -7,6 +7,9 @@ import { ChatsSurface } from "./whatsapp/ChatsSurface";
 import { ContactExtractorRun } from "./whatsapp/ContactExtractorRun";
 import { AnnotationsPanel } from "./whatsapp/AnnotationsPanel";
 import { AuditLogPanel } from "./whatsapp/AuditLogPanel";
+import { AutomationRulesPanel } from "./whatsapp/AutomationRulesPanel";
+import { ScheduledActionsPanel } from "./whatsapp/ScheduledActionsPanel";
+import { AgentAssignmentPanel } from "./whatsapp/AgentAssignmentPanel";
 
 type WhatsAppPageId = "chats" | "tools";
 
@@ -62,6 +65,9 @@ export function WhatsAppPage({ page }: { page: WhatsAppPageId }) {
                 {tool.id === "contact-extractor" ? <ContactExtractorRun /> : null}
                 {tool.id === "annotations" ? <AnnotationsPanel /> : null}
                 {tool.id === "audit" ? <AuditLogPanel /> : null}
+                {tool.id === "automation-rules" ? <AutomationRulesPanel /> : null}
+                {tool.id === "scheduled-actions" ? <ScheduledActionsPanel /> : null}
+                {tool.id === "agent-assignment" ? <AgentAssignmentPanel /> : null}
               </section>
             ))}
           </div>

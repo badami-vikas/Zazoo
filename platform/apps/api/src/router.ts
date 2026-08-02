@@ -265,6 +265,26 @@ import {
   summarizeAudit,
   type AuditEvent as WhatsAppAuditEvent,
   type AuditEventKind as WhatsAppAuditEventKind,
+  // v2 automation: rules, schedule, assignment. All Local Plane, none of it a
+  // send path — a rule starts an Agent Run and the outbound gate still speaks.
+  WHATSAPP_AUTOMATION_NAMESPACE,
+  assignmentLedgerOf as whatsAppAssignmentLedger,
+  ruleLedgerOf as whatsAppRuleLedger,
+  scheduleLedgerOf as whatsAppScheduleLedger,
+  withLedgers as whatsAppWithLedgers,
+  emptyAutomationState as emptyWhatsAppAutomationState,
+  readAutomationState as readWhatsAppAutomationState,
+  addRule as addWhatsAppRule,
+  deleteRule as deleteWhatsAppRule,
+  draftAutomationRule as draftWhatsAppRule,
+  planAutomationRun as planWhatsAppAutomationRun,
+  setRuleEnabled as setWhatsAppRuleEnabled,
+  assignAgent as assignWhatsAppAgent,
+  unassignAgent as unassignWhatsAppAgent,
+  cancelAction as cancelWhatsAppAction,
+  cancelActionsForRule as cancelWhatsAppActionsForRule,
+  scheduleFromPolicy as scheduleWhatsAppFromPolicy,
+  type WhatsAppAutomationState,
 } from "@bridge/whatsapp";
 import {
   BUILT_IN_MODULES,
@@ -353,6 +373,74 @@ async function recordWhatsAppAudit(
   } catch {
     // Intentionally swallowed — see the note above.
   }
+}
+
+// ── WhatsApp automation helpers (TASK-030, ADR-158 under AP-091) ─────────────
+
+/** A rule/assignment subject. The Module owns the meaning; this is the wire. */
+const whatsAppAutomationSubjectSchema = z.object({
+  kind: z.enum(["chat", "person"]),
+  key: z.string().trim().min(1).max(200),
+});
+
+/**
+ * The Agents this Module declares, from the manifest.
+ *
+ * Read from the manifest every time rather than cached in a constant: the
+ * manifest is the authority on which Agents exist, and a second copy here is a
+ * copy that can drift into offering an Agent that no longer has a capability.
+ */
+function whatsAppModuleAgents(): { id: string; name: string }[] {
+  const whatsapp = BUILT_IN_MODULES.find((entry) => entry.manifest.name === "whatsapp");
+  const agents = whatsapp?.manifest.module?.agents ?? [];
+  return agents.map((agent) => ({ id: agent.id, name: agent.name }));
+}
+
+/**
+ * The named human behind a mutation.
+ *
+ * An Agent must not author its own automation rules, assign itself to a chat,
+ * or cancel the queue it is in. `assignAgent` and `setRuleEnabled` both refuse
+ * an unnamed actor on their own, but they cannot tell a person from an Agent —
+ * that distinction is server-resolved identity, and it belongs here.
+ */
+function requireWhatsAppHuman(identity: { type: string; id: string }): string {
+  if (identity.type !== "user") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only a person can author WhatsApp automation, assign an Agent, or cancel a run.",
+    });
+  }
+  return identity.id;
+}
+
+/**
+ * Read-modify-write the three automation ledgers atomically.
+ *
+ * One namespace and one reducer, because the writes are genuinely coupled:
+ * deleting a rule must also cancel the actions it queued, and both halves
+ * landing or neither is the only correct outcome. The reducer is synchronous
+ * and side-effect-free, per `LocalStateStore`'s contract — it may be retried
+ * after cross-process contention.
+ */
+async function whatsAppAutomationUpdate(
+  ctx: {
+    identity: { id: string };
+    wiring: Pick<ApiContext["wiring"], "organizationStore" | "localPlane">;
+  },
+  reduce: (state: WhatsAppAutomationState) => WhatsAppAutomationState,
+): Promise<void> {
+  const organizationId = PILOT_ORGANIZATION;
+  await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+  await ctx.wiring.localPlane.state.update(
+    organizationId,
+    WHATSAPP_AUTOMATION_NAMESPACE,
+    emptyWhatsAppAutomationState(),
+    (current) => {
+      const next = reduce(readWhatsAppAutomationState(current));
+      return { state: next, result: null };
+    },
+  );
 }
 
 function moduleInstallationLedgerResourceId(
@@ -8650,6 +8738,387 @@ export const appRouter = t.router({
           }),
         };
       }),
+    // ── Automation: rules, schedule, assignment (TASK-030, ADR-158/AP-091) ──
+    //
+    // RESIDENCY: all three ledgers live in ONE `LocalStateStore` namespace,
+    // which is Local Plane by construction. Rules name chats, assignments name
+    // humans and Agents, scheduled actions name goals. None of it dual-writes
+    // and none of it has a promote path.
+    //
+    // SEND DISCIPLINE: nothing in this section sends, and nothing in it can.
+    // A rule starts an Agent Run; whatever that Run wants to deliver goes
+    // through `performAutomatedSend` — policy refusals, then `decideSend`,
+    // then the Rust-enforced ceiling. There is no second write path here.
+    //
+    // ATTRIBUTION: every mutation below requires `identity.type === "user"`.
+    // An Agent may not author its own rules, assign itself, or re-arm anything;
+    // that is what makes the audit trail mean something.
+    automation: t.router({
+      /** Every ledger, plus what the panels need to render honest choices. */
+      state: authenticatedProcedure.query(async ({ ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const state = readWhatsAppAutomationState(
+          await ctx.wiring.localPlane.state.read(organizationId, WHATSAPP_AUTOMATION_NAMESPACE),
+        );
+        const sync = readWhatsAppSyncState(
+          await ctx.wiring.localPlane.state.read(organizationId, WHATSAPP_SYNC_NAMESPACE),
+        );
+        return {
+          rules: state.rules,
+          assignments: state.assignments,
+          scheduled: state.scheduled,
+          // The manifest is the authority on which Agents exist. Sending the
+          // list means the panel offers real Agents rather than free text.
+          agents: whatsAppModuleAgents(),
+          // Real synced threads only. A chat the store has never seen is not
+          // offered as a subject, because a rule pointed at one could never
+          // have the consent facts it needs.
+          chats: whatsAppSyncedThreads(sync).map((thread) => ({
+            chatId: thread.chatId,
+            ...(thread.name !== undefined ? { name: thread.name } : {}),
+            ...(thread.isGroup !== undefined ? { isGroup: thread.isGroup } : {}),
+          })),
+        };
+      }),
+
+      createRule: authenticatedProcedure
+        .input(
+          z.object({
+            name: z.string().trim().min(1).max(120),
+            subject: whatsAppAutomationSubjectSchema,
+            trigger: z.discriminatedUnion("kind", [
+              z.object({
+                kind: z.literal("inbound_message"),
+                bodyContains: z.string().trim().max(200).optional(),
+              }),
+              z.object({
+                kind: z.literal("thread_quiet"),
+                quietDays: z.number().int().min(1).max(365),
+              }),
+            ]),
+            goal: z.string().trim().min(1).max(600),
+            /**
+             * Only ever tightening — `tightenLimits` takes the stricter of each
+             * field, so these bounds are a usability guard, not the protection.
+             */
+            limitOverrides: z
+              .object({
+                dailyCap: z.number().int().min(1).max(30).optional(),
+                recipientCooldownDays: z.number().int().min(7).max(365).optional(),
+                businessHourStart: z.number().int().min(9).max(23).optional(),
+                businessHourEnd: z.number().int().min(1).max(21).optional(),
+                requireRecipientInitiated: z.boolean().optional(),
+              })
+              .optional(),
+            enabled: z.boolean().default(true),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          const who = requireWhatsAppHuman(ctx.identity);
+          const now = new Date().toISOString();
+          const rule = draftWhatsAppRule({
+            id: uuidv7(),
+            name: input.name,
+            subject: input.subject,
+            // Rebuilt field by field rather than spread: the package builds
+            // with `exactOptionalPropertyTypes`, and an absent `bodyContains`
+            // must be absent rather than present-and-undefined.
+            trigger:
+              input.trigger.kind === "inbound_message"
+                ? {
+                    kind: "inbound_message" as const,
+                    ...(input.trigger.bodyContains
+                      ? { bodyContains: input.trigger.bodyContains }
+                      : {}),
+                  }
+                : { kind: "thread_quiet" as const, quietDays: input.trigger.quietDays },
+            goal: input.goal,
+            createdBy: who,
+            now,
+            enabled: input.enabled,
+            // Undefined entries are dropped rather than passed through, for the
+            // same `exactOptionalPropertyTypes` reason as the trigger above.
+            // `tightenLimits` would ignore them either way — it only ever takes
+            // the stricter of each field against the shipped discipline.
+            ...(input.limitOverrides
+              ? {
+                  limitOverrides: Object.fromEntries(
+                    Object.entries(input.limitOverrides).filter(
+                      ([, value]) => value !== undefined,
+                    ),
+                  ),
+                }
+              : {}),
+          });
+          await whatsAppAutomationUpdate(ctx, (state) =>
+            whatsAppWithLedgers(state, {
+              rules: addWhatsAppRule(whatsAppRuleLedger(state), rule),
+            }),
+          );
+          return { rule };
+        }),
+
+      setRuleEnabled: authenticatedProcedure
+        .input(
+          z.object({
+            ruleId: z.string().min(1).max(128),
+            enabled: z.boolean(),
+            reason: z.string().trim().max(300).optional(),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          const who = requireWhatsAppHuman(ctx.identity);
+          const now = new Date().toISOString();
+          await whatsAppAutomationUpdate(ctx, (state) =>
+            whatsAppWithLedgers(state, {
+              rules: setWhatsAppRuleEnabled(
+                whatsAppRuleLedger(state),
+                input.ruleId,
+                input.enabled,
+                who,
+                now,
+                input.reason,
+              ),
+            }),
+          );
+          return { ruleId: input.ruleId, enabled: input.enabled };
+        }),
+
+      /**
+       * Delete a rule, and cancel everything it had already queued.
+       *
+       * Both halves in ONE atomic state update. Deleting the rule while leaving
+       * its queued Agent Runs behind would leave the owner watching actions
+       * fire from an automation they believe they removed.
+       */
+      deleteRule: authenticatedProcedure
+        .input(z.object({ ruleId: z.string().min(1).max(128) }))
+        .mutation(async ({ input, ctx }) => {
+          const who = requireWhatsAppHuman(ctx.identity);
+          const now = new Date().toISOString();
+          // Assigned inside the reducer, which may be retried under contention;
+          // a plain assignment (not an accumulation) is safe to redo.
+          let cancelledActions = 0;
+          await whatsAppAutomationUpdate(ctx, (state) => {
+            const swept = cancelWhatsAppActionsForRule(
+              whatsAppScheduleLedger(state),
+              input.ruleId,
+              who,
+              now,
+            );
+            cancelledActions = swept.cancelled;
+            return whatsAppWithLedgers(state, {
+              rules: deleteWhatsAppRule(whatsAppRuleLedger(state), input.ruleId),
+              schedule: swept.ledger,
+            });
+          });
+          return { ruleId: input.ruleId, cancelledActions };
+        }),
+
+      assignAgent: authenticatedProcedure
+        .input(
+          z.object({
+            subject: whatsAppAutomationSubjectSchema,
+            agentId: z.string().min(1).max(128),
+            note: z.string().trim().max(300).optional(),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          const who = requireWhatsAppHuman(ctx.identity);
+          const now = new Date().toISOString();
+          await whatsAppAutomationUpdate(ctx, (state) =>
+            whatsAppWithLedgers(state, {
+              assignments: assignWhatsAppAgent(whatsAppAssignmentLedger(state), {
+                id: uuidv7(),
+                subject: input.subject,
+                agentId: input.agentId,
+                assignedBy: who,
+                assignedAt: now,
+                // The manifest decides which Agents exist. Never a client list.
+                allowedAgentIds: whatsAppModuleAgents().map((agent) => agent.id),
+                ...(input.note ? { note: input.note } : {}),
+              }).ledger,
+            }),
+          );
+          return { subject: input.subject, agentId: input.agentId };
+        }),
+
+      unassignAgent: authenticatedProcedure
+        .input(z.object({ subject: whatsAppAutomationSubjectSchema }))
+        .mutation(async ({ input, ctx }) => {
+          const who = requireWhatsAppHuman(ctx.identity);
+          const now = new Date().toISOString();
+          await whatsAppAutomationUpdate(ctx, (state) =>
+            whatsAppWithLedgers(state, {
+              assignments: unassignWhatsAppAgent(
+                whatsAppAssignmentLedger(state),
+                input.subject,
+                who,
+                now,
+              ).ledger,
+            }),
+          );
+          return { subject: input.subject };
+        }),
+
+      cancelAction: authenticatedProcedure
+        .input(z.object({ actionId: z.string().min(1).max(128) }))
+        .mutation(async ({ input, ctx }) => {
+          const who = requireWhatsAppHuman(ctx.identity);
+          const now = new Date().toISOString();
+          await whatsAppAutomationUpdate(ctx, (state) =>
+            whatsAppWithLedgers(state, {
+              schedule: cancelWhatsAppAction(
+                whatsAppScheduleLedger(state),
+                input.actionId,
+                who,
+                now,
+              ).ledger,
+            }),
+          );
+          return { actionId: input.actionId };
+        }),
+
+      /**
+       * Evaluate every enabled rule against what the message store actually
+       * holds, and queue whatever is due.
+       *
+       * This is a USER-CLICKED check, not a background loop — the same posture
+       * the read Tools take. It reads only stored Local Plane facts, so it
+       * touches the WhatsApp session not at all, and it queues Agent Runs
+       * rather than sending anything.
+       *
+       * Every rule that did not produce an action reports WHY, including the
+       * ones blocked by the consent gate. A rule pointed at a thread the
+       * recipient has never written in can never fire, and the owner should
+       * learn that from this check rather than from silence.
+       */
+      check: authenticatedProcedure.mutation(async ({ ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const now = new Date().toISOString();
+
+        const state = readWhatsAppAutomationState(
+          await ctx.wiring.localPlane.state.read(organizationId, WHATSAPP_AUTOMATION_NAMESPACE),
+        );
+
+        // Consent facts, per subject, read from the store rather than assumed.
+        const activity = new Map<string, Awaited<ReturnType<typeof ctx.wiring.localPlane.graph.getThreadActivity>>>();
+        for (const rule of state.rules) {
+          if (rule.subject.kind !== "chat" || activity.has(rule.subject.key)) continue;
+          activity.set(
+            rule.subject.key,
+            await ctx.wiring.localPlane.graph.getThreadActivity(
+              organizationId,
+              WHATSAPP_SOURCE,
+              rule.subject.key,
+            ),
+          );
+        }
+
+        const outcomes: {
+          ruleId: string;
+          ruleName: string;
+          status: string;
+          explanation: string;
+          actionId?: string;
+        }[] = [];
+        const queued: { id: string; ruleId: string; scheduledFor: string }[] = [];
+
+        await whatsAppAutomationUpdate(ctx, (current) => {
+          let schedule = whatsAppScheduleLedger(current);
+          outcomes.length = 0;
+          queued.length = 0;
+
+          for (const rule of current.rules) {
+            const thread = activity.get(rule.subject.key) ?? {
+              chatId: rule.subject.key,
+              inboundCount: 0,
+              outboundCount: 0,
+            };
+            // A Person-subject rule has no single thread to read consent from,
+            // so it is reported honestly rather than run against a guess.
+            if (rule.subject.kind !== "chat") {
+              outcomes.push({
+                ruleId: rule.id,
+                ruleName: rule.name,
+                status: "blocked",
+                explanation:
+                  "This rule watches a Person rather than one chat, and consent is a per-thread fact. Point it at a chat.",
+              });
+              continue;
+            }
+
+            const plan = planWhatsAppAutomationRun(rule, {
+              now,
+              assignments: whatsAppAssignmentLedger(current),
+              thread,
+            });
+
+            if (plan.status !== "start_agent_run") {
+              // Said plainly rather than left as "not due": this check is a
+              // SWEEP over stored facts, so it can evaluate a quiet thread but
+              // has no arriving message to hand an `inbound_message` rule. Such
+              // a rule is not broken and is not due — it is waiting for a hook
+              // that does not exist yet, and the owner should be told that
+              // rather than pressing this button again next week.
+              const sweepBlind =
+                plan.status === "not_due" && rule.trigger.kind === "inbound_message";
+              outcomes.push({
+                ruleId: rule.id,
+                ruleName: rule.name,
+                status: sweepBlind ? "waiting" : plan.status,
+                explanation: sweepBlind
+                  ? "This rule fires when a message arrives. This check only sweeps what is already stored, so it cannot fire one — that needs the message-arrival hook, which is not built yet."
+                  : plan.status === "blocked"
+                    ? plan.explanation
+                    : plan.reason,
+              });
+              continue;
+            }
+
+            // A trigger match is not a licence to act now. The action is queued
+            // and paced; when it runs, the send gate speaks again.
+            const id = uuidv7();
+            const outcome = scheduleWhatsAppFromPolicy(schedule, {
+              id,
+              ruleId: rule.id,
+              agentId: plan.agentId,
+              subject: plan.subject,
+              goal: plan.goal,
+              ...(plan.skillId ? { skillId: plan.skillId } : {}),
+              now,
+              decision: { status: "allowed", delaySeconds: 0 },
+              limits: plan.limits,
+              jitterDraw: Math.random(),
+            });
+            if (outcome.status === "refused") {
+              outcomes.push({
+                ruleId: rule.id,
+                ruleName: rule.name,
+                status: "refused",
+                explanation: outcome.reason,
+              });
+              continue;
+            }
+            schedule = outcome.ledger;
+            queued.push({ id, ruleId: rule.id, scheduledFor: outcome.action.scheduledFor });
+            outcomes.push({
+              ruleId: rule.id,
+              ruleName: rule.name,
+              status: "queued",
+              explanation: `${plan.because} ${outcome.action.reason.explanation}`,
+              actionId: id,
+            });
+          }
+
+          return whatsAppWithLedgers(current, { schedule });
+        });
+
+        return { checkedAt: now, outcomes, queued };
+      }),
+    }),
   }),
 
   google: t.router({

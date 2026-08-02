@@ -7,13 +7,25 @@ import { WHATSAPP_TOOLS, requireTool } from "../src/tools.js";
 // the Module gains a Tool while proving nothing about any of them. What must
 // hold is that ids stay unique, since the Page dispatches on `tool.id` and a
 // duplicate would silently render one panel twice.
-test("Tool ids are unique", () => {
+test("the registry has no duplicate Tool ids", () => {
   const ids = WHATSAPP_TOOLS.map((tool) => tool.id);
   assert.equal(new Set(ids).size, ids.length, `duplicate Tool id in ${ids.join(", ")}`);
 });
 
-test("the Contact Extractor is registered", () => {
-  assert.ok(WHATSAPP_TOOLS.some((tool) => tool.id === "contact-extractor"));
+test("the Tools the Page dispatches on are all registered", () => {
+  // Every id here has a panel in WhatsAppPage.tsx. A registry entry without a
+  // panel renders a heading and nothing under it, which reads as broken.
+  const ids = new Set(WHATSAPP_TOOLS.map((tool) => tool.id));
+  for (const id of [
+    "contact-extractor",
+    "annotations",
+    "audit",
+    "automation-rules",
+    "scheduled-actions",
+    "agent-assignment",
+  ]) {
+    assert.ok(ids.has(id), `${id} is missing from the registry`);
+  }
 });
 
 test("every Tool declares a name, description, modes, and gating capability", () => {
