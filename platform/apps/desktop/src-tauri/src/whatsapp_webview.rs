@@ -1110,6 +1110,156 @@ fn supports_data_store_identifier() -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Session recovery — reload and reset (TASK-030 shell fixes)
+// ---------------------------------------------------------------------------
+//
+// Motivated by the 2026-08-02 incident: WhatsApp Web wedged on its own splash
+// screen forever because the persisted data store held session state WhatsApp
+// had invalidated (the device was unlinked elsewhere). The shell had no
+// affordance for this at all — the only escape was quitting Bridge and moving
+// `~/Library/WebKit/<container>/WebsiteDataStore/<uuid>` aside by hand.
+//
+// Two affordances, in escalation order:
+//
+//  - RELOAD: navigate the existing window to WhatsApp again. Same store, fresh
+//    page. Cures a hung page; cures nothing about invalidated storage.
+//  - RESET: close the window, MOVE the store directory aside to a timestamped
+//    sibling, and delete the persisted store-id file, so the next
+//    `ensure_window` mints a fresh store and shows a QR.
+//
+// The store is moved with `std::fs::rename` to a SIBLING path — same volume,
+// atomic, and reversible by hand. It is NEVER deleted: the directory holds the
+// only copy of an authenticated session's cookies and IndexedDB, and a
+// recovery affordance that destroys evidence on a misdiagnosis is worse than
+// the wedge it exists to fix. A failed rename is a typed error, not a
+// fallback to deletion.
+
+/// How many `-2`, `-3`… suffixes to try when the archive sibling already
+/// exists (two resets in the same second) before refusing.
+const MAX_ARCHIVE_ATTEMPTS: u32 = 100;
+
+/// What one reset actually did, reported so the UI can say it honestly.
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResetReport {
+    /// The session window existed and was closed.
+    pub window_closed: bool,
+    /// Sibling paths the store directories were MOVED to. Never deleted.
+    pub archived_to: Vec<String>,
+    /// The persisted store-id file existed and was removed, so the next
+    /// session start mints a fresh identity.
+    pub id_file_removed: bool,
+}
+
+/// Find the WKWebView data-store directories that belong to `uuid_text`.
+///
+/// The on-disk layout is `<webkit_root>/<container>/WebsiteDataStore/<UUID>`.
+/// The container segment is not ours to predict — a dev binary and a bundled
+/// app get different names — so every container under the WebKit root is
+/// scanned. The match is case-insensitive because WebKit writes the UUID
+/// uppercase while the persisted id file is lowercase. Only directories whose
+/// name IS our persisted UUID are returned; nothing else is ever touched.
+pub fn find_data_store_dirs(webkit_root: &Path, uuid_text: &str) -> Vec<PathBuf> {
+    let wanted = uuid_text.trim().to_ascii_lowercase();
+    let mut found = Vec::new();
+    let Ok(containers) = std::fs::read_dir(webkit_root) else {
+        return found;
+    };
+    for container in containers.flatten() {
+        let stores = container.path().join("WebsiteDataStore");
+        let Ok(entries) = std::fs::read_dir(&stores) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if name.to_ascii_lowercase() == wanted && entry.path().is_dir() {
+                found.push(entry.path());
+            }
+        }
+    }
+    found
+}
+
+/// Move a store directory aside to a timestamped sibling. NEVER deletes.
+///
+/// `rename` to a sibling stays on the same volume, so it is atomic and cannot
+/// half-copy. A rename failure is an error the caller must surface — falling
+/// back to deletion is exactly what this function exists to rule out.
+pub fn archive_store_dir(dir: &Path, timestamp: &str) -> Result<PathBuf, String> {
+    let name = dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("{} has no usable directory name", dir.display()))?;
+    let parent = dir
+        .parent()
+        .ok_or_else(|| format!("{} has no parent directory", dir.display()))?;
+    let mut target = parent.join(format!("{name}-invalidated-{timestamp}"));
+    let mut attempt = 1;
+    while target.exists() {
+        attempt += 1;
+        if attempt > MAX_ARCHIVE_ATTEMPTS {
+            return Err(format!(
+                "could not find a free archive name for {}",
+                dir.display()
+            ));
+        }
+        target = parent.join(format!("{name}-invalidated-{timestamp}-{attempt}"));
+    }
+    std::fs::rename(dir, &target).map_err(|error| {
+        format!(
+            "could not move {} aside to {} ({error}) — the store was NOT deleted",
+            dir.display(),
+            target.display()
+        )
+    })?;
+    Ok(target)
+}
+
+/// The filesystem half of a reset, over explicit paths so it is testable.
+///
+/// Reads the persisted UUID, moves every matching store directory aside, and
+/// removes the id file. Every absence is a no-op success: a reset must be safe
+/// to run when nothing exists yet, because "the session is wedged" and "the
+/// session never existed" look identical to a frustrated user. An id file
+/// holding garbage still gets removed — it could never name a store anyway,
+/// and leaving it would keep poisoning `load_or_create_data_store_id`.
+pub fn reset_session_storage(
+    webkit_root: &Path,
+    id_file: &Path,
+    timestamp: &str,
+) -> Result<(Vec<PathBuf>, bool), String> {
+    let mut archived = Vec::new();
+    if let Ok(text) = std::fs::read_to_string(id_file) {
+        if parse_uuid(&text).is_some() {
+            for dir in find_data_store_dirs(webkit_root, text.trim()) {
+                archived.push(archive_store_dir(&dir, timestamp)?);
+            }
+        }
+    }
+    let id_file_removed = match std::fs::remove_file(id_file) {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(format!(
+                "could not remove the persisted store id ({error}) — the next session \
+                 would reopen the archived store's identity"
+            ))
+        }
+    };
+    Ok((archived, id_file_removed))
+}
+
+/// Seconds since the epoch, as the archive timestamp. Monotonic enough: a
+/// same-second double reset is handled by the `-2` suffix above.
+fn archive_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs().to_string())
+        .unwrap_or_else(|_| "clock-unavailable".to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Window lifecycle
 // ---------------------------------------------------------------------------
 
@@ -1767,6 +1917,94 @@ pub fn whatsapp_send_rearm(
     ceiling::save_to(&path, &ledger)
         .map_err(|error| err("WHATSAPP_SEND_STATE", format!("the re-arm could not be persisted: {error}")))?;
     Ok(ceiling::status_of(&ledger, now, &ceiling::SEND_LIMITS))
+}
+
+// ---------------------------------------------------------------------------
+// Recovery commands (TASK-030 shell fixes)
+// ---------------------------------------------------------------------------
+
+/// Reload the session page: same store, fresh load. The cheap first thing to
+/// try when the page wedges. `false` means there was no window to reload —
+/// not an error, because the caller's next step (open it) is the same fix.
+#[tauri::command]
+pub fn whatsapp_session_reload(app: AppHandle) -> Result<bool, WhatsAppError> {
+    on_main(&app, |handle| {
+        match handle.get_webview_window(WHATSAPP_LABEL) {
+            None => Ok(false),
+            Some(window) => {
+                let target = tauri::Url::parse(WHATSAPP_URL).expect("WhatsApp URL is valid");
+                window.navigate(target).map_err(|error| {
+                    err(
+                        "WHATSAPP_RELOAD_FAILED",
+                        format!("Could not reload the WhatsApp session: {error}"),
+                    )
+                })?;
+                Ok(true)
+            }
+        }
+    })
+}
+
+/// The escape hatch for invalidated session storage (2026-08-02 incident).
+///
+/// Closes the session window if open, MOVES the WKWebView store directory
+/// aside to a timestamped sibling — never deletes — and removes the persisted
+/// store-id file, so the next `ensure_window` mints a fresh store and shows a
+/// QR. Safe when no window exists and when the store directory is absent;
+/// every step it took is in the report. Destroy-then-rename runs in one
+/// main-thread hop: `destroy` tears the webview down synchronously (`close`
+/// only requests it), so by the time the rename runs nothing is minting new
+/// files under the old identity.
+#[tauri::command]
+pub fn whatsapp_session_reset(app: AppHandle) -> Result<SessionResetReport, WhatsAppError> {
+    on_main(&app, |handle| {
+        let window_closed = match handle.get_webview_window(WHATSAPP_LABEL) {
+            None => false,
+            Some(window) => {
+                window.destroy().map_err(|error| {
+                    err(
+                        "WHATSAPP_RESET_FAILED",
+                        format!("Could not close the session window: {error}"),
+                    )
+                })?;
+                true
+            }
+        };
+
+        let id_file = handle
+            .path()
+            .app_data_dir()
+            .map(|dir| dir.join(DATA_STORE_ID_FILE))
+            .map_err(|error| {
+                err(
+                    "WHATSAPP_RESET_FAILED",
+                    format!("The app data directory is unavailable ({error}), so the persisted store id cannot be cleared."),
+                )
+            })?;
+        let webkit_root = handle
+            .path()
+            .home_dir()
+            .map(|home| home.join("Library").join("WebKit"))
+            .unwrap_or_else(|_| PathBuf::from("/nonexistent"));
+
+        let (archived, id_file_removed) =
+            reset_session_storage(&webkit_root, &id_file, &archive_timestamp())
+                .map_err(|message| err("WHATSAPP_RESET_FAILED", message))?;
+        for path in &archived {
+            eprintln!(
+                "[bridge-desktop] whatsapp session store moved aside to {}",
+                path.display()
+            );
+        }
+        Ok(SessionResetReport {
+            window_closed,
+            archived_to: archived
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect(),
+            id_file_removed,
+        })
+    })
 }
 
 #[cfg(test)]
@@ -2447,5 +2685,174 @@ mod tests {
                 "the session page must have no Tauri IPC surface ({ipc})"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Session reset — the filesystem half (TASK-030 shell fixes)
+    // -----------------------------------------------------------------------
+
+    /// A unique scratch dir per test. `std::env::temp_dir()` following the
+    /// pattern `whatsapp_send.rs` already uses.
+    fn scratch(name: &str) -> PathBuf {
+        let mut tag = [0u8; 8];
+        let _ = getrandom::fill(&mut tag);
+        let suffix: String = tag.iter().map(|b| format!("{b:02x}")).collect();
+        let dir = std::env::temp_dir().join(format!("bridge-wa-reset-{name}-{suffix}"));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    #[test]
+    fn reset_moves_the_store_aside_and_removes_the_id_file() {
+        let root = scratch("archive");
+        let webkit = root.join("WebKit");
+        let uuid = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
+        // WebKit writes the directory name UPPERCASE; the id file is lowercase.
+        let store = webkit
+            .join("bridge-desktop")
+            .join("WebsiteDataStore")
+            .join(uuid.to_uppercase());
+        std::fs::create_dir_all(&store).expect("store dir");
+        std::fs::write(store.join("Cookies.binarycookies"), b"session").expect("cookie file");
+        // A NEIGHBOUR store belonging to a different identity must survive.
+        let neighbour = webkit
+            .join("bridge-desktop")
+            .join("WebsiteDataStore")
+            .join("FFFFFFFF-0000-4000-8000-000000000000");
+        std::fs::create_dir_all(&neighbour).expect("neighbour dir");
+        let id_file = root.join("bridge").join("whatsapp-data-store-id");
+        std::fs::create_dir_all(id_file.parent().unwrap()).expect("id dir");
+        std::fs::write(&id_file, uuid).expect("id file");
+
+        let (archived, id_removed) =
+            reset_session_storage(&webkit, &id_file, "1754000000").expect("reset succeeds");
+
+        // Moved, not deleted: the original is gone, the sibling holds the data.
+        assert_eq!(archived.len(), 1);
+        assert!(!store.exists(), "the original store dir must be gone");
+        let sibling = archived[0].clone();
+        assert_eq!(sibling.parent(), store.parent(), "archive stays a sibling");
+        assert!(sibling
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("invalidated-1754000000"));
+        assert!(sibling.join("Cookies.binarycookies").exists(), "contents survive the move");
+        // The other identity's store was never touched.
+        assert!(neighbour.exists());
+        // The id file is gone, so the next session start mints a fresh store.
+        assert!(id_removed);
+        assert!(!id_file.exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reset_with_no_store_dir_still_clears_the_id_file() {
+        let root = scratch("no-store");
+        let webkit = root.join("WebKit"); // never created
+        let id_file = root.join("whatsapp-data-store-id");
+        std::fs::write(&id_file, "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d").expect("id file");
+
+        let (archived, id_removed) =
+            reset_session_storage(&webkit, &id_file, "1").expect("absent store is a no-op");
+        assert!(archived.is_empty());
+        assert!(id_removed);
+        assert!(!id_file.exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reset_with_nothing_at_all_is_a_no_op_success() {
+        let root = scratch("nothing");
+        let (archived, id_removed) = reset_session_storage(
+            &root.join("WebKit"),
+            &root.join("whatsapp-data-store-id"),
+            "1",
+        )
+        .expect("a reset over nothing must succeed");
+        assert!(archived.is_empty());
+        assert!(!id_removed);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reset_removes_a_garbage_id_file_without_touching_any_store() {
+        // A corrupt id file names no store, but leaving it would keep
+        // poisoning `load_or_create_data_store_id` on every launch.
+        let root = scratch("garbage");
+        let webkit = root.join("WebKit");
+        let stray = webkit.join("app").join("WebsiteDataStore").join("SOMETHING");
+        std::fs::create_dir_all(&stray).expect("stray dir");
+        let id_file = root.join("whatsapp-data-store-id");
+        std::fs::write(&id_file, "not-a-uuid").expect("id file");
+
+        let (archived, id_removed) =
+            reset_session_storage(&webkit, &id_file, "1").expect("reset succeeds");
+        assert!(archived.is_empty(), "garbage must never match a directory");
+        assert!(stray.exists(), "no directory may be moved on a garbage id");
+        assert!(id_removed);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn archive_disambiguates_when_the_sibling_already_exists() {
+        // Two resets in the same second must not collide — and must not
+        // overwrite the first archive.
+        let root = scratch("collide");
+        let store = root.join("STORE");
+        std::fs::create_dir_all(&store).expect("store");
+        std::fs::create_dir_all(root.join("STORE-invalidated-9")).expect("existing sibling");
+
+        let target = archive_store_dir(&store, "9").expect("archive succeeds");
+        assert_eq!(
+            target.file_name().unwrap().to_string_lossy(),
+            "STORE-invalidated-9-2"
+        );
+        assert!(target.exists());
+        assert!(root.join("STORE-invalidated-9").exists(), "the first archive survives");
+        assert!(!store.exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn find_data_store_dirs_matches_case_insensitively_across_containers() {
+        let root = scratch("find");
+        let uuid = "0a0b0c0d-0e0f-4a1b-8c2d-3e4f5a6b7c8d";
+        // The container name differs between a dev binary and a bundled app,
+        // so both are scanned.
+        for container in ["bridge-desktop", "ai.bridge.desktop"] {
+            std::fs::create_dir_all(
+                root.join(container)
+                    .join("WebsiteDataStore")
+                    .join(uuid.to_uppercase()),
+            )
+            .expect("store dir");
+        }
+        // Decoys: wrong uuid, and a FILE with the right name.
+        std::fs::create_dir_all(
+            root.join("other")
+                .join("WebsiteDataStore")
+                .join("11111111-2222-4333-8444-555555555555"),
+        )
+        .expect("decoy dir");
+        let file_container = root.join("filecase").join("WebsiteDataStore");
+        std::fs::create_dir_all(&file_container).expect("file container");
+        std::fs::write(file_container.join(uuid.to_uppercase()), b"not a dir").expect("decoy file");
+
+        let mut found = find_data_store_dirs(&root, uuid);
+        found.sort();
+        assert_eq!(found.len(), 2, "both containers' stores are found: {found:?}");
+        for path in &found {
+            assert_eq!(
+                path.file_name().unwrap().to_string_lossy(),
+                uuid.to_uppercase()
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

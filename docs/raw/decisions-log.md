@@ -3446,3 +3446,49 @@ it in a tripwire would read a real conversation at session start.
 account has not been observed. The fix does not depend on the answer — undated chats are now read
 regardless — but the sync is more efficient when a chat can be dated, so the live procedure in
 `outputs/2026-08-02-task-030-sync-fix.md` asks for it.
+
+### ADR-159 (2026-08-02) — session recovery: move storage aside, never delete it
+
+**Context.** WhatsApp Web wedged on its own splash screen indefinitely because the persisted
+WKWebView data store held session state WhatsApp had invalidated (the device was unlinked
+elsewhere). The shell had NO diagnostic or recovery affordance: diagnosis required an out-of-band
+Swift WKWebView probe, and the only escape was quitting Bridge and moving
+`~/Library/WebKit/<container>/WebsiteDataStore/<uuid>` aside by hand in a terminal. A recovery gap
+that ends in "the user hand-edits `~/Library/WebKit`" is a product defect regardless of how rare
+the trigger is.
+
+**Decision.** Two shell commands in escalation order, surfaced on the Chats surface only in the
+states they cure:
+
+- `whatsapp_session_reload` — navigate the existing window to WhatsApp again. Same store, fresh
+  page. Offered in BOTH wedge states: not linked, and connected-but-chatless (seen live the same
+  day: a CONNECTED socket over a store WhatsApp had emptied, with the sync honestly reporting
+  "no chats at all").
+- `whatsapp_session_reset` — destroy the window, MOVE the store directory to a timestamped sibling
+  (`<uuid>-invalidated-<epoch>`), remove the persisted store-id file so the next `ensure_window`
+  mints a fresh store and shows a QR. Confirmed in the UI first, because it forces a re-link; the
+  button exists only in the not-linked state.
+
+The store is moved with `std::fs::rename` to a SIBLING path — same volume, atomic, reversible by
+hand. A rename failure is a typed error (`WHATSAPP_RESET_FAILED`); there is no deletion fallback.
+Every absence (no window, no store dir, no id file) is a no-op success, because "wedged" and
+"never existed" look identical to the person clicking the button. The reset scans every container
+under `~/Library/WebKit` for a `WebsiteDataStore/<uuid>` matching the persisted id
+case-insensitively — the container segment differs between a dev binary and a bundled app, and
+WebKit uppercases the UUID while we persist lowercase.
+
+**Rejected alternatives.**
+
+- *Delete the store.* It holds the only copy of an authenticated session's cookies and IndexedDB; a
+  recovery affordance that destroys evidence on a misdiagnosis is worse than the wedge.
+- *Auto-reset on detecting the splash wedge.* The shell cannot distinguish "storage invalidated"
+  from "WhatsApp is slow today"; an automatic reset would unlink a healthy device. A human
+  confirms, with the re-link cost named in the confirmation.
+- *A generic "run this in the session" escape hatch.* Reopens the exact hole the op allowlist
+  closes. Both commands are named ops with no caller-supplied code.
+
+**Consequences.** Archived stores accumulate under `~/Library/WebKit` until manually cleaned — the
+cost of reversibility, accepted. The reset destroys the window synchronously (`destroy`, not the
+async `close`) in the same main-thread hop as the rename, so nothing mints files under the old
+identity mid-move. Filesystem behaviour is unit-tested over temp dirs (rename + id-removal, absent
+cases, same-second collision suffixing, case-insensitive matching, neighbour stores untouched).

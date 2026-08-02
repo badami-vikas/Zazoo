@@ -115,6 +115,20 @@ is already up to date."
 Health tripwire covers the message ops too (`WPP.chat.getMessages`, existence-only — invoking it
 would read a real conversation at session start).
 
+## Recovery (ADR-159)
+
+Splash-wedge incident: invalidated store ⇒ WhatsApp Web splash forever, no shell affordance, manual
+`~/Library/WebKit` surgery. Now two named ops, escalation order:
+
+- **Reload** (`whatsapp_session_reload`) — same store, fresh page. Cheap first try. Offered when not
+  linked AND when connected-but-chatless.
+- **Reset** (`whatsapp_session_reset`) — destroy window, `rename` store dir to timestamped sibling
+  (**never delete**; rename failure = typed error, no deletion fallback), clear store-id file ⇒
+  next start mints fresh store + QR. Confirm-gated, not-linked state only. Safe on absent
+  window/dir/file.
+- Send outcomes now recorded through `whatsapp.recordSendOutcome` at the one send site
+  (`engine.ts sendAutomatedMessage`). Recording only; audit failure warns, never rethrows.
+
 ## Two traps that cost real time
 
 1. **A raw NUL byte in a Rust source makes grep silently match nothing.** Happened here in the event

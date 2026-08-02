@@ -35,6 +35,8 @@ import {
   positionSession,
   rearmSending,
   rectOf,
+  reloadSession,
+  resetSession,
   runReadOp,
   sendCeilingStatus,
   sendMessage,
@@ -45,9 +47,11 @@ import {
   type SendCeilingStatus,
   type SendMessageResult,
   type SessionRect,
+  type SessionResetReport,
   type WhatsAppStatus,
 } from "./whatsapp-shell";
 import { tauriListen } from "../../avatar/tauri-internals";
+import { trpc } from "../../lib/trpc";
 import { performAutomatedSend, type OutboundOutcome, type SendPort } from "@bridge/whatsapp";
 import type { RecipientApproval, SendPolicyContext, SendRequest } from "@bridge/whatsapp";
 import type { RawChatSummary, RawMessage } from "@bridge/whatsapp";
@@ -62,6 +66,7 @@ export type {
   SendCeilingStatus,
   SendMessageResult,
   SessionRect,
+  SessionResetReport,
   WhatsAppStatus,
 };
 export { rectOf, isOpRefused };
@@ -173,6 +178,20 @@ export interface WhatsAppEngine {
   positionSession(rect: SessionRect): Promise<void>;
   hideSession(): Promise<void>;
 
+  // ── Recovery (TASK-030 shell fixes) ───────────────────────────────────────
+  /**
+   * Reload the session page — same store, fresh load. The cheap first thing to
+   * try when WhatsApp Web wedges. `false` means there was no window to reload.
+   */
+  reloadSession(): Promise<boolean>;
+  /**
+   * The escape hatch for invalidated session storage: closes the session
+   * window, moves the WKWebView data store aside (never deletes), and clears
+   * the persisted store id so the next session start shows a QR. The device
+   * must be re-linked afterwards — the surface confirms before calling this.
+   */
+  resetSession(): Promise<SessionResetReport | undefined>;
+
   // ── Write ─────────────────────────────────────────────────────────────────
   /**
    * The whole outbound gate for an AGENT-initiated send, in the one order that
@@ -225,6 +244,37 @@ function toEvents(payload: unknown): WhatsAppEngineEvent[] {
     (entry): entry is WhatsAppEngineEvent =>
       typeof entry === "object" && entry !== null && typeof (entry as { type?: unknown }).type === "string",
   );
+}
+
+/**
+ * Hand one send outcome to the audit log (`whatsapp.recordSendOutcome`).
+ *
+ * The procedure is a seam, not a send: it writes what the gate ALREADY decided
+ * into the Local Plane audit namespace the analytics panels read, and touches
+ * no transport. Failures are logged rather than thrown — the outcome stands
+ * whether or not its row landed, and a caller retrying a send because the
+ * bookkeeping hiccuped would be worse than a gap in the log.
+ */
+async function recordOutcomeInAudit(request: SendRequest, outcome: OutboundOutcome): Promise<void> {
+  try {
+    await trpc.whatsapp.recordSendOutcome.mutate({
+      recipientKey: request.recipientKey,
+      status: outcome.status,
+      ...(outcome.status === "sent"
+        ? { delaySeconds: Math.min(86_400, Math.max(0, Math.round(outcome.delaySeconds))) }
+        : { reason: outcome.reason }),
+      ...(outcome.status === "refused" || outcome.status === "deferred"
+        ? outcome.code !== undefined
+          ? { code: outcome.code }
+          : {}
+        : {}),
+      ...(outcome.status === "deferred" && outcome.earliestAtMs !== undefined
+        ? { earliestAtMs: outcome.earliestAtMs }
+        : {}),
+    });
+  } catch (failure) {
+    console.warn("[whatsapp] a send outcome could not be recorded in the audit log", failure);
+  }
 }
 
 class DesktopWhatsAppEngine implements WhatsAppEngine {
@@ -300,6 +350,14 @@ class DesktopWhatsAppEngine implements WhatsAppEngine {
     return hideSession();
   }
 
+  reloadSession(): Promise<boolean> {
+    return reloadSession();
+  }
+
+  resetSession(): Promise<SessionResetReport | undefined> {
+    return resetSession();
+  }
+
   /**
    * The shell end of the outbound path. Nothing calls this but
    * `performAutomatedSend`, and it is only reached with a grant that module
@@ -318,12 +376,20 @@ class DesktopWhatsAppEngine implements WhatsAppEngine {
     };
   };
 
-  sendAutomatedMessage(
+  async sendAutomatedMessage(
     request: SendRequest,
     approvals: readonly RecipientApproval[],
     context: SendPolicyContext,
   ): Promise<OutboundOutcome> {
-    return performAutomatedSend(request, approvals, context, this.sendPort);
+    const outcome = await performAutomatedSend(request, approvals, context, this.sendPort);
+    // The audit seam (TASK-030): every outcome the gate produced becomes a row
+    // in the Local Plane audit log the panels read. Recording only — the gate
+    // above is the ONLY send path, and it has already decided by the time this
+    // runs. Fire-and-forget with a warning: an audit write failing must not
+    // turn a decided outcome into a thrown error, but it must not be silent
+    // either.
+    void recordOutcomeInAudit(request, outcome);
+    return outcome;
   }
 
   sendCeiling(): Promise<SendCeilingStatus | undefined> {

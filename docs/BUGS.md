@@ -2280,3 +2280,20 @@ directions. Verified from both ends after the fix: IPv4 serves `<title>Bridge</t
 
 Standing correction to how I verify: a live process plus a healthy API is NOT evidence the right
 frontend is loaded. Attached to TASK-030.
+
+## RESOLVED 2026-08-02 — WhatsApp wedged on its own splash screen forever; the shell had no recovery affordance (TASK-030)
+
+Live: the session rendered WhatsApp Web's splash (logo + progress bar) indefinitely. Cause: the
+persisted WKWebView data store held session state WhatsApp had invalidated — the device had been
+unlinked — and WhatsApp Web neither recovers from that nor reports it. Diagnosis required an
+out-of-band Swift WKWebView probe because the shell exposed nothing; the only escape was quitting
+Bridge and moving `~/Library/WebKit/bridge-desktop/WebsiteDataStore/<uuid>` aside by hand in a
+terminal. The defect being filed is the AFFORDANCE GAP, not WhatsApp's behaviour.
+
+Resolved (ADR-159): `whatsapp_session_reload` (same store, fresh page — the cheap first try, also
+offered in the connected-but-chatless state seen live the same day) and `whatsapp_session_reset`
+(destroy window, `rename` the store dir to a timestamped sibling — NEVER deleted — and clear the
+persisted store-id so the next start mints a fresh store and shows a QR). Reset is confirm-gated in
+the Chats surface and appears only when the device is not linked. Filesystem behaviour proven by
+unit tests over temp dirs; the live wedge itself was cured by the manual move, so the commands are
+proven-by-test, not yet proven against a live recurrence.
