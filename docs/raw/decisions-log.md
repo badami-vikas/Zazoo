@@ -3446,7 +3446,7 @@ it in a tripwire would read a real conversation at session start.
 account has not been observed. The fix does not depend on the answer — undated chats are now read
 regardless — but the sync is more efficient when a chat can be dated, so the live procedure in
 `outputs/2026-08-02-task-030-sync-fix.md` asks for it.
-### ADR-158 addendum 3 (2026-08-02) — Automation rules may only TIGHTEN the send discipline
+### ADR-158 addendum 4 (2026-08-02) — Automation rules may only TIGHTEN the send discipline
 
 The WhatsApp Module gains three Tools: Automation Rules, Scheduled Actions, and Agent Assignment. A
 rules engine over a channel with a ban-protection policy is the exact shape of feature that grows a
