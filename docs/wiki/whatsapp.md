@@ -90,6 +90,31 @@ capability exclusion: `windows: ["main"]` covers every webview in that window re
 `webviews` field. Also `get_webview_window("main")` returns `None` once main hosts a second webview —
 22 call sites, silent `(0.0, 0.0)` fallbacks. A single-window embed costs the security boundary.
 
+## Sync honesty — unknown is not "up to date"
+
+**A chat whose last-activity time cannot be read is scheduled for a READ, never reported as
+current.** Cost real time on 2026-08-02: a live 500-chat session synced nothing and said "Everything
+is already up to date."
+
+- `list_chats` read the time via `c.lastReceivedKey ? c.t : c.t` — **a ternary whose two arms are the
+  same expression**, so one field only. Absent live ⇒ all 500 chats undated.
+- The scheduler then DROPPED undated chats, so the queue was empty and rendered as success. The
+  success message is what hid the total read failure.
+- Now: extraction consults `c.t` / `c.lastMsgTimestamp` / `c.msgs.last().t` and reports **`null`, not
+  `0`** — unknown and never must stay distinguishable all the way to the scheduler.
+- Undated ⇒ due for exactly ONE read, gated on the store cursor so it converges. Unbounded re-reads
+  against a personal number is the behaviour that draws enforcement.
+- Outcome statuses are split: `nothing-readable` ≠ `completed`, rendered in the failed colour.
+- **Status bar labels its planes** (`N chats on WhatsApp · M stored in Bridge`). The session is
+  authoritative about WhatsApp; the store about Bridge. Unlabelled, two true facts read as a
+  contradiction.
+- `data_store_identifier` was suspected and is **REFUTED** — the identified store holds the live
+  `web.whatsapp.com` IndexedDB, the default store has been empty since 2026-07-07, and
+  `data_directory` was never used. Nothing was orphaned; no re-link needed.
+
+Health tripwire covers the message ops too (`WPP.chat.getMessages`, existence-only — invoking it
+would read a real conversation at session start).
+
 ## Two traps that cost real time
 
 1. **A raw NUL byte in a Rust source makes grep silently match nothing.** Happened here in the event

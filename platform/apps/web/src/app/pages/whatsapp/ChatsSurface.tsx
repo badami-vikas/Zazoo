@@ -4,7 +4,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { trpc } from "../../lib/trpc";
 import { rectOf, whatsAppEngine, type ConnectionState } from "./engine";
-import { runMessageSync, type SyncProgressEvent } from "./sync";
+import { runMessageSync, type SyncOutcome, type SyncProgressEvent } from "./sync";
 
 /**
  * The Chats surface — rendered BY BRIDGE, from the Local Plane store.
@@ -67,6 +67,7 @@ export function ChatsSurface() {
   const [selected, setSelected] = useState<string | null>(null);
   const [messages, setMessages] = useState<StoredMessage[] | null>(null);
   const [progress, setProgress] = useState<SyncProgressEvent | null>(null);
+  const [outcome, setOutcome] = useState<SyncOutcome | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [linking, setLinking] = useState(false);
   const [query, setQuery] = useState("");
@@ -170,10 +171,11 @@ export function ChatsSurface() {
   async function sync() {
     setSyncing(true);
     try {
-      await runMessageSync({
+      const result = await runMessageSync({
         onProgress: setProgress,
         shouldStop: () => stopped.current,
       });
+      setOutcome(result);
       await refreshThreads();
       if (selected) {
         const result = await trpc.whatsapp.thread.query({ chatId: selected });
@@ -238,19 +240,36 @@ export function ChatsSurface() {
 
   const needsLink = status !== null && status.socket !== "CONNECTED" && !status.live;
 
+  // What BRIDGE holds, as distinct from what WhatsApp holds. `null` threads
+  // means the store has not answered yet, which is not the same as zero.
+  const storedLabel =
+    threads === null
+      ? "checking what Bridge has stored"
+      : threads.length === 0
+        ? "nothing stored in Bridge yet"
+        : `${threads.length} stored in Bridge`;
+
   return (
     <div className="flex h-full w-full flex-col">
       {/* Status + actions. Three distinct states, never one indefinite spinner. */}
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2" style={BORDER}>
+        {/*
+          Two different planes, so the counts are LABELLED rather than left to
+          be read as one number. The session is authoritative about what
+          WhatsApp holds; the Local Plane store is authoritative about what
+          Bridge has actually captured. Saying "Session live — 500 chats" next
+          to an empty chat list read as a contradiction; it was two true facts
+          with only one of them named.
+        */}
         <span className="text-xs" style={MUTED}>
           {status === null
             ? "Starting the WhatsApp session…"
             : status.live
-              ? `Session live — ${status.chats} chats`
+              ? `Session live — ${status.chats} chats on WhatsApp · ${storedLabel}`
               : status.syncing
-                ? `WhatsApp is downloading your messages (${status.chats} chats so far)`
+                ? `WhatsApp is downloading your messages (${status.chats} chats so far) · ${storedLabel}`
                 : status.socket === "CONNECTED"
-                  ? "Connected — waiting for your chats"
+                  ? `Connected — waiting for your chats · ${storedLabel}`
                   : "This device is not linked"}
         </span>
         <div className="ml-auto flex items-center gap-2">
@@ -265,8 +284,21 @@ export function ChatsSurface() {
         </div>
       </div>
 
+      {/*
+        A run that read nothing must not look like a run that succeeded. The
+        `failed` phase now covers "the session listed no chats" and "no chat
+        reported a last-activity time", so both read as problems here rather
+        than as quiet grey progress text.
+      */}
       {progress ? (
-        <div className="border-b px-3 py-1.5 text-xs" style={{ ...BORDER, ...MUTED }}>
+        <div
+          className="border-b px-3 py-1.5 text-xs"
+          style={
+            progress.phase === "failed"
+              ? { ...BORDER, color: "var(--color-danger, #b42318)" }
+              : { ...BORDER, ...MUTED }
+          }
+        >
           {progress.detail}
           {progress.chatsTotal > 0
             ? ` (${progress.chatsDone}/${progress.chatsTotal}, ${progress.messagesStored} messages)`
@@ -317,10 +349,27 @@ export function ChatsSurface() {
                 <p className="text-xs font-medium" style={{ color: "var(--color-navy)" }}>
                   No messages have been synced yet
                 </p>
-                <p className="text-xs" style={MUTED}>
-                  Nothing is stored for this account. Run a sync to read what
-                  your linked device is holding.
-                </p>
+                {/*
+                  Why the store is empty is a different question from the fact
+                  that it is, and the surface must not tell the user to run a
+                  sync that has already run and failed. When the last run could
+                  not read the session, say so; otherwise invite the sync.
+                */}
+                {outcome?.status === "nothing-readable" ? (
+                  <p className="text-xs" style={{ color: "var(--color-danger, #b42318)" }}>
+                    The last sync could not read your chats
+                    {outcome.chatsListed > 0
+                      ? ` — the session listed ${outcome.chatsListed} chats but reported no
+                         last-activity time for ${outcome.chatsWithoutActivityTime} of them`
+                      : " — the session reported no chats at all"}
+                    . Nothing was stored, and this is not an up-to-date store.
+                  </p>
+                ) : (
+                  <p className="text-xs" style={MUTED}>
+                    Nothing is stored for this account. Run a sync to read what
+                    your linked device is holding.
+                  </p>
+                )}
               </div>
             ) : (
               <ul>

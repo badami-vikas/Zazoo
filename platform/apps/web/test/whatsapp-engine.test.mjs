@@ -272,3 +272,68 @@ test("subscribe() degrades to a no-op unsubscribe off the desktop shell", async 
   assert.match(ENGINE, /if \(!isDesktopShell\(\)\) return \(\) => undefined;/);
   assert.match(ENGINE, /\.catch\(\(\) => \{/);
 });
+
+// ---------------------------------------------------------------------------
+// The 2026-08-02 sync-honesty defect (BUGS OPEN 2026-08-02)
+// ---------------------------------------------------------------------------
+//
+// Live symptom: a linked session reporting 500 chats, a sync that stored
+// nothing, and the sentence "Everything is already up to date." The store was
+// empty and the run had read nothing — the success message was the bug that
+// hid the bug. These assertions are source-level for the same reason as the
+// rest of this file: `sync.ts` reaches for tRPC and the shell, so the property
+// worth pinning is what the code is ABLE to say. The SCHEDULING rule itself is
+// tested behaviourally in `@bridge/whatsapp`'s `messages.test.ts`.
+
+const SYNC = read("../src/app/pages/whatsapp/sync.ts");
+
+test("an empty chat list can never be reported as an up-to-date store", () => {
+  // The RENDERED form, not the prose about it — this file's own commentary
+  // mentions the sentence, and matching that would prove nothing.
+  const upToDate = SYNC.indexOf("`Everything is already up to date");
+  assert.ok(upToDate > 0, "the up-to-date message should still exist for the case it is true of");
+
+  const emptyGuard = SYNC.indexOf("if (chats.length === 0)");
+  assert.ok(emptyGuard > 0, "the empty-chat-list case must be handled explicitly");
+  assert.ok(
+    emptyGuard < upToDate,
+    "the empty-chat-list case must be decided BEFORE the up-to-date message is reachable",
+  );
+});
+
+test("a run that read nothing returns a status distinct from a completed one", () => {
+  assert.ok(
+    SYNC.includes('"nothing-readable"'),
+    "a run that could not read the session needs its own status, not `completed`",
+  );
+  const afterGuard = SYNC.slice(SYNC.indexOf("if (chats.length === 0)"));
+  assert.ok(
+    afterGuard.includes('phase: "failed"'),
+    "an unreadable session must report the failed phase, not `done`",
+  );
+});
+
+test("a chat with no readable activity time is scheduled, not silently dropped", () => {
+  // The defect: `if (… activity <= 0) return false` dropped every undated chat,
+  // so 500 live chats produced an empty queue. Unknown must buy a read.
+  assert.ok(
+    !/const activity = chat\.lastMessageTimestamp;\s*\n\s*if \([^)]*\) return false;/.test(SYNC),
+    "an undated chat must not be dropped outright",
+  );
+  assert.ok(
+    SYNC.includes("return !visited.has(chat.id)"),
+    "an undated chat that has never been visited must be due",
+  );
+  // Convergence: once the store has a cursor, unknown stops meaning due.
+  assert.ok(
+    SYNC.includes("const visited = new Set("),
+    "the visited set is what stops undated chats from being re-read forever",
+  );
+});
+
+test("the surface is told how much the session actually offered", () => {
+  for (const field of ["chatsListed", "chatsWithoutActivityTime"]) {
+    assert.ok(SYNC.includes(field), `${field} must be reported on the outcome`);
+    assert.ok(CHATS_SURFACE.includes(field), `${field} must reach the surface`);
+  }
+});
