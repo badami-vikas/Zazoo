@@ -3,6 +3,7 @@ import type { PGlite } from "@electric-sql/pglite";
 const LOCAL_TENANT_TABLES = [
   "oauth_tokens",
   "message_bodies",
+  "local_messages",
   "local_people",
   "local_entities",
   "local_external_records",
@@ -64,5 +65,45 @@ export async function migrateLocalPeopleIdentityColumns(db: PGlite): Promise<voi
   }
   if (!names.has("dedupe_key")) {
     await db.exec(`ALTER TABLE local_people ADD COLUMN dedupe_key text`);
+  }
+}
+
+/**
+ * Columns `local_messages` must carry, beyond the identity triple that has been
+ * there since the table shipped. Same reasoning as
+ * `migrateLocalPeopleIdentityColumns`: `CREATE TABLE IF NOT EXISTS` leaves an
+ * already-installed table on its old shape, so an installed Local Plane would
+ * keep the narrower table and every insert naming a newer column would fail.
+ *
+ * Every entry is nullable or defaulted, so adding it preserves existing rows.
+ */
+const LOCAL_MESSAGE_ADDITIVE_COLUMNS: readonly (readonly [string, string])[] = [
+  ["sender_key", "text"],
+  ["sender_kind", "text NOT NULL DEFAULT 'unknown'"],
+  ["direction", "text NOT NULL DEFAULT 'inbound'"],
+  ["sent_at", "text NOT NULL DEFAULT ''"],
+  ["body", "text NOT NULL DEFAULT ''"],
+  ["attachment", "jsonb"],
+  ["ack", "text NOT NULL DEFAULT 'unknown'"],
+  ["captured_at", "text NOT NULL DEFAULT ''"],
+];
+
+/**
+ * Bring an already-installed `local_messages` up to the current shape.
+ *
+ * Runs BEFORE `INIT_SQL`, because INIT_SQL's indexes reference columns this may
+ * still need to add. A fresh database has no table at all and INIT_SQL creates
+ * it complete, so there is nothing to do.
+ */
+export async function migrateLocalMessageColumns(db: PGlite): Promise<void> {
+  const existing = await db.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'local_messages'`,
+  );
+  const names = new Set(existing.rows.map((row) => row.column_name));
+  if (names.size === 0) return;
+  for (const [column, definition] of LOCAL_MESSAGE_ADDITIVE_COLUMNS) {
+    if (names.has(column)) continue;
+    await db.exec(`ALTER TABLE local_messages ADD COLUMN ${column} ${definition}`);
   }
 }
