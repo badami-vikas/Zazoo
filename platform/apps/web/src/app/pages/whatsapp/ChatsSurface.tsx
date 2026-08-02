@@ -17,9 +17,8 @@ import {
  * Tauri capability of its own. The placeholder is what the layout sees; the
  * webview simply follows it.
  *
- * The window is hidden aggressively — on unmount, on blur, on scroll away —
- * because a child window that outlives its Page would float over unrelated
- * surfaces.
+ * The window is hidden on unmount and route change, because a child window
+ * that outlives its Page would float over unrelated surfaces.
  */
 export function ChatsSurface() {
   const anchor = useRef<HTMLDivElement | null>(null);
@@ -44,7 +43,10 @@ export function ChatsSurface() {
     // anchor without firing a window-level scroll event.
     window.addEventListener("scroll", track, true);
     window.addEventListener("resize", track);
-    window.addEventListener("blur", () => void hideSession());
+    // No blur listener. Showing and raising the session window moves focus to
+    // it, which blurs the main window — a blur-hide handler therefore hid the
+    // session the instant it appeared, every time. Hiding on unmount and route
+    // change is enough, and those are the cases that actually matter.
 
     const poll = window.setInterval(() => {
       void sessionStatus().then((next) => {

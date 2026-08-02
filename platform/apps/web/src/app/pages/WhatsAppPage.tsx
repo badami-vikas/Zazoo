@@ -1,5 +1,5 @@
 import { MessageCircle, Wrench } from "lucide-react";
-import { Link } from "react-router";
+import { useNavigate } from "react-router";
 import { WHATSAPP_TOOLS } from "@bridge/whatsapp";
 import { Header } from "../components/shared/Header";
 import { InstalledModuleBoundary } from "../components/InstalledModuleBoundary";
@@ -15,7 +15,13 @@ type WhatsAppPageId = "chats" | "tools";
  * The Tool list renders from the Module's registry rather than hardcoded JSX,
  * so a second Tool is a registry entry plus its panel.
  */
+const TAB_ROUTE: Record<string, string> = {
+  Chats: "/module/whatsapp/chats",
+  Tools: "/module/whatsapp/tools",
+};
+
 export function WhatsAppPage({ page }: { page: WhatsAppPageId }) {
+  const navigate = useNavigate();
   return (
     <InstalledModuleBoundary moduleName="whatsapp">
       <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
@@ -25,30 +31,11 @@ export function WhatsAppPage({ page }: { page: WhatsAppPageId }) {
             { id: "Tools", icon: Wrench },
           ]}
           activeTab={page === "chats" ? "Chats" : "Tools"}
-          onTabChange={() => {}}
+          onTabChange={(id) => {
+            const route = TAB_ROUTE[id];
+            if (route) navigate(route);
+          }}
         />
-        <nav className="flex gap-2 border-b px-4 py-2" style={{ borderColor: "var(--color-border)" }}>
-          <Link
-            to="/module/whatsapp/chats"
-            className="rounded-md px-3 py-1 text-sm no-underline"
-            style={{
-              backgroundColor: page === "chats" ? "var(--color-surface)" : "transparent",
-              color: "var(--color-navy)",
-            }}
-          >
-            Chats
-          </Link>
-          <Link
-            to="/module/whatsapp/tools"
-            className="rounded-md px-3 py-1 text-sm no-underline"
-            style={{
-              backgroundColor: page === "tools" ? "var(--color-surface)" : "transparent",
-              color: "var(--color-navy)",
-            }}
-          >
-            Tools
-          </Link>
-        </nav>
 
         {page === "chats" ? (
           <div className="min-h-0 flex-1">

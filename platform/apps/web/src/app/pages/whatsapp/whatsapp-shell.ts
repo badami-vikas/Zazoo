@@ -36,12 +36,20 @@ export function isDesktopShell(): boolean {
   return typeof window !== "undefined" && window.__BRIDGE_DESKTOP__ === true;
 }
 
-/** Rect of an element in LOGICAL screen coordinates, for the child window. */
+/**
+ * The element's rect RELATIVE TO THE WEBVIEW VIEWPORT. The shell resolves it
+ * against the real window origin and scale factor.
+ *
+ * Deliberately does NOT add `window.screenX/screenY`: inside a Retina WKWebView
+ * those did not share units with `getBoundingClientRect()`, which placed the
+ * session window at y=1016 on an 800-point display — off-screen and invisible,
+ * with no error anywhere.
+ */
 export function rectOf(element: HTMLElement): SessionRect {
   const box = element.getBoundingClientRect();
   return {
-    x: Math.round(window.screenX + box.left),
-    y: Math.round(window.screenY + box.top),
+    x: Math.round(box.left),
+    y: Math.round(box.top),
     width: Math.round(box.width),
     height: Math.round(box.height),
   };

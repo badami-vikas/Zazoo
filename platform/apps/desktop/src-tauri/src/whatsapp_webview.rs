@@ -355,8 +355,16 @@ const STATUS_SCRIPT: &str = r#"
 // Window lifecycle
 // ---------------------------------------------------------------------------
 
-/// Logical rect the session window is pinned to — the Module Page's content
-/// area, supplied by the web app so the webview reads as embedded.
+/// The Module Page's content area, in LOGICAL pixels RELATIVE TO THE MAIN
+/// WINDOW'S CONTENT ORIGIN — i.e. a plain `getBoundingClientRect()`.
+///
+/// Deliberately not screen coordinates. The web app previously added
+/// `window.screenX/screenY` to place the child absolutely, which produced
+/// y=1016 on an 800-point-tall display — off-screen, invisible, and silently
+/// so. Those browser globals do not reliably share units with
+/// `getBoundingClientRect()` inside a Retina WKWebView. The shell owns the
+/// conversion instead, because only it knows the real window origin and scale
+/// factor.
 #[derive(Deserialize, Clone, Copy, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionRect {
@@ -374,7 +382,21 @@ fn ensure_window(app: &AppHandle) -> Result<tauri::WebviewWindow, WhatsAppError>
     let target = tauri::Url::parse(WHATSAPP_URL).expect("WhatsApp URL is valid");
     let init = format!("{REPORTER_PREAMBLE}\n{WA_JS}");
 
-    WebviewWindowBuilder::new(app, WHATSAPP_LABEL, WebviewUrl::External(target))
+    let mut builder = WebviewWindowBuilder::new(app, WHATSAPP_LABEL, WebviewUrl::External(target));
+    // A real child of the main window: ordered above its parent, and ONLY its
+    // parent, so it never floats over other applications.
+    // Failing loudly is deliberate: an unparented window is the overlay bug
+    // again, hovering over every other application, so it must not be a
+    // silent fallback.
+    if let Some(main) = app.get_webview_window(crate::overlay::MAIN_LABEL) {
+        builder = builder.parent(&main).map_err(|error| {
+            err(
+                "WHATSAPP_WINDOW_FAILED",
+                format!("Could not attach the WhatsApp session to the Bridge window: {error}"),
+            )
+        })?;
+    }
+    builder
         .title("WhatsApp")
         .inner_size(1280.0, 800.0)
         .decorations(false)
@@ -441,7 +463,49 @@ fn on_main<T: Send + 'static>(
         .map_err(|_| err("WHATSAPP_STATE", "the session window did not respond in time"))?
 }
 
-fn position(window: &tauri::WebviewWindow, rect: SessionRect) -> Result<(), WhatsAppError> {
+/// Keep the session ordered above the main window WITHOUT floating over other
+/// applications.
+///
+/// The first attempt used `set_always_on_top(true)`, which does order it above
+/// the main window — and above every other app on the machine, so the session
+/// hovered over the user's browser and everything else. That is not an embed,
+/// it is an overlay.
+///
+/// The window is instead made a real CHILD of the main window at creation
+/// (`parent()` → macOS `addChildWindow:`). AppKit then keeps it above its
+/// parent and only its parent: when Bridge is not the active application, the
+/// child goes back with it. Ordering is handled by the window server, so there
+/// is nothing to re-assert on every reposition.
+fn raise(window: &tauri::WebviewWindow) {
+    // Defensive only: a child window should never be marked always-on-top.
+    let _ = window.set_always_on_top(false);
+}
+
+fn position(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+    rect: SessionRect,
+) -> Result<(), WhatsAppError> {
+    // Resolve the Page rect against the MAIN window's content origin.
+    let (origin_x, origin_y) = match app.get_webview_window(crate::overlay::MAIN_LABEL) {
+        Some(main) => {
+            let scale = main.scale_factor().unwrap_or(1.0);
+            match main.inner_position() {
+                Ok(position) => {
+                    let logical = position.to_logical::<f64>(scale);
+                    (logical.x, logical.y)
+                }
+                Err(_) => (0.0, 0.0),
+            }
+        }
+        None => (0.0, 0.0),
+    };
+    let rect = SessionRect {
+        x: origin_x + rect.x,
+        y: origin_y + rect.y,
+        width: rect.width,
+        height: rect.height,
+    };
     window
         .set_position(tauri::LogicalPosition::new(rect.x, rect.y))
         .and_then(|_| {
@@ -455,7 +519,17 @@ fn position(window: &tauri::WebviewWindow, rect: SessionRect) -> Result<(), What
                 "WHATSAPP_POSITION_FAILED",
                 format!("Could not place the session window: {error}"),
             )
-        })
+        })?;
+    if let (Ok(pos), Ok(size), Ok(visible)) = (
+        window.outer_position(),
+        window.outer_size(),
+        window.is_visible(),
+    ) {
+        eprintln!(
+            "[bridge-desktop] whatsapp window actual pos={pos:?} size={size:?} visible={visible}"
+        );
+    }
+    Ok(())
 }
 
 struct BusyGuard(Arc<AtomicBool>);
@@ -475,8 +549,9 @@ impl Drop for BusyGuard {
 pub fn whatsapp_open(app: AppHandle, rect: SessionRect) -> Result<(), WhatsAppError> {
     on_main(&app, move |handle| {
         let window = ensure_window(handle)?;
-        position(&window, rect)?;
+        position(handle, &window, rect)?;
         let _ = window.show();
+        raise(&window);
         Ok(())
     })
 }
@@ -488,7 +563,13 @@ pub fn whatsapp_position(app: AppHandle, rect: SessionRect) -> Result<(), WhatsA
         match handle.get_webview_window(WHATSAPP_LABEL) {
             // Not open is not an error: a position event can race a hide.
             None => Ok(()),
-            Some(window) => position(&window, rect),
+            Some(window) => {
+                let result = position(handle, &window, rect);
+                // Re-raise on every track: showing the main window can drop the
+                // session back behind it.
+                raise(&window);
+                result
+            }
         }
     })
 }
@@ -499,6 +580,9 @@ pub fn whatsapp_position(app: AppHandle, rect: SessionRect) -> Result<(), WhatsA
 pub fn whatsapp_hide(app: AppHandle) -> Result<(), WhatsAppError> {
     on_main(&app, |handle| {
         if let Some(window) = handle.get_webview_window(WHATSAPP_LABEL) {
+            // Drop always-on-top BEFORE hiding, so a hidden session can never
+            // resurface floating above another application.
+            let _ = window.set_always_on_top(false);
             let _ = window.hide();
         }
         Ok(())
