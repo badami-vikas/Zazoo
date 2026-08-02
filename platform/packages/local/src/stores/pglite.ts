@@ -11,24 +11,66 @@ import { mkdir, realpath } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { withLock } from "@ster5/global-mutex";
 import { PGlite } from "@electric-sql/pglite";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import type {
   BodyStore,
   ExternalRecordRow,
   LocalEntityRecord,
   LocalGraphStore,
+  LocalMessage,
+  LocalMessageAck,
+  LocalMessageAttachment,
+  LocalMessageDirection,
+  LocalMessageSearchCapabilities,
+  LocalMessageSearchHit,
+  LocalMessageSearchQuery,
+  LocalMessageSenderKind,
   LocalPerson,
   LocalPersonList,
   LocalPlane,
   LocalStateMutation,
   LocalStateStore,
+  LocalThreadActivity,
   OAuthTokenRecord,
   SecretStore,
   StoredBody,
 } from "../ports.js";
+import { assertMessageShape } from "../messages.js";
 import {
+  migrateLocalMessageColumns,
   migrateLocalPeopleIdentityColumns,
   migrateOrganizationColumns,
 } from "./organization-schema-migrations.js";
+
+/**
+ * Extensions the Local Plane needs registered on its PGlite client.
+ *
+ * VERIFIED 2026-08-02, and it contradicts the convenient assumption: pglite
+ * 0.2.17 SHIPS `pg_trgm` in the npm package, but a bare `new PGlite()` does NOT
+ * make it available — `pg_available_extensions` lists only `plpgsql`, and
+ * `CREATE EXTENSION pg_trgm` fails with "extension is not available". It works
+ * only when the module is registered at client construction, as here.
+ *
+ * This matters to anyone passing their own `client` into
+ * `createPgliteLocalPlane`: register these, or trigram search degrades. Worse,
+ * a database that ALREADY has a trigram index, reopened by a client without the
+ * extension, fails every query touching that table with an opaque
+ * `could not access file "$libdir/pg_trgm"` — which is why initialization
+ * detects that state and reports it plainly instead of letting it surface later.
+ */
+export const LOCAL_PLANE_PGLITE_EXTENSIONS = { pg_trgm } as const;
+
+/**
+ * Text-search configuration for message bodies.
+ *
+ * `simple` rather than `english`: a real WhatsApp address book is multilingual
+ * (the live account measured on 2026-08-01 is largely Indian numbers), and the
+ * `english` configuration would apply English stemming and drop English
+ * stopwords from every language's text. `simple` lowercases and tokenizes
+ * without stemming, which is the language-neutral behaviour wanted here. The
+ * cost is no stem-matching in English; `fuzzy` mode covers that case.
+ */
+const MESSAGE_TEXT_CONFIG = "simple";
 
 const INIT_SQL = `
 CREATE TABLE IF NOT EXISTS oauth_tokens (
@@ -51,6 +93,33 @@ CREATE TABLE IF NOT EXISTS message_bodies (
   captured_at text NOT NULL,
   PRIMARY KEY (organization_id, source, source_record_id)
 );
+-- Third-party message BODIES. LOCAL PLANE ONLY (ADR-158 / AP-091) — a body has
+-- no promote path to cloud canonical, in the same sense as local_people.phones
+-- and for stronger reasons: this is someone else's personal correspondence.
+CREATE TABLE IF NOT EXISTS local_messages (
+  organization_id text NOT NULL,
+  source text NOT NULL,
+  message_id text NOT NULL,
+  chat_id text NOT NULL,
+  -- Source-scoped sender identity, same key space as local_people.dedupe_key.
+  -- 'whatsapp:+E164' and 'whatsapp-lid:<id>' are DISJOINT spaces; sender_kind
+  -- records which one this is, and the two are checked against each other before
+  -- any row is written (src/messages.ts).
+  sender_key text,
+  sender_kind text NOT NULL DEFAULT 'unknown',
+  direction text NOT NULL DEFAULT 'inbound',
+  sent_at text NOT NULL DEFAULT '',
+  body text NOT NULL DEFAULT '',
+  -- A descriptor, not the bytes. Media stays on disk.
+  attachment jsonb,
+  ack text NOT NULL DEFAULT 'unknown',
+  captured_at text NOT NULL DEFAULT '',
+  PRIMARY KEY (organization_id, source, message_id)
+);
+CREATE INDEX IF NOT EXISTS local_messages_thread_idx
+  ON local_messages (organization_id, source, chat_id, sent_at);
+CREATE INDEX IF NOT EXISTS local_messages_sender_idx
+  ON local_messages (organization_id, sender_key);
 CREATE TABLE IF NOT EXISTS local_people (
   id text PRIMARY KEY,
   organization_id text NOT NULL,
@@ -208,6 +277,81 @@ async function migrateLegacyExternalRecords(db: PGlite): Promise<void> {
     }
     await db.exec(`DROP TABLE ${tableName}`);
   }
+}
+
+const FTS_INDEX = "local_messages_body_fts_idx";
+const TRGM_INDEX = "local_messages_body_trgm_idx";
+
+async function hasIndex(db: PGlite, indexName: string): Promise<boolean> {
+  const result = await db.query<{ indexname: string }>(
+    `SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname=$1`,
+    [indexName],
+  );
+  return result.rows.length > 0;
+}
+
+/**
+ * Is `pg_trgm` actually usable right now?
+ *
+ * Checked by CALLING it, not by looking at `pg_extension`. On a persisted
+ * database the catalog row survives the client that installed it, so
+ * `CREATE EXTENSION IF NOT EXISTS` succeeds as a no-op and the catalog claims
+ * the extension is present, while the shared library is not loaded at all. Only
+ * evaluating a function proves the library resolved.
+ */
+async function trigramIsUsable(db: PGlite): Promise<boolean> {
+  try {
+    await db.exec(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+  } catch {
+    return false;
+  }
+  try {
+    await db.query(`SELECT similarity('bridge', 'bridges') AS probe`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Full-text and trigram indexes for message bodies. Runs AFTER `INIT_SQL`,
+ * because it needs the table to exist and it is conditional in a way plain SQL
+ * cannot express.
+ *
+ * Full text is core Postgres and is created unconditionally — search must not
+ * be a capability that quietly might not be there. The trigram index is created
+ * only when `pg_trgm` really loaded; otherwise fuzzy search degrades to a
+ * substring scan, which is slower but honest.
+ */
+async function ensureMessageSearchIndexes(
+  db: PGlite,
+): Promise<LocalMessageSearchCapabilities> {
+  await db.exec(
+    `CREATE INDEX IF NOT EXISTS ${FTS_INDEX}
+       ON local_messages USING gin (to_tsvector('${MESSAGE_TEXT_CONFIG}', body))`,
+  );
+
+  const trigram = await trigramIsUsable(db);
+  if (!trigram) {
+    // The dangerous state: a trigram index built by a client that registered
+    // the extension, reopened by one that did not. Every query touching
+    // local_messages would fail with `could not access file "$libdir/pg_trgm"`,
+    // far from the cause. Name the cause here instead.
+    if (await hasIndex(db, TRGM_INDEX)) {
+      throw new Error(
+        `Local Plane database has the ${TRGM_INDEX} trigram index but pg_trgm is not loaded, ` +
+          `so every query against local_messages would fail. The PGlite client must be ` +
+          `constructed with LOCAL_PLANE_PGLITE_EXTENSIONS (exported from @bridge/local).`,
+      );
+    }
+    return { fullText: true, trigram: false };
+  }
+
+  await db.exec(
+    `CREATE INDEX IF NOT EXISTS ${TRGM_INDEX}
+       ON local_messages USING gin (body gin_trgm_ops)`,
+  );
+  return { fullText: true, trigram: true };
 }
 
 class PgliteSecretStore implements SecretStore {
@@ -559,8 +703,48 @@ function rowToList(r: ListRow): LocalPersonList {
   };
 }
 
+interface MessageRow {
+  organization_id: string;
+  source: string;
+  message_id: string;
+  chat_id: string;
+  sender_key: string | null;
+  sender_kind: string;
+  direction: string;
+  sent_at: string;
+  body: string;
+  attachment: unknown;
+  ack: string;
+  captured_at: string;
+}
+
+function rowToMessage(r: MessageRow): LocalMessage {
+  return {
+    organizationId: r.organization_id,
+    source: r.source,
+    messageId: r.message_id,
+    chatId: r.chat_id,
+    ...(r.sender_key ? { senderKey: r.sender_key } : {}),
+    senderKind: r.sender_kind as LocalMessageSenderKind,
+    direction: r.direction as LocalMessageDirection,
+    sentAt: r.sent_at,
+    body: r.body,
+    ...(r.attachment ? { attachment: r.attachment as LocalMessageAttachment } : {}),
+    ack: r.ack as LocalMessageAck,
+    capturedAt: r.captured_at,
+  };
+}
+
+/** Make a user string safe as a LIKE pattern operand. */
+function escapeLike(text: string): string {
+  return text.replace(/([\\%_])/g, "\\$1");
+}
+
 class PgliteLocalGraphStore implements LocalGraphStore {
-  constructor(private readonly db: PGlite) {}
+  constructor(
+    private readonly db: PGlite,
+    private readonly capabilities: LocalMessageSearchCapabilities,
+  ) {}
   async findPeopleByEmail(organizationId: string, email: string): Promise<LocalPerson[]> {
     // Small local tier (<100 high-interaction) — load the organization's people and
     // match in JS so email comparison stays case-insensitive and adapter-agnostic.
@@ -713,6 +897,170 @@ class PgliteLocalGraphStore implements LocalGraphStore {
        ON CONFLICT (integration_id, source) DO UPDATE SET last_cursor=$3, updated_at=$4`,
       [integrationId, source, cursor, new Date(0).toISOString()],
     );
+  }
+
+  // ── Messages ───────────────────────────────────────────────────────────────
+
+  async putMessages(messages: readonly LocalMessage[]): Promise<void> {
+    // Validate the whole batch BEFORE writing any of it. A batch that contains
+    // one identity-inconsistent message must not leave half of itself behind.
+    for (const message of messages) assertMessageShape(message);
+    for (const message of messages) {
+      await this.db.query(
+        `INSERT INTO local_messages
+           (organization_id, source, message_id, chat_id, sender_key, sender_kind,
+            direction, sent_at, body, attachment, ack, captured_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12)
+         ON CONFLICT (organization_id, source, message_id) DO UPDATE SET
+           chat_id=$4, sender_key=$5, sender_kind=$6, direction=$7, sent_at=$8,
+           body=$9, attachment=$10::jsonb, ack=$11, captured_at=$12`,
+        [
+          message.organizationId,
+          message.source,
+          message.messageId,
+          message.chatId,
+          message.senderKey ?? null,
+          message.senderKind,
+          message.direction,
+          message.sentAt,
+          message.body,
+          message.attachment ? JSON.stringify(message.attachment) : null,
+          message.ack,
+          message.capturedAt,
+        ],
+      );
+    }
+  }
+
+  async listMessages(
+    organizationId: string,
+    source: string,
+    chatId: string,
+    limit?: number,
+  ): Promise<LocalMessage[]> {
+    const res = await this.db.query<MessageRow>(
+      `SELECT * FROM local_messages
+        WHERE organization_id=$1 AND source=$2 AND chat_id=$3
+        ORDER BY sent_at, message_id
+        LIMIT $4`,
+      [organizationId, source, chatId, limit ?? 500],
+    );
+    return res.rows.map(rowToMessage);
+  }
+
+  async searchMessages(
+    query: LocalMessageSearchQuery,
+  ): Promise<LocalMessageSearchHit[]> {
+    const text = query.text.trim();
+    if (text.length === 0) return [];
+    const limit = query.limit ?? 50;
+    const scopes: string[] = ["organization_id = $1"];
+    const params: unknown[] = [query.organizationId];
+    if (query.source) {
+      params.push(query.source);
+      scopes.push(`source = $${params.length}`);
+    }
+    if (query.chatId) {
+      params.push(query.chatId);
+      scopes.push(`chat_id = $${params.length}`);
+    }
+    if (query.senderKey) {
+      params.push(query.senderKey);
+      scopes.push(`sender_key = $${params.length}`);
+    }
+    const where = scopes.join(" AND ");
+
+    if ((query.mode ?? "fulltext") === "fulltext") {
+      params.push(text);
+      const textParam = `$${params.length}`;
+      params.push(limit);
+      // websearch_to_tsquery rather than to_tsquery: it accepts arbitrary user
+      // input (quotes, OR, -negation) and never raises a syntax error, so a
+      // stray character in the search box cannot become an exception.
+      const res = await this.db.query<MessageRow & { rank: number }>(
+        `SELECT *, ts_rank(to_tsvector('${MESSAGE_TEXT_CONFIG}', body),
+                           websearch_to_tsquery('${MESSAGE_TEXT_CONFIG}', ${textParam})) AS rank
+           FROM local_messages
+          WHERE ${where}
+            AND to_tsvector('${MESSAGE_TEXT_CONFIG}', body)
+                @@ websearch_to_tsquery('${MESSAGE_TEXT_CONFIG}', ${textParam})
+          ORDER BY rank DESC, sent_at DESC
+          LIMIT $${params.length}`,
+        params,
+      );
+      return res.rows.map((r) => ({ ...rowToMessage(r), rank: Number(r.rank) }));
+    }
+
+    if (this.capabilities.trigram) {
+      params.push(text);
+      const textParam = `$${params.length}`;
+      params.push(limit);
+      // word_similarity, not similarity: `similarity` compares the query against
+      // the WHOLE body, so a short query inside a long message scores near zero.
+      // word_similarity scores the best-matching span, which is what a search
+      // box means.
+      return (
+        await this.db.query<MessageRow & { rank: number }>(
+          `SELECT *, word_similarity(${textParam}, body) AS rank
+             FROM local_messages
+            WHERE ${where} AND ${textParam} <% body
+            ORDER BY rank DESC, sent_at DESC
+            LIMIT $${params.length}`,
+          params,
+        )
+      ).rows.map((r) => ({ ...rowToMessage(r), rank: Number(r.rank) }));
+    }
+
+    // No pg_trgm on this client: a plain substring scan. Slower and it will not
+    // forgive a typo, but it returns real rows rather than silently none.
+    params.push(`%${escapeLike(text)}%`);
+    const likeParam = `$${params.length}`;
+    params.push(limit);
+    const res = await this.db.query<MessageRow>(
+      `SELECT * FROM local_messages
+        WHERE ${where} AND body ILIKE ${likeParam} ESCAPE '\\'
+        ORDER BY sent_at DESC
+        LIMIT $${params.length}`,
+      params,
+    );
+    return res.rows.map((r) => ({ ...rowToMessage(r), rank: 0 }));
+  }
+
+  async getThreadActivity(
+    organizationId: string,
+    source: string,
+    chatId: string,
+  ): Promise<LocalThreadActivity> {
+    const res = await this.db.query<{
+      inbound_count: string | number;
+      outbound_count: string | number;
+      first_inbound_at: string | null;
+      last_inbound_at: string | null;
+      last_outbound_at: string | null;
+    }>(
+      `SELECT
+         count(*) FILTER (WHERE direction='inbound')  AS inbound_count,
+         count(*) FILTER (WHERE direction='outbound') AS outbound_count,
+         min(sent_at) FILTER (WHERE direction='inbound')  AS first_inbound_at,
+         max(sent_at) FILTER (WHERE direction='inbound')  AS last_inbound_at,
+         max(sent_at) FILTER (WHERE direction='outbound') AS last_outbound_at
+       FROM local_messages
+       WHERE organization_id=$1 AND source=$2 AND chat_id=$3`,
+      [organizationId, source, chatId],
+    );
+    const r = res.rows[0];
+    return {
+      chatId,
+      inboundCount: Number(r?.inbound_count ?? 0),
+      outboundCount: Number(r?.outbound_count ?? 0),
+      ...(r?.first_inbound_at ? { firstInboundAt: r.first_inbound_at } : {}),
+      ...(r?.last_inbound_at ? { lastInboundAt: r.last_inbound_at } : {}),
+      ...(r?.last_outbound_at ? { lastOutboundAt: r.last_outbound_at } : {}),
+    };
+  }
+
+  async messageSearchCapabilities(): Promise<LocalMessageSearchCapabilities> {
+    return { ...this.capabilities };
   }
 }
 
@@ -888,16 +1236,28 @@ export async function createPgliteLocalPlane(
     ? await acquirePgliteDirectoryOwnership(config.dataDir)
     : undefined;
   const ownsClient = config.client === undefined;
+  // A client we construct always registers the Local Plane's extensions; a
+  // caller-supplied one is their responsibility (see LOCAL_PLANE_PGLITE_EXTENSIONS).
   const db =
     config.client ??
-    (ownership ? new PGlite(ownership.dataDir) : new PGlite());
+    (ownership
+      ? new PGlite(ownership.dataDir, { extensions: LOCAL_PLANE_PGLITE_EXTENSIONS })
+      : new PGlite({ extensions: LOCAL_PLANE_PGLITE_EXTENSIONS }));
+  let capabilities: LocalMessageSearchCapabilities = {
+    fullText: true,
+    trigram: false,
+  };
   try {
     await migrateOrganizationColumns(db);
-    // Additive local_people columns must land BEFORE INIT_SQL's indexes, which
-    // reference dedupe_key on an already-installed table.
+    // Additive columns must land BEFORE INIT_SQL's indexes, which reference
+    // them on an already-installed table.
     await migrateLocalPeopleIdentityColumns(db);
+    await migrateLocalMessageColumns(db);
     await db.exec(INIT_SQL);
     await migrateLegacyExternalRecords(db);
+    // After INIT_SQL: needs local_messages to exist, and is conditional on an
+    // extension in a way plain SQL cannot express.
+    capabilities = await ensureMessageSearchIndexes(db);
   } catch (error) {
     const cleanupErrors: unknown[] = [];
     try {
@@ -921,7 +1281,7 @@ export async function createPgliteLocalPlane(
     client: db,
     secrets: new PgliteSecretStore(db),
     bodies: new PgliteBodyStore(db),
-    graph: new PgliteLocalGraphStore(db),
+    graph: new PgliteLocalGraphStore(db, capabilities),
     state: new PgliteLocalStateStore(db),
     close: () => {
       closePromise ??= (async () => {
