@@ -520,15 +520,6 @@ fn position(
                 format!("Could not place the session window: {error}"),
             )
         })?;
-    if let (Ok(pos), Ok(size), Ok(visible)) = (
-        window.outer_position(),
-        window.outer_size(),
-        window.is_visible(),
-    ) {
-        eprintln!(
-            "[bridge-desktop] whatsapp window actual pos={pos:?} size={size:?} visible={visible}"
-        );
-    }
     Ok(())
 }
 
