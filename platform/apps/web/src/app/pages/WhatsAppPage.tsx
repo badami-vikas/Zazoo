@@ -5,6 +5,9 @@ import { Header } from "../components/shared/Header";
 import { InstalledModuleBoundary } from "../components/InstalledModuleBoundary";
 import { ChatsSurface } from "./whatsapp/ChatsSurface";
 import { ContactExtractorRun } from "./whatsapp/ContactExtractorRun";
+import { AutomationRulesPanel } from "./whatsapp/AutomationRulesPanel";
+import { ScheduledActionsPanel } from "./whatsapp/ScheduledActionsPanel";
+import { AgentAssignmentPanel } from "./whatsapp/AgentAssignmentPanel";
 
 type WhatsAppPageId = "chats" | "tools";
 
@@ -58,6 +61,9 @@ export function WhatsAppPage({ page }: { page: WhatsAppPageId }) {
                   </p>
                 </div>
                 {tool.id === "contact-extractor" ? <ContactExtractorRun /> : null}
+                {tool.id === "automation-rules" ? <AutomationRulesPanel /> : null}
+                {tool.id === "scheduled-actions" ? <ScheduledActionsPanel /> : null}
+                {tool.id === "agent-assignment" ? <AgentAssignmentPanel /> : null}
               </section>
             ))}
           </div>

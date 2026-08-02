@@ -356,6 +356,23 @@ const whatsappCapabilities = [
     writePrivate("community"),
     writePrivate("signal"),
   ]),
+  // The three automation Tools (TASK-030, ADR-158 under AP-091). None declares
+  // egress: authoring a rule, reading the queue and naming an Agent are all
+  // local reads and writes. The outbound permission stays where the sending
+  // actually happens — behind the consent gate in the Agent's own capability —
+  // rather than being granted to the surfaces that merely schedule it.
+  capability("whatsapp.tool.automation-rules", "Automation Rules", "skill", [
+    readPrivate("event"),
+    writePrivate("record"),
+  ]),
+  capability("whatsapp.tool.scheduled-actions", "Scheduled Actions", "skill", [
+    readPrivate("record"),
+    writePrivate("record"),
+  ]),
+  capability("whatsapp.tool.agent-assignment", "Agent Assignment", "skill", [
+    readPrivate("person"),
+    writePrivate("record"),
+  ]),
   capability(
     "whatsapp.agent.contact-steward",
     "WhatsApp Contact Steward",
@@ -363,6 +380,33 @@ const whatsappCapabilities = [
     [readPrivate("person"), writePrivate("person"), writePrivate("community")],
     [],
     [{ manifestId: "whatsapp.tool.contact-extractor", versionRange: "0.2.0" }],
+  ),
+  /**
+   * The Agent an Automation actually starts a Run of.
+   *
+   * It is separate from the Contact Steward because the two answer for
+   * different things: the Steward reconciles an address book, this one answers
+   * for a conversation. Assignment (`assignment.ts`) names one of them per chat
+   * or Person, and an Automation may only start a Run of the Agent that was
+   * named — that is what "only an attributable allowed Agent invokes a Skill"
+   * means in this Module.
+   *
+   * It declares the WRITE permission for messages, and it is the only WhatsApp
+   * capability that does. Sending is still not a thing this Agent can do
+   * unilaterally: every message it proposes goes through the consent gate, the
+   * send discipline, and the Rust-enforced ceiling.
+   */
+  capability(
+    "whatsapp.agent.conversation-steward",
+    "WhatsApp Conversation Steward",
+    "agent",
+    [readPrivate("event"), readPrivate("person"), writePrivate("event"), writePrivate("record")],
+    [],
+    [
+      { manifestId: "whatsapp.tool.automation-rules", versionRange: "0.2.0" },
+      { manifestId: "whatsapp.tool.scheduled-actions", versionRange: "0.2.0" },
+      { manifestId: "whatsapp.tool.agent-assignment", versionRange: "0.2.0" },
+    ],
   ),
 ];
 
@@ -684,9 +728,22 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
             // The session is desktop-local and never leaves the machine.
             plane: "local",
           },
+          {
+            id: "conversation-steward",
+            name: "WhatsApp Conversation Steward",
+            capabilityId: "whatsapp.agent.conversation-steward",
+            skillIds: [
+              "whatsapp.tool.automation-rules",
+              "whatsapp.tool.scheduled-actions",
+              "whatsapp.tool.agent-assignment",
+            ],
+            plane: "local",
+          },
         ],
-        // Deliberately empty: no Automation may run a WhatsApp read. Every
-        // extraction is a user-clicked Tool run.
+        // Deliberately empty, and it stays empty: no BUILT-IN Automation may
+        // run a WhatsApp read or send. Every extraction is a user-clicked Tool
+        // run, and the v2 rules are authored by the owner one chat at a time
+        // (`automation.ts`) rather than shipped with the Module.
         automations: [],
       },
     },

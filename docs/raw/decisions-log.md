@@ -3386,3 +3386,49 @@ hidden session staying linked; this makes an existing state continuous rather th
 throttled. Whether its server tolerates that for hours is not answerable from a synthetic probe and
 needs a live run. Procedure and fallback are recorded in
 `outputs/2026-08-02-task-030-hidden-engine.md`.
+
+### ADR-158 addendum 3 (2026-08-02) — Automation rules may only TIGHTEN the send discipline
+
+The WhatsApp Module gains three Tools: Automation Rules, Scheduled Actions, and Agent Assignment. A
+rules engine over a channel with a ban-protection policy is the exact shape of feature that grows a
+quiet way around that policy, so the design is defensive by construction rather than by convention.
+
+**Decision 1 — a rule's `limitOverrides` pass through `tightenLimits`, which takes the STRICTER of
+every field against the shipped `SEND_POLICY_LIMITS`.** A rule asking for a daily cap of 5,000 gets
+30; a rule asking for `requireRecipientInitiated: false` gets whatever the shipped limits say. Which
+direction is stricter is not uniform (a LOWER `similarityThreshold` catches more near-identical
+bodies; a LATER `businessHourStart` narrows the window), so each field is spelled out rather than
+handled by a generic min/max. Rejected: validating override ranges at the tRPC boundary as the
+protection. Zod bounds are a usability guard — they cannot bind stored state written by an older
+shape or edited on disk, and `tightenLimits` can.
+
+**Decision 2 — a refusal never becomes a scheduled action.** `scheduleFromPolicy` queues a
+`deferred` policy decision and returns a `refused` one without touching the ledger. Turning "this
+would be a first contact" into "retrying at 09:00" converts a permanent no into a pending yes, which
+is precisely the failure the consent gate exists to prevent. Rejected: queuing refusals as visible
+rows for transparency — a row in a queue is a thing a future runner retries.
+
+**Decision 3 — an Automation may only start a Run of the Agent the OWNER assigned to that subject.**
+`planAutomationRun` blocks with `no_agent_assigned` when there is none, and there is deliberately no
+fallback Agent. This is what "only an attributable allowed Agent invokes a Skill" means here. A
+second Module Agent, `conversation-steward`, was added for it: the Contact Steward reconciles an
+address book and should not inherit answerability for conversations.
+
+**Decision 4 — the consent gate is checked in the planner as well as at send time, and BEFORE the
+trigger.** Redundant by design. The planner check means an Agent is never woken for a thread nobody
+wrote in, and checking it before the trigger means the owner is told their rule can never fire
+rather than that it is merely not due today. The send-time check is the one that binds.
+
+**Decision 5 — all three ledgers share ONE `LocalStateStore` namespace (`whatsapp:automation`).**
+The writes are genuinely coupled: deleting a rule must also cancel the actions it queued, and both
+landing or neither is the only correct outcome. Rejected: a namespace each, which turns that one
+write into two that can half-fail.
+
+**Consequences.** The scheduler holds no message bodies and imports nothing that can send; it queues
+Agent Run starts, and `performAutomatedSend` is untouched. Rule evaluation is a user-clicked check
+(`whatsapp.automation.check`) reading only stored Local Plane facts, so no Automation performs a
+WhatsApp read — the Module's original guarantee survives. There is still **no runner**: nothing
+dequeues a due action and starts a real Agent Run, and the sweep can only fire `thread_quiet` rules
+because it has no arriving message to hand an `inbound_message` rule. Both halves are reported in
+the surface rather than hidden: the queue does not claim its entries execute, and an inbound rule
+comes back as `waiting` with the missing hook named, not as an ambiguous "not due".

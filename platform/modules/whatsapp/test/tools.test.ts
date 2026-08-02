@@ -2,9 +2,18 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { WHATSAPP_TOOLS, requireTool } from "../src/tools.js";
 
-test("v1 ships exactly one Tool", () => {
-  assert.equal(WHATSAPP_TOOLS.length, 1);
-  assert.equal(WHATSAPP_TOOLS[0]?.id, "contact-extractor");
+test("the registry has no duplicate Tool ids", () => {
+  const ids = WHATSAPP_TOOLS.map((tool) => tool.id);
+  assert.equal(new Set(ids).size, ids.length, `duplicate Tool id in ${ids.join(", ")}`);
+});
+
+test("the Tools the Page dispatches on are all registered", () => {
+  // Every id here has a panel in WhatsAppPage.tsx. A registry entry without a
+  // panel renders a heading and nothing under it, which reads as broken.
+  const ids = new Set(WHATSAPP_TOOLS.map((tool) => tool.id));
+  for (const id of ["contact-extractor", "automation-rules", "scheduled-actions", "agent-assignment"]) {
+    assert.ok(ids.has(id), `${id} is missing from the registry`);
+  }
 });
 
 test("every Tool declares a name, description, modes, and gating capability", () => {
