@@ -238,7 +238,15 @@ export function ChatsSurface() {
     );
   }
 
-  const needsLink = status !== null && status.socket !== "CONNECTED" && !status.live;
+  // Linkedness comes from wa-js's own verdict, never inferred from the
+  // socket: the QR screen also holds a CONNECTED socket, and inferring from
+  // it once hid the Link button on exactly the screen that needed it. An
+  // unknown verdict (null) keeps the button visible with a populated store as
+  // the only exception — offering a needless re-link is recoverable; hiding
+  // the only way in is not.
+  const needsLink =
+    status !== null &&
+    (status.authenticated === false || (status.authenticated === null && !status.live));
 
   // What BRIDGE holds, as distinct from what WhatsApp holds. `null` threads
   // means the store has not answered yet, which is not the same as zero.
@@ -266,11 +274,13 @@ export function ChatsSurface() {
             ? "Starting the WhatsApp session…"
             : status.live
               ? `Session live — ${status.chats} chats on WhatsApp · ${storedLabel}`
-              : status.syncing
-                ? `WhatsApp is downloading your messages (${status.chats} chats so far) · ${storedLabel}`
-                : status.socket === "CONNECTED"
-                  ? `Connected — waiting for your chats · ${storedLabel}`
-                  : "This device is not linked"}
+              : status.authenticated === false
+                ? "This device is not linked — scan the QR code to connect"
+                : status.syncing
+                  ? `WhatsApp is downloading your messages (${status.chats} chats so far) · ${storedLabel}`
+                  : status.socket === "CONNECTED"
+                    ? `Connected — waiting for your chats · ${storedLabel}`
+                    : "This device is not linked"}
         </span>
         <div className="ml-auto flex items-center gap-2">
           {needsLink ? (

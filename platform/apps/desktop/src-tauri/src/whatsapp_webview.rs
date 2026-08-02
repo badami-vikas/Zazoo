@@ -172,6 +172,14 @@ pub struct WhatsAppStatus {
     pub chats: i64,
     /// True while WhatsApp is still downloading history.
     pub syncing: bool,
+    /// wa-js's own linkedness verdict (`WPP.conn.isAuthenticated()`).
+    ///
+    /// `None` means it could not be read — the UI must render that as
+    /// unknown, never as linked. The socket state is NOT a substitute: an
+    /// unlinked session showing the QR also holds a CONNECTED socket, which
+    /// is exactly the confusion that once hid the Link button on the one
+    /// screen that needed it.
+    pub authenticated: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -647,6 +655,13 @@ const STATUS_SCRIPT: &str = r#"
     try { socket = String((wpp.whatsapp.Socket && wpp.whatsapp.Socket.state) || "UNKNOWN"); } catch (e) {}
     var chats = 0;
     try { chats = wpp.whatsapp.ChatStore.getModelsArray().length; } catch (e) {}
+    // Authentication is wa-js's own verdict, NOT the socket state: an
+    // unlinked session showing the QR also holds a CONNECTED socket (that is
+    // how it fetches the QR), so socket state cannot distinguish "linked"
+    // from "please scan". null = could not tell, which the UI must treat as
+    // unknown rather than as either answer.
+    var authenticated = null;
+    try { authenticated = !!wpp.conn.isAuthenticated(); } catch (e) {}
     var text = (document.body && document.body.innerText) || "";
     window.__bridgeReport({
       op: "status",
@@ -655,6 +670,7 @@ const STATUS_SCRIPT: &str = r#"
         value: {
           socket: socket,
           chats: chats,
+          authenticated: authenticated,
           syncing: text.indexOf("messages are downloading") >= 0,
           needsLink: text.indexOf("Scan to log in") >= 0 || text.indexOf("Log in with phone") >= 0
         }
@@ -1434,6 +1450,7 @@ pub async fn whatsapp_status(
             socket: "CLOSED".into(),
             chats: 0,
             syncing: false,
+            authenticated: None,
         });
     };
     let raw = run_script(&window, state, STATUS_SCRIPT.to_string(), 15_000).await?;
@@ -1450,6 +1467,9 @@ pub async fn whatsapp_status(
         .get("syncing")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    // Absent or non-boolean stays None — "could not tell" must not collapse
+    // into either answer.
+    let authenticated = value.get("authenticated").and_then(|v| v.as_bool());
     Ok(WhatsAppStatus {
         open: true,
         // Measured the hard way: an authenticated session with an UNLAUNCHED
@@ -1458,6 +1478,7 @@ pub async fn whatsapp_status(
         socket,
         chats,
         syncing,
+        authenticated,
     })
 }
 

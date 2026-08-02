@@ -50,6 +50,12 @@ export interface WhatsAppStatus {
   socket: string;
   chats: number;
   syncing: boolean;
+  /**
+   * wa-js's own linkedness verdict. `null` = could not tell — render as
+   * unknown, never as linked. The socket state is NOT a substitute: the QR
+   * screen also holds a CONNECTED socket.
+   */
+  authenticated: boolean | null;
 }
 
 export function isDesktopShell(): boolean {
@@ -92,14 +98,14 @@ export async function hideSession(): Promise<void> {
 
 export async function sessionStatus(): Promise<WhatsAppStatus> {
   if (!isDesktopShell()) {
-    return { open: false, live: false, socket: "UNAVAILABLE", chats: 0, syncing: false };
+    return { open: false, live: false, socket: "UNAVAILABLE", chats: 0, syncing: false, authenticated: null };
   }
   try {
     return (await tauriInvokeStrict("whatsapp_status", {})) as WhatsAppStatus;
   } catch {
     // A status probe that fails is "not live", not a crash — the Page still has
     // an honest state to render.
-    return { open: false, live: false, socket: "UNKNOWN", chats: 0, syncing: false };
+    return { open: false, live: false, socket: "UNKNOWN", chats: 0, syncing: false, authenticated: null };
   }
 }
 
