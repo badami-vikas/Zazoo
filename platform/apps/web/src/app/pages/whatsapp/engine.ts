@@ -78,7 +78,7 @@ export type Unsubscribe = () => void;
  * fires, and every surface must keep working without it. Naming follows the
  * shell's existing convention (`annotate:marks`, `sensor:capture`).
  */
-export const WHATSAPP_EVENT_CHANNEL = "whatsapp:events";
+export const WHATSAPP_EVENT_CHANNEL = "whatsapp:session-events";
 
 export interface WhatsAppEngine {
   /** True only inside the Bridge desktop shell, where the session can exist. */

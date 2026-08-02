@@ -89,7 +89,7 @@ const SESSION_EVENTS_OP: &str = "session_events";
 
 /// Tauri event carrying a coalesced batch to the dashboard. Emitted to the MAIN
 /// window only — the session webview has no IPC and must never receive it.
-pub const SESSION_EVENTS_EVENT: &str = "whatsapp://session-events";
+pub const SESSION_EVENTS_EVENT: &str = "whatsapp:session-events";
 
 /// The vendored wa-js bundle, hash-pinned and verified at build time by
 /// `build.rs`. Vendored rather than fetched: a CDN script would be unpinned
@@ -627,7 +627,7 @@ fn event_listener_script() -> String {
   }}
 
   function push(kind, key, data) {{
-    var slot = kind + " " + key;
+    var slot = kind + "\u0000" + key;
     var event = {{ kind: kind, key: String(key), at: Date.now(), data: data }};
     if (slot in slots) {{
       // Coalesce in place: last value wins, first-seen order is kept.

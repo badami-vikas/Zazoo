@@ -3222,3 +3222,36 @@ Ollama/Anthropic call.
   - **A licence-notice gap from TASK-029 is corrected here**: the vendored wa-js bundle references a companion `wppconnect-wa.js.LICENSE.txt` that was not vendored with it, which Apache-2.0 notice retention requires.
   - **`karem505/whatRust` (MIT, Tauri v2) is adopted as a reference implementation** for the desktop shell, having already solved per-OS UA handling, macOS `data_store_identifier` session isolation, download wiring, media permissions and SharedArrayBuffer for WhatsApp's wasm pipeline. Deliberately NOT adopted: its `navigator.userAgentData` client-hints shim, which exists because it advertises a Chrome UA — we advertise Safari, and real Safari does not implement `userAgentData`, so adding the shim would make our fingerprint self-contradictory rather than consistent.
 - **Honest risk**: unchanged from ADR-157 and now larger in exposure. Unofficial automation of a personal WhatsApp account violates WhatsApp's Terms regardless of library, and enabling outbound automation moves the account from the mildest end of that spectrum toward the behaviour Meta's detection actually targets. Bans are permanent in practice and unappealable because the user was never a customer. The caps above reduce that risk; they do not remove it, and the account remains one the user should be able to afford to lose. Storing third parties' personal message content also creates a data-protection exposure that did not previously exist.
+
+### ADR-158 addendum (2026-08-02) — the `unstable` multi-webview embed is ABANDONED; the parented child window stands
+
+The spike ADR-158 authorised was run and fully reverted. **This addendum corrects a claim made
+earlier in the same session by the author of ADR-158.** I had verified that `Window::add_child` exists
+under the `unstable` feature and that `WebviewBuilder` carries `user_agent`,
+`initialization_script` and `on_navigation`, and concluded from that that "the entire security
+boundary transfers unchanged". That conclusion was an over-generalisation from three method
+signatures, and it is wrong.
+
+Two source-verified findings, either one sufficient on its own:
+
+1. **The capability exclusion does NOT carry over.** The load-bearing containment for the WhatsApp
+   session is that its window label is absent from Tauri capabilities, so the page hosting a live
+   authenticated session has no IPC at all. As a CHILD WEBVIEW that protection disappears: a
+   capability declaring `windows: ["main"]` applies to *every* webview in that window "regardless of
+   the value of `webviews`" (`tauri-utils/acl/capability.rs`, confirmed at `ipc/authority.rs:459`).
+   The remote-origin check would remain as a second barrier, but the design deliberately had two
+   independent barriers and this reduces it to one — on the surface that holds the user's live
+   session.
+2. **`get_webview_window("main")` returns `None`** once the main window hosts a second webview,
+   because `is_webview_window()` requires every webview label in the window to equal the window
+   label. There are 22 call sites; the `MAIN_LABEL` ones take `None` branches that silently fall
+   back to `(0.0, 0.0)` — the same silent-degradation failure mode as the off-screen-window defect
+   this Module already hit once.
+
+The nspanel/Avatar hard stop could not be discharged without a live run and is now moot. Verified by
+compilation only: the `unstable` feature does build alongside `tauri-nspanel`.
+
+**Consequence for the product:** the user's stated preference was a single entity rather than a
+parent/child window, and that preference does not survive contact with the security boundary. The
+session stays a parented child window. A true in-window embed would cost the capability exclusion,
+which is not a trade this Module should make.

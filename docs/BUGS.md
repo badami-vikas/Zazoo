@@ -2158,3 +2158,43 @@ adapter phase. Deliberately NOT copied from whatRust: its `navigator.userAgentDa
 which exists because it advertises a Chrome UA. We advertise Safari, and real Safari does not
 implement `userAgentData` — adding the shim would make our fingerprint self-contradictory rather than
 consistent. Attached to TASK-029.
+
+### UPDATE 2026-08-02 — both fixes written; the `data_store_identifier` theory is WEAKENED, not confirmed
+Track A implemented both (`on_download` with hostile-filename handling and no-overwrite; a persisted
+v4 UUID data store guarded to macOS >= 14). **Neither is demonstrated fixed** — no live run has
+happened, so this entry stays OPEN.
+
+Correcting my own attribution above: I called the missing `data_store_identifier` the "leading
+candidate" for `aquire-persistent-storage-denied`. Track A rates it LOWER than I did and gives a
+reason I accept — the error originates in WebKit's quota path, not store selection, and the earlier
+restart test that showed the session surviving is evidence the DEFAULT store was already working.
+The fix is worth having on its own merits (per-account isolation), but it should not be expected to
+silence that error. If it does, that is a surprise to be explained, not a confirmation.
+
+## RESOLVED 2026-08-02 — a raw NUL byte in `whatsapp_webview.rs` made the file binary to every text tool
+Found at integration, not by any test. Track A's in-page event batcher used a literal NUL byte as a
+composite-key separator (`kind + NUL + key`) inside a Rust RAW string literal. It compiled, and all
+102 Rust tests passed, because Rust and JavaScript both accept NUL inside a string.
+
+The damage was to tooling, and it was silent: `file` reported the source as `data` rather than text,
+and **grep treats a file containing NUL as binary and suppresses ALL matches**. Every grep against
+this file returned nothing and looked like a clean negative — including greps for security-relevant
+strings, in the one file that holds the read-op allowlist and the navigation policy. This was caught
+only because a grep for `emit` came back empty on a file that demonstrably contained it.
+
+Fixed by writing the separator as a six-character JavaScript unicode escape (backslash-u-0000),
+which a Rust raw string passes through untouched and JavaScript parses as NUL — identical runtime
+behaviour, plain-text file. A raw string cannot use a Rust-level escape, which is why the literal
+byte was there in the first place. Verified: `file` now reports UTF-8 text, greps match, 102 Rust
+tests still pass. Attached to TASK-030.
+
+## RESOLVED 2026-08-02 — Track A and Track B chose different names for the same event channel
+Track A's Rust emitted `whatsapp://session-events`; Track B's TypeScript listened on
+`whatsapp:events`. Nothing failed loudly — B was deliberately written to degrade silently when the
+channel is absent, so the push channel would simply never have delivered while both sides looked
+correct in isolation.
+
+Reconciled at integration to `whatsapp:session-events`, matching the repo's established convention
+(`sensor:capture`, `annotate:marks`, `bridge:navigate`). This is functional, not cosmetic: BUGS
+2026-07-29 records that dotted Tauri event names in this codebase NEVER delivered. Neither agent's
+original name matched the convention. Attached to TASK-030.

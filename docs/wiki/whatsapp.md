@@ -59,3 +59,42 @@ Raw capture + phone numbers **Local Plane only**. `local_people.phones` is local
 ## ToS
 
 Unofficial automation of personal WhatsApp violates WhatsApp Terms, any library. Reading own contacts = mildest end. Risk accepted knowingly, not mitigated away.
+
+## v2 (TASK-030, ADR-158) — write-enabled, local searchable store
+
+**One account, one browser profile, one wa-js runtime, many surfaces.** The VISIBLE session is the
+engine AND execution layer. No second authenticated client — `whatsapp-web.js` as a headless backend
+rejected (duplicate session/sync, client races, bigger behavioural footprint).
+
+- **Adapter is two-layer.** TS `WhatsAppEngine` NAMES an op; Rust allowlist owns the script. Web app
+  can never supply JS. A test asserts the TS and Rust allowlists match, so they cannot drift.
+- **Store**: message bodies on Local Plane, searchable. Core FTS is unconditional; **trigram is not**
+  — pglite ships `pg_trgm` but does not offer it, and it must be registered at client construction.
+  Worse: a trigram index in a PERSISTED db, reopened without the extension, breaks EVERY query on
+  that table including plain `ILIKE`, and the catalog cannot detect it. Probe functionally
+  (`SELECT similarity(...)`), never via `pg_extension`.
+- `simple` not `english` text-search config (stemming breaks a multilingual address book).
+  `word_similarity` not `similarity` (a short query in a long body scores near zero).
+- **UI is makeshift**, on `@tanstack/react-virtual`, deliberately NOT a WhatsApp replica. That also
+  removes the trade-dress question: functional layout is unprotectable; name/logo/green/wallpaper are not.
+- **Write enabled.** `decideSend` decides; policy refusals run BEFORE it so a refused send never
+  becomes an approval prompt (do not train click-through on the one prompt that must stay deliberate).
+- **Ban protection is behavioural, not the engine.** Consent gate (automation never opens a thread),
+  hard daily cap, per-recipient cooldown, no near-identical bodies (Jaccard over char trigrams),
+  warm-up, recipient-timezone hours, kill switch that never auto-resumes. Jitter is NOT a cloak.
+
+## Embed: settled — parented child window, NOT a child webview
+
+`unstable` multi-webview ABANDONED (ADR-158 addendum). As a child webview the session LOSES its
+capability exclusion: `windows: ["main"]` covers every webview in that window regardless of the
+`webviews` field. Also `get_webview_window("main")` returns `None` once main hosts a second webview —
+22 call sites, silent `(0.0, 0.0)` fallbacks. A single-window embed costs the security boundary.
+
+## Two traps that cost real time
+
+1. **A raw NUL byte in a Rust source makes grep silently match nothing.** Happened here in the event
+   batcher's composite key. Compiled fine, 102 tests passed, and every grep against the file holding
+   the op allowlist returned a clean-looking empty. Use a JS unicode escape inside raw strings.
+2. **Event names**: single colon, kebab (`whatsapp:session-events`). Dotted names have NEVER
+   delivered in this codebase (BUGS 2026-07-29). Two parallel tracks picked two different names and
+   nothing failed loudly, because the listener degraded silently.
