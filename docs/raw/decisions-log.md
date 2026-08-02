@@ -3491,3 +3491,77 @@ dequeues a due action and starts a real Agent Run, and the sweep can only fire `
 because it has no arriving message to hand an `inbound_message` rule. Both halves are reported in
 the surface rather than hidden: the queue does not claim its entries execute, and an inbound rule
 comes back as `waiting` with the missing hook named, not as an ambiguous "not due".
+
+## ADR-159 — The WhatsApp↔Relationship link is a key-space lookup, not a matcher; the Person Timeline joins the two planes at render time, never on disk (2026-08-02; TASK-030; extends ADR-158's residency section)
+
+**Context.** The WhatsApp Module synced chats and messages into the Local Plane but stood alone: a
+chat had no Person. The user asked for the Module to be "linked to relationship module", with chat
+data appearing on People and Community page timelines.
+
+**Decision 1 — resolution is an exact lookup in one key space, with no fuzzy tier.**
+`local_people.dedupe_key` and `local_messages.sender_key` were already the same key space
+(`whatsapp:+E164` / `whatsapp-lid:<id>`). A chat id is drawn from that same space, so
+`resolveChatLink` (`modules/whatsapp/src/link.ts`) is a key derivation plus an exact `Map` lookup.
+No name similarity, no phone normalisation beyond the existing `toE164`, no scoring. Every heuristic
+that could be added here is a guess about who somebody is, made at a scale (8,384 contacts) where a
+small error rate is hundreds of wrong attributions on real people's pages.
+
+**Decision 2 — LID and phone stay disjoint, and the cost is stated rather than mitigated.**
+A `@lid` chat resolves only against LID keys. On the live account 4,203 of 8,384 contacts are
+LID-only, so a large fraction of chats will read **unlinked** even when the human is plainly in the
+graph under their phone number. That is the correct answer: WhatsApp deliberately withheld the
+number, and matching the two is inference, not knowledge. `chatSubjectKey` checks `isLidId` BEFORE
+the phone branch for the same reason `phoneFor` does — guarding only the suffix has already been
+observed laundering LID digits into phone-shaped fields.
+
+**Decision 3 — ambiguity produces a Signal, and that Signal is now actually written.**
+`mapExtraction` had computed `possible_duplicate` Signals since v1, and `stageExtraction` counted
+them into an audit row and **threw them away**. The refusal to guess was therefore invisible: the
+run declined to merge, reported a number, and left nothing to act on. Ambiguous identities now
+commit as `kind: "signal"` local entities with the `type: "possible_duplicate"` payload shape the
+Google intake path already files, so one review surface can read both. The id is deterministic on
+the dedupe key (`commitEntity` is idempotent on id), so re-running an extraction re-commits the same
+rows instead of minting one Signal per run — the difference between a review queue and a flood.
+`personId` is left unset deliberately: the entire content of the Signal is that nobody knows which
+Person it is.
+
+**Decision 4 — the Timeline joins two planes at RENDER time, never on disk.**
+`relationship.timeline` reads cloud Events. The new `relationship.whatsappTimeline` reads the Local
+Plane. They are deliberately NOT merged server-side and WhatsApp rows are never written into
+`events`, because that would copy Local-Plane facts into cloud canonical storage. The client renders
+both in one Timeline section. What crosses the wire is activity FACTS only — counts, timestamps,
+direction. No message body, no phone number, no identity key: bodies stay in the WhatsApp Module's
+own thread surface, which the Timeline links to.
+
+**Rejected alternatives.**
+
+- *Materialise WhatsApp activity as cloud Events so the existing Timeline "just works".* Rejected
+  outright: it is the residency violation. A message body or a phone-derived identity key in
+  `events` is exactly what Local Plane exists to prevent.
+- *Match a LID chat to a phone Person by name or digit equality.* Rejected. Digit equality is the
+  fabrication bug that already minted 4,203 fake numbers once. Name matching over an address book
+  whose names are attacker-settable push-names is worse.
+- *Auto-link the single best candidate when several match.* Rejected — repo precedent
+  (`possible_duplicate` on Google intake) and the reason it exists: an ambiguous identity silently
+  resolved is a wrong Person's private conversation on a page.
+- *A bulk migration linking all 8,384 contacts.* Rejected; not asked for, and it would commit
+  thousands of link decisions with no human in the loop.
+- *A parallel "WhatsApp" widget beside the Timeline.* Rejected as the primary shape — the ask was
+  chat data IN the timeline. It renders inside the Timeline section, under a sub-heading that names
+  the plane it came from.
+
+**Consequence, and the honest limit.** A cloud Person id and a Local Plane person id are different
+key spaces. The only bridge that exists today is ID EQUALITY: the Google intake and Capture paths
+mint one uuid and write it as both `people.id` and `local_people.id`. `whatsappTimeline` relies on
+that same bridge and invents no new one. **People created by the WhatsApp Contact Extractor have no
+cloud `people` row at all** — `local_people.canonical_person_id` is declared but written by nothing
+in production — so today a WhatsApp-origin Person has no cloud page for their chats to appear on,
+and a Google-origin Person has an email dedupe key rather than a WhatsApp one. The join is therefore
+correct and currently expected to return zero rows on real data. It is reported as
+`linkage: "no_local_record"` / `"no_whatsapp_identity"` — never disguised as "no activity" — and
+closing the gap needs an explicit promote path, which is deliberately not in this change.
+
+**Community is a stated gap, not a silent one.** A WhatsApp group derives a `whatsapp-group:<id>`
+Community key, but the Local Plane has no Community store and `stageExtraction` accepts contacts
+only, so no WhatsApp group is ever staged as a Community. `resolveChatLink` returns
+`community_unsupported` and the Community page says so in words.
