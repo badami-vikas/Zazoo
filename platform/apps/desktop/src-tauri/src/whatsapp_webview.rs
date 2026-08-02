@@ -31,12 +31,36 @@
 //! never supplies JavaScript. Write operations live behind `script_for_write_op`
 //! and are refused unless the caller presents an approval token minted by the
 //! governed Approvals path — see `whatsapp_send_start`.
+//!
+//! Three additions land under TASK-030 Track A (ADR-158):
+//!
+//!  - **Downloads.** wry only wires up the platform download machinery when an
+//!    `on_download` handler is registered. Without one WhatsApp Web's download
+//!    control fired and nothing happened, silently, on every plane
+//!    (BUGS OPEN 2026-08-02 defect 1).
+//!  - **A persisted data store identity.** The session gets its own WKWebView
+//!    `WKWebsiteDataStore`, keyed by a v4 UUID persisted under `app_data_dir`,
+//!    so the session's cookies and IndexedDB are the store we intend rather
+//!    than whatever default store happened to be shared
+//!    (BUGS OPEN 2026-08-02 defect 2).
+//!  - **A push event channel.** Results used to travel ONLY as
+//!    request/response. `session_events` adds a PUSH stream — batched and
+//!    coalesced in-page, then re-coalesced and kind-filtered in Rust because
+//!    the page is untrusted — surfaced to the dashboard as a Tauri event.
+//!
+//! Deliberately NOT taken from the `karem505/whatRust` reference: its
+//! `navigator.userAgentData` client-hints shim. It exists there because that
+//! app advertises a Chrome UA. We advertise Safari, and real Safari does not
+//! implement `userAgentData`, so the shim would make our fingerprint
+//! self-contradictory rather than consistent (ADR-158).
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const WHATSAPP_LABEL: &str = "whatsapp-session";
 
@@ -58,6 +82,14 @@ const OP_TIMEOUT_MS: u64 = 300_000;
 
 /// Hard cap on a single op's payload. A real address book measured ~6 MB.
 const MAX_PAYLOAD_BYTES: usize = 32 * 1024 * 1024;
+
+/// Op name reserved for the PUSH channel. Never appears in `script_for_op`:
+/// nothing *requests* it, the injected listener volunteers it.
+const SESSION_EVENTS_OP: &str = "session_events";
+
+/// Tauri event carrying a coalesced batch to the dashboard. Emitted to the MAIN
+/// window only — the session webview has no IPC and must never receive it.
+pub const SESSION_EVENTS_EVENT: &str = "whatsapp://session-events";
 
 /// The vendored wa-js bundle, hash-pinned and verified at build time by
 /// `build.rs`. Vendored rather than fetched: a CDN script would be unpinned
@@ -219,6 +251,122 @@ fn reported(op: &str, body: &str) -> String {
     )
 }
 
+/// Every `WPP` path the Module's operations depend on, with the `typeof` each
+/// must report.
+///
+/// wa-js is a moving target: it reaches into WhatsApp's own bundles, and when
+/// WhatsApp reshuffles them a function quietly stops existing. The build-time
+/// SHA-256 pin proves we shipped the bundle we vendored; it proves nothing
+/// about whether that bundle still fits today's WhatsApp. This list is the
+/// runtime tripwire's input AND the drift test's input, so a dependency added
+/// to an op script without being declared here fails
+/// `health_covers_every_wpp_dependency`.
+pub const WPP_DEPENDENCIES: &[(&str, &str)] = &[
+    ("WPP.contact.list", "function"),
+    ("WPP.contact.getPnLidEntry", "function"),
+    ("WPP.group.getAllGroups", "function"),
+    ("WPP.group.getParticipants", "function"),
+    ("WPP.whatsapp.ChatStore.getModelsArray", "function"),
+    ("WPP.whatsapp.Socket", "object"),
+    ("WPP.on", "function"),
+];
+
+/// Paths whose SHAPE is cheap enough to actually exercise at session start.
+///
+/// The rest are existence-and-`typeof` only, and the result says so per check
+/// rather than implying more assurance than was bought: `WPP.contact.list` on
+/// the measured account takes ~2 minutes, so calling it in a health probe would
+/// turn a tripwire into an outage.
+const WPP_SHAPE_PROBES: &[&str] = &[
+    "WPP.whatsapp.ChatStore.getModelsArray",
+    "WPP.whatsapp.Socket",
+];
+
+/// Build the health script from `WPP_DEPENDENCIES`. Read-only: it resolves
+/// paths, reads `typeof`, and calls only the probes named above.
+fn health_script() -> String {
+    let required = WPP_DEPENDENCIES
+        .iter()
+        .map(|(path, kind)| {
+            let probe = WPP_SHAPE_PROBES.contains(path);
+            format!(r#"{{ path: "{path}", expect: "{kind}", probe: {probe} }}"#)
+        })
+        .collect::<Vec<_>>()
+        .join(",\n                   ");
+    reported(
+        "health",
+        &format!(
+            r#"Promise.resolve((function () {{
+                 var required = [
+                   {required}
+                 ];
+                 function resolve(path) {{
+                   var parts = path.split(".");
+                   var node = window;
+                   for (var i = 0; i < parts.length; i++) {{
+                     if (node === null || node === undefined) return undefined;
+                     node = node[parts[i]];
+                   }}
+                   return node;
+                 }}
+                 function probeShape(path, node) {{
+                   // Only the cheap, synchronous probes reach here.
+                   if (path === "WPP.whatsapp.ChatStore.getModelsArray") {{
+                     var models = node.call(WPP.whatsapp.ChatStore);
+                     return Array.isArray(models)
+                       ? {{ ok: true, detail: "array[" + models.length + "]" }}
+                       : {{ ok: false, detail: "expected an array, got " + typeof models }};
+                   }}
+                   if (path === "WPP.whatsapp.Socket") {{
+                     var state = node.state;
+                     return typeof state === "string"
+                       ? {{ ok: true, detail: state }}
+                       : {{ ok: false, detail: "Socket.state is " + typeof state }};
+                   }}
+                   return {{ ok: true, detail: "no probe" }};
+                 }}
+                 var checks = [];
+                 var missing = [];
+                 var degraded = [];
+                 for (var i = 0; i < required.length; i++) {{
+                   var spec = required[i];
+                   var node, actual;
+                   try {{ node = resolve(spec.path); }} catch (e) {{ node = undefined; }}
+                   actual = node === null ? "null" : typeof node;
+                   var present = actual === spec.expect;
+                   var shape = null;
+                   if (present && spec.probe) {{
+                     try {{ shape = probeShape(spec.path, node); }}
+                     catch (e) {{ shape = {{ ok: false, detail: String((e && e.message) || e) }}; }}
+                   }}
+                   if (!present) {{
+                     missing.push(spec.path);
+                   }} else if (shape && !shape.ok) {{
+                     degraded.push({{ path: spec.path, reason: shape.detail }});
+                   }}
+                   checks.push({{
+                     path: spec.path,
+                     expect: spec.expect,
+                     actual: actual,
+                     present: present,
+                     shapeProbed: Boolean(spec.probe),
+                     shape: shape
+                   }});
+                 }}
+                 var version = null;
+                 try {{ version = String(WPP.version || WPP.default.version); }} catch (e) {{}}
+                 return {{
+                   ok: missing.length === 0 && degraded.length === 0,
+                   waJsVersion: version,
+                   missing: missing,
+                   degraded: degraded,
+                   checks: checks
+                 }};
+               }})())"#
+        ),
+    )
+}
+
 /// Map an operation NAME to a fixed script. The web app can never pass
 /// JavaScript — it names an operation, and unknown names yield `None`.
 ///
@@ -227,6 +375,11 @@ fn reported(op: &str, body: &str) -> String {
 /// requires changing a test that says so.
 pub fn script_for_op(op: &str, arg: Option<&str>) -> Option<String> {
     match op {
+        // Drift tripwire, run at session start. Read-only and cheap: it asserts
+        // every WPP function the Module depends on exists and — where probing
+        // is affordable — returns the expected shape, so a bundle change
+        // surfaces as a degraded state instead of failing mid-run.
+        "health" => Some(health_script()),
         // The owner's address book.
         "list_contacts" => Some(reported(
             op,
@@ -352,6 +505,448 @@ const STATUS_SCRIPT: &str = r#"
 
 
 // ---------------------------------------------------------------------------
+// The PUSH event channel (TASK-030 Track A)
+// ---------------------------------------------------------------------------
+
+/// Flush cadence for the in-page batcher, in milliseconds.
+const EVENT_FLUSH_MS: u64 = 750;
+
+/// Buffer-size threshold that forces an early flush.
+const EVENT_MAX_BATCH: usize = 64;
+
+/// Hard cap on how many events the shell will forward from ONE batch.
+///
+/// The in-page batcher already bounds itself, but that code runs in an
+/// untrusted page: this is the bound that actually holds.
+pub const MAX_EVENTS_PER_BATCH: usize = 256;
+
+/// Kinds the dashboard understands. Anything else is dropped rather than
+/// forwarded — the page names the kind, so without this an injected or drifted
+/// script could push arbitrary event names into the app's event bus.
+pub fn is_allowed_event_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "active_chat" | "message" | "chat_state" | "connection"
+    )
+}
+
+/// One coalesced session event, as the dashboard receives it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionEvent {
+    /// What happened. Constrained by `is_allowed_event_kind`.
+    pub kind: String,
+    /// Coalescing key within the kind — e.g. the chat id, so twenty updates to
+    /// one chat collapse to one while twenty different chats do not.
+    #[serde(default)]
+    pub key: String,
+    /// Page clock, milliseconds. UNTRUSTED, and used for display only: it comes
+    /// from the page and is never treated as an ordering authority.
+    #[serde(default)]
+    pub at: i64,
+    #[serde(default)]
+    pub data: serde_json::Value,
+}
+
+/// Apply the coalescing policy to a batch: drop disallowed kinds, keep the LAST
+/// value for each `(kind, key)`, preserve first-seen order, and cap the result.
+///
+/// This duplicates what the in-page batcher already did, deliberately. The
+/// batcher lives in WhatsApp's origin, where a hostile or simply drifted script
+/// could flood the channel; the shell therefore never relies on the page having
+/// deduplicated anything. Cheap, pure, and the only place the policy is
+/// actually enforced.
+pub fn coalesce_events(events: Vec<SessionEvent>) -> Vec<SessionEvent> {
+    let mut order: Vec<(String, String)> = Vec::new();
+    let mut latest: HashMap<(String, String), SessionEvent> = HashMap::new();
+    for event in events {
+        if !is_allowed_event_kind(&event.kind) {
+            continue;
+        }
+        let slot = (event.kind.clone(), event.key.clone());
+        if !latest.contains_key(&slot) {
+            order.push(slot.clone());
+        }
+        latest.insert(slot, event);
+    }
+    order
+        .into_iter()
+        .filter_map(|slot| latest.remove(&slot))
+        .take(MAX_EVENTS_PER_BATCH)
+        .collect()
+}
+
+/// Decode a reported batch. A malformed body yields an empty batch rather than
+/// an error: this channel is fire-and-forget, and there is no caller waiting to
+/// be told the page sent nonsense.
+pub fn parse_event_batch(json: &str) -> Vec<SessionEvent> {
+    #[derive(Deserialize)]
+    struct Batch {
+        #[serde(default)]
+        events: Vec<SessionEvent>,
+    }
+    match serde_json::from_str::<Batch>(json) {
+        Ok(batch) => coalesce_events(batch.events),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// The injected listener. Subscribes to WPP events and reports them in batches.
+///
+/// One cancelled navigation per WPP event does not survive a busy account — a
+/// single active conversation produces bursts far faster than the shell can
+/// decode them, and the channel is serial. So the listener buffers, collapses
+/// repeats of the same `(kind, key)` in place, and flushes on whichever comes
+/// first: the interval or the buffer threshold.
+fn event_listener_script() -> String {
+    format!(
+        r#"
+(function () {{
+  if (window.top !== window) return;
+  if (window.__bridgeWaEvents) return;
+
+  var FLUSH_MS = {EVENT_FLUSH_MS};
+  var MAX_BATCH = {EVENT_MAX_BATCH};
+
+  var buffer = [];
+  var slots = Object.create(null);
+  var timer = null;
+
+  function flush() {{
+    if (timer !== null) {{ clearTimeout(timer); timer = null; }}
+    if (buffer.length === 0) return;
+    var batch = buffer;
+    buffer = [];
+    slots = Object.create(null);
+    try {{
+      window.__bridgeReport({{
+        op: "{SESSION_EVENTS_OP}",
+        json: JSON.stringify({{ events: batch }})
+      }});
+    }} catch (e) {{ /* a dropped batch must never break the page */ }}
+  }}
+
+  function push(kind, key, data) {{
+    var slot = kind + " " + key;
+    var event = {{ kind: kind, key: String(key), at: Date.now(), data: data }};
+    if (slot in slots) {{
+      // Coalesce in place: last value wins, first-seen order is kept.
+      buffer[slots[slot]] = event;
+    }} else {{
+      slots[slot] = buffer.length;
+      buffer.push(event);
+    }}
+    if (buffer.length >= MAX_BATCH) {{ flush(); return; }}
+    if (timer === null) timer = setTimeout(flush, FLUSH_MS);
+  }}
+
+  window.__bridgeWaEvents = {{ push: push, flush: flush }};
+
+  function serialise(id) {{
+    if (!id) return "";
+    return String(id._serialized || id);
+  }}
+
+  function subscribe() {{
+    if (!window.WPP || typeof window.WPP.on !== "function") return false;
+    try {{
+      // The active chat changed — the event the dashboard is built around.
+      WPP.on("chat.active_chat", function (payload) {{
+        var id = serialise(payload && payload.id);
+        push("active_chat", "active_chat", {{ chatId: id }});
+      }});
+      WPP.on("chat.new_message", function (payload) {{
+        var chatId = serialise(payload && (payload.chatId || payload.from));
+        push("message", chatId, {{ chatId: chatId }});
+      }});
+      WPP.on("chat.msg_ack_change", function (payload) {{
+        var chatId = serialise(payload && payload.chat);
+        push("chat_state", chatId, {{ chatId: chatId }});
+      }});
+      WPP.on("conn.main_ready", function () {{
+        push("connection", "main_ready", {{ ready: true }});
+      }});
+      return true;
+    }} catch (e) {{
+      return false;
+    }}
+  }}
+
+  // wa-js is injected before the page's own bundles finish, so WPP.on is not
+  // there yet on the first tick. Poll briefly, then give up quietly — a missing
+  // event channel degrades the dashboard, it does not break the session.
+  if (!subscribe()) {{
+    var tries = 0;
+    var poll = setInterval(function () {{
+      if (subscribe() || ++tries > 120) clearInterval(poll);
+    }}, 500);
+  }}
+
+  // A pending batch must not be lost when the page goes away.
+  window.addEventListener("pagehide", flush);
+}})();
+"#
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Downloads — BUGS OPEN 2026-08-02, defect 1
+// ---------------------------------------------------------------------------
+
+const DEFAULT_DOWNLOAD_NAME: &str = "whatsapp-download";
+const MAX_DOWNLOAD_NAME_BYTES: usize = 120;
+/// How many " (n)" suffixes to try before falling back to a random one.
+const MAX_DISAMBIGUATION: u32 = 999;
+
+/// Split a file name into stem and extension, treating only a short trailing
+/// `.ext` as an extension so `archive.2026-08-02` keeps its whole name.
+fn split_file_name(name: &str) -> (&str, &str) {
+    match name.rfind('.') {
+        Some(index) if index > 0 && name.len() - index <= 17 => (&name[..index], &name[index..]),
+        _ => (name, ""),
+    }
+}
+
+fn truncate_keeping_extension(name: &str, max: usize) -> String {
+    if name.len() <= max {
+        return name.to_string();
+    }
+    let (stem, extension) = split_file_name(name);
+    let budget = max.saturating_sub(extension.len()).max(1);
+    let mut cut = budget.min(stem.len());
+    while cut > 0 && !stem.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    if cut == 0 {
+        return DEFAULT_DOWNLOAD_NAME.to_string();
+    }
+    format!("{}{extension}", &stem[..cut])
+}
+
+/// Reduce an arbitrary proposed name to ONE safe path segment.
+///
+/// The name originates in a third-party page, so it is treated as hostile:
+/// every separator is stripped (no `../` escape, no absolute path), as are
+/// control characters and `:` (an HFS separator and a Windows stream marker).
+pub fn sanitize_download_name(raw: &str) -> String {
+    let last = raw.rsplit(['/', '\\']).next().unwrap_or("");
+    let cleaned: String = last
+        .chars()
+        .filter(|c| !c.is_control() && *c != ':')
+        .collect();
+    let cleaned = cleaned.trim().trim_matches('.').trim();
+    if cleaned.is_empty() {
+        return DEFAULT_DOWNLOAD_NAME.to_string();
+    }
+    truncate_keeping_extension(cleaned, MAX_DOWNLOAD_NAME_BYTES)
+}
+
+/// Percent-decode one URL path segment for display as a file name. Invalid
+/// UTF-8 is replaced rather than rejected; `sanitize_download_name` then has
+/// the last word.
+fn percent_decode(segment: &str) -> String {
+    let bytes = segment.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let high = (bytes[index + 1] as char).to_digit(16);
+            let low = (bytes[index + 2] as char).to_digit(16);
+            if let (Some(high), Some(low)) = (high, low) {
+                out.push((high * 16 + low) as u8);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Pick the file name for a download: whatever the platform proposed if it is
+/// usable, else the URL's last path segment, else a fixed fallback.
+pub fn download_file_name(url: &tauri::Url, proposed: &Path) -> String {
+    if let Some(name) = proposed.file_name().and_then(|name| name.to_str()) {
+        let candidate = sanitize_download_name(name);
+        if candidate != DEFAULT_DOWNLOAD_NAME {
+            return candidate;
+        }
+    }
+    if let Some(segment) = url
+        .path_segments()
+        .and_then(|mut segments| segments.rfind(|part| !part.is_empty()))
+    {
+        let candidate = sanitize_download_name(&percent_decode(segment));
+        if candidate != DEFAULT_DOWNLOAD_NAME {
+            return candidate;
+        }
+    }
+    DEFAULT_DOWNLOAD_NAME.to_string()
+}
+
+/// Resolve `dir/name` to a path that does not already exist.
+///
+/// Overwriting is never an option here: the destination is the user's own
+/// Downloads folder, and a page-supplied name that happens to collide with
+/// something they already have must not destroy it. `exists` is injected so the
+/// policy is testable without touching a filesystem.
+pub fn disambiguate(dir: &Path, name: &str, exists: &dyn Fn(&Path) -> bool) -> PathBuf {
+    let first = dir.join(name);
+    if !exists(&first) {
+        return first;
+    }
+    let (stem, extension) = split_file_name(name);
+    for attempt in 1..=MAX_DISAMBIGUATION {
+        let candidate = dir.join(format!("{stem} ({attempt}){extension}"));
+        if !exists(&candidate) {
+            return candidate;
+        }
+    }
+    // Astronomically unlikely. Still not a licence to overwrite.
+    let mut bytes = [0u8; 8];
+    let suffix = match getrandom::fill(&mut bytes) {
+        Ok(()) => bytes.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+        Err(_) => "collision".to_string(),
+    };
+    dir.join(format!("{stem} ({suffix}){extension}"))
+}
+
+// ---------------------------------------------------------------------------
+// WKWebView data store identity — BUGS OPEN 2026-08-02, defect 2
+// ---------------------------------------------------------------------------
+
+/// File under `app_data_dir` holding the session's data store UUID.
+const DATA_STORE_ID_FILE: &str = "bridge/whatsapp-data-store-id";
+
+fn format_uuid(bytes: &[u8; 16]) -> String {
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
+fn parse_uuid(text: &str) -> Option<[u8; 16]> {
+    let hex: String = text.trim().chars().filter(|c| *c != '-').collect();
+    if hex.len() != 32 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut bytes = [0u8; 16];
+    for (index, byte) in bytes.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).ok()?;
+    }
+    Some(bytes)
+}
+
+/// Stamp the version-4 and RFC-4122 variant bits onto random bytes.
+fn as_uuid_v4(mut bytes: [u8; 16]) -> [u8; 16] {
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    bytes
+}
+
+fn is_nil_uuid(bytes: &[u8; 16]) -> bool {
+    bytes.iter().all(|byte| *byte == 0)
+}
+
+/// A fresh, guaranteed non-nil v4 UUID.
+///
+/// `WKWebsiteDataStore(forIdentifier:)` raises an Objective-C exception on the
+/// nil UUID — an exception Rust cannot catch, so it would take the app down.
+/// The random path effectively never produces it, and the fallback below makes
+/// "effectively" into "never".
+fn new_data_store_id() -> [u8; 16] {
+    let mut bytes = [0u8; 16];
+    if getrandom::fill(&mut bytes).is_err() {
+        // Seed from the clock rather than hand WebKit a nil UUID.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(1);
+        bytes[..16].copy_from_slice(&nanos.to_le_bytes()[..16]);
+    }
+    let bytes = as_uuid_v4(bytes);
+    if is_nil_uuid(&bytes) {
+        // Unreachable given the v4 bits above, which set 0x40 in byte 6.
+        return as_uuid_v4([1u8; 16]);
+    }
+    bytes
+}
+
+/// Read the persisted identity, or mint and persist one.
+///
+/// Persistence is the whole point: a fresh UUID each launch would give the
+/// session a brand new, empty data store every time and force a re-link.
+fn load_or_create_data_store_id(app: &AppHandle) -> [u8; 16] {
+    let path = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| dir.join(DATA_STORE_ID_FILE));
+
+    if let Some(path) = path.as_ref() {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if let Some(bytes) = parse_uuid(&text) {
+                if !is_nil_uuid(&bytes) {
+                    return bytes;
+                }
+            }
+            eprintln!(
+                "[bridge-desktop] whatsapp data store id was unreadable; minting a new one \
+                 (the session will need re-linking)"
+            );
+        }
+    }
+
+    let bytes = new_data_store_id();
+    match path {
+        Some(path) => {
+            let written = path
+                .parent()
+                .map(std::fs::create_dir_all)
+                .transpose()
+                .and_then(|_| std::fs::write(&path, format_uuid(&bytes)));
+            if let Err(error) = written {
+                // Not fatal, but honest: an unpersisted id means the next
+                // launch mints another one and the session re-links.
+                eprintln!(
+                    "[bridge-desktop] could not persist the whatsapp data store id: {error}"
+                );
+            }
+        }
+        None => eprintln!(
+            "[bridge-desktop] no app data dir; the whatsapp data store id cannot be persisted"
+        ),
+    }
+    bytes
+}
+
+/// `WKWebsiteDataStore(forIdentifier:)` exists on macOS >= 14 only.
+///
+/// wry checks this too and falls back to the default store, so passing the
+/// identifier on an older system is not a crash. The check is repeated here so
+/// the requirement is visible in our own code and so the log line below tells
+/// the truth about which store the session actually got.
+#[cfg(target_os = "macos")]
+fn supports_data_store_identifier() -> bool {
+    objc2_foundation::NSProcessInfo::processInfo()
+        .operatingSystemVersion()
+        .majorVersion
+        >= 14
+}
+
+#[cfg(not(target_os = "macos"))]
+fn supports_data_store_identifier() -> bool {
+    // Windows/Linux/Android use `data_directory` instead; nothing to do here.
+    false
+}
+
+// ---------------------------------------------------------------------------
 // Window lifecycle
 // ---------------------------------------------------------------------------
 
@@ -380,9 +975,36 @@ fn ensure_window(app: &AppHandle) -> Result<tauri::WebviewWindow, WhatsAppError>
     }
     let slot = app.state::<WhatsAppState>().slot.clone();
     let target = tauri::Url::parse(WHATSAPP_URL).expect("WhatsApp URL is valid");
-    let init = format!("{REPORTER_PREAMBLE}\n{WA_JS}");
+    // Order matters: the reporter must exist before wa-js, and the listener
+    // must come last because it reaches for `WPP`.
+    let init = format!(
+        "{REPORTER_PREAMBLE}\n{WA_JS}\n{}",
+        event_listener_script()
+    );
+    let emitter = app.clone();
+
+    // Where downloads land. Resolved once, here, rather than inside the
+    // handler: the handler runs on a webview callback and must not do
+    // fallible path resolution per event.
+    let downloads = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().home_dir().map(|home| home.join("Downloads")))
+        .ok();
 
     let mut builder = WebviewWindowBuilder::new(app, WHATSAPP_LABEL, WebviewUrl::External(target));
+
+    // Give the session its OWN persisted WKWebView data store instead of
+    // sharing the default one with every other webview in the app.
+    if supports_data_store_identifier() {
+        let identifier = load_or_create_data_store_id(app);
+        builder = builder.data_store_identifier(identifier);
+    } else {
+        eprintln!(
+            "[bridge-desktop] whatsapp session is using the DEFAULT webview data store \
+             (custom stores need macOS >= 14)"
+        );
+    }
     // A real child of the main window: ordered above its parent, and ONLY its
     // parent, so it never floats over other applications.
     // Failing loudly is deliberate: an unparented window is the overlay bug
@@ -406,7 +1028,62 @@ fn ensure_window(app: &AppHandle) -> Result<tauri::WebviewWindow, WhatsAppError>
         // Without this WhatsApp Web serves its unsupported-browser wall.
         .user_agent(SAFARI_USER_AGENT)
         .initialization_script(&init)
+        // Without a handler wry never wires up the platform download
+        // machinery at all, so WhatsApp Web's download control did nothing,
+        // silently (BUGS OPEN 2026-08-02). The destination is pre-filled with
+        // an absolute path under the user's Downloads directory; an existing
+        // file is never overwritten.
+        .on_download(move |_webview, event| match event {
+            tauri::webview::DownloadEvent::Requested { url, destination } => {
+                let Some(directory) = downloads.as_ref() else {
+                    eprintln!(
+                        "[bridge-desktop] whatsapp download refused: no Downloads directory"
+                    );
+                    return false;
+                };
+                if let Err(error) = std::fs::create_dir_all(directory) {
+                    eprintln!(
+                        "[bridge-desktop] whatsapp download refused: {} is unusable: {error}",
+                        directory.display()
+                    );
+                    return false;
+                }
+                let name = download_file_name(&url, destination);
+                let target = disambiguate(directory, &name, &|path| path.exists());
+                // Log the DIRECTORY only. The file name comes from a private
+                // conversation and does not belong in a log line.
+                eprintln!(
+                    "[bridge-desktop] whatsapp download → {}",
+                    directory.display()
+                );
+                *destination = target;
+                true
+            }
+            tauri::webview::DownloadEvent::Finished { success, .. } => {
+                if !success {
+                    eprintln!("[bridge-desktop] whatsapp download did not complete");
+                }
+                true
+            }
+            // `DownloadEvent` is `#[non_exhaustive]`: a future variant must not
+            // silently become a refusal.
+            _ => true,
+        })
         .on_navigation(move |url| match classify_navigation(url) {
+            // The PUSH channel. Distinguished by op name and routed to the
+            // dashboard, never into the request/response slot — an event batch
+            // must not be mistaken for a pending operation's answer.
+            NavVerdict::Deliver(payload) if payload.op == SESSION_EVENTS_OP => {
+                let events = parse_event_batch(&payload.json);
+                if !events.is_empty() {
+                    let _ = emitter.emit_to(
+                        crate::overlay::MAIN_LABEL,
+                        SESSION_EVENTS_EVENT,
+                        &events,
+                    );
+                }
+                false
+            }
             NavVerdict::Deliver(payload) => {
                 let sender = slot.lock().ok().and_then(|guard| guard.clone());
                 match sender {
@@ -786,6 +1463,10 @@ mod tests {
             "list_groups",
             "list_direct_chats",
             "pn_lid_map",
+            // Added under TASK-030 Track A. Read-only: it resolves paths and
+            // reads `typeof`, and its only calls are the two cheap shape
+            // probes — no WPP mutation is reachable from it.
+            "health",
         ] {
             assert!(script_for_op(op, None).is_some(), "{op} should be allowed");
         }
@@ -798,6 +1479,9 @@ mod tests {
             "eval",
             "",
             "WPP.chat.sendTextMessage('x','y')",
+            // Reserved for the PUSH channel: the page volunteers it, nothing
+            // may request it.
+            "session_events",
         ] {
             assert!(
                 script_for_op(refused, None).is_none(),
@@ -838,5 +1522,306 @@ mod tests {
         // A 40 MB base64 body decodes past MAX_PAYLOAD_BYTES and must not be
         // accepted just because it parses.
         assert!(MAX_PAYLOAD_BYTES < 64 * 1024 * 1024);
+    }
+
+    // -----------------------------------------------------------------------
+    // A2 — the health tripwire
+    // -----------------------------------------------------------------------
+
+    /// Every distinct `WPP.…` path a script reaches for.
+    fn wpp_paths(script: &str) -> Vec<String> {
+        let bytes = script.as_bytes();
+        let mut found = Vec::new();
+        let mut cursor = 0;
+        while let Some(offset) = script[cursor..].find("WPP.") {
+            let start = cursor + offset;
+            let mut end = start;
+            while end < bytes.len()
+                && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_' || bytes[end] == b'.')
+            {
+                end += 1;
+            }
+            let path = script[start..end].trim_end_matches('.').to_string();
+            if !found.contains(&path) {
+                found.push(path);
+            }
+            cursor = end.max(start + 4);
+        }
+        found
+    }
+
+    #[test]
+    fn health_covers_every_wpp_dependency() {
+        // The point of the tripwire is that it fails when wa-js drifts. That
+        // only works if it checks everything the Module actually calls, so a
+        // new WPP dependency in an op script must be declared in
+        // WPP_DEPENDENCIES or this test fails.
+        let mut scripts = vec![
+            script_for_op("list_contacts", None).unwrap(),
+            script_for_op("list_groups", None).unwrap(),
+            script_for_op("list_direct_chats", None).unwrap(),
+            script_for_op("pn_lid_map", None).unwrap(),
+            script_for_op("group_participants", Some("120363001@g.us")).unwrap(),
+        ];
+        scripts.push(event_listener_script());
+
+        for script in &scripts {
+            for path in wpp_paths(script) {
+                assert!(
+                    WPP_DEPENDENCIES
+                        .iter()
+                        .any(|(declared, _)| path.starts_with(declared)),
+                    "{path} is used but not declared in WPP_DEPENDENCIES, so health would not \
+                     catch it drifting"
+                );
+            }
+        }
+
+        // And the tripwire itself names every declared dependency.
+        let health = script_for_op("health", None).unwrap();
+        for (path, kind) in WPP_DEPENDENCIES {
+            assert!(health.contains(path), "health does not check {path}");
+            assert!(health.contains(kind));
+        }
+    }
+
+    #[test]
+    fn health_calls_nothing_expensive_and_nothing_that_writes() {
+        let health = script_for_op("health", None).unwrap();
+        // The two affordable probes are the ONLY invocations. A full contact
+        // read takes ~2 minutes; running one at session start would turn the
+        // tripwire into the outage it exists to prevent.
+        assert!(health.contains("WPP.whatsapp.ChatStore"));
+        for expensive in [
+            "WPP.contact.list(",
+            "WPP.group.getAllGroups(",
+            "WPP.group.getParticipants(",
+        ] {
+            assert!(
+                !health.contains(expensive),
+                "health must not invoke {expensive}"
+            );
+        }
+        for write in ["sendTextMessage", "addParticipants", "sendMessage", "delete"] {
+            assert!(!health.contains(write), "health must not mention {write}");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // A1(a) — downloads
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn download_names_are_reduced_to_one_safe_segment() {
+        assert_eq!(sanitize_download_name("holiday.jpg"), "holiday.jpg");
+        // Traversal, absolute paths and separators never survive.
+        assert_eq!(sanitize_download_name("../../../etc/passwd"), "passwd");
+        assert_eq!(sanitize_download_name("/etc/shadow"), "shadow");
+        assert_eq!(sanitize_download_name(r"C:\Windows\evil.exe"), "evil.exe");
+        assert_eq!(sanitize_download_name("a/b/c.png"), "c.png");
+        // Control characters and stream markers are stripped.
+        assert_eq!(sanitize_download_name("re\nport:1.pdf"), "report1.pdf");
+        // Nothing usable falls back rather than producing an empty path.
+        for empty in ["", "   ", "...", "/", "../"] {
+            assert_eq!(sanitize_download_name(empty), DEFAULT_DOWNLOAD_NAME);
+        }
+        // Absurd names are truncated but keep their extension.
+        let long = format!("{}.jpg", "n".repeat(500));
+        let cut = sanitize_download_name(&long);
+        assert!(cut.len() <= MAX_DOWNLOAD_NAME_BYTES);
+        assert!(cut.ends_with(".jpg"));
+    }
+
+    #[test]
+    fn download_names_prefer_the_proposal_then_the_url() {
+        let url = tauri::Url::parse("https://mmg.whatsapp.net/d/f/report%20final.pdf").unwrap();
+        // A usable proposal wins.
+        assert_eq!(
+            download_file_name(&url, Path::new("/tmp/photo.jpg")),
+            "photo.jpg"
+        );
+        // An unusable one falls through to the URL, percent-decoded.
+        assert_eq!(
+            download_file_name(&url, Path::new("")),
+            "report final.pdf"
+        );
+        // Neither usable → the fixed fallback, never an empty name.
+        let bare = tauri::Url::parse("https://mmg.whatsapp.net/").unwrap();
+        assert_eq!(download_file_name(&bare, Path::new("")), DEFAULT_DOWNLOAD_NAME);
+    }
+
+    #[test]
+    fn downloads_never_overwrite_an_existing_file() {
+        use std::collections::HashSet;
+        let dir = Path::new("/downloads");
+        let taken: HashSet<PathBuf> = ["/downloads/photo.jpg", "/downloads/photo (1).jpg"]
+            .iter()
+            .map(PathBuf::from)
+            .collect();
+        let exists = |path: &Path| taken.contains(path);
+
+        // A free name is used as-is.
+        assert_eq!(
+            disambiguate(dir, "clip.mp4", &exists),
+            PathBuf::from("/downloads/clip.mp4")
+        );
+        // A collision disambiguates BEFORE the extension, and keeps going
+        // until it finds a free slot.
+        assert_eq!(
+            disambiguate(dir, "photo.jpg", &exists),
+            PathBuf::from("/downloads/photo (2).jpg")
+        );
+        // Extensionless names still disambiguate.
+        let one = |path: &Path| path == Path::new("/downloads/notes");
+        assert_eq!(
+            disambiguate(dir, "notes", &one),
+            PathBuf::from("/downloads/notes (1)")
+        );
+        // The result is always absolute and always inside the target dir.
+        let resolved = disambiguate(dir, "photo.jpg", &exists);
+        assert!(resolved.is_absolute());
+        assert_eq!(resolved.parent(), Some(dir));
+    }
+
+    // -----------------------------------------------------------------------
+    // A1(b) — the data store identity
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn data_store_ids_round_trip_and_are_never_nil() {
+        let id = new_data_store_id();
+        assert!(!is_nil_uuid(&id));
+        // v4 and RFC-4122 variant bits.
+        assert_eq!(id[6] & 0xf0, 0x40);
+        assert_eq!(id[8] & 0xc0, 0x80);
+
+        // Persisting and reloading must yield the SAME store, or the session
+        // silently re-links on every launch.
+        let text = format_uuid(&id);
+        assert_eq!(text.len(), 36);
+        assert_eq!(parse_uuid(&text), Some(id));
+        assert_eq!(parse_uuid(&text.to_uppercase()), Some(id));
+
+        // A corrupt file is rejected rather than half-parsed.
+        for bad in ["", "not-a-uuid", "1234", &"z".repeat(32), &text[..35]] {
+            assert!(parse_uuid(bad).is_none(), "{bad} must not parse");
+        }
+        // The nil UUID is recognisable: WKWebView raises an uncatchable
+        // Objective-C exception on it.
+        assert!(is_nil_uuid(&[0u8; 16]));
+        assert!(is_nil_uuid(
+            &parse_uuid("00000000-0000-0000-0000-000000000000").unwrap()
+        ));
+    }
+
+    // -----------------------------------------------------------------------
+    // A3 — batching and coalescing
+    // -----------------------------------------------------------------------
+
+    fn event(kind: &str, key: &str, at: i64) -> SessionEvent {
+        SessionEvent {
+            kind: kind.into(),
+            key: key.into(),
+            at,
+            data: serde_json::json!({ "at": at }),
+        }
+    }
+
+    #[test]
+    fn event_batches_coalesce_by_kind_and_key_keeping_the_last_value() {
+        let batch = coalesce_events(vec![
+            event("active_chat", "active_chat", 1),
+            event("message", "a@c.us", 2),
+            event("active_chat", "active_chat", 3),
+            event("message", "b@c.us", 4),
+            event("message", "a@c.us", 5),
+        ]);
+        // Three slots survive, in FIRST-SEEN order…
+        assert_eq!(batch.len(), 3);
+        assert_eq!(
+            batch.iter().map(|e| e.key.as_str()).collect::<Vec<_>>(),
+            ["active_chat", "a@c.us", "b@c.us"]
+        );
+        // …each carrying the LATEST value for its slot.
+        assert_eq!(batch[0].at, 3);
+        assert_eq!(batch[1].at, 5);
+        assert_eq!(batch[2].at, 4);
+    }
+
+    #[test]
+    fn event_batches_keep_distinct_keys_apart() {
+        // Coalescing must not collapse twenty different chats into one.
+        let events: Vec<SessionEvent> = (0..20)
+            .map(|n| event("message", &format!("{n}@c.us"), n))
+            .collect();
+        assert_eq!(coalesce_events(events).len(), 20);
+    }
+
+    #[test]
+    fn event_batches_refuse_kinds_the_dashboard_does_not_know() {
+        // The page names the kind, so an injected or drifted script could
+        // otherwise push arbitrary events onto the app's bus.
+        let batch = coalesce_events(vec![
+            event("active_chat", "active_chat", 1),
+            event("eval", "x", 2),
+            event("", "x", 3),
+            event("tauri://close-requested", "x", 4),
+            event("Active_Chat", "x", 5),
+        ]);
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].kind, "active_chat");
+
+        assert!(is_allowed_event_kind("message"));
+        assert!(!is_allowed_event_kind("send"));
+    }
+
+    #[test]
+    fn event_batches_are_capped_regardless_of_what_the_page_sends() {
+        let flood: Vec<SessionEvent> = (0..(MAX_EVENTS_PER_BATCH * 3))
+            .map(|n| event("message", &format!("{n}@c.us"), n as i64))
+            .collect();
+        assert_eq!(coalesce_events(flood).len(), MAX_EVENTS_PER_BATCH);
+    }
+
+    #[test]
+    fn malformed_event_batches_are_dropped_not_raised() {
+        // Fire-and-forget: nobody is waiting to be told the page sent nonsense.
+        for bad in ["", "null", "[]", "{", r#"{"events":"nope"}"#, "{\"x\":1}"] {
+            assert!(parse_event_batch(bad).is_empty(), "{bad} should yield none");
+        }
+        let good = r#"{"events":[
+            {"kind":"active_chat","key":"active_chat","at":7,"data":{"chatId":"a@c.us"}},
+            {"kind":"active_chat","key":"active_chat","at":9,"data":{"chatId":"b@c.us"}}
+        ]}"#;
+        let batch = parse_event_batch(good);
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].at, 9);
+        assert_eq!(batch[0].data["chatId"], "b@c.us");
+    }
+
+    #[test]
+    fn the_injected_listener_batches_rather_than_navigating_per_event() {
+        let script = event_listener_script();
+        // One cancelled navigation per WPP event does not survive a busy
+        // account: both flush triggers must be present.
+        assert!(script.contains("setTimeout(flush, FLUSH_MS)"));
+        assert!(script.contains("buffer.length >= MAX_BATCH"));
+        assert!(script.contains(&EVENT_FLUSH_MS.to_string()));
+        assert!(script.contains(&EVENT_MAX_BATCH.to_string()));
+        // In-place coalescing, not append.
+        assert!(script.contains("buffer[slots[slot]] = event"));
+        // The active chat changing is the event this channel exists for.
+        assert!(script.contains("chat.active_chat"));
+        assert!(script.contains("active_chat"));
+        // It reports through the SAME cancelled-navigation channel, under the
+        // reserved op name, and never touches Tauri IPC.
+        assert!(script.contains(SESSION_EVENTS_OP));
+        assert!(script.contains("__bridgeReport"));
+        for ipc in ["__TAURI__", "invoke(", "tauri://"] {
+            assert!(
+                !script.contains(ipc),
+                "the session page must have no Tauri IPC surface ({ipc})"
+            );
+        }
     }
 }
