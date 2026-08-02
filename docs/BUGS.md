@@ -2198,3 +2198,30 @@ Reconciled at integration to `whatsapp:session-events`, matching the repo's esta
 (`sensor:capture`, `annotate:marks`, `bridge:navigate`). This is functional, not cosmetic: BUGS
 2026-07-29 records that dotted Tauri event names in this codebase NEVER delivered. Neither agent's
 original name matched the convention. Attached to TASK-030.
+
+## RESOLVED 2026-08-02 — the desktop shell loaded a DIFFERENT PROJECT's app for a whole session
+Found by the user, not by any check of mine. `tauri.conf.json` hardcoded `devUrl:
+http://localhost:5173`. An unrelated Vite project on this machine
+(`~/Documents/Workspace/Herbs`) held `[::1]:5173`; Bridge's own Vite bound `127.0.0.1:5173`. Both
+coexist because they are different address families, and macOS resolves `localhost` to `::1` FIRST —
+so the Bridge shell loaded the other project's UI ("Evidence Copilot") while Bridge's dev server ran
+correctly and was ignored.
+
+**How it evaded every check I ran.** The Tauri process was up, the API sidecar reported healthy, the
+Rust build was clean, and the web bundle built — so "launched successfully" was true of every layer
+except the one that mattered. I reported the app running three times without ever verifying WHAT the
+window rendered. The user saw it immediately.
+
+Consequence beyond the wasted runs: the user's report of an "overlap child parent structure, not one
+integrated app" was partly this. They were seeing a third party's application in the main window with
+Bridge's WhatsApp session floating over it. The child-window criticism was independently valid and
+the hidden-engine work stands on its own, but the screen was worse than the architecture being
+argued about.
+
+Fixed by pinning `devUrl` to `http://127.0.0.1:5173`. `localhost` in a devUrl is ambiguous whenever
+two dev servers share a port number across address families, and the failure is silent in both
+directions. Verified from both ends after the fix: IPv4 serves `<title>Bridge</title>`, IPv6 serves
+`<title>Evidence Copilot</title>`. The other project's server was left running — it is the user's.
+
+Standing correction to how I verify: a live process plus a healthy API is NOT evidence the right
+frontend is loaded. Attached to TASK-030.
