@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T08:58:10.677Z",
+  "generatedAt": "2026-08-02T00:07:05.731Z",
   "items": [
     {
       "id": "TASK-026",
@@ -931,7 +931,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 415,
+      "sourceLine": 428,
       "rank": 27
     },
     {
@@ -972,8 +972,40 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 429,
+      "sourceLine": 442,
       "rank": 28
+    },
+    {
+      "id": "TASK-029",
+      "title": "TASK-029 — WhatsApp Module with governed contact extraction",
+      "status": "in-progress",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "Clicking WhatsApp in the left nav opens the owner's own WhatsApp Web session inside the Bridge desktop shell, with a sibling Tools Page whose Contact Extractor turns individual contacts into a Local Plane person list and selected groups into Communities with policy-bounded participant membership. v1 is read-only, enforced by a fixed operation allowlist in the desktop shell rather than by convention; raw capture and phone numbers never leave the Local Plane.",
+      "prototypeTest": "From a cold app launch, the WhatsApp nav entry opens a linked session without a new QR scan; the Contact Extractor stages at least one real contact into the local WhatsApp list; the staged Person carries a phone number that is present in the Local Plane and absent from cloud canonical; a `@lid` contact is staged with a name and NO fabricated number; and `whatsapp_extract_start(\"send_message\")` is refused by the shell.",
+      "scope": [
+        "docs/superpowers/specs/2026-08-01-whatsapp-module-design.md",
+        "docs/superpowers/plans/2026-08-01-whatsapp-module.md"
+      ],
+      "evidence": [
+        "Live WKWebView spike 2026-08-01 established three load-bearing facts — WhatsApp Web serves an unsupported-browser wall to WKWebView's default user agent and needs an explicit Safari `Version/` token",
+        "a linked session DOES survive a full process restart despite `aquire-persistent-storage-denied`",
+        "and neither `WPP.isReady` nor an authenticated connection means the client can answer a read (an UNLAUNCHED socket fails with \"sendIq called before startComms\"). Real-account extraction returned 8,384 contacts, 817 groups, 35,298 unique participants and 54,245 memberships, which exposed two defects in committed code: WhatsApp Linked IDs were being converted into fabricated phone numbers for 4,203 of 8,384 contacts, and guarding the id alone was insufficient because the extraction layer had already laundered LID digits into a `phone` field. Both fixed with regression tests. Desktop Rust 6/6, module package 47/47, Google intake 5/5, Local Plane list test passing."
+      ],
+      "requests": [
+        "user directive 2026-08-01 (WhatsApp module with WhatsApp Web UI and a Tools add-on toggle)",
+        "follow-up directives the same day (extract contacts",
+        "store as a separate list on the Local Plane",
+        "CSV export",
+        "build v2 in parallel)"
+      ],
+      "approval": "AP-090 applied",
+      "dependencies": [],
+      "canonicalStatus": "in_progress",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 415,
+      "rank": 29
     }
   ]
 }
