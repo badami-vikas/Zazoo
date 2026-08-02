@@ -1,11 +1,10 @@
 import { useState } from "react";
 import { Button } from "../../components/ui/button";
 import {
-  isDesktopShell,
-  runReadOp,
+  whatsAppEngine,
   type RawContact,
   type RawGroup,
-} from "./whatsapp-shell";
+} from "./engine";
 
 type Mode = "contacts" | "groups";
 type Policy = "contacts" | "contacts_and_messaged" | "all";
@@ -47,7 +46,7 @@ export function ContactExtractorRun() {
     setError(null);
     setBusy("Reading your groups…");
     try {
-      setGroups(await runReadOp<RawGroup[]>("list_groups"));
+      setGroups(await whatsAppEngine.listGroups());
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
@@ -61,7 +60,7 @@ export function ContactExtractorRun() {
     try {
       if (mode === "contacts") {
         setBusy("Reading your contacts…");
-        const contacts = await runReadOp<RawContact[]>("list_contacts");
+        const contacts = await whatsAppEngine.listContacts();
         setSummary({ mode, contacts: contacts.length, groups: 0, members: 0 });
         return;
       }
@@ -75,7 +74,7 @@ export function ContactExtractorRun() {
       for (const [index, group] of chosen.entries()) {
         setBusy(`Reading “${group.name}” (${index + 1} of ${chosen.length})…`);
         // Sequential on purpose — see the note above.
-        const participants = await runReadOp<RawContact[]>("group_participants", group.id);
+        const participants = await whatsAppEngine.groupParticipants(group.id);
         members += participants.length;
       }
       setSummary({ mode, contacts: 0, groups: chosen.length, members });
@@ -86,7 +85,7 @@ export function ContactExtractorRun() {
     }
   }
 
-  if (!isDesktopShell()) {
+  if (!whatsAppEngine.isAvailable()) {
     return (
       <p className="text-sm" style={{ color: "var(--color-navy-mid)" }}>
         Extraction runs in the Bridge desktop app, where the WhatsApp session lives.
