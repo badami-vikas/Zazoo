@@ -6,3 +6,5 @@ export * from "./tools.js";
 export * from "./send.js";
 // v2 — the rate/ban discipline that composes with it (ADR-158).
 export * from "./policy.js";
+// v2 — the ordered outbound path, ending at the Rust-enforced ceiling.
+export * from "./outbound.js";

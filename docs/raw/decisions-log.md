@@ -3255,3 +3255,55 @@ compilation only: the `unstable` feature does build alongside `tauri-nspanel`.
 parent/child window, and that preference does not survive contact with the security boundary. The
 session stays a parented child window. A true in-window embed would cost the capability exclusion,
 which is not a trade this Module should make.
+
+### ADR-158 addendum (2026-08-02) — the Rust send ceiling is DURABLE, fails closed, and holds no identifiers
+
+ADR-158 said the ceiling is enforced in Rust "because a renderer-side cap is bypassable and a cap
+that does not bind is not protection". Track C shipped only the TypeScript half, so until this change
+the cap lived entirely in the renderer — the exact condition the decision rejected. TASK-030's exit
+test asserts the cap holds *when the renderer is bypassed*, and that assertion could not pass. The
+Rust half now exists (`platform/apps/desktop/src-tauri/src/whatsapp_send.rs`). Four implementation
+decisions were not settled by ADR-158 and are recorded here.
+
+1. **The state is persisted, not in-process.** A cap held in memory does not bind, because relaunching
+   the app returns the day's allowance and "restart the app" is a one-click bypass. Counters,
+   cooldowns and the halt flag live in `{app_data_dir}/bridge/whatsapp-send-ledger.json`, written
+   temp-then-rename, reusing `overlay.rs`'s persisted-position mechanism rather than inventing one.
+   *Rejected:* a Tauri managed struct (dies with the process); the Local Plane pglite store (the
+   ledger must be readable by the layer that refuses the send, and that layer is Rust on the other
+   side of the IPC boundary from the store's owner).
+
+2. **A corrupt ledger HALTS rather than reading as empty.** Treating an unparseable file as a fresh
+   one would make "damage the file" the same bypass as "restart the process". An unreadable ledger
+   therefore comes back halted, which only a named human clears. A *missing* file is different and is
+   treated as a first run — armed, but on day one of the warm-up ramp (5/day), which is the
+   conservative direction. This is honest about its limit: deleting the file still resets the counter
+   to a warm-up-day-one allowance. On a machine whose owner has filesystem access there is no defence
+   against that, and claiming otherwise would be theatre.
+
+3. **The send is counted BEFORE it is attempted, and a send that cannot be counted is not sent.**
+   Recording on success would mean a crash mid-send silently returns the slot. The failure mode is
+   deliberately asymmetric: an over-count costs one message of allowance, an under-count costs the
+   cap its meaning.
+
+4. **The ledger stores `sha256(recipient key)` and no message content.** The cooldown needs to know
+   two sends went to the same recipient, which a digest answers exactly; it never needs to know who.
+   Enabling write should not also create a plaintext outbound-contact log on disk next to the message
+   store.
+
+Also settled: the write op is NOT an arm of `script_for_op`. That function is what
+`whatsapp_extract_start` calls, and it stays read-only — its test still asserts `send_message` is
+refused there. The send script lives behind `script_for_write_op`, reachable only from
+`whatsapp_send_start`, which consults the ceiling first. The obsolete part of
+`v1_op_allowlist_is_read_only` was rewritten rather than deleted: the read path's refusal is
+unchanged, and a second test asserts the write script has exactly one entry point.
+`WPP.chat.sendTextMessage` is deliberately kept OUT of `WPP_DEPENDENCIES`, so the session-start
+health tripwire keeps its "mentions no send function" guarantee. The cost is real and accepted:
+drift in the send path surfaces on first send, not at link time.
+
+**Verified by test**: the cap binds at its boundary and after a simulated restart; a halt survives a
+restart and has no expiry; a corrupt ledger fails closed; winding the system clock back does not free
+slots; the Rust and TypeScript limit constants agree (the test reads `policy.ts` and was confirmed to
+FAIL when one number was changed); a hostile body containing quotes, backslashes, newlines,
+`</script>`, backticks and U+2028/U+2029 cannot leave its string literal. **Unverified**: nothing has
+run against a live WhatsApp session — no message has actually been sent by this code.

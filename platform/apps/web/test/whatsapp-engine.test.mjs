@@ -118,6 +118,79 @@ test("the Chats surface still has no blur listener", () => {
   assert.ok(!code.includes('"blur"'), "ChatsSurface must not listen for blur");
 });
 
+// ---------------------------------------------------------------------------
+// The write path (TASK-030) — the ORDER is the security property
+// ---------------------------------------------------------------------------
+
+const SHELL_TS = read("../src/app/pages/whatsapp/whatsapp-shell.ts");
+const CEILING_RS = read("../../desktop/src-tauri/src/whatsapp_send.rs");
+
+test("the write op is a separate command from the read pair, and start-then-poll", () => {
+  // A send can stall behind a reconnect, and a command answering after ~60s
+  // aborts the whole app under WKWebView (BUGS 2026-07-30).
+  assert.match(SHELL_TS, /whatsapp_send_start/);
+  assert.match(SHELL_TS, /whatsapp_send_poll/);
+  // The read union must not have grown a write member: `runReadOp` reaches
+  // `script_for_op`, which has no write arm at all.
+  const union = SHELL_TS.slice(
+    SHELL_TS.indexOf("export type WhatsAppReadOp"),
+    SHELL_TS.indexOf("export interface SessionRect"),
+  );
+  for (const write of ["send_", "delete_", "add_participant"]) {
+    assert.ok(!union.includes(write), `WhatsAppReadOp must not contain "${write}"`);
+  }
+});
+
+test("the engine sends only through the ordered gate, never straight to the shell", () => {
+  // policy refusals → decideSend → Rust ceiling → send. The first two are
+  // `performAutomatedSend`; skipping it would let a first-contact message
+  // become an approval prompt, which is the one prompt that must stay
+  // deliberate.
+  assert.match(ENGINE, /performAutomatedSend\(request, approvals, context, this\.sendPort\)/);
+  const code = ENGINE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  // `sendMessage` — the raw transport — appears exactly twice: the import and
+  // the one call inside `sendPort`. A third would be a bypass.
+  assert.equal(
+    (code.match(/\bsendMessage\b/g) ?? []).length,
+    2,
+    "the raw send transport must only be reachable from sendPort",
+  );
+});
+
+test("the ceiling constants live in Rust and the renderer never supplies a count", () => {
+  // ADR-158: a renderer-side cap is bypassable, so the numbers that bind are
+  // Rust's. The renderer passes a target, a recipient key and a body — nothing
+  // that could inflate its own allowance.
+  assert.match(CEILING_RS, /pub const SEND_LIMITS/);
+  assert.match(SHELL_TS, /\{ targetId, recipientKey, body \}/);
+  const sendFn = SHELL_TS.slice(SHELL_TS.indexOf("export async function sendMessage"));
+  const body = sendFn.slice(0, sendFn.indexOf("export async function sendCeilingStatus"));
+  assert.ok(
+    !/dailyCap|sentLast24h|cap:/.test(body),
+    "the renderer must not pass any count or cap to the shell",
+  );
+});
+
+test("re-arming the kill switch demands a human, and a halt has no expiry", () => {
+  assert.match(SHELL_TS, /rearmSending\(rearmedBy: string\)/);
+  assert.match(CEILING_RS, /pub fn rearm\(/);
+  assert.match(CEILING_RS, /requires the human who authorised it/);
+  // Nothing time-based, count-based or automatic may clear a halt.
+  assert.ok(
+    !/auto_?resume|resume_after|halt_expiry|halt_timeout/.test(CEILING_RS),
+    "a halt must have no automatic path back to armed",
+  );
+});
+
+test("the ceiling's state is durable, not in-memory", () => {
+  // A cap that a relaunch resets is not a cap: restarting would be the bypass.
+  assert.match(CEILING_RS, /app_data_dir/);
+  assert.match(CEILING_RS, /whatsapp-send-ledger\.json/);
+  // Written atomically, and read back on every check rather than cached.
+  assert.match(CEILING_RS, /fs::rename/);
+  assert.match(SHELL_RS, /ceiling::load_from\(&path, now\)/);
+});
+
 test("subscribe() degrades to a no-op unsubscribe off the desktop shell", async () => {
   // Exercised against the compiled behaviour of the guard clause: with no
   // desktop shell present, subscribing must return a callable unsubscribe and

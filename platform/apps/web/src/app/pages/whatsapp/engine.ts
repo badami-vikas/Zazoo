@@ -27,22 +27,39 @@
  * rather than an exception.
  */
 import {
+  haltSending,
   hideSession,
   isDesktopShell,
   openSession,
   positionSession,
+  rearmSending,
   rectOf,
   runReadOp,
+  sendCeilingStatus,
+  sendMessage,
   sessionStatus,
   type PnLidPair,
   type RawContact,
   type RawGroup,
+  type SendCeilingStatus,
+  type SendMessageResult,
   type SessionRect,
   type WhatsAppStatus,
 } from "./whatsapp-shell";
 import { tauriListen } from "../../avatar/tauri-internals";
+import { performAutomatedSend, type OutboundOutcome, type SendPort } from "@bridge/whatsapp";
+import type { RecipientApproval, SendPolicyContext, SendRequest } from "@bridge/whatsapp";
 
-export type { PnLidPair, RawContact, RawGroup, SessionRect, WhatsAppStatus };
+export type {
+  OutboundOutcome,
+  PnLidPair,
+  RawContact,
+  RawGroup,
+  SendCeilingStatus,
+  SendMessageResult,
+  SessionRect,
+  WhatsAppStatus,
+};
 export { rectOf };
 
 /** Connection/sync state of the one linked session. */
@@ -105,6 +122,38 @@ export interface WhatsAppEngine {
   positionSession(rect: SessionRect): Promise<void>;
   hideSession(): Promise<void>;
 
+  // ── Write ─────────────────────────────────────────────────────────────────
+  /**
+   * The whole outbound gate for an AGENT-initiated send, in the one order that
+   * is safe (ADR-158, TASK-030):
+   *
+   *   policy refusals → `decideSend` → the Rust ceiling → send.
+   *
+   * The first two run here, in `@bridge/whatsapp`. Refusals come first so a
+   * first-contact message or a send during a halt is never turned into an
+   * approval prompt — asking a human to approve what the system will refuse
+   * anyway is how people learn to click through prompts, and the consent gate
+   * is precisely the prompt that must stay deliberate.
+   *
+   * The third runs in the shell, against DURABLE state, and it is the one that
+   * binds: the daily cap, the per-recipient cooldown and the kill switch all
+   * survive an app restart, because a cap that a relaunch resets is not a cap.
+   * A caller that somehow reached the shell without passing the steps above
+   * still hits it.
+   */
+  sendAutomatedMessage(
+    request: SendRequest,
+    approvals: readonly RecipientApproval[],
+    context: SendPolicyContext,
+  ): Promise<OutboundOutcome>;
+
+  /** What the shell's ceiling currently allows. `undefined` off the desktop. */
+  sendCeiling(): Promise<SendCeilingStatus | undefined>;
+  /** Halt automated sending. Nothing lifts this but `rearmAutomatedSending`. */
+  haltAutomatedSending(reason: string): Promise<SendCeilingStatus | undefined>;
+  /** Re-arm. Takes the name of a HUMAN; never call it from an Agent or a timer. */
+  rearmAutomatedSending(rearmedBy: string): Promise<SendCeilingStatus | undefined>;
+
   // ── Events ────────────────────────────────────────────────────────────────
   /**
    * Listen to the batched session channel. Returns synchronously so callers
@@ -166,6 +215,44 @@ class DesktopWhatsAppEngine implements WhatsAppEngine {
 
   hideSession(): Promise<void> {
     return hideSession();
+  }
+
+  /**
+   * The shell end of the outbound path. Nothing calls this but
+   * `performAutomatedSend`, and it is only reached with a grant that module
+   * minted — so a body that never passed the gate has no route to the wire.
+   */
+  private readonly sendPort: SendPort = async (request) => {
+    const result = await sendMessage(request.targetId, request.recipientKey, request.body);
+    if (result.status === "sent") {
+      return result.messageId ? { status: "sent", messageId: result.messageId } : { status: "sent" };
+    }
+    return {
+      status: "refused",
+      code: result.code,
+      reason: result.reason,
+      ...(result.earliestAtMs !== undefined ? { earliestAtMs: result.earliestAtMs } : {}),
+    };
+  };
+
+  sendAutomatedMessage(
+    request: SendRequest,
+    approvals: readonly RecipientApproval[],
+    context: SendPolicyContext,
+  ): Promise<OutboundOutcome> {
+    return performAutomatedSend(request, approvals, context, this.sendPort);
+  }
+
+  sendCeiling(): Promise<SendCeilingStatus | undefined> {
+    return sendCeilingStatus();
+  }
+
+  haltAutomatedSending(reason: string): Promise<SendCeilingStatus | undefined> {
+    return haltSending(reason);
+  }
+
+  rearmAutomatedSending(rearmedBy: string): Promise<SendCeilingStatus | undefined> {
+    return rearmSending(rearmedBy);
   }
 
   subscribe(listener: WhatsAppEventListener): Unsubscribe {
