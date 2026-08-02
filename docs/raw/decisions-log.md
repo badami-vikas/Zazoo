@@ -3386,3 +3386,63 @@ hidden session staying linked; this makes an existing state continuous rather th
 throttled. Whether its server tolerates that for hours is not answerable from a synthetic probe and
 needs a live run. Procedure and fallback are recorded in
 `outputs/2026-08-02-task-030-hidden-engine.md`.
+
+### ADR-158 addendum 3 (2026-08-02) — an unreadable clock schedules a READ, never a success message; the `data_store_identifier` theory is REFUTED
+
+**This addendum corrects a hypothesis I recorded myself.** BUGS OPEN 2026-08-02 named the missing
+`data_store_identifier` as the leading candidate for the WhatsApp session's troubles, then weakened
+that claim once. It is now **refuted outright**, on live evidence, and should not be revisited:
+
+- The user's Chats surface reads **"Session live — 500 chats"**. A session pointed at an empty,
+  freshly-minted data store cannot report 500 chats. The account is linked and the identified store
+  is the one holding it.
+- On disk, the identified store
+  (`~/Library/WebKit/bridge-desktop/WebsiteDataStore/<uuid>/`) holds `https://web.whatsapp.com`
+  origin storage — nine IndexedDB databases, ~3.7 MB, actively written. The DEFAULT store
+  (`…/WebsiteData/`) has **empty** `IndexedDB` and `LocalStorage` directories untouched since
+  2026-07-07.
+- `data_directory` was never used on this webview; only the identifier landed. So there was no
+  prior session in the default store to orphan.
+
+The per-account isolation the identifier buys therefore costs nothing and stands. No re-link is
+needed, and the trade-off the brief asked me to weigh does not arise.
+
+**The real defect was two honesty failures compounding, and neither was in Rust's security
+boundary.**
+
+1. `list_chats` extracted last-activity time through `c.lastReceivedKey ? c.t : c.t` — a ternary
+   whose two arms are the same expression. It only ever read one field, and on the live account
+   that field was absent, so all 500 chats came back undated.
+2. `chatsDueForSync` (and its copy in the web `sync.ts` loop) then **dropped every undated chat**.
+   An empty queue was rendered as `"Everything is already up to date."`
+
+**Decision.** Unknown activity is not "nothing new". A chat whose last-activity time cannot be read
+is scheduled for exactly one read; the store's cursor — not an absent field — then becomes the
+authority, so the pass converges instead of re-reading 500 chats forever. The reporting is split so
+"the session had nothing to give" and "you are current" are different sentences with different
+statuses (`nothing-readable` vs `completed`) and different colours.
+
+**Rejected alternatives.**
+
+- *Patch the ternary only.* Rejected: it fixes one field name and leaves the failure mode intact.
+  Any future field rename silently reproduces the same silent-success bug. The scheduler had to stop
+  treating unreadable as current regardless of why it was unreadable.
+- *Treat undated chats as due on every run.* Rejected: unbounded re-reads against a personal
+  WhatsApp number is the behaviour that draws enforcement (ADR-158). The visited-cursor gate bounds
+  it to one read per chat.
+- *Probe the live session first and only then choose a field.* Rejected as the primary fix, though
+  still worth doing: it would have blocked the fix on a round trip through the user, and the
+  scheduler defect needed fixing either way. The widened extraction now consults `c.t`,
+  `c.lastMsgTimestamp` and `c.msgs.last().t` and reports `null` — not `0` — when none answers, so
+  "unknown" survives the trip to the scheduler.
+
+**Consequence.** The session-start health tripwire now merges `MESSAGE_WPP_DEPENDENCIES` into its
+dependency list, deduplicated, so `WPP.chat.getMessages` is checked at link time rather than at
+first sync. That constant was previously declared and never read — a live compiler warning that was
+also a real coverage gap. `WPP.chat.getMessages` is existence-checked only, never invoked: calling
+it in a tripwire would read a real conversation at session start.
+
+**Still unproven, and honestly so.** WHICH of the three timestamp sources answers on the live
+account has not been observed. The fix does not depend on the answer — undated chats are now read
+regardless — but the sync is more efficient when a chat can be dated, so the live procedure in
+`outputs/2026-08-02-task-030-sync-fix.md` asks for it.

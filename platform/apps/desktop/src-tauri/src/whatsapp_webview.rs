@@ -289,10 +289,35 @@ const WPP_SHAPE_PROBES: &[&str] = &[
     "WPP.whatsapp.Socket",
 ];
 
-/// Build the health script from `WPP_DEPENDENCIES`. Read-only: it resolves
+/// Every read dependency the tripwire covers: the base ops here, plus the
+/// message-capture ops in `whatsapp_message_ops`.
+///
+/// Merged rather than duplicated, and de-duplicated on the way through —
+/// `WPP.whatsapp.ChatStore.getModelsArray` is genuinely needed by both lists and
+/// must be checked once, not twice. Before this, `MESSAGE_WPP_DEPENDENCIES` was
+/// declared and never read: the message path had no session-start coverage at
+/// all, so wa-js drift on `WPP.chat.getMessages` surfaced at first sync instead
+/// of at link time.
+///
+/// The WRITE dependency stays out, deliberately — see
+/// `WPP_WRITE_DEPENDENCIES` and the test that asserts it never leaks in here.
+fn health_dependencies() -> Vec<(&'static str, &'static str)> {
+    let mut merged: Vec<(&'static str, &'static str)> = Vec::new();
+    for entry in WPP_DEPENDENCIES
+        .iter()
+        .chain(crate::whatsapp_message_ops::MESSAGE_WPP_DEPENDENCIES.iter())
+    {
+        if !merged.iter().any(|(path, _)| *path == entry.0) {
+            merged.push(*entry);
+        }
+    }
+    merged
+}
+
+/// Build the health script from `health_dependencies`. Read-only: it resolves
 /// paths, reads `typeof`, and calls only the probes named above.
 fn health_script() -> String {
-    let required = WPP_DEPENDENCIES
+    let required = health_dependencies()
         .iter()
         .map(|(path, kind)| {
             let probe = WPP_SHAPE_PROBES.contains(path);
@@ -2132,27 +2157,56 @@ mod tests {
             script_for_op("list_direct_chats", None).unwrap(),
             script_for_op("pn_lid_map", None).unwrap(),
             script_for_op("group_participants", Some("120363001@g.us")).unwrap(),
+            // The message-capture ops reach the page through the SAME
+            // allowlist, so they belong in the SAME tripwire. Omitting them is
+            // how `WPP.chat.getMessages` went uncovered while
+            // MESSAGE_WPP_DEPENDENCIES sat declared and unread.
+            script_for_op("list_chats", None).unwrap(),
+            script_for_op("list_messages", Some("919876543210@c.us|0|10")).unwrap(),
         ];
         scripts.push(event_listener_script());
 
+        let declared = health_dependencies();
         for script in &scripts {
             for path in wpp_paths(script) {
                 assert!(
-                    WPP_DEPENDENCIES
-                        .iter()
-                        .any(|(declared, _)| path.starts_with(declared)),
-                    "{path} is used but not declared in WPP_DEPENDENCIES, so health would not \
-                     catch it drifting"
+                    declared.iter().any(|(name, _)| path.starts_with(name)),
+                    "{path} is used but not declared, so health would not catch it drifting"
                 );
             }
         }
 
-        // And the tripwire itself names every declared dependency.
+        // And the tripwire itself names every declared dependency — from BOTH
+        // lists, each exactly once.
         let health = script_for_op("health", None).unwrap();
-        for (path, kind) in WPP_DEPENDENCIES {
+        for (path, kind) in &declared {
             assert!(health.contains(path), "health does not check {path}");
             assert!(health.contains(kind));
+            assert_eq!(
+                health.matches(&format!(r#"path: "{path}""#)).count(),
+                1,
+                "{path} is checked more than once — the two lists were merged without dedup"
+            );
         }
+
+        // The message path is specifically covered now, not merely reachable.
+        for (path, _) in crate::whatsapp_message_ops::MESSAGE_WPP_DEPENDENCIES {
+            assert!(
+                health.contains(path),
+                "{path} is a message-op dependency the session-start tripwire must check"
+            );
+        }
+    }
+
+    #[test]
+    fn the_expensive_message_read_is_declared_but_never_invoked_by_health() {
+        // `WPP.chat.getMessages` must be existence-checked only. Calling it in
+        // a tripwire would read a real conversation at session start — both
+        // slow and a residency surprise.
+        let health = script_for_op("health", None).unwrap();
+        assert!(health.contains("WPP.chat.getMessages"));
+        assert!(!health.contains("WPP.chat.getMessages("));
+        assert!(!WPP_SHAPE_PROBES.contains(&"WPP.chat.getMessages"));
     }
 
     #[test]

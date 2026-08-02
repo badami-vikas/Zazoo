@@ -2171,6 +2171,61 @@ restart test that showed the session surviving is evidence the DEFAULT store was
 The fix is worth having on its own merits (per-account isolation), but it should not be expected to
 silence that error. If it does, that is a surprise to be explained, not a confirmation.
 
+### UPDATE 2026-08-02 (2) — the `data_store_identifier` theory is REFUTED; downloads remain undemonstrated
+Live evidence closes the data-store question. The Chats surface reads **"Session live — 500 chats"**,
+and on disk the identified store `~/Library/WebKit/bridge-desktop/WebsiteDataStore/<uuid>/` holds
+`https://web.whatsapp.com` origin storage — nine IndexedDB databases, ~3.7 MB, actively written —
+while the DEFAULT store's `IndexedDB` and `LocalStorage` directories are **empty and untouched since
+2026-07-07**. `data_directory` was never used on this webview, so there was never a default-store
+session to orphan. The identifier neither caused the sync failure nor requires a re-link; it stands
+on its per-account isolation merits. Recorded as ADR-158 addendum 3. **Do not revisit this theory.**
+
+Item 1 (inert downloads) is still NOT demonstrated — no live run has reached a media download. This
+entry therefore stays OPEN for that item alone.
+
+## RESOLVED 2026-08-02 — a live 500-chat session synced nothing and called it "up to date" (TASK-030)
+User-observed, on the Chats surface, simultaneously: `Session live — 500 chats`, sync result
+`Everything is already up to date.`, chat list `No messages have been synced yet`. Nothing synced.
+
+Two defects compounded, neither in the Rust security boundary:
+
+1. **`whatsapp_message_ops.rs`, `list_chats`.** Last-activity time was read through
+   `c.lastReceivedKey ? c.t : c.t` — a ternary whose two arms are the SAME expression, so only one
+   field was ever consulted. On the live account that field was absent and all 500 chats came back
+   with `lastMessageTimestamp: null`. A second latent defect in the same script called
+   `c.id.isGroup()` unconditionally, which throws on builds where it is a plain boolean and silently
+   made every group look like a direct chat.
+2. **`chatsDueForSync` (`@bridge/whatsapp`) and its copy in the web `sync.ts` loop.** A chat with no
+   usable timestamp was dropped outright — `return false`. With all 500 undated the queue was empty,
+   and `queue.length === 0` rendered as `"Everything is already up to date."` **The success message
+   is what hid the total read failure**, exactly the empty-state honesty rule `docs/wiki/whatsapp.md`
+   requires.
+
+Fixed: the extraction now consults `c.t`, `c.lastMsgTimestamp` and `c.msgs.last().t` and reports
+`null` rather than `0` when none answers; `isGroup` is handled as either property or method. An
+undated chat is now scheduled for exactly ONE read, gated on the store's cursor so it converges
+rather than re-reading forever. Reporting is split into `nothing-readable` vs `completed`, rendered
+in the failed phase's colour, and the status bar now labels which plane each count describes
+(`N chats on WhatsApp · M stored in Bridge`) so two true facts stop reading as a contradiction.
+
+An existing test asserted the defective behaviour — that a chat with no timestamp is never due. It
+encoded the bug as a requirement and was rescoped to dated chats, with the undated cases moved to
+new tests. Regression coverage: 3 Rust tests, 3 behavioural tests in `@bridge/whatsapp`, 4
+source-level tests in `@bridge/web`. Recorded as ADR-158 addendum 3.
+
+**Not yet demonstrated live** — the fix is verified by build and test only. Which of the three
+timestamp sources actually answers on the live account is unknown; the fix does not depend on it.
+Live procedure in `outputs/2026-08-02-task-030-sync-fix.md`.
+
+## RESOLVED 2026-08-02 — `MESSAGE_WPP_DEPENDENCIES` was declared and never read (TASK-030)
+A live compiler warning that was also a real coverage gap: the session-start health tripwire built
+its list from `WPP_DEPENDENCIES` only, so `WPP.chat.getMessages` had no coverage and wa-js drift on
+the message path would surface at first sync rather than at link time — the same class of gap
+already recorded for the send path. `health_script` now merges both lists, deduplicated
+(`ChatStore.getModelsArray` is genuinely in both and must be checked once). `WPP.chat.getMessages`
+is existence-checked only, never invoked — calling it in a tripwire would read a real conversation
+at session start. Two tests pin the merge and the never-invoked property. Warning is gone.
+
 ## RESOLVED 2026-08-02 — a raw NUL byte in `whatsapp_webview.rs` made the file binary to every text tool
 Found at integration, not by any test. Track A's in-page event batcher used a literal NUL byte as a
 composite-key separator (`kind + NUL + key`) inside a Rust RAW string literal. It compiled, and all

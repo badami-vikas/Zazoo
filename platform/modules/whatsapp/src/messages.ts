@@ -470,27 +470,57 @@ export function syncedThreads(state: MessageSyncState): ChatSyncCursor[] {
  * Which chats to read next, newest activity first.
  *
  * A chat is due when the shell reports activity strictly newer than its cursor,
- * or when it has never been synced and has any activity at all. Chats with no
- * messages are not due — reading them would cost a round trip to learn nothing.
+ * or when it has never been synced and has any activity at all.
+ *
+ * A chat whose activity time cannot be read is due EXACTLY ONCE — until a
+ * cursor exists for it. Previously such chats were dropped outright, which
+ * silently equated "I could not tell" with "there is nothing new": on the live
+ * account of 2026-08-02 every one of 500 chats reported no timestamp, the queue
+ * came back empty, and the run announced that everything was up to date. An
+ * unreadable clock is a reason to look, not a reason to skip. The cursor is
+ * what makes it converge — one visit, even one that stores nothing, and the
+ * store rather than an absent field becomes the authority.
  *
  * Ordering by recency is deliberate: sync is interruptible (the app closes, the
  * session drops), so the chats the owner is most likely to open should be the
- * ones already stored when it stops.
+ * ones already stored when it stops. Undated chats sort last.
  */
+/**
+ * A chat's last-activity time, or `null` when none was reported.
+ *
+ * `null` is UNKNOWN and is deliberately not folded into `0`: "we have no idea
+ * when this chat last changed" and "this chat has never had a message" lead to
+ * opposite scheduling decisions.
+ */
+function lastActivityOf(summary: RawChatSummary): number | null {
+  const activity = summary.lastMessageTimestamp;
+  if (typeof activity !== "number" || !Number.isFinite(activity) || activity <= 0) return null;
+  return activity;
+}
+
 export function chatsDueForSync(
   summaries: readonly RawChatSummary[],
   state: MessageSyncState,
   limit?: number,
 ): RawChatSummary[] {
   const due = summaries.filter((summary) => {
-    const activity = summary.lastMessageTimestamp;
-    if (typeof activity !== "number" || !Number.isFinite(activity) || activity <= 0) {
-      return false;
-    }
+    const activity = lastActivityOf(summary);
+    if (activity === null) return state.chats[summary.id] === undefined;
     return activity > (state.chats[summary.id]?.newestTimestamp ?? 0);
   });
-  due.sort((a, b) => (b.lastMessageTimestamp ?? 0) - (a.lastMessageTimestamp ?? 0));
+  due.sort((a, b) => (lastActivityOf(b) ?? 0) - (lastActivityOf(a) ?? 0));
   return typeof limit === "number" && limit >= 0 ? due.slice(0, limit) : due;
+}
+
+/**
+ * How many of these summaries carry no usable last-activity time.
+ *
+ * Exposed so a surface can state the fact rather than infer currency from an
+ * empty queue. A run that scheduled nothing because it could not date anything
+ * is a read failure, and must never render as a synced store.
+ */
+export function chatsWithoutActivityTime(summaries: readonly RawChatSummary[]): number {
+  return summaries.filter((summary) => lastActivityOf(summary) === null).length;
 }
 
 /** Roll-up for the surface, so progress can be stated rather than implied. */

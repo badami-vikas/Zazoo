@@ -13,6 +13,7 @@ import {
   advanceCursor,
   attachmentOf,
   chatsDueForSync,
+  chatsWithoutActivityTime,
   emptySyncState,
   isoFromEpochSeconds,
   mapMessages,
@@ -253,11 +254,14 @@ test("a re-read that includes the watermark message does not re-store it", () =>
   assert.equal(newMessagesSince(messages, 0).length, 2);
 });
 
-test("chats are due only when activity is strictly newer than their cursor", () => {
+test("dated chats are due only when activity is strictly newer than their cursor", () => {
+  // Scoped to DATED chats. This test previously also asserted that a chat with
+  // no timestamp is never due; that expectation was the 2026-08-02 defect
+  // written down as a requirement, and the tests below replace it. A chat we
+  // cannot date is a chat we have not checked.
   const summaries: RawChatSummary[] = [
     { id: "fresh", isGroup: false, lastMessageTimestamp: 1_785_700_000 },
     { id: "stale", isGroup: false, lastMessageTimestamp: 1_785_600_000 },
-    { id: "empty", isGroup: false },
   ];
   const state = advanceCursor(
     emptySyncState(),
@@ -269,6 +273,49 @@ test("chats are due only when activity is strictly newer than their cursor", () 
     chatsDueForSync(summaries, state).map((chat) => chat.id),
     ["fresh"],
   );
+});
+
+/**
+ * The 2026-08-02 defect, as a test.
+ *
+ * A live account with 500 chats reported no last-activity time on any of them.
+ * The scheduler dropped every one, the queue came back empty, and the surface
+ * announced "Everything is already up to date" while the store stayed empty.
+ * An unreadable clock must schedule a read, not a success message.
+ */
+test("chats with no readable activity time are still read, not silently skipped", () => {
+  const summaries: RawChatSummary[] = [
+    { id: "undated@c.us", isGroup: false },
+    { id: "zeroed@c.us", isGroup: false, lastMessageTimestamp: 0 },
+    { id: "nonsense@c.us", isGroup: false, lastMessageTimestamp: Number.NaN },
+  ];
+  assert.deepEqual(
+    chatsDueForSync(summaries, emptySyncState()).map((chat) => chat.id),
+    ["undated@c.us", "zeroed@c.us", "nonsense@c.us"],
+    "an undated chat must be due — unknown is not 'nothing new'",
+  );
+  assert.equal(chatsWithoutActivityTime(summaries), 3);
+});
+
+test("an undated chat stops being due once the store has actually looked at it", () => {
+  // Convergence: unknown buys ONE read. After that the cursor — not an absent
+  // field — is the authority, so a 500-chat account does not re-read forever.
+  const summaries: RawChatSummary[] = [{ id: "undated@c.us", isGroup: false }];
+  const visited = advanceCursor(emptySyncState(), "undated@c.us", [], "2026-08-02T00:00:00.000Z");
+  assert.deepEqual(chatsDueForSync(summaries, visited), []);
+});
+
+test("a dated chat is unaffected by the undated rule", () => {
+  const summaries: RawChatSummary[] = [{ id: "dated@c.us", isGroup: false, lastMessageTimestamp: 500 }];
+  assert.equal(chatsWithoutActivityTime(summaries), 0);
+  assert.equal(chatsDueForSync(summaries, emptySyncState()).length, 1);
+  const caughtUp = advanceCursor(
+    emptySyncState(),
+    "dated@c.us",
+    mapMessages([raw({ chatId: "dated@c.us", timestamp: 500 })]).messages,
+    "t",
+  );
+  assert.deepEqual(chatsDueForSync(summaries, caughtUp), []);
 });
 
 test("due chats come back newest-activity first, and the limit is honoured", () => {

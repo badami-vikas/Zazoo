@@ -134,12 +134,38 @@ pub fn script_for_message_op(op: &str, arg: Option<&str>) -> Option<String> {
             r#"Promise.resolve(WPP.whatsapp.ChatStore.getModelsArray()
                  .map(function (c) {
                    var id = (c.id && (c.id._serialized || String(c.id))) || "";
+                   // `isGroup` is a PROPERTY on some builds and a METHOD on
+                   // others. The previous form called it unconditionally, so on
+                   // a property build the call threw and every chat came back
+                   // as a direct chat.
                    var isGroup = false;
-                   try { isGroup = Boolean(c.id && c.id.isGroup && c.id.isGroup()); } catch (e) {}
+                   try {
+                     var g = c.id && c.id.isGroup;
+                     isGroup = (typeof g === "function") ? Boolean(g.call(c.id)) : Boolean(g);
+                   } catch (e) {}
+                   // Last-activity time, which is what the scheduler reads.
+                   //
+                   // The previous form was a ternary whose two arms were the
+                   // SAME expression, so it only ever read one field.
+                   // WhatsApp exposes this under more than one name depending on
+                   // the bundle, and a chat whose last message has not been
+                   // hydrated yet has none of them. Try each known source and
+                   // report NULL when none answers: "unknown" and "never" are
+                   // different facts, and collapsing them is what let a
+                   // 500-chat account schedule zero chats.
+                   //
+                   // Only a NUMBER is ever read here. No message text is
+                   // touched, so the no-bodies guarantee below still holds.
                    var t = null;
                    try {
-                     var last = c.lastReceivedKey ? c.t : c.t;
-                     t = (typeof last === "number" && isFinite(last)) ? last : null;
+                     var newest = (c.msgs && typeof c.msgs.last === "function" && c.msgs.last())
+                       ? c.msgs.last().t
+                       : undefined;
+                     var sources = [c.t, c.lastMsgTimestamp, newest];
+                     for (var s = 0; s < sources.length; s++) {
+                       var v = sources[s];
+                       if (typeof v === "number" && isFinite(v) && v > 0) { t = v; break; }
+                     }
                    } catch (e) {}
                    return {
                      id: id,
@@ -296,6 +322,33 @@ mod tests {
         assert!(!script.contains("split(\"@\")"));
         assert!(!script.contains("replace(/\\D/g"));
         assert!(!script.contains("phone"));
+    }
+
+    #[test]
+    fn the_chat_list_reads_more_than_one_last_activity_source() {
+        let script = script_for_message_op("list_chats", None).unwrap();
+        // The defect this replaces: `c.lastReceivedKey ? c.t : c.t` — a ternary
+        // whose arms are identical, so only `c.t` was ever read. On the live
+        // 500-chat account every chat came back undated and the sync queue was
+        // empty while the run reported success.
+        assert!(
+            !script.contains("c.lastReceivedKey ? c.t : c.t"),
+            "the identical-arm ternary is back"
+        );
+        for source in ["c.t", "c.lastMsgTimestamp", "c.msgs.last()"] {
+            assert!(script.contains(source), "{source} is not consulted");
+        }
+        // Unknown must stay distinguishable from "never": null, not 0.
+        assert!(script.contains("var t = null"));
+    }
+
+    #[test]
+    fn the_chat_list_handles_is_group_as_property_or_method() {
+        let script = script_for_message_op("list_chats", None).unwrap();
+        // Calling it unconditionally threw on builds where it is a plain
+        // boolean, which silently made every group look like a direct chat.
+        assert!(script.contains(r#"typeof g === "function""#));
+        assert!(!script.contains("c.id.isGroup()"));
     }
 
     #[test]

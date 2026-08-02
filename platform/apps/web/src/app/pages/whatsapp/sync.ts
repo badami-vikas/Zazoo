@@ -55,11 +55,42 @@ export interface SyncOptions {
 }
 
 export interface SyncOutcome {
-  status: "completed" | "stopped" | "unavailable" | "failed";
+  /**
+   * `nothing-readable` is deliberately NOT `completed`: the session answered,
+   * but with nothing this loop could act on. That is a failure to report, not a
+   * store that is current, and the two must never render as the same sentence.
+   */
+  status: "completed" | "stopped" | "unavailable" | "failed" | "nothing-readable";
   chatsSynced: number;
   messagesStored: number;
+  /** How many chats the session listed, before any scheduling decision. */
+  chatsListed: number;
+  /**
+   * How many of those reported no usable last-activity time.
+   *
+   * Surfaced rather than swallowed: this is the number that was silently zero-
+   * ing the queue on a 500-chat account while the run reported success.
+   */
+  chatsWithoutActivityTime: number;
   /** Present only for `failed`. Already a message, never a thrown value. */
   error?: string;
+}
+
+/**
+ * A chat's last-activity time, or `null` when the session did not report one.
+ *
+ * `null` means UNKNOWN, and unknown is not zero. A chat we cannot date is a
+ * chat we have not checked — the scheduler below reads it rather than assuming
+ * it is current, because assuming is what turned a total read failure into
+ * "Everything is already up to date".
+ */
+/** Counts for the outcomes that are decided before any chat list exists. */
+const NO_CHATS = { chatsListed: 0, chatsWithoutActivityTime: 0 } as const;
+
+function lastActivityOf(chat: RawChatSummary): number | null {
+  const activity = chat.lastMessageTimestamp;
+  if (typeof activity !== "number" || !Number.isFinite(activity) || activity <= 0) return null;
+  return activity;
 }
 
 function describe(failure: unknown): string {
@@ -145,7 +176,7 @@ export async function runMessageSync(options: SyncOptions = {}): Promise<SyncOut
       chatsTotal: 0,
       messagesStored: 0,
     });
-    return { status: "unavailable", chatsSynced: 0, messagesStored: 0 };
+    return { status: "unavailable", chatsSynced: 0, messagesStored: 0, ...NO_CHATS };
   }
 
   let chats: RawChatSummary[];
@@ -168,7 +199,7 @@ export async function runMessageSync(options: SyncOptions = {}): Promise<SyncOut
         chatsTotal: 0,
         messagesStored: 0,
       });
-      return { status: "unavailable", chatsSynced: 0, messagesStored: 0 };
+      return { status: "unavailable", chatsSynced: 0, messagesStored: 0, ...NO_CHATS };
     }
     report({
       phase: "failed",
@@ -177,20 +208,44 @@ export async function runMessageSync(options: SyncOptions = {}): Promise<SyncOut
       chatsTotal: 0,
       messagesStored: 0,
     });
-    return { status: "failed", chatsSynced: 0, messagesStored: 0, error: describe(failure) };
+    return {
+      status: "failed",
+      chatsSynced: 0,
+      messagesStored: 0,
+      ...NO_CHATS,
+      error: describe(failure),
+    };
   }
 
   // Scheduling is decided against the stored cursors, so a chat with no new
   // activity costs nothing.
   const state = await trpc.whatsapp.syncState.query();
   const cursors = new Map(state.threads.map((thread) => [thread.chatId, thread.newestTimestamp]));
+  // A chat the store has a cursor for has been LOOKED AT, even if that look
+  // stored nothing. That is what stops the undated branch below from re-reading
+  // the same chats forever: unknown buys exactly one read, then the store —
+  // not an absent field — is the authority.
+  const visited = new Set(state.threads.map((thread) => thread.chatId));
+
+  const chatsWithoutActivityTime = chats.filter((chat) => lastActivityOf(chat) === null).length;
+  // Carried on every outcome from here on, so a caller can always tell how much
+  // the session actually offered — not just what this run managed to store.
+  const counts = { chatsListed: chats.length, chatsWithoutActivityTime };
+
   const due = chats
     .filter((chat) => {
-      const activity = chat.lastMessageTimestamp;
-      if (typeof activity !== "number" || !Number.isFinite(activity) || activity <= 0) return false;
+      const activity = lastActivityOf(chat);
+      if (activity === null) {
+        // Unknown activity is NOT "nothing new". Read it once and let the
+        // store answer. Silently dropping these is the defect that let 500
+        // live chats produce an empty queue and a success message.
+        return !visited.has(chat.id);
+      }
       return activity > (cursors.get(chat.id) ?? 0);
     })
-    .sort((a, b) => (b.lastMessageTimestamp ?? 0) - (a.lastMessageTimestamp ?? 0));
+    // Undated chats sort last: dated, genuinely-newer chats are the ones the
+    // owner is most likely to open, and sync is interruptible.
+    .sort((a, b) => (lastActivityOf(b) ?? 0) - (lastActivityOf(a) ?? 0));
   const queue = typeof maxChats === "number" ? due.slice(0, maxChats) : due;
 
   let chatsSynced = 0;
@@ -198,7 +253,7 @@ export async function runMessageSync(options: SyncOptions = {}): Promise<SyncOut
 
   for (const chat of queue) {
     if (shouldStop?.()) {
-      return { status: "stopped", chatsSynced, messagesStored };
+      return { status: "stopped", chatsSynced, messagesStored, ...counts };
     }
     report({
       phase: "chat",
@@ -223,15 +278,53 @@ export async function runMessageSync(options: SyncOptions = {}): Promise<SyncOut
     }
   }
 
+  // The empty queue is several different facts, and only one of them is good
+  // news. Collapsing them into "Everything is already up to date." is what hid
+  // a total read failure on a live 500-chat account behind a success message.
+  if (chats.length === 0) {
+    // The session answered and had nothing to give. An empty store is not a
+    // synced store, and this must never read as completion.
+    report({
+      phase: "failed",
+      detail:
+        "The WhatsApp session reported no chats at all, so there was nothing to sync. " +
+        "If the session is still downloading your messages, wait for it to finish and sync again.",
+      chatsDone: 0,
+      chatsTotal: 0,
+      messagesStored: 0,
+    });
+    return { status: "nothing-readable", chatsSynced: 0, messagesStored: 0, ...counts };
+  }
+
+  if (queue.length === 0 && chatsWithoutActivityTime === chats.length) {
+    // Every chat the session listed is undated AND already visited. We cannot
+    // tell what is new, so we say exactly that rather than claiming currency.
+    report({
+      phase: "failed",
+      detail:
+        `None of the ${chats.length} chats reported a last-activity time, so Bridge cannot tell ` +
+        "what is new. Nothing was synced — this is a read problem, not an up-to-date store.",
+      chatsDone: 0,
+      chatsTotal: 0,
+      messagesStored,
+    });
+    return { status: "nothing-readable", chatsSynced, messagesStored, ...counts };
+  }
+
+  const undatedNote =
+    chatsWithoutActivityTime > 0
+      ? ` ${chatsWithoutActivityTime} of ${chats.length} chats reported no last-activity time.`
+      : "";
+
   report({
     phase: "done",
     detail:
       queue.length === 0
-        ? "Everything is already up to date."
-        : `Synced ${chatsSynced} of ${queue.length} chats.`,
+        ? `Everything is already up to date — ${chats.length} chats checked.${undatedNote}`
+        : `Synced ${chatsSynced} of ${queue.length} chats.${undatedNote}`,
     chatsDone: chatsSynced,
     chatsTotal: queue.length,
     messagesStored,
   });
-  return { status: "completed", chatsSynced, messagesStored };
+  return { status: "completed", chatsSynced, messagesStored, ...counts };
 }
