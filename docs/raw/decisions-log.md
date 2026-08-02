@@ -3255,3 +3255,47 @@ compilation only: the `unstable` feature does build alongside `tauri-nspanel`.
 parent/child window, and that preference does not survive contact with the security boundary. The
 session stays a parented child window. A true in-window embed would cost the capability exclusion,
 which is not a trade this Module should make.
+
+### ADR-158 addendum 2 (2026-08-02) — the session window becomes INVISIBLE and Bridge renders chats itself
+
+The preference the previous addendum could not satisfy is satisfiable after all, by inverting the
+problem. The user rejected the design three times because WhatsApp appeared as a separate window
+overlapping Bridge. Both prior attempts tried to make that window *look* embedded. Neither could,
+without giving up the capability exclusion.
+
+**Decision: the session window is never shown. It runs as the engine — linked, synced, executing
+operations — parked off-screen and hidden, while Bridge renders chats in its own DOM from the Local
+Plane message store.** The capability exclusion is untouched, because the window is unchanged; only
+its visibility and the surface that reads from it change.
+
+The one exception is device linking, where a QR code genuinely has to be looked at by a human. The
+window is shown for that and hidden again the moment the socket connects. A test asserts
+`showSession` has exactly one call site.
+
+**Measured, not assumed (2026-08-02).** The obvious objection was that macOS would throttle or
+suspend an unmapped WKWebView and the session would drop. A Swift/AppKit harness measured a
+never-ordered-in `WKWebView` for ten minutes against a local server-push stream:
+
+- 1 094 of an expected 1 200 server pushes delivered (91 %), stream still open, last push in the
+  same millisecond as the final measurement. **Background network delivery to a hidden webview is
+  not meaningfully throttled.**
+- Page timers ARE throttled, to roughly one tick per 15 s — but identically in a never-ordered-in
+  window (13 ticks) and an ordered-in one (12–13). **Occlusion drives it, not hiding**, and any
+  Bridge window that is not frontmost is already occluded.
+- Host `evaluateJavaScript` against the hidden webview returned correctly throughout, with zero
+  errors.
+
+Rejected alternative: positioning the window far off-screen while nominally visible. Measured, and
+indistinguishable from hidden — AppKit reports both as occluded — so it buys nothing and costs a
+window that can be revealed by a stray `show()`.
+
+**Consequence.** The architecture must not depend on in-page timers, and does not: liveness is
+polled from the visible main window through `whatsapp_status`, and reads are host-initiated. The
+only thing that must survive in the hidden webview is the socket, and it does. This is also not a
+new regime — `whatsapp_hide` already ran on every route change, so the product already depended on a
+hidden session staying linked; this makes an existing state continuous rather than intermittent.
+
+**Open, and honestly so:** WhatsApp Web's own client-side keepalive runs on page timers, which are
+throttled. Whether its server tolerates that for hours is not answerable from a synthetic probe and
+needs a live run. Procedure and fallback are recorded in
+`outputs/2026-08-02-task-030-hidden-engine.md`.

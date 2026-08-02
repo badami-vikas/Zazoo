@@ -33,6 +33,7 @@ mod model_supervisor;
 mod overlay;
 mod providers;
 mod research_webview;
+mod whatsapp_message_ops;
 mod whatsapp_webview;
 mod sensor_bridge;
 

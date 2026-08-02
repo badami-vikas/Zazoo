@@ -21,7 +21,14 @@ export type WhatsAppReadOp =
   | "list_groups"
   | "group_participants"
   | "list_direct_chats"
-  | "pn_lid_map";
+  | "pn_lid_map"
+  // Message capture (TASK-030). Owned by `whatsapp_message_ops.rs`, which the
+  // primary allowlist reaches through its fallthrough arm. Until that one-line
+  // delegation lands the shell answers these with `WHATSAPP_OP_REFUSED`, which
+  // `isOpRefused` below turns into an honest "not available yet" rather than a
+  // failure the user has to interpret.
+  | "list_chats"
+  | "list_messages";
 
 export interface SessionRect {
   x: number;
@@ -119,6 +126,35 @@ export async function runReadOp<T>(op: WhatsAppReadOp, arg?: string): Promise<T>
 
 // Payload shapes returned by the allowlisted ops. These mirror
 // `@bridge/whatsapp`'s types without importing them into the browser bundle.
+
+/**
+ * True when the shell refused an operation because its allowlist does not know
+ * the name — as opposed to the operation running and failing.
+ *
+ * The distinction is the whole point: "this build of the desktop shell cannot
+ * read messages yet" is a different thing to tell someone than "reading your
+ * messages failed", and a surface that conflates them teaches the user to
+ * ignore both.
+ */
+export function isOpRefused(error: unknown): boolean {
+  // The shell rejects an unknown op from the COMMAND, not from the page, so the
+  // rejection arrives as the raw `WhatsAppError` struct rather than an `Error`.
+  // Both shapes are checked because which one surfaces depends on how far the
+  // call got.
+  if (typeof error === "object" && error !== null && "code" in error) {
+    if ((error as { code?: unknown }).code === "WHATSAPP_OP_REFUSED") return true;
+  }
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : String(error ?? "");
+  return (
+    message.includes("WHATSAPP_OP_REFUSED") ||
+    message.includes("is not an allowed WhatsApp read operation")
+  );
+}
 
 export interface RawContact {
   id: string;

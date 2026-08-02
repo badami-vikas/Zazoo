@@ -239,6 +239,13 @@ import {
 import {
   mapExtraction as mapWhatsAppExtraction,
   personIndexFrom as whatsAppPersonIndexFrom,
+  advanceCursor as advanceWhatsAppCursor,
+  mapMessages as mapWhatsAppMessages,
+  newMessagesSince as newWhatsAppMessagesSince,
+  readSyncState as readWhatsAppSyncState,
+  summarizeSync as summarizeWhatsAppSync,
+  syncedThreads as whatsAppSyncedThreads,
+  type RawMessage as RawWhatsAppMessage,
 } from "@bridge/whatsapp";
 import {
   BUILT_IN_MODULES,
@@ -293,6 +300,12 @@ function stableModuleInstallProposalId(organizationId: string, installationId: s
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** The Module that captured a record. Matches `LocalMessage.source`. */
+const WHATSAPP_SOURCE = "whatsapp";
+
+/** Local state-store namespace holding the per-chat message sync cursors. */
+const WHATSAPP_SYNC_NAMESPACE = "whatsapp:message-sync";
 
 function moduleInstallationLedgerResourceId(
   organizationId: string,
@@ -8090,6 +8103,189 @@ export const appRouter = t.router({
             ambiguous: result.signals.length,
             skipped: contacts.length - result.people.length - result.signals.length,
           },
+        };
+      }),
+
+    // ── Message capture (TASK-030, ADR-158 under AP-091) ────────────────────
+    //
+    // RESIDENCY, stated once and applying to every procedure below: a WhatsApp
+    // message body is another person's private content. It is written to the
+    // LOCAL plane and to nowhere else. There is no dual-write, no promote path,
+    // and no cloud canonical destination for any of it — unlike an identity
+    // fact, which `stageExtraction` above may surface outward. The sync cursor
+    // lives in the local state store beside it.
+
+    /**
+     * Store one chat's newly-read messages and advance its cursor.
+     *
+     * Idempotent by construction: the store's upsert is keyed on
+     * (source, messageId), and `newMessagesSince` re-applies the watermark
+     * here so an inclusive read op cannot re-write what is already stored.
+     *
+     * The cursor moves only AFTER the write succeeds. A failed write therefore
+     * leaves the watermark where it was and the next run re-reads the same
+     * window, which costs a round trip and loses nothing — the opposite order
+     * would skip those messages permanently.
+     */
+    ingestMessages: authenticatedProcedure
+      .input(
+        z.object({
+          chatId: z.string().min(1).max(128),
+          /** Display label only. Never an identifier. */
+          chatName: z.string().max(300).optional(),
+          isGroup: z.boolean().optional(),
+          capturedAt: z.string().min(1),
+          /** The watermark this read was made against, in epoch seconds. */
+          since: z.number().int().min(0).default(0),
+          messages: z
+            .array(
+              z.object({
+                id: z.string().min(1),
+                chatId: z.string().min(1),
+                fromMe: z.boolean(),
+                timestamp: z.number(),
+                author: z.string().optional(),
+                from: z.string().optional(),
+                body: z.string().optional(),
+                type: z.string().optional(),
+                ack: z.number().optional(),
+                mimetype: z.string().optional(),
+                filename: z.string().optional(),
+                size: z.number().optional(),
+              }),
+            )
+            .max(1_000),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const localPlane = ctx.wiring.localPlane;
+
+        // Mapping decides identity. `senderOf` never turns a Linked ID into a
+        // phone number, and the store's `assertMessageShape` re-checks the same
+        // rule at its own boundary — two independent guards on the path that
+        // once fabricated 4,203 phone numbers.
+        const mapped = mapWhatsAppMessages(input.messages as RawWhatsAppMessage[]);
+        const fresh = newWhatsAppMessagesSince(mapped.messages, input.since);
+
+        await localPlane.graph.putMessages(
+          fresh.map((message) => ({
+            organizationId,
+            source: WHATSAPP_SOURCE,
+            messageId: message.messageId,
+            chatId: message.chatId,
+            ...(message.senderKey !== undefined ? { senderKey: message.senderKey } : {}),
+            senderKind: message.senderKind,
+            direction: message.direction,
+            sentAt: message.sentAt,
+            body: message.body,
+            ...(message.attachment ? { attachment: message.attachment } : {}),
+            ack: message.ack,
+            capturedAt: input.capturedAt,
+          })),
+        );
+
+        const cursor = await localPlane.state.update(
+          organizationId,
+          WHATSAPP_SYNC_NAMESPACE,
+          readWhatsAppSyncState(null),
+          (current) => {
+            const next = advanceWhatsAppCursor(
+              readWhatsAppSyncState(current),
+              input.chatId,
+              fresh,
+              input.capturedAt,
+              {
+                ...(input.chatName !== undefined ? { name: input.chatName } : {}),
+                ...(input.isGroup !== undefined ? { isGroup: input.isGroup } : {}),
+              },
+            );
+            return { state: next, result: next.chats[input.chatId] ?? null };
+          },
+        );
+
+        return {
+          chatId: input.chatId,
+          stored: fresh.length,
+          // Reported, not swallowed: a read op that keeps producing unmappable
+          // entries is drift worth seeing.
+          refused: mapped.skipped,
+          cursor,
+        };
+      }),
+
+    /** Which threads have been synced, and how much history is actually held. */
+    syncState: authenticatedProcedure.query(async ({ ctx }) => {
+      const organizationId = PILOT_ORGANIZATION;
+      await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+      const state = readWhatsAppSyncState(
+        await ctx.wiring.localPlane.state.read(organizationId, WHATSAPP_SYNC_NAMESPACE),
+      );
+      return {
+        threads: whatsAppSyncedThreads(state),
+        progress: summarizeWhatsAppSync(state),
+        capabilities: await ctx.wiring.localPlane.graph.messageSearchCapabilities(),
+      };
+    }),
+
+    /** One thread, oldest first — what the message list renders. */
+    thread: authenticatedProcedure
+      .input(
+        z.object({
+          chatId: z.string().min(1).max(128),
+          limit: z.number().int().min(1).max(20_000).default(5_000),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const messages = await ctx.wiring.localPlane.graph.listMessages(
+          organizationId,
+          WHATSAPP_SOURCE,
+          input.chatId,
+          input.limit,
+        );
+        return {
+          chatId: input.chatId,
+          messages,
+          // The consent facts the send gate reads, surfaced so the composer can
+          // explain itself rather than silently refusing.
+          activity: await ctx.wiring.localPlane.graph.getThreadActivity(
+            organizationId,
+            WHATSAPP_SOURCE,
+            input.chatId,
+          ),
+        };
+      }),
+
+    /** Full-text (or fuzzy) search across captured message bodies. */
+    searchMessages: authenticatedProcedure
+      .input(
+        z.object({
+          text: z.string().trim().min(1).max(500),
+          chatId: z.string().max(128).optional(),
+          mode: z.enum(["fulltext", "fuzzy"]).default("fulltext"),
+          limit: z.number().int().min(1).max(200).default(50),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        const organizationId = PILOT_ORGANIZATION;
+        await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
+        const hits = await ctx.wiring.localPlane.graph.searchMessages({
+          organizationId,
+          source: WHATSAPP_SOURCE,
+          text: input.text,
+          mode: input.mode,
+          limit: input.limit,
+          ...(input.chatId ? { chatId: input.chatId } : {}),
+        });
+        return {
+          hits,
+          // Reported rather than assumed: fuzzy search needs pg_trgm, which the
+          // store may not have loaded, and a silently degraded search that
+          // returns nothing looks identical to "no matches".
+          capabilities: await ctx.wiring.localPlane.graph.messageSearchCapabilities(),
         };
       }),
   }),

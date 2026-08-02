@@ -6,3 +6,5 @@ export * from "./tools.js";
 export * from "./send.js";
 // v2 — the rate/ban discipline that composes with it (ADR-158).
 export * from "./policy.js";
+// v2 — message capture: raw → attributed, plus the incremental-sync cursor.
+export * from "./messages.js";

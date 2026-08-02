@@ -19,12 +19,26 @@ const ENGINE = read("../src/app/pages/whatsapp/engine.ts");
 const CHATS_SURFACE = read("../src/app/pages/whatsapp/ChatsSurface.tsx");
 const EXTRACTOR = read("../src/app/pages/whatsapp/ContactExtractorRun.tsx");
 const SHELL_RS = read("../../desktop/src-tauri/src/whatsapp_webview.rs");
+// The allowlist spans two Rust modules. `whatsapp_webview.rs` holds the
+// original ops; `whatsapp_message_ops.rs` holds the message-capture ops added
+// under TASK-030 and is reached through the primary allowlist's fallthrough
+// arm. The security property is unchanged — Rust still owns every script and
+// still refuses any name neither module recognises — so the invariant below is
+// checked against the UNION, not against one file.
+const MESSAGE_OPS_RS = read("../../desktop/src-tauri/src/whatsapp_message_ops.rs");
 
 /** Op names the Rust allowlist recognises, from its `"op" => …` match arms. */
 function rustAllowlist() {
-  const body = SHELL_RS.slice(SHELL_RS.indexOf("fn script_for_op"));
   const ops = new Set();
-  for (const match of body.matchAll(/^\s*"([a-z_]+)" =>/gm)) ops.add(match[1]);
+  for (const [source, marker] of [
+    [SHELL_RS, "fn script_for_op"],
+    [MESSAGE_OPS_RS, "fn script_for_message_op"],
+  ]) {
+    const start = source.indexOf(marker);
+    assert.ok(start >= 0, `${marker} should exist — the allowlist cannot be located otherwise`);
+    const body = source.slice(start);
+    for (const match of body.matchAll(/^\s*"([a-z_]+)" =>/gm)) ops.add(match[1]);
+  }
   return ops;
 }
 
@@ -116,6 +130,65 @@ test("the Chats surface still has no blur listener", () => {
   // hid the session the instant it appeared.
   const code = CHATS_SURFACE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   assert.ok(!code.includes('"blur"'), "ChatsSurface must not listen for blur");
+});
+
+// ── The hidden engine (TASK-030) ────────────────────────────────────────────
+
+test("the Chats surface starts the session HIDDEN, never visible by default", () => {
+  // The property the whole design turns on: WhatsApp is the engine, not a
+  // window. If this surface ever opens a visible session on mount, the product
+  // is two overlapping applications again.
+  assert.match(CHATS_SURFACE, /ensureHiddenSession\(\)/);
+  const mountEffect = CHATS_SURFACE.slice(
+    CHATS_SURFACE.indexOf("// ── Session lifecycle"),
+    CHATS_SURFACE.indexOf("// Linking is the ONE case"),
+  );
+  assert.ok(mountEffect.length > 0, "the session lifecycle effect should be locatable");
+  assert.ok(
+    !mountEffect.includes("showSession"),
+    "the mount path must never show the session window",
+  );
+});
+
+test("showSession survives only for device linking", () => {
+  // A QR code has to be looked at by a human, so exactly one call site remains.
+  const calls = CHATS_SURFACE.match(/whatsAppEngine\.showSession\(/g) ?? [];
+  assert.equal(calls.length, 1, "showSession should have exactly one caller — the linking pane");
+  const linkingEffect = CHATS_SURFACE.slice(CHATS_SURFACE.indexOf("if (!linking) return;"));
+  assert.ok(
+    linkingEffect.includes("whatsAppEngine.showSession("),
+    "the surviving showSession call must sit inside the linking effect",
+  );
+});
+
+test("the parked session rect is off every display, not merely small", () => {
+  // A 1x1 window at 0,0 is still composited in the corner of the app. The
+  // engine parks the window where no display reaches before hiding it.
+  assert.match(ENGINE, /PARKED_RECT[\s\S]{0,200}x: -20_000/);
+});
+
+test("an op the shell has not wired up degrades honestly instead of failing", () => {
+  // `list_chats` and `list_messages` live in `whatsapp_message_ops.rs`, which
+  // the primary allowlist reaches through a fallthrough arm. Until that
+  // delegation lands the shell refuses them by name — which the app must
+  // report as "this build cannot do it yet", never as a broken read.
+  const delegated = SHELL_RS.includes("whatsapp_message_ops::script_for_message_op");
+  const degrades =
+    ENGINE.includes("isOpRefused") &&
+    read("../src/app/pages/whatsapp/sync.ts").includes("isOpRefused(failure)");
+  assert.ok(
+    delegated || degrades,
+    "either the shell delegates to the message ops, or the app degrades honestly when it does not",
+  );
+});
+
+test("message reads never let the caller supply anything but ids and integers", () => {
+  // The packed op argument is the one new caller-supplied value. It must be
+  // built from numbers and a chat id, and nothing else.
+  assert.match(
+    ENGINE,
+    /const argument = `\$\{chatId\}\|\$\{Math\.max\(0, Math\.floor\(since\)\)\}\|\$\{Math\.max\(1, Math\.floor\(limit\)\)\}`/,
+  );
 });
 
 test("subscribe() degrades to a no-op unsubscribe off the desktop shell", async () => {
