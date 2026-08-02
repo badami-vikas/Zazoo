@@ -130,15 +130,22 @@ pub struct WhatsAppJobs {
 }
 
 #[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct WhatsAppError {
     pub code: &'static str,
     pub message: String,
+    /// When waiting would fix this, the instant to try again (epoch ms). Only
+    /// the send ceiling sets it; a halt deliberately never does, because there
+    /// is no time at which a halt clears itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub earliest_at_ms: Option<i64>,
 }
 
 fn err(code: &'static str, message: impl Into<String>) -> WhatsAppError {
     WhatsAppError {
         code,
         message: message.into(),
+        earliest_at_ms: None,
     }
 }
 
@@ -472,6 +479,135 @@ pub fn script_for_op(op: &str, arg: Option<&str>) -> Option<String> {
         )),
         _ => None,
     }
+}
+
+// ---------------------------------------------------------------------------
+// The WRITE op — a separate, gated allowlist (TASK-030, ADR-158)
+// ---------------------------------------------------------------------------
+//
+// `script_for_op` above is the READ allowlist and stays read-only: it has no
+// write arm, and its test asserts that asking it for `send_message` yields
+// nothing. The one write operation lives here instead, behind a function that
+// the extract command never calls, so the only route to a send is
+// `whatsapp_send_start` — which consults the durable Rust ceiling
+// (`whatsapp_send.rs`) before it will build a script at all.
+//
+// Two things cross this boundary from the renderer and NOTHING else: a target
+// id and a message body. Neither may be JavaScript.
+//
+//  - The target id is SHAPE-VALIDATED before interpolation, the way
+//    `is_group_id` already validates the one read argument. A value that is not
+//    a bare `digits@c.us` / `digits@lid` / `digits@g.us` never reaches a script.
+//  - The body is arbitrary user text and cannot be shape-validated, so it is
+//    ESCAPED. Quotes, backslashes, newlines, `</script>`, backticks and the
+//    JavaScript-specific line terminators U+2028/U+2029 are all emitted as
+//    `\uXXXX`, which cannot terminate the string literal it sits in.
+
+/// The only write operation that exists. Named separately so no `match` arm can
+/// grow a second one by accident.
+pub const WRITE_OP_SEND_MESSAGE: &str = "send_message";
+
+/// Mirrors `MAX_BODY_LENGTH` in `@bridge/whatsapp`'s `send.ts`.
+pub const MAX_SEND_BODY_CHARS: usize = 4096;
+
+/// `WPP` paths the write script depends on.
+///
+/// Deliberately NOT merged into `WPP_DEPENDENCIES`: that list feeds the health
+/// script, and the health op's own test asserts it never so much as mentions a
+/// send function. Keeping the write dependency in its own list preserves that
+/// guarantee. The cost is honest — the session-start tripwire does not cover the
+/// send path, so drift there surfaces on first send rather than at link time.
+pub const WPP_WRITE_DEPENDENCIES: &[(&str, &str)] = &[("WPP.chat.sendTextMessage", "function")];
+
+/// Escape arbitrary text for embedding in a double-quoted JavaScript string.
+///
+/// Escapes to `\uXXXX` rather than to `\"`-style sequences: a numeric escape
+/// has no meaning to the HTML tokenizer, the JavaScript lexer, or a regex, so
+/// there is no second layer where the character reappears. Every escaped
+/// character is in the BMP, so one unit each is sufficient.
+///
+///  - `"` `\` `'` `` ` `` close string literals or open template ones.
+///  - `<` `>` `&` prevent `</script>` (and any other markup) surviving into a
+///    context that parses HTML.
+///  - Everything below U+0020 and U+007F covers newlines, which terminate a
+///    JavaScript string literal outright.
+///  - U+2028 and U+2029 are line terminators to a JavaScript lexer specifically,
+///    and are the classic way this kind of escaping is defeated.
+pub fn escape_js_string(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len() + 16);
+    for ch in raw.chars() {
+        let code = ch as u32;
+        let escape = matches!(ch, '"' | '\\' | '\'' | '`' | '<' | '>' | '&' | '/')
+            || code < 0x20
+            || code == 0x7f
+            || ch == '\u{2028}'
+            || ch == '\u{2029}';
+        if escape {
+            out.push_str(&format!("\\u{code:04x}"));
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// A deliverable WhatsApp target: a bare numeric user on one of the three
+/// servers a message can address. Validated BEFORE any interpolation.
+///
+/// Stricter than `send.ts`'s equivalent on purpose. This is the trusted side of
+/// the boundary, so it accepts only what a real id looks like and refuses
+/// anything it cannot vouch for, rather than trying to enumerate what an attack
+/// would look like.
+pub fn is_sendable_target_id(arg: &str) -> bool {
+    let Some((user, suffix)) = arg.split_once('@') else {
+        return false;
+    };
+    if user.is_empty() || user.len() > 64 {
+        return false;
+    }
+    match suffix {
+        // Groups may carry the creator-timestamp hyphen form.
+        "g.us" => user.chars().all(|c| c.is_ascii_digit() || c == '-'),
+        "c.us" | "lid" => user.chars().all(|c| c.is_ascii_digit()),
+        _ => false,
+    }
+}
+
+/// Build the send script, or refuse.
+///
+/// `None` means "this will not be sent" for every reason: an unknown op name, a
+/// target id that is not a real id, an empty body, or an over-long one. The
+/// caller turns that into a refusal; there is no arm that falls through to
+/// running something.
+pub fn script_for_write_op(op: &str, target_id: &str, body: &str) -> Option<String> {
+    if op != WRITE_OP_SEND_MESSAGE {
+        return None;
+    }
+    if !is_sendable_target_id(target_id) {
+        return None;
+    }
+    let body = body.trim();
+    if body.is_empty() || body.chars().count() > MAX_SEND_BODY_CHARS {
+        return None;
+    }
+    Some(reported(
+        op,
+        &format!(
+            // `createChat: false` is load-bearing, not a default: the consent
+            // gate only permits sending into a thread the recipient already
+            // wrote in, so the chat exists. Creating one would be the first
+            // contact the whole discipline forbids.
+            r#"{send}("{target}", "{text}", {{ createChat: false }})
+                 .then(function (r) {{
+                   return {{ id: String((r && r.id && (r.id._serialized || r.id)) || "") }};
+                 }})"#,
+            // Taken from the declared dependency rather than written out, so
+            // the list the drift check reads IS the path actually called.
+            send = WPP_WRITE_DEPENDENCIES[0].0,
+            target = escape_js_string(target_id),
+            text = escape_js_string(body),
+        ),
+    ))
 }
 
 /// Liveness probe. Separate from the op list because it must be callable while
@@ -1418,6 +1554,194 @@ pub fn whatsapp_extract_poll(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Send commands — the gated write path (TASK-030, ADR-158)
+// ---------------------------------------------------------------------------
+
+/// A send is fast compared with a contact read, but it is still start-then-poll:
+/// WhatsApp's own ack can stall behind a reconnect, and a command that answers
+/// after ~60s aborts the whole app under WKWebView (see `jobs.rs`).
+const SEND_TIMEOUT_MS: u64 = 120_000;
+
+use crate::whatsapp_send as ceiling;
+
+fn ceiling_path(app: &AppHandle) -> Result<PathBuf, WhatsAppError> {
+    ceiling::ledger_path(app).ok_or_else(|| {
+        err(
+            "WHATSAPP_SEND_STATE",
+            "The app data directory is unavailable, so the send ceiling cannot be read. \
+             Sending is refused rather than run uncounted.",
+        )
+    })
+}
+
+/// Start one outbound message.
+///
+/// The renderer supplies exactly three strings: the op name, a target id and a
+/// body. It cannot supply JavaScript, and it cannot supply a count — the
+/// recipient key it passes is only ever hashed, and every number the ceiling
+/// uses comes from the durable ledger on this side of the boundary.
+///
+/// Ordering matters and is the point of ADR-158's "the ceiling is enforced in
+/// Rust": whatever `decideAutomatedSend` concluded in the renderer, THIS is the
+/// check that binds. A renderer that skipped its own policy entirely still hits
+/// the cap, the cooldown and the kill switch here.
+#[tauri::command]
+pub fn whatsapp_send_start(
+    app: AppHandle,
+    jobs: tauri::State<'_, WhatsAppJobs>,
+    gate: tauri::State<'_, ceiling::SendCeilingState>,
+    target_id: String,
+    recipient_key: String,
+    body: String,
+) -> Result<u64, WhatsAppError> {
+    // 1. Shape. An invalid target or body never becomes a script at all.
+    let Some(script) = script_for_write_op(WRITE_OP_SEND_MESSAGE, &target_id, &body) else {
+        return Err(err(
+            "WHATSAPP_SEND_REFUSED",
+            "That is not a sendable WhatsApp target and message.",
+        ));
+    };
+    if recipient_key.trim().is_empty() {
+        return Err(err(
+            "WHATSAPP_SEND_REFUSED",
+            "The recipient has no identity key, so the per-recipient cooldown could not be applied.",
+        ));
+    }
+    if app.get_webview_window(WHATSAPP_LABEL).is_none() {
+        return Err(err(
+            "WHATSAPP_NOT_OPEN",
+            "The WhatsApp session is not open",
+        ));
+    }
+
+    // 2. The ceiling. Held under a lock for the whole read-check-write, so two
+    //    concurrent sends cannot both observe the same free slot.
+    let path = ceiling_path(&app)?;
+    let _held = gate
+        .gate
+        .lock()
+        .map_err(|_| err("WHATSAPP_SEND_STATE", "the send ceiling state is unavailable"))?;
+
+    let now = ceiling::now_ms();
+    let digest = ceiling::recipient_digest(&recipient_key);
+    let mut ledger = ceiling::load_from(&path, now);
+
+    if let ceiling::CeilingVerdict::Refused(refusal) =
+        ceiling::check_ceiling(&ledger, &digest, now, &ceiling::SEND_LIMITS)
+    {
+        // A corrupt ledger halts (see `SendLedger::unreadable`); persist that
+        // halt so the next launch sees it too rather than re-deciding.
+        if ledger.kill_switch.status == ceiling::KillStatus::Halted {
+            let _ = ceiling::save_to(&path, &ledger);
+        }
+        return Err(WhatsAppError {
+            code: refusal.code,
+            message: refusal.message,
+            earliest_at_ms: refusal.earliest_at_ms,
+        });
+    }
+
+    // 3. Count the send BEFORE running it, and refuse if it cannot be counted.
+    //    Recording afterwards would mean a crash mid-send silently returns the
+    //    slot, and "crash the app between sends" is not a cap.
+    ledger.record(digest, now, &ceiling::SEND_LIMITS);
+    ceiling::save_to(&path, &ledger).map_err(|error| {
+        err(
+            "WHATSAPP_SEND_STATE",
+            format!("The send could not be recorded against the daily cap ({error}), so it was not sent."),
+        )
+    })?;
+    drop(_held);
+
+    // 4. Only now does anything reach the page.
+    let job = jobs
+        .op
+        .start()
+        .map_err(|message| err("WHATSAPP_JOBS", message))?;
+    let table = jobs.op.clone();
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = handle.state::<WhatsAppState>();
+        let result = match handle.get_webview_window(WHATSAPP_LABEL) {
+            Some(window) => run_script(&window, state, script, SEND_TIMEOUT_MS).await,
+            None => Err(err(
+                "WHATSAPP_NOT_OPEN",
+                "The WhatsApp session closed before the message was sent",
+            )),
+        };
+        table.finish(job, result);
+    });
+    Ok(job)
+}
+
+/// Poll a started send. Shares the read path's job table and take-once semantics.
+#[tauri::command]
+pub fn whatsapp_send_poll(
+    jobs: tauri::State<'_, WhatsAppJobs>,
+    job: u64,
+) -> Result<WhatsAppJobPoll, WhatsAppError> {
+    whatsapp_extract_poll(jobs, job)
+}
+
+/// What the ceiling currently allows, so the UI can explain rather than guess.
+#[tauri::command]
+pub fn whatsapp_send_status(
+    app: AppHandle,
+) -> Result<ceiling::SendCeilingStatus, WhatsAppError> {
+    let path = ceiling_path(&app)?;
+    let now = ceiling::now_ms();
+    let ledger = ceiling::load_from(&path, now);
+    Ok(ceiling::status_of(&ledger, now, &ceiling::SEND_LIMITS))
+}
+
+/// Halt automated sending. Any WhatsApp-side warning, unexpected disconnect or
+/// delivery anomaly calls this, and nothing lifts it but `whatsapp_send_rearm`.
+#[tauri::command]
+pub fn whatsapp_send_halt(
+    app: AppHandle,
+    gate: tauri::State<'_, ceiling::SendCeilingState>,
+    reason: String,
+) -> Result<ceiling::SendCeilingStatus, WhatsAppError> {
+    let path = ceiling_path(&app)?;
+    let _held = gate
+        .gate
+        .lock()
+        .map_err(|_| err("WHATSAPP_SEND_STATE", "the send ceiling state is unavailable"))?;
+    let now = ceiling::now_ms();
+    let mut ledger = ceiling::load_from(&path, now);
+    let reason = if reason.trim().is_empty() {
+        "halted by request".to_string()
+    } else {
+        reason
+    };
+    ceiling::halt(&mut ledger, &reason, now);
+    ceiling::save_to(&path, &ledger)
+        .map_err(|error| err("WHATSAPP_SEND_STATE", format!("the halt could not be persisted: {error}")))?;
+    Ok(ceiling::status_of(&ledger, now, &ceiling::SEND_LIMITS))
+}
+
+/// Re-arm. Requires a NAMED HUMAN — there is no automatic path back.
+#[tauri::command]
+pub fn whatsapp_send_rearm(
+    app: AppHandle,
+    gate: tauri::State<'_, ceiling::SendCeilingState>,
+    rearmed_by: String,
+) -> Result<ceiling::SendCeilingStatus, WhatsAppError> {
+    let path = ceiling_path(&app)?;
+    let _held = gate
+        .gate
+        .lock()
+        .map_err(|_| err("WHATSAPP_SEND_STATE", "the send ceiling state is unavailable"))?;
+    let now = ceiling::now_ms();
+    let mut ledger = ceiling::load_from(&path, now);
+    ceiling::rearm(&mut ledger, &rearmed_by, now)
+        .map_err(|message| err("WHATSAPP_SEND_REARM_REFUSED", message))?;
+    ceiling::save_to(&path, &ledger)
+        .map_err(|error| err("WHATSAPP_SEND_STATE", format!("the re-arm could not be persisted: {error}")))?;
+    Ok(ceiling::status_of(&ledger, now, &ceiling::SEND_LIMITS))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1454,10 +1778,25 @@ mod tests {
         }
     }
 
+    /// The read allowlist's exact membership, and the fact that it is CLOSED.
+    ///
+    /// This assertion used to also say `send_message` is refused everywhere,
+    /// which ADR-158 and AP-091 have since reversed by approving write. The
+    /// guarantee it was actually buying is preserved and split in two:
+    ///
+    ///  - here: `script_for_op` — the function `whatsapp_extract_start` calls —
+    ///    still refuses `send_message` and everything else not listed, so the
+    ///    read command cannot reach a write;
+    ///  - `the_send_op_is_reachable_only_through_the_gated_path` below: the
+    ///    write script exists ONLY behind `script_for_write_op`, which
+    ///    `whatsapp_send_start` calls after the durable ceiling has passed.
+    ///
+    /// Enabling write moved where the send is refused. It did not remove the
+    /// refusal from the read path.
     #[test]
-    fn v1_op_allowlist_is_read_only() {
-        // The exact membership of v1. Changing this list is a governed decision,
-        // not an implementation detail — which is what this assertion protects.
+    fn the_read_op_allowlist_is_closed_and_still_has_no_write() {
+        // The exact membership. Changing this list is a governed decision, not
+        // an implementation detail — which is what this assertion protects.
         for op in [
             "list_contacts",
             "list_groups",
@@ -1473,19 +1812,248 @@ mod tests {
         assert!(script_for_op("group_participants", Some("120363001@g.us")).is_some());
 
         for refused in [
+            // Still refused HERE. Write has its own gated entry point.
             "send_message",
             "sendTextMessage",
             "add_participants",
+            "remove_participants",
+            "delete_message",
+            // Never an escape hatch for arbitrary code, at any tier.
             "eval",
-            "",
+            "Function",
             "WPP.chat.sendTextMessage('x','y')",
+            "list_contacts; WPP.chat.sendTextMessage('a','b')",
+            // Not a name at all.
+            "",
+            " ",
+            "LIST_CONTACTS",
+            "list_contacts ",
             // Reserved for the PUSH channel: the page volunteers it, nothing
             // may request it.
             "session_events",
         ] {
             assert!(
                 script_for_op(refused, None).is_none(),
-                "{refused} must be refused in v1"
+                "{refused:?} must be refused by the read allowlist"
+            );
+            // And an argument does not unlock it either.
+            assert!(
+                script_for_op(refused, Some("120363001@g.us")).is_none(),
+                "{refused:?} must be refused even with a well-formed argument"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // TASK-030 — the write op
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn the_send_op_is_reachable_only_through_the_gated_path() {
+        // The one write op exists…
+        assert!(
+            script_for_write_op(WRITE_OP_SEND_MESSAGE, "919876543210@c.us", "hello").is_some()
+        );
+        // …and NOTHING else does. There is one write operation, not a family.
+        for other in [
+            "sendTextMessage",
+            "add_participants",
+            "delete_message",
+            "eval",
+            "list_contacts",
+            "",
+            "send_message ",
+            "SEND_MESSAGE",
+        ] {
+            assert!(
+                script_for_write_op(other, "919876543210@c.us", "hello").is_none(),
+                "{other:?} must not be a write op"
+            );
+        }
+        // The read command's allowlist cannot produce the send script, whatever
+        // it is handed — this is the assertion that keeps `whatsapp_extract_start`
+        // from becoming a write path.
+        for arg in [None, Some("919876543210@c.us"), Some("hello")] {
+            assert!(script_for_op(WRITE_OP_SEND_MESSAGE, arg).is_none());
+        }
+    }
+
+    #[test]
+    fn send_targets_are_validated_before_interpolation() {
+        for good in [
+            "919876543210@c.us",
+            "120363001234567890@g.us",
+            "1203-63001@g.us",
+            "84512345678901@lid",
+        ] {
+            assert!(is_sendable_target_id(good), "{good} should be sendable");
+            assert!(script_for_write_op(WRITE_OP_SEND_MESSAGE, good, "hi").is_some());
+        }
+
+        for bad in [
+            // Injection attempts.
+            r#"");WPP.chat.sendTextMessage("victim@c.us","spam");//@c.us"#,
+            "1@c.us\",\"x",
+            "1@c.us\n",
+            "1@c.us evil",
+            // Wrong or absent server.
+            "919876543210@s.whatsapp.net",
+            "919876543210",
+            "@c.us",
+            "",
+            // Not a bare numeric user.
+            "abc@c.us",
+            "9198765+43210@c.us",
+            "1@c.us@c.us",
+            // Absurd length.
+            &format!("{}@c.us", "9".repeat(65)),
+        ] {
+            assert!(!is_sendable_target_id(bad), "{bad:?} must not validate");
+            assert!(
+                script_for_write_op(WRITE_OP_SEND_MESSAGE, bad, "hi").is_none(),
+                "{bad:?} must never reach a script"
+            );
+        }
+    }
+
+    #[test]
+    fn a_hostile_message_body_cannot_break_out_of_its_string() {
+        // The body is arbitrary user text — it cannot be shape-validated, so
+        // escaping is the whole defence. Each of these is a real way out of a
+        // double-quoted JavaScript string literal.
+        let hostile = [
+            r#"hi");WPP.chat.sendTextMessage("victim@c.us","spam");//"#,
+            r#"trailing backslash \"#,
+            "line one\nline two",
+            "carriage\r\nreturn",
+            "</script><script>alert(1)</script>",
+            "</SCRIPT >",
+            "`${process}`",
+            "single ' and double \" quotes",
+            "u2028\u{2028}separator",
+            "u2029\u{2029}separator",
+            "null\u{0}byte",
+            "\u{7f}delete",
+            "&lt;&amp;",
+        ];
+        for body in hostile {
+            let script = script_for_write_op(WRITE_OP_SEND_MESSAGE, "919876543210@c.us", body)
+                .unwrap_or_else(|| panic!("{body:?} is a legitimate message and must be sendable"));
+
+            // Assert on the escaped form itself rather than trying to carve the
+            // literal back out of the script: a hostile body contains the very
+            // delimiters such parsing would key on, and a test that can be
+            // confused by its own input proves nothing.
+            let escaped = escape_js_string(body);
+            assert!(
+                script.contains(&escaped),
+                "the escaped body is what gets interpolated"
+            );
+
+            // A double quote would close the literal; the rest are what a
+            // JavaScript lexer treats as a line or template terminator.
+            for forbidden in ['"', '\n', '\r', '`', '<', '>', '\u{2028}', '\u{2029}'] {
+                assert!(
+                    !escaped.chars().any(|c| c == forbidden),
+                    "{forbidden:?} survived escaping in {body:?}"
+                );
+            }
+            // Every backslash present is one WE emitted, and is a complete
+            // `\uXXXX`. A `\"` or a trailing lone `\` would be an escape the
+            // lexer resolves back into a metacharacter — which is exactly how a
+            // naive escaper is defeated by a body ending in a backslash.
+            let units: Vec<char> = escaped.chars().collect();
+            let mut index = 0;
+            while index < units.len() {
+                if units[index] == '\\' {
+                    assert!(
+                        index + 6 <= units.len()
+                            && units[index + 1] == 'u'
+                            && units[index + 2..index + 6]
+                                .iter()
+                                .all(|c| c.is_ascii_hexdigit()),
+                        "a non-\\uXXXX backslash escape appeared for {body:?}"
+                    );
+                    index += 6;
+                } else {
+                    index += 1;
+                }
+            }
+            // Markup cannot survive at all: `<` and `>` are always escaped, so
+            // there is no context in which the body re-enters an HTML parser.
+            assert!(!script.to_lowercase().contains("</script"));
+            //
+            // Note what is deliberately NOT asserted: that the script does not
+            // CONTAIN the text `WPP.chat.sendTextMessage`. A body quoting that
+            // text keeps it verbatim, because letters and dots need no escaping
+            // and mangling them would corrupt legitimate messages. The
+            // guarantee is that it stays INSIDE the string literal, which the
+            // quote and backslash checks above are what establish.
+        }
+    }
+
+    #[test]
+    fn escaping_preserves_ordinary_text_and_neutralises_the_rest() {
+        // Escaping must not mangle the messages people actually send —
+        // including non-Latin scripts and emoji, which an over-eager
+        // ASCII-only escaper would destroy.
+        for plain in ["Hello there", "नमस्ते", "こんにちは", "Ça va ?", "🎉 done"] {
+            assert_eq!(escape_js_string(plain), plain, "{plain} should pass through");
+        }
+        // And the metacharacters become numeric escapes, which have no meaning
+        // to an HTML tokenizer, a regex, or a second round of parsing.
+        assert_eq!(escape_js_string("\""), "\\u0022");
+        assert_eq!(escape_js_string("\\"), "\\u005c");
+        assert_eq!(escape_js_string("\n"), "\\u000a");
+        assert_eq!(escape_js_string("<"), "\\u003c");
+        assert_eq!(escape_js_string("\u{2028}"), "\\u2028");
+    }
+
+    #[test]
+    fn empty_and_oversized_bodies_are_refused_rather_than_truncated() {
+        for empty in ["", " ", "\n", "\t\r\n "] {
+            assert!(
+                script_for_write_op(WRITE_OP_SEND_MESSAGE, "1@c.us", empty).is_none(),
+                "{empty:?} is not a message"
+            );
+        }
+        let at_limit = "a".repeat(MAX_SEND_BODY_CHARS);
+        assert!(script_for_write_op(WRITE_OP_SEND_MESSAGE, "1@c.us", &at_limit).is_some());
+        let over = "a".repeat(MAX_SEND_BODY_CHARS + 1);
+        assert!(
+            script_for_write_op(WRITE_OP_SEND_MESSAGE, "1@c.us", &over).is_none(),
+            "an over-long body must be refused, never silently cut"
+        );
+        // The limit counts CHARACTERS, matching `send.ts`'s `body.length` on a
+        // JS string closely enough that the two agree on ordinary text.
+        assert_eq!(MAX_SEND_BODY_CHARS, 4096);
+    }
+
+    #[test]
+    fn the_send_script_never_opens_a_new_conversation() {
+        let script =
+            script_for_write_op(WRITE_OP_SEND_MESSAGE, "919876543210@c.us", "hi").unwrap();
+        // The consent gate only permits sending into a thread the recipient
+        // already wrote in, so the chat exists. `createChat: true` would make
+        // this capable of the first contact the discipline exists to prevent.
+        assert!(script.contains("createChat: false"));
+        assert!(!script.contains("createChat: true"));
+        // Every WPP path the write script uses is declared, so a drifted wa-js
+        // is a known failure rather than a mystery.
+        for path in wpp_paths(&script) {
+            assert!(
+                WPP_WRITE_DEPENDENCIES
+                    .iter()
+                    .any(|(declared, _)| path.starts_with(declared)),
+                "{path} is used by the write script but not declared"
+            );
+        }
+        // And the write dependency stays OUT of the health list, so the health
+        // op keeps its "mentions no send function" guarantee.
+        for (path, _) in WPP_WRITE_DEPENDENCIES {
+            assert!(
+                !WPP_DEPENDENCIES.iter().any(|(read, _)| read == path),
+                "{path} must not leak into the read health tripwire"
             );
         }
     }

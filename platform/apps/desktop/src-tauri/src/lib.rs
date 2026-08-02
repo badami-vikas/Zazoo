@@ -33,6 +33,7 @@ mod model_supervisor;
 mod overlay;
 mod providers;
 mod research_webview;
+mod whatsapp_send;
 mod whatsapp_webview;
 mod sensor_bridge;
 
@@ -423,6 +424,10 @@ pub fn run() {
         .manage(companion::CompanionAskJobs::default())
         .manage(whatsapp_webview::WhatsAppState::default())
         .manage(whatsapp_webview::WhatsAppJobs::default())
+        // Serialises the durable send ceiling's read-check-write. The FILE is
+        // the authority (a cap that dies with the process does not bind); this
+        // only stops two in-flight sends racing the same slot.
+        .manage(whatsapp_send::SendCeilingState::default())
         .manage(research_webview::ResearchState::default())
         .manage(research_webview::ResearchJobs::default())
         .manage(BootstrapWindowState::default());
@@ -487,6 +492,14 @@ pub fn run() {
             whatsapp_webview::whatsapp_status,
             whatsapp_webview::whatsapp_extract_start,
             whatsapp_webview::whatsapp_extract_poll,
+            // The write path (TASK-030, ADR-158). Separate commands from the
+            // read pair on purpose: sending goes through the durable Rust
+            // ceiling, and the read commands can never reach it.
+            whatsapp_webview::whatsapp_send_start,
+            whatsapp_webview::whatsapp_send_poll,
+            whatsapp_webview::whatsapp_send_status,
+            whatsapp_webview::whatsapp_send_halt,
+            whatsapp_webview::whatsapp_send_rearm,
             research_webview::research_read_page,
             research_webview::research_locate_start,
             research_webview::research_locate_poll,

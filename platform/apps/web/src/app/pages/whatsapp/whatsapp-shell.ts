@@ -15,7 +15,14 @@
  */
 import { tauriInvoke, tauriInvokeJob, tauriInvokeStrict } from "../../avatar/tauri-internals";
 
-/** Read operations the shell's allowlist accepts. v1 has no write op. */
+/**
+ * Read operations the shell's allowlist accepts.
+ *
+ * The single WRITE op is deliberately absent from this union and unreachable
+ * from `runReadOp`: sending goes through `sendMessage` below, which the shell
+ * routes past its durable Rust ceiling (ADR-158). Two entry points, because
+ * they have genuinely different gates.
+ */
 export type WhatsAppReadOp =
   | "list_contacts"
   | "list_groups"
@@ -115,6 +122,138 @@ export async function runReadOp<T>(op: WhatsAppReadOp, arg?: string): Promise<T>
     throw new Error(parsed.error ?? "The WhatsApp operation failed.");
   }
   return parsed.value as T;
+}
+
+// ── The write path ──────────────────────────────────────────────────────────
+//
+// Everything below crosses into the shell's SEND command, which is a different
+// gate from the read allowlist. The renderer supplies a target id, a recipient
+// key and a body. It cannot supply JavaScript, and it cannot supply a count:
+// the daily cap, the per-recipient cooldown and the kill switch are all read
+// from a durable ledger on the shell's side. Whatever `decideAutomatedSend`
+// concluded here, the shell decides again — and the shell's answer is the one
+// that binds (ADR-158).
+
+/** The ceiling as the shell reports it, so the UI explains rather than guesses. */
+export interface SendCeilingStatus {
+  limits: {
+    dailyCap: number;
+    recipientCooldownDays: number;
+    warmUpFirstDayCap: number;
+    warmUpDailyIncrement: number;
+  };
+  killSwitch: {
+    status: "armed" | "halted";
+    haltedAtMs?: number | null;
+    reason?: string | null;
+    rearmedAtMs?: number | null;
+    rearmedBy?: string | null;
+  };
+  sentLast24h: number;
+  effectiveDailyCap: number;
+  linkedAtMs: number;
+}
+
+/** A structured shell refusal: `{ code, message, earliestAtMs? }`. */
+export interface ShellError {
+  code: string;
+  message: string;
+  earliestAtMs?: number;
+}
+
+function asShellError(error: unknown): ShellError {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const shaped = error as ShellError;
+    return {
+      code: String(shaped.code),
+      message: String(shaped.message ?? "The desktop shell refused the send."),
+      ...(typeof shaped.earliestAtMs === "number" ? { earliestAtMs: shaped.earliestAtMs } : {}),
+    };
+  }
+  return {
+    code: "WHATSAPP_SEND_FAILED",
+    message: error instanceof Error ? error.message : "The message could not be sent.",
+  };
+}
+
+export type SendMessageResult =
+  | { status: "sent"; messageId?: string }
+  | { status: "refused"; code: string; reason: string; earliestAtMs?: number };
+
+/**
+ * Send one message. Start-then-poll like every other slow shell command: an
+ * ack can stall behind a reconnect, and a command that answers after ~60s
+ * aborts the whole app under WKWebView.
+ *
+ * Refusals come back as values, not exceptions. "The cap is full" is a normal
+ * outcome of a governed send path, and a caller should not have to catch to
+ * learn it.
+ */
+export async function sendMessage(
+  targetId: string,
+  recipientKey: string,
+  body: string,
+): Promise<SendMessageResult> {
+  if (!isDesktopShell()) {
+    return {
+      status: "refused",
+      code: "WHATSAPP_UNAVAILABLE",
+      reason: "WhatsApp sending runs in the Bridge desktop app.",
+    };
+  }
+  try {
+    const envelope = await tauriInvokeJob<{ op: string; json: string }>(
+      "whatsapp_send_start",
+      "whatsapp_send_poll",
+      { targetId, recipientKey, body },
+      { valueKey: "value", timeoutMs: 120_000, intervalMs: 500 },
+    );
+    const parsed = JSON.parse(envelope.json) as OpResult<{ id?: string }>;
+    if (!parsed.ok) {
+      return {
+        status: "refused",
+        code: "WHATSAPP_SEND_FAILED",
+        reason: parsed.error ?? "WhatsApp did not accept the message.",
+      };
+    }
+    return parsed.value?.id ? { status: "sent", messageId: parsed.value.id } : { status: "sent" };
+  } catch (error) {
+    const shaped = asShellError(error);
+    return {
+      status: "refused",
+      code: shaped.code,
+      reason: shaped.message,
+      ...(shaped.earliestAtMs !== undefined ? { earliestAtMs: shaped.earliestAtMs } : {}),
+    };
+  }
+}
+
+export async function sendCeilingStatus(): Promise<SendCeilingStatus | undefined> {
+  if (!isDesktopShell()) return undefined;
+  try {
+    return (await tauriInvokeStrict("whatsapp_send_status", {})) as SendCeilingStatus;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Halt automated sending. Any WhatsApp-side warning, unexpected disconnect or
+ * delivery anomaly should call this, and nothing lifts it but `rearmSending`.
+ */
+export async function haltSending(reason: string): Promise<SendCeilingStatus | undefined> {
+  if (!isDesktopShell()) return undefined;
+  return (await tauriInvokeStrict("whatsapp_send_halt", { reason })) as SendCeilingStatus;
+}
+
+/**
+ * Re-arm. Takes the NAME OF A HUMAN, and the shell refuses an empty one.
+ * Never call this from an Agent, a retry loop, or a timer — the whole value of
+ * the kill switch is that nothing but a person can clear it.
+ */
+export async function rearmSending(rearmedBy: string): Promise<SendCeilingStatus | undefined> {
+  if (!isDesktopShell()) return undefined;
+  return (await tauriInvokeStrict("whatsapp_send_rearm", { rearmedBy })) as SendCeilingStatus;
 }
 
 // Payload shapes returned by the allowlisted ops. These mirror
