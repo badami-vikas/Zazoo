@@ -491,6 +491,8 @@ pub fn run() {
             whatsapp_webview::whatsapp_position,
             whatsapp_webview::whatsapp_hide,
             whatsapp_webview::whatsapp_status,
+            whatsapp_webview::whatsapp_session_reload,
+            whatsapp_webview::whatsapp_session_reset,
             whatsapp_webview::whatsapp_extract_start,
             whatsapp_webview::whatsapp_extract_poll,
             // The write path (TASK-030, ADR-158). Separate commands from the

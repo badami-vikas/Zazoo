@@ -96,6 +96,35 @@ export async function hideSession(): Promise<void> {
   await tauriInvoke("whatsapp_hide", {});
 }
 
+/**
+ * Reload the session page: same store, fresh load. The cheap first recovery
+ * step when WhatsApp Web wedges. `false` means there was no window to reload.
+ */
+export async function reloadSession(): Promise<boolean> {
+  if (!isDesktopShell()) return false;
+  return (await tauriInvokeStrict("whatsapp_session_reload", {})) as boolean;
+}
+
+/** What a reset actually did, as the shell reports it. */
+export interface SessionResetReport {
+  windowClosed: boolean;
+  /** Where the store directories were MOVED to. The shell never deletes them. */
+  archivedTo: string[];
+  idFileRemoved: boolean;
+}
+
+/**
+ * The escape hatch for invalidated session storage (2026-08-02 incident): the
+ * shell closes the session window, moves the WKWebView data store aside to a
+ * timestamped sibling — reversible by design — and clears the persisted store
+ * id, so the next session start mints a fresh store and shows a QR. The
+ * device must be re-linked afterwards; the UI confirms before calling this.
+ */
+export async function resetSession(): Promise<SessionResetReport | undefined> {
+  if (!isDesktopShell()) return undefined;
+  return (await tauriInvokeStrict("whatsapp_session_reset", {})) as SessionResetReport;
+}
+
 export async function sessionStatus(): Promise<WhatsAppStatus> {
   if (!isDesktopShell()) {
     return { open: false, live: false, socket: "UNAVAILABLE", chats: 0, syncing: false, authenticated: null };

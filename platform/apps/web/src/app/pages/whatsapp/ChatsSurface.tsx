@@ -33,6 +33,18 @@ type SearchHit = Awaited<ReturnType<typeof trpc.whatsapp.searchMessages.query>>[
 const MUTED = { color: "var(--color-navy-mid)" } as const;
 const BORDER = { borderColor: "var(--color-border)" } as const;
 
+/**
+ * A shell refusal arrives as the raw `{ code, message }` struct, not an
+ * `Error` — stringify both shapes honestly instead of "[object Object]".
+ */
+function failureMessage(failure: unknown): string {
+  if (failure instanceof Error) return failure.message;
+  if (typeof failure === "object" && failure !== null && "message" in failure) {
+    return String((failure as { message?: unknown }).message ?? "The desktop shell refused.");
+  }
+  return String(failure);
+}
+
 function formatTime(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
@@ -74,6 +86,12 @@ export function ChatsSurface() {
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [searchNote, setSearchNote] = useState<string | null>(null);
   const [storeError, setStoreError] = useState<string | null>(null);
+  // Session recovery (TASK-030 shell fixes). Reload is the cheap retry; reset
+  // is the escape hatch for invalidated storage and asks for confirmation
+  // because it forces a re-link.
+  const [sessionNote, setSessionNote] = useState<string | null>(null);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const linkAnchor = useRef<HTMLDivElement | null>(null);
   const stopped = useRef(false);
@@ -141,9 +159,13 @@ export function ChatsSurface() {
     };
   }, [linking]);
 
+  // Close the linking pane only on wa-js's own AUTHENTICATED verdict. The
+  // socket is the wrong signal here: the QR screen itself holds a CONNECTED
+  // socket, so keying on it snapped the pane shut the moment it opened —
+  // "the link the device disappeared" (user-hit, 2026-08-02).
   useEffect(() => {
-    if (linking && status?.socket === "CONNECTED") setLinking(false);
-  }, [linking, status?.socket]);
+    if (linking && status?.authenticated === true) setLinking(false);
+  }, [linking, status?.authenticated]);
 
   // ── Thread contents ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -183,6 +205,41 @@ export function ChatsSurface() {
       }
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function reloadSession() {
+    setSessionNote(null);
+    try {
+      const reloaded = await whatsAppEngine.reloadSession();
+      setSessionNote(
+        reloaded
+          ? "Reloaded the WhatsApp session — give it a moment to settle."
+          : "There was no session window to reload; starting one.",
+      );
+      if (!reloaded) await whatsAppEngine.ensureHiddenSession();
+    } catch (failure) {
+      setSessionNote(failureMessage(failure));
+    }
+  }
+
+  async function resetSession() {
+    setResetting(true);
+    setSessionNote(null);
+    try {
+      // The shell MOVES the session's storage aside (never deletes) and clears
+      // the persisted store id, then a fresh session starts and needs a QR scan.
+      await whatsAppEngine.resetSession();
+      setConfirmingReset(false);
+      setStatus(null);
+      await whatsAppEngine.ensureHiddenSession();
+      setSessionNote(
+        "Session storage was set aside (not deleted). Use “Link this device” to scan the QR code again.",
+      );
+    } catch (failure) {
+      setSessionNote(failureMessage(failure));
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -247,6 +304,14 @@ export function ChatsSurface() {
   const needsLink =
     status !== null &&
     (status.authenticated === false || (status.authenticated === null && !status.live));
+  // "Connected — waiting for your chats" that never resolves is the OTHER wedge
+  // a reload cures (seen live 2026-08-02: a connected socket over a store
+  // WhatsApp had emptied, sync honestly reporting "no chats at all"). Reload is
+  // offered here too; Reset stays behind needsLink because moving storage aside
+  // while a device is linked forces a re-link the user did not ask for.
+  // Excludes the needsLink state so the two recovery rows never both render.
+  const connectedButEmpty =
+    status !== null && status.socket === "CONNECTED" && !status.live && !needsLink;
 
   // What BRIDGE holds, as distinct from what WhatsApp holds. `null` threads
   // means the store has not answered yet, which is not the same as zero.
@@ -283,10 +348,33 @@ export function ChatsSurface() {
                     : "This device is not linked"}
         </span>
         <div className="ml-auto flex items-center gap-2">
-          {needsLink ? (
-            <Button size="sm" variant="outline" onClick={() => setLinking((on) => !on)}>
-              {linking ? "Done linking" : "Link this device"}
+          {needsLink || connectedButEmpty ? (
+            /*
+              Recovery, in escalation order (2026-08-02 incident: the session
+              wedged on WhatsApp's splash screen with no affordance at all).
+              Reload retries the page against the same storage and is offered
+              for BOTH wedges — not linked, and connected-but-chatless. Reset
+              moves the storage aside and forces a re-link, so it exists only
+              in the not-linked state and confirms first.
+            */
+            <Button size="sm" variant="outline" onClick={() => void reloadSession()}>
+              Reload
             </Button>
+          ) : null}
+          {needsLink ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={resetting}
+                onClick={() => setConfirmingReset((on) => !on)}
+              >
+                {confirmingReset ? "Keep session" : "Reset session"}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setLinking((on) => !on)}>
+                {linking ? "Done linking" : "Link this device"}
+              </Button>
+            </>
           ) : null}
           <Button size="sm" onClick={() => void sync()} disabled={syncing}>
             {syncing ? "Syncing…" : "Sync messages"}
@@ -319,6 +407,28 @@ export function ChatsSurface() {
       {storeError ? (
         <div className="border-b px-3 py-1.5 text-xs" style={{ ...BORDER, color: "var(--color-danger, #b42318)" }}>
           {storeError}
+        </div>
+      ) : null}
+
+      {/* The one confirm step before a reset: it forces a re-link, so it says so. */}
+      {confirmingReset && needsLink ? (
+        <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2" style={BORDER}>
+          <span className="text-xs" style={MUTED}>
+            Resetting closes the session and moves its stored data aside (nothing
+            is deleted). You will need to scan the QR code with your phone again.
+          </span>
+          <Button size="sm" variant="outline" disabled={resetting} onClick={() => void resetSession()}>
+            {resetting ? "Resetting…" : "Reset and re-link"}
+          </Button>
+          <Button size="sm" variant="outline" disabled={resetting} onClick={() => setConfirmingReset(false)}>
+            Cancel
+          </Button>
+        </div>
+      ) : null}
+
+      {sessionNote ? (
+        <div className="border-b px-3 py-1.5 text-xs" style={{ ...BORDER, ...MUTED }}>
+          {sessionNote}
         </div>
       ) : null}
 
