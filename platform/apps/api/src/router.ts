@@ -221,10 +221,19 @@ import {
   SourceDiscoveryGateError,
   applyThesisSourceDiscovery,
   dealPilotModuleManifest,
+  dealDecisionSignal,
   proposeThesisSourceDiscovery,
   scoreThesisFit,
   type ThesisSourceDiscoveryProposal,
 } from "@bridge/dealpilot";
+import {
+  acceptSuggestion as acceptLearningSuggestion,
+  digestSignals as digestLearningSignals,
+  listSuggestions as listLearningSuggestions,
+  recordSignal as recordLearningSignal,
+  rejectSuggestion as rejectLearningSuggestion,
+  retrieveLearnedPreferences,
+} from "@bridge/core";
 import {
   jobsTableSpec,
   scoreJobFit,
@@ -784,14 +793,8 @@ export function anchorLineageKey(anchor: RedFlagAnchor): string {
  * so tests can precisely reconstruct an in-flight saga's intermediate
  * state (e.g. "the ledger append succeeded but the outcome CAS never ran")
  * without needing a real, hard-to-trigger-on-demand process crash. */
-export function deterministicUuid(seed: string): string {
-  const hash = createHash("sha256").update(seed).digest();
-  const bytes = Uint8Array.prototype.slice.call(hash, 0, 16) as Uint8Array;
-  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = Buffer.from(bytes).toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
+import { deterministicUuid } from "./deterministic-uuid.js";
+export { deterministicUuid };
 
 /**
  * Monotonically increasing ISO timestamp — used for EVERY red-flag Memory
@@ -5271,6 +5274,34 @@ async function ensureTaskManagerAutomation(
     }],
   });
   return { goalId: goal.id, taskId: task.id };
+}
+
+/** TASK-032 flight gate — every `learning.*` procedure except `status` fails
+ * closed when the flight is off. `PRECONDITION_FAILED` (not `FORBIDDEN`): the
+ * caller's authority is fine; the capability is deliberately not active. */
+function assertLearningFlightEnabled(ctx: { wiring: Pick<Wiring, "learningObservationEnabled"> }): void {
+  if (!ctx.wiring.learningObservationEnabled) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "learning observation flight is disabled (BRIDGE_LEARNING_OBSERVATION)",
+    });
+  }
+}
+
+/** Map the learning loop's typed error strings onto tRPC codes: an unknown/
+ * unauthorized row is `NOT_FOUND` (indistinguishable by design), a repeated
+ * accept/reject of an already-transitioned suggestion is `CONFLICT`. Anything
+ * else is a genuine server fault and rethrows unchanged. */
+function learningActionError(error: unknown): unknown {
+  if (error instanceof Error) {
+    if (error.message.includes("unknown or unauthorized")) {
+      return new TRPCError({ code: "NOT_FOUND", message: "suggestion not found" });
+    }
+    if (error.message.includes("already") || error.message.includes("concurrently modified")) {
+      return new TRPCError({ code: "CONFLICT", message: error.message });
+    }
+  }
+  return error;
 }
 
 export const appRouter = t.router({
@@ -12070,6 +12101,169 @@ export const appRouter = t.router({
    * is wired) — it accepts any 6-digit code and is labeled as demo/test mode
    * in the client copy so it's never presented as a working integration.
    */
+  /** TASK-032 — learning observation loop v1 behind the
+   * `learningObservationEnabled` flight. Suggested-then-accepted is preserved
+   * end to end: `digest` only proposes; only `suggestions.accept` (an explicit
+   * Human mutation) mints a preference. All rows are the caller's private
+   * Local-Plane Memories — authority scoping happens in the store. */
+  learning: t.router({
+    /** Always answerable (flight off included) so clients can honestly hide
+     * the surface instead of rendering dead controls. */
+    status: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return { enabled: ctx.wiring.learningObservationEnabled };
+      }),
+
+    recordDealDecision: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          dealRecordId: z.string().min(1),
+          action: z.enum(["pursue", "review", "dismiss"]),
+          profile: z
+            .object({
+              industry: z.string().optional(),
+              geo: z.string().optional(),
+              sde: z.number().optional(),
+              revenue: z.number().optional(),
+            })
+            .strict()
+            .default({}),
+          sourceId: z.string().min(1).optional(),
+          reason: z.string().max(2000).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertLearningFlightEnabled(ctx);
+        assertPilotOrganization(input.organizationId);
+        const ownerUserId = ctx.identity.id;
+        const signal = dealDecisionSignal({
+          id: ctx.run.ids.next(),
+          organizationId: input.organizationId,
+          ownerUserId,
+          dealRecordId: input.dealRecordId,
+          action: input.action,
+          // exactOptionalPropertyTypes: drop keys zod parsed as `undefined`.
+          profile: {
+            ...(input.profile.industry !== undefined ? { industry: input.profile.industry } : {}),
+            ...(input.profile.geo !== undefined ? { geo: input.profile.geo } : {}),
+            ...(input.profile.sde !== undefined ? { sde: input.profile.sde } : {}),
+            ...(input.profile.revenue !== undefined ? { revenue: input.profile.revenue } : {}),
+          },
+          ...(input.sourceId ? { sourceId: input.sourceId } : {}),
+          ...(input.reason ? { reason: input.reason } : {}),
+          observedAt: ctx.run.clock.nowISO(),
+        });
+        const entry = await recordLearningSignal(ctx.wiring.memoryStore, signal);
+        return { signalMemoryId: entry.id, attributes: signal.attributes };
+      }),
+
+    /** Batched digest — proposes suggestions, never writes a preference. */
+    digest: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          moduleId: z.string().min(1).default("dealpilot"),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertLearningFlightEnabled(ctx);
+        assertPilotOrganization(input.organizationId);
+        const created = await digestLearningSignals(ctx.wiring.memoryStore, {
+          organizationId: input.organizationId,
+          ownerUserId: ctx.identity.id,
+          moduleId: input.moduleId,
+          nextId: () => ctx.run.ids.next(),
+          // The persistent adapter's subject_record_id column is uuid-typed;
+          // same convention as the red-flag lineage keys.
+          lineageIdFor: deterministicUuid,
+        });
+        return { suggestions: created };
+      }),
+
+    suggestions: t.router({
+      list: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            moduleId: z.string().min(1).default("dealpilot"),
+            status: z.enum(["proposed", "accepted", "rejected"]).optional(),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertLearningFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const suggestions = await listLearningSuggestions(
+            ctx.wiring.memoryStore,
+            { organizationId: input.organizationId, userId: ctx.identity.id },
+            input.moduleId,
+            input.status,
+          );
+          return { suggestions };
+        }),
+
+      accept: procedure
+        .input(z.object({ organizationId: z.string().min(1), suggestionMemoryId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertLearningFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          try {
+            const { suggestion, preference } = await acceptLearningSuggestion(
+              ctx.wiring.memoryStore,
+              { organizationId: input.organizationId, userId: ctx.identity.id },
+              input.suggestionMemoryId,
+              ctx.identity.id,
+              () => ctx.run.ids.next(),
+            );
+            return { suggestionMemoryId: suggestion.id, preferenceMemoryId: preference.id };
+          } catch (error) {
+            throw learningActionError(error);
+          }
+        }),
+
+      reject: procedure
+        .input(z.object({ organizationId: z.string().min(1), suggestionMemoryId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertLearningFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          try {
+            const rejected = await rejectLearningSuggestion(
+              ctx.wiring.memoryStore,
+              { organizationId: input.organizationId, userId: ctx.identity.id },
+              input.suggestionMemoryId,
+              ctx.identity.id,
+              () => ctx.run.ids.next(),
+            );
+            return { suggestionMemoryId: rejected.id };
+          } catch (error) {
+            throw learningActionError(error);
+          }
+        }),
+    }),
+
+    preferences: t.router({
+      list: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            moduleId: z.string().min(1).default("dealpilot"),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertLearningFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const preferences = await retrieveLearnedPreferences(
+            ctx.wiring.memoryStore,
+            { organizationId: input.organizationId, userId: ctx.identity.id },
+            input.moduleId,
+          );
+          return { preferences };
+        }),
+    }),
+  }),
+
   onboarding: t.router({
     getProfile: procedure
       .input(z.object({ organizationId: z.string().min(1) }))

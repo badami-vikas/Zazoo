@@ -35,6 +35,7 @@ import {
   InProcessAutomationExecutor,
   RecordingVarianceAdjuster,
   UniversalActionPipeline,
+  digestSignals,
   KERNEL_PASSTHROUGH_SKILL,
   stageCapture,
   InMemoryCapabilityStore,
@@ -246,6 +247,7 @@ import {
   resolveModuleAgentRuntimeId,
   resolveModuleAutomationRuntimeId,
 } from "./built-in-modules.js";
+import { deterministicUuid } from "./deterministic-uuid.js";
 import {
   createOrganizationRenameLease,
   defaultBridgeFilesRoot,
@@ -368,6 +370,12 @@ export interface Wiring {
   pilotUserId: string;
   /** Email paired with the approved Supabase Auth pilot subject. */
   pilotUserEmail: string;
+  /** Feature flight for the TASK-032 learning observation loop (`learning.*`
+   * router). OFF by default; enabled via `BRIDGE_LEARNING_OBSERVATION=1` (or a
+   * test override). Disabled means every `learning.*` procedure fails closed
+   * with a typed error and `learning.status` reports `{ enabled: false }` so
+   * clients can honestly hide the surface instead of showing dead controls. */
+  learningObservationEnabled: boolean;
   /** Canonical Automation definitions used by Automation creation and execution. */
   automationRegistry: AutomationRegistry;
   /** Attributable Automation Run history used by Module Detail. */
@@ -509,6 +517,9 @@ export interface Wiring {
 }
 
 export interface BuildWiringOptions {
+  /** Test/deployment override for the learning observation flight. Omitted
+   * means the environment decides (`BRIDGE_LEARNING_OBSERVATION`), default OFF. */
+  learningObservationEnabled?: boolean;
   /** Explicit provider set for composition tests or alternate deployments.
    * Omitted means the normal environment-bound providers for the selected mode. */
   modelProviders?: readonly ModelProvider[];
@@ -668,6 +679,67 @@ export const RED_FLAG_LEARNING_SKILL_MANIFEST = {
   defaultAgents: ["learning"],
   childRunPolicy: "forbidden",
 } as const;
+
+/** TASK-032 — the scheduled observation digest. One governed Skill the
+ * Learning Agent runs (advisory, Local Plane, signal:write only): it batches
+ * recorded decision signals into SUGGESTED preference Memories via the
+ * kernel's `digestSignals`. Suggested-then-accepted holds by construction —
+ * the digest can only propose; minting a preference stays behind the Human
+ * `learning.suggestions.accept` mutation. Registered and seeded ONLY while
+ * the learning observation flight is on. */
+export const LEARNING_OBSERVATION_GOAL_TYPE = "platform.learning_observation";
+export const OBSERVATION_DIGEST_TASK_TYPE = "observation_digest";
+export const OBSERVATION_DIGEST_SKILL_ID = "learning.observationDigest";
+export const LEARNING_DIGEST_AUTOMATION_ID = "platform.learning.observation-digest";
+
+export const OBSERVATION_DIGEST_SKILL_MANIFEST = {
+  organizationId: PILOT_ORGANIZATION,
+  skillId: OBSERVATION_DIGEST_SKILL_ID,
+  version: "1.0.0",
+  goalTypes: [LEARNING_OBSERVATION_GOAL_TYPE],
+  taskTypes: [OBSERVATION_DIGEST_TASK_TYPE],
+  permissions: ["signal:write"],
+  plane: "local",
+  dataScopes: ["all"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  defaultAgents: ["learning"],
+  childRunPolicy: "forbidden",
+} as const;
+
+function createObservationDigestSkill(deps: {
+  memoryStore: MemoryStore;
+  pilotUserId: string;
+  enabled: () => boolean;
+}): Skill {
+  return {
+    name: OBSERVATION_DIGEST_SKILL_ID,
+    async run(inputs, ctx) {
+      // Defense in depth: the Automation is only seeded while the flight is
+      // on, but the Skill itself also fails closed if invoked another way.
+      if (!deps.enabled()) {
+        throw new Error("learning observation flight is disabled (BRIDGE_LEARNING_OBSERVATION)");
+      }
+      const params = (typeof inputs === "object" && inputs !== null ? inputs : {}) as Record<string, unknown>;
+      const organizationId = typeof params.organizationId === "string" ? params.organizationId : PILOT_ORGANIZATION;
+      const moduleId = typeof params.moduleId === "string" ? params.moduleId : "dealpilot";
+      const created = await digestSignals(deps.memoryStore, {
+        organizationId,
+        ownerUserId: deps.pilotUserId,
+        moduleId,
+        nextId: () => ctx.ids.next(),
+        lineageIdFor: deterministicUuid,
+      });
+      const proposedOutput = {
+        kind: "learning_observation_digest",
+        moduleId,
+        proposedSuggestionCount: created.length,
+        suggestionMemoryIds: created.map((s) => s.memoryId),
+      };
+      return { proposedOutput, diff: { to: proposedOutput } };
+    },
+  };
+}
 
 export const WEB_RESEARCH_SKILL_MANIFEST = {
   organizationId: PILOT_ORGANIZATION,
@@ -2963,6 +3035,7 @@ export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
   LEARNING_RECOMMENDATION_SKILL_MANIFEST,
   WEB_RESEARCH_SKILL_MANIFEST,
   RED_FLAG_LEARNING_SKILL_MANIFEST,
+  OBSERVATION_DIGEST_SKILL_MANIFEST,
   RELATIONSHIP_HELP_OFFER_SKILL_MANIFEST,
   OUTREACH_DRAFT_SKILL_MANIFEST,
   DEALPILOT_SOURCE_SKILL_MANIFEST,
@@ -3108,6 +3181,11 @@ function seedGovernance(
     WEB_RESEARCH_SKILL_ID,
     "jobpilot.researchCultureSource",
     "learning.proposePreferenceAdjustment",
+    // TASK-032: the flight-gated observation digest. Allow-listed
+    // unconditionally (the list is static agent capability scope); with the
+    // flight off the Skill is never registered and the Automation never
+    // seeded, so the entry is inert.
+    OBSERVATION_DIGEST_SKILL_ID,
   ]);
   roles.roleGrants.set("role-learning", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
@@ -4083,6 +4161,11 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       "BRIDGE_LOCAL_DIR is required: DealPilot Records, captures, and continuation state cannot use process-local runtime storage",
     );
   }
+  // TASK-032 flight — options override wins (tests/deployments); otherwise
+  // the environment decides; absent both, the loop is OFF.
+  const learningObservationEnabled =
+    options.learningObservationEnabled ??
+    ["1", "true"].includes((process.env.BRIDGE_LEARNING_OBSERVATION ?? "").trim().toLowerCase());
   const credentialProvider =
     process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT ??
     (runningUnderNodeTest() ? "os-keyring" : undefined);
@@ -4685,6 +4768,66 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     }
   }
 
+  // TASK-032 — flight-gated scheduled observation digest. Registered ONLY
+  // while the learning observation flight is on: the Skill goes into the
+  // registry, its Goal/Task pair is ensured, and the Automation lands in the
+  // canonical registry with the Learning Agent as its sole actor. With the
+  // flight off none of this exists — no Skill, no Automation row, nothing to
+  // click or trigger. Idempotent: goal/task lookups reuse existing rows;
+  // `automationRegistry.save` overwrites the same id with identical content.
+  if (learningObservationEnabled) {
+    skillRegistry.register(
+      createObservationDigestSkill({
+        memoryStore,
+        pilotUserId,
+        enabled: () => learningObservationEnabled,
+      }),
+    );
+    const digestSeam = { nextId: () => uuidv7(), nowISO: () => new Date().toISOString() };
+    const digestGoal =
+      (await goalTasks.listGoals(PILOT_ORGANIZATION)).find((row) => row.type === LEARNING_OBSERVATION_GOAL_TYPE) ??
+      (await goalTasks.createGoal(
+        {
+          organizationId: PILOT_ORGANIZATION,
+          type: LEARNING_OBSERVATION_GOAL_TYPE,
+          title: "Learning observation digest outcome",
+        },
+        digestSeam,
+      ));
+    const digestTask =
+      (await goalTasks.listTasksByGoal(PILOT_ORGANIZATION, digestGoal.id)).find(
+        (row) =>
+          row.type === OBSERVATION_DIGEST_TASK_TYPE &&
+          row.assignedAgentId === LEARNING_AGENT &&
+          row.status !== "cancelled",
+      ) ??
+      (await goalTasks.createTask(
+        {
+          organizationId: PILOT_ORGANIZATION,
+          goalId: digestGoal.id,
+          type: OBSERVATION_DIGEST_TASK_TYPE,
+          assignedAgentId: LEARNING_AGENT,
+        },
+        digestSeam,
+      ));
+    await automationRegistry.save({
+      id: LEARNING_DIGEST_AUTOMATION_ID,
+      name: "Learning observation digest",
+      organizationId: PILOT_ORGANIZATION,
+      agentId: LEARNING_AGENT,
+      agentPlane: "local",
+      steps: [
+        {
+          skill: OBSERVATION_DIGEST_SKILL_ID,
+          action: "write",
+          resourceType: "signal",
+          dataScope: "all",
+          goalTaskRef: { goalId: digestGoal.id, taskId: digestTask.id },
+        },
+      ],
+    });
+  }
+
   // LOCAL-plane media store (the priority track). bytea blobs live here, never cloud.
   // LOCAL_MEDIA_DIR set => persistent pglite on disk; unset => in-memory (zero-infra).
   const localMediaDir = process.env.LOCAL_MEDIA_DIR;
@@ -4776,6 +4919,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     googleManifest: GOOGLE_MANIFEST,
     pilotUserId,
     pilotUserEmail,
+    learningObservationEnabled,
     dealpilot: {
       integrationId: dealPilotIntegrationId,
       store: dealPilotRuntimeStore,

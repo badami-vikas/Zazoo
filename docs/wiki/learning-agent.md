@@ -16,7 +16,10 @@ Skill + SearchProvider + shared net-guard + ContentGuard. Raw snippets stop
 at quarantine. Cited Result + private Memory + Event keep rights, hashes,
 provider attempts, `untrusted_external`. No research-to-prompt sink.
 Onboarding profile persists as private Local Plane Memory. Embeddings exist, no retrieval. Full
-runtime taint RT0–RT4 DONE (TASK-015).
+runtime taint RT0–RT4 DONE (TASK-015). LA2 observation loop v1 landed 2026-08-03 (TASK-032):
+generic signals→digest→suggested preference in core `learning/observation` over MemoryStore
+lineages; suggested-then-accepted + annoyance cap + rejection suppression store-enforced;
+DealPilot triage decisions bound as first consumer (pure mapping). API/UI wiring open.
 
 **TASK-002 partial:** every onboarding question says why + effect. User may skip
 role model. Fixed-host Wikipedia research returns citation + separates documented
