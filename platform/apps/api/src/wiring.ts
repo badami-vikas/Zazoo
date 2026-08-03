@@ -370,7 +370,7 @@ export interface Wiring {
   pilotUserId: string;
   /** Email paired with the approved Supabase Auth pilot subject. */
   pilotUserEmail: string;
-  /** Feature flight for the TASK-029 learning observation loop (`learning.*`
+  /** Feature flight for the TASK-032 learning observation loop (`learning.*`
    * router). OFF by default; enabled via `BRIDGE_LEARNING_OBSERVATION=1` (or a
    * test override). Disabled means every `learning.*` procedure fails closed
    * with a typed error and `learning.status` reports `{ enabled: false }` so
@@ -680,7 +680,7 @@ export const RED_FLAG_LEARNING_SKILL_MANIFEST = {
   childRunPolicy: "forbidden",
 } as const;
 
-/** TASK-029 — the scheduled observation digest. One governed Skill the
+/** TASK-032 — the scheduled observation digest. One governed Skill the
  * Learning Agent runs (advisory, Local Plane, signal:write only): it batches
  * recorded decision signals into SUGGESTED preference Memories via the
  * kernel's `digestSignals`. Suggested-then-accepted holds by construction —
@@ -3181,7 +3181,7 @@ function seedGovernance(
     WEB_RESEARCH_SKILL_ID,
     "jobpilot.researchCultureSource",
     "learning.proposePreferenceAdjustment",
-    // TASK-029: the flight-gated observation digest. Allow-listed
+    // TASK-032: the flight-gated observation digest. Allow-listed
     // unconditionally (the list is static agent capability scope); with the
     // flight off the Skill is never registered and the Automation never
     // seeded, so the entry is inert.
@@ -4161,7 +4161,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       "BRIDGE_LOCAL_DIR is required: DealPilot Records, captures, and continuation state cannot use process-local runtime storage",
     );
   }
-  // TASK-029 flight — options override wins (tests/deployments); otherwise
+  // TASK-032 flight — options override wins (tests/deployments); otherwise
   // the environment decides; absent both, the loop is OFF.
   const learningObservationEnabled =
     options.learningObservationEnabled ??
@@ -4768,7 +4768,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     }
   }
 
-  // TASK-029 — flight-gated scheduled observation digest. Registered ONLY
+  // TASK-032 — flight-gated scheduled observation digest. Registered ONLY
   // while the learning observation flight is on: the Skill goes into the
   // registry, its Goal/Task pair is ensured, and the Automation lands in the
   // canonical registry with the Learning Agent as its sole actor. With the

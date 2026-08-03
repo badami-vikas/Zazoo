@@ -20,6 +20,8 @@ import { IntelligencePage } from "./pages/IntelligencePage";
 import { ResearchRunsPage } from "./pages/ResearchRunsPage";
 // TASK-001 / VOCAB6: manifest-driven Module Detail (§4b)
 import { ModuleDetailPage } from "./pages/ModuleDetailPage";
+// WhatsApp Module: the live session surface plus its Tool list.
+import { WhatsAppPage } from "./pages/WhatsAppPage";
 import { InstalledModuleBoundary } from "./components/InstalledModuleBoundary";
 import {
   RelationshipPage,
@@ -116,6 +118,12 @@ export const router = createBrowserRouter([
           </InstalledModuleBoundary>
         ),
       },
+
+      // WhatsApp Module Pages. The Module lands on Chats; /module/whatsapp
+      // alone redirects there rather than showing the capability inventory.
+      { path: "module/whatsapp", element: <Navigate to="/module/whatsapp/chats" replace /> },
+      { path: "module/whatsapp/chats", element: <WhatsAppPage page="chats" /> },
+      { path: "module/whatsapp/tools", element: <WhatsAppPage page="tools" /> },
 
       // TASK-001 / VOCAB6: manifest-driven Module Detail surface (§4b).
       // Route param = moduleName (e.g. "deal-pilot", "job-pilot"). Every

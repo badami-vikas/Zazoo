@@ -264,7 +264,7 @@ type LearningSuggestionList = Awaited<ReturnType<typeof trpc.learning.suggestion
 type LearningPreferenceList = Awaited<ReturnType<typeof trpc.learning.preferences.list.query>>;
 
 /**
- * TASK-029 — observed-learning review: the "your Egg noticed a pattern — keep
+ * TASK-032 — observed-learning review: the "your Egg noticed a pattern — keep
  * it?" moment. Suggested-then-accepted stays Human-gated here: Accept is the
  * ONLY path that turns a proposal into a learned preference. The whole card
  * hides itself while the learning observation flight is off

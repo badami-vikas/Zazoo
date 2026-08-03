@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 /**
  * Deterministic uuid from a stable string seed (sha256 → RFC-4122 shape,
  * version nibble 5-style). The SAME seed always yields the SAME uuid — the
- * convention every uuid-typed lineage key (red-flag anchors, TASK-029
+ * convention every uuid-typed lineage key (red-flag anchors, TASK-032
  * learning-suggestion lineages) uses so re-derivation on any instance
  * addresses the same row. Extracted from router.ts so wiring.ts can share it
  * without a router→wiring→router import cycle.

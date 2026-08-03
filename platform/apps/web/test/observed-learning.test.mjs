@@ -1,5 +1,5 @@
 /**
- * TASK-029 — ObservedLearningCard (Settings → Learning) source contract:
+ * TASK-032 — ObservedLearningCard (Settings → Learning) source contract:
  * the flight-gated "your Egg noticed a pattern — keep it?" review surface.
  */
 import assert from "node:assert/strict";

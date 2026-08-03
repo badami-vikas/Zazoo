@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { FixedClock, SeededRng, UuidGen, type Proposal, type RunCtx } from "@bridge/core";
-import type { BodyStore, LocalEntityRecord, LocalGraphStore, LocalPerson, StoredBody } from "@bridge/local";
+import type { BodyStore, LocalEntityRecord, LocalGraphStore, LocalMessage,
+  LocalMessageSearchCapabilities, LocalMessageSearchHit, LocalPerson,
+  LocalPersonList, LocalThreadActivity, StoredBody } from "@bridge/local";
 import { IntakeMaterializer, IntakeService, type IntakeDirective, type IntakeServiceDeps } from "../src/intake.js";
 import { CALENDAR_SOURCE, GMAIL_SOURCE, type CalendarEvent, type GmailThread } from "../src/contracts.js";
 
@@ -102,6 +104,22 @@ class test_fixture_Graph implements LocalGraphStore {
   async listPeople(_organizationId: string): Promise<LocalPerson[]> {
     return [];
   }
+  // Source-scoped identity and person lists exist for imports whose people have
+  // no email (WhatsApp). Google intake matches on email and uses neither, so
+  // these stay inert here rather than pretending to support a list.
+  async findPeopleByDedupeKey(_organizationId: string, _dedupeKey: string): Promise<LocalPerson[]> {
+    return [];
+  }
+  async ensurePersonList(list: LocalPersonList): Promise<LocalPersonList> {
+    return list;
+  }
+  async listPersonLists(_organizationId: string): Promise<LocalPersonList[]> {
+    return [];
+  }
+  async addPeopleToList(_listId: string, _personIds: readonly string[]): Promise<void> {}
+  async listPeopleInList(_listId: string): Promise<LocalPerson[]> {
+    return [];
+  }
   async commitEntity(entry: LocalEntityRecord): Promise<void> {
     this.committed.push(entry);
   }
@@ -118,6 +136,27 @@ class test_fixture_Graph implements LocalGraphStore {
     return null;
   }
   async setSyncCursor(): Promise<void> {}
+  // The Local Plane message store (ADR-158) holds captured message BODIES for
+  // sources that stream conversations. Google intake stores its raw payloads
+  // through BodyStore instead and never writes a local_messages row, so these
+  // stay inert here rather than pretending this fixture indexes anything.
+  async putMessages(_messages: readonly LocalMessage[]): Promise<void> {}
+  async listMessages(): Promise<LocalMessage[]> {
+    return [];
+  }
+  async searchMessages(): Promise<LocalMessageSearchHit[]> {
+    return [];
+  }
+  async getThreadActivity(
+    _organizationId: string,
+    _source: string,
+    chatId: string,
+  ): Promise<LocalThreadActivity> {
+    return { chatId, inboundCount: 0, outboundCount: 0 };
+  }
+  async messageSearchCapabilities(): Promise<LocalMessageSearchCapabilities> {
+    return { fullText: false, trigram: false };
+  }
 }
 
 function build(): { intake: IntakeService; pipeline: test_fixture_Pipeline; bodies: test_fixture_Bodies; graph: test_fixture_Graph } {

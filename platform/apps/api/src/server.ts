@@ -560,7 +560,7 @@ export async function buildServer() {
     );
     relationReconciliationTimer.unref();
   }
-  // TASK-029 — scheduled learning observation digest. Runs the governed
+  // TASK-032 — scheduled learning observation digest. Runs the governed
   // Automation (Learning Agent, advisory, propose-only) every 15 minutes and
   // once shortly after boot. Exists ONLY while the flight is on and never on
   // the public cloud boundary (the digest reads/writes private Local-Plane

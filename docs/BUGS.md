@@ -2,6 +2,31 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **OPEN 2026-08-03 — CI's `platform` job has been red on `main` since 2026-07-31; `check:vocabulary` fails on 98 TASK-028 research occurrences (attach: TASK-028).**
+  Every push to `main` since `8bc1337` ("Make Research Runs durable kernel records…", 2026-07-31) has failed
+  the `platform (typecheck + test + build)` job at the `pnpm check:vocabulary` step, which runs BEFORE
+  `turbo run typecheck test build` and therefore prevents the real gate from executing at all. Six consecutive
+  red runs on `main` (30483224188, 30542036934, 30617226228, 30617629654, 30618197646, 30798138126).
+  Evidence: `node platform/scripts/check-retired-vocabulary.mjs` reports 98 new retired-vocabulary
+  occurrences in 17 files, all from the TASK-028 Research Run surface — `packages/research/src/{engine,
+  chat-planner,http-reader,ports}.ts` and tests, `packages/core/src/research-run.ts`,
+  `packages/db/src/{research-run-store,schema}.ts`, `apps/api/src/router.ts`,
+  `apps/api/test/research-runs.test.ts`, `apps/web/src/app/avatar/ResearchRun.tsx`,
+  `apps/web/src/app/pages/ResearchRunsPage.tsx`, `apps/web/test/module-detail.test.mjs`. The families are
+  `tool`/`element`/`package` — the vocabulary the migration retired.
+  Why it went unnoticed: `check:vocabulary` is a ROOT script outside the turbo task graph, so the local
+  `turbo run typecheck test build` that TASK-028 verified with (and that this session used for TASK-031)
+  reports fully green while CI fails. A local `pnpm -C platform check:vocabulary` is the only local repro.
+  Not caused by TASK-031: the 2026-08-03 cleanup commits added 3 `package`-family occurrences in a new test
+  file (`apps/web/test/table-renderers.test.mjs`), which were removed in `ee19f75` before this record; the
+  remaining 98 contain zero files touched by that work.
+  Resolution needs a decision, not a ratchet: the script explicitly refuses to grow the baseline
+  ("Refusing to grow the retired-vocabulary baseline"), so the options are migrating the Research Run
+  identifiers/copy to current vocabulary or adding reviewed entries to the explicit allowlist in
+  `platform/scripts/check-retired-vocabulary.mjs`. Both belong to TASK-028's surface.
+  Recommended follow-up regardless of which: add `check:vocabulary` (and `check:agent-context`) to the
+  local verification path so a root-script gate can never again be invisible to `turbo run`.
+
 - **RESOLVED 2026-07-13 — Baseline web typecheck failed after Chief-of-Staff `direct_reply` routing was added.**
   `platform/apps/web/src/app/components/shared/AgentPanel.tsx:218` and
   `platform/apps/web/src/app/pages/ChiefOfStaffPage.tsx:84` access `classification.route` without first narrowing
@@ -2135,3 +2160,280 @@ local-first research planner, the local companion ask), was unavailable with no 
 **Fix**: `[profile.dev.package.sha2/digest/block-buffer/cpufeatures] opt-level = 3` in
 `src-tauri/Cargo.toml` — debug builds now hash at near-release speed; release profiles unchanged.
 The verification itself is deliberately NOT cached or weakened.
+
+## OPEN 2026-08-02 — WhatsApp session webview: downloads silently do nothing, no macOS data store identity (TASK-029)
+Found by reuse intake against `karem505/whatRust` (MIT, Tauri v2), then verified against our own
+`platform/apps/desktop/src-tauri/src/whatsapp_webview.rs` — both gaps confirmed absent by grep, not
+inferred.
+
+1. **Downloads are inert.** No `on_download` handler is registered on the session webview. wry only
+   wires up the platform download machinery when a handler exists, so WhatsApp Web's download control
+   fires with no file written and no error surfaced anywhere — the failure is silent on every plane.
+   Not yet observed live because the exit test has not reached a media download; filed on verified
+   code absence rather than waiting for a report.
+2. **No `data_store_identifier`.** The session window is built without a persisted WKWebView data
+   store identity (available macOS >= 14). This is the leading candidate for the
+   `aquire-persistent-storage-denied` console error previously dismissed as noise after a restart
+   test showed the session surviving — survival does not prove the store is the one we intend, only
+   that *a* store persisted. Unproven; to be confirmed or refuted when the fix is attempted.
+
+Not reproduced as user-facing reports; both are code-absence defects in already-landed work. Neither
+depends on the pending engine/UI decision, so both are scheduled as fixes (not features) in the
+adapter phase. Deliberately NOT copied from whatRust: its `navigator.userAgentData` client-hints shim,
+which exists because it advertises a Chrome UA. We advertise Safari, and real Safari does not
+implement `userAgentData` — adding the shim would make our fingerprint self-contradictory rather than
+consistent. Attached to TASK-029.
+
+### UPDATE 2026-08-02 — both fixes written; the `data_store_identifier` theory is WEAKENED, not confirmed
+Track A implemented both (`on_download` with hostile-filename handling and no-overwrite; a persisted
+v4 UUID data store guarded to macOS >= 14). **Neither is demonstrated fixed** — no live run has
+happened, so this entry stays OPEN.
+
+Correcting my own attribution above: I called the missing `data_store_identifier` the "leading
+candidate" for `aquire-persistent-storage-denied`. Track A rates it LOWER than I did and gives a
+reason I accept — the error originates in WebKit's quota path, not store selection, and the earlier
+restart test that showed the session surviving is evidence the DEFAULT store was already working.
+The fix is worth having on its own merits (per-account isolation), but it should not be expected to
+silence that error. If it does, that is a surprise to be explained, not a confirmation.
+
+### UPDATE 2026-08-02 (2) — the `data_store_identifier` theory is REFUTED; downloads remain undemonstrated
+Live evidence closes the data-store question. The Chats surface reads **"Session live — 500 chats"**,
+and on disk the identified store `~/Library/WebKit/bridge-desktop/WebsiteDataStore/<uuid>/` holds
+`https://web.whatsapp.com` origin storage — nine IndexedDB databases, ~3.7 MB, actively written —
+while the DEFAULT store's `IndexedDB` and `LocalStorage` directories are **empty and untouched since
+2026-07-07**. `data_directory` was never used on this webview, so there was never a default-store
+session to orphan. The identifier neither caused the sync failure nor requires a re-link; it stands
+on its per-account isolation merits. Recorded as ADR-158 addendum 3. **Do not revisit this theory.**
+
+Item 1 (inert downloads) is still NOT demonstrated — no live run has reached a media download. This
+entry therefore stays OPEN for that item alone.
+
+## RESOLVED 2026-08-02 — a live 500-chat session synced nothing and called it "up to date" (TASK-030)
+User-observed, on the Chats surface, simultaneously: `Session live — 500 chats`, sync result
+`Everything is already up to date.`, chat list `No messages have been synced yet`. Nothing synced.
+
+Two defects compounded, neither in the Rust security boundary:
+
+1. **`whatsapp_message_ops.rs`, `list_chats`.** Last-activity time was read through
+   `c.lastReceivedKey ? c.t : c.t` — a ternary whose two arms are the SAME expression, so only one
+   field was ever consulted. On the live account that field was absent and all 500 chats came back
+   with `lastMessageTimestamp: null`. A second latent defect in the same script called
+   `c.id.isGroup()` unconditionally, which throws on builds where it is a plain boolean and silently
+   made every group look like a direct chat.
+2. **`chatsDueForSync` (`@bridge/whatsapp`) and its copy in the web `sync.ts` loop.** A chat with no
+   usable timestamp was dropped outright — `return false`. With all 500 undated the queue was empty,
+   and `queue.length === 0` rendered as `"Everything is already up to date."` **The success message
+   is what hid the total read failure**, exactly the empty-state honesty rule `docs/wiki/whatsapp.md`
+   requires.
+
+Fixed: the extraction now consults `c.t`, `c.lastMsgTimestamp` and `c.msgs.last().t` and reports
+`null` rather than `0` when none answers; `isGroup` is handled as either property or method. An
+undated chat is now scheduled for exactly ONE read, gated on the store's cursor so it converges
+rather than re-reading forever. Reporting is split into `nothing-readable` vs `completed`, rendered
+in the failed phase's colour, and the status bar now labels which plane each count describes
+(`N chats on WhatsApp · M stored in Bridge`) so two true facts stop reading as a contradiction.
+
+An existing test asserted the defective behaviour — that a chat with no timestamp is never due. It
+encoded the bug as a requirement and was rescoped to dated chats, with the undated cases moved to
+new tests. Regression coverage: 3 Rust tests, 3 behavioural tests in `@bridge/whatsapp`, 4
+source-level tests in `@bridge/web`. Recorded as ADR-158 addendum 3.
+
+**Not yet demonstrated live** — the fix is verified by build and test only. Which of the three
+timestamp sources actually answers on the live account is unknown; the fix does not depend on it.
+Live procedure in `outputs/2026-08-02-task-030-sync-fix.md`.
+
+## RESOLVED 2026-08-02 — `MESSAGE_WPP_DEPENDENCIES` was declared and never read (TASK-030)
+A live compiler warning that was also a real coverage gap: the session-start health tripwire built
+its list from `WPP_DEPENDENCIES` only, so `WPP.chat.getMessages` had no coverage and wa-js drift on
+the message path would surface at first sync rather than at link time — the same class of gap
+already recorded for the send path. `health_script` now merges both lists, deduplicated
+(`ChatStore.getModelsArray` is genuinely in both and must be checked once). `WPP.chat.getMessages`
+is existence-checked only, never invoked — calling it in a tripwire would read a real conversation
+at session start. Two tests pin the merge and the never-invoked property. Warning is gone.
+
+## RESOLVED 2026-08-02 — a raw NUL byte in `whatsapp_webview.rs` made the file binary to every text tool
+Found at integration, not by any test. Track A's in-page event batcher used a literal NUL byte as a
+composite-key separator (`kind + NUL + key`) inside a Rust RAW string literal. It compiled, and all
+102 Rust tests passed, because Rust and JavaScript both accept NUL inside a string.
+
+The damage was to tooling, and it was silent: `file` reported the source as `data` rather than text,
+and **grep treats a file containing NUL as binary and suppresses ALL matches**. Every grep against
+this file returned nothing and looked like a clean negative — including greps for security-relevant
+strings, in the one file that holds the read-op allowlist and the navigation policy. This was caught
+only because a grep for `emit` came back empty on a file that demonstrably contained it.
+
+Fixed by writing the separator as a six-character JavaScript unicode escape (backslash-u-0000),
+which a Rust raw string passes through untouched and JavaScript parses as NUL — identical runtime
+behaviour, plain-text file. A raw string cannot use a Rust-level escape, which is why the literal
+byte was there in the first place. Verified: `file` now reports UTF-8 text, greps match, 102 Rust
+tests still pass. Attached to TASK-030.
+
+## RESOLVED 2026-08-02 — Track A and Track B chose different names for the same event channel
+Track A's Rust emitted `whatsapp://session-events`; Track B's TypeScript listened on
+`whatsapp:events`. Nothing failed loudly — B was deliberately written to degrade silently when the
+channel is absent, so the push channel would simply never have delivered while both sides looked
+correct in isolation.
+
+Reconciled at integration to `whatsapp:session-events`, matching the repo's established convention
+(`sensor:capture`, `annotate:marks`, `bridge:navigate`). This is functional, not cosmetic: BUGS
+2026-07-29 records that dotted Tauri event names in this codebase NEVER delivered. Neither agent's
+original name matched the convention. Attached to TASK-030.
+
+## RESOLVED 2026-08-02 — the desktop shell loaded a DIFFERENT PROJECT's app for a whole session
+Found by the user, not by any check of mine. `tauri.conf.json` hardcoded `devUrl:
+http://localhost:5173`. An unrelated Vite project on this machine
+(`~/Documents/Workspace/Herbs`) held `[::1]:5173`; Bridge's own Vite bound `127.0.0.1:5173`. Both
+coexist because they are different address families, and macOS resolves `localhost` to `::1` FIRST —
+so the Bridge shell loaded the other project's UI ("Evidence Copilot") while Bridge's dev server ran
+correctly and was ignored.
+
+**How it evaded every check I ran.** The Tauri process was up, the API sidecar reported healthy, the
+Rust build was clean, and the web bundle built — so "launched successfully" was true of every layer
+except the one that mattered. I reported the app running three times without ever verifying WHAT the
+window rendered. The user saw it immediately.
+
+Consequence beyond the wasted runs: the user's report of an "overlap child parent structure, not one
+integrated app" was partly this. They were seeing a third party's application in the main window with
+Bridge's WhatsApp session floating over it. The child-window criticism was independently valid and
+the hidden-engine work stands on its own, but the screen was worse than the architecture being
+argued about.
+
+Fixed by pinning `devUrl` to `http://127.0.0.1:5173`. `localhost` in a devUrl is ambiguous whenever
+two dev servers share a port number across address families, and the failure is silent in both
+directions. Verified from both ends after the fix: IPv4 serves `<title>Bridge</title>`, IPv6 serves
+`<title>Evidence Copilot</title>`. The other project's server was left running — it is the user's.
+
+Standing correction to how I verify: a live process plus a healthy API is NOT evidence the right
+frontend is loaded. Attached to TASK-030.
+
+## RESOLVED 2026-08-02 — WhatsApp wedged on its own splash screen forever; the shell had no recovery affordance (TASK-030)
+
+Live: the session rendered WhatsApp Web's splash (logo + progress bar) indefinitely. Cause: the
+persisted WKWebView data store held session state WhatsApp had invalidated — the device had been
+unlinked — and WhatsApp Web neither recovers from that nor reports it. Diagnosis required an
+out-of-band Swift WKWebView probe because the shell exposed nothing; the only escape was quitting
+Bridge and moving `~/Library/WebKit/bridge-desktop/WebsiteDataStore/<uuid>` aside by hand in a
+terminal. The defect being filed is the AFFORDANCE GAP, not WhatsApp's behaviour.
+
+Resolved (ADR-159): `whatsapp_session_reload` (same store, fresh page — the cheap first try, also
+offered in the connected-but-chatless state seen live the same day) and `whatsapp_session_reset`
+(destroy window, `rename` the store dir to a timestamped sibling — NEVER deleted — and clear the
+persisted store-id so the next start mints a fresh store and shows a QR). Reset is confirm-gated in
+the Chats surface and appears only when the device is not linked. Filesystem behaviour proven by
+unit tests over temp dirs; the live wedge itself was cured by the manual move, so the commands are
+proven-by-test, not yet proven against a live recurrence.
+
+## OPEN 2026-08-03 — the durable send ceiling cannot tell a MANUAL send from an automated one, so it refuses ordinary human replies (TASK-030, ADR-160)
+
+The Chats compose box (ADR-160) converges on the same `whatsapp_send_start` command as an Agent's
+send, which is correct — one transport, one durable ledger. But the Rust ceiling in
+`whatsapp_send.rs` applies ONE limit set to every send that reaches it: a 30/day rolling cap and a
+SEVEN-DAY per-recipient cooldown. Those numbers were chosen for bulk outreach.
+
+Consequence for a human: the first manual message to a contact goes; a second message to the SAME
+contact inside seven days is refused with `WHATSAPP_SEND_COOLDOWN`. Ordinary back-and-forth in a
+conversation is therefore not possible from the Chats surface.
+
+Not hidden: the composer renders the refusal, its reason and the instant it clears, and states that
+manual and automated sends share one durable limit. It is honest and it is still wrong for the
+product.
+
+Fix (SHELL, deliberately outside the web-scope change that filed this): give `whatsapp_send_start`
+an `origin` argument (`"manual" | "automated"`), apply separate limits per origin from the SAME
+ledger, and keep the sticky kill switch binding on BOTH origins. One transport, one durable ledger,
+two limit sets. The renderer already distinguishes the two callers (`sendManualMessage` vs
+`sendAutomatedMessage`), so nothing but the argument and the Rust limit lookup is missing.
+
+Not yet observed live — no message has been sent by this code against a real account. The refusal
+is predicted from reading `check_ceiling`, not from a live cooldown hit.
+
+## RESOLVED 2026-08-03 — a thread longer than the read limit returned its OLDEST messages, so the newest were unreachable (TASK-030)
+
+Found while verifying the in-thread ordering complaint. `LocalGraphPort.listMessages` (both the
+pglite and in-memory stores) reads `ORDER BY sent_at, message_id LIMIT $4`, and `whatsapp.thread`
+passes a default limit of 5,000. Ascending order plus a LIMIT takes the OLDEST N rows, not the
+newest — so once a conversation exceeds the limit, the Chats surface can never show its recent
+messages, and the newly added scroll-to-newest lands on the 5,000th oldest message rather than the
+actual latest one.
+
+Not yet observed live: no synced thread in the current store is near 5,000 messages, so the surface
+looks correct today. It is a latent read defect, confirmed by reading the query, not by a symptom.
+
+Fix: select the newest N (`ORDER BY sent_at DESC, message_id DESC LIMIT n`) and reverse for
+rendering, or paginate backwards from the newest. Touches `packages/local/src/stores/{pglite,memory}.ts`
+and the `whatsapp.thread` procedure — outside the Chats-surface scope that filed this.
+
+**RESOLVED 2026-08-03.** Both stores now select `ORDER BY sent_at DESC, message_id DESC LIMIT n`
+and reverse, keeping the port's documented oldest-first contract while truncating from the correct
+end. The tiebreak reverses with the sort key so equal `sent_at` rows keep a stable total order. The
+in-memory store was changed in lockstep — a test double that truncated from the other end would
+have let this regress unseen. `whatsapp.thread` needed no change; its contract was already right.
+
+Proven by NEGATIVE CONTROL rather than a green suite: with the fix reverted, the two new tests fail
+with exactly the reported symptom (`m0000..` returned where `m0015..` was expected); with it
+restored, `@bridge/local` is 40/40. This mattered — the first run of those tests passed against
+UNBUILT output and reported the baseline 37, which would have read as success.
+## OPEN 2026-08-03 — `list_contacts` returns an empty list on an 8,384-contact account, and chats carry no last-activity time (TASK-030)
+
+Live, on the user's own linked session: the contact extraction returned NOTHING while chats in the
+same session plainly showed phone numbers and names; and the chat list did not order by recency.
+
+Both were diagnosed against the bundle we ship (`vendor/wppconnect-wa.js`, wa-js v4.5.0, SHA-256
+pinned), not against documentation.
+
+- **Contacts.** `WPP.contact.list({ onlyMyContacts: true })` is a client-side
+  `filter(e => e.isMyContact)`, and `isMyContact` is a getter wa-js installs by DUCK-TYPING
+  WhatsApp's webpack modules for `getIsMyContact`. If that binding breaks, every flag is
+  `undefined` and the filter returns an EMPTY ARRAY WITH NO ERROR. The previously standing LID-
+  migration hypothesis was NOT confirmed and is not the explanation on the evidence available.
+- **Chat recency.** The candidate list was built EAGERLY inside one `try` — `c.msgs.last()` was
+  evaluated before `c.t` was read, and its throw discarded the whole block including a good `c.t`.
+  Separately, `lastMsgTimestamp` and `msgs.last` have ZERO occurrences in the pinned bundle, so two
+  of the three declared sources never existed; `t` is the only field declared on WhatsApp's
+  ChatModel. The sort in `syncedThreads` was never the bug — the data was.
+
+Fixed (ADR-162): the saved-contact filter moved into the op so its failure is visible — a
+non-boolean flag is UNREADABLE, not `false`, and contacts-present-but-none-readable now THROWS
+rather than resolving as an empty success. Activity candidates are evaluated lazily, each in its own
+`catch`, `t` first, with a `>1e11` milliseconds guard; each summary carries `activitySource` naming
+the field that answered. Proven by test (Rust 145 pass, +6 new; `@bridge/whatsapp` 248 pass) and by
+build. NOT yet proven against the live account.
+
+**Live probe still wanted — run in the RUNNING app's WhatsApp webview console** (read-only, counts
+and field names only, no message text, no ids, no numbers; one pass over the in-memory store, no
+network, no per-chat burst):
+
+```js
+(() => {
+  const cs = WPP.whatsapp.ContactStore.getModelsArray();
+  const flag = {};
+  for (const c of cs) { const t = typeof c.isMyContact; flag[t] = (flag[t] || 0) + 1; }
+  const chats = WPP.whatsapp.ChatStore.getModelsArray();
+  const src = { t: 0, lastMsgTimestamp: 0, "msgs.last": 0, none: 0, threw: 0 };
+  for (const c of chats) {
+    let hit = "none";
+    for (const [name, get] of [
+      ["t", () => c.t],
+      ["lastMsgTimestamp", () => c.lastMsgTimestamp],
+      ["msgs.last", () => (c.msgs && typeof c.msgs.last === "function" ? c.msgs.last()?.t : undefined)],
+    ]) {
+      let v; try { v = get(); } catch { src.threw++; continue; }
+      if (typeof v === "number" && isFinite(v) && v > 0) { hit = name; break; }
+    }
+    src[hit]++;
+  }
+  return { contacts: cs.length, isMyContactTypes: flag, chats: chats.length, activitySource: src };
+})()
+```
+
+What each answer means:
+- `isMyContactTypes: { boolean: N }` with N > 0 → the flag IS readable; a small saved count is a
+  true fact about the address book, and the fix returns exactly those.
+- `isMyContactTypes: { undefined: 8384 }` → the wa-js binding is broken; the fix now surfaces this
+  as an error instead of an empty list, and restoring contacts needs a wa-js bump, not a code change
+  here.
+- `activitySource: { t: ~500 }` → `c.t` is populated and the lazy-evaluation fix alone restores
+  recency ordering.
+- `activitySource: { none: ~500 }` → no field on this build carries last activity; ordering cannot
+  be recovered from the chat list at all, and the honest surface is "undated", with recency instead
+  derived from stored messages as chats get synced.

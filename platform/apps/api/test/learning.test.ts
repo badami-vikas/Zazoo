@@ -1,5 +1,5 @@
 /**
- * learning.* (TASK-029) — the observation-loop flight over the real
+ * learning.* (TASK-032) — the observation-loop flight over the real
  * `buildWiring()` composition root.
  *
  * Contract under test:
