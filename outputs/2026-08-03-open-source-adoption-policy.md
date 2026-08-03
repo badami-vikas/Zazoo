@@ -55,25 +55,44 @@ the union across axes, evaluated against the carrier and the deployment shape.
 
 ---
 
-## 3. The demotion ladder — nothing researched is ever wasted
+## 3. The capability maturity path — research climbs, it never dies
 
-The rule: **a source that cannot be adopted at one carrier falls to the next, and only falls off the
-bottom if it fails all four.** "We rejected it" is never the end state; the end state is always a
-carrier.
+Research does not fail; it lands at a maturity level. Every level is a real, durable artifact, and
+every level has a defined promotion upward. Read bottom-up, this is how a finding becomes running
+software.
 
-1. **Module** — permissive payload (A1 permissive, notices generated). Bridge ships the code.
-2. **Skill** — any license, including AGPL and restricted. Bridge ships the *contract*: adapter
-   interface, prompts, guardrails, evals, wiring, deployment instructions, and a bring-your-own
-   install or key. The user supplies the implementation and owns its obligations.
-3. **Pattern Skill** — where even referencing the implementation is unsafe (restricted licence,
-   patent, trademark). Bridge publishes the *behaviour*: features, outcomes, approach, benchmarks —
-   and the Builder Agent reimplements independently. This is the existing
-   [clean-room protocol](../docs/raw/clean-room-capability-research-protocol-2026-07.md), and its
-   rule holds: whoever read the restricted source does not write the alternative.
-4. **Decision-log note** — the residue. Recorded so the next person does not re-research it.
+| Level | Artifact | What it holds |
+|---|---|---|
+| **R0 — raw** | `docs/raw/<capability>-<date>.md` | Full-depth research record: evidence, benchmarks, licence vector, what was tried, what it cost, why not now, **and the upgrade trigger** |
+| **R1 — capability wiki** | `docs/wiki/<capability>.md` | Caveman-terse, discoverable. The one-screen answer to "can Bridge do X, and with what?" |
+| **R2 — Pattern Skill** | Commons Skill, behaviour only | Features, outcomes, approach. Builder Agent reimplements independently |
+| **R3 — Skill** | Commons Skill + `byo_install` / `byo_key` | Adapter contract, prompts, guardrails, evals, wiring. User supplies the implementation |
+| **R4 — Module** | Commons Module | Bridge ships the code |
 
-Rungs 2 and 3 are where most of the value is, because they are how Bridge captures worth from
-software it may never bundle.
+**Licence sets the ceiling. RoI sets the current level.** A restricted licence caps a capability at R2
+no matter how valuable it is. A permissive licence permits R4, but a capability nobody needs yet
+simply rests at R1 until someone does.
+
+**Every R0 record must name its upgrade trigger.** This is the load-bearing rule, and it is what
+separates a live queue from a graveyard. "Low RoI" is a dead note. "Low RoI until the cost per page
+drops below X" or "until a customer needs JS-rendered public records" or "until the binary's licence
+reaches a free tier" is a queue entry that a future agent can evaluate mechanically. A trigger names
+a condition and, where possible, where to check it.
+
+**Why R1 is a wiki and not a log entry.** A decision-log note is written for the person who wrote it.
+A capability wiki entry is written for whoever asks next — including the Learning Agent, which should
+answer "can we do X?" from prior research instead of re-running it, and the Builder Agent, whose
+"integrate instead of build?" evidence (LA4) is exactly this index. That makes the corpus compound
+rather than accumulate.
+
+This also captures what a research agent finds *incidentally*: a cheap fix spotted while looking for
+something else, a library that solved a nearby problem, an approach that did not fit today's question.
+Those land at R0 with a trigger and become discoverable at R1, instead of being lost because they were
+not the answer to the question being asked.
+
+**The symmetry is worth noticing:** this is the same notebook→wiki promotion flow being adopted from
+WUPHF as an R2 Pattern Skill (§5), applied to Bridge's own capability research. Nothing is promoted
+automatically; promotion is a decision, and the evidence for it is already written down.
 
 ---
 
@@ -107,10 +126,11 @@ discarded.
 | **Coasty** | Hosted computer-use | **Skill** + `byo_key`, Builder-side | Available without Bridge hosting VMs |
 | **Rindler** | Hosted; session-reuse rejected on residency | **Pattern Skill** | "Map a site once into deterministic typed tools" — the pattern, not the service |
 | **WUPHF** | Sustainable Use — bars serving third parties | **Pattern Skill** | The highest-value rung-3 case: notebook→wiki promotion, `/lint` contradiction sweep, per-agent tool scoping. Builder reimplements |
-| **Prized, LemonLime** | SaaS, no license surface | **Decision-log note** | Competitive validation of the governance posture |
+| **Prized, LemonLime** | SaaS, no licence surface | **R0 + R1** | Competitive validation of the governance posture. Trigger: revisit if either publishes an API or a self-host path |
+| **The 178-provider survey** (ADR-111) | mixed | **R0 + R1** | 33 Tier-2 and ~30 Tier-3 providers already researched and tiered. Trigger: Tier-1 coverage proves insufficient for a real query |
 
-**WUPHF is the proof the ladder works.** Under the five-tier model it was simply "reject." Under the
-ladder it becomes a Pattern Skill teaching the Builder Agent a memory-promotion design that maps
+**WUPHF is the proof the path works.** Under the five-tier model it was simply "reject." On the
+maturity path it reaches R2 — a Pattern Skill teaching the Builder Agent a memory-promotion design that maps
 directly onto LA0's propose→accept and a freshness sweep that maps onto
 `knowledge-freshness-sweep`. Same license, same restriction, entirely different outcome for the user.
 
@@ -154,20 +174,26 @@ Per direction, ToS is not gated by this policy. Instead:
 
 ## 8. The anti-digression gate
 
-The policy exists as much to stop capability sprawl as to stop licence violations. Every intake must
-answer three questions mechanically, and **failing any one is a rejection regardless of licence**:
+The policy exists as much to stop capability sprawl as to stop licence violations. Every promotion to
+R2 or above must answer three questions mechanically, and **failing any one blocks the promotion
+regardless of licence**:
 
 1. **Which existing port does it land behind?** `ModelProvider`, `MemoryStore`, `SearchProvider`,
    `ResearchPageReader`, `SourceConnector`, `ContentGuard`. A source needing a *new* port needs an ADR
-   first. No port, no adoption.
+   first. No port, no promotion.
 2. **Which plan step does it serve?** A named step in a current plan or TASK. "Interesting" is not a
    step.
 3. **What does it retire?** Every adoption names the parallel loop it removes, or explains why none
    exists. This is the clause that would have caught recon, the Run engine, `skill.webResearch`, and
    `@bridge/sourcing` becoming four answers to one question.
 
-A capability that cannot be expressed as port + adapter is a design finding, not a legal one — and it
-is rejected on those grounds.
+**Blocked is not discarded.** A capability failing any of the three rests at R0 + R1 with the failed
+question recorded as its upgrade trigger — "no port yet", "no plan step needs it", "retires nothing".
+Those are precisely the conditions that change over time, which is why they make good triggers. This
+is the gate's real value: it keeps the corpus growing while keeping the build narrow.
+
+A capability that cannot be expressed as port + adapter is a design finding, not a legal one, and is
+held at R1 on those grounds.
 
 ---
 
@@ -192,20 +218,27 @@ is rejected on those grounds.
 2. Carrier is chosen by licence, never by convenience.
 3. Obligations are **computed** from vector × carrier × shape, never assigned by hand.
 4. Wrapper and payload licences are recorded separately, always.
-5. **Nothing researched is discarded** — it descends the ladder to Module, Skill, Pattern Skill, or a
-   decision-log note.
-6. Bridge never hosts network-copyleft or restricted payloads without an APPROVALS row naming the
+5. **Nothing researched is discarded.** Every finding lands on the maturity path — R0 raw, R1
+   capability wiki, R2 Pattern Skill, R3 Skill, R4 Module. Licence sets the ceiling; RoI sets the
+   current level.
+6. **Every R0 record names an upgrade trigger** — a condition that would promote it, and where to
+   check that condition. A finding without a trigger is not complete.
+7. Bridge never hosts network-copyleft or restricted payloads without an APPROVALS row naming the
    reviewed operating model.
-7. Bring-your-own licence or install is the standard pattern above rung 1.
-8. Service terms are disclosed to the user, who decides — except where a capability would place the
+8. Bring-your-own licence or install is the standard pattern at R3.
+9. Service terms are disclosed to the user, who decides — except where a capability would place the
    user's credentials or live session on third-party infrastructure, which is refused.
-9. Every intake names its port, its plan step, and what it retires. Failing any is rejection.
-10. Attribution is generated, not maintained.
+10. Every promotion to R2+ names its port, its plan step, and what it retires. Failing any holds the
+    capability at R1 with that question as its trigger.
+11. Attribution is generated, not maintained.
 
 ## 11. Open questions
 
 - Whether `licenseProfile` blocks publication on day one or warns during a backfill period
-- Who holds the counsel relationship for the escalations rung 1 and 2 will generate
+- Who holds the counsel relationship for the escalations R3 and R4 will generate
+- Whether upgrade triggers should be swept periodically by an Automation (the
+  `knowledge-freshness-sweep` shape) or evaluated only when a capability is next asked for. A sweep
+  keeps the queue live but spends budget re-checking conditions that rarely change
 - Whether data-rights attribution belongs in the generated NOTICE or a separate SOURCES artifact,
   since data attribution often must appear in the UI rather than in a file
 - Whether a Pattern Skill needs a provenance field naming the source it was learned from, which aids
