@@ -2367,7 +2367,7 @@ pinned), not against documentation.
   of the three declared sources never existed; `t` is the only field declared on WhatsApp's
   ChatModel. The sort in `syncedThreads` was never the bug — the data was.
 
-Fixed (ADR-160): the saved-contact filter moved into the op so its failure is visible — a
+Fixed (ADR-162): the saved-contact filter moved into the op so its failure is visible — a
 non-boolean flag is UNREADABLE, not `false`, and contacts-present-but-none-readable now THROWS
 rather than resolving as an empty success. Activity candidates are evaluated lazily, each in its own
 `catch`, `t` first, with a `>1e11` milliseconds guard; each summary carries `activitySource` naming
