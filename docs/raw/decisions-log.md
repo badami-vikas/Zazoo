@@ -3611,3 +3611,107 @@ cost of reversibility, accepted. The reset destroys the window synchronously (`d
 async `close`) in the same main-thread hop as the rename, so nothing mints files under the old
 identity mid-move. Filesystem behaviour is unit-tested over temp dirs (rename + id-removal, absent
 cases, same-second collision suffixing, case-insensitive matching, neighbour stores untouched).
+
+## ADR-160 — A manual send is policied differently from an automated one, but travels the same transport and the same durable ceiling (2026-08-03; TASK-030; extends ADR-158)
+
+**Context.** The Chats surface shipped with an inert composer. The user asked for write access:
+"I want write access." — a box to type a message into the chat they are looking at.
+
+The send path that already existed was built for AGENTS. `@bridge/whatsapp`'s `evaluateSendPolicy`
+is anti-ban discipline for bulk outreach — a consent gate so automation never opens a conversation,
+a near-identical-body limit across recipients, recipient-local business hours, a seven-day
+per-recipient cooldown, a rolling 30/day cap with a warm-up ramp, and human-pacing jitter. wa-js was
+chosen over Baileys precisely to avoid bans (ADR-158), and these rules are what actually reduce that
+risk, since engine choice does not.
+
+Applied unchanged to a person typing one reply, every one of those rules misfires. An ordinary reply
+becomes a refused "first contact". A second reply to the same person is refused for a week. Anything
+after 9pm their time is deferred to morning. The compose box would be a control that mostly says no,
+which is the same product failure as a control that does nothing.
+
+The opposite move — a manual send that skips the gate and calls the shell directly — creates the
+second write path the architecture forbids and removes the protection from the account entirely.
+
+**Decision.** Split the POLICY, never the PATH.
+
+- `decideManualSend` (`platform/apps/web/src/app/pages/whatsapp/compose.ts`) keeps exactly the
+  validation `send.ts` applies to every send — empty body, over-length body, malformed target,
+  missing recipient key — and mints the same body-bound grant. It drops the automation discipline,
+  which describes an Agent's behaviour and not a human's.
+- It does NOT drop `decideSend`'s per-recipient human approval by accident: that approval exists so
+  a HUMAN says yes before an Agent messages someone. Here the human chose the conversation, typed
+  the words and pressed the button. Putting a consent dialog in front of that trains the owner to
+  click through the one prompt in this system that must stay deliberate — the same reasoning
+  `outbound.ts` uses to order refusals before prompts.
+- `whatsAppEngine.sendManualMessage` reaches the wire through the SAME `sendPort` as
+  `sendAutomatedMessage`, therefore the same `whatsapp_send_start`/`_poll` commands, therefore the
+  same durable Rust ceiling. The cap, the per-recipient cooldown and the sticky kill switch still
+  bind, are still read from the ledger under `app_data_dir`, and nothing in the renderer can raise
+  them. The renderer still supplies only a target id, a recipient key and a body — no script, no
+  selector, no count.
+- Every manual outcome — including a validation refusal that never reached the shell — goes through
+  `recordSendOutcome`.
+- Refusals are VALUES, rendered. `describeSendOutcome` produces one of three visibly different
+  states: sent; refused and why (with the instant a deferral clears); or "we could not confirm".
+  The third exists because the ceiling counts a send BEFORE the script runs, so a failure after that
+  point may still have reached WhatsApp — reporting it as "not sent" is how a user sends the same
+  message twice. The draft is kept on anything but a confirmed send.
+
+**Rejected alternatives.**
+
+- *Route manual sends around the ceiling.* Removes the anti-ban protection from the account and
+  creates a second write path. Refused outright.
+- *Run manual sends through `performAutomatedSend` unchanged.* Honest about the path and dishonest
+  about the product: a compose box that refuses ordinary replies is broken, and the user would learn
+  to distrust every refusal it shows.
+- *Fabricate a permissive `SendPolicyContext` for manual sends* (synthetic approvals, a faked
+  `ThreadActivity`, a business-hours-safe `now`). This looked tidy and is the worst option: it lies
+  to the gate rather than declaring a different one, and the lie would be invisible in the audit log.
+- *Raise the automation limits so manual traffic fits.* Weakens the protection for Agents in order
+  to fix a UI problem.
+
+**Consequences, including one that is not yet fixed.**
+
+The shell cannot currently tell a manual send from an automated one, so the durable per-recipient
+cooldown (7 days) and the 30/day cap apply to both. A person's second message to the same recipient
+inside the cooldown window WILL be refused by the ceiling. That is rendered honestly — the reason
+and the clearing time are shown, and the composer states that manual and automated sends share one
+durable limit — but it is a real product limitation, not a design intent.
+
+The completing change is a SHELL change and is deliberately out of this scope: `whatsapp_send_start`
+should take an `origin` (`"manual" | "automated"`) and apply separate limits from the SAME ledger,
+with the kill switch binding on both origins. One transport, one durable ledger, two limit sets.
+Until then the composer is honest about the ceiling it shares; recorded in `docs/BUGS.md`.
+
+### ADR-160 (2026-08-03) — Tags and Internal Notes are scoped to the open chat, not re-picked
+
+The annotations Tool lived only on the Tools Page, where its first control is a subject dropdown.
+Reaching it from a conversation meant leaving the Chats surface and re-picking the chat that was
+already selected — the user's report: "Tags and Internal Notes should appear next to sync messages
+and auto associated with selected chat or group."
+
+`ChatAnnotations` is a disclosure in the Chats header row beside "Sync messages" with NO subject
+picker: the subject is derived from the selected thread by `annotationSubjectFor`, the same
+derivation `AnnotationsPanel` uses (a group thread annotates its Community, a direct chat annotates
+`chat:<id>`). It calls the existing `whatsapp.annotations` / `addTags` / `addNote` / `removeTag` /
+`removeNote` procedures unchanged — one data model, two doors — so a tag added from the Chats header
+and one added from the Tools Page land on the same subject key. A disclosure rather than an
+always-open panel because the header row is not a form surface (UI architecture).
+
+Annotations remain Bridge's own Local-Plane data: the control makes no engine call, declares no
+WhatsApp permission, works with no session at all, and says on screen that nothing in it is sent to
+WhatsApp. With no thread selected it EXPLAINS rather than sitting inert, per the actionability rule.
+
+### ADR-160 (2026-08-03) — the thread order was already right; the scroll position was not
+
+Reported as messages reading in the wrong order inside a thread. Verified before changing anything:
+`local_messages` is read `ORDER BY sent_at, message_id`, the in-memory store sorts the same way, and
+the tRPC `whatsapp.thread` procedure documents "oldest first" — which is already WhatsApp's order.
+Nothing about the ordering was wrong.
+
+What was wrong is where the VIEW started. The list is virtualised, and a virtualiser opens at scroll
+offset zero, i.e. the oldest message in the archive — so opening a chat showed months-old messages
+and read as reversed. The fix is a scroll pin to the last row on open (and again after a manual
+send), applied once per thread so scrolling back through history is never yanked away. The rendering
+order is untouched; no `.reverse()`, no `flex-col-reverse`, no re-sort in the surface, and a test
+asserts the surface never re-orders the store.

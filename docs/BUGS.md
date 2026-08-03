@@ -2297,3 +2297,43 @@ persisted store-id so the next start mints a fresh store and shows a QR). Reset 
 the Chats surface and appears only when the device is not linked. Filesystem behaviour proven by
 unit tests over temp dirs; the live wedge itself was cured by the manual move, so the commands are
 proven-by-test, not yet proven against a live recurrence.
+
+## OPEN 2026-08-03 — the durable send ceiling cannot tell a MANUAL send from an automated one, so it refuses ordinary human replies (TASK-030, ADR-160)
+
+The Chats compose box (ADR-160) converges on the same `whatsapp_send_start` command as an Agent's
+send, which is correct — one transport, one durable ledger. But the Rust ceiling in
+`whatsapp_send.rs` applies ONE limit set to every send that reaches it: a 30/day rolling cap and a
+SEVEN-DAY per-recipient cooldown. Those numbers were chosen for bulk outreach.
+
+Consequence for a human: the first manual message to a contact goes; a second message to the SAME
+contact inside seven days is refused with `WHATSAPP_SEND_COOLDOWN`. Ordinary back-and-forth in a
+conversation is therefore not possible from the Chats surface.
+
+Not hidden: the composer renders the refusal, its reason and the instant it clears, and states that
+manual and automated sends share one durable limit. It is honest and it is still wrong for the
+product.
+
+Fix (SHELL, deliberately outside the web-scope change that filed this): give `whatsapp_send_start`
+an `origin` argument (`"manual" | "automated"`), apply separate limits per origin from the SAME
+ledger, and keep the sticky kill switch binding on BOTH origins. One transport, one durable ledger,
+two limit sets. The renderer already distinguishes the two callers (`sendManualMessage` vs
+`sendAutomatedMessage`), so nothing but the argument and the Rust limit lookup is missing.
+
+Not yet observed live — no message has been sent by this code against a real account. The refusal
+is predicted from reading `check_ceiling`, not from a live cooldown hit.
+
+## OPEN 2026-08-03 — a thread longer than the read limit returns its OLDEST messages, so the newest are unreachable (TASK-030)
+
+Found while verifying the in-thread ordering complaint. `LocalGraphPort.listMessages` (both the
+pglite and in-memory stores) reads `ORDER BY sent_at, message_id LIMIT $4`, and `whatsapp.thread`
+passes a default limit of 5,000. Ascending order plus a LIMIT takes the OLDEST N rows, not the
+newest — so once a conversation exceeds the limit, the Chats surface can never show its recent
+messages, and the newly added scroll-to-newest lands on the 5,000th oldest message rather than the
+actual latest one.
+
+Not yet observed live: no synced thread in the current store is near 5,000 messages, so the surface
+looks correct today. It is a latent read defect, confirmed by reading the query, not by a symptom.
+
+Fix: select the newest N (`ORDER BY sent_at DESC, message_id DESC LIMIT n`) and reverse for
+rendering, or paginate backwards from the newest. Touches `packages/local/src/stores/{pglite,memory}.ts`
+and the `whatsapp.thread` procedure — outside the Chats-surface scope that filed this.
