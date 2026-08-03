@@ -101,7 +101,16 @@ function sinkForRequest(req: ActionRequest): TaintSinkId | null {
   }
   if (req.resourceType === "external:fetch") return "network_egress";
   if (req.resourceType === "file" && req.action !== "read") return "file_write";
-  if (req.resourceType === "integration" && req.action !== "write") {
+  // EVERY integration action is a credential-access sink, not just reads.
+  // This previously read `req.action !== "write"`, which gated integration
+  // READS (accessing stored credentials — correct) but let a tainted turn
+  // WRITE an integration — reconnecting an account, rewriting connection
+  // config, rotating a credential — through with NO sink gate at all. The
+  // sibling `file`/`schema_mutation` rules gate on `!== "read"`, so the
+  // write side was the unguarded half. Widening to every action is the
+  // fail-safe reading: it preserves the existing read gating rather than
+  // trading one uncovered half for the other (ADR-161).
+  if (req.resourceType === "integration") {
     return "credential_access";
   }
   if (

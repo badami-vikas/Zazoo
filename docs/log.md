@@ -1,5 +1,37 @@
 # Change Log
 
+- **2026-08-02 — TASK-031 wave 1: taint-sink security fix, Glide reinstated behind DataViews, dead-code sweep**:
+  An eight-agent bloat audit (`outputs/2026-08-02-platform-bloat-audit.md`) produced three landed changes.
+  **(1) Security (ADR-161):** `sinkForRequest` mapped `resourceType: "integration"` to the
+  `credential_access` sink only when `action !== "write"` — the lone inversion among sibling rules — so a
+  tainted turn WRITING an integration (reconnecting an account, rotating a credential) resolved to `null`
+  and reached the resource with no sink policy evaluation and no sink trace. Widened to every integration
+  action; the audit's first reading (a typo for `!== "read"`) was rejected because it would have opened a
+  read gap while closing the write gap. New `packages/core/test/integration-sink.test.ts` verified
+  red-then-green (2/3 fail against the old condition). The rule had zero prior test coverage.
+  **(2) Tables (ADR-160):** `docs/raw/tool-standardization-plan.md` always named a Glide renderer, but
+  commit `928d66e` (TASK-009/014) deleted its only consumer with no recorded decision, leaving `TableView`
+  with NO virtualization — it renders every sorted row. Reinstated the canvas grid as a renderer INSIDE the
+  registry grammar: `TableView` now dispatches to the new `GlideTableView` past 400 visible rows, both
+  reading identical cell semantics from the new shared `dataviews/cell-format.tsx` (ADR-155 glyphs
+  extracted out of TableView so the two renderers cannot drift). No new view kind, so the `@bridge/tables`
+  view grammar is unchanged. The canvas path deliberately omits red-flag glyphs — no canvas equivalent for
+  the governed popover, and a fake one would violate AP-021. `STACK.md`/`wiki/stack.md` corrected; they had
+  claimed glide-data-grid was live throughout the 2 weeks it was orphaned.
+  **(3) Sweep:** deleted 29 ui primitives (28 unused + `use-mobile`; `utils.ts` KEPT — surviving primitives
+  import `cn` from it, which the audit had missed), 11 dead components/pages (incl. `GlideTable.tsx`,
+  `lib/columnTypes.ts`, `PendingWorkPage`), and 23 dependencies (19 Radix + tesseract.js, idb,
+  browser-image-compression, date-fns).
+  **WhatsApp safety (user directive):** three active branches — contact-extractor (contains `5b334ce`),
+  task030-relationship-link, tools-task030 — are all descendants of this HEAD. Verified ZERO importers of
+  any deleted file on any of them; all three use only the 10 surviving ui primitives; none touch
+  `dataviews/`. Earlier session claim that the repo had no WhatsApp code was true only of THIS branch.
+  Verified: web build OK (Glide overlay-editor chunks present), web 106/106, core 488/488 + coverage gate,
+  turbo typecheck 21/21. Tag `pre-cleanup-2026-08-02` marks the pre-sweep tree.
+  DEFERRED deliberately: the router.ts/wiring.ts/graph-store.ts splits and duplication consolidations —
+  three WhatsApp branches sit on this HEAD and a 15k-line router split would force a near-total rebase on
+  each. Not deployed by me.
+
 - **2026-07-28 — Free-text search across every Module table**: User asked for a Search box on
   DealPilot ("Search deals…") and JobPilot ("Search jobs…"), then for all Modules. Added it once to the
   **shared** `DataViews` toolbar (`filterRowsByQuery` in `dataviews/rowSearch.ts`) rather than per page,

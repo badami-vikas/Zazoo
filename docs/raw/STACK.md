@@ -45,6 +45,18 @@ ui_libraries:
   - library: "@glideapps/glide-data-grid"
     bridge_surface: Network — 30K people directory, virtualized, inline edit
     license: permissive
+    status: |
+      ADOPTED as the canvas renderer INSIDE the `table` view kind (ADR-160,
+      2026-08-02), not as a standalone surface. `TableView` renders the DOM
+      table at or below 400 visible rows and delegates to `GlideTableView`
+      above it; both read the same TableSpec/ViewConfig and the same cell
+      semantics from `dataviews/cell-format.tsx`. The canvas path deliberately
+      omits red-flag glyphs (no canvas equivalent for the governed popover,
+      AP-021). Was orphaned 2026-07-19..2026-08-02 by commit 928d66e with no
+      recorded decision — this line previously overstated it as the live grid.
+    peer_caveat: |
+      glide-data-grid@6 declares peer `marked@^4`; the repo carries `marked@18`.
+      Unresolved and now load-bearing.
   - library: "@xyflow/react (reactflow)"
     bridge_surface: Automations — governed visual builder
     license: MIT
