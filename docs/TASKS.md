@@ -6,9 +6,9 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036` (TASK-029/TASK-030 are the WhatsApp Module tasks landing in parallel on the `claude/whatsapp-*` branches)
+IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048. TASK-026 became the current P0 on 2026-07-26 under AP-078 after the user reported the primary Chat Panel remained placeholder-like and approved its implementation plan. TASK-027 (clicky-parity screen-aware companion ask prototype) appended at queue end 2026-07-29 per user directive R-041; TASK-028 (autonomous background browser research agent) appended immediately after per the same day's follow-up directive R-042. TASK-031 (platform bloat cleanup + table-renderer standardization) appended 2026-08-02 per user directive as the next task after the in-progress TASK-027/028 (AP-092). RENUMBERED from this session's original TASK-029, which collided with the WhatsApp Module's TASK-029/TASK-030 already claimed on the parallel `claude/whatsapp-*` branches; the session's AP-090/091/092 were likewise renumbered to AP-092/093/094 around the WhatsApp branches' AP-090/091. TASK-032 through TASK-036 appended 2026-08-03 per user directive after the unfinished-work audit (`outputs/2026-08-03-unfinished-work-audit.md`), under AP-095; TASK-035 is the designated absorber for test/CI blockers found by other tasks.
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048. TASK-026 became the current P0 on 2026-07-26 under AP-078 after the user reported the primary Chat Panel remained placeholder-like and approved its implementation plan. TASK-027 (clicky-parity screen-aware companion ask prototype) appended at queue end 2026-07-29 per user directive R-041; TASK-028 (autonomous background browser research agent) appended immediately after per the same day's follow-up directive R-042. TASK-031 (platform bloat cleanup + table-renderer standardization) appended 2026-08-02 per user directive as the next task after the in-progress TASK-027/028 (AP-092). RENUMBERED from this session's original TASK-029, which collided with the WhatsApp Module's TASK-029/TASK-030 already claimed on the parallel `claude/whatsapp-*` branches; the session's AP-090/091/092 were likewise renumbered to AP-092/093/094 around the WhatsApp branches' AP-090/091. TASK-029 (WhatsApp Module with governed contact extraction) appended 2026-08-01 per the user's module directive and approved design (AP-090). TASK-030 (WhatsApp write-enabled messaging with a local searchable store) appended 2026-08-02 per AP-091; it is a NEW task rather than growth of TASK-029 because it does not share TASK-029's exit test and exceeds the ~30% same-surface allowance several times over. TASK-032 (Deal Copilot learning observation loop, generic Egg baseline v1) appended 2026-08-03 per user directive; RENUMBERED at merge time from that session's local TASK-029, which collided with the WhatsApp Module's TASK-029 already claimed on main. TASK-033 through TASK-037 appended 2026-08-03 per user directive after the unfinished-work audit (`outputs/2026-08-03-unfinished-work-audit.md`), under AP-095; RENUMBERED at merge time from that session's TASK-032..036, which collided with the Deal Copilot learning task's TASK-032 already claimed on main. TASK-036 is the designated absorber for test/CI blockers found by other tasks.
 
 ## Operating standard
 
@@ -411,6 +411,19 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: AP-048 applied; AP-052 applied; AP-053 applied
 - Dependencies: none
 
+## WhatsApp Module with governed contact extraction
+- ID: TASK-029
+- Status: in_progress
+- Priority: P2
+- Horizon: Prototype
+- Outcome: Clicking WhatsApp in the left nav opens the owner's own WhatsApp Web session inside the Bridge desktop shell, with a sibling Tools Page whose Contact Extractor turns individual contacts into a Local Plane person list and selected groups into Communities with policy-bounded participant membership. v1 is read-only, enforced by a fixed operation allowlist in the desktop shell rather than by convention; raw capture and phone numbers never leave the Local Plane.
+- Prototype test: From a cold app launch, the WhatsApp nav entry opens a linked session without a new QR scan; the Contact Extractor stages at least one real contact into the local WhatsApp list; the staged Person carries a phone number that is present in the Local Plane and absent from cloud canonical; a `@lid` contact is staged with a name and NO fabricated number; and `whatsapp_extract_start("send_message")` is refused by the shell.
+- Scope: docs/superpowers/specs/2026-08-01-whatsapp-module-design.md; docs/superpowers/plans/2026-08-01-whatsapp-module.md
+- Evidence: Live WKWebView spike 2026-08-01 established three load-bearing facts — WhatsApp Web serves an unsupported-browser wall to WKWebView's default user agent and needs an explicit Safari `Version/` token; a linked session DOES survive a full process restart despite `aquire-persistent-storage-denied`; and neither `WPP.isReady` nor an authenticated connection means the client can answer a read (an UNLAUNCHED socket fails with "sendIq called before startComms"). Real-account extraction returned 8,384 contacts, 817 groups, 35,298 unique participants and 54,245 memberships, which exposed two defects in committed code: WhatsApp Linked IDs were being converted into fabricated phone numbers for 4,203 of 8,384 contacts, and guarding the id alone was insufficient because the extraction layer had already laundered LID digits into a `phone` field. Both fixed with regression tests. Desktop Rust 6/6, module package 47/47, Google intake 5/5, Local Plane list test passing.
+- Requests: user directive 2026-08-01 (WhatsApp module with WhatsApp Web UI and a Tools add-on toggle); follow-up directives the same day (extract contacts; store as a separate list on the Local Plane; CSV export; build v2 in parallel)
+- Approval: AP-090 applied
+- Dependencies: none
+
 ## Screen-aware companion ask prototype (clicky parity)
 - ID: TASK-027
 - Status: in_progress
@@ -438,6 +451,19 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: AP-088 applied (BR3 click/type authority, user directive "Im good with BR3" / "All are approved"); AP-089 proposed (defer the bundled browser engine; read pages through HTTP and, next, the existing webview)
 - Dependencies: TASK-023 (done); TASK-007 (done); TASK-026 (done); TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it)
 
+## WhatsApp write-enabled messaging with a local searchable store
+- ID: TASK-030
+- Status: in_progress
+- Priority: P2
+- Horizon: Prototype
+- Outcome: The already-linked WhatsApp session is Bridge's single engine and execution layer — no second authenticated client. Its messages are stored on the Local Plane and searchable from Bridge, rendered in a makeshift Bridge-native message view (not a WhatsApp visual replica). A context section above the session shows the Person or Community for the chat currently open, with tags and internal notes that are Bridge's own data. Outbound sending is enabled and governed: `decideSend` approves per recipient with the grant bound to the exact message body, and the rate ceiling is enforced in Rust so it cannot be bypassed from the renderer. Automations start Agent Runs and may only send into threads the recipient opened.
+- Prototype test: From a cold app launch on a linked session, a full-text search in Bridge for a word the user remembers returns the matching message from the Local Plane store with its chat and timestamp, and opening the result shows it in Bridge's own message view; the context section above the session updates to the correct Person/Community when the open chat changes, and a note saved there persists across restart; a send to a recipient who has NOT messaged first is refused by the consent gate; a send to a recipient who has is approved once and then permitted for that exact body only, with a changed body requiring fresh approval; the daily cap is enforced when the renderer is bypassed (asserted against the Rust layer directly, not the UI); and a simulated WhatsApp-side warning halts all automation and does not auto-resume.
+- Scope: ADR-158; supersedes ADR-157's engine, read-only and residency sections. Tracks — A shell (fix BUGS 2026-08-02 download + data_store_identifier defects; spike Tauri `unstable` child webview with a hard stop if the Avatar overlay regresses, falling back to today's child window), B engine adapter (`WhatsAppEngine` over the existing allowlist; batched event channel; wa-js health/shape check; vendor the missing wa-js LICENSE notice), C data and policy (Local Plane message schema with `tsvector`/GIN + `pg_trgm` search; send-discipline rules as pure testable logic). Then sequentially: send op, automations as Agent Runs, analytics.
+- Evidence: Tracks A/B/C landed 2026-08-02 and are integrated. Verified after merge: desktop Rust 102 pass (1 ignored), `@bridge/whatsapp` 87, `@bridge/local` 37, `@bridge/web` 115 — including a test asserting the TypeScript and Rust op allowlists match so the adapter's two layers cannot drift apart. The `unstable` multi-webview embed is ABANDONED (ADR-158 addendum): as a child webview the session loses its capability exclusion, because a capability declaring `windows: ["main"]` covers every webview in that window regardless of the `webviews` field — this refutes an earlier in-session claim that the security boundary transferred unchanged. Two integration defects that no test caught are recorded in BUGS.md: a raw NUL byte that made `whatsapp_webview.rs` binary to grep while compiling and passing 102 tests, and two tracks independently naming the same event channel differently with no loud failure. The Rust-enforced send ceiling landed 2026-08-02 (ADR-158 addendum): `whatsapp_send.rs` holds the cap, the per-recipient cooldown and the kill switch against a DURABLE ledger under `app_data_dir`, and the first write op (`whatsapp_send_start`/`_poll`) sits behind it. Verified after that change: desktop Rust 120 pass (1 ignored), `@bridge/whatsapp` 95, `@bridge/web` 120 — including a test that reads `policy.ts` and fails if the Rust and TypeScript limits drift (confirmed to fail when one number was changed), a simulated-restart test proving the cap still binds when every in-memory structure is discarded, and adversarial tests that a message body containing quotes, backslashes, newlines, `</script>` or U+2028/U+2029 cannot escape its JavaScript string literal. The obsolete `send_message` assertion in `v1_op_allowlist_is_read_only` was rewritten, not deleted: the READ allowlist still refuses it, and the write script has exactly one gated entry point. OPEN and honest: nothing has run against a live session, so no message has actually been sent by this code and the exit test's cap assertion is proven against the Rust layer in test, not on a live account; deleting the ledger file still resets the counter to a warm-up-day-one allowance (5), which is undefendable on the owner's own machine and is not claimed otherwise; the send path is NOT covered by the session-start wa-js health tripwire, so drift there surfaces on first send; there is no retention or deletion path for the message store; encryption at rest is unsolved; and nothing has run against a live session. Original creation note: no implementation existed at task creation. Two reuse intakes completed 2026-08-02 with verified licences; findings and the full rejected-alternatives list are in ADR-158. Storage capability verified directly rather than assumed: pglite 0.2.17 ships `pg_trgm` and `vector`, and Postgres full-text search is core. Both webview defects filed in BUGS.md 2026-08-02 were confirmed by grep against `whatsapp_webview.rs`, not inferred.
+- Requests: user directives 2026-08-02 (own frontend over whatsapp-web.js; single-session architecture in the user's own terms; drop multi-account; drop unified inbox; store chat data locally and searchable; makeshift UI not a replica; write-enabled not read-only)
+- Approval: AP-091 applied
+- Dependencies: TASK-029 (in_progress — its exit test is unwalked; TASK-030 assumes the linked session and allowlist it built, and inherits its two filed defects as fixes in Track A)
+
 ## Platform bloat cleanup and table-renderer standardization
 - ID: TASK-031
 - Status: in_progress
@@ -452,8 +478,25 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: AP-092 applied (task creation + queue position); tables ADR and schema drops require their own rows when executed
 - Dependencies: none (must not disturb in-progress TASK-027/TASK-028 surfaces; router/wiring splits rebase-heavy — coordinate with active branches)
 
-## Secrets-at-rest and multi-tenancy security block
+## Deal Copilot learning observation loop (generic Egg baseline v1)
+<!-- RENUMBERED 2026-08-03 from this session's TASK-029, which collided with the WhatsApp Module's TASK-029 already claimed on main. -->
+
 - ID: TASK-032
+- Status: in_progress
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: The generic learn-from-zero observation loop exists in the kernel — explicit user decisions become private Local-Plane signal Memories, repeated patterns become suggested preferences (batched, annoyance-capped), only an explicit Human acceptance mints a learned preference with full provenance, and accepted preferences demonstrably change agent output through the run-context memory slot — with DealPilot bound as the first consumer via a pure attribute mapping (no core dependency added).
+- Prototype test: Record ≥3 same-pattern Deal dismissals; one digest run proposes exactly one suggestion and writes NO preference; accepting mints one preference whose statement reaches `projectToSystemPrompt` output; rejecting writes nothing and the pattern is never re-proposed even after more matching signals; a second user can neither read nor act on any of it; the owner can inspect and forget every stored row.
+- Scope: outputs/2026-08-01-deal-copilot-agentic-freelancer-requirements.md (§2 learning loop, §3 light-egg/genericity); docs/raw/learning-agent-roadmap-2026-07.md LA2 (observation loops) and LA1 exit criterion; docs/raw/brd-dealpilot-2026-07.md §8.4 (triage decisions as primary learning signal).
+- Evidence (2026-08-03, fourth landing — scheduled digest Automation): flight-gated governed Automation `platform.learning.observation-digest` (Learning Agent sole actor, Local Plane, one advisory `signal:write` step running Skill `learning.observationDigest` with its own manifest, Goal/Task binding, and defense-in-depth flight check inside the Skill). Seeded in `buildWiring` ONLY while the flight is on — flight off means no Skill registration and no Automation row (proven by test). Server trigger in `server.ts`: 15-minute unref'd interval + 30s post-boot run, reentrancy-guarded, skipped on the public-cloud boundary, RunCtx labeled `system_generated`/verified_system. Two live pipeline gates hit and fixed during TDD: the Skill had to be added to the Learning Agent's static allow-list, and a bare RunCtx halted at the `skill_execution` taint sink ("unknown taint axis fails closed") until the scheduled trigger carried an explicit system_generated label — the same label shape the test now uses. `deterministicUuid` extracted to `apps/api/src/deterministic-uuid.ts` (router re-exports; wiring shares it without an import cycle). Verified: api full suite 394 (393 pass + 1 pre-existing skip) incl. 2 new Automation tests (absent when off; registered+end-to-end when on, with suggested-then-accepted surviving the Automation path and an attributable Run record), server tests 28/28, web typecheck clean.
+- Evidence (2026-08-03, third landing — Avatar/Settings review UI): `ObservedLearningCard` in `apps/web/src/app/pages/SettingsPage.tsx` (Settings → Learning): flight-gated via `learning.status` — renders NOTHING while the flight is off, still resolving, or the API is unreachable (no dead controls); "Check for new patterns" (digest), per-suggestion Remember/Dismiss (accept is the only preference-minting path), accepted-preference list with evidence counts and Delete via `onboarding.forgetMemory`; copy states the suggested-then-accepted contract. Verified: web 110/110 (4 new source-contract tests: flight gate, Human-gated accept, inspect/delete/provenance, mount) + production build clean; live browser check on this session's own dev server confirmed the Learning section renders with the card honestly ABSENT while the API rejects tokenless requests (SEC-1). OPEN (user at keyboard): positive live UI proof needs an authenticated session — Tauri sidecar (inherited-listener only) or Supabase login; standalone browser dev cannot mint one by design.
+- Evidence (2026-08-03, second landing): `learning.*` tRPC surface behind the `learningObservationEnabled` FLIGHT (Wiring field; env `BRIDGE_LEARNING_OBSERVATION`, default OFF; `BuildWiringOptions` override for tests/deployments). `learning.status` always answers so clients can hide the surface honestly; every other procedure fails closed with typed `PRECONDITION_FAILED` while the flight is off. Procedures: recordDealDecision (DealPilot mapping, server-resolved identity, run-clock timestamps), digest (proposes only), suggestions.list/accept/reject (accept mints the sole preference path; double-act = typed CONFLICT; cross-member = NOT_FOUND), preferences.list. Persistent-adapter fit: signal rows keep uuid columns null (record id lives in content); suggestion lineage keys map through injectable `lineageIdFor` (API passes `deterministicUuid`, same convention as red-flag lineages; core stays browser-safe, no node:crypto). Verified: core 493/493, api 392 (391 pass + 1 pre-existing skip) incl. 3 new flight tests over real `buildWiring()`, web typecheck clean.
+- Evidence: `packages/core/src/learning/observation.ts` (recordSignal / digestSignals / listSuggestions / acceptSuggestion / rejectSuggestion / retrieveLearnedPreferences / preferencesToMemorySnippets) over the existing MemoryStore — no new table, no migration; suggestion state rides `casSupersede` lineages so a rejected pattern is suppressed at the store level. DealPilot binding `modules/dealpilot/src/learning.ts` (`dealDecisionSignal`, `sdeBand`) is a pure structural mapping. Verified 2026-08-03: core 493/493 (observation.js 97.9% line coverage incl. suggested-then-accepted, annoyance cap, rejection suppression, authority scoping, inspect/forget), dealpilot 96/96, api typecheck clean.
+- Requests: user directive 2026-08-03 (this session): patch Deal Copilot freelancer requirements with roadmap-v2 gaps and start implementing the learning baseline end to end.
+- Approval: none required yet (additive kernel capability, no schema/canon change); API/tRPC + Avatar suggestion-review UI wiring is the follow-up and stays suggested-then-accepted.
+- Dependencies: none (builds on landed MemoryStore/TASK-002 substrate); unblocks retrieval (LA5) and promotion machinery follow-ups.
+## Secrets-at-rest and multi-tenancy security block
+- ID: TASK-033
 - Status: ready
 - Priority: P1
 - Horizon: Core Modules
@@ -466,7 +509,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: none
 
 ## Production configuration correctness
-- ID: TASK-033
+- ID: TASK-034
 - Status: ready
 - Priority: P2
 - Horizon: Core Modules
@@ -479,7 +522,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: none
 
 ## Governed surfaces reachable and manageable from the UI
-- ID: TASK-034
+- ID: TASK-035
 - Status: ready
 - Priority: P2
 - Horizon: Convergence
@@ -492,7 +535,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: none
 
 ## Green CI and an honest event backbone
-- ID: TASK-035
+- ID: TASK-036
 - Status: ready
 - Priority: P1
 - Horizon: Core Modules
@@ -505,7 +548,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: none
 
 ## Repository hygiene and unlanded work recovery
-- ID: TASK-036
+- ID: TASK-037
 - Status: ready
 - Priority: P3
 - Horizon: Convergence

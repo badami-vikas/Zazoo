@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-03T13:16:08.596Z",
+  "generatedAt": "2026-08-03T14:03:31.587Z",
   "items": [
     {
       "id": "TASK-026",
@@ -931,7 +931,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 415,
+      "sourceLine": 428,
       "rank": 27
     },
     {
@@ -972,8 +972,86 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 429,
+      "sourceLine": 442,
       "rank": 28
+    },
+    {
+      "id": "TASK-029",
+      "title": "TASK-029 — WhatsApp Module with governed contact extraction",
+      "status": "in-progress",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "Clicking WhatsApp in the left nav opens the owner's own WhatsApp Web session inside the Bridge desktop shell, with a sibling Tools Page whose Contact Extractor turns individual contacts into a Local Plane person list and selected groups into Communities with policy-bounded participant membership. v1 is read-only, enforced by a fixed operation allowlist in the desktop shell rather than by convention; raw capture and phone numbers never leave the Local Plane.",
+      "prototypeTest": "From a cold app launch, the WhatsApp nav entry opens a linked session without a new QR scan; the Contact Extractor stages at least one real contact into the local WhatsApp list; the staged Person carries a phone number that is present in the Local Plane and absent from cloud canonical; a `@lid` contact is staged with a name and NO fabricated number; and `whatsapp_extract_start(\"send_message\")` is refused by the shell.",
+      "scope": [
+        "docs/superpowers/specs/2026-08-01-whatsapp-module-design.md",
+        "docs/superpowers/plans/2026-08-01-whatsapp-module.md"
+      ],
+      "evidence": [
+        "Live WKWebView spike 2026-08-01 established three load-bearing facts — WhatsApp Web serves an unsupported-browser wall to WKWebView's default user agent and needs an explicit Safari `Version/` token",
+        "a linked session DOES survive a full process restart despite `aquire-persistent-storage-denied`",
+        "and neither `WPP.isReady` nor an authenticated connection means the client can answer a read (an UNLAUNCHED socket fails with \"sendIq called before startComms\"). Real-account extraction returned 8,384 contacts, 817 groups, 35,298 unique participants and 54,245 memberships, which exposed two defects in committed code: WhatsApp Linked IDs were being converted into fabricated phone numbers for 4,203 of 8,384 contacts, and guarding the id alone was insufficient because the extraction layer had already laundered LID digits into a `phone` field. Both fixed with regression tests. Desktop Rust 6/6, module package 47/47, Google intake 5/5, Local Plane list test passing."
+      ],
+      "requests": [
+        "user directive 2026-08-01 (WhatsApp module with WhatsApp Web UI and a Tools add-on toggle)",
+        "follow-up directives the same day (extract contacts",
+        "store as a separate list on the Local Plane",
+        "CSV export",
+        "build v2 in parallel)"
+      ],
+      "approval": "AP-090 applied",
+      "dependencies": [],
+      "canonicalStatus": "in_progress",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 415,
+      "rank": 29
+    },
+    {
+      "id": "TASK-030",
+      "title": "TASK-030 — WhatsApp write-enabled messaging with a local searchable store",
+      "status": "in-progress",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "The already-linked WhatsApp session is Bridge's single engine and execution layer — no second authenticated client. Its messages are stored on the Local Plane and searchable from Bridge, rendered in a makeshift Bridge-native message view (not a WhatsApp visual replica). A context section above the session shows the Person or Community for the chat currently open, with tags and internal notes that are Bridge's own data. Outbound sending is enabled and governed: `decideSend` approves per recipient with the grant bound to the exact message body, and the rate ceiling is enforced in Rust so it cannot be bypassed from the renderer. Automations start Agent Runs and may only send into threads the recipient opened.",
+      "prototypeTest": "From a cold app launch on a linked session, a full-text search in Bridge for a word the user remembers returns the matching message from the Local Plane store with its chat and timestamp, and opening the result shows it in Bridge's own message view; the context section above the session updates to the correct Person/Community when the open chat changes, and a note saved there persists across restart; a send to a recipient who has NOT messaged first is refused by the consent gate; a send to a recipient who has is approved once and then permitted for that exact body only, with a changed body requiring fresh approval; the daily cap is enforced when the renderer is bypassed (asserted against the Rust layer directly, not the UI); and a simulated WhatsApp-side warning halts all automation and does not auto-resume.",
+      "scope": [
+        "ADR-158",
+        "supersedes ADR-157's engine, read-only and residency sections. Tracks — A shell (fix BUGS 2026-08-02 download + data_store_identifier defects",
+        "spike Tauri `unstable` child webview with a hard stop if the Avatar overlay regresses, falling back to today's child window), B engine adapter (`WhatsAppEngine` over the existing allowlist",
+        "batched event channel",
+        "wa-js health/shape check",
+        "vendor the missing wa-js LICENSE notice), C data and policy (Local Plane message schema with `tsvector`/GIN + `pg_trgm` search",
+        "send-discipline rules as pure testable logic). Then sequentially: send op, automations as Agent Runs, analytics."
+      ],
+      "evidence": [
+        "Tracks A/B/C landed 2026-08-02 and are integrated. Verified after merge: desktop Rust 102 pass (1 ignored), `@bridge/whatsapp` 87, `@bridge/local` 37, `@bridge/web` 115 — including a test asserting the TypeScript and Rust op allowlists match so the adapter's two layers cannot drift apart. The `unstable` multi-webview embed is ABANDONED (ADR-158 addendum): as a child webview the session loses its capability exclusion, because a capability declaring `windows: [\"main\"]` covers every webview in that window regardless of the `webviews` field — this refutes an earlier in-session claim that the security boundary transferred unchanged. Two integration defects that no test caught are recorded in BUGS.md: a raw NUL byte that made `whatsapp_webview.rs` binary to grep while compiling and passing 102 tests, and two tracks independently naming the same event channel differently with no loud failure. The Rust-enforced send ceiling landed 2026-08-02 (ADR-158 addendum): `whatsapp_send.rs` holds the cap, the per-recipient cooldown and the kill switch against a DURABLE ledger under `app_data_dir`, and the first write op (`whatsapp_send_start`/`_poll`) sits behind it. Verified after that change: desktop Rust 120 pass (1 ignored), `@bridge/whatsapp` 95, `@bridge/web` 120 — including a test that reads `policy.ts` and fails if the Rust and TypeScript limits drift (confirmed to fail when one number was changed), a simulated-restart test proving the cap still binds when every in-memory structure is discarded, and adversarial tests that a message body containing quotes, backslashes, newlines, `</script>` or U+2028/U+2029 cannot escape its JavaScript string literal. The obsolete `send_message` assertion in `v1_op_allowlist_is_read_only` was rewritten, not deleted: the READ allowlist still refuses it, and the write script has exactly one gated entry point. OPEN and honest: nothing has run against a live session, so no message has actually been sent by this code and the exit test's cap assertion is proven against the Rust layer in test, not on a live account",
+        "deleting the ledger file still resets the counter to a warm-up-day-one allowance (5), which is undefendable on the owner's own machine and is not claimed otherwise",
+        "the send path is NOT covered by the session-start wa-js health tripwire, so drift there surfaces on first send",
+        "there is no retention or deletion path for the message store",
+        "encryption at rest is unsolved",
+        "and nothing has run against a live session. Original creation note: no implementation existed at task creation. Two reuse intakes completed 2026-08-02 with verified licences",
+        "findings and the full rejected-alternatives list are in ADR-158. Storage capability verified directly rather than assumed: pglite 0.2.17 ships `pg_trgm` and `vector`, and Postgres full-text search is core. Both webview defects filed in BUGS.md 2026-08-02 were confirmed by grep against `whatsapp_webview.rs`, not inferred."
+      ],
+      "requests": [
+        "user directives 2026-08-02 (own frontend over whatsapp-web.js",
+        "single-session architecture in the user's own terms",
+        "drop multi-account",
+        "drop unified inbox",
+        "store chat data locally and searchable",
+        "makeshift UI not a replica",
+        "write-enabled not read-only)"
+      ],
+      "approval": "AP-091 applied",
+      "dependencies": [
+        "TASK-029 (in_progress — its exit test is unwalked",
+        "TASK-030 assumes the linked session and allowlist it built, and inherits its two filed defects as fixes in Track A)"
+      ],
+      "canonicalStatus": "in_progress",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 455,
+      "rank": 30
     },
     {
       "id": "TASK-031",
@@ -1009,12 +1087,43 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 442,
-      "rank": 29
+      "sourceLine": 468,
+      "rank": 31
     },
     {
       "id": "TASK-032",
-      "title": "TASK-032 — Secrets-at-rest and multi-tenancy security block",
+      "title": "TASK-032 — Deal Copilot learning observation loop (generic Egg baseline v1)",
+      "status": "in-progress",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "The generic learn-from-zero observation loop exists in the kernel — explicit user decisions become private Local-Plane signal Memories, repeated patterns become suggested preferences (batched, annoyance-capped), only an explicit Human acceptance mints a learned preference with full provenance, and accepted preferences demonstrably change agent output through the run-context memory slot — with DealPilot bound as the first consumer via a pure attribute mapping (no core dependency added).",
+      "prototypeTest": "Record ≥3 same-pattern Deal dismissals; one digest run proposes exactly one suggestion and writes NO preference; accepting mints one preference whose statement reaches `projectToSystemPrompt` output; rejecting writes nothing and the pattern is never re-proposed even after more matching signals; a second user can neither read nor act on any of it; the owner can inspect and forget every stored row.",
+      "scope": [
+        "outputs/2026-08-01-deal-copilot-agentic-freelancer-requirements.md (§2 learning loop, §3 light-egg/genericity)",
+        "docs/raw/learning-agent-roadmap-2026-07.md LA2 (observation loops) and LA1 exit criterion",
+        "docs/raw/brd-dealpilot-2026-07.md §8.4 (triage decisions as primary learning signal)."
+      ],
+      "evidence": [
+        "`packages/core/src/learning/observation.ts` (recordSignal / digestSignals / listSuggestions / acceptSuggestion / rejectSuggestion / retrieveLearnedPreferences / preferencesToMemorySnippets) over the existing MemoryStore — no new table, no migration",
+        "suggestion state rides `casSupersede` lineages so a rejected pattern is suppressed at the store level. DealPilot binding `modules/dealpilot/src/learning.ts` (`dealDecisionSignal`, `sdeBand`) is a pure structural mapping. Verified 2026-08-03: core 493/493 (observation.js 97.9% line coverage incl. suggested-then-accepted, annoyance cap, rejection suppression, authority scoping, inspect/forget), dealpilot 96/96, api typecheck clean."
+      ],
+      "requests": [
+        "user directive 2026-08-03 (this session): patch Deal Copilot freelancer requirements with roadmap-v2 gaps and start implementing the learning baseline end to end."
+      ],
+      "approval": "none required yet (additive kernel capability, no schema/canon change); API/tRPC + Avatar suggestion-review UI wiring is the follow-up and stays suggested-then-accepted.",
+      "dependencies": [
+        "none (builds on landed MemoryStore/TASK-002 substrate)",
+        "unblocks retrieval (LA5) and promotion machinery follow-ups."
+      ],
+      "canonicalStatus": "in_progress",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 484,
+      "rank": 32
+    },
+    {
+      "id": "TASK-033",
+      "title": "TASK-033 — Secrets-at-rest and multi-tenancy security block",
       "status": "pending",
       "priority": "P1",
       "horizon": "Core Modules",
@@ -1034,12 +1143,12 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 456,
-      "rank": 30
+      "sourceLine": 499,
+      "rank": 33
     },
     {
-      "id": "TASK-033",
-      "title": "TASK-033 — Production configuration correctness",
+      "id": "TASK-034",
+      "title": "TASK-034 — Production configuration correctness",
       "status": "pending",
       "priority": "P2",
       "horizon": "Core Modules",
@@ -1062,12 +1171,12 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 469,
-      "rank": 31
+      "sourceLine": 512,
+      "rank": 34
     },
     {
-      "id": "TASK-034",
-      "title": "TASK-034 — Governed surfaces reachable and manageable from the UI",
+      "id": "TASK-035",
+      "title": "TASK-035 — Governed surfaces reachable and manageable from the UI",
       "status": "pending",
       "priority": "P2",
       "horizon": "Convergence",
@@ -1092,12 +1201,12 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 482,
-      "rank": 32
+      "sourceLine": 525,
+      "rank": 35
     },
     {
-      "id": "TASK-035",
-      "title": "TASK-035 — Green CI and an honest event backbone",
+      "id": "TASK-036",
+      "title": "TASK-036 — Green CI and an honest event backbone",
       "status": "pending",
       "priority": "P1",
       "horizon": "Core Modules",
@@ -1119,12 +1228,12 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 495,
-      "rank": 33
+      "sourceLine": 538,
+      "rank": 36
     },
     {
-      "id": "TASK-036",
-      "title": "TASK-036 — Repository hygiene and unlanded work recovery",
+      "id": "TASK-037",
+      "title": "TASK-037 — Repository hygiene and unlanded work recovery",
       "status": "pending",
       "priority": "P3",
       "horizon": "Convergence",
@@ -1153,8 +1262,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 508,
-      "rank": 34
+      "sourceLine": 551,
+      "rank": 37
     }
   ]
 }

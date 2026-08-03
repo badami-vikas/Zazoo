@@ -17,6 +17,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [engine](engine.md) — runtime machinery; Agent-owned Skills; Automation→Agent Run boundary.
 - [relationships](relationships.md) — Relationship Module: Signals/People/Communities toggles; Signal = surfaced participant-linked Event; Agent-owned Skills; Second Brain consumer.
 - [dealpilot](dealpilot.md) — BRD summary: Deal/Source/Thesis graph, evidence, diligence, Agent-owned Skills, DP0–DP6.
+- [whatsapp](whatsapp.md) — **TASK-029 IN PROGRESS**: owner's own WhatsApp Web session in a contained webview; read-op allowlist; LID ≠ phone number; participant policy; Local Plane roster, not graph.
 - [jobpilot](jobpilot.md) — BRD summary: truthful governed applications, Agent-owned Skills, JP0–JP6.
 - [optimizations](optimizations.md) — runtime token/cost Optimization Module · Memory targets · account-constrained isolated-computer policy · strengthened DealPilot plan.
 - [commons](commons.md) — Universal Commons: signed generalized Module/capability registry; privacy gate rejects personal Memory; separate from Bridge Cloud.

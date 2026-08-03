@@ -3190,6 +3190,615 @@ Ollama/Anthropic call.
 - **Alternatives rejected**: (a) Move the executor into the sidecar now — needs a kernel-run executor bridge for reader/locator/planner plus WKWebView-safe long-poll shapes; deliberately deferred, and the projection layer built here is exactly what that executor would write to, so nothing is thrown away. (b) Record steps as plain ledger entries without child Runs — loses the authority/budget/taint narrowing, the terminal-outcome audit, and the existing childRun inspection surface for no savings. (c) Keep runs in browser storage — fails restart recovery, cross-surface stop, and the "inspectable" requirement outright. (d) One `research_runs` jsonb column for steps — read-modify-write races and no append-only enforcement; a second table gets both for free.
 - **Consequences**: Migration `0035` (fresh + no-op generation + RLS + trigger all test-pinned; the stale `migration-metadata` journal pin — already broken on main by 0034 landing without it — is rebased to 0035). The webResearch search steps remain governed by their own per-search pipeline proposals; the run-level brief is not yet persisted as a governed Result (recorded as still open, with the kernel-executor migration). An interrupted Run resumes from the panel via the kernel ledger; a dead executor's Run can be closed honestly as cancelled from the Page, never given a fabricated outcome. Verified: core 485/485, db 217/217, api 388/389 (1 pre-existing skip), web 106/106 + typecheck + production build; changed-file lint clean (pre-existing DealPilot demo-seed vocab findings in router.ts untouched).
 
+## ADR-157 — WhatsApp Module runs the owner's own Web session in a contained webview, read-only behind an operation allowlist, with capture confined to the Local Plane (2026-08-01; TASK-029)
+
+- **Context**: The user asked for a WhatsApp Module whose nav entry shows the WhatsApp Web UI, with Tools as an add-on toggle and a Contact Extractor feeding People and Communities. Their clients use personal (not Business) WhatsApp, so the official Cloud API does not apply and the dominant risk is enforcement against a personal number. Four engines were considered: `@wppconnect/wa-js` injected into a real session; `whatsapp-web.js` driving a bundled Chromium; Baileys/whatsmeow speaking the multi-device protocol directly; and Bridge-authored DOM scraping.
+- **Decision**: Inject the vendored, SHA-256-pinned `@wppconnect/wa-js` (Apache-2.0, v4.5.0) into a contained Tauri webview loading `web.whatsapp.com`. `whatsapp_webview.rs` mirrors `research_webview.rs`'s containment — capability-less window label, external origin so Tauri injects no IPC, its own init script, outbound-only reporting through a cancelled `bridge-wa:` navigation — but narrows navigation to `whatsapp.com`/`whatsapp.net` only, because this webview holds a live authenticated session an open redirect must never carry elsewhere. The web app names an operation from a fixed allowlist (`script_for_op`) and can never supply JavaScript; group ids are validated before interpolation. Capture lands on the Local Plane: `local_people` gains local-only `phones` and a source-scoped `dedupe_key`, and new `local_person_lists` hold bulk rosters OUT of the relationship graph. `build.rs` fails the build on a wa-js hash mismatch.
+- **Rejected alternatives**: `whatsapp-web.js` — cleanest typed API but bundles a second browser (~200MB), adds a supervised process, and puts the WhatsApp UI outside Bridge. Baileys/whatsmeow — lightest, but reimplement the protocol (higher enforcement exposure) and render no UI at all, defeating the Module's primary surface. Own DOM scraping — zero dependency but brittle against every WhatsApp UI change. Tauri `unstable` multi-webview — visually cleanest embed, but forces the `unstable` flag on the entire desktop shell. Writing contacts to cloud canonical — staged and then withdrawn on the user's correction; the Local Plane is where this data belongs.
+- **Consequences**:
+  - Three facts had to be discovered live, not reasoned about. WhatsApp Web serves an unsupported-browser wall to WKWebView's default UA, so `user_agent()` carrying a Safari `Version/` token is load-bearing, not cosmetic. A linked session DOES survive a process restart even though WhatsApp logs `aquire-persistent-storage-denied` — an earlier read of that error as fatal was wrong. And liveness is a CONNECTED socket plus a populated store: `WPP.isReady` flips back to false after the socket connects, and reading earlier fails with "sendIq called before startComms".
+  - **WhatsApp Linked IDs are not phone numbers.** On a live account 4,203 of 8,384 contacts reported `@lid` ids. The first implementation converted their digits into plausible phone numbers; guarding the id alone was then still insufficient, because the extraction layer had already laundered LID digits into a `phone` field. `phoneFor` now short-circuits on the id itself, and LID and phone identities occupy disjoint key spaces that are never matched to each other. Group membership is LID-addressed while the address book is largely phone-addressed, so the `pn_lid_map` op resolves the two using WhatsApp's own mapping rather than inference.
+  - **Scale forced a policy.** 817 groups hold 35,298 unique participants, of whom 998 are in the address book. Staging all of them would make Approvals unreviewable and would import strangers as relationships, so participants are bounded by a policy (contacts / contacts-and-messaged / all) with a per-group override, and each Community records its full size alongside what the policy proposed.
+  - v1 ships no write. v2's `decideSend` implements approve-per-recipient-then-trusted, with grants bound to the exact message body so standing trust is not a blank cheque for later text, and revocation beating any live approval.
+  - The Module is withheld from Commons for the same class of reason as `relationship`: reading a private contact graph out of a third-party session is not a generalized capability others could safely install.
+- **Honest risk**: unofficial automation of a personal WhatsApp account violates WhatsApp's Terms regardless of library. Reading one's own contacts is the mildest end of that spectrum and wa-js runs WhatsApp's own client code, which is why it is the lowest-risk option available — but the risk to the account is accepted knowingly, not mitigated away.
+
+## ADR-158 — The visible WhatsApp session becomes the single engine and execution layer; message bodies are stored and searchable on the Local Plane; write is enabled in v1 behind Rust-enforced caps (2026-08-02; TASK-030; supersedes ADR-157's engine, read-only, and residency sections)
+
+- **Context**: After TASK-029 shipped read-only extraction, the user asked for a fuller product — multi-account, unified inbox, contact export, tags and notes, automation rules, scheduled actions, message search, agent assignment, analytics — proposing `whatsapp-web.js` as a backend behind our own frontend. Through several rounds the scope resolved: multi-account dropped, unified inbox dropped, search kept, write enabled, storage local. The user then made the architectural argument themselves: our Chats surface is already a genuine WhatsApp Web client running WhatsApp's own code with wa-js injected — the same technique `whatsapp-web.js` uses, only visible instead of headless — so adding it as a backend would create a second authenticated client for one account.
+- **Decision**: **One WhatsApp account, one authenticated browser profile, one wa-js runtime, many application surfaces consuming it.** The existing visible session is both source of truth and execution layer. No second client is introduced. All `WPP` access sits behind a two-layer adapter: a TypeScript `WhatsAppEngine` interface in the web app that NAMES operations, and the Rust allowlist that owns the actual scripts. Message bodies are stored on the Local Plane and indexed for search using Postgres full-text (`tsvector`/GIN, core) plus `pg_trgm` — both already present in pglite 0.2.17, so no new infrastructure. Bridge renders a **makeshift** message UI on `@tanstack/react-virtual` in its own design system, explicitly NOT a WhatsApp visual replica. Write is enabled in v1: `decideSend` (built during TASK-029) decides policy in TypeScript, and the rate ceiling is enforced in **Rust**, because a renderer-side cap is bypassable and a cap that does not bind is not protection.
+- **Rejected alternatives**:
+  - **`whatsapp-web.js` as a headless backend** — rejected in the user's own terms: a second linked-device session, a second authentication profile, duplicate synchronization, races between two clients, ambiguity over which client owns an automation action, and a larger behavioural footprint. That WhatsApp permits four linked devices does not make two overlapping automation clients a good design; device capacity and behavioural risk are separate questions. It would also require packaging a Node runtime and a signed Chromium (~300MB) into a notarized macOS app.
+  - **Baileys as the multi-account backend** — argued for on memory grounds (~50MB/session vs ~400-500MB) and rejected by the user on a better argument: Baileys reimplements the protocol and is therefore structurally distinguishable from a real client, while wa-js runs WhatsApp's own code. Dropping multi-account removed the memory objection entirely.
+  - **Adopting an existing chat frontend** — two independent reuse intakes. `@chatscope/chat-ui-kit-react`, `react-chat-elements` and `@minchat/react-chat-ui` are all MIT but none is virtualized, all impose their own CSS, and all have been dormant 14-17 months. `wppconnect-frontend` is Apache-2.0 but ARCHIVED on React 16/CRA/MUIv4. Chatwoot's dashboard IS fully MIT (its `enterprise/` tree contains no `app/javascript`) but is Vue 3 + Rails-vite + ActionCable, and its WhatsApp channel is Cloud API only. `matiasbattocchia/open-bsp-ui` is genuinely maintained, React 19 + Vite + Tailwind v4, and **Unlicense (public domain)** — this refutes an earlier claim in this session that no such frontend exists — but it is unvirtualized, hard-typed on Supabase BSP rows, and `"private": true` with no exports. **Legally unusable (no LICENSE file at all)**: `jazimabbas/whatsapp-web-ui`, `sohanpaliyal/whatsweb-chat`, `Astervia/wacraft-client`, `Astervia/wacraft-server`. **Legally blocked**: `open-wa/wa-automate-nodejs` is NOT MIT despite common claims — its LICENSE.md is Hippocratic + Do Not Harm 1.1 (non-OSI, virally copyleft on redistribution, licensor's unilateral termination right, broad indemnity), while its package.json files declare Apache-2.0 and `"None"`.
+  - **A WhatsApp visual replica** — rejected on the user's instruction that a makeshift UI is wanted. This also removes the trade-dress question: a functional chat layout is unprotectable, whereas WhatsApp's name, logo, signature green, doodle wallpaper and exact glyphs are the identity-carrying elements that attract trademark and trade-dress attention.
+- **Consequences**:
+  - **Residency reverses.** ADR-157 confined capture to the Local Plane and kept message bodies out entirely. Bridge now persists clients' personal message content. This is the largest scope change in the Module's life and is approved explicitly under AP-091 rather than inherited. Encryption at rest is NOT solved by this decision: pglite writes to a directory in the user's home, and "the disk is encrypted" is the user's FileVault setting, not a guarantee Bridge makes. Recorded as an accepted, documented limitation, not a mitigated one.
+  - **A linked device does not receive full WhatsApp history.** Multi-device syncs a bounded recent window to companions; the archive stays on the phone. Local search therefore covers what the session syncs plus everything captured from first listen forward. The index grows permanently but is not retroactive.
+  - **The security boundary is structural, not conventional.** The user's adapter rule was that nothing outside it should call `window.WPP`. In this architecture nothing outside it *can* — different origin, different process, and the session webview is deliberately absent from Tauri capabilities so the page has no IPC at all. The OS enforces what would otherwise be a discipline.
+  - **The event channel needs batching.** One cancelled-navigation per `WPP` event will not survive a busy account; the injected listener coalesces and flushes on interval or buffer size.
+  - **wa-js drift needs a tripwire.** Beyond the existing build-time SHA-256 pin, a health operation runs at session start asserting every `WPP` function the adapter depends on exists and returns the expected shape, surfacing a degraded state instead of failing silently mid-run.
+  - **Sending discipline is the real ban protection, not the engine choice.** Engine selection reduces protocol-level fingerprinting; it does nothing for behavioural detection, which is what actually triggers bans. Jitter is explicitly NOT treated as a cloak: the binding rules are a consent gate (automation may only send into a thread where the recipient wrote first — never a first contact), a hard daily cap, a per-recipient cooldown, refusal of near-identical bodies across recipients, warm-up on a newly linked account, recipient-timezone hours, and a kill switch that halts on any WhatsApp-side warning and never auto-resumes.
+  - **A licence-notice gap from TASK-029 is corrected here**: the vendored wa-js bundle references a companion `wppconnect-wa.js.LICENSE.txt` that was not vendored with it, which Apache-2.0 notice retention requires.
+  - **`karem505/whatRust` (MIT, Tauri v2) is adopted as a reference implementation** for the desktop shell, having already solved per-OS UA handling, macOS `data_store_identifier` session isolation, download wiring, media permissions and SharedArrayBuffer for WhatsApp's wasm pipeline. Deliberately NOT adopted: its `navigator.userAgentData` client-hints shim, which exists because it advertises a Chrome UA — we advertise Safari, and real Safari does not implement `userAgentData`, so adding the shim would make our fingerprint self-contradictory rather than consistent.
+- **Honest risk**: unchanged from ADR-157 and now larger in exposure. Unofficial automation of a personal WhatsApp account violates WhatsApp's Terms regardless of library, and enabling outbound automation moves the account from the mildest end of that spectrum toward the behaviour Meta's detection actually targets. Bans are permanent in practice and unappealable because the user was never a customer. The caps above reduce that risk; they do not remove it, and the account remains one the user should be able to afford to lose. Storing third parties' personal message content also creates a data-protection exposure that did not previously exist.
+
+### ADR-158 addendum (2026-08-02) — the `unstable` multi-webview embed is ABANDONED; the parented child window stands
+
+The spike ADR-158 authorised was run and fully reverted. **This addendum corrects a claim made
+earlier in the same session by the author of ADR-158.** I had verified that `Window::add_child` exists
+under the `unstable` feature and that `WebviewBuilder` carries `user_agent`,
+`initialization_script` and `on_navigation`, and concluded from that that "the entire security
+boundary transfers unchanged". That conclusion was an over-generalisation from three method
+signatures, and it is wrong.
+
+Two source-verified findings, either one sufficient on its own:
+
+1. **The capability exclusion does NOT carry over.** The load-bearing containment for the WhatsApp
+   session is that its window label is absent from Tauri capabilities, so the page hosting a live
+   authenticated session has no IPC at all. As a CHILD WEBVIEW that protection disappears: a
+   capability declaring `windows: ["main"]` applies to *every* webview in that window "regardless of
+   the value of `webviews`" (`tauri-utils/acl/capability.rs`, confirmed at `ipc/authority.rs:459`).
+   The remote-origin check would remain as a second barrier, but the design deliberately had two
+   independent barriers and this reduces it to one — on the surface that holds the user's live
+   session.
+2. **`get_webview_window("main")` returns `None`** once the main window hosts a second webview,
+   because `is_webview_window()` requires every webview label in the window to equal the window
+   label. There are 22 call sites; the `MAIN_LABEL` ones take `None` branches that silently fall
+   back to `(0.0, 0.0)` — the same silent-degradation failure mode as the off-screen-window defect
+   this Module already hit once.
+
+The nspanel/Avatar hard stop could not be discharged without a live run and is now moot. Verified by
+compilation only: the `unstable` feature does build alongside `tauri-nspanel`.
+
+**Consequence for the product:** the user's stated preference was a single entity rather than a
+parent/child window, and that preference does not survive contact with the security boundary. The
+session stays a parented child window. A true in-window embed would cost the capability exclusion,
+which is not a trade this Module should make.
+
+### ADR-158 addendum (2026-08-02) — the Rust send ceiling is DURABLE, fails closed, and holds no identifiers
+
+ADR-158 said the ceiling is enforced in Rust "because a renderer-side cap is bypassable and a cap
+that does not bind is not protection". Track C shipped only the TypeScript half, so until this change
+the cap lived entirely in the renderer — the exact condition the decision rejected. TASK-030's exit
+test asserts the cap holds *when the renderer is bypassed*, and that assertion could not pass. The
+Rust half now exists (`platform/apps/desktop/src-tauri/src/whatsapp_send.rs`). Four implementation
+decisions were not settled by ADR-158 and are recorded here.
+
+1. **The state is persisted, not in-process.** A cap held in memory does not bind, because relaunching
+   the app returns the day's allowance and "restart the app" is a one-click bypass. Counters,
+   cooldowns and the halt flag live in `{app_data_dir}/bridge/whatsapp-send-ledger.json`, written
+   temp-then-rename, reusing `overlay.rs`'s persisted-position mechanism rather than inventing one.
+   *Rejected:* a Tauri managed struct (dies with the process); the Local Plane pglite store (the
+   ledger must be readable by the layer that refuses the send, and that layer is Rust on the other
+   side of the IPC boundary from the store's owner).
+
+2. **A corrupt ledger HALTS rather than reading as empty.** Treating an unparseable file as a fresh
+   one would make "damage the file" the same bypass as "restart the process". An unreadable ledger
+   therefore comes back halted, which only a named human clears. A *missing* file is different and is
+   treated as a first run — armed, but on day one of the warm-up ramp (5/day), which is the
+   conservative direction. This is honest about its limit: deleting the file still resets the counter
+   to a warm-up-day-one allowance. On a machine whose owner has filesystem access there is no defence
+   against that, and claiming otherwise would be theatre.
+
+3. **The send is counted BEFORE it is attempted, and a send that cannot be counted is not sent.**
+   Recording on success would mean a crash mid-send silently returns the slot. The failure mode is
+   deliberately asymmetric: an over-count costs one message of allowance, an under-count costs the
+   cap its meaning.
+
+4. **The ledger stores `sha256(recipient key)` and no message content.** The cooldown needs to know
+   two sends went to the same recipient, which a digest answers exactly; it never needs to know who.
+   Enabling write should not also create a plaintext outbound-contact log on disk next to the message
+   store.
+
+Also settled: the write op is NOT an arm of `script_for_op`. That function is what
+`whatsapp_extract_start` calls, and it stays read-only — its test still asserts `send_message` is
+refused there. The send script lives behind `script_for_write_op`, reachable only from
+`whatsapp_send_start`, which consults the ceiling first. The obsolete part of
+`v1_op_allowlist_is_read_only` was rewritten rather than deleted: the read path's refusal is
+unchanged, and a second test asserts the write script has exactly one entry point.
+`WPP.chat.sendTextMessage` is deliberately kept OUT of `WPP_DEPENDENCIES`, so the session-start
+health tripwire keeps its "mentions no send function" guarantee. The cost is real and accepted:
+drift in the send path surfaces on first send, not at link time.
+
+**Verified by test**: the cap binds at its boundary and after a simulated restart; a halt survives a
+restart and has no expiry; a corrupt ledger fails closed; winding the system clock back does not free
+slots; the Rust and TypeScript limit constants agree (the test reads `policy.ts` and was confirmed to
+FAIL when one number was changed); a hostile body containing quotes, backslashes, newlines,
+`</script>`, backticks and U+2028/U+2029 cannot leave its string literal. **Unverified**: nothing has
+run against a live WhatsApp session — no message has actually been sent by this code.
+
+### ADR-158 addendum (2026-08-02) — the first write op, and where the ceiling actually binds
+
+The write path landed. Five decisions worth recording because each could reasonably have gone the
+other way:
+
+1. **The read allowlist still refuses `send_message`.** `script_for_op` — the function the read
+   command calls — is unchanged in what it refuses. The send script lives behind a separate
+   `script_for_write_op`, reachable only from the gated send command. The obsolete "no write op
+   exists anywhere" assertion was REWRITTEN rather than deleted: it still proves the read path
+   refuses `send_message`, `eval`, `Function`, arbitrary expressions, empty and whitespace names,
+   case variants, and anything unlisted. Deleting a security assertion because a decision made it
+   obsolete would have silently removed a guarantee that is still worth having.
+2. **Body escaping targets the JavaScript lexer, not HTML.** Bodies are arbitrary user text crossing
+   into a JS string literal, so U+2028 and U+2029 are escaped alongside the obvious characters —
+   they terminate a line to a JS lexer specifically and are the classic gap in a naive escaper.
+   Ordinary Devanagari, Japanese and emoji pass through untouched.
+3. **The ledger is durable, and a corrupt ledger HALTS rather than reading as empty.** A cap that
+   resets on restart is not a cap — restarting Bridge would have been the bypass. State is a JSON
+   ledger under `app_data_dir`, written temp-then-rename, reusing `overlay.rs`'s existing persisted
+   mechanism rather than inventing one. Failing closed on corruption is the only safe reading:
+   treating an unreadable ledger as "no sends yet" would make corruption a way to reset the cap.
+4. **The send is counted BEFORE it is attempted.** An attempt that fails ambiguously (sent but not
+   confirmed) must consume allowance, otherwise a flaky send path becomes an unlimited one.
+5. **The ledger stores `sha256(recipient)` and no bodies or numbers.** The rate-limiter needs
+   identity equality, not identity — so it does not get identity.
+
+**Honest limit, stated rather than papered over:** deleting the ledger file resets the counter to a
+warm-up day-one allowance. This is not defensible against the machine's owner and is not claimed to
+be. What it does defend is the case ADR-158 named — a cap that binds when the renderer is bypassed
+and across an app restart — and that is proven by a test which spends the allowance, discards every
+in-memory structure, and re-reads from disk sharing nothing but a file path.
+
+**Accepted trade:** `WPP.chat.sendTextMessage` is deliberately absent from `WPP_DEPENDENCIES`, so the
+health op keeps its tested guarantee of mentioning no send function. The cost is that wa-js drift on
+the send path surfaces at first send rather than at link time.
+### ADR-158 addendum 2 (2026-08-02) — the session window becomes INVISIBLE and Bridge renders chats itself
+
+The preference the previous addendum could not satisfy is satisfiable after all, by inverting the
+problem. The user rejected the design three times because WhatsApp appeared as a separate window
+overlapping Bridge. Both prior attempts tried to make that window *look* embedded. Neither could,
+without giving up the capability exclusion.
+
+**Decision: the session window is never shown. It runs as the engine — linked, synced, executing
+operations — parked off-screen and hidden, while Bridge renders chats in its own DOM from the Local
+Plane message store.** The capability exclusion is untouched, because the window is unchanged; only
+its visibility and the surface that reads from it change.
+
+The one exception is device linking, where a QR code genuinely has to be looked at by a human. The
+window is shown for that and hidden again the moment the socket connects. A test asserts
+`showSession` has exactly one call site.
+
+**Measured, not assumed (2026-08-02).** The obvious objection was that macOS would throttle or
+suspend an unmapped WKWebView and the session would drop. A Swift/AppKit harness measured a
+never-ordered-in `WKWebView` for ten minutes against a local server-push stream:
+
+- 1 094 of an expected 1 200 server pushes delivered (91 %), stream still open, last push in the
+  same millisecond as the final measurement. **Background network delivery to a hidden webview is
+  not meaningfully throttled.**
+- Page timers ARE throttled, to roughly one tick per 15 s — but identically in a never-ordered-in
+  window (13 ticks) and an ordered-in one (12–13). **Occlusion drives it, not hiding**, and any
+  Bridge window that is not frontmost is already occluded.
+- Host `evaluateJavaScript` against the hidden webview returned correctly throughout, with zero
+  errors.
+
+Rejected alternative: positioning the window far off-screen while nominally visible. Measured, and
+indistinguishable from hidden — AppKit reports both as occluded — so it buys nothing and costs a
+window that can be revealed by a stray `show()`.
+
+**Consequence.** The architecture must not depend on in-page timers, and does not: liveness is
+polled from the visible main window through `whatsapp_status`, and reads are host-initiated. The
+only thing that must survive in the hidden webview is the socket, and it does. This is also not a
+new regime — `whatsapp_hide` already ran on every route change, so the product already depended on a
+hidden session staying linked; this makes an existing state continuous rather than intermittent.
+
+**Open, and honestly so:** WhatsApp Web's own client-side keepalive runs on page timers, which are
+throttled. Whether its server tolerates that for hours is not answerable from a synthetic probe and
+needs a live run. Procedure and fallback are recorded in
+`outputs/2026-08-02-task-030-hidden-engine.md`.
+
+### ADR-158 addendum 3 (2026-08-02) — an unreadable clock schedules a READ, never a success message; the `data_store_identifier` theory is REFUTED
+
+**This addendum corrects a hypothesis I recorded myself.** BUGS OPEN 2026-08-02 named the missing
+`data_store_identifier` as the leading candidate for the WhatsApp session's troubles, then weakened
+that claim once. It is now **refuted outright**, on live evidence, and should not be revisited:
+
+- The user's Chats surface reads **"Session live — 500 chats"**. A session pointed at an empty,
+  freshly-minted data store cannot report 500 chats. The account is linked and the identified store
+  is the one holding it.
+- On disk, the identified store
+  (`~/Library/WebKit/bridge-desktop/WebsiteDataStore/<uuid>/`) holds `https://web.whatsapp.com`
+  origin storage — nine IndexedDB databases, ~3.7 MB, actively written. The DEFAULT store
+  (`…/WebsiteData/`) has **empty** `IndexedDB` and `LocalStorage` directories untouched since
+  2026-07-07.
+- `data_directory` was never used on this webview; only the identifier landed. So there was no
+  prior session in the default store to orphan.
+
+The per-account isolation the identifier buys therefore costs nothing and stands. No re-link is
+needed, and the trade-off the brief asked me to weigh does not arise.
+
+**The real defect was two honesty failures compounding, and neither was in Rust's security
+boundary.**
+
+1. `list_chats` extracted last-activity time through `c.lastReceivedKey ? c.t : c.t` — a ternary
+   whose two arms are the same expression. It only ever read one field, and on the live account
+   that field was absent, so all 500 chats came back undated.
+2. `chatsDueForSync` (and its copy in the web `sync.ts` loop) then **dropped every undated chat**.
+   An empty queue was rendered as `"Everything is already up to date."`
+
+**Decision.** Unknown activity is not "nothing new". A chat whose last-activity time cannot be read
+is scheduled for exactly one read; the store's cursor — not an absent field — then becomes the
+authority, so the pass converges instead of re-reading 500 chats forever. The reporting is split so
+"the session had nothing to give" and "you are current" are different sentences with different
+statuses (`nothing-readable` vs `completed`) and different colours.
+
+**Rejected alternatives.**
+
+- *Patch the ternary only.* Rejected: it fixes one field name and leaves the failure mode intact.
+  Any future field rename silently reproduces the same silent-success bug. The scheduler had to stop
+  treating unreadable as current regardless of why it was unreadable.
+- *Treat undated chats as due on every run.* Rejected: unbounded re-reads against a personal
+  WhatsApp number is the behaviour that draws enforcement (ADR-158). The visited-cursor gate bounds
+  it to one read per chat.
+- *Probe the live session first and only then choose a field.* Rejected as the primary fix, though
+  still worth doing: it would have blocked the fix on a round trip through the user, and the
+  scheduler defect needed fixing either way. The widened extraction now consults `c.t`,
+  `c.lastMsgTimestamp` and `c.msgs.last().t` and reports `null` — not `0` — when none answers, so
+  "unknown" survives the trip to the scheduler.
+
+**Consequence.** The session-start health tripwire now merges `MESSAGE_WPP_DEPENDENCIES` into its
+dependency list, deduplicated, so `WPP.chat.getMessages` is checked at link time rather than at
+first sync. That constant was previously declared and never read — a live compiler warning that was
+also a real coverage gap. `WPP.chat.getMessages` is existence-checked only, never invoked: calling
+it in a tripwire would read a real conversation at session start.
+
+**Still unproven, and honestly so.** WHICH of the three timestamp sources answers on the live
+account has not been observed. The fix does not depend on the answer — undated chats are now read
+regardless — but the sync is more efficient when a chat can be dated, so the live procedure in
+`outputs/2026-08-02-task-030-sync-fix.md` asks for it.
+### ADR-158 addendum 4 (2026-08-02) — Automation rules may only TIGHTEN the send discipline
+
+The WhatsApp Module gains three Tools: Automation Rules, Scheduled Actions, and Agent Assignment. A
+rules engine over a channel with a ban-protection policy is the exact shape of feature that grows a
+quiet way around that policy, so the design is defensive by construction rather than by convention.
+
+**Decision 1 — a rule's `limitOverrides` pass through `tightenLimits`, which takes the STRICTER of
+every field against the shipped `SEND_POLICY_LIMITS`.** A rule asking for a daily cap of 5,000 gets
+30; a rule asking for `requireRecipientInitiated: false` gets whatever the shipped limits say. Which
+direction is stricter is not uniform (a LOWER `similarityThreshold` catches more near-identical
+bodies; a LATER `businessHourStart` narrows the window), so each field is spelled out rather than
+handled by a generic min/max. Rejected: validating override ranges at the tRPC boundary as the
+protection. Zod bounds are a usability guard — they cannot bind stored state written by an older
+shape or edited on disk, and `tightenLimits` can.
+
+**Decision 2 — a refusal never becomes a scheduled action.** `scheduleFromPolicy` queues a
+`deferred` policy decision and returns a `refused` one without touching the ledger. Turning "this
+would be a first contact" into "retrying at 09:00" converts a permanent no into a pending yes, which
+is precisely the failure the consent gate exists to prevent. Rejected: queuing refusals as visible
+rows for transparency — a row in a queue is a thing a future runner retries.
+
+**Decision 3 — an Automation may only start a Run of the Agent the OWNER assigned to that subject.**
+`planAutomationRun` blocks with `no_agent_assigned` when there is none, and there is deliberately no
+fallback Agent. This is what "only an attributable allowed Agent invokes a Skill" means here. A
+second Module Agent, `conversation-steward`, was added for it: the Contact Steward reconciles an
+address book and should not inherit answerability for conversations.
+
+**Decision 4 — the consent gate is checked in the planner as well as at send time, and BEFORE the
+trigger.** Redundant by design. The planner check means an Agent is never woken for a thread nobody
+wrote in, and checking it before the trigger means the owner is told their rule can never fire
+rather than that it is merely not due today. The send-time check is the one that binds.
+
+**Decision 5 — all three ledgers share ONE `LocalStateStore` namespace (`whatsapp:automation`).**
+The writes are genuinely coupled: deleting a rule must also cancel the actions it queued, and both
+landing or neither is the only correct outcome. Rejected: a namespace each, which turns that one
+write into two that can half-fail.
+
+**Consequences.** The scheduler holds no message bodies and imports nothing that can send; it queues
+Agent Run starts, and `performAutomatedSend` is untouched. Rule evaluation is a user-clicked check
+(`whatsapp.automation.check`) reading only stored Local Plane facts, so no Automation performs a
+WhatsApp read — the Module's original guarantee survives. There is still **no runner**: nothing
+dequeues a due action and starts a real Agent Run, and the sweep can only fire `thread_quiet` rules
+because it has no arriving message to hand an `inbound_message` rule. Both halves are reported in
+the surface rather than hidden: the queue does not claim its entries execute, and an inbound rule
+comes back as `waiting` with the missing hook named, not as an ambiguous "not due".
+
+## ADR-159 — The WhatsApp↔Relationship link is a key-space lookup, not a matcher; the Person Timeline joins the two planes at render time, never on disk (2026-08-02; TASK-030; extends ADR-158's residency section)
+
+**Context.** The WhatsApp Module synced chats and messages into the Local Plane but stood alone: a
+chat had no Person. The user asked for the Module to be "linked to relationship module", with chat
+data appearing on People and Community page timelines.
+
+**Decision 1 — resolution is an exact lookup in one key space, with no fuzzy tier.**
+`local_people.dedupe_key` and `local_messages.sender_key` were already the same key space
+(`whatsapp:+E164` / `whatsapp-lid:<id>`). A chat id is drawn from that same space, so
+`resolveChatLink` (`modules/whatsapp/src/link.ts`) is a key derivation plus an exact `Map` lookup.
+No name similarity, no phone normalisation beyond the existing `toE164`, no scoring. Every heuristic
+that could be added here is a guess about who somebody is, made at a scale (8,384 contacts) where a
+small error rate is hundreds of wrong attributions on real people's pages.
+
+**Decision 2 — LID and phone stay disjoint, and the cost is stated rather than mitigated.**
+A `@lid` chat resolves only against LID keys. On the live account 4,203 of 8,384 contacts are
+LID-only, so a large fraction of chats will read **unlinked** even when the human is plainly in the
+graph under their phone number. That is the correct answer: WhatsApp deliberately withheld the
+number, and matching the two is inference, not knowledge. `chatSubjectKey` checks `isLidId` BEFORE
+the phone branch for the same reason `phoneFor` does — guarding only the suffix has already been
+observed laundering LID digits into phone-shaped fields.
+
+**Decision 3 — ambiguity produces a Signal, and that Signal is now actually written.**
+`mapExtraction` had computed `possible_duplicate` Signals since v1, and `stageExtraction` counted
+them into an audit row and **threw them away**. The refusal to guess was therefore invisible: the
+run declined to merge, reported a number, and left nothing to act on. Ambiguous identities now
+commit as `kind: "signal"` local entities with the `type: "possible_duplicate"` payload shape the
+Google intake path already files, so one review surface can read both. The id is deterministic on
+the dedupe key (`commitEntity` is idempotent on id), so re-running an extraction re-commits the same
+rows instead of minting one Signal per run — the difference between a review queue and a flood.
+`personId` is left unset deliberately: the entire content of the Signal is that nobody knows which
+Person it is.
+
+**Decision 4 — the Timeline joins two planes at RENDER time, never on disk.**
+`relationship.timeline` reads cloud Events. The new `relationship.whatsappTimeline` reads the Local
+Plane. They are deliberately NOT merged server-side and WhatsApp rows are never written into
+`events`, because that would copy Local-Plane facts into cloud canonical storage. The client renders
+both in one Timeline section. What crosses the wire is activity FACTS only — counts, timestamps,
+direction. No message body, no phone number, no identity key: bodies stay in the WhatsApp Module's
+own thread surface, which the Timeline links to.
+
+**Rejected alternatives.**
+
+- *Materialise WhatsApp activity as cloud Events so the existing Timeline "just works".* Rejected
+  outright: it is the residency violation. A message body or a phone-derived identity key in
+  `events` is exactly what Local Plane exists to prevent.
+- *Match a LID chat to a phone Person by name or digit equality.* Rejected. Digit equality is the
+  fabrication bug that already minted 4,203 fake numbers once. Name matching over an address book
+  whose names are attacker-settable push-names is worse.
+- *Auto-link the single best candidate when several match.* Rejected — repo precedent
+  (`possible_duplicate` on Google intake) and the reason it exists: an ambiguous identity silently
+  resolved is a wrong Person's private conversation on a page.
+- *A bulk migration linking all 8,384 contacts.* Rejected; not asked for, and it would commit
+  thousands of link decisions with no human in the loop.
+- *A parallel "WhatsApp" widget beside the Timeline.* Rejected as the primary shape — the ask was
+  chat data IN the timeline. It renders inside the Timeline section, under a sub-heading that names
+  the plane it came from.
+
+**Consequence, and the honest limit.** A cloud Person id and a Local Plane person id are different
+key spaces. The only bridge that exists today is ID EQUALITY: the Google intake and Capture paths
+mint one uuid and write it as both `people.id` and `local_people.id`. `whatsappTimeline` relies on
+that same bridge and invents no new one. **People created by the WhatsApp Contact Extractor have no
+cloud `people` row at all** — `local_people.canonical_person_id` is declared but written by nothing
+in production — so today a WhatsApp-origin Person has no cloud page for their chats to appear on,
+and a Google-origin Person has an email dedupe key rather than a WhatsApp one. The join is therefore
+correct and currently expected to return zero rows on real data. It is reported as
+`linkage: "no_local_record"` / `"no_whatsapp_identity"` — never disguised as "no activity" — and
+closing the gap needs an explicit promote path, which is deliberately not in this change.
+
+**Community is a stated gap, not a silent one.** A WhatsApp group derives a `whatsapp-group:<id>`
+Community key, but the Local Plane has no Community store and `stageExtraction` accepts contacts
+only, so no WhatsApp group is ever staged as a Community. `resolveChatLink` returns
+`community_unsupported` and the Community page says so in words.
+
+### ADR-159 (2026-08-02) — session recovery: move storage aside, never delete it
+
+**Context.** WhatsApp Web wedged on its own splash screen indefinitely because the persisted
+WKWebView data store held session state WhatsApp had invalidated (the device was unlinked
+elsewhere). The shell had NO diagnostic or recovery affordance: diagnosis required an out-of-band
+Swift WKWebView probe, and the only escape was quitting Bridge and moving
+`~/Library/WebKit/<container>/WebsiteDataStore/<uuid>` aside by hand in a terminal. A recovery gap
+that ends in "the user hand-edits `~/Library/WebKit`" is a product defect regardless of how rare
+the trigger is.
+
+**Decision.** Two shell commands in escalation order, surfaced on the Chats surface only in the
+states they cure:
+
+- `whatsapp_session_reload` — navigate the existing window to WhatsApp again. Same store, fresh
+  page. Offered in BOTH wedge states: not linked, and connected-but-chatless (seen live the same
+  day: a CONNECTED socket over a store WhatsApp had emptied, with the sync honestly reporting
+  "no chats at all").
+- `whatsapp_session_reset` — destroy the window, MOVE the store directory to a timestamped sibling
+  (`<uuid>-invalidated-<epoch>`), remove the persisted store-id file so the next `ensure_window`
+  mints a fresh store and shows a QR. Confirmed in the UI first, because it forces a re-link; the
+  button exists only in the not-linked state.
+
+The store is moved with `std::fs::rename` to a SIBLING path — same volume, atomic, reversible by
+hand. A rename failure is a typed error (`WHATSAPP_RESET_FAILED`); there is no deletion fallback.
+Every absence (no window, no store dir, no id file) is a no-op success, because "wedged" and
+"never existed" look identical to the person clicking the button. The reset scans every container
+under `~/Library/WebKit` for a `WebsiteDataStore/<uuid>` matching the persisted id
+case-insensitively — the container segment differs between a dev binary and a bundled app, and
+WebKit uppercases the UUID while we persist lowercase.
+
+**Rejected alternatives.**
+
+- *Delete the store.* It holds the only copy of an authenticated session's cookies and IndexedDB; a
+  recovery affordance that destroys evidence on a misdiagnosis is worse than the wedge.
+- *Auto-reset on detecting the splash wedge.* The shell cannot distinguish "storage invalidated"
+  from "WhatsApp is slow today"; an automatic reset would unlink a healthy device. A human
+  confirms, with the re-link cost named in the confirmation.
+- *A generic "run this in the session" escape hatch.* Reopens the exact hole the op allowlist
+  closes. Both commands are named ops with no caller-supplied code.
+
+**Consequences.** Archived stores accumulate under `~/Library/WebKit` until manually cleaned — the
+cost of reversibility, accepted. The reset destroys the window synchronously (`destroy`, not the
+async `close`) in the same main-thread hop as the rename, so nothing mints files under the old
+identity mid-move. Filesystem behaviour is unit-tested over temp dirs (rename + id-removal, absent
+cases, same-second collision suffixing, case-insensitive matching, neighbour stores untouched).
+
+## ADR-160 — A manual send is policied differently from an automated one, but travels the same transport and the same durable ceiling (2026-08-03; TASK-030; extends ADR-158)
+
+**Context.** The Chats surface shipped with an inert composer. The user asked for write access:
+"I want write access." — a box to type a message into the chat they are looking at.
+
+The send path that already existed was built for AGENTS. `@bridge/whatsapp`'s `evaluateSendPolicy`
+is anti-ban discipline for bulk outreach — a consent gate so automation never opens a conversation,
+a near-identical-body limit across recipients, recipient-local business hours, a seven-day
+per-recipient cooldown, a rolling 30/day cap with a warm-up ramp, and human-pacing jitter. wa-js was
+chosen over Baileys precisely to avoid bans (ADR-158), and these rules are what actually reduce that
+risk, since engine choice does not.
+
+Applied unchanged to a person typing one reply, every one of those rules misfires. An ordinary reply
+becomes a refused "first contact". A second reply to the same person is refused for a week. Anything
+after 9pm their time is deferred to morning. The compose box would be a control that mostly says no,
+which is the same product failure as a control that does nothing.
+
+The opposite move — a manual send that skips the gate and calls the shell directly — creates the
+second write path the architecture forbids and removes the protection from the account entirely.
+
+**Decision.** Split the POLICY, never the PATH.
+
+- `decideManualSend` (`platform/apps/web/src/app/pages/whatsapp/compose.ts`) keeps exactly the
+  validation `send.ts` applies to every send — empty body, over-length body, malformed target,
+  missing recipient key — and mints the same body-bound grant. It drops the automation discipline,
+  which describes an Agent's behaviour and not a human's.
+- It does NOT drop `decideSend`'s per-recipient human approval by accident: that approval exists so
+  a HUMAN says yes before an Agent messages someone. Here the human chose the conversation, typed
+  the words and pressed the button. Putting a consent dialog in front of that trains the owner to
+  click through the one prompt in this system that must stay deliberate — the same reasoning
+  `outbound.ts` uses to order refusals before prompts.
+- `whatsAppEngine.sendManualMessage` reaches the wire through the SAME `sendPort` as
+  `sendAutomatedMessage`, therefore the same `whatsapp_send_start`/`_poll` commands, therefore the
+  same durable Rust ceiling. The cap, the per-recipient cooldown and the sticky kill switch still
+  bind, are still read from the ledger under `app_data_dir`, and nothing in the renderer can raise
+  them. The renderer still supplies only a target id, a recipient key and a body — no script, no
+  selector, no count.
+- Every manual outcome — including a validation refusal that never reached the shell — goes through
+  `recordSendOutcome`.
+- Refusals are VALUES, rendered. `describeSendOutcome` produces one of three visibly different
+  states: sent; refused and why (with the instant a deferral clears); or "we could not confirm".
+  The third exists because the ceiling counts a send BEFORE the script runs, so a failure after that
+  point may still have reached WhatsApp — reporting it as "not sent" is how a user sends the same
+  message twice. The draft is kept on anything but a confirmed send.
+
+**Rejected alternatives.**
+
+- *Route manual sends around the ceiling.* Removes the anti-ban protection from the account and
+  creates a second write path. Refused outright.
+- *Run manual sends through `performAutomatedSend` unchanged.* Honest about the path and dishonest
+  about the product: a compose box that refuses ordinary replies is broken, and the user would learn
+  to distrust every refusal it shows.
+- *Fabricate a permissive `SendPolicyContext` for manual sends* (synthetic approvals, a faked
+  `ThreadActivity`, a business-hours-safe `now`). This looked tidy and is the worst option: it lies
+  to the gate rather than declaring a different one, and the lie would be invisible in the audit log.
+- *Raise the automation limits so manual traffic fits.* Weakens the protection for Agents in order
+  to fix a UI problem.
+
+**Consequences, including one that is not yet fixed.**
+
+The shell cannot currently tell a manual send from an automated one, so the durable per-recipient
+cooldown (7 days) and the 30/day cap apply to both. A person's second message to the same recipient
+inside the cooldown window WILL be refused by the ceiling. That is rendered honestly — the reason
+and the clearing time are shown, and the composer states that manual and automated sends share one
+durable limit — but it is a real product limitation, not a design intent.
+
+The completing change is a SHELL change and is deliberately out of this scope: `whatsapp_send_start`
+should take an `origin` (`"manual" | "automated"`) and apply separate limits from the SAME ledger,
+with the kill switch binding on both origins. One transport, one durable ledger, two limit sets.
+Until then the composer is honest about the ceiling it shares; recorded in `docs/BUGS.md`.
+
+### ADR-160 (2026-08-03) — Tags and Internal Notes are scoped to the open chat, not re-picked
+
+The annotations Tool lived only on the Tools Page, where its first control is a subject dropdown.
+Reaching it from a conversation meant leaving the Chats surface and re-picking the chat that was
+already selected — the user's report: "Tags and Internal Notes should appear next to sync messages
+and auto associated with selected chat or group."
+
+`ChatAnnotations` is a disclosure in the Chats header row beside "Sync messages" with NO subject
+picker: the subject is derived from the selected thread by `annotationSubjectFor`, the same
+derivation `AnnotationsPanel` uses (a group thread annotates its Community, a direct chat annotates
+`chat:<id>`). It calls the existing `whatsapp.annotations` / `addTags` / `addNote` / `removeTag` /
+`removeNote` procedures unchanged — one data model, two doors — so a tag added from the Chats header
+and one added from the Tools Page land on the same subject key. A disclosure rather than an
+always-open panel because the header row is not a form surface (UI architecture).
+
+Annotations remain Bridge's own Local-Plane data: the control makes no engine call, declares no
+WhatsApp permission, works with no session at all, and says on screen that nothing in it is sent to
+WhatsApp. With no thread selected it EXPLAINS rather than sitting inert, per the actionability rule.
+
+### ADR-161 (2026-08-03) — the thread order was already right; the scroll position was not
+
+Reported as messages reading in the wrong order inside a thread. Verified before changing anything:
+`local_messages` is read `ORDER BY sent_at, message_id`, the in-memory store sorts the same way, and
+the tRPC `whatsapp.thread` procedure documents "oldest first" — which is already WhatsApp's order.
+Nothing about the ordering was wrong.
+
+What was wrong is where the VIEW started. The list is virtualised, and a virtualiser opens at scroll
+offset zero, i.e. the oldest message in the archive — so opening a chat showed months-old messages
+and read as reversed. The fix is a scroll pin to the last row on open (and again after a manual
+send), applied once per thread so scrolling back through history is never yanked away. The rendering
+order is untouched; no `.reverse()`, no `flex-col-reverse`, no re-sort in the surface, and a test
+asserts the surface never re-orders the store.
+### ADR-162 — An unreadable WhatsApp address book is a read failure, not an empty address book; last-activity candidates are evaluated lazily so one dead field cannot suppress a live one (2026-08-03; TASK-030; extends ADR-158's read-allowlist section)
+
+**Context.** Two defects on the live account (8,384 contacts, ~500 chats), both presenting as "the
+extraction ran and found nothing" while the same session visibly held the data.
+
+1. `list_contacts` returned an EMPTY list.
+2. Chats did not order by recency — every chat came back with no usable last-activity time, so the
+   order was arbitrary.
+
+The standing hypothesis for (1) was LID migration suppressing `isMyContact`. It was NOT confirmed,
+and the investigation did not support it. Evidence came instead from the bundle we actually ship —
+`platform/apps/desktop/src-tauri/vendor/wppconnect-wa.js`, wa-js v4.5.0, SHA-256 pinned — which is
+authoritative in a way that documentation is not.
+
+**Finding 1 — `onlyMyContacts` fails to an empty array, silently.** It is not a query WhatsApp
+answers. In the shipped bundle `WPP.contact.list` is `ContactStore.getModelsArray().slice()`
+followed by `filter(e => e.isMyContact)`. `isMyContact` is not wa-js's logic either: wa-js defines
+it on `ContactModel.prototype` as a getter delegating to WhatsApp's internal `getIsMyContact`,
+which it locates by DUCK-TYPING webpack modules (`e => e.getIsMyContact`) and installs only if the
+property is currently `undefined`. When WhatsApp moves or renames that function the binding
+resolves to nothing, every `c.isMyContact` is `undefined`, and the filter keeps nobody — no throw,
+no warning. An address book that could not be READ is indistinguishable, at the call site, from an
+address book with nobody in it.
+
+**Finding 2 — the last-activity fix was defeated by evaluation ORDER, not by field choice.** The
+previous script listed three sources but built the array EAGERLY inside one `try`:
+
+```js
+var newest = (c.msgs && typeof c.msgs.last === "function" && c.msgs.last()) ? c.msgs.last().t : undefined;
+var sources = [c.t, c.lastMsgTimestamp, newest];
+```
+
+`c.msgs.last()` is evaluated BEFORE the loop ever reads `c.t`. `msgs` is a live collection populated
+only once a chat's history has loaded, so on a freshly linked device that call throws for most
+chats — and the throw skipped the whole block, discarding a `c.t` that was sitting right there. The
+LOWEST-priority candidate could poison the HIGHEST-priority one. This is why the earlier fix, which
+correctly identified the identical-arm ternary, did not change the live symptom.
+
+Bundle evidence on the field names themselves: `t` is the only last-activity field DECLARED on
+WhatsApp's ChatModel (upstream `ChatModel.ts:27`). `lastMsgTimestamp` and `msgs.last` have ZERO
+occurrences in the pinned bundle. The prior candidate list therefore implied coverage it did not
+have.
+
+**Decision 1 — the meaning of "contact" is UNCHANGED; only the failure mode changes.** The
+saved-contact filter stays. It moved from wa-js's option into the op, where its failure is visible:
+a boolean flag is filtered on exactly as before; a non-boolean flag is UNREADABLE and recorded as
+such rather than coerced to `false`; and if the store holds contacts while NOT ONE has a readable
+flag, the op throws. `reported` turns that into the `ok: false` the surface already renders.
+Strangers who merely messaged the owner are still excluded, so the `contacts_and_messaged` policy
+and the Relationship module's staging volume are untouched.
+
+**Decision 2 — candidates are evaluated lazily, each in its own `catch`, `t` first.** A throwing
+source is skipped and is never fatal to the sources before or after it. Values above `1e11` are
+divided to seconds, because every watermark comparison in `@bridge/whatsapp` assumes seconds and a
+milliseconds build would date every chat ~1700x into the future. Each summary now carries
+`activitySource` — the NAME of the field that answered, or `null` — which is the cheapest available
+evidence about a build we cannot otherwise inspect, and carries nothing personal.
+
+**Rejected alternatives.**
+
+- *Drop `onlyMyContacts` and stage everyone.* Fixes the empty list by redefining "contact". On this
+  account `all` stages 35,298 People against ~998 genuinely known (the measurement behind
+  `contacts_and_messaged`). Rejected outright.
+- *Fall back to WhatsApp's internal `getIsMyContact` when the getter is missing.* The usually-cited
+  path (`WPP.whatsapp.functions.getIsMyContact`) could NOT be confirmed to exist in the vendored
+  bundle. Guessing at a private path to paper over a private path that already moved is how this
+  defect gets rebuilt, one build later, with the same silent-empty signature.
+- *Infer saved-vs-stranger from `name` present / `pushname`-only.* A plausible proxy with no
+  documented guarantee behind it. It would fabricate address-book membership — the same class of
+  error as deriving a phone number from a `@lid`.
+- *Report `0` instead of `null` for an undated chat.* "Unknown" and "never" drive opposite
+  scheduling decisions; collapsing them is the original defect.
+- *Delete `lastMsgTimestamp` / `msgs.last` now that they are proven absent from the bundle.* Kept as
+  cheap lazy fallbacks against a future build. The absence is recorded in the code comment so the
+  next reader does not mistake their presence for evidence that they work.
+
+**Consequences.** An account whose `isMyContact` binding is broken now sees an honest error naming
+counts only ("N contacts in the store, 0 with a readable flag") instead of an empty success — a
+louder failure, deliberately. `list_contacts` now calls `list({ onlyMyContacts: false })` and filters
+in the op; this is the same traversal `pn_lid_map` already performs, so no new cost in kind. Neither
+op gained a WPP dependency, so the health tripwire is unchanged. Both remain read-only, bounded,
+sequential, and derive no phone number from any `@lid`. NOT verified against the live account: which
+`activitySource` actually answers, and whether the address-book flag is readable there — both are
+settled by the first run after this lands, and the probe is recorded in BUGS.
 ## ADR-160 — The `table` view kind keeps two renderers behind one contract: DOM by default, Glide canvas past the virtualization threshold (2026-08-02; TASK-031)
 
 - **Context**: `docs/raw/tool-standardization-plan.md` §"tables" always named a **GlideTable renderer** as the table surface, and `docs/raw/STACK.md` still records `glide-data-grid` as the chosen grid ("replaces AG Grid"). TASK-009/TASK-014 (commit `928d66e`, 2026-07-19) built the `<DataViews>` registry and deleted `DataEngine.tsx`, the Glide renderer's only consumer, replacing it with a shadcn `<table>`-based `TableView`. **No decision against Glide was ever recorded** — `decisions-log.md` contained zero Glide mentions before this entry. The orphaned `GlideTable.tsx`, the unused `lib/columnTypes.ts` (whose comments still described "GlideTable's overlay editor"), the `@glideapps/glide-data-grid` dependency, and the STACK/wiki claims all survived unreconciled: silent rot, not a decision. The 2026-08-02 bloat audit (`outputs/2026-08-02-platform-bloat-audit.md`) also established that `TableView` renders EVERY sorted row with no virtualization, slicing, or pagination — a hard perf cliff on exactly the large directories the product is meant to carry, and the original reason Glide was selected.
