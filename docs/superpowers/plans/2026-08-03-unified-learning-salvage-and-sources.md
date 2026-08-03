@@ -44,7 +44,9 @@ Expected: fast-forward or a clean additive merge. If `docs/log.md` or `docs/wiki
 | `platform/packages/sourcing/test/recon-adapter.test.ts` | Adapter contract tests (no network) |
 | `platform/packages/sourcing/src/index.ts` | Add the two new exports |
 
-Salvage source: `.recon-salvage-2026-08-03/lib/recon.ts` (untracked, 3148 lines), or `git show 41d3b37^:Tools/recon/lib/recon.ts`.
+Salvage source: `Tools/recon-salvage-2026-08-03/lib/recon.ts` (tracked, 3148 lines), or `git show 41d3b37^:Tools/recon/lib/recon.ts`.
+
+The salvage is source material, not a live app — it is not in the pnpm workspace, is never built, and is never run. Port **out** of it; never wire anything **into** it. Task 8 of the retirement step deletes it once every connector has landed in `@bridge/sourcing`.
 
 ---
 
@@ -354,9 +356,9 @@ Three, not 35 — they prove the three distinct shapes (keyless JSON API, cached
 - [ ] **Step 1: Read the three source enrichers before porting**
 
 ```bash
-sed -n '1365,1442p' .recon-salvage-2026-08-03/lib/recon.ts   # finraEnrich
-sed -n '1442,1481p' .recon-salvage-2026-08-03/lib/recon.ts   # openAlexEnrich
-sed -n '2022,2073p' .recon-salvage-2026-08-03/lib/recon.ts   # ofacEnrich
+sed -n '1365,1442p' Tools/recon-salvage-2026-08-03/lib/recon.ts   # finraEnrich
+sed -n '1442,1481p' Tools/recon-salvage-2026-08-03/lib/recon.ts   # openAlexEnrich
+sed -n '2022,2073p' Tools/recon-salvage-2026-08-03/lib/recon.ts   # ofacEnrich
 ```
 
 `finraEnrich` carries the namesake-disambiguation logic (`nameMatchScore` + `affiliationCorroborates`) that exists because a name-only match once attached another person's disclosures to a subject. Port that logic intact — it is the reason this file is worth salvaging rather than rewriting.
@@ -428,13 +430,13 @@ git commit -m "Port FINRA, OpenAlex, and OFAC enrichers with namesake disambigua
 
 **Files:**
 - Test: `platform/packages/sourcing/test/recon-ssrf.test.ts`
-- Reference: `.recon-salvage-2026-08-03/test/ssrf.test.ts`
+- Reference: `Tools/recon-salvage-2026-08-03/test/ssrf.test.ts`
 
 - [ ] **Step 1: Read both guards side by side**
 
 ```bash
-cat .recon-salvage-2026-08-03/lib/ssrf.ts
-cat .recon-salvage-2026-08-03/test/ssrf.test.ts
+cat Tools/recon-salvage-2026-08-03/lib/ssrf.ts
+cat Tools/recon-salvage-2026-08-03/test/ssrf.test.ts
 git show origin/main:platform/packages/net-guard/src/index.ts
 ```
 
@@ -493,7 +495,7 @@ cd platform && pnpm -F @bridge/sourcing build && pnpm -F @bridge/sourcing test
 
 ```bash
 git show origin/main:platform/packages/dedupe/src/match.ts
-sed -n '2627,2760p' .recon-salvage-2026-08-03/lib/recon.ts   # resolveIdentities, foldInto, idKeys, mergeCandidates
+sed -n '2627,2760p' Tools/recon-salvage-2026-08-03/lib/recon.ts   # resolveIdentities, foldInto, idKeys, mergeCandidates
 ```
 
 - [ ] **Step 2: Write the failing test**

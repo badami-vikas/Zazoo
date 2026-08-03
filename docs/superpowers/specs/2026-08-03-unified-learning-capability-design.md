@@ -22,7 +22,9 @@ The fix is not a new abstraction. It is that **sources become adapters behind po
 | `social/registry.ts` LinkedIn provider | **Fixture only.** `LINKEDIN_RECON_BRIDGE` env reserved; `registerLiveProvider` never called for `linkedin` |
 | `Tools/recon` + Chrome extension | **Deleted** by `41d3b37` "Complete repository and manifest cleanup" (2026-07-21) — 456 files, 117,567 lines |
 
-Recovery source: `git show 41d3b37^:Tools/recon/...`, and a code-only snapshot at `.recon-salvage-2026-08-03/` (63 files, 796K, no `node_modules`, no `data/`, no `.env.local`). The local working copy was verified byte-identical to git — nothing uncommitted was lost.
+Recovery source: `git show 41d3b37^:Tools/recon/...`, and a code-only salvage committed at `Tools/recon-salvage-2026-08-03/` (61 files, no `node_modules`, no `data/`, no `.env.local`). The local working copy was verified byte-identical to git — nothing uncommitted was lost.
+
+The salvage is **source material to port from, not a restored application.** It is deliberately not wired into the workspace, not built, and not run. It exists so the connectors cannot be lost a second time. Scanned before committing: no API keys, no third-party PII. It does carry the repository owner's own contact address in `SEC_UA` and the OpenAlex `mailto` — both are functionally required (SEC and OpenAlex block requests lacking a descriptive contact UA), and both must be reviewed before any change to this repository's visibility.
 
 `scripts/check-no-pii.sh` was deleted by the same commit. Capture is coming back; **that guard is restored first.**
 
@@ -211,7 +213,8 @@ Bounds on every Run: steps · pages · wall clock · total bytes. Every exit pat
 | **PII re-entering the repo** — recon's `data/` holds real enriched profiles; a prior cleanup already deleted this whole tree once | `check-no-pii.sh` restored *before* salvage; `data/` and `.env.local` excluded from the snapshot; salvage directory is untracked |
 | **CloakBrowser licensing drift** — v148+ needs Pro; OEM required to distribute | Confined to one optional adapter; free-tier binary goes stale by design, so treat as evaluation-only until an APPROVALS row |
 | **Second store re-emerging** | Retirement is step 7 of the plan, not an afterthought |
-| **Salvage swept into a commit** | `.recon-salvage-2026-08-03/` is untracked and must not be `git add -A`'d |
+| **Salvage mistaken for a live app** | It is tracked but deliberately unwired — no workspace entry, no build, no run. Retirement (step 7) deletes it once the ports are ported |
+| **`data/` or `.env.local` re-added later** | Both were excluded at salvage time and must stay excluded; `data/` holds real enriched profiles and `.env.local` holds live keys |
 
 ## Open questions
 

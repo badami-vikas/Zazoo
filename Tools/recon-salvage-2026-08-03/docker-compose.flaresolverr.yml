@@ -1,0 +1,16 @@
+# FlareSolverr — Phase-3 anti-bot sidecar. Solves Cloudflare/Akamai challenges and
+# returns rendered HTML, unlocking the walled sources (OpenCorporates today; more via
+# the Playwright render driver later).
+# Run:   docker compose -f docker-compose.flaresolverr.yml up -d
+# Then:  export FLARESOLVERR_URL=http://localhost:8191   (Recon picks it up)
+# Test:  curl -s -XPOST http://localhost:8191/v1 -H 'Content-Type: application/json' \
+#          -d '{"cmd":"request.get","url":"https://opencorporates.com/companies?q=stripe","maxTimeout":40000}' | head -c 200
+services:
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: recon-flaresolverr
+    ports:
+      - "8191:8191"
+    environment:
+      - LOG_LEVEL=info
+    restart: unless-stopped
