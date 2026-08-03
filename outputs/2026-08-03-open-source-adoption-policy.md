@@ -1,173 +1,245 @@
-# Open-Source Adoption Policy — analysis, validation, and proposed final form
+# Open-Source Adoption Policy
 
-2026-08-03. Tier C decision record. Ratifying this means promoting it to `docs/raw/` with a wiki
-companion, an ADR in `docs/raw/decisions-log.md`, and an `docs/APPROVALS.md` row — it is not policy
-until then.
+2026-08-03. Tier C decision record. Ratifying means promoting to `docs/raw/` with a wiki companion,
+an ADR in `docs/raw/decisions-log.md`, and an `docs/APPROVALS.md` row — this is not policy until then.
 
-## 1. What the proposed five-tier plan gets right
+**Scope: open-source licenses only.** Service terms of use are explicitly *out* of scope and handled
+by §7 (disclose the risk, the user decides).
 
-The tier model (permissive · weak copyleft · strong copyleft · network copyleft · commercial/restricted)
-is correct on the law and correct on the commercial instinct. Three parts are load-bearing and should
-survive into the final policy unchanged:
+---
 
-- **Obligations trigger on distribution and network use, not on adoption.** This is the single most
-  important idea in the plan. It is why "we use AGPL software internally" and "we host AGPL software
-  for customers" are different decisions.
-- **Separate spec from implementation (§B).** Ship the workflow — agent behavior, prompts, guardrails,
-  evals, integration wiring, deployment instructions — and let the customer choose the implementation.
-  This is the highest-value idea in the document, and Bridge is already architected for it (see §4).
-- **Policy gate before publish (§C).** A capability should not reach a customer without someone having
-  answered "who hosts it, who distributes it, what notices are owed."
+## 1. The hinge: yes, Commons is redistribution — for one carrier out of three
 
-## 2. What validation against JobPilot and DealPilot revealed
+Publishing to Commons is distribution. `CommonsModuleEntry` serves a signed manifest, canonical
+content, and `dependencyPins` with content hashes; Bridge Cloud later serves the same contract from a
+hosted deployment. Anything whose *expression* travels through that channel has been distributed, and
+distribution is precisely the trigger GPL-family licenses key on.
 
-Applying the plan to the two Modules it was meant to validate against produces an almost empty result.
+But Commons carries three different kinds of thing, and only one of them carries expression:
 
-**JobPilot** (`platform/modules/jobpilot/package.json`) — every dependency is `workspace:*` except
-`zod` (MIT). **DealPilot** (`platform/modules/dealpilot/package.json`) — every dependency is
-`workspace:*` except `@napi-rs/keyring` (MIT).
-
-Two Modules, two permissive third-party packages, zero copyleft, zero restricted. If the policy were
-only the five tiers, it would classify both as "permissive, ship it" and be *technically correct while
-missing every real obligation these Modules actually carry.*
-
-Because the exposure is not in the npm tree. It is here:
-
-| Real exposure | Where it lives | Which tier catches it |
+| Carrier | What Commons actually serves | Distribution of the covered work? |
 |---|---|---|
-| Google Workspace API terms | DealPilot via `@bridge/integrations-google` | **none** — a ToS, not a license |
-| ATS portal terms (Greenhouse, Lever) | JobPilot sourcing | **none** — a ToS |
-| LinkedIn prohibition on automated reads | Relationship / recon capture | **none** — a ToS, and it forbids what no license would |
-| OFAC SDN, WhatsMyName, OpenAlex data terms | recon connectors | **none** — data rights ≠ code rights |
-| CloakBrowser: MIT wrapper, separately-licensed binary needing OEM to distribute | proposed reader adapter | **misclassified** — a single license field reads "MIT" and is wrong |
-| WUPHF Sustainable Use License | reference-only | tier 5, correctly |
-| Model provider output terms | every `ModelProvider` call | **none** |
-| Patent grant present in Apache-2.0, absent in MIT | any resold capability | **none** — tier 1 merges them |
+| **Module** | Built code + pinned dependency closure | **Yes.** Full distribution obligations |
+| **Skill** | A `SkillManifest` — input/output schemas, permissions, plane, budget. **No code payload** | **No.** A contract that *triggers* code is not the code |
+| **Agent** | Authority, allowed Skills, deployment posture | **No.** It is the enforcement layer |
 
-**Conclusion: the five tiers are necessary and insufficient.** They describe rights in *code Bridge
-redistributes*, and Bridge redistributes very little code. Bridge's actual product is orchestration
-over services and data, where the binding terms are contracts and data licenses, not code licenses.
+This is not a loophole; it is the ordinary line between an interface and an implementation. It is also
+the single most valuable structural fact Bridge has, because it means **a license that forbids
+bundling does not forbid capability.** The capability moves to a carrier that does not distribute.
 
-## 3. Proposed correction — an obligation vector, not a single tier
+**Consequence — the carrier is chosen by the license, not by convenience.**
 
-Replace the single `license_family` field with a vector. A capability's obligations are the **union**
-of what each axis imposes, evaluated against the **deployment shape**.
+---
 
-**Axis 1 — Code license.** The five tiers, unchanged, plus one split the plan is missing:
-`wrapper_license` and `payload_license` recorded separately. CloakBrowser is MIT + proprietary binary;
-Firecrawl is AGPL engine + MIT SDKs. Collapsing these to one value produces a wrong answer in both
-directions.
+## 2. The obligation vector (open source only)
 
-**Axis 2 — Patent grant.** `explicit` (Apache-2.0, MPL-2.0) · `absent` (MIT, BSD) · `retaliation_clause`.
-Matters the moment a capability is resold rather than used.
+Replace Commons' single-valued `repositoryLicense` / `contentLicense` with a vector. Obligations are
+the union across axes, evaluated against the carrier and the deployment shape.
 
-**Axis 3 — Service terms.** For anything reached over a network: `automation_permitted`,
-`rate_or_volume_limits`, `resale_permitted`, `account_binding` (does each customer need their own
-credential?). This axis is where JobPilot's and DealPilot's real obligations live.
+- **A1 — Code license.** Permissive · weak copyleft · strong copyleft · network copyleft ·
+  restricted. Recorded as **`wrapperLicense` and `payloadLicense` separately** — never collapsed.
+  CloakBrowser is MIT wrapper + proprietary binary; Firecrawl is AGPL engine + MIT SDKs. One field
+  gets both wrong.
+- **A2 — Patent grant.** `explicit` (Apache-2.0, MPL-2.0) · `absent` (MIT, BSD) · `retaliation`.
+  Matters the moment a capability is resold rather than used. This is why Apache-2.0 outranks MIT for
+  anything Bridge intends to publish.
+- **A3 — Data rights.** Separate from code, because the code being MIT says nothing about the corpus.
+  `attribution_required` · `share_alike` · `commercial_use` · `redistribution_of_derived_records`.
+- **A4 — Notice obligations.** What must ship, and where — file, UI, or both.
 
-**Axis 4 — Data rights.** Separate from code. `attribution_required`, `share_alike`, `commercial_use`,
-`redistribution_of_derived_records`. Recon's README already tracks this per-source informally; this
-axis makes it structured.
+**Deployment shape** is the multiplier: `internal_only` · `customer_hosted` · `bridge_hosted` ·
+`commons_published`. Note the fourth: for Bridge, `commons_published` *is* the distributed shape.
 
-**Axis 5 — Model/output terms.** Whether provider terms restrict using outputs to train or compete.
+**Obligations are computed, not assigned.** `AGPL × Skill × customer_hosted` is fine.
+`AGPL × Module × commons_published` is a violation. No reviewer should have to hold that in their head.
 
-**Deployment shape** — the multiplier, and the thing that actually decides:
+---
 
-| Shape | What it means |
-|---|---|
-| `internal_only` | Bridge or the customer runs it, no third party touches it |
-| `customer_hosted` | Customer operates it on their own infrastructure and credentials |
-| `bridge_hosted` | Bridge operates it and serves customers — triggers AGPL §13, triggers OEM clauses |
-| `distributed` | Ships to the customer as an artifact — triggers GPL source obligations, notice duties |
+## 3. The capability maturity path — research climbs, it never dies
 
-The rule that follows: **obligations are computed, not assigned.** `AGPL × internal_only` is fine.
-`AGPL × bridge_hosted` requires source disclosure to every user of that server. `MIT-wrapper +
-proprietary-payload × distributed` requires an OEM license. A reviewer should never have to remember
-this — the manifest should compute it.
+Research does not fail; it lands at a maturity level. Every level is a real, durable artifact, and
+every level has a defined promotion upward. Read bottom-up, this is how a finding becomes running
+software.
 
-## 4. The structural advantage Bridge already has
+| Level | Artifact | What it holds |
+|---|---|---|
+| **R0 — raw** | `docs/raw/<capability>-<date>.md` | Full-depth research record: evidence, benchmarks, licence vector, what was tried, what it cost, why not now, **and the upgrade trigger** |
+| **R1 — capability wiki** | `docs/wiki/<capability>.md` | Caveman-terse, discoverable. The one-screen answer to "can Bridge do X, and with what?" |
+| **R2 — Pattern Skill** | Commons Skill, behaviour only | Features, outcomes, approach. Builder Agent reimplements independently |
+| **R3 — Skill** | Commons Skill + `byo_install` / `byo_key` | Adapter contract, prompts, guardrails, evals, wiring. User supplies the implementation |
+| **R4 — Module** | Commons Module | Bridge ships the code |
 
-The plan's §B ("separate spec from implementation") is not a new discipline Bridge must adopt. It is
-what the codebase already does, and the policy should name it as the primary compliance strategy
-rather than a fallback.
+**Licence sets the ceiling. RoI sets the current level.** A restricted licence caps a capability at R2
+no matter how valuable it is. A permissive licence permits R4, but a capability nobody needs yet
+simply rests at R1 until someone does.
 
-Bridge is built on ports and adapters: `ModelProvider`, `MemoryStore`, `SearchProvider`,
-`ResearchPageReader`, `SourceConnector`, `ContentGuard`. The covered implementation sits *behind* a
-port. Bridge ships the port, the contract, the guardrails, the evals, and the wiring — all
-Bridge-owned. The customer supplies the implementation, or selects one whose terms fit their shape.
+**Every R0 record must name its upgrade trigger.** This is the load-bearing rule, and it is what
+separates a live queue from a graveyard. "Low RoI" is a dead note. "Low RoI until the cost per page
+drops below X" or "until a customer needs JS-rendered public records" or "until the binary's licence
+reaches a free tier" is a queue entry that a future agent can evaluate mechanically. A trigger names
+a condition and, where possible, where to check it.
 
-This converts most license questions from "may we redistribute this?" to "does the customer's chosen
-adapter satisfy their own obligations?" — a question the customer is entitled to answer and Bridge is
-not obliged to.
+**Why R1 is a wiki and not a log entry.** A decision-log note is written for the person who wrote it.
+A capability wiki entry is written for whoever asks next — including the Learning Agent, which should
+answer "can we do X?" from prior research instead of re-running it, and the Builder Agent, whose
+"integrate instead of build?" evidence (LA4) is exactly this index. That makes the corpus compound
+rather than accumulate.
 
-**Policy consequence:** a capability that cannot be expressed as port + adapter is a compliance
-liability by construction, and that is a design review finding, not a legal one.
+This also captures what a research agent finds *incidentally*: a cheap fix spotted while looking for
+something else, a library that solved a nearby problem, an approach that did not fit today's question.
+Those land at R0 with a trigger and become discoverable at R1, instead of being lost because they were
+not the answer to the question being asked.
 
-## 5. Where the policy should live — extend, do not parallel
+**The symmetry is worth noticing:** this is the same notebook→wiki promotion flow being adopted from
+WUPHF as an R2 Pattern Skill (§5), applied to Bridge's own capability research. Nothing is promoted
+automatically; promotion is a decision, and the evidence for it is already written down.
 
-The plan proposes storing a license profile per capability. Bridge already has the seam:
+---
 
-- `platform/packages/capability-kit/src/intake.ts` is the reuse-intake seam
-- Module manifests already carry `capabilities[]` with `dataScope` and `egress` flags
-- `CLAUDE.md` already mandates reuse intake and the clean-room protocol
-- The learning roadmap's `reuse_policy` already declares
-  `gates: [pinned_commit, license, transitive_dependencies, security_and_prompt_injection, provenance, contract_and_eval_conformance]`
+## 4. The Agent carrier is the enforcement point
 
-So `license` is **already a declared gate that was never implemented.** The obligation vector belongs
-on the existing manifest as a `licenseProfile` block, not in a new registry. A parallel compliance
-registry would be exactly the kind of digression this codebase keeps accumulating.
+An Agent published to Commons declares the deployment posture its Skills may run under —
+`customer_hosted_only`, `internal_only`, `byo_license`, `byo_install`. Bridge's runtime already has
+the machinery: `SkillManifest.permissions` are requirements the resolver *checks* and never grants,
+and `resolveSkillForTask` only ever narrows. Deployment posture becomes one more thing it narrows on.
 
-## 6. Make the gate mechanical
+So the policy is enforced by the same fail-closed resolver that already enforces authority, rather
+than by a compliance document nobody reads at 6pm.
 
-A human review gate that runs on judgment will be skipped under deadline. Three of the four questions
-in §C are mechanically decidable:
+---
 
-- **Manifest completeness check.** A capability with a network dependency and no `service_terms` axis
-  fails the build. Unknown fails closed, matching the taint lattice's existing rule.
-- **NOTICE generation.** Attribution is generated from manifests at package time, never hand-maintained.
-  Apache-2.0 §4 compliance becomes a build artifact.
-- **Shape assertion.** The manifest declares intended deployment shapes; CI fails if a capability marked
-  `bridge_hosted` has an AGPL or restricted payload without an APPROVALS row.
+## 5. Re-reading the whole research corpus through this lens
 
-Only the fourth — "is this specific commercial term acceptable" — needs a human, and it should stop for
-counsel, consistent with CLAUDE.md's existing rule on ambiguous commercial cases.
+Every source examined while building the Learning capability plan, placed on a carrier. Nothing is
+discarded.
 
-## 7. Proposed final policy
+| Source | License reality | Carrier | What the user gets |
+|---|---|---|---|
+| **recon's 35 connectors** | Bridge-authored, calling public APIs | **Module** | Ships directly. A3 recorded per source (OFAC public domain, OpenAlex CC0, WhatsMyName data terms) |
+| **mem0** | Apache-2.0 — **patent grant present** | **Module** | Best-in-class carrier. A2 explicit makes it safer to publish than an MIT equivalent |
+| **Stagehand** | MIT, LOCAL mode | **Module**, extract/observe only | `act()` gated off for a `neverExecutes` agent |
+| **zod, @napi-rs/keyring** | MIT | **Module** dep | Generated notice, nothing else |
+| **Firecrawl** | AGPL engine **+** MIT SDK | **split** — SDK as Module dep; engine `customer_hosted` only | A1 split resolves by construction what the roadmap resolved by argument |
+| **SearXNG** | AGPL | **Agent** enforcing `customer_hosted` | Real search recall, never Bridge-hosted |
+| **CloakBrowser** | MIT wrapper **+** proprietary binary; OEM to distribute | **Skill** + `byo_install` | Reader adapter contract; user installs the binary under their own terms |
+| **Context.dev** | Hosted service | **Skill** + `byo_key` | Adapter + evals; user holds the entitlement |
+| **Coasty** | Hosted computer-use | **Skill** + `byo_key`, Builder-side | Available without Bridge hosting VMs |
+| **Rindler** | Hosted; session-reuse rejected on residency | **Pattern Skill** | "Map a site once into deterministic typed tools" — the pattern, not the service |
+| **WUPHF** | Sustainable Use — bars serving third parties | **Pattern Skill** | The highest-value rung-3 case: notebook→wiki promotion, `/lint` contradiction sweep, per-agent tool scoping. Builder reimplements |
+| **Prized, LemonLime** | SaaS, no licence surface | **R0 + R1** | Competitive validation of the governance posture. Trigger: revisit if either publishes an API or a self-host path |
+| **The 178-provider survey** (ADR-111) | mixed | **R0 + R1** | 33 Tier-2 and ~30 Tier-3 providers already researched and tiered. Trigger: Tier-1 coverage proves insufficient for a real query |
 
-1. **Every capability carries a `licenseProfile`** on its existing manifest: five axes plus declared
-   deployment shapes. Absent or unknown fails closed.
-2. **Obligations are computed** from `axes × shape`, never assigned by hand.
-3. **Port-and-adapter is the default compliance strategy.** Bridge ships the contract; the customer
-   supplies or selects the implementation. A capability that cannot be split this way is a design
-   finding.
-4. **Wrapper and payload licenses are recorded separately.** Never collapsed.
-5. **Service terms and data rights are first-class axes**, because that is where Bridge's actual
-   exposure is — proven by JobPilot and DealPilot carrying two MIT packages and a great deal of ToS.
-6. **Attribution is generated, not maintained.**
-7. **CI enforces the mechanical gates**; only genuine commercial-term questions reach a human, and
-   ambiguity stops for counsel.
-8. **Bridge never hosts network-copyleft or restricted payloads** without an explicit APPROVALS row
-   naming the operating model that was reviewed.
-9. **Bring-your-own-license/install** is the standard pattern for tier 5, with the customer's
-   entitlement connected at runtime, never bundled.
+**WUPHF is the proof the path works.** Under the five-tier model it was simply "reject." On the
+maturity path it reaches R2 — a Pattern Skill teaching the Builder Agent a memory-promotion design that maps
+directly onto LA0's propose→accept and a freshness sweep that maps onto
+`knowledge-freshness-sweep`. Same license, same restriction, entirely different outcome for the user.
 
-## 8. Immediate applications
+---
 
-- **CloakBrowser** — wrapper MIT, payload proprietary, `bridge_hosted` and `distributed` both blocked
-  without OEM. Permitted shape: `customer_hosted` or `internal_only`. Matches the constraint already
-  recorded in the unified Learning capability spec.
-- **Context.dev** — hosted service, so axis 3 governs: account-bound, per-customer credential, no
-  resale of raw results. Adopt as `customer_hosted` credential with Bridge supplying the adapter.
-- **WUPHF** — Sustainable Use License bars `bridge_hosted` serving of third parties. Reference-only
-  stands; its patterns are ideas, and ideas are not covered by its license.
-- **Firecrawl** — the split axis resolves the roadmap's open question mechanically: AGPL engine cannot
-  be `bridge_hosted`; MIT SDK can. This is the answer the roadmap reached by argument; the policy now
-  reaches it by construction.
+## 6. Re-reading DealPilot and JobPilot through this lens
 
-## 9. Open questions
+The earlier pass asked "what third-party code do they carry?" and found almost none. The right
+question is **"what does the research corpus let them do that they cannot do today?"**
 
-- Whether `licenseProfile` blocks the build on day one or warns for a grace period while existing
-  manifests are backfilled
-- Who holds the counsel relationship for the commercial-term escalations this policy will generate
+**DealPilot** — the recon salvage is a direct capability transfer, all Module-carrier:
+GLEIF (legal-entity truth for funds and counterparties) · SEC EDGAR + XBRL revenue · Form ADV/IAPD ·
+ProPublica 990 (foundation and endowment LPs — directly the ETA use case) · USAspending (govcon
+revenue floor) · CourtListener and UCC (risk Signals) · and `gpFundEconomicsEnrich` /
+`privateRevenueModelEnrich`, which produce banded estimates with provenance for exactly the private
+long-tail DealPilot targets.
+
+**JobPilot** — Greenhouse and Lever connectors already exist in the salvage and migrate straight in.
+ATS access is a ToS question, so it routes to §7 and the user decides.
+
+**Both at once** — recon's `mergeCandidates` and tier logic land in `@bridge/dedupe`, which both
+Modules already depend on. One migration, two Modules improved. That is the payoff for consolidating
+into a seam instead of a fourth loop.
+
+---
+
+## 7. Service terms are out of scope — disclosed, not enforced
+
+Per direction, ToS is not gated by this policy. Instead:
+
+- Any capability reaching a network service declares `serviceTerms: { url, retrieved, summary }` on
+  its manifest.
+- At install or first run, the user is shown the risks in plain language — automation permitted or
+  not, rate and volume limits, resale, whether their own account bears the consequence.
+- **The user decides and the decision is recorded.** Bridge does not block.
+- One carve-out survives, and it is a safety rule rather than a licence rule: capabilities that would
+  put the user's own credentials or live session on third-party infrastructure are refused outright.
+  That is why Rindler's session reuse is rejected while its pattern is kept.
+
+---
+
+## 8. The anti-digression gate
+
+The policy exists as much to stop capability sprawl as to stop licence violations. Every promotion to
+R2 or above must answer three questions mechanically, and **failing any one blocks the promotion
+regardless of licence**:
+
+1. **Which existing port does it land behind?** `ModelProvider`, `MemoryStore`, `SearchProvider`,
+   `ResearchPageReader`, `SourceConnector`, `ContentGuard`. A source needing a *new* port needs an ADR
+   first. No port, no promotion.
+2. **Which plan step does it serve?** A named step in a current plan or TASK. "Interesting" is not a
+   step.
+3. **What does it retire?** Every adoption names the parallel loop it removes, or explains why none
+   exists. This is the clause that would have caught recon, the Run engine, `skill.webResearch`, and
+   `@bridge/sourcing` becoming four answers to one question.
+
+**Blocked is not discarded.** A capability failing any of the three rests at R0 + R1 with the failed
+question recorded as its upgrade trigger — "no port yet", "no plan step needs it", "retires nothing".
+Those are precisely the conditions that change over time, which is why they make good triggers. This
+is the gate's real value: it keeps the corpus growing while keeping the build narrow.
+
+A capability that cannot be expressed as port + adapter is a design finding, not a legal one, and is
+held at R1 on those grounds.
+
+---
+
+## 9. Mechanics
+
+- **`licenseProfile` extends `CommonsProvenance`** — the existing structure with
+  `repositoryLicense` / `contentLicense` / `licenseVerified` becomes the vector. Not a new registry;
+  a parallel compliance store would itself be a digression.
+- **A licence check joins `CommonsSecurityScan.checks`**, which is already a versioned gate
+  (`policyVersion: "CM1-2026-07"`). Publishing computes obligations from vector × carrier × shape and
+  fails closed on unknown — matching the taint lattice's existing rule.
+- **Notices are generated** from manifests at package time. Apache-2.0 §4 compliance becomes a build
+  artifact, never hand-maintained.
+- **Only genuine commercial-term questions reach a human**, and ambiguous cases stop for counsel, per
+  the existing CLAUDE.md rule.
+
+---
+
+## 10. The policy, stated
+
+1. Commons publication is distribution. **Module carries expression; Skill and Agent do not.**
+2. Carrier is chosen by licence, never by convenience.
+3. Obligations are **computed** from vector × carrier × shape, never assigned by hand.
+4. Wrapper and payload licences are recorded separately, always.
+5. **Nothing researched is discarded.** Every finding lands on the maturity path — R0 raw, R1
+   capability wiki, R2 Pattern Skill, R3 Skill, R4 Module. Licence sets the ceiling; RoI sets the
+   current level.
+6. **Every R0 record names an upgrade trigger** — a condition that would promote it, and where to
+   check that condition. A finding without a trigger is not complete.
+7. Bridge never hosts network-copyleft or restricted payloads without an APPROVALS row naming the
+   reviewed operating model.
+8. Bring-your-own licence or install is the standard pattern at R3.
+9. Service terms are disclosed to the user, who decides — except where a capability would place the
+   user's credentials or live session on third-party infrastructure, which is refused.
+10. Every promotion to R2+ names its port, its plan step, and what it retires. Failing any holds the
+    capability at R1 with that question as its trigger.
+11. Attribution is generated, not maintained.
+
+## 11. Open questions
+
+- Whether `licenseProfile` blocks publication on day one or warns during a backfill period
+- Who holds the counsel relationship for the escalations R3 and R4 will generate
+- Whether upgrade triggers should be swept periodically by an Automation (the
+  `knowledge-freshness-sweep` shape) or evaluated only when a capability is next asked for. A sweep
+  keeps the queue live but spends budget re-checking conditions that rarely change
 - Whether data-rights attribution belongs in the generated NOTICE or a separate SOURCES artifact,
   since data attribution often must appear in the UI rather than in a file
+- Whether a Pattern Skill needs a provenance field naming the source it was learned from, which aids
+  honesty and audit but may itself carry trademark risk
