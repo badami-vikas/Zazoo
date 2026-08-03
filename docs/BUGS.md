@@ -2322,7 +2322,7 @@ two limit sets. The renderer already distinguishes the two callers (`sendManualM
 Not yet observed live — no message has been sent by this code against a real account. The refusal
 is predicted from reading `check_ceiling`, not from a live cooldown hit.
 
-## OPEN 2026-08-03 — a thread longer than the read limit returns its OLDEST messages, so the newest are unreachable (TASK-030)
+## RESOLVED 2026-08-03 — a thread longer than the read limit returned its OLDEST messages, so the newest were unreachable (TASK-030)
 
 Found while verifying the in-thread ordering complaint. `LocalGraphPort.listMessages` (both the
 pglite and in-memory stores) reads `ORDER BY sent_at, message_id LIMIT $4`, and `whatsapp.thread`
@@ -2337,3 +2337,14 @@ looks correct today. It is a latent read defect, confirmed by reading the query,
 Fix: select the newest N (`ORDER BY sent_at DESC, message_id DESC LIMIT n`) and reverse for
 rendering, or paginate backwards from the newest. Touches `packages/local/src/stores/{pglite,memory}.ts`
 and the `whatsapp.thread` procedure — outside the Chats-surface scope that filed this.
+
+**RESOLVED 2026-08-03.** Both stores now select `ORDER BY sent_at DESC, message_id DESC LIMIT n`
+and reverse, keeping the port's documented oldest-first contract while truncating from the correct
+end. The tiebreak reverses with the sort key so equal `sent_at` rows keep a stable total order. The
+in-memory store was changed in lockstep — a test double that truncated from the other end would
+have let this regress unseen. `whatsapp.thread` needed no change; its contract was already right.
+
+Proven by NEGATIVE CONTROL rather than a green suite: with the fix reverted, the two new tests fail
+with exactly the reported symptom (`m0000..` returned where `m0015..` was expected); with it
+restored, `@bridge/local` is 40/40. This mattered — the first run of those tests passed against
+UNBUILT output and reported the baseline 37, which would have read as success.
