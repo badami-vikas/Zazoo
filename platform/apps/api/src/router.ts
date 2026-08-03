@@ -229,7 +229,9 @@ import {
 import {
   acceptSuggestion as acceptLearningSuggestion,
   digestSignals as digestLearningSignals,
+  isLearningObservationEntry,
   listSuggestions as listLearningSuggestions,
+  preferencesToMemorySnippets,
   recordSignal as recordLearningSignal,
   rejectSuggestion as rejectLearningSuggestion,
   retrieveLearnedPreferences,
@@ -4370,6 +4372,10 @@ async function assembleChatCompletion(
       );
   const selectedMemory = memoryRows
     .filter((entry) => entry.plane === "local")
+    // Learning-loop rows are stored as JSON machinery (signals, suggestion
+    // lineages, minted preferences) — never prompt-ready text. Preferences
+    // reach the model below as statements; signals/suggestions never do.
+    .filter((entry) => !isLearningObservationEntry(entry))
     .slice(0, 5);
   const memory = selectedMemory.map((entry) => ({
     source: `memory:${entry.id}`,
@@ -4377,6 +4383,20 @@ async function assembleChatCompletion(
     score: entry.confidence,
     trustOrigin: entry.trustOrigin,
   }));
+  // TASK-032 prototype-test clause "accepting mints one preference whose
+  // statement reaches projectToSystemPrompt output" — accepted preferences
+  // (the ONLY rows acceptSuggestion mints, Human-gated) project into the
+  // run-context memory slot. Flight-gated and Local-Plane only: the flight
+  // off means learned preferences influence nothing, and the cloud consent
+  // boundary never sees them.
+  const learnedPreferences = isCloud || !ctx.wiring.learningObservationEnabled
+    ? []
+    : (await retrieveLearnedPreferences(
+        ctx.wiring.memoryStore,
+        { organizationId: thread.organizationId, userId: thread.ownerUserId },
+      )).slice(0, 5);
+  const preferenceSnippets = preferencesToMemorySnippets(learnedPreferences);
+  const combinedMemory = [...preferenceSnippets, ...memory];
 
   const runContext = assembleRunContext(
     {
@@ -4397,7 +4417,7 @@ async function assembleChatCompletion(
         approvalRequirement: "explicit_human",
         trustGrants: [],
       },
-      memory,
+      memory: combinedMemory,
       conversationHistory: history,
       outputContract: {
         description: canCreateTask
@@ -4418,10 +4438,17 @@ async function assembleChatCompletion(
       entry.taintLabel ??
       labelFromLegacyTrustOrigin(entry.trustOrigin, `memory:${entry.id}`),
   );
+  // acceptSuggestion always writes preferences with trustOrigin
+  // "user_content" and no explicit label, so the legacy mapping here is
+  // exactly what the stored rows carry.
+  const preferenceTaints = learnedPreferences.map((preference) =>
+    labelFromLegacyTrustOrigin("user_content", `memory:${preference.memoryId}`),
+  );
   const taintLabel = joinTaintLabels(
     currentTaint,
     ...history.map((segment) => segment.taintLabel),
     ...memoryTaints,
+    ...preferenceTaints,
   );
   const system = projectToSystemPrompt(runContext);
   const request = {
@@ -4457,7 +4484,7 @@ async function assembleChatCompletion(
       system: request.system,
       currentMessage: message,
       history: history.map(({ role, content, dataScope }) => ({ role, content, dataScope })),
-      memory: memory.map(({ source, text }) => ({ source, text })),
+      memory: combinedMemory.map(({ source, text }) => ({ source, text })),
       surface: resolvedChatSurface(surface),
     },
   };

@@ -19,7 +19,11 @@ Onboarding profile persists as private Local Plane Memory. Embeddings exist, no 
 runtime taint RT0–RT4 DONE (TASK-015). LA2 observation loop v1 landed 2026-08-03 (TASK-032):
 generic signals→digest→suggested preference in core `learning/observation` over MemoryStore
 lineages; suggested-then-accepted + annoyance cap + rejection suppression store-enforced;
-DealPilot triage decisions bound as first consumer (pure mapping). API/UI wiring open.
+DealPilot triage decisions bound as first consumer (pure mapping). Flight
+`BRIDGE_LEARNING_OBSERVATION` (default OFF) gates the tRPC surface, Settings review card,
+15-min digest Automation, AND chat projection: accepted preferences reach the chat system
+prompt as statements only (LA1 exit met on chat surface 2026-08-03); machinery JSON never
+reaches a prompt. Open: LA5 retrieval fusion, promotion machinery, live UI proof.
 
 **TASK-002 partial:** every onboarding question says why + effect. User may skip
 role model. Fixed-host Wikipedia research returns citation + separates documented

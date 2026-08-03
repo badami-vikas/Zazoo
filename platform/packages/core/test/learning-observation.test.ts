@@ -15,6 +15,7 @@ import {
 import {
   acceptSuggestion,
   digestSignals,
+  isLearningObservationEntry,
   listSuggestions,
   preferencesToMemorySnippets,
   recordSignal,
@@ -188,4 +189,45 @@ test("user can inspect and delete everything the loop stored", async () => {
   // Delete: forget removes the preference (personal-data deletion exception).
   assert.equal(await store.forget(preference.id, SCOPE), true);
   assert.equal((await retrieveLearnedPreferences(store, SCOPE, "dealpilot")).length, 0);
+});
+
+test("module-less retrieval spans Modules and machinery rows are classifiable", async () => {
+  const store = new InMemoryMemoryStore();
+  // Two Modules each accumulate a repeated pattern and an acceptance.
+  await seedRepeatedDismissals(store, 3);
+  for (let i = 0; i < 3; i += 1) {
+    await recordSignal(store, {
+      id: `sig-job-${++idCounter}`,
+      organizationId: ORG,
+      ownerUserId: USER,
+      moduleId: "jobpilot",
+      recordKind: "job",
+      recordId: `job-${i}`,
+      action: "pursue",
+      attributes: { seniority: "staff" },
+    });
+  }
+  const [dealSuggestion] = await digestSignals(store, { organizationId: ORG, ownerUserId: USER, moduleId: "dealpilot", nextId });
+  const [jobSuggestion] = await digestSignals(store, { organizationId: ORG, ownerUserId: USER, moduleId: "jobpilot", nextId });
+  await acceptSuggestion(store, SCOPE, dealSuggestion!.memoryId, USER, nextId);
+  await acceptSuggestion(store, SCOPE, jobSuggestion!.memoryId, USER, nextId);
+
+  // Omitting moduleId returns BOTH Modules' preferences (the generic-surface
+  // shape: chat may not know which Modules exist), each tagged with its own
+  // moduleId parsed from the stored row.
+  const all = await retrieveLearnedPreferences(store, SCOPE);
+  assert.equal(all.length, 2);
+  assert.deepEqual(new Set(all.map((p) => p.moduleId)), new Set(["dealpilot", "jobpilot"]));
+  // A module filter still narrows.
+  assert.equal((await retrieveLearnedPreferences(store, SCOPE, "jobpilot")).length, 1);
+
+  // Every row the loop stored classifies as learning machinery; a plain
+  // prose Memory and malformed content do not.
+  const rows = await store.retrieve({}, SCOPE);
+  assert.ok(rows.length >= 8);
+  for (const row of rows) {
+    assert.equal(isLearningObservationEntry(row), true, `expected machinery: ${row.content.slice(0, 60)}`);
+  }
+  assert.equal(isLearningObservationEntry({ content: "Prefers direct answers." }), false);
+  assert.equal(isLearningObservationEntry({ content: JSON.stringify({ anchor: { kind: "red_flag" } }) }), false);
 });
