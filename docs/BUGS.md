@@ -2,6 +2,31 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **OPEN 2026-08-03 — CI's `platform` job has been red on `main` since 2026-07-31; `check:vocabulary` fails on 98 TASK-028 research occurrences (attach: TASK-028).**
+  Every push to `main` since `8bc1337` ("Make Research Runs durable kernel records…", 2026-07-31) has failed
+  the `platform (typecheck + test + build)` job at the `pnpm check:vocabulary` step, which runs BEFORE
+  `turbo run typecheck test build` and therefore prevents the real gate from executing at all. Six consecutive
+  red runs on `main` (30483224188, 30542036934, 30617226228, 30617629654, 30618197646, 30798138126).
+  Evidence: `node platform/scripts/check-retired-vocabulary.mjs` reports 98 new retired-vocabulary
+  occurrences in 17 files, all from the TASK-028 Research Run surface — `packages/research/src/{engine,
+  chat-planner,http-reader,ports}.ts` and tests, `packages/core/src/research-run.ts`,
+  `packages/db/src/{research-run-store,schema}.ts`, `apps/api/src/router.ts`,
+  `apps/api/test/research-runs.test.ts`, `apps/web/src/app/avatar/ResearchRun.tsx`,
+  `apps/web/src/app/pages/ResearchRunsPage.tsx`, `apps/web/test/module-detail.test.mjs`. The families are
+  `tool`/`element`/`package` — the vocabulary the migration retired.
+  Why it went unnoticed: `check:vocabulary` is a ROOT script outside the turbo task graph, so the local
+  `turbo run typecheck test build` that TASK-028 verified with (and that this session used for TASK-031)
+  reports fully green while CI fails. A local `pnpm -C platform check:vocabulary` is the only local repro.
+  Not caused by TASK-031: the 2026-08-03 cleanup commits added 3 `package`-family occurrences in a new test
+  file (`apps/web/test/table-renderers.test.mjs`), which were removed in `ee19f75` before this record; the
+  remaining 98 contain zero files touched by that work.
+  Resolution needs a decision, not a ratchet: the script explicitly refuses to grow the baseline
+  ("Refusing to grow the retired-vocabulary baseline"), so the options are migrating the Research Run
+  identifiers/copy to current vocabulary or adding reviewed entries to the explicit allowlist in
+  `platform/scripts/check-retired-vocabulary.mjs`. Both belong to TASK-028's surface.
+  Recommended follow-up regardless of which: add `check:vocabulary` (and `check:agent-context`) to the
+  local verification path so a root-script gate can never again be invisible to `turbo run`.
+
 - **RESOLVED 2026-07-13 — Baseline web typecheck failed after Chief-of-Staff `direct_reply` routing was added.**
   `platform/apps/web/src/app/components/shared/AgentPanel.tsx:218` and
   `platform/apps/web/src/app/pages/ChiefOfStaffPage.tsx:84` access `classification.route` without first narrowing
