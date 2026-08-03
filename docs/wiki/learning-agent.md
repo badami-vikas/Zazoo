@@ -23,7 +23,12 @@ DealPilot triage decisions bound as first consumer (pure mapping). Flight
 `BRIDGE_LEARNING_OBSERVATION` (default OFF) gates the tRPC surface, Settings review card,
 15-min digest Automation, AND chat projection: accepted preferences reach the chat system
 prompt as statements only (LA1 exit met on chat surface 2026-08-03); machinery JSON never
-reaches a prompt. Open: LA5 retrieval fusion, promotion machinery, live UI proof.
+reaches a prompt. LA5 retrieval fusion v1 landed 2026-08-04 behind `BRIDGE_RETRIEVAL_FUSION`
+(default OFF): structured+vector+graph RRF-fused into chat memory slot; cross-plane gate
+fails closed; vector index = refs only, rebuildable; eval baseline PINNED (recall@3 1.0,
+P@3 0.6, MRR 0.87) — regressions block ship. Embedder = lexical hashing v1 (semantic model
+swaps in behind port). Open: semantic embedder, eval automation over real usage, promotion
+machinery, live UI proof.
 
 **TASK-002 partial:** every onboarding question says why + effect. User may skip
 role model. Fixed-host Wikipedia research returns citation + separates documented

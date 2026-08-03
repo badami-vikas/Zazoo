@@ -47,6 +47,7 @@ import {
   InMemoryOnboardingProfileStore,
   MemoryBackedOnboardingProfileStore,
   type MemoryStore,
+  type VectorIndex,
   type MemoryAuthScope,
   type MemoryEntry,
   InMemoryEvalStore,
@@ -153,6 +154,7 @@ import {
   DrizzleOrganizationDefinitionStore,
   DrizzleModuleStore,
   DrizzleMemoryStore,
+  DrizzleVectorIndex,
   DrizzleLedgerStore,
   DrizzleTaintAuditStore,
   DrizzleRelationMaterializationStore,
@@ -478,6 +480,15 @@ export interface Wiring {
   cultureFetchAbortControllers: Map<string, AbortController>;
   /** Inspectable, correctable, deletable learned preferences. */
   memoryStore: MemoryStore;
+  /** LA5 vector lane storage (refs + vectors only, rebuildable) — same db as
+   * `memoryStore` so vector hits always hydrate from the store they index. */
+  vectorIndex: VectorIndex;
+  /** Feature flight for LA5 retrieval fusion (chat memory slot filled by
+   * structured+vector+graph RRF fusion; scheduled embedding indexer). OFF by
+   * default; enabled via `BRIDGE_RETRIEVAL_FUSION=1` (or a test override).
+   * Disabled means chat keeps the pre-fusion recency slice and no indexer
+   * runs — nothing new is stored or read. */
+  retrievalFusionEnabled: boolean;
   /** ModelProvider registry/router (@bridge/models): resolves capability manifest modelBindings to
    * providers, honoring planeDefault (capture/sensor plane = local models, never cloud
    * fallback). In-memory mode registers the network-free echo double; persistent mode
@@ -520,6 +531,9 @@ export interface BuildWiringOptions {
   /** Test/deployment override for the learning observation flight. Omitted
    * means the environment decides (`BRIDGE_LEARNING_OBSERVATION`), default OFF. */
   learningObservationEnabled?: boolean;
+  /** Test/deployment override for the LA5 retrieval-fusion flight. Omitted
+   * means the environment decides (`BRIDGE_RETRIEVAL_FUSION`), default OFF. */
+  retrievalFusionEnabled?: boolean;
   /** Explicit provider set for composition tests or alternate deployments.
    * Omitted means the normal environment-bound providers for the selected mode. */
   modelProviders?: readonly ModelProvider[];
@@ -3343,6 +3357,9 @@ export interface ModePorts {
    * (ADR-023); in-memory in in-memory mode, mirroring capabilityStore's split. */
   moduleStore: ModuleStore;
   memoryStore: MemoryStore;
+  /** LA5 vector lane — always over the SAME db as `memoryStore` (vector hits
+   * are refs that must hydrate from the store they index). */
+  vectorIndex: VectorIndex;
   /** AGS1 (TASK-007) — Goal/Task catalog Skills resolve against. In-memory
    * default (dev/test); `buildPersistentPorts` binds the real, restart-durable
    * `DrizzleGoalTaskStore` instead. */
@@ -3470,6 +3487,7 @@ export function buildPersistentPorts(env: {
     // longer in-memory-only once DATABASE_URL is set.
     moduleStore: new DrizzleModuleStore(db, PILOT_ORGANIZATION),
     memoryStore: new DrizzleMemoryStore(db),
+    vectorIndex: new DrizzleVectorIndex(db),
     // TASK-007 — real, restart-durable bindings (see the field's doc comment
     // on ModePorts for why these are no longer in-memory once DATABASE_URL is set).
     goalTasks: goalTaskStore,
@@ -3686,6 +3704,7 @@ export async function buildInMemoryPorts(env: {
       ? new DrizzleModuleStore(localDb, PILOT_ORGANIZATION)
       : new InMemoryModuleStore(),
     memoryStore: new DrizzleMemoryStore(localDb),
+    vectorIndex: new DrizzleVectorIndex(localDb),
     // TASK-007 — dependency-free in-memory default (dev/test). The SAME
     // GOVERNED_SKILL_MANIFEST_CATALOG code-declared list `buildPersistentPorts`
     // seeds into `skill_manifests` is registered here synchronously — one
@@ -4166,6 +4185,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const learningObservationEnabled =
     options.learningObservationEnabled ??
     ["1", "true"].includes((process.env.BRIDGE_LEARNING_OBSERVATION ?? "").trim().toLowerCase());
+  // LA5 flight — same override-then-environment resolution, default OFF.
+  const retrievalFusionEnabled =
+    options.retrievalFusionEnabled ??
+    ["1", "true"].includes((process.env.BRIDGE_RETRIEVAL_FUSION ?? "").trim().toLowerCase());
   const credentialProvider =
     process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT ??
     (runningUnderNodeTest() ? "os-keyring" : undefined);
@@ -4319,6 +4342,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     organizationDefinitionStore,
     moduleStore,
     memoryStore,
+    vectorIndex,
     goalTasks,
     taskManager,
     skillManifests,
@@ -4920,6 +4944,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     pilotUserId,
     pilotUserEmail,
     learningObservationEnabled,
+    vectorIndex,
+    retrievalFusionEnabled,
     dealpilot: {
       integrationId: dealPilotIntegrationId,
       store: dealPilotRuntimeStore,
