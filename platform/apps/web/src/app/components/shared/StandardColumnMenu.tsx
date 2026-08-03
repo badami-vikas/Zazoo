@@ -96,7 +96,11 @@ export function StandardColumnMenu({
             type="button"
             role="menuitem"
             disabled={!onGroup}
-            title={onGroup ? undefined : "Unavailable: this column cannot group the current View"}
+            // The old wording ("this column cannot group the current View") implied a
+            // per-column condition that does not exist: TableView never passes
+            // `onGroup`, so Group is disabled for EVERY column on every View. Say the
+            // true reason instead of inventing a column-specific one.
+            title={onGroup ? undefined : "Unavailable: grouping is not wired for this View yet"}
             onClick={() => { onGroup?.(); setPosition(null); }}
             className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 disabled:opacity-45"
           >

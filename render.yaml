@@ -23,6 +23,16 @@ services:
         value: disabled
       - key: BRIDGE_RENDER_WEB_HOST
         value: bridge-pilot-web.onrender.com
+      # Rate limits were governed in production by the hardcoded fallbacks in
+      # server.ts rateLimitConfig() because none of these were ever set. Pinned
+      # here at the same values so the limits are explicit and reviewable rather
+      # than implicit — change them here, not in code.
+      - key: API_RATE_LIMIT_MAX
+        value: "300"
+      - key: API_RATE_LIMIT_SENSITIVE_MAX
+        value: "10"
+      - key: API_RATE_LIMIT_WINDOW_MS
+        value: "60000"
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL

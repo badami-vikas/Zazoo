@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles } from "lucide-react";
+import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, Telescope } from "lucide-react";
 import { moduleNavTarget } from "@bridge/module-manifests";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
@@ -268,6 +268,9 @@ export default function Layout() {
   const intelligenceActive = isActive("/intelligence");
   const settingsActive = isActive("/settings");
   const secondBrainActive = isActive("/second-brain");
+  // TASK-028 shipped the Research Run detail Page at /research on 2026-07-31 but
+  // never linked it from anywhere — it was reachable only by typing the URL.
+  const researchActive = isActive("/research");
 
   return (
     <div className="flex h-screen w-full overflow-hidden font-sans">
@@ -480,6 +483,11 @@ export default function Layout() {
             {intelligenceActive && <ActiveBar />}
             <Sparkles className="w-5 h-5 shrink-0" style={{ color: intelligenceActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Intelligence</span>
+          </Link>
+          <Link to="/research" className={navItemClass(researchActive)} title="Research">
+            {researchActive && <ActiveBar />}
+            <Telescope className="w-5 h-5 shrink-0" style={{ color: researchActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <span className={navLabelClass()}>Research</span>
           </Link>
           <Link to="/settings" className={navItemClass(settingsActive)} title="Settings">
             {settingsActive && <ActiveBar />}

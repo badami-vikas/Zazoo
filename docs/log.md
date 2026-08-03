@@ -1,5 +1,33 @@
 # Change Log
 
+- **2026-08-03 — Unfinished-work audit: WhatsApp branch pushed, four production/canon fixes landed, five tasks queued**:
+  Four parallel read-only agents audited what is *unfinished, unreachable, or unwired* (distinct from the
+  2026-08-02 bloat audit, which found what is *unused*). Full record: `outputs/2026-08-03-unfinished-work-audit.md`.
+  **Highest-severity finding — 52 commits of WhatsApp Module work existed only on local disk.** Verified by
+  `git ls-remote`: none of the 13 WhatsApp branches were on any remote. `claude/whatsapp-module-contact-extractor-9cfff3`
+  is a strict superset (`git rev-list --count contact-extractor..<each>` = 0 for all twelve others), so landing
+  it lands TASK-029 + TASK-030 entirely. Pushed to origin on the user's explicit go-ahead. This also corrects a
+  claim made earlier in that session that only three WhatsApp branches existed.
+  **Landed fixes (small enough to execute rather than plan, per the user's directive):**
+  (1) The deployed Google OAuth callback redirected to `http://localhost:5173` because `BRIDGE_APP_URL` is set
+  nowhere; it now falls back to `renderWebOrigin()`, derived from the already-configured `BRIDGE_RENDER_WEB_HOST`
+  that already backs the CORS allow-list, before localhost. (2) The three `API_RATE_LIMIT_*` vars were unset, so
+  hardcoded 300/10/60s fallbacks silently governed production — pinned explicitly in `render.yaml` at those same
+  values. (3) `/research`, the Research Run detail Page TASK-028 shipped 2026-07-31, had no inbound link anywhere
+  and was reachable only by typed URL — added to the left nav. (4) AP-021 canon: the row menu's `Duplicate`/`Pin`
+  greyed out with no explanation on every Page (no Page supplies the handlers), and `StandardColumnMenu`'s `Group`
+  claimed a per-column condition that does not exist — all three now state the real reason.
+  **Queued (AP-095):** TASK-032 plaintext OAuth tokens + the ownerless 2026-07-08 SECURITY M1-M6 multi-tenancy
+  block; TASK-033 production config (incl. `policyParams` bound to an in-memory store OUTSIDE the persistent/
+  in-memory split, so governance gates always read defaults and every write dies at restart while a real pgTable
+  sits unused); TASK-034 unreachable Pages, uncancellable child Runs, unmounted `ControlPanel`, 52 of 214
+  client-less procedures; TASK-035 green CI + the emit-only `EventBus` (designated absorber for test/CI blockers);
+  TASK-036 unlanded-work recovery. CI's `check:vocabulary` blocker was diagnosed and routed to TASK-035 per the
+  user's directive: the baseline is empty (`{"version":3,"families":{}}`), TASK-028 reintroduced ~98 `tool`/
+  `element` occurrences, and the allowlist the script's own error message promises was never implemented.
+  Verified: web 111/111, api suite, turbo typecheck 21/21. Not deployed by me — both Render services are
+  `autoDeploy: false`, so merging main publishes nothing.
+
 - **2026-08-02 — TASK-031 wave 1: taint-sink security fix, Glide reinstated behind DataViews, dead-code sweep**:
   An eight-agent bloat audit (`outputs/2026-08-02-platform-bloat-audit.md`) produced three landed changes.
   **(1) Security (ADR-161):** `sinkForRequest` mapped `resourceType: "integration"` to the

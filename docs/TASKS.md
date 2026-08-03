@@ -6,9 +6,9 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-031` (TASK-029/TASK-030 are the WhatsApp Module tasks landing in parallel on the `claude/whatsapp-*` branches)
+IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036` (TASK-029/TASK-030 are the WhatsApp Module tasks landing in parallel on the `claude/whatsapp-*` branches)
 
-Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048. TASK-026 became the current P0 on 2026-07-26 under AP-078 after the user reported the primary Chat Panel remained placeholder-like and approved its implementation plan. TASK-027 (clicky-parity screen-aware companion ask prototype) appended at queue end 2026-07-29 per user directive R-041; TASK-028 (autonomous background browser research agent) appended immediately after per the same day's follow-up directive R-042. TASK-031 (platform bloat cleanup + table-renderer standardization) appended 2026-08-02 per user directive as the next task after the in-progress TASK-027/028 (AP-092). RENUMBERED from this session's original TASK-029, which collided with the WhatsApp Module's TASK-029/TASK-030 already claimed on the parallel `claude/whatsapp-*` branches; the session's AP-090/091/092 were likewise renumbered to AP-092/093/094 around the WhatsApp branches' AP-090/091.
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048. TASK-026 became the current P0 on 2026-07-26 under AP-078 after the user reported the primary Chat Panel remained placeholder-like and approved its implementation plan. TASK-027 (clicky-parity screen-aware companion ask prototype) appended at queue end 2026-07-29 per user directive R-041; TASK-028 (autonomous background browser research agent) appended immediately after per the same day's follow-up directive R-042. TASK-031 (platform bloat cleanup + table-renderer standardization) appended 2026-08-02 per user directive as the next task after the in-progress TASK-027/028 (AP-092). RENUMBERED from this session's original TASK-029, which collided with the WhatsApp Module's TASK-029/TASK-030 already claimed on the parallel `claude/whatsapp-*` branches; the session's AP-090/091/092 were likewise renumbered to AP-092/093/094 around the WhatsApp branches' AP-090/091. TASK-032 through TASK-036 appended 2026-08-03 per user directive after the unfinished-work audit (`outputs/2026-08-03-unfinished-work-audit.md`), under AP-095; TASK-035 is the designated absorber for test/CI blockers found by other tasks.
 
 ## Operating standard
 
@@ -451,3 +451,68 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-08-02 (code-bloat end-to-end review; "Add it as the next task in task list")
 - Approval: AP-092 applied (task creation + queue position); tables ADR and schema drops require their own rows when executed
 - Dependencies: none (must not disturb in-progress TASK-027/TASK-028 surfaces; router/wiring splits rebase-heavy — coordinate with active branches)
+
+## Secrets-at-rest and multi-tenancy security block
+- ID: TASK-032
+- Status: ready
+- Priority: P1
+- Horizon: Core Modules
+- Outcome: No credential is stored in plaintext anywhere on the Local Plane, every Organization-scoped procedure verifies membership at the SQL boundary rather than trusting a client-supplied id, RLS is present in the tracked migrations that ship it, and no verification flag can be set by an unverified path.
+- Prototype test: A local pglite inspection after a Google connect shows the OAuth access and refresh tokens encrypted at rest (no readable token substring in the file); a cross-Organization call to each membership-surface procedure returns FORBIDDEN in a test that would have passed before; a fresh migration run shows RLS enabled and forced on every Organization-scoped table; and no code path sets `phoneVerified` without a real verification.
+- Scope: docs/BUGS.md OPEN 2026-07-08 SECURITY M1-M6 (RLS absent from tracked migrations, `workspace.inviteMember`/`listMembers`/`create` lacking membership checks, Recon SSRF, dummy phone-OTP feeding `phoneVerified`, missing log redaction, client-asserted `linkedin` verification) plus the OPEN 2026-07-08 plaintext OAuth token storage in local pglite. The dealpilot `encrypted-file-credentials.ts` AES-256-GCM vault already exists and is the obvious reuse target — this is also the forcing function for the `@bridge/credentials` extraction listed in TASK-031.
+- Evidence: `outputs/2026-08-03-unfinished-work-audit.md` Tier 0.3. These entries have sat OPEN in the bug ledger since 2026-07-08 with no owning task, which is why they never surfaced in the execution queue.
+- Requests: user directive 2026-08-03 (resolve the unfinished-work audit findings)
+- Approval: none (bug-fix work; any schema/migration change made here is Tier C and needs its own row)
+- Dependencies: none
+
+## Production configuration correctness
+- ID: TASK-033
+- Status: ready
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: Every environment variable the API reads in a deployed path is either set in `render.yaml`/the dashboard or fails loudly at boot; no production behaviour is governed by a silent code-level fallback; and the governance gates the kernel resolves are actually persisted.
+- Prototype test: Boot the API with a deliberately incomplete environment and watch it refuse to start (or log an explicit warning naming each unset var) instead of silently using a fallback; write a `policyParams` value, restart the service, and read the same value back.
+- Scope: `outputs/2026-08-03-unfinished-work-audit.md` Tier 1. LANDED 2026-08-03 in this task's first pass: the Google OAuth callback no longer redirects to `http://localhost:5173` in production (`google-oauth-routes.ts` now falls back to `renderWebOrigin()`, derived from the already-set `BRIDGE_RENDER_WEB_HOST`, before localhost), and the three `API_RATE_LIMIT_*` vars are pinned explicitly in `render.yaml` at their former hardcoded values. STILL OPEN: (a) `policyParams` is bound to `InMemoryPolicyParamStore` at `wiring.ts:4740` OUTSIDE the persistent/in-memory split, so `router.ts:12912` `resolveGates(...)` always reads defaults and every write dies at restart while a real `policyParams` pgTable sits unused at `packages/db/src/schema.ts:966` — needs a `DrizzlePolicyParamStore` bound in `buildPersistentPorts`; (b) `evalStore` has the same in-memory-in-both-modes problem; (c) a boot-time assertion listing every required-in-production env var; (d) `COMMONS_*` vars and the undeployed Commons service.
+- Evidence: `outputs/2026-08-03-unfinished-work-audit.md`
+- Requests: user directive 2026-08-03
+- Approval: none
+- Dependencies: none
+
+## Governed surfaces reachable and manageable from the UI
+- ID: TASK-034
+- Status: ready
+- Priority: P2
+- Horizon: Convergence
+- Outcome: Every shipped governed surface is reachable from the product's own navigation, every durable record the kernel writes can be inspected and stopped from the UI, and no built-but-unmounted surface contradicts canon.
+- Prototype test: Reach every routed Page from the running app without typing a URL; start a Research Run, then list and cancel its child Agent Runs from the UI; open a Module's 3-dots and reach the Control Panel canon requires there.
+- Scope: `outputs/2026-08-03-unfinished-work-audit.md` Tier 2. LANDED 2026-08-03 in this task's first pass: `/research` (shipped by TASK-028 on 2026-07-31 and reachable only by typed URL) is now in the left nav; the `Duplicate`/`Pin` row-menu items and `StandardColumnMenu`'s `Group` item now explain why they are disabled instead of greying out silently or claiming a per-column condition that does not exist (AP-021). STILL OPEN: (a) `/chief-of-staff` and `/organization` have no inbound link — placement is a product decision; (b) `childRun.get`/`listByParentRun`/`cancel` (`router.ts:15132-15169`) have no client, so durable child-Run records written by the research flow can never be listed or cancelled — `cancel` is the most user-visible gap; (c) `app/dataviews/ControlPanel.tsx` is built and mounted nowhere while CLAUDE.md canon requires "Control Panel in 3-dots", whose slot currently holds a link to `/module/<id>`; (d) decide per surface whether to wire or delete the client-less procedures — `capability.*` (10, superseded by `modules.*`) is the clearest deletion candidate, `jobpilot.cultureResearch.*` (9, plus four dedicated wiring stores) awaits a JobPilot culture UI; (e) `onDelete` in `dataviews/types.ts:71` is referenced by nothing.
+- Evidence: `outputs/2026-08-03-unfinished-work-audit.md`
+- Requests: user directive 2026-08-03
+- Approval: none (deleting a whole tRPC surface is a canon change and needs its own row)
+- Dependencies: none
+
+## Green CI and an honest event backbone
+- ID: TASK-035
+- Status: ready
+- Priority: P1
+- Horizon: Core Modules
+- Outcome: CI is green on `main` across every defined job, the `desktop installers` job actually executes rather than skipping, and the kernel's domain Events reach a subscriber instead of being dropped.
+- Prototype test: One CI run on `main` shows every job green with none skipped; a pipeline-emitted Event is observably consumed by a subscriber (or persisted) in a test that fails if the Event is dropped.
+- Scope: `outputs/2026-08-03-unfinished-work-audit.md` Tier 1.4 + 2.3. **This is the task that absorbs test/CI blockers found by other work.** Known contents: (a) `check:vocabulary` has been red since 2026-07-31 and blocks typecheck/test/build from running at all — DIAGNOSED 2026-08-03: `platform/scripts/retired-vocabulary-baseline.json` is `{"version":3,"families":{}}`, i.e. an empty baseline enforcing "zero retired vocabulary anywhere", and TASK-028's research work reintroduced ~98 `tool`/`element` occurrences across `packages/research`, `apps/api/src/router.ts`, `apps/api/test/research-runs.test.ts`, `apps/web/src/app/pages/ResearchRunsPage.tsx`, and `apps/web/src/app/avatar/ResearchRun.tsx`. The script's own failure message tells the reader to "add a reviewed compatibility adapter to the explicit allowlist" — **that allowlist was never implemented**; the only mechanism is regenerating the whole baseline. Resolving this is a canon call between renaming the identifiers (note "tool" in the research engine means LLM tool-calling, not the retired product noun) and building the promised allowlist; regenerating the baseline silently would void the gate. (b) `prototype (typecheck + build)` and `security audit (no HIGH+ vulnerable deps)` are INDEPENDENTLY red and currently masked by (a). (c) `desktop installers (tauri build)` is skipped on every run — defined but never executed. (d) repo-wide lint is red with 40 `bridge/no-crm-vocab` errors. (e) `EventBus` (`packages/core/src/ports.ts:183`) is emit-only with a single emit site at `pipeline.ts:807` and no reader — `memory/stores.ts:347-368` documents that nothing ever reads events back out, so Automations and Signals cannot be event-driven today.
+- Evidence: `outputs/2026-08-03-unfinished-work-audit.md`. CI's last fully green run on `main` was 2026-07-08.
+- Requests: user directive 2026-08-03 ("If test is a blocker, add it to the test focussed task and continue")
+- Approval: none (the vocabulary-gate resolution is a canon call and needs its own row)
+- Dependencies: none
+
+## Repository hygiene and unlanded work recovery
+- ID: TASK-036
+- Status: ready
+- Priority: P3
+- Horizon: Convergence
+- Outcome: No unlanded work exists only on one machine, dirty worktrees are either committed or discarded deliberately, and the branch list reflects real in-flight work.
+- Prototype test: Every branch carrying unique commits exists on the remote; `git stash list` is empty or its contents are landed on a branch; no worktree holds untracked source files; the stale local `main` is reset to `origin/main`.
+- Scope: `outputs/2026-08-03-unfinished-work-audit.md` Tier 0.1-0.2. DONE 2026-08-03: `claude/whatsapp-module-contact-extractor-9cfff3` (52 commits, the strict superset of all 13 WhatsApp branches — verified `git rev-list --count contact-extractor..<each>` = 0) was pushed to origin on the user's explicit go-ahead; the WhatsApp Module is no longer single-disk. STILL OPEN: (a) `stash@{0}` on `claude/xenodochial-lamarr-9e9247` holds 51 files / +3351-516 of dealpilot/jobpilot connector work from 2026-07-04 — land or drop explicitly; (b) uncommitted `platform/packages/db/migrations/002_add_location_geo.sql` + `Tools/recon/lib/geocode.ts` in worktree `romantic-kowalevski-2a3e18` — an uncommitted migration is the single most dangerous loose file; (c) uncommitted `platform/apps/api/test/authentication.test.ts` in worktree `codex-roadmap-batch-1`; (d) uncommitted doc work in `kind-volhard-17651e`; (e) unpushed single-commit branch `worktree-agent-a1b0df5fd0a4fa8a8` (2026-07-07) carrying `feat(core): foreign-capability importer (Track F3)`; (f) 15 of 35 worktrees dirty and ~20 clean agent worktrees prunable; (g) the MAIN checkout is 299 commits behind `origin/main` — do not build or deploy from it; (h) the twelve subsumed WhatsApp checkpoint branches are deletable once the superset lands; (i) `origin` still points at `github.com/badami-vikas/relationship-os`, which now reports the repository has MOVED to `github.com/manishsbhoopalam8498/relationship-os` — the remote URL should be updated deliberately.
+- Evidence: `outputs/2026-08-03-unfinished-work-audit.md`
+- Requests: user directive 2026-08-03
+- Approval: none
+- Dependencies: none

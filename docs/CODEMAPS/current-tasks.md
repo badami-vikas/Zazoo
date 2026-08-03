@@ -13,3 +13,8 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-027 | in_progress | P2 | Screen-aware companion ask prototype (clicky parity) | none |
 | TASK-028 | in_progress | P2 | Autonomous background browser research agent | TASK-023 (done), TASK-007 (done), TASK-026 (done), TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it) |
 | TASK-031 | in_progress | P2 | Platform bloat cleanup and table-renderer standardization | none (must not disturb in-progress TASK-027/TASK-028 surfaces, router/wiring splits rebase-heavy — coordinate with active branches) |
+| TASK-032 | ready | P1 | Secrets-at-rest and multi-tenancy security block | none |
+| TASK-033 | ready | P2 | Production configuration correctness | none |
+| TASK-034 | ready | P2 | Governed surfaces reachable and manageable from the UI | none |
+| TASK-035 | ready | P1 | Green CI and an honest event backbone | none |
+| TASK-036 | ready | P3 | Repository hygiene and unlanded work recovery | none |

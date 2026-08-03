@@ -200,10 +200,30 @@ function DomTableView({
                       >
                         Edit
                       </DropdownMenuItem>
-                      <DropdownMenuItem disabled={!onDuplicate} onSelect={() => void onDuplicate?.(row)}>
+                      {/* No Page supplies `onDuplicate`/`onPin` yet, so these are
+                          disabled everywhere. Canon requires interactive-looking UI
+                          to perform OR EXPLAIN a governed action (AP-021), so — like
+                          the Delete item below — they must carry a reason rather than
+                          grey out silently. Remove the title when a Page wires the
+                          governed handler. */}
+                      <DropdownMenuItem
+                        disabled={!onDuplicate}
+                        title={onDuplicate ? undefined : "Unavailable: duplicating a Record needs a governed insert Action on this Page"}
+                        onSelect={() => void onDuplicate?.(row)}
+                      >
                         Duplicate
                       </DropdownMenuItem>
-                      <DropdownMenuItem disabled={!onPin || !stableRecordId} onSelect={() => stableRecordId && void onPin?.(stableRecordId)}>
+                      <DropdownMenuItem
+                        disabled={!onPin || !stableRecordId}
+                        title={
+                          onPin
+                            ? stableRecordId
+                              ? undefined
+                              : "Unavailable: this row has no stable Record id to pin"
+                            : "Unavailable: pinning needs a governed pin Action on this Page"
+                        }
+                        onSelect={() => stableRecordId && void onPin?.(stableRecordId)}
+                      >
                         Pin
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />

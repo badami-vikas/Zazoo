@@ -6,11 +6,22 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { SystemClock } from "@bridge/core";
 import { exchangeCode, tokenRecordFrom } from "@bridge/integrations-google";
+import { renderWebOrigin } from "./deployment-boundary.js";
 import type { Wiring } from "./wiring.js";
 
 type OAuthCallbackResult =
   | { connected: true }
   | { connected: false; error: string };
+
+/** `renderWebOrigin` throws on a malformed host; a bad value must not take down the
+ * OAuth callback, so it degrades to the next fallback instead. */
+function safeRenderWebOrigin(): string | null {
+  try {
+    return renderWebOrigin();
+  } catch {
+    return null;
+  }
+}
 
 function finishOAuth(
   reply: FastifyReply,
@@ -36,7 +47,15 @@ function finishOAuth(
         `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font:16px system-ui,sans-serif;max-width:38rem;margin:12vh auto;padding:0 1.5rem;color:#17233d}h1{font-size:1.5rem}</style><main><h1>${title}</h1><p>${message}</p></main></html>`,
       );
   }
-  const appUrl = process.env.BRIDGE_APP_URL ?? "http://localhost:5173";
+  // Deployed OAuth callbacks must land back on the DEPLOYED web app. `BRIDGE_APP_URL`
+  // is set nowhere (not in render.yaml, any .env, or CI), so this previously fell
+  // straight through to localhost and every hosted Google connect redirected the
+  // user to their own machine. `renderWebOrigin()` derives the real origin from
+  // `BRIDGE_RENDER_WEB_HOST`, which IS set in render.yaml and already backs the CORS
+  // allow-list — so the deployed origin is now the fallback, and localhost is only
+  // reached when neither is configured (i.e. genuine local dev).
+  const appUrl =
+    process.env.BRIDGE_APP_URL ?? safeRenderWebOrigin() ?? "http://localhost:5173";
   return result.connected
     ? reply.redirect(`${appUrl}/integration/google?connected=1`)
     : reply.redirect(
