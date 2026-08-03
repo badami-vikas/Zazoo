@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-03T18:47:14.404Z",
+  "generatedAt": "2026-08-03T19:10:22.599Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1120,6 +1120,32 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 484,
       "rank": 32
+    },
+    {
+      "id": "TASK-033",
+      "title": "TASK-033 — Universal Commons capability archetypes (roadmap-v2 Phase 4)",
+      "status": "in-progress",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "The Universal Commons carries capability archetypes (roadmap-v2 Phase 4) — a workspace's accepted learned preferences can be generalized into personal-data-free archetype candidates and, only on an explicit per-archetype Human action, published to the Commons; a brand-new workspace can seed those archetypes as PROPOSED learning suggestions on the ordinary suggested-then-accepted lineage machinery, so every new workspace starts smarter without any prior user's private data leaving its machine.",
+      "prototypeTest": "Workspace A accepts a repeated-dismissal preference; preview derives one generalized candidate (no ids, no evidence refs, no user text — the organization-data gate finds nothing); contribute publishes exactly the Human-approved names; a FRESH workspace B with zero signals seeds the archetype as one proposed suggestion, mints nothing until the Human accepts, re-seed proposes nothing (same lineage), and a rejection permanently suppresses the pattern; a personal-shaped attribute value never leaves preview; the Commons server rejects an organization-shaped payload with offendingPaths; either flight off fails every archetypes procedure closed.",
+      "scope": [
+        "docs/raw/roadmap-v2-universal-commons.md §Universal Commons + §Phase 4 (+ closing light-egg directive)",
+        "outputs/2026-08-01-deal-copilot-agentic-freelancer-requirements.md §7.4 (Commons cross-workspace archetype mining)."
+      ],
+      "requests": [
+        "user directive 2026-08-04 (this session): audit the Egg/Commons plans for gaps and implement them next."
+      ],
+      "approval": "none required yet — the Commons contract change is ADDITIVE (optional methods; existing deployments/mocks unaffected), all behavior is double-flight-gated OFF by default, and contribution egress is Human-explicit per archetype. Archetype UI (preview/contribute/seed surfaces) and aggregation semantics (support-band merging across many workspaces) are follow-ups.",
+      "dependencies": [
+        "TASK-032 (accepted preferences are the generalization source",
+        "suggestion lineage machinery is the seed target)."
+      ],
+      "canonicalStatus": "in_progress",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 503,
+      "rank": 33
     }
   ]
 }

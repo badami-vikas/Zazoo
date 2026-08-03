@@ -229,7 +229,9 @@ import {
 import {
   acceptSuggestion as acceptLearningSuggestion,
   digestSignals as digestLearningSignals,
+  generalizeLearnedPreferences,
   isLearningObservationEntry,
+  seedSuggestionsFromArchetypes,
   listSuggestions as listLearningSuggestions,
   preferencesToMemorySnippets,
   recordSignal as recordLearningSignal,
@@ -5329,6 +5331,20 @@ function assertLearningFlightEnabled(ctx: { wiring: Pick<Wiring, "learningObserv
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message: "learning observation flight is disabled (BRIDGE_LEARNING_OBSERVATION)",
+    });
+  }
+}
+
+/** Commons-archetype procedures need BOTH flights: the learning loop (the
+ * rows being generalized/seeded are its rows) AND the archetypes flight. */
+function assertArchetypesFlightEnabled(
+  ctx: { wiring: Pick<Wiring, "learningObservationEnabled" | "commonsArchetypesEnabled"> },
+): void {
+  assertLearningFlightEnabled(ctx);
+  if (!ctx.wiring.commonsArchetypesEnabled) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "commons archetypes flight is disabled (BRIDGE_COMMONS_ARCHETYPES)",
     });
   }
 }
@@ -12305,6 +12321,112 @@ export const appRouter = t.router({
             input.moduleId,
           );
           return { preferences };
+        }),
+    }),
+
+    /** Commons capability archetypes (roadmap-v2 Phase 4). Contribution is
+     * generalize-then-Human-publish: `preview` derives candidates locally
+     * and sends NOTHING; only the explicit `contribute` mutation publishes,
+     * and the payload is generalized fields only (screened source-side AND
+     * by the Commons server's privacy gate). `seed` is the consume half —
+     * archetypes become PROPOSED suggestions on the ordinary lineage
+     * machinery (suggested-then-accepted holds; a rejection suppresses). */
+    archetypes: t.router({
+      preview: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            moduleId: z.string().min(1).default("dealpilot"),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertArchetypesFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const preferences = await retrieveLearnedPreferences(
+            ctx.wiring.memoryStore,
+            { organizationId: input.organizationId, userId: ctx.identity.id },
+            input.moduleId,
+          );
+          return { candidates: generalizeLearnedPreferences(preferences, input.moduleId) };
+        }),
+
+      contribute: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            moduleId: z.string().min(1).default("dealpilot"),
+            /** Candidate names the Human approved for publishing. Empty is
+             * NOT "publish everything" — contribution is per-archetype
+             * explicit. */
+            names: z.array(z.string().min(1)).min(1),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertArchetypesFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const publishArchetype = ctx.wiring.commonsRegistry.publishArchetype?.bind(
+            ctx.wiring.commonsRegistry,
+          );
+          if (!publishArchetype) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "the configured Commons deployment does not support archetypes",
+            });
+          }
+          const preferences = await retrieveLearnedPreferences(
+            ctx.wiring.memoryStore,
+            { organizationId: input.organizationId, userId: ctx.identity.id },
+            input.moduleId,
+          );
+          const candidates = generalizeLearnedPreferences(preferences, input.moduleId);
+          const requested = new Set(input.names);
+          const selected = candidates.filter((candidate) => requested.has(candidate.name));
+          if (selected.length === 0) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "no matching archetype candidates" });
+          }
+          const published: Array<{ name: string; contentHash: string }> = [];
+          for (const candidate of selected) {
+            try {
+              published.push(await publishArchetype(candidate, { tags: [input.moduleId] }));
+            } catch (error) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: error instanceof Error ? error.message : "archetype publish failed",
+              });
+            }
+          }
+          return { published };
+        }),
+
+      seed: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            moduleId: z.string().min(1).default("dealpilot"),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertArchetypesFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const listArchetypes = ctx.wiring.commonsRegistry.listArchetypes?.bind(
+            ctx.wiring.commonsRegistry,
+          );
+          if (!listArchetypes) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "the configured Commons deployment does not support archetypes",
+            });
+          }
+          const { archetypes } = await listArchetypes({ domain: input.moduleId });
+          const seeded = await seedSuggestionsFromArchetypes(ctx.wiring.memoryStore, {
+            organizationId: input.organizationId,
+            ownerUserId: ctx.identity.id,
+            moduleId: input.moduleId,
+            archetypes: archetypes.map((entry) => entry.archetype),
+            nextId: () => ctx.run.ids.next(),
+            lineageIdFor: deterministicUuid,
+          });
+          return { seeded };
         }),
     }),
   }),

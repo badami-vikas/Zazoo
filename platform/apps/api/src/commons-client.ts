@@ -18,8 +18,13 @@ import { createHash, createPublicKey, verify as cryptoVerify } from "node:crypto
 import {
   CommonsPublishRejectedError,
   assertCommonsUrlTls,
+  verifyCommonsArchetypeEntry,
   verifyCommonsEntry,
   verifyCommonsEntryContent,
+  type CapabilityArchetype,
+  type CommonsArchetypeEntry,
+  type CommonsArchetypeListQuery,
+  type CommonsArchetypeListResult,
   type CommonsListQuery,
   type CommonsListResult,
   type CommonsModuleDetail,
@@ -171,6 +176,50 @@ export class HttpCommonsClient implements CommonsRegistry {
       throw new CommonsResponseMismatchError(`${name}@${version}`, `${entry.name}@${entry.version}`);
     }
     return entry;
+  }
+
+  /** Capability archetypes for a domain (roadmap-v2 Phase 4). Every fetched
+   * entry is trust-verified like a module entry; an entry failing
+   * verification is DROPPED (fail closed) rather than surfaced. */
+  async listArchetypes(query: CommonsArchetypeListQuery = {}): Promise<CommonsArchetypeListResult> {
+    const params = new URLSearchParams();
+    if (query.domain !== undefined) params.set("domain", query.domain);
+    if (query.limit !== undefined) params.set("limit", String(query.limit));
+    if (query.offset !== undefined) params.set("offset", String(query.offset));
+    const qs = params.size > 0 ? `?${params.toString()}` : "";
+    const res = await fetch(`${this.#baseUrl}/v1/archetypes${qs}`);
+    if (!res.ok) throw new Error(`commons listArchetypes failed: ${res.status}`);
+    const body = (await res.json()) as CommonsArchetypeListResult;
+    if (!this.#verify) return body;
+    const trusted = body.archetypes.filter(
+      (entry: CommonsArchetypeEntry) =>
+        verifyCommonsArchetypeEntry(entry, sha256, ed25519ManifestVerifier, {
+          trustedPublicKeys: this.#trustedPublicKeys,
+        }).valid,
+    );
+    return { archetypes: trusted, total: trusted.length };
+  }
+
+  async publishArchetype(
+    archetype: CapabilityArchetype,
+    options: { tags?: string[] } = {},
+  ): Promise<{ name: string; contentHash: string }> {
+    const res = await fetch(`${this.#baseUrl}/v1/archetypes`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(this.#publishToken ? { authorization: `Bearer ${this.#publishToken}` } : {}),
+      },
+      body: JSON.stringify({ archetype, tags: options.tags ?? [] }),
+    });
+    if (res.status === 201 || res.status === 200) {
+      return (await res.json()) as { name: string; contentHash: string };
+    }
+    const body = (await res.json().catch(() => ({}))) as { message?: string; offendingPaths?: string[] };
+    if (res.status === 422) {
+      throw new CommonsPublishRejectedError(body.message ?? "organization data rejected", body.offendingPaths ?? []);
+    }
+    throw new CommonsPublishRejectedError(body.message ?? `archetype publish failed: ${res.status}`);
   }
 
   async publish(

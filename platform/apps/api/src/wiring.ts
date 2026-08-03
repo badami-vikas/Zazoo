@@ -489,6 +489,12 @@ export interface Wiring {
    * Disabled means chat keeps the pre-fusion recency slice and no indexer
    * runs — nothing new is stored or read. */
   retrievalFusionEnabled: boolean;
+  /** Feature flight for Commons capability archetypes (roadmap-v2 Phase 4:
+   * generalize accepted preferences → contribute; seed suggestions from
+   * Commons archetypes). OFF by default; `BRIDGE_COMMONS_ARCHETYPES=1` (or a
+   * test override). Every `learning.archetypes.*` procedure fails closed
+   * while off — nothing is generalized, published, or seeded. */
+  commonsArchetypesEnabled: boolean;
   /** ModelProvider registry/router (@bridge/models): resolves capability manifest modelBindings to
    * providers, honoring planeDefault (capture/sensor plane = local models, never cloud
    * fallback). In-memory mode registers the network-free echo double; persistent mode
@@ -534,6 +540,9 @@ export interface BuildWiringOptions {
   /** Test/deployment override for the LA5 retrieval-fusion flight. Omitted
    * means the environment decides (`BRIDGE_RETRIEVAL_FUSION`), default OFF. */
   retrievalFusionEnabled?: boolean;
+  /** Test/deployment override for the Commons-archetypes flight. Omitted
+   * means the environment decides (`BRIDGE_COMMONS_ARCHETYPES`), default OFF. */
+  commonsArchetypesEnabled?: boolean;
   /** Explicit provider set for composition tests or alternate deployments.
    * Omitted means the normal environment-bound providers for the selected mode. */
   modelProviders?: readonly ModelProvider[];
@@ -4189,6 +4198,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const retrievalFusionEnabled =
     options.retrievalFusionEnabled ??
     ["1", "true"].includes((process.env.BRIDGE_RETRIEVAL_FUSION ?? "").trim().toLowerCase());
+  // Commons-archetypes flight (roadmap-v2 Phase 4) — same resolution, default OFF.
+  const commonsArchetypesEnabled =
+    options.commonsArchetypesEnabled ??
+    ["1", "true"].includes((process.env.BRIDGE_COMMONS_ARCHETYPES ?? "").trim().toLowerCase());
   const credentialProvider =
     process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT ??
     (runningUnderNodeTest() ? "os-keyring" : undefined);
@@ -4946,6 +4959,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     learningObservationEnabled,
     vectorIndex,
     retrievalFusionEnabled,
+    commonsArchetypesEnabled,
     dealpilot: {
       integrationId: dealPilotIntegrationId,
       store: dealPilotRuntimeStore,

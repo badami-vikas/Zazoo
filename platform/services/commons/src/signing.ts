@@ -7,9 +7,12 @@ import crypto from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+  canonicalizeCommonsArchetypeSignedPayload,
   canonicalizeCommonsSignedPayload,
   canonicalizeManifest,
+  commonsArchetypeContent,
   commonsModuleContent,
+  type CommonsArchetypeEntry,
   type CommonsModuleEntry,
   type ManifestSignature,
   type ModuleManifest,
@@ -106,6 +109,23 @@ export function signCommonsEntry(
   keyPair: CommonsSigningKeyPair,
 ): ManifestSignature {
   const data = canonicalizeCommonsSignedPayload(commonsModuleContent(entry), entry.integrity, entry.publishedAt);
+  return {
+    signature: crypto.sign(null, Buffer.from(data, "utf8"), crypto.createPrivateKey(keyPair.privateKeyPem)).toString("base64"),
+    publicKey: keyPair.publicKeyPem,
+    algorithm: "ed25519",
+    signedAt: new Date().toISOString(),
+  };
+}
+
+export function signCommonsArchetypeEntry(
+  entry: Omit<CommonsArchetypeEntry, "signature">,
+  keyPair: CommonsSigningKeyPair,
+): ManifestSignature {
+  const data = canonicalizeCommonsArchetypeSignedPayload(
+    commonsArchetypeContent(entry),
+    entry.integrity,
+    entry.publishedAt,
+  );
   return {
     signature: crypto.sign(null, Buffer.from(data, "utf8"), crypto.createPrivateKey(keyPair.privateKeyPem)).toString("base64"),
     publicKey: keyPair.publicKeyPem,

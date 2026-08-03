@@ -16,11 +16,17 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
 import {
+  archetypeName,
+  commonsArchetypeContent,
+  computeCommonsArchetypeHash,
   computeCommonsContentHash,
   normalizeCommonsTags,
+  parseCapabilityArchetype,
   parseModuleManifest,
   ModuleManifestValidationError,
+  verifyCommonsArchetypeEntry,
   verifyCommonsEntry,
+  type CommonsArchetypeEntry,
   type CommonsListResult,
   type CommonsModuleDetail,
   type CommonsModuleEntry,
@@ -30,7 +36,13 @@ import {
 } from "@bridge/core";
 import { findOrganizationDataPaths } from "./privacy-gate.js";
 import { scanCommonsModule } from "./security-scan.js";
-import { ed25519ManifestVerifier, resolveCommonsSigningKeyPair, signCommonsEntry, type CommonsSigningKeyPair } from "./signing.js";
+import {
+  ed25519ManifestVerifier,
+  resolveCommonsSigningKeyPair,
+  signCommonsArchetypeEntry,
+  signCommonsEntry,
+  type CommonsSigningKeyPair,
+} from "./signing.js";
 import { DuplicateVersionError, type CommonsStore } from "./store.js";
 
 const MODULE_KINDS: readonly string[] = [
@@ -324,6 +336,98 @@ export function buildCommonsServer(
     }
 
     return reply.status(201).send({ name: manifest.name, version: manifest.version, contentHash: integrity.value });
+  });
+
+  // Capability archetypes (roadmap-v2 Phase 4) — generalized preference
+  // patterns only, same privacy gate and signing posture as modules.
+  app.get<{ Querystring: { domain?: string; limit?: string; offset?: string } }>(
+    "/v1/archetypes",
+    async (req) => {
+      const all = await store.listAllArchetypes();
+      const domain = req.query.domain?.trim().toLowerCase();
+      const filtered = domain ? all.filter((entry) => entry.archetype.domain === domain) : all;
+      const limit = Math.min(Math.max(Number(req.query.limit ?? 50) || 50, 1), 200);
+      const offset = Math.max(Number(req.query.offset ?? 0) || 0, 0);
+      return { archetypes: filtered.slice(offset, offset + limit), total: filtered.length };
+    },
+  );
+
+  app.post<{ Body: { archetype?: unknown; tags?: unknown } }>("/v1/archetypes", async (req, reply) => {
+    if (!publisherAuthorized(req.headers.authorization, options.publishToken)) {
+      return reply.status(401).send({
+        error: "publisher_unauthorized",
+        message: "a valid Commons publisher bearer token is required",
+      });
+    }
+    const body = req.body;
+    if (typeof body !== "object" || body === null || body.archetype === undefined) {
+      return reply.status(400).send({ error: "invalid_archetype", message: "body must be { archetype, tags? }" });
+    }
+    // Generalized-content gate FIRST, on the raw payload.
+    const offendingPaths = findOrganizationDataPaths({ archetype: body.archetype, tags: body.tags });
+    if (offendingPaths.length > 0) {
+      return reply.status(422).send({
+        error: "organization_data_rejected",
+        message:
+          "Universal Commons stores generalized capability content only — never Organization or user data. Generalize the archetype.",
+        offendingPaths,
+      });
+    }
+    let archetype;
+    try {
+      archetype = parseCapabilityArchetype(body.archetype);
+    } catch (err) {
+      return reply.status(400).send({ error: "invalid_archetype", message: (err as Error).message });
+    }
+    if (archetype.name !== archetypeName(archetype.domain, archetype)) {
+      return reply.status(400).send({
+        error: "invalid_archetype",
+        message: "archetype name must be the deterministic slug of its own pattern",
+      });
+    }
+    const tagsRaw = body.tags ?? [];
+    if (!Array.isArray(tagsRaw) || tagsRaw.some((t) => typeof t !== "string" || t.length === 0)) {
+      return reply.status(400).send({ error: "invalid_archetype", message: "tags must be an array of non-empty strings" });
+    }
+    const tags = normalizeCommonsTags(tagsRaw as string[]);
+
+    // Many-workspaces dedupe: archetype names are deterministic per pattern,
+    // so a re-publish of a known name idempotently returns the stored entry.
+    const existing = await store.getArchetype(archetype.name);
+    if (existing) {
+      return reply.status(200).send({
+        name: existing.archetype.name,
+        contentHash: existing.integrity.value,
+        deduplicated: true,
+      });
+    }
+
+    const content = commonsArchetypeContent({ archetype, tags });
+    const integrity = computeCommonsArchetypeHash(content, sha256);
+    const unsigned: Omit<CommonsArchetypeEntry, "signature"> = {
+      archetype,
+      tags,
+      integrity,
+      publishedAt: new Date().toISOString(),
+    };
+    const entry: CommonsArchetypeEntry = { ...unsigned, signature: signCommonsArchetypeEntry(unsigned, keyPair) };
+    const check = verifyCommonsArchetypeEntry(entry, sha256, ed25519ManifestVerifier, {
+      trustedPublicKeys: [keyPair.publicKeyPem],
+    });
+    if (!check.valid) {
+      return reply.status(500).send({ error: "signing_failed", message: check.reason });
+    }
+    try {
+      await store.putArchetype(entry);
+    } catch {
+      // Lost a publish race — the first writer's entry is authoritative.
+      const raced = await store.getArchetype(archetype.name);
+      if (raced) {
+        return reply.status(200).send({ name: raced.archetype.name, contentHash: raced.integrity.value, deduplicated: true });
+      }
+      throw new Error("commons: archetype publish failed without a stored entry");
+    }
+    return reply.status(201).send({ name: archetype.name, contentHash: integrity.value });
   });
 
   return app;

@@ -356,8 +356,13 @@ export async function acceptSuggestion(
   const anchor = content?.["anchor"] as { moduleId?: unknown } | undefined;
   const moduleId = typeof anchor?.moduleId === "string" ? anchor.moduleId : "unknown";
   const accepted = await transitionSuggestion(store, scope, suggestionMemoryId, "accepted", actorUserId, nextId);
+  // A pattern with zero local observations (a Commons-archetype seed the
+  // Human accepted) words the preference without a count — "seen 0 times"
+  // would misstate how it was learned.
   const statement = pattern
-    ? `Prefers "${pattern.action}" when ${pattern.attributeKey} is "${pattern.attributeValue}" (seen ${pattern.count} times).`
+    ? pattern.count > 0
+      ? `Prefers "${pattern.action}" when ${pattern.attributeKey} is "${pattern.attributeValue}" (seen ${pattern.count} times).`
+      : `Prefers "${pattern.action}" when ${pattern.attributeKey} is "${pattern.attributeValue}".`
     : (typeof content?.["suggestedText"] === "string" ? (content["suggestedText"] as string) : "Accepted learned preference.");
   const preference = await store.write({
     id: nextId(),
