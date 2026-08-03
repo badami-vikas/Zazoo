@@ -145,34 +145,78 @@ pub fn script_for_message_op(op: &str, arg: Option<&str>) -> Option<String> {
                    } catch (e) {}
                    // Last-activity time, which is what the scheduler reads.
                    //
-                   // The previous form was a ternary whose two arms were the
-                   // SAME expression, so it only ever read one field.
-                   // WhatsApp exposes this under more than one name depending on
-                   // the bundle, and a chat whose last message has not been
-                   // hydrated yet has none of them. Try each known source and
-                   // report NULL when none answers: "unknown" and "never" are
-                   // different facts, and collapsing them is what let a
-                   // 500-chat account schedule zero chats.
+                   // TWO defects have lived in this expression, and the second
+                   // is why the fix for the first did not work.
+                   //
+                   //  1. It was once a ternary whose two arms were the SAME
+                   //     expression, so only `c.t` was ever consulted.
+                   //  2. The replacement listed several sources but built the
+                   //     ARRAY eagerly, inside ONE try/catch:
+                   //
+                   //       var newest = ... c.msgs.last().t ...;
+                   //       var sources = [c.t, c.lastMsgTimestamp, newest];
+                   //
+                   //     `c.msgs.last()` is evaluated BEFORE the loop reads
+                   //     `c.t`. `msgs` is a live collection that is only
+                   //     populated once a chat's history has loaded, so on a
+                   //     freshly linked device that call throws for most chats —
+                   //     and the throw skipped the whole block, discarding a
+                   //     perfectly good `c.t`. The LOWEST-priority source could
+                   //     poison the HIGHEST-priority one. Every chat then came
+                   //     back undated even though the field the scheduler wanted
+                   //     was sitting right there.
+                   //
+                   // So each candidate is now evaluated LAZILY and in its OWN
+                   // try/catch: a source that throws is skipped, never fatal to
+                   // the ones after — or before — it.
+                   //
+                   // Order is evidence-led. `t` is the only last-activity field
+                   // DECLARED on WhatsApp's ChatModel (wa-js v4.5.0,
+                   // ChatModel.ts:27) and is the one to trust. The other two are
+                   // unattested in the pinned bundle — `lastMsgTimestamp` and
+                   // `msgs.last` both have ZERO occurrences in
+                   // vendor/wppconnect-wa.js — and are kept only as cheap
+                   // fallbacks against a future build, not because either is
+                   // known to work. `activitySource` below records which one
+                   // actually answered, so the next person does not have to
+                   // guess the way we did.
                    //
                    // Only a NUMBER is ever read here. No message text is
                    // touched, so the no-bodies guarantee below still holds.
                    var t = null;
-                   try {
-                     var newest = (c.msgs && typeof c.msgs.last === "function" && c.msgs.last())
-                       ? c.msgs.last().t
-                       : undefined;
-                     var sources = [c.t, c.lastMsgTimestamp, newest];
-                     for (var s = 0; s < sources.length; s++) {
-                       var v = sources[s];
-                       if (typeof v === "number" && isFinite(v) && v > 0) { t = v; break; }
-                     }
-                   } catch (e) {}
+                   var activitySource = null;
+                   var candidates = [
+                     ["t", function () { return c.t; }],
+                     ["lastMsgTimestamp", function () { return c.lastMsgTimestamp; }],
+                     ["msgs.last", function () {
+                       if (!c.msgs || typeof c.msgs.last !== "function") return undefined;
+                       var last = c.msgs.last();
+                       return last ? last.t : undefined;
+                     }]
+                   ];
+                   for (var s = 0; s < candidates.length; s++) {
+                     var v;
+                     try { v = candidates[s][1](); } catch (e) { continue; }
+                     if (typeof v !== "number" || !isFinite(v) || v <= 0) continue;
+                     // Seconds is the documented unit and what the watermark
+                     // arithmetic assumes. A build that switched to
+                     // milliseconds would otherwise date every chat to the year
+                     // 57000 and sort the list by nothing at all.
+                     t = (v > 1e11) ? Math.floor(v / 1000) : v;
+                     activitySource = candidates[s][0];
+                     break;
+                   }
                    return {
                      id: id,
                      name: c.formattedTitle ? String(c.formattedTitle)
                          : (c.name ? String(c.name) : undefined),
                      isGroup: isGroup,
                      lastMessageTimestamp: t,
+                     // Which field answered, or null when none did. A count of
+                     // these is the cheapest possible live evidence about a
+                     // build we cannot otherwise inspect. It is a FIELD NAME,
+                     // never a value, so it carries nothing personal.
+                     activitySource: activitySource,
                      unreadCount: (typeof c.unreadCount === "number") ? c.unreadCount : undefined
                    };
                  })
@@ -335,11 +379,77 @@ mod tests {
             !script.contains("c.lastReceivedKey ? c.t : c.t"),
             "the identical-arm ternary is back"
         );
-        for source in ["c.t", "c.lastMsgTimestamp", "c.msgs.last()"] {
+        for source in ["c.t", "c.lastMsgTimestamp", "c.msgs.last"] {
             assert!(script.contains(source), "{source} is not consulted");
         }
         // Unknown must stay distinguishable from "never": null, not 0.
         assert!(script.contains("var t = null"));
+    }
+
+    /// RESCOPED 2026-08-03. The test above asserts only that three field NAMES
+    /// appear in the script, which the defective version also satisfied — it
+    /// listed all three and still returned nothing for every chat on the live
+    /// account. Naming a source is not consulting it.
+    ///
+    /// The real defect was evaluation ORDER: the sources were collected into an
+    /// array eagerly inside a single try/catch, so `c.msgs.last()` ran before
+    /// `c.t` was read and its throw discarded the whole block. This test pins
+    /// the property that actually matters — every candidate is behind its own
+    /// function and its own catch, so no source can suppress another.
+    /// The script carries long `//` commentary, including a quotation of the
+    /// defective code it replaces. A negative assertion has to read the CODE,
+    /// or it fails on the explanation of the very bug it guards against.
+    fn code_only(script: &str) -> String {
+        script
+            .lines()
+            .map(|line| match line.find("//") {
+                Some(at) => &line[..at],
+                None => line,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn one_unreadable_activity_source_cannot_suppress_the_others() {
+        let script = script_for_message_op("list_chats", None).unwrap();
+        let code = code_only(&script);
+        // The eager array is the bug. `c.t` must not be evaluated into a list
+        // alongside a call that can throw.
+        assert!(
+            !code.contains("var sources = [c.t"),
+            "the eager source array is back: a throwing candidate will again discard c.t"
+        );
+        // Each candidate is a thunk, invoked inside the loop.
+        assert!(
+            script.contains("function () { return c.t; }"),
+            "c.t must be evaluated lazily, not up front"
+        );
+        // A per-candidate catch that CONTINUES rather than abandoning the loop.
+        assert!(
+            script.contains("catch (e) { continue; }"),
+            "a throwing candidate must be skipped, not fatal to the rest"
+        );
+    }
+
+    /// Seconds is what every watermark comparison in `@bridge/whatsapp`
+    /// assumes. A build reporting milliseconds would date every chat ~1700x
+    /// into the future, which sorts and schedules as garbage.
+    #[test]
+    fn a_millisecond_timestamp_is_normalised_to_seconds() {
+        let script = script_for_message_op("list_chats", None).unwrap();
+        assert!(script.contains("1e11"), "no seconds-vs-milliseconds guard");
+        assert!(script.contains("Math.floor(v / 1000)"));
+    }
+
+    /// Which field answered is the only cheap evidence we get about a wa-js
+    /// build we cannot otherwise inspect, and it is a field NAME, never a value.
+    #[test]
+    fn the_chat_list_reports_which_activity_source_answered() {
+        let script = script_for_message_op("list_chats", None).unwrap();
+        assert!(script.contains("activitySource"));
+        // Null when nothing answered — same unknown-is-not-zero discipline.
+        assert!(script.contains("var activitySource = null"));
     }
 
     #[test]

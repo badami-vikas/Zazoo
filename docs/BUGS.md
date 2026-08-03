@@ -2297,3 +2297,68 @@ persisted store-id so the next start mints a fresh store and shows a QR). Reset 
 the Chats surface and appears only when the device is not linked. Filesystem behaviour proven by
 unit tests over temp dirs; the live wedge itself was cured by the manual move, so the commands are
 proven-by-test, not yet proven against a live recurrence.
+
+## OPEN 2026-08-03 — `list_contacts` returns an empty list on an 8,384-contact account, and chats carry no last-activity time (TASK-030)
+
+Live, on the user's own linked session: the contact extraction returned NOTHING while chats in the
+same session plainly showed phone numbers and names; and the chat list did not order by recency.
+
+Both were diagnosed against the bundle we ship (`vendor/wppconnect-wa.js`, wa-js v4.5.0, SHA-256
+pinned), not against documentation.
+
+- **Contacts.** `WPP.contact.list({ onlyMyContacts: true })` is a client-side
+  `filter(e => e.isMyContact)`, and `isMyContact` is a getter wa-js installs by DUCK-TYPING
+  WhatsApp's webpack modules for `getIsMyContact`. If that binding breaks, every flag is
+  `undefined` and the filter returns an EMPTY ARRAY WITH NO ERROR. The previously standing LID-
+  migration hypothesis was NOT confirmed and is not the explanation on the evidence available.
+- **Chat recency.** The candidate list was built EAGERLY inside one `try` — `c.msgs.last()` was
+  evaluated before `c.t` was read, and its throw discarded the whole block including a good `c.t`.
+  Separately, `lastMsgTimestamp` and `msgs.last` have ZERO occurrences in the pinned bundle, so two
+  of the three declared sources never existed; `t` is the only field declared on WhatsApp's
+  ChatModel. The sort in `syncedThreads` was never the bug — the data was.
+
+Fixed (ADR-160): the saved-contact filter moved into the op so its failure is visible — a
+non-boolean flag is UNREADABLE, not `false`, and contacts-present-but-none-readable now THROWS
+rather than resolving as an empty success. Activity candidates are evaluated lazily, each in its own
+`catch`, `t` first, with a `>1e11` milliseconds guard; each summary carries `activitySource` naming
+the field that answered. Proven by test (Rust 145 pass, +6 new; `@bridge/whatsapp` 248 pass) and by
+build. NOT yet proven against the live account.
+
+**Live probe still wanted — run in the RUNNING app's WhatsApp webview console** (read-only, counts
+and field names only, no message text, no ids, no numbers; one pass over the in-memory store, no
+network, no per-chat burst):
+
+```js
+(() => {
+  const cs = WPP.whatsapp.ContactStore.getModelsArray();
+  const flag = {};
+  for (const c of cs) { const t = typeof c.isMyContact; flag[t] = (flag[t] || 0) + 1; }
+  const chats = WPP.whatsapp.ChatStore.getModelsArray();
+  const src = { t: 0, lastMsgTimestamp: 0, "msgs.last": 0, none: 0, threw: 0 };
+  for (const c of chats) {
+    let hit = "none";
+    for (const [name, get] of [
+      ["t", () => c.t],
+      ["lastMsgTimestamp", () => c.lastMsgTimestamp],
+      ["msgs.last", () => (c.msgs && typeof c.msgs.last === "function" ? c.msgs.last()?.t : undefined)],
+    ]) {
+      let v; try { v = get(); } catch { src.threw++; continue; }
+      if (typeof v === "number" && isFinite(v) && v > 0) { hit = name; break; }
+    }
+    src[hit]++;
+  }
+  return { contacts: cs.length, isMyContactTypes: flag, chats: chats.length, activitySource: src };
+})()
+```
+
+What each answer means:
+- `isMyContactTypes: { boolean: N }` with N > 0 → the flag IS readable; a small saved count is a
+  true fact about the address book, and the fix returns exactly those.
+- `isMyContactTypes: { undefined: 8384 }` → the wa-js binding is broken; the fix now surfaces this
+  as an error instead of an empty list, and restoring contacts needs a wa-js bump, not a code change
+  here.
+- `activitySource: { t: ~500 }` → `c.t` is populated and the lazy-evaluation fix alone restores
+  recency ordering.
+- `activitySource: { none: ~500 }` → no field on this build carries last activity; ordering cannot
+  be recovered from the chat list at all, and the honest surface is "undated", with recency instead
+  derived from stored messages as chats get synced.
