@@ -2437,3 +2437,8 @@ What each answer means:
 - `activitySource: { none: ~500 }` → no field on this build carries last activity; ordering cannot
   be recovered from the chat list at all, and the honest surface is "undated", with recency instead
   derived from stored messages as chats get synced.
+
+## 2026-08-03 — api socket-abort tests flake under CPU contention (WATCH)
+- Task: TASK-036
+- Status: OPEN (watch)
+- Evidence: with `--test-concurrency=4`, `jobpilot-culture-research.test.ts` tests "cancelCultureSourceFetch aborts a real in-flight fetch..." and "agentOrchestration.childRun.cancel ... actually aborts the real in-flight socket" failed once ("the server should observe the aborted connection actually close", false !== true) during a run that shared the CPU with the full db suite (683s real vs 1537s user). Rerun alone on an idle machine: 57/57 clean. Interpretation: timing-sensitive real-socket assertions flake under heavy load, not a concurrency-safety defect. If CI shows the same signature, widen the socket-close wait in those two tests rather than re-pinning the whole suite to --test-concurrency=1 (that pin cost ~6 min/run and contradicted AP-019's own resolution).

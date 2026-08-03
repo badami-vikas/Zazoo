@@ -181,6 +181,32 @@ function defaultMigrationsFolder(): string {
 }
 
 /**
+ * Test-only schema snapshot (BRIDGE_DB_TEST_SNAPSHOT=1). The 2026-08-03 test
+ * audit measured 202 in-memory `createLocalDb()` calls across the db suite,
+ * each replaying the full migration chain at ~1.85s — ~375s of the suite's
+ * 994s CPU budget was pure `migrate()`. With the flag on, the FIRST in-memory
+ * open in a process migrates normally and dumps the resulting data dir; every
+ * subsequent in-memory open restores that dump instead of re-migrating.
+ *
+ * Deliberately narrow: only when the env flag is set (the db test script sets
+ * it; production never does), only for in-memory opens (`dataDir` callers get
+ * real persistence semantics), and only for the default migrations folder
+ * (migration-harness tests pass their own folder precisely because they are
+ * testing migration BEHAVIOUR, and must keep executing the real chain).
+ * node --test runs each test file in its own process, so the cache is
+ * per-file — cross-file isolation is untouched.
+ */
+let testSnapshot: Promise<Blob | File> | null = null;
+
+function snapshotEligible(config: LocalDbConfig): boolean {
+  return (
+    process.env.BRIDGE_DB_TEST_SNAPSHOT === "1" &&
+    !config.dataDir &&
+    !config.migrationsFolder
+  );
+}
+
+/**
  * Open the local-plane store, apply migrations, and return a Drizzle handle plus
  * a close fn. The handle is shape-compatible with the cloud `Database`, so the
  * same port bindings (`createDrizzlePorts`) drive either plane.
@@ -188,6 +214,20 @@ function defaultMigrationsFolder(): string {
 export async function createLocalDb(
   config: LocalDbConfig = {},
 ): Promise<{ db: LocalDatabase; client: PGlite; close: () => Promise<void> }> {
+  if (snapshotEligible(config) && testSnapshot) {
+    // Restore the already-migrated schema; the dump carries the drizzle
+    // migrations journal, the vector extension state, and the legacy-table
+    // preparation, so none of the setup below needs to re-run.
+    const client = new PGlite({
+      loadDataDir: await testSnapshot,
+      extensions: { vector },
+    });
+    const db = drizzle(client, {
+      schema,
+      ...(config.queryLogger ? { logger: config.queryLogger } : {}),
+    });
+    return { db, client, close: () => client.close() };
+  }
   // pgvector lives in the cloud schema (embedding columns). pglite ships it as a
   // loadable extension; register it and CREATE it before migrations run, because
   // the generated DDL (0000) references vector(768) without creating the extension
@@ -207,6 +247,10 @@ export async function createLocalDb(
     await migrate(db, {
       migrationsFolder: config.migrationsFolder ?? defaultMigrationsFolder(),
     });
+    if (snapshotEligible(config) && !testSnapshot) {
+      testSnapshot = client.dumpDataDir();
+      await testSnapshot;
+    }
     return { db, client, close: () => client.close() };
   } catch (error) {
     try {

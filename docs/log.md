@@ -1,5 +1,32 @@
 # Change Log
 
+- **2026-08-03 — Test-suite optimization: 17-min runs cut, 10 cannot-fail files deleted, stale-dist CI lie fixed (TASK-036)**:
+  Four-agent audit (`outputs/2026-08-03-test-suite-audit.md`) then same-day execution per user directive.
+  **Speed:** api `--test-concurrency` 1→4 (the =1 pin came from `6590c71` with no rationale; the flake it
+  guarded against was resolved by AP-019 as "cap at 4", which db already uses). db gains an env-guarded
+  test schema snapshot (`BRIDGE_DB_TEST_SNAPSHOT=1` in `client-local.ts`): first in-memory open per process
+  migrates + dumpDataDir, later opens restore — measured 6m21s→5m00s full suite, 87s→35s on the worst file,
+  217/217 and coverage unchanged (90.40%). Migration-harness tests keep executing the real chain by design.
+  **Correctness:** turbo `test` now depends on the package's OWN build (was `^build` only) — api had been
+  running month-old compiled tests, which is the entire story of the "48.84% coverage" red gate: a fresh
+  build measures **81.54% and PASSES the 60 floor**. Two api socket-abort tests that failed at concurrency 4
+  were rerun 57/57 clean on an idle machine — load flake, not concurrency unsafety (BUGS watch item).
+  **Honesty:** deleted 10 test files that could not fail — 2 core (fixture-literal assertions over a
+  types-only module; a class defined inside its own test) and 8 web source-grep suites (readFile + regex,
+  zero production imports, verified per file). Kept `whatsapp-engine.test.mjs` (Rust↔TS allowlist set
+  equality — genuine drift detection) and `agents.test.ts`'s roster pin (ADR-046 canon guard, over-flagged
+  by the audit). Replacement: new `dataviews-behavior.test.mjs` drives the real eligibility/migration/
+  rowSearch/red-flag logic; two of its first-draft assertions failed against real behaviour — exactly the
+  signal grep tests cannot produce. Web suite 164→116, all meaningful.
+  **Tiering (user question "should all tests run all the time?"):** locally no — new root `test:affected`/
+  `verify:affected` (turbo `--affected`) run only packages changed vs main, so migration tests run only
+  when db changes; on main yes — CI keeps the full suite as the gate (affected-neighbour canon; narrow
+  green checks cannot hide affected failures). Deferred to TASK-036: harness extractions (core pipeline
+  harness first — two of six copies already diverged), api merge clusters (~34→7), db empty-table deletions,
+  one monorepo coverage floor + a web gate + core roadmap-path coverage-exclude.
+  Verified end-state: core 485/485 (88.24% vs 80), db 217/217 (90.40%), web 116/116, api 393+1skip (81.54%
+  vs 60, gate passing). Not deployed by me.
+
 - **2026-08-03 — Unfinished-work audit: WhatsApp branch pushed, four production/canon fixes landed, five tasks queued**:
   Four parallel read-only agents audited what is *unfinished, unreachable, or unwired* (distinct from the
   2026-08-02 bloat audit, which found what is *unused*). Full record: `outputs/2026-08-03-unfinished-work-audit.md`.
