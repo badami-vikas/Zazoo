@@ -421,23 +421,73 @@ pub fn script_for_op(op: &str, arg: Option<&str>) -> Option<String> {
         // surfaces as a degraded state instead of failing mid-run.
         "health" => Some(health_script()),
         // The owner's address book.
+        //
+        // This op used to ask wa-js to do the filtering — `list({
+        // onlyMyContacts: true })` — and returned whatever came back. On the
+        // live account that was an EMPTY LIST, while the same session plainly
+        // showed hundreds of named chats.
+        //
+        // The reason is visible in the pinned bundle. `onlyMyContacts` is not a
+        // query WhatsApp answers; it is a client-side
+        // `filter(c => c.isMyContact)`, and `isMyContact` is not wa-js's own
+        // logic either. wa-js installs it onto `ContactModel.prototype` as a
+        // getter whose implementation it locates by DUCK-TYPING WhatsApp's
+        // webpack modules for one named `getIsMyContact`. When WhatsApp moves
+        // or renames that function the binding resolves to nothing, the getter
+        // is never installed, `c.isMyContact` is `undefined`, and the filter
+        // quietly keeps NOBODY. No throw, no warning — an address book that
+        // could not be read, returned as an address book with nobody in it.
+        //
+        // Those are different facts and this op now refuses to conflate them:
+        //
+        //   * a contact whose flag is a real boolean is filtered on it, so the
+        //     meaning of "contact" is UNCHANGED — strangers who merely messaged
+        //     the owner are still excluded, and the Relationship module is still
+        //     not flooded with them;
+        //   * a contact whose flag is not a boolean is UNREADABLE, which is
+        //     recorded as such rather than silently treated as `false`;
+        //   * if the store holds contacts and NOT ONE has a readable flag, the
+        //     op throws. `reported` turns that into an honest `ok: false` the
+        //     surface already knows how to show. An empty success would be a lie.
+        //
+        // Deliberately NOT done: reaching for WhatsApp's internal
+        // `getIsMyContact` as a fallback. It is an undocumented internal, and
+        // the path usually suggested for it could not be confirmed to exist in
+        // the vendored bundle. Guessing at a private path to paper over a
+        // private path that already moved is how this defect gets rebuilt.
         "list_contacts" => Some(reported(
             op,
-            r#"WPP.contact.list({ onlyMyContacts: true }).then(function (cs) {
-                 return cs.map(function (c) {
+            r#"WPP.contact.list({ onlyMyContacts: false }).then(function (cs) {
+                 var readable = 0;
+                 var saved = [];
+                 for (var i = 0; i < cs.length; i++) {
+                   var c = cs[i];
+                   // `undefined` here means "the flag never got wired up", which
+                   // is not the same as "this person is not in my address book".
+                   if (typeof c.isMyContact !== "boolean") continue;
+                   readable++;
+                   if (!c.isMyContact) continue;
                    var id = (c.id && (c.id._serialized || String(c.id))) || "";
                    // NOTE: no `phone` is derived from the id. A @lid id is an
                    // opaque handle, and splitting one into digits fabricates a
                    // phone number for a contact who has none. Mapping decides.
-                   return {
+                   saved.push({
                      id: id,
                      name: c.name ? String(c.name) : undefined,
                      pushname: c.pushname ? String(c.pushname) : undefined,
                      phone: (c.id && c.id.server === "c.us" && c.id.user) ? String(c.id.user) : undefined,
-                     isMyContact: Boolean(c.isMyContact),
+                     isMyContact: true,
                      isGroup: false
-                   };
-                 });
+                   });
+                 }
+                 if (cs.length > 0 && readable === 0) {
+                   // Counts only — no id, no name, nothing personal.
+                   throw new Error(
+                     "address book membership is unreadable on this build: " + cs.length +
+                     " contacts in the store, 0 with a readable isMyContact flag"
+                   );
+                 }
+                 return saved;
                })"#,
         )),
         // Group inventory only — participants are a separate, per-group op so a
@@ -2375,6 +2425,58 @@ mod tests {
         assert!(script.contains(r#"c.id.server === "c.us""#));
         let participants = script_for_op("group_participants", Some("1@g.us")).unwrap();
         assert!(participants.contains(r#"p.id.server === "c.us""#));
+    }
+
+    /// The 2026-08-03 defect: `list({ onlyMyContacts: true })` returned an
+    /// empty array on an account with 8,384 contacts, because that option is a
+    /// client-side filter on a getter wa-js binds by duck-typing WhatsApp's
+    /// internals. When the binding breaks the flag is `undefined` and the
+    /// filter keeps nobody — silently.
+    #[test]
+    fn an_unreadable_address_book_is_an_error_not_an_empty_one() {
+        let script = script_for_op("list_contacts", None).unwrap();
+        // The filter must not be delegated to the option that fails silently.
+        assert!(
+            !script.contains("onlyMyContacts: true"),
+            "the silently-empty filter is back"
+        );
+        // A non-boolean flag is UNREADABLE and must not be coerced to false.
+        assert!(
+            !script.contains("Boolean(c.isMyContact)"),
+            "coercing the flag re-hides an unreadable address book as an empty one"
+        );
+        assert!(script.contains(r#"typeof c.isMyContact !== "boolean""#));
+        // Contacts present but none readable is a read FAILURE.
+        assert!(
+            script.contains("throw new Error"),
+            "an unreadable address book must not resolve as a successful empty read"
+        );
+    }
+
+    /// The filter still exists — it just moved to where its failure is visible.
+    /// Dropping it would stage every stranger who ever messaged the owner as a
+    /// Person, which is the flood `contacts_and_messaged` exists to prevent.
+    #[test]
+    fn only_saved_contacts_are_still_returned() {
+        let script = script_for_op("list_contacts", None).unwrap();
+        assert!(
+            script.contains("if (!c.isMyContact) continue;"),
+            "the saved-contact filter must survive; widening it changes what 'contact' means"
+        );
+    }
+
+    /// Counts are safe to report; ids, names and numbers are not.
+    #[test]
+    fn the_unreadable_address_book_error_names_no_one() {
+        let script = script_for_op("list_contacts", None).unwrap();
+        let message_start = script.find("throw new Error").unwrap();
+        let message = &script[message_start..message_start + 260];
+        for leak in ["c.id", "c.name", "c.pushname", "_serialized"] {
+            assert!(
+                !message.contains(leak),
+                "{leak} must not appear in an error that may be logged"
+            );
+        }
     }
 
     #[test]

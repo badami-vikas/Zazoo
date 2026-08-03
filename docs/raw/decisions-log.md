@@ -3702,7 +3702,7 @@ Annotations remain Bridge's own Local-Plane data: the control makes no engine ca
 WhatsApp permission, works with no session at all, and says on screen that nothing in it is sent to
 WhatsApp. With no thread selected it EXPLAINS rather than sitting inert, per the actionability rule.
 
-### ADR-160 (2026-08-03) — the thread order was already right; the scroll position was not
+### ADR-161 (2026-08-03) — the thread order was already right; the scroll position was not
 
 Reported as messages reading in the wrong order inside a thread. Verified before changing anything:
 `local_messages` is read `ORDER BY sent_at, message_id`, the in-memory store sorts the same way, and
@@ -3715,3 +3715,87 @@ and read as reversed. The fix is a scroll pin to the last row on open (and again
 send), applied once per thread so scrolling back through history is never yanked away. The rendering
 order is untouched; no `.reverse()`, no `flex-col-reverse`, no re-sort in the surface, and a test
 asserts the surface never re-orders the store.
+### ADR-162 — An unreadable WhatsApp address book is a read failure, not an empty address book; last-activity candidates are evaluated lazily so one dead field cannot suppress a live one (2026-08-03; TASK-030; extends ADR-158's read-allowlist section)
+
+**Context.** Two defects on the live account (8,384 contacts, ~500 chats), both presenting as "the
+extraction ran and found nothing" while the same session visibly held the data.
+
+1. `list_contacts` returned an EMPTY list.
+2. Chats did not order by recency — every chat came back with no usable last-activity time, so the
+   order was arbitrary.
+
+The standing hypothesis for (1) was LID migration suppressing `isMyContact`. It was NOT confirmed,
+and the investigation did not support it. Evidence came instead from the bundle we actually ship —
+`platform/apps/desktop/src-tauri/vendor/wppconnect-wa.js`, wa-js v4.5.0, SHA-256 pinned — which is
+authoritative in a way that documentation is not.
+
+**Finding 1 — `onlyMyContacts` fails to an empty array, silently.** It is not a query WhatsApp
+answers. In the shipped bundle `WPP.contact.list` is `ContactStore.getModelsArray().slice()`
+followed by `filter(e => e.isMyContact)`. `isMyContact` is not wa-js's logic either: wa-js defines
+it on `ContactModel.prototype` as a getter delegating to WhatsApp's internal `getIsMyContact`,
+which it locates by DUCK-TYPING webpack modules (`e => e.getIsMyContact`) and installs only if the
+property is currently `undefined`. When WhatsApp moves or renames that function the binding
+resolves to nothing, every `c.isMyContact` is `undefined`, and the filter keeps nobody — no throw,
+no warning. An address book that could not be READ is indistinguishable, at the call site, from an
+address book with nobody in it.
+
+**Finding 2 — the last-activity fix was defeated by evaluation ORDER, not by field choice.** The
+previous script listed three sources but built the array EAGERLY inside one `try`:
+
+```js
+var newest = (c.msgs && typeof c.msgs.last === "function" && c.msgs.last()) ? c.msgs.last().t : undefined;
+var sources = [c.t, c.lastMsgTimestamp, newest];
+```
+
+`c.msgs.last()` is evaluated BEFORE the loop ever reads `c.t`. `msgs` is a live collection populated
+only once a chat's history has loaded, so on a freshly linked device that call throws for most
+chats — and the throw skipped the whole block, discarding a `c.t` that was sitting right there. The
+LOWEST-priority candidate could poison the HIGHEST-priority one. This is why the earlier fix, which
+correctly identified the identical-arm ternary, did not change the live symptom.
+
+Bundle evidence on the field names themselves: `t` is the only last-activity field DECLARED on
+WhatsApp's ChatModel (upstream `ChatModel.ts:27`). `lastMsgTimestamp` and `msgs.last` have ZERO
+occurrences in the pinned bundle. The prior candidate list therefore implied coverage it did not
+have.
+
+**Decision 1 — the meaning of "contact" is UNCHANGED; only the failure mode changes.** The
+saved-contact filter stays. It moved from wa-js's option into the op, where its failure is visible:
+a boolean flag is filtered on exactly as before; a non-boolean flag is UNREADABLE and recorded as
+such rather than coerced to `false`; and if the store holds contacts while NOT ONE has a readable
+flag, the op throws. `reported` turns that into the `ok: false` the surface already renders.
+Strangers who merely messaged the owner are still excluded, so the `contacts_and_messaged` policy
+and the Relationship module's staging volume are untouched.
+
+**Decision 2 — candidates are evaluated lazily, each in its own `catch`, `t` first.** A throwing
+source is skipped and is never fatal to the sources before or after it. Values above `1e11` are
+divided to seconds, because every watermark comparison in `@bridge/whatsapp` assumes seconds and a
+milliseconds build would date every chat ~1700x into the future. Each summary now carries
+`activitySource` — the NAME of the field that answered, or `null` — which is the cheapest available
+evidence about a build we cannot otherwise inspect, and carries nothing personal.
+
+**Rejected alternatives.**
+
+- *Drop `onlyMyContacts` and stage everyone.* Fixes the empty list by redefining "contact". On this
+  account `all` stages 35,298 People against ~998 genuinely known (the measurement behind
+  `contacts_and_messaged`). Rejected outright.
+- *Fall back to WhatsApp's internal `getIsMyContact` when the getter is missing.* The usually-cited
+  path (`WPP.whatsapp.functions.getIsMyContact`) could NOT be confirmed to exist in the vendored
+  bundle. Guessing at a private path to paper over a private path that already moved is how this
+  defect gets rebuilt, one build later, with the same silent-empty signature.
+- *Infer saved-vs-stranger from `name` present / `pushname`-only.* A plausible proxy with no
+  documented guarantee behind it. It would fabricate address-book membership — the same class of
+  error as deriving a phone number from a `@lid`.
+- *Report `0` instead of `null` for an undated chat.* "Unknown" and "never" drive opposite
+  scheduling decisions; collapsing them is the original defect.
+- *Delete `lastMsgTimestamp` / `msgs.last` now that they are proven absent from the bundle.* Kept as
+  cheap lazy fallbacks against a future build. The absence is recorded in the code comment so the
+  next reader does not mistake their presence for evidence that they work.
+
+**Consequences.** An account whose `isMyContact` binding is broken now sees an honest error naming
+counts only ("N contacts in the store, 0 with a readable flag") instead of an empty success — a
+louder failure, deliberately. `list_contacts` now calls `list({ onlyMyContacts: false })` and filters
+in the op; this is the same traversal `pn_lid_map` already performs, so no new cost in kind. Neither
+op gained a WPP dependency, so the health tripwire is unchanged. Both remain read-only, bounded,
+sequential, and derive no phone number from any `@lid`. NOT verified against the live account: which
+`activitySource` actually answers, and whether the address-book flag is readable there — both are
+settled by the first run after this lands, and the probe is recorded in BUGS.
