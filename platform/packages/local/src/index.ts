@@ -6,6 +6,7 @@
  * Memories/Signals live here and NEVER cross the gate to cloud canonical.
  */
 export * from "./ports.js";
+export { assertMessageShape, assertSenderIdentity } from "./messages.js";
 export {
   InMemorySecretStore,
   InMemoryBodyStore,
@@ -14,6 +15,7 @@ export {
   createMemoryLocalPlane,
 } from "./stores/memory.js";
 export {
+  LOCAL_PLANE_PGLITE_EXTENSIONS,
   acquirePgliteDirectoryOwnership,
   createPgliteLocalPlane,
   type PgliteDirectoryOwnership,

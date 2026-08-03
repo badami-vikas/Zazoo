@@ -1,11 +1,51 @@
 {
-  "enableWorkflows": false,
-  "enabledPlugins": {
-    "ecc@ecc": false,
-    "last30days@last30days-skill": false,
-    "prompt-architect@prompt-architect-marketplace": false,
-    "superpowers@superpowers-dev": false
+  "env": {
+    "ECC_GATEGUARD": "off"
   },
+  "permissions": {
+    "allow": [
+      "Bash(npx vite *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:3300/work)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:3300/intelligence)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:4100/api/health)"
+    ]
+  },
+  "enabledPlugins": {
+    "prompt-architect@prompt-architect-marketplace": true,
+    "superpowers@superpowers-dev": true,
+    "last30days@last30days-skill": true,
+    "ecc@ecc": false,
+    "skill-creator@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "prompt-architect-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "ckelsoe/prompt-architect"
+      }
+    },
+    "superpowers-dev": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/obra/superpowers.git"
+      }
+    },
+    "last30days-skill": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/mvanhorn/last30days-skill.git"
+      }
+    },
+    "ecc": {
+      "source": {
+        "source": "directory",
+        "path": "/tmp/everything-claude-code"
+      }
+    }
+  },
+  "effortLevel": "low",
+  "skipWorkflowUsageWarning": true,
+  "enableWorkflows": false,
   "skillOverrides": {
     "agent-payment-x402": "off",
     "android-clean-architecture": "off",

@@ -12,4 +12,6 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-022 | blocked | P2 | Inference cost optimization: prompt caching + model tiering | external authorized Anthropic credential + live-test spend authorization |
 | TASK-027 | in_progress | P2 | Screen-aware companion ask prototype (clicky parity) | none |
 | TASK-028 | in_progress | P2 | Autonomous background browser research agent | TASK-023 (done), TASK-007 (done), TASK-026 (done), TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it) |
+| TASK-029 | in_progress | P2 | WhatsApp Module with governed contact extraction | none |
+| TASK-030 | in_progress | P2 | WhatsApp write-enabled messaging with a local searchable store | TASK-029 (in_progress — its exit test is unwalked, TASK-030 assumes the linked session and allowlist it built, and inherits its two filed defects as fixes in Track A) |
 | TASK-031 | in_progress | P2 | Platform bloat cleanup and table-renderer standardization | none (must not disturb in-progress TASK-027/TASK-028 surfaces, router/wiring splits rebase-heavy — coordinate with active branches) |

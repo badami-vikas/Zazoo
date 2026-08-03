@@ -10,6 +10,7 @@ import {
   Clock3,
   Database,
   FileText,
+  MessageCircle,
   Pencil,
   Radio,
   Save,
@@ -754,6 +755,23 @@ type RelationshipIntroductionPage = Awaited<ReturnType<typeof trpc.relationship.
 type RelationshipMeetingPrep = Awaited<ReturnType<typeof trpc.relationship.meetingPrep.query>>;
 type RelationshipCommunityOrganization = Awaited<ReturnType<typeof trpc.relationship.communityOrganization.query>>;
 type RelationshipPathResult = Awaited<ReturnType<typeof trpc.relationship.findPaths.query>>;
+/**
+ * WhatsApp activity for this Record, read from the LOCAL plane (ADR-159).
+ *
+ * Kept as its own query rather than merged into `timeline` server-side: those
+ * rows live on a different plane and are joined here, at render time, so no
+ * Local-Plane fact is ever written into cloud canonical storage.
+ */
+type RelationshipWhatsAppActivity = Awaited<ReturnType<typeof trpc.relationship.whatsappTimeline.query>>;
+
+/** Why a Record shows no WhatsApp activity — each reason is a different fact. */
+const WHATSAPP_LINKAGE_NOTE: Record<string, string> = {
+  community_unsupported:
+    "WhatsApp groups are not staged as Communities yet, so no group chat can be attached to this Community.",
+  no_local_record:
+    "This Record has no Local Plane counterpart, so there is no WhatsApp identity to read.",
+  no_whatsapp_identity: "No WhatsApp identity is linked to this Record.",
+};
 
 function RecordEditForm(props:
   | { kind: "person"; record: PersonDetail; onCancel: () => void; onApplied: () => void }
@@ -954,6 +972,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
   const [timeline, setTimeline] = useState<RelationshipTimelinePage["items"]>([]);
   const [nextCursor, setNextCursor] = useState<RelationshipTimelinePage["nextCursor"]>(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
+  const [whatsapp, setWhatsapp] = useState<RelationshipWhatsAppActivity | null>(null);
   const [memories, setMemories] = useState<RelationshipMemoryPage["items"]>([]);
   const [commitments, setCommitments] = useState<RelationshipCommitmentPage["items"]>([]);
   const [introductions, setIntroductions] = useState<RelationshipIntroductionPage["items"]>([]);
@@ -1010,6 +1029,27 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     });
     return () => {
       if (requestGeneration.current === generation) requestGeneration.current += 1;
+    };
+  }, [kind, recordId, reload]);
+
+  // Local Plane read, deliberately its own effect: WhatsApp activity is an
+  // addition to the Timeline, so a Local Plane that is unavailable must degrade
+  // to "no WhatsApp activity shown" rather than take the whole Record page down.
+  useEffect(() => {
+    let active = true;
+    setWhatsapp(null);
+    void trpc.relationship.whatsappTimeline
+      .query({ organizationId: PILOT_ORGANIZATION, recordType: kind, recordId })
+      .then((activity) => {
+        if (active) setWhatsapp(activity);
+      })
+      .catch(() => {
+        // Swallowed on purpose, and visibly: `whatsapp` stays null, which the
+        // Timeline renders as nothing at all rather than as "no activity".
+        if (active) setWhatsapp(null);
+      });
+    return () => {
+      active = false;
     };
   }, [kind, recordId, reload]);
 
@@ -2075,6 +2115,42 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
             </ol>
           )}
           {nextCursor && <Button className="mt-3" size="sm" variant="outline" disabled={timelineLoading} onClick={loadMoreTimeline}>{timelineLoading ? "Loading…" : "Load older Events"}</Button>}
+          {whatsapp && (
+            <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
+              <h3 className="text-xs font-semibold flex items-center gap-2" style={{ color: "var(--color-navy)" }}>
+                <MessageCircle className="w-3.5 h-3.5" /> WhatsApp activity
+              </h3>
+              {/* Stated on the surface, not only in the code: these rows are
+                  read from this machine and are not part of the Event graph. */}
+              <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                Read from this machine. Message content stays in the WhatsApp Module and is never copied into this Record.
+              </p>
+              {whatsapp.entries.length === 0 ? (
+                <p className="mt-2 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                  {WHATSAPP_LINKAGE_NOTE[whatsapp.linkage] ?? "No WhatsApp chats are linked to this Record yet."}
+                </p>
+              ) : (
+                <ol className="mt-3 space-y-2">
+                  {whatsapp.entries.map((entry) => (
+                    <li key={entry.chatId} className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>{entry.chatName || "WhatsApp chat"}</p>
+                          <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                            {entry.messageCount} message{entry.messageCount === 1 ? "" : "s"} · {entry.inboundCount} received · {entry.outboundCount} sent
+                          </p>
+                        </div>
+                        <time dateTime={entry.occurredAt ?? undefined} className="text-xs" style={{ color: "var(--color-warm-gray)" }}>{displayDate(entry.occurredAt)}</time>
+                      </div>
+                      <Link to="/module/whatsapp/chats" className="mt-2 inline-block text-xs no-underline" style={{ color: "var(--color-steel)" }}>
+                        Open in the WhatsApp Module →
+                      </Link>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          )}
         </section>
         <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="record-sources-title">
           <h2 id="record-sources-title" className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--color-navy)" }}><Database className="w-4 h-4" /> Sources</h2>
