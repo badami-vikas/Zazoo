@@ -276,12 +276,17 @@ export class InMemoryLocalGraphStore implements LocalGraphStore {
           m.source === source &&
           m.chatId === chatId,
       )
+      // Newest first, take the limit, then reverse — see the pglite store and
+      // the port doc. Truncating from the oldest end hid every recent message
+      // in a long thread (BUGS 2026-08-03), and the two stores must agree or
+      // the memory store stops being a faithful test double.
       .sort((a, b) =>
         a.sentAt === b.sentAt
-          ? a.messageId.localeCompare(b.messageId)
-          : a.sentAt.localeCompare(b.sentAt),
+          ? b.messageId.localeCompare(a.messageId)
+          : b.sentAt.localeCompare(a.sentAt),
       )
-      .slice(0, limit ?? 500);
+      .slice(0, limit ?? 500)
+      .reverse();
   }
 
   /**

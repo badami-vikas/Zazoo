@@ -523,3 +523,70 @@ test("the in-memory adapter enforces the identity rule identically", async () =>
   const activity = await plane.graph.getThreadActivity(ORG, SOURCE, PHONE_CHAT);
   assert.equal(activity.inboundCount, 1);
 });
+
+/**
+ * A thread longer than the limit must show its NEWEST messages.
+ *
+ * `ORDER BY sent_at ... LIMIT n` selects the OLDEST n. On a real account the
+ * Chats surface reads with a limit of 5,000 and scrolls to the bottom, so a
+ * conversation past that length rendered its 5,000 oldest messages and landed
+ * "scroll to newest" on the 5,000th oldest — no error, no empty state, just
+ * silently the wrong end of the conversation (BUGS 2026-08-03).
+ *
+ * Both stores are asserted, because the memory store is a test double and a
+ * double that truncates from the other end would let this regress unseen.
+ */
+const TRUNCATION_CHAT = "919999999999@c.us";
+
+function thread(count: number): LocalMessage[] {
+  return Array.from({ length: count }, (_unused, index) =>
+    message({
+      messageId: `m${String(index).padStart(4, "0")}`,
+      chatId: TRUNCATION_CHAT,
+      // Distinct, strictly increasing instants so "newest" is unambiguous.
+      sentAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+      body: `message ${index}`,
+    }),
+  );
+}
+
+test("a limited thread read keeps the NEWEST messages, still oldest-first", async () => {
+  await withPglitePlane(async (plane) => {
+    await plane.graph.putMessages(thread(25));
+    const stored = await plane.graph.listMessages(ORG, SOURCE, TRUNCATION_CHAT, 10);
+
+    assert.equal(stored.length, 10);
+    // The newest ten are m0015..m0024 — NOT m0000..m0009.
+    assert.deepEqual(
+      stored.map((m) => m.messageId),
+      Array.from({ length: 10 }, (_unused, i) => `m${String(15 + i).padStart(4, "0")}`),
+    );
+    // Contract preserved: what comes back is still ascending by time.
+    assert.deepEqual(
+      stored.map((m) => m.sentAt),
+      [...stored].sort((a, b) => a.sentAt.localeCompare(b.sentAt)).map((m) => m.sentAt),
+    );
+  });
+});
+
+test("the memory store truncates from the same end as pglite", async () => {
+  const plane: LocalPlane = createMemoryLocalPlane();
+  await plane.graph.putMessages(thread(25));
+  const stored = await plane.graph.listMessages(ORG, SOURCE, TRUNCATION_CHAT, 10);
+
+  assert.deepEqual(
+    stored.map((m) => m.messageId),
+    Array.from({ length: 10 }, (_unused, i) => `m${String(15 + i).padStart(4, "0")}`),
+  );
+});
+
+test("an unlimited thread read is unaffected and stays oldest-first", async () => {
+  await withPglitePlane(async (plane) => {
+    await plane.graph.putMessages(thread(5));
+    const stored = await plane.graph.listMessages(ORG, SOURCE, TRUNCATION_CHAT);
+    assert.deepEqual(
+      stored.map((m) => m.messageId),
+      ["m0000", "m0001", "m0002", "m0003", "m0004"],
+    );
+  });
+});

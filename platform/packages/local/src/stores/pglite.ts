@@ -938,14 +938,19 @@ class PgliteLocalGraphStore implements LocalGraphStore {
     chatId: string,
     limit?: number,
   ): Promise<LocalMessage[]> {
+    // Select DESC so the limit keeps the newest rows, then reverse to honour
+    // the port's oldest-first contract. Ascending + LIMIT silently returned
+    // the oldest N, so a thread longer than the limit could never show a
+    // recent message (BUGS 2026-08-03). The tiebreak reverses with the sort
+    // key so equal `sent_at` rows keep a stable, total order.
     const res = await this.db.query<MessageRow>(
       `SELECT * FROM local_messages
         WHERE organization_id=$1 AND source=$2 AND chat_id=$3
-        ORDER BY sent_at, message_id
+        ORDER BY sent_at DESC, message_id DESC
         LIMIT $4`,
       [organizationId, source, chatId, limit ?? 500],
     );
-    return res.rows.map(rowToMessage);
+    return res.rows.map(rowToMessage).reverse();
   }
 
   async searchMessages(

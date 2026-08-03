@@ -316,7 +316,17 @@ export interface LocalGraphStore {
    * LID handles from being laundered into phone identities.
    */
   putMessages(messages: readonly LocalMessage[]): Promise<void>;
-  /** One thread, oldest first. */
+  /**
+   * One thread, oldest first — but when `limit` truncates, it keeps the
+   * NEWEST `limit` messages, not the oldest.
+   *
+   * Both halves of that are load-bearing. A chat surface reads oldest-first
+   * and scrolls to the bottom, so the order is the render order; but a
+   * conversation longer than the limit is one whose recent messages matter and
+   * whose oldest are the disposable ones. Truncating from the wrong end made a
+   * long thread unable to show anything recent, with no error anywhere
+   * (BUGS 2026-08-03).
+   */
   listMessages(
     organizationId: string,
     source: string,
