@@ -50,57 +50,73 @@ The salvage is source material, not a live app — it is not in the pnpm workspa
 
 ---
 
-### Task 1: Restore the PII guard
+### Task 1: Restore the PII guard — DONE 2026-08-03 (`5db57ff`)
 
-Capture is coming back. The guard that `41d3b37` deleted goes back first.
+Completed in the session that wrote this plan. Recorded here in full because the plan is
+executed out of order, and because what was found differs from what was expected.
 
 **Files:**
-- Create: `scripts/check-no-pii.sh` (recover from `41d3b37^`)
-- Modify: `.githooks/pre-commit`
+- Created: `scripts/check-no-pii.sh`
+- `.githooks/pre-commit` needed **no change** — see Step 4
 
-- [ ] **Step 1: Recover the script and read it**
+**What was found, and why a verbatim restore would have been worse than useless.**
+`41d3b37` deleted `scripts/check-no-pii.sh` without removing the hook line that `exec`s it.
+But the original guard only protected files under `Design Bridge AI Interface (Copy)/`, which
+the same commit also deleted. Restoring it verbatim makes the hook exit 0 while checking
+nothing — a hook that passes is far more dangerous than one that errors, because the error is
+at least visible.
 
-```bash
-git show 41d3b37^:scripts/check-no-pii.sh > scripts/check-no-pii.sh
-chmod +x scripts/check-no-pii.sh
-cat scripts/check-no-pii.sh
-```
+Brokenness also varies by worktree, which is why it went unnoticed: a checkout stale enough to
+predate `41d3b37` still has the old script, so its commits "pass"; a checkout at current `main`
+has no script, so its commits error and get forced to `--no-verify`.
 
-Expected: a 35-line shell script. Read it before trusting it — confirm what patterns it matches and that it exits non-zero on a hit.
-
-- [ ] **Step 2: Verify it fails on a planted PII string**
-
-```bash
-printf 'contact: jane.doe@example.com\n' > /tmp/pii-probe.txt
-sh scripts/check-no-pii.sh /tmp/pii-probe.txt; echo "exit=$?"
-```
-
-Expected: non-zero exit. If it exits 0, the script's matcher does not cover emails — fix the matcher before continuing, because the whole point of this task is that it actually blocks.
-
-- [ ] **Step 3: Verify it passes on a clean file**
+- [x] **Step 1: Recover the original and read it**
 
 ```bash
-printf 'no personal data here\n' > /tmp/clean-probe.txt
-sh scripts/check-no-pii.sh /tmp/clean-probe.txt; echo "exit=$?"
-rm -f /tmp/pii-probe.txt /tmp/clean-probe.txt
+git show 41d3b37^:scripts/check-no-pii.sh > /tmp/check-no-pii-original.sh
+cat /tmp/check-no-pii-original.sh
 ```
 
-Expected: `exit=0`.
+Do not write it straight to `scripts/` — read it first and confirm what it actually guards.
 
-- [ ] **Step 4: Re-wire the pre-commit hook**
+- [x] **Step 2: Write a guard that matches today's risk**
+
+Keep the original's `Design Bridge AI Interface (Copy)/` entries (that folder is recoverable
+from history and may return) and the `network.ts` dummy-stub check. Add rules for what is
+actually at risk now: any `.env.local`, any `Tools/*recon*/data/`, and
+`staging`/`permanent`/`enriched-*` JSONL.
+
+- [x] **Step 3: Prove it blocks, then prove it passes**
+
+The guard takes **no arguments** — it inspects the git index itself via
+`git diff --cached --name-only`. Testing it by passing a file path silently passes no matter
+what the file contains. Stage a probe instead:
 
 ```bash
-git show 41d3b37^:.githooks/pre-commit | diff - .githooks/pre-commit || true
+printf 'HIBP_API_KEY=probe\n' > .env.local
+git add -f .env.local
+bash scripts/check-no-pii.sh; echo "exit=$? (expect 1)"
+
+git restore --staged .env.local && rm -f .env.local
+bash scripts/check-no-pii.sh; echo "exit=$? (expect 0)"
 ```
 
-Read the diff, then add back only the `check-no-pii.sh` invocation line into the current `.githooks/pre-commit`. Do not restore the whole old hook — it references other deleted scripts.
+Expected: `exit=1` then `exit=0`. Confirmed 2026-08-03.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 4: Check the hook's argument convention**
 
 ```bash
-git add scripts/check-no-pii.sh .githooks/pre-commit
-git commit -m "Restore the PII pre-commit guard deleted in 41d3b37"
+cat .githooks/pre-commit
+git config core.hooksPath
 ```
+
+The hook is `exec "$(git rev-parse --show-toplevel)/scripts/check-no-pii.sh"` — no arguments,
+matching a guard that reads the index itself. **No hook change is needed**, only the script.
+`show-toplevel` resolves per worktree, so committing the script fixes every worktree at once.
+
+- [x] **Step 5: Confirm a normal commit succeeds without `--no-verify`**
+
+Confirmed: `5db57ff` was committed with the hook active.
 
 ---
 
