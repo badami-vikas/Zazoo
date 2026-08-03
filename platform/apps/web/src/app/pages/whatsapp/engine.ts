@@ -50,6 +50,7 @@ import {
   type SessionResetReport,
   type WhatsAppStatus,
 } from "./whatsapp-shell";
+import { decideManualSend } from "./compose";
 import { tauriListen } from "../../avatar/tauri-internals";
 import { trpc } from "../../lib/trpc";
 import { performAutomatedSend, type OutboundOutcome, type SendPort } from "@bridge/whatsapp";
@@ -216,6 +217,24 @@ export interface WhatsAppEngine {
     approvals: readonly RecipientApproval[],
     context: SendPolicyContext,
   ): Promise<OutboundOutcome>;
+
+  /**
+   * A send a HUMAN typed and pressed Send on (ADR-160).
+   *
+   * Policied differently from an Agent's send, and deliberately so: the
+   * automation discipline in `@bridge/whatsapp`'s `evaluateSendPolicy` is
+   * anti-bulk-outreach protection (consent gate, business hours, near-identical
+   * bodies, jitter) and describes nothing a person replying in a conversation
+   * is doing. `decideManualSend` keeps the validation every send needs and
+   * drops the scheduling advice no human send wants.
+   *
+   * It is NOT a second write path. It reaches the wire through the SAME
+   * `sendPort` as `sendAutomatedMessage`, therefore the same shell command,
+   * therefore the same DURABLE Rust ceiling — the cap, the per-recipient
+   * cooldown and the sticky kill switch all still bind, and nothing here can
+   * raise them. Refusals come back as values, never as throws.
+   */
+  sendManualMessage(request: SendRequest): Promise<OutboundOutcome>;
 
   /** What the shell's ceiling currently allows. `undefined` off the desktop. */
   sendCeiling(): Promise<SendCeilingStatus | undefined>;
@@ -389,6 +408,44 @@ class DesktopWhatsAppEngine implements WhatsAppEngine {
     // turn a decided outcome into a thrown error, but it must not be silent
     // either.
     void recordOutcomeInAudit(request, outcome);
+    return outcome;
+  }
+
+  async sendManualMessage(request: SendRequest): Promise<OutboundOutcome> {
+    const decision = decideManualSend(request);
+    if (decision.status === "refused") {
+      const outcome: OutboundOutcome = { status: "refused", reason: decision.reason };
+      void recordOutcomeInAudit(request, outcome);
+      return outcome;
+    }
+
+    // The one transport, shared with the automated path. Everything the shell
+    // decides from here — cap, cooldown, kill switch — is the durable answer,
+    // and it is reported, not swallowed.
+    const result = await this.sendPort(decision.request, decision.grant);
+    const outcome: OutboundOutcome =
+      result.status === "sent"
+        ? {
+            status: "sent",
+            request: decision.request,
+            messageId: result.messageId,
+            // A person is already pacing this by typing it. There is no
+            // scheduler delay to carry.
+            delaySeconds: 0,
+          }
+        : result.earliestAtMs !== undefined
+          ? {
+              status: "deferred",
+              reason: result.reason ?? "The desktop shell's send ceiling refused this message.",
+              code: result.code,
+              earliestAtMs: result.earliestAtMs,
+            }
+          : {
+              status: "refused",
+              reason: result.reason ?? "The desktop shell's send ceiling refused this message.",
+              code: result.code,
+            };
+    void recordOutcomeInAudit(decision.request, outcome);
     return outcome;
   }
 

@@ -5,6 +5,8 @@ import { Input } from "../../components/ui/input";
 import { trpc } from "../../lib/trpc";
 import { rectOf, whatsAppEngine, type ConnectionState } from "./engine";
 import { runMessageSync, type SyncOutcome, type SyncProgressEvent } from "./sync";
+import { ChatAnnotations } from "./ChatAnnotations";
+import { ThreadComposer } from "./ThreadComposer";
 
 /**
  * The Chats surface — rendered BY BRIDGE, from the Local Plane store.
@@ -95,6 +97,8 @@ export function ChatsSurface() {
 
   const linkAnchor = useRef<HTMLDivElement | null>(null);
   const stopped = useRef(false);
+  /** The thread whose view has already been pinned to its newest message. */
+  const pinnedThread = useRef<string | null>(null);
 
   const refreshThreads = useCallback(async () => {
     try {
@@ -202,6 +206,24 @@ export function ChatsSurface() {
     };
   }, [selected]);
 
+  /**
+   * Re-read the open thread. Used after a manual send so the message the user
+   * just wrote appears where WhatsApp would put it — at the bottom — rather
+   * than only after the next full sync.
+   */
+  const reloadThread = useCallback(async () => {
+    if (!selected) return;
+    try {
+      const result = await trpc.whatsapp.thread.query({ chatId: selected });
+      setMessages(result.messages);
+      // A message the user just sent is the newest one, so the view goes back
+      // to the bottom to show it.
+      pinnedThread.current = null;
+    } catch (failure) {
+      setStoreError(failure instanceof Error ? failure.message : String(failure));
+    }
+  }, [selected]);
+
   async function sync() {
     setSyncing(true);
     try {
@@ -290,6 +312,32 @@ export function ChatsSurface() {
     estimateSize: () => 76,
     overscan: 12,
   });
+
+  /**
+   * Open a conversation at its NEWEST message.
+   *
+   * The store already returns a thread oldest-first (`listMessages` orders by
+   * `sent_at`, and the tRPC procedure documents it), which is the order
+   * WhatsApp reads in — so the rendering order is left exactly as it was. What
+   * was actually wrong is where the view STARTED: a virtualised list opens at
+   * scroll position zero, which is the oldest message in the archive. Opening a
+   * chat therefore showed messages from months ago and made the surface look
+   * like it had the ordering backwards.
+   *
+   * Pinned once per thread, so scrolling back through history is never yanked
+   * away by a re-render.
+   */
+  useEffect(() => {
+    if (!selected || messages === null || rows.length === 0) return;
+    if (pinnedThread.current === selected) return;
+    pinnedThread.current = selected;
+    const toNewest = () => virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
+    toNewest();
+    // Row heights are measured lazily, so the first jump lands short of the
+    // real bottom. One more pass after the measurements settle finishes it.
+    const again = window.requestAnimationFrame(toNewest);
+    return () => window.cancelAnimationFrame(again);
+  }, [selected, messages, rows.length, virtualizer]);
 
   if (!available) {
     return (
@@ -397,6 +445,14 @@ export function ChatsSurface() {
               </Button>
             </>
           ) : null}
+          {/*
+            Tags and Internal Notes, next to Sync messages and scoped to the
+            selected chat — no subject to re-pick, because this page already
+            knows which conversation is open. Bridge's own Local-Plane data; it
+            declares no WhatsApp permission and makes no engine call, so it is
+            shown whatever the session is doing.
+          */}
+          <ChatAnnotations thread={selectedThread} />
           <Button size="sm" onClick={() => void sync()} disabled={syncing}>
             {syncing ? "Syncing…" : "Sync messages"}
           </Button>
@@ -681,17 +737,18 @@ export function ChatsSurface() {
               </div>
 
               {/*
-                The composer is present but inert until the governed send path
-                lands. It says so rather than looking usable: an interactive-
-                looking control that does nothing is exactly what the product
-                canon forbids.
+                Write access (ADR-160). The composer is live and reaches the
+                wire through the SAME governed shell command an Agent's send
+                uses, so the durable Rust ceiling still binds. It refuses out
+                loud and never silently.
               */}
-              <div className="flex items-center gap-2 border-t p-2" style={BORDER}>
-                <Input disabled placeholder="Sending from Bridge needs the approved send path" />
-                <Button size="sm" disabled>
-                  Send
-                </Button>
-              </div>
+              <ThreadComposer
+                chatId={selected}
+                isGroup={selectedThread?.isGroup}
+                threadName={selectedThread?.name}
+                linked={status?.authenticated ?? null}
+                onSent={() => void reloadThread()}
+              />
             </>
           )}
         </section>
