@@ -1,6 +1,6 @@
 /**
  * Regression pack for the `integration` → `credential_access` taint sink
- * (ADR-161, TASK-029).
+ * (ADR-161, TASK-031).
  *
  * The sink previously fired only when `action !== "write"`, so a tainted turn
  * READING an integration was recorded against the credential-access sink while

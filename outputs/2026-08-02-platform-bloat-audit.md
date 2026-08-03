@@ -98,7 +98,7 @@ Verdict: structurally healthy (no version drift, 2 TODOs total, no committed art
 4. Supporting guardrails: knip (or ts-prune + depcheck) in CI for unused exports/deps/files;
    size gate on router.ts-style files; periodic `pnpm dedupe`-style audit task.
 
-## EXECUTION RECORD — 2026-08-02 (TASK-029 wave 1)
+## EXECUTION RECORD — 2026-08-02 (TASK-031 wave 1)
 
 WhatsApp safety check FIRST (user directive). Three active branches exist and all
 three are DESCENDANTS of this branch's HEAD `1be17e1`:

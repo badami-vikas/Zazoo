@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-03T07:54:29.471Z",
+  "generatedAt": "2026-08-03T08:09:02.588Z",
   "items": [
     {
       "id": "TASK-026",
@@ -976,8 +976,8 @@
       "rank": 28
     },
     {
-      "id": "TASK-029",
-      "title": "TASK-029 — Platform bloat cleanup and table-renderer standardization",
+      "id": "TASK-031",
+      "title": "TASK-031 — Platform bloat cleanup and table-renderer standardization",
       "status": "in-progress",
       "priority": "P2",
       "horizon": "Convergence",
@@ -1001,7 +1001,7 @@
         "user directive 2026-08-02 (code-bloat end-to-end review",
         "\"Add it as the next task in task list\")"
       ],
-      "approval": "AP-090 applied (task creation + queue position); tables ADR and schema drops require their own rows when executed",
+      "approval": "AP-092 applied (task creation + queue position); tables ADR and schema drops require their own rows when executed",
       "dependencies": [
         "none (must not disturb in-progress TASK-027/TASK-028 surfaces",
         "router/wiring splits rebase-heavy — coordinate with active branches)"

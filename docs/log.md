@@ -1,6 +1,6 @@
 # Change Log
 
-- **2026-08-02 — TASK-029 wave 1: taint-sink security fix, Glide reinstated behind DataViews, dead-code sweep**:
+- **2026-08-02 — TASK-031 wave 1: taint-sink security fix, Glide reinstated behind DataViews, dead-code sweep**:
   An eight-agent bloat audit (`outputs/2026-08-02-platform-bloat-audit.md`) produced three landed changes.
   **(1) Security (ADR-161):** `sinkForRequest` mapped `resourceType: "integration"` to the
   `credential_access` sink only when `action !== "write"` — the lone inversion among sibling rules — so a
