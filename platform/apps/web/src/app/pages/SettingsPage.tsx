@@ -193,6 +193,7 @@ function LearningSection() {
           )}
         </div>
       </Card>
+      <ObservedLearningCard />
       <Card>
         <div className="p-6 space-y-3">
           <div className="font-semibold text-sm text-[var(--color-navy)]">Day-7 reflection</div>
@@ -256,6 +257,141 @@ function LearningSection() {
         </div>
       </Card>
     </div>
+  );
+}
+
+type LearningSuggestionList = Awaited<ReturnType<typeof trpc.learning.suggestions.list.query>>;
+type LearningPreferenceList = Awaited<ReturnType<typeof trpc.learning.preferences.list.query>>;
+
+/**
+ * TASK-029 — observed-learning review: the "your Egg noticed a pattern — keep
+ * it?" moment. Suggested-then-accepted stays Human-gated here: Accept is the
+ * ONLY path that turns a proposal into a learned preference. The whole card
+ * hides itself while the learning observation flight is off
+ * (`learning.status` → enabled:false) — no dead controls, per UI honesty
+ * canon. Every stored row remains inspectable/deletable.
+ */
+function ObservedLearningCard() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [suggestions, setSuggestions] = useState<LearningSuggestionList | null>(null);
+  const [preferences, setPreferences] = useState<LearningPreferenceList | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  function refresh() {
+    trpc.learning.status
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then((status) => {
+        setEnabled(status.enabled);
+        if (!status.enabled) return;
+        trpc.learning.suggestions.list
+          .query({ organizationId: PILOT_ORGANIZATION, status: "proposed" })
+          .then(setSuggestions)
+          .catch((error) => setMessage(String(error)));
+        trpc.learning.preferences.list
+          .query({ organizationId: PILOT_ORGANIZATION })
+          .then(setPreferences)
+          .catch((error) => setMessage(String(error)));
+      })
+      .catch(() => setEnabled(false)); // unreachable API = treat as off, render nothing dead
+  }
+  useEffect(refresh, []);
+
+  // Flight off (or still resolving): render nothing — never dead controls.
+  if (enabled !== true) return null;
+
+  async function digest() {
+    const result = await trpc.learning.digest.mutate({ organizationId: PILOT_ORGANIZATION });
+    setMessage(
+      result.suggestions.length === 0
+        ? "No new repeated patterns found in your recent decisions."
+        : `Found ${result.suggestions.length} new pattern${result.suggestions.length === 1 ? "" : "s"} to review.`,
+    );
+    refresh();
+  }
+
+  async function accept(suggestionMemoryId: string) {
+    await trpc.learning.suggestions.accept.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId });
+    setMessage("Saved as a learned preference. It now informs agent context; you can delete it below at any time.");
+    refresh();
+  }
+
+  async function reject(suggestionMemoryId: string) {
+    await trpc.learning.suggestions.reject.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId });
+    setMessage("Dismissed. This pattern will not be suggested again.");
+    refresh();
+  }
+
+  async function forgetPreference(memoryId: string) {
+    if (!window.confirm("Delete this learned preference from Bridge?")) return;
+    await trpc.onboarding.forgetMemory.mutate({ organizationId: PILOT_ORGANIZATION, memoryId });
+    setMessage("Learned preference deleted.");
+    refresh();
+  }
+
+  return (
+    <Card>
+      <div className="p-6 space-y-3">
+        <div className="font-semibold text-sm text-[var(--color-navy)]">Observed patterns</div>
+        <p className="text-xs text-[var(--color-navy-mid)]">
+          Bridge notices when your explicit decisions repeat (for example, dismissing deals in the same industry) and
+          asks before remembering anything. Nothing is learned without your acceptance; everything learned is private,
+          Local Plane, and deletable.
+        </p>
+        <button type="button" onClick={() => void digest()} className="text-xs font-semibold px-3 py-2 rounded-lg border">
+          Check for new patterns
+        </button>
+        {suggestions && suggestions.suggestions.length === 0 && (
+          <p className="text-xs text-[var(--color-warm-gray)]">No patterns are waiting for review.</p>
+        )}
+        {suggestions?.suggestions.map((suggestion) => (
+          <div key={suggestion.memoryId} className="rounded-lg border p-3 space-y-1">
+            <p className="text-sm">{suggestion.suggestedText}</p>
+            <p className="text-xs text-[var(--color-warm-gray)]">
+              Evidence: {suggestion.pattern.evidenceSignalIds.length} of your own {suggestion.pattern.action} decisions ·
+              private · Local Plane
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void accept(suggestion.memoryId)}
+                className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white"
+              >
+                Remember this
+              </button>
+              <button
+                type="button"
+                onClick={() => void reject(suggestion.memoryId)}
+                className="text-xs font-semibold px-3 py-2 rounded-lg border"
+              >
+                No, dismiss
+              </button>
+            </div>
+          </div>
+        ))}
+        {preferences && preferences.preferences.length > 0 && (
+          <div className="space-y-2 pt-2">
+            <div className="font-semibold text-xs text-[var(--color-navy)]">Accepted from observed patterns</div>
+            {preferences.preferences.map((preference) => (
+              <div key={preference.memoryId} className="rounded-lg border p-3 space-y-1">
+                <p className="text-sm">{preference.statement}</p>
+                <p className="text-xs text-[var(--color-warm-gray)]">
+                  Source: your accepted suggestion · {preference.provenance.evidenceSignalIds.length} evidence decisions ·
+                  private · Local Plane
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void forgetPreference(preference.memoryId)}
+                  className="text-xs font-semibold px-3 py-2 rounded-lg border text-red-600"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
+      </div>
+    </Card>
   );
 }
 

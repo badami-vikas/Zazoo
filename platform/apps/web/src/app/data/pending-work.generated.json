@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T08:58:10.677Z",
+  "generatedAt": "2026-08-03T13:02:50.784Z",
   "items": [
     {
       "id": "TASK-026",
@@ -974,6 +974,37 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 429,
       "rank": 28
+    },
+    {
+      "id": "TASK-029",
+      "title": "TASK-029 — Deal Copilot learning observation loop (generic Egg baseline v1)",
+      "status": "in-progress",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "The generic learn-from-zero observation loop exists in the kernel — explicit user decisions become private Local-Plane signal Memories, repeated patterns become suggested preferences (batched, annoyance-capped), only an explicit Human acceptance mints a learned preference with full provenance, and accepted preferences demonstrably change agent output through the run-context memory slot — with DealPilot bound as the first consumer via a pure attribute mapping (no core dependency added).",
+      "prototypeTest": "Record ≥3 same-pattern Deal dismissals; one digest run proposes exactly one suggestion and writes NO preference; accepting mints one preference whose statement reaches `projectToSystemPrompt` output; rejecting writes nothing and the pattern is never re-proposed even after more matching signals; a second user can neither read nor act on any of it; the owner can inspect and forget every stored row.",
+      "scope": [
+        "outputs/2026-08-01-deal-copilot-agentic-freelancer-requirements.md (§2 learning loop, §3 light-egg/genericity)",
+        "docs/raw/learning-agent-roadmap-2026-07.md LA2 (observation loops) and LA1 exit criterion",
+        "docs/raw/brd-dealpilot-2026-07.md §8.4 (triage decisions as primary learning signal)."
+      ],
+      "evidence": [
+        "`packages/core/src/learning/observation.ts` (recordSignal / digestSignals / listSuggestions / acceptSuggestion / rejectSuggestion / retrieveLearnedPreferences / preferencesToMemorySnippets) over the existing MemoryStore — no new table, no migration",
+        "suggestion state rides `casSupersede` lineages so a rejected pattern is suppressed at the store level. DealPilot binding `modules/dealpilot/src/learning.ts` (`dealDecisionSignal`, `sdeBand`) is a pure structural mapping. Verified 2026-08-03: core 493/493 (observation.js 97.9% line coverage incl. suggested-then-accepted, annoyance cap, rejection suppression, authority scoping, inspect/forget), dealpilot 96/96, api typecheck clean."
+      ],
+      "requests": [
+        "user directive 2026-08-03 (this session): patch Deal Copilot freelancer requirements with roadmap-v2 gaps and start implementing the learning baseline end to end."
+      ],
+      "approval": "none required yet (additive kernel capability, no schema/canon change); API/tRPC + Avatar suggestion-review UI wiring is the follow-up and stays suggested-then-accepted.",
+      "dependencies": [
+        "none (builds on landed MemoryStore/TASK-002 substrate)",
+        "unblocks retrieval (LA5) and promotion machinery follow-ups."
+      ],
+      "canonicalStatus": "in_progress",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 443,
+      "rank": 29
     }
   ]
 }

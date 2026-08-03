@@ -12,7 +12,8 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from "@trpc/server/a
 import { appRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
 import { isVerifierConfigured } from "./identity.js";
-import { buildWiring, PILOT_ORGANIZATION } from "./wiring.js";
+import { buildWiring, LEARNING_DIGEST_AUTOMATION_ID, PILOT_ORGANIZATION } from "./wiring.js";
+import { SeededRng, SystemClock, UuidGen, hashTaintValue, labelAtSource, type RunCtx } from "@bridge/core";
 import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
 import { reconcileOrganizationRelationshipMaterializations } from "./relationship-materializer.js";
 import { SIDECAR_TOKEN_HEADER, validSidecarToken } from "./sidecar-auth.js";
@@ -559,9 +560,64 @@ export async function buildServer() {
     );
     relationReconciliationTimer.unref();
   }
+  // TASK-029 — scheduled learning observation digest. Runs the governed
+  // Automation (Learning Agent, advisory, propose-only) every 15 minutes and
+  // once shortly after boot. Exists ONLY while the flight is on and never on
+  // the public cloud boundary (the digest reads/writes private Local-Plane
+  // Memories). Reentrancy-guarded and unref'd like the reconciliation timer;
+  // a failed run logs and waits for the next tick — no retry storm.
+  let learningDigestRunning = false;
+  const runLearningDigest = async () => {
+    if (learningDigestRunning) return;
+    learningDigestRunning = true;
+    try {
+      const clock = new SystemClock();
+      const runCtx: RunCtx = {
+        clock,
+        rng: new SeededRng(clock.nowMs() >>> 0), // boundary seed (context.ts pattern)
+        ids: new UuidGen(clock, new SeededRng(clock.nowMs() >>> 0)),
+        // Scheduled kernel trigger — no human in the loop, no external
+        // content: system_generated/verified_system. The taint sink gate
+        // fails closed on an UNKNOWN label, so the label must be explicit.
+        taintLabel: labelAtSource("system_generated", {
+          ref: `schedule:${LEARNING_DIGEST_AUTOMATION_ID}`,
+          valueHash: hashTaintValue({ automationId: LEARNING_DIGEST_AUTOMATION_ID }),
+          sensitivity: "organization",
+          instructionRisk: "data",
+        }),
+      };
+      const result = await wiring.automationExecutor.runById(
+        { organizationId: PILOT_ORGANIZATION, automationId: LEARNING_DIGEST_AUTOMATION_ID },
+        runCtx,
+      );
+      if (result.status !== "completed") {
+        app.log.warn({ runId: result.runId, status: result.status }, "learning observation digest halted");
+      }
+    } catch (err) {
+      app.log.error({ err }, "learning observation digest failed");
+    } finally {
+      learningDigestRunning = false;
+    }
+  };
+  let learningDigestTimer: NodeJS.Timeout | undefined;
+  let learningDigestBootTimer: NodeJS.Timeout | undefined;
+  if (wiring.learningObservationEnabled && !wiring.publicCloudOnly) {
+    // First run shortly after boot (not inline: boot latency stays flat).
+    learningDigestBootTimer = setTimeout(() => void runLearningDigest(), 30_000);
+    learningDigestBootTimer.unref();
+    learningDigestTimer = setInterval(() => void runLearningDigest(), 15 * 60_000);
+    learningDigestTimer.unref();
+  }
+
   app.addHook("onClose", async () => {
     if (relationReconciliationTimer) {
       clearInterval(relationReconciliationTimer);
+    }
+    if (learningDigestBootTimer) {
+      clearTimeout(learningDigestBootTimer);
+    }
+    if (learningDigestTimer) {
+      clearInterval(learningDigestTimer);
     }
   });
 
