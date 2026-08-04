@@ -2681,3 +2681,8 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Red-then-green: the new rule immediately failed the existing `PUBLIC_CLOUD_PRODUCTION_ENV` fixture, which carried no model key — evidence the assertion is live, and the fixture now carries one because a remote key IS part of a complete public-cloud contract.
 - **Deploy note:** a Render deploy whose model-provider secrets are not actually populated will now REFUSE to boot rather than come up non-functional. Intended direction, but verify the dashboard before the next manual deploy (`autoDeploy: false`, so merging ships nothing).
 - Verified: 72/72 turbo typecheck+test tasks green, db 232/232 sharded, api green (7 `assertProductionEnv` tests).
+
+# 2026-07-25 — Freelancer high-level implementation requirements handoff
+- Added `docs/raw/freelancer-implementation-requirements-2026-07.md` with high-level third-party implementation requirements covering objective, non-negotiable architecture/governance constraints, security/reliability bar, scope boundaries, and definition of done.
+- Added wiki summary `docs/wiki/freelancer-handoff.md` and linked it from `docs/wiki/index.md` for quick navigation.
+- Recorded session outcome in `outputs/2026-07-25-freelancer-implementation-requirements.md`.
