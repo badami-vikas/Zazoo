@@ -595,13 +595,13 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)
 
 ## Path-scoped Copilot instructions for developed Modules
-- ID: TASK-024
+- ID: TASK-039
 - Status: done
 - Priority: P2
 - Horizon: Convergence
 - Outcome: Future Copilot sessions editing a developed Module automatically receive its established architecture, trust boundaries, reuse rules, and canonical design pointers instead of inventing a parallel pattern.
 - Prototype test: Inspect every `.github/instructions/*.instructions.md` file; each has valid `applyTo` frontmatter covering its Module's implementation paths, points to `CLAUDE.md` as canonical, captures the Module's load-bearing invariants, and explicitly prevents known design regressions without duplicating full plans.
-- Scope: `.github/instructions/module-development.instructions.md`; developed Module adapters for DealPilot, JobPilot, Relationship, Task Manager, and nested Helpdesk
+- Scope: `.github/instructions/module-development.instructions.md`; developed Module adapters for DealPilot, JobPilot, Relationship, Task Manager, and nested Helpdesk RENUMBERED from TASK-024 on 2026-08-04 at merge time — main had already published TASK-024 for a different task.
 - Evidence: user problem statement 2026-07-18 — future Copilot sessions currently risk creating whole new designs or patterns; follow-up directive required each adapter to be elaborated from the corresponding current code rather than high-level design alone
 - Requests: module instruction-file directive 2026-07-18; current-code pattern elaboration directive 2026-07-18
 - Approval: AP-040 and AP-041 applied
@@ -610,13 +610,13 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 - Dependencies: TASK-023 (done); TASK-007 (done); TASK-026 (done); TASK-027 (done 2026-07-31 — pointing accuracy resolved to ~12px; its residual checks are TASK-030 PT-3)
 ## LA3 Phase 2 — credentialed SearchProvider tier for the research lane
-- ID: TASK-029
+- ID: TASK-040
 - Status: in_progress
 - Priority: P2
 - Horizon: Convergence
 - Outcome: The Learning Agent's research lane survives loss of the single anonymous Tier-1 provider, because the `SearchProvider` router admits rights-verified Tier-2 `free_credentialed` providers under an explicit deployment-selected admission policy that can never widen to `paid` or `self_hosted` access, and the first such adapter (credentialed Parallel Search REST API) carries the same bounded provenance, taint, quarantine, and rights contract as Phase 1.
 - Prototype test: With no `PARALLEL_API_KEY` configured, the deployment registers only the anonymous Tier-1 provider and refuses a Tier-2 provider at construction. With a key configured, the router admits both, tries the anonymous provider first, fails over to the credentialed provider when the anonymous tier returns `rate_limited`, records `providerTier: 2` / `providerAccess: free_credentialed` with a real `providerRequestId` in provenance, labels every citation `untrusted_external` with `trust: untrusted` / `source: web`, and the API key appears nowhere in the Result, provenance, warnings, taint label, or any Event.
-- Scope: docs/raw/learning-agent-roadmap-2026-07.md §7 (`rollout.phase_2`); platform/packages/core/src/search-provider.ts (admission policy); platform/packages/models/src/{parallel-search-shared,parallel-search-api-provider,search-provider-router}.ts; platform/apps/api/src/wiring.ts
+- Scope: docs/raw/learning-agent-roadmap-2026-07.md §7 (`rollout.phase_2`); platform/packages/core/src/search-provider.ts (admission policy); platform/packages/models/src/{parallel-search-shared,parallel-search-api-provider,search-provider-router}.ts; platform/apps/api/src/wiring.ts RENUMBERED from TASK-029 on 2026-08-04 at merge time — main had already published TASK-029 for a different task.
 - Evidence: `SearchProviderAdmissionPolicy` + `FREE_DIRECT_SEARCH_ADMISSION` (default, unchanged posture) + `FREE_CREDENTIALED_SEARCH_ADMISSION` in core; `RightsVerifiedSearchProviderRouter` (renamed from `FreeDirectSearchProviderRouter` — the old name asserted a policy that is now configurable) rejects any policy admitting `paid`/`self_hosted` at construction; shared parsing extracted to `parallel-search-shared.ts` so the two Parallel adapters cannot drift on citation validation, URL safety, taint labelling, or truncation bounds. Verified: platform typecheck 40/40; `@bridge/models` tests 42/42 (6 new — default admission refuses Tier-2, credentialed admission accepts Tier-2 but not paid, key sent as header and absent from output, empty key + unknown taint both blocked before network, HTTP 429 maps to retryable `rate_limited`, anonymous→credentialed failover attributed in `attempts`). Live end-to-end against the real `api.parallel.ai/v1beta/search`: 3 citations, `providerTier: 2`, `providerAccess: free_credentialed`, `providerRequestId: search_fa7e850327cf0de5405f9fde9d5c9bb3`, `trustOrigin: untrusted_external`, citation taint `trust: untrusted` / `source: web` / `instructionRisk: data`, and no credential in the serialized result.
 - Open: **rights re-verification is a human gate, not agent-verifiable.** I confirmed the API's technical behaviour and that the terms/privacy/docs URLs return 200, but a human must confirm the Parallel customer terms permit credentialed automated use at Bridge's intended volume before this is enabled in production. The remaining Phase-2 breadth (2–4 *additional* Tier-2 vendors from the 33 surveyed — Exa, Tavily, Brave, Linkup et al.) is NOT built; each needs its own rights verification. Durable credential storage is also still open: `CredentialBroker` is `InMemoryCredentialBroker` (`wiring.ts`), so the key comes from env rather than a durable governed store.
 - Requests: user directive 2026-07-29 (supply Parallel key; "do we have it roadmap to add those capabilities and integrations to learning / research agent? … If its not included, include and build")
@@ -624,13 +624,13 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends)
 
 ## Pending Tests — live verification backlog
-- ID: TASK-030
+- ID: TASK-041
 - Status: ready
 - Priority: P2
 - Horizon: Convergence
 - Outcome: Every verification that is blocked ONLY on a live machine, a real device, a paid credential, or a manual deploy is collected in one place with a named runner and an exact pass condition, so a finished build is never left labelled "in progress" merely because its proof has not been executed yet.
 - Prototype test: Each item below is either executed with recorded evidence, or carries an explicit reason it cannot be run and who must run it. No item is closed by assertion.
-- Scope: consolidates the live-verification tails of TASK-022, TASK-027, TASK-028, TASK-006, and TASK-018. It does NOT absorb unbuilt scope, build work, or approval gates — those stay on their own tasks.
+- Scope: consolidates the live-verification tails of TASK-022, TASK-027, TASK-028, TASK-006, and TASK-018. It does NOT absorb unbuilt scope, build work, or approval gates — those stay on their own tasks. RENUMBERED from TASK-030 on 2026-08-04 at merge time — main had already published TASK-030 for a different task.
 - Why this task exists: TASK-022 and TASK-027 were both carrying a `blocked`/`in_progress` label while their code was complete and reviewed. The label described the state of the *proof*, not the state of the *work*, which made the queue read as though implementation were outstanding when it was not.
 
 ### PT-1 — Anthropic prompt-cache hit (from TASK-022)

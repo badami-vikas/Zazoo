@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T07:53:04.939Z",
+  "generatedAt": "2026-08-04T07:54:45.309Z",
   "items": [
     {
       "id": "TASK-026",
@@ -909,40 +909,6 @@
       "rank": 26
     },
     {
-      "id": "TASK-024",
-      "title": "TASK-024 — Path-scoped Copilot instructions for developed Modules",
-      "status": "completed",
-      "priority": "P2",
-      "horizon": "Convergence",
-      "outcome": "Future Copilot sessions editing a developed Module automatically receive its established architecture, trust boundaries, reuse rules, and canonical design pointers instead of inventing a parallel pattern.",
-      "prototypeTest": "Inspect every `.github/instructions/*.instructions.md` file; each has valid `applyTo` frontmatter covering its Module's implementation paths, points to `CLAUDE.md` as canonical, captures the Module's load-bearing invariants, and explicitly prevents known design regressions without duplicating full plans.",
-      "scope": [
-        "`.github/instructions/module-development.instructions.md`",
-        "developed Module adapters for DealPilot, JobPilot, Relationship, Task Manager, and nested Helpdesk"
-      ],
-      "evidence": [
-        "user problem statement 2026-07-18 — future Copilot sessions currently risk creating whole new designs or patterns",
-        "follow-up directive required each adapter to be elaborated from the corresponding current code rather than high-level design alone"
-      ],
-      "requests": [
-        "module instruction-file directive 2026-07-18",
-        "current-code pattern elaboration directive 2026-07-18"
-      ],
-      "approval": "AP-040 and AP-041 applied",
-      "dependencies": [
-        "TASK-023 (done)",
-        "TASK-007 (done)",
-        "TASK-026 (done)",
-        "TASK-027 (done 2026-07-31 — pointing accuracy resolved to ~12px",
-        "its residual checks are TASK-030 PT-3)"
-      ],
-      "canonicalStatus": "done",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 405,
-      "rank": 27
-    },
-    {
       "id": "TASK-027",
       "title": "TASK-027 — Screen-aware companion ask prototype (clicky parity)",
       "status": "completed",
@@ -967,7 +933,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 431,
-      "rank": 28
+      "rank": 27
     },
     {
       "id": "TASK-028",
@@ -1008,7 +974,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 446,
-      "rank": 29
+      "rank": 28
     },
     {
       "id": "TASK-029",
@@ -1040,41 +1006,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 418,
-      "rank": 30
-    },
-    {
-      "id": "TASK-029",
-      "title": "TASK-029 — LA3 Phase 2 — credentialed SearchProvider tier for the research lane",
-      "status": "in-progress",
-      "priority": "P2",
-      "horizon": "Convergence",
-      "outcome": "The Learning Agent's research lane survives loss of the single anonymous Tier-1 provider, because the `SearchProvider` router admits rights-verified Tier-2 `free_credentialed` providers under an explicit deployment-selected admission policy that can never widen to `paid` or `self_hosted` access, and the first such adapter (credentialed Parallel Search REST API) carries the same bounded provenance, taint, quarantine, and rights contract as Phase 1.",
-      "prototypeTest": "With no `PARALLEL_API_KEY` configured, the deployment registers only the anonymous Tier-1 provider and refuses a Tier-2 provider at construction. With a key configured, the router admits both, tries the anonymous provider first, fails over to the credentialed provider when the anonymous tier returns `rate_limited`, records `providerTier: 2` / `providerAccess: free_credentialed` with a real `providerRequestId` in provenance, labels every citation `untrusted_external` with `trust: untrusted` / `source: web`, and the API key appears nowhere in the Result, provenance, warnings, taint label, or any Event.",
-      "scope": [
-        "docs/raw/learning-agent-roadmap-2026-07.md §7 (`rollout.phase_2`)",
-        "platform/packages/core/src/search-provider.ts (admission policy)",
-        "platform/packages/models/src/{parallel-search-shared,parallel-search-api-provider,search-provider-router}.ts",
-        "platform/apps/api/src/wiring.ts"
-      ],
-      "evidence": [
-        "`SearchProviderAdmissionPolicy` + `FREE_DIRECT_SEARCH_ADMISSION` (default, unchanged posture) + `FREE_CREDENTIALED_SEARCH_ADMISSION` in core",
-        "`RightsVerifiedSearchProviderRouter` (renamed from `FreeDirectSearchProviderRouter` — the old name asserted a policy that is now configurable) rejects any policy admitting `paid`/`self_hosted` at construction",
-        "shared parsing extracted to `parallel-search-shared.ts` so the two Parallel adapters cannot drift on citation validation, URL safety, taint labelling, or truncation bounds. Verified: platform typecheck 40/40",
-        "`@bridge/models` tests 42/42 (6 new — default admission refuses Tier-2, credentialed admission accepts Tier-2 but not paid, key sent as header and absent from output, empty key + unknown taint both blocked before network, HTTP 429 maps to retryable `rate_limited`, anonymous→credentialed failover attributed in `attempts`). Live end-to-end against the real `api.parallel.ai/v1beta/search`: 3 citations, `providerTier: 2`, `providerAccess: free_credentialed`, `providerRequestId: search_fa7e850327cf0de5405f9fde9d5c9bb3`, `trustOrigin: untrusted_external`, citation taint `trust: untrusted` / `source: web` / `instructionRisk: data`, and no credential in the serialized result."
-      ],
-      "requests": [
-        "user directive 2026-07-29 (supply Parallel key",
-        "\"do we have it roadmap to add those capabilities and integrations to learning / research agent? … If its not included, include and build\")"
-      ],
-      "approval": "AP-091 PROPOSED",
-      "dependencies": [
-        "TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends)"
-      ],
-      "canonicalStatus": "in_progress",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 418,
-      "rank": 31
+      "rank": 29
     },
     {
       "id": "TASK-030",
@@ -1120,34 +1052,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 460,
-      "rank": 32
-    },
-    {
-      "id": "TASK-030",
-      "title": "TASK-030 — Pending Tests — live verification backlog",
-      "status": "pending",
-      "priority": "P2",
-      "horizon": "Convergence",
-      "outcome": "Every verification that is blocked ONLY on a live machine, a real device, a paid credential, or a manual deploy is collected in one place with a named runner and an exact pass condition, so a finished build is never left labelled \"in progress\" merely because its proof has not been executed yet.",
-      "prototypeTest": "Each item below is either executed with recorded evidence, or carries an explicit reason it cannot be run and who must run it. No item is closed by assertion.",
-      "scope": [
-        "consolidates the live-verification tails of TASK-022, TASK-027, TASK-028, TASK-006, and TASK-018. It does NOT absorb unbuilt scope, build work, or approval gates — those stay on their own tasks."
-      ],
-      "evidence": [
-        "created 2026-07-31 under AP-092 on explicit user direction (\"Create a new task called Pending Tests and include all pending tests there while marking the tasks complete elsewhere if test is the only blocker\")."
-      ],
-      "requests": [
-        "user directive 2026-07-31"
-      ],
-      "approval": "AP-092 applied",
-      "dependencies": [
-        "none — every item is independently runnable by whoever holds the machine, device, credential, or deploy rights it names"
-      ],
-      "canonicalStatus": "ready",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 460,
-      "rank": 33
+      "rank": 30
     },
     {
       "id": "TASK-031",
@@ -1184,7 +1089,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 473,
-      "rank": 34
+      "rank": 31
     },
     {
       "id": "TASK-032",
@@ -1215,7 +1120,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 489,
-      "rank": 35
+      "rank": 32
     },
     {
       "id": "TASK-033",
@@ -1241,7 +1146,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 508,
-      "rank": 36
+      "rank": 33
     },
     {
       "id": "TASK-034",
@@ -1271,7 +1176,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 534,
-      "rank": 37
+      "rank": 34
     },
     {
       "id": "TASK-035",
@@ -1301,7 +1206,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 547,
-      "rank": 38
+      "rank": 35
     },
     {
       "id": "TASK-036",
@@ -1328,7 +1233,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 560,
-      "rank": 39
+      "rank": 36
     },
     {
       "id": "TASK-037",
@@ -1355,7 +1260,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 577,
-      "rank": 40
+      "rank": 37
     },
     {
       "id": "TASK-038",
@@ -1380,6 +1285,101 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 521,
+      "rank": 38
+    },
+    {
+      "id": "TASK-039",
+      "title": "TASK-039 — Path-scoped Copilot instructions for developed Modules",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "Future Copilot sessions editing a developed Module automatically receive its established architecture, trust boundaries, reuse rules, and canonical design pointers instead of inventing a parallel pattern.",
+      "prototypeTest": "Inspect every `.github/instructions/*.instructions.md` file; each has valid `applyTo` frontmatter covering its Module's implementation paths, points to `CLAUDE.md` as canonical, captures the Module's load-bearing invariants, and explicitly prevents known design regressions without duplicating full plans.",
+      "scope": [
+        "`.github/instructions/module-development.instructions.md`",
+        "developed Module adapters for DealPilot, JobPilot, Relationship, Task Manager, and nested Helpdesk RENUMBERED from TASK-024 on 2026-08-04 at merge time — main had already published TASK-024 for a different task."
+      ],
+      "evidence": [
+        "user problem statement 2026-07-18 — future Copilot sessions currently risk creating whole new designs or patterns",
+        "follow-up directive required each adapter to be elaborated from the corresponding current code rather than high-level design alone"
+      ],
+      "requests": [
+        "module instruction-file directive 2026-07-18",
+        "current-code pattern elaboration directive 2026-07-18"
+      ],
+      "approval": "AP-040 and AP-041 applied",
+      "dependencies": [
+        "TASK-023 (done)",
+        "TASK-007 (done)",
+        "TASK-026 (done)",
+        "TASK-027 (done 2026-07-31 — pointing accuracy resolved to ~12px",
+        "its residual checks are TASK-030 PT-3)"
+      ],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 598,
+      "rank": 39
+    },
+    {
+      "id": "TASK-040",
+      "title": "TASK-040 — LA3 Phase 2 — credentialed SearchProvider tier for the research lane",
+      "status": "in-progress",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "The Learning Agent's research lane survives loss of the single anonymous Tier-1 provider, because the `SearchProvider` router admits rights-verified Tier-2 `free_credentialed` providers under an explicit deployment-selected admission policy that can never widen to `paid` or `self_hosted` access, and the first such adapter (credentialed Parallel Search REST API) carries the same bounded provenance, taint, quarantine, and rights contract as Phase 1.",
+      "prototypeTest": "With no `PARALLEL_API_KEY` configured, the deployment registers only the anonymous Tier-1 provider and refuses a Tier-2 provider at construction. With a key configured, the router admits both, tries the anonymous provider first, fails over to the credentialed provider when the anonymous tier returns `rate_limited`, records `providerTier: 2` / `providerAccess: free_credentialed` with a real `providerRequestId` in provenance, labels every citation `untrusted_external` with `trust: untrusted` / `source: web`, and the API key appears nowhere in the Result, provenance, warnings, taint label, or any Event.",
+      "scope": [
+        "docs/raw/learning-agent-roadmap-2026-07.md §7 (`rollout.phase_2`)",
+        "platform/packages/core/src/search-provider.ts (admission policy)",
+        "platform/packages/models/src/{parallel-search-shared,parallel-search-api-provider,search-provider-router}.ts",
+        "platform/apps/api/src/wiring.ts RENUMBERED from TASK-029 on 2026-08-04 at merge time — main had already published TASK-029 for a different task."
+      ],
+      "evidence": [
+        "`SearchProviderAdmissionPolicy` + `FREE_DIRECT_SEARCH_ADMISSION` (default, unchanged posture) + `FREE_CREDENTIALED_SEARCH_ADMISSION` in core",
+        "`RightsVerifiedSearchProviderRouter` (renamed from `FreeDirectSearchProviderRouter` — the old name asserted a policy that is now configurable) rejects any policy admitting `paid`/`self_hosted` at construction",
+        "shared parsing extracted to `parallel-search-shared.ts` so the two Parallel adapters cannot drift on citation validation, URL safety, taint labelling, or truncation bounds. Verified: platform typecheck 40/40",
+        "`@bridge/models` tests 42/42 (6 new — default admission refuses Tier-2, credentialed admission accepts Tier-2 but not paid, key sent as header and absent from output, empty key + unknown taint both blocked before network, HTTP 429 maps to retryable `rate_limited`, anonymous→credentialed failover attributed in `attempts`). Live end-to-end against the real `api.parallel.ai/v1beta/search`: 3 citations, `providerTier: 2`, `providerAccess: free_credentialed`, `providerRequestId: search_fa7e850327cf0de5405f9fde9d5c9bb3`, `trustOrigin: untrusted_external`, citation taint `trust: untrusted` / `source: web` / `instructionRisk: data`, and no credential in the serialized result."
+      ],
+      "requests": [
+        "user directive 2026-07-29 (supply Parallel key",
+        "\"do we have it roadmap to add those capabilities and integrations to learning / research agent? … If its not included, include and build\")"
+      ],
+      "approval": "AP-091 PROPOSED",
+      "dependencies": [
+        "TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends)"
+      ],
+      "canonicalStatus": "in_progress",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 613,
+      "rank": 40
+    },
+    {
+      "id": "TASK-041",
+      "title": "TASK-041 — Pending Tests — live verification backlog",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "Every verification that is blocked ONLY on a live machine, a real device, a paid credential, or a manual deploy is collected in one place with a named runner and an exact pass condition, so a finished build is never left labelled \"in progress\" merely because its proof has not been executed yet.",
+      "prototypeTest": "Each item below is either executed with recorded evidence, or carries an explicit reason it cannot be run and who must run it. No item is closed by assertion.",
+      "scope": [
+        "consolidates the live-verification tails of TASK-022, TASK-027, TASK-028, TASK-006, and TASK-018. It does NOT absorb unbuilt scope, build work, or approval gates — those stay on their own tasks. RENUMBERED from TASK-030 on 2026-08-04 at merge time — main had already published TASK-030 for a different task."
+      ],
+      "evidence": [
+        "created 2026-07-31 under AP-092 on explicit user direction (\"Create a new task called Pending Tests and include all pending tests there while marking the tasks complete elsewhere if test is the only blocker\")."
+      ],
+      "requests": [
+        "user directive 2026-07-31"
+      ],
+      "approval": "AP-092 applied",
+      "dependencies": [
+        "none — every item is independently runnable by whoever holds the machine, device, credential, or deploy rights it names"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 627,
       "rank": 41
     }
   ]
