@@ -3811,3 +3811,65 @@ settled by the first run after this lands, and the probe is recorded in BUGS.
 - **Context**: `sinkForRequest` in `packages/core/src/pipeline.ts` mapped `resourceType: "integration"` to the `credential_access` sink only when `req.action !== "write"`. Every sibling rule gates the mutating half (`file` + `action !== "read"` → `file_write`; `module`/`policy`/`policy_param`/`role`/`permission` + `action !== "read"` → `schema_mutation`), so the integration rule was the lone inversion: a tainted turn READING an integration was gated, while a tainted turn WRITING one — reconnecting an account, rewriting connection config, rotating a credential — resolved to `null` and reached the resource with **no sink policy evaluation and no sink trace at all**. Introduced in `da26f46` (2026-07-21, "complete runtime taint tracking"). The rule had **zero test coverage**: no test in `packages/core/test` referenced the integration sink, which is why the inversion survived TASK-013's nine-defect changed-scope review.
 - **Decision**: Widen the rule to fire on every `integration` action. The audit's first reading — that the condition was a typo for `!== "read"` — was **rejected**: `credential_access` is semantically correct for reads (reading an integration IS accessing its stored credentials), so swapping the operator would have closed the write gap by opening a read gap, trading one uncovered half for the other. Gating both halves is the only fail-safe reading and strictly widens coverage; no previously-gated path loses its gate.
 - **Consequences**: Tainted integration writes now evaluate the sink policy and append a sink trace. New regression pack `packages/core/test/integration-sink.test.ts` pins both halves and was verified red-then-green (2 of 3 tests fail against the pre-fix condition, all 3 pass after). The tests must wire an `InMemoryTaintAuditStore`, because the sink trace is only written when `deps.taintAudit` is present — the rule is otherwise unobservable, which is the deeper reason it went untested. Broader lesson recorded in `outputs/2026-08-02-platform-bloat-audit.md`: sink-mapping rules need a table-driven conformance test over every `resourceType`, so an unmapped combination fails loudly rather than silently resolving to `null`.
+
+## ADR-163 — Coverage is a gate, not an inner-loop cost; and shared-process test shards are opt-in per suite on proof, never by default (2026-08-04; TASK-036)
+
+- **Context**: The 2026-08-03 audit cut the suite's *content* (10 cannot-fail files deleted, migration
+  snapshot added) but left its *execution model* untouched: every package baked
+  `--experimental-test-coverage` into `test`, so the coverage instrumentation — a documented ~2x
+  per-test cost, still-open `nodejs/node#55103` — was paid on every local iteration purely to
+  re-derive floors that only matter at the CI gate. Separately, `node --test` isolates each test FILE
+  in its own process, which silently defeated the new `BRIDGE_DB_TEST_SNAPSHOT` cache: the migration
+  snapshot was rebuilt once per file (52 times) instead of once. The user asked for a researched
+  answer on what else could be done, explicitly including ML-driven predictive test selection.
+- **Decision**: Three changes, each measured on this machine (8 cores) rather than argued.
+  (a) **Split coverage out of `test`.** Every package now defines a coverage-free `test` and a
+  `test:coverage` carrying the exact former command, floors included; CI runs
+  `turbo run typecheck test:coverage build --force`, so the gate is bit-identical while local runs get
+  the fast path. Packages with no floor alias `test:coverage` to `test` so the CI sweep still covers
+  them exactly once. Measured on `packages/core`: 3.18s → 1.68s.
+  (b) **Sharded shared-process runs, per suite, on proof.** New `scripts/test-shards.mjs` splits files
+  into N groups and runs one `--test-isolation=none` process per group, so a warm per-process cache is
+  built N times instead of once-per-file while N groups still run in parallel. `packages/db`, coverage
+  off: 137.5s wall / 548s CPU per-file → 127.7s / 152s single-process → **74.8s / 240s at 4 shards**,
+  217/217 passing throughout. `packages/db` is moved onto it; nothing else is.
+  (c) **Mutation testing as an out-of-band check.** `packages/core/stryker.conf.json` scopes Stryker to
+  the enforcement path (`pipeline.ts`, `policy/**`, `capability/**`). It is deliberately NOT in `test`:
+  every mutant re-runs the suite. This is the automated form of the hand-check that found the 109
+  cannot-fail tests — a surviving mutant names a blind spot on the exact line, which no coverage
+  percentage can do. **It paid for itself on the first run.** Mutating `sinkForRequest` — the taint
+  sink map ADR-161 had just fixed — produced 31 SURVIVING mutants out of 61 (49.18%): `req.action
+  !== "read"` could be replaced with the constant `true`, and every one of the 485 core tests still
+  passed. The single rule with zero survivors was the `integration` rule, the one ADR-161 had given a
+  dedicated regression pack. Line coverage of that file was 88%; the rules were untested anyway.
+  ADR-161's consequences section had predicted exactly this and asked for "a table-driven conformance
+  test over every `resourceType`" — that test (`test/taint-sink-map.test.ts`) is now written, pinning
+  all 24 resource types x 6 actions with expectations restated independently of the implementation,
+  and `sinkForRequest` is exported for it (from `pipeline.ts` only; `index.ts` is unchanged, so the
+  package's public surface does not grow). Re-running the same mutation range: **49.18% → 100.00%, 62
+  mutants, 0 survivors.**
+- **Rejected alternatives**: (a) *`--test-isolation=none` everywhere.* Tried on `apps/api` and
+  **rejected on evidence**: the suite hangs past 10 minutes in shared-process mode (it passes in 284s
+  per-file), so api stays isolated. Shared-process mode is therefore an opt-in a suite must EARN by
+  passing under it, and `test-shards.mjs` documents that as its entry condition. (b) *Turborepo remote
+  or shared caching across the 15 worktrees* — this was the session's own initial recommendation and
+  was **withdrawn after reading `docs/BUGS.md`**: "turbo cache replays across worktrees" is a recorded
+  historical defect, and `ci.yml` carries an explicit `--force` with a comment citing it. This repo
+  has untracked, generated build inputs, so a cache hit does not reliably prove identical inputs;
+  re-enabling cross-worktree reuse would re-introduce false greens to buy wall-clock. Speed is not
+  worth a verification lie. (c) *ML predictive test selection* (Meta-style; T-Bank 2025 reports 15% of
+  suite / 5.6x faster with >95% detection) — real and effective at scale, but it needs thousands of
+  historical CI runs to train plus a nightly full run as the safety net. `turbo --affected` already
+  gives a single developer deterministic change-scoped runs with no model to maintain. Revisit when
+  there is a team and a CI history to learn from.
+- **Consequences**: The local inner loop is materially cheaper and the CI gate is unchanged — but the
+  two now run DIFFERENT commands, which is a real hazard: a floor can only fail in CI or under an
+  explicit `pnpm test:coverage`. That trade is accepted deliberately, and `verify:affected` remains the
+  pre-push check. Sharding also changes failure ergonomics: a failing shard prints its whole log while
+  green shards stay silent, and a crash takes its shard's remaining files with it. Fixing the api
+  socket flake (BUGS 2026-08-03, now RESOLVED) was a precondition rather than a side quest: raising
+  parallelism makes load-dependent races fire, so the fixed 100ms sleep was replaced with an awaited
+  `close` event — proven non-vacuous by sabotage. Two speed ideas remain unexploited and are recorded
+  rather than done: `apps/api` is now the critical path at ~284s standalone (303 `buildWiring` calls,
+  hostile to shared-process reuse), and `--experimental-test-coverage` remains the single largest
+  multiplier in CI.

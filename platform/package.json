@@ -10,6 +10,7 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
     "test:affected": "turbo run test --affected",
     "verify:affected": "turbo run typecheck test build --affected",
     "dev": "turbo run dev",

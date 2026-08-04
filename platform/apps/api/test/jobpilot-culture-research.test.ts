@@ -412,14 +412,45 @@ test("cancelCultureSourceFetch before any fetch guarantees materialize can never
   }
 });
 
+/**
+ * The server observing its request socket close is inherently asynchronous: the
+ * abort travels over a real loopback socket and the `close` event lands whenever
+ * the server's event loop reaches it. These tests used to sleep a fixed 100ms and
+ * then assert a boolean, which made them fail on a loaded machine even though the
+ * abort worked correctly (2026-08-03 BUGS watch item; reproduced 2026-08-04 while
+ * raising test parallelism). Waiting for the event with a generous deadline keeps
+ * the assertion exactly as strong — a socket that is never aborted still fails,
+ * and now with a clearer message — while making machine load cost time, not truth.
+ */
+function closeObserver(): { observe: (request: http.IncomingMessage) => void; waitForClose: (why: string) => Promise<void> } {
+  let closed = false;
+  let notify: (() => void) | null = null;
+  return {
+    observe(request) {
+      request.on("close", () => {
+        closed = true;
+        notify?.();
+      });
+    },
+    async waitForClose(why) {
+      if (closed) return;
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`timed out after 10s waiting for the server to observe the socket close — ${why}`)), 10_000);
+        notify = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+    },
+  };
+}
+
 test("cancelCultureSourceFetch aborts a real in-flight fetch and leaves the final record cancelled", async () => {
-  let serverSawClose = false;
+  const socket = closeObserver();
   const server = await startTestServer((req, res) => {
     res.writeHead(200, { "content-type": "text/plain" });
     res.write("partial");
-    req.on("close", () => {
-      serverSawClose = true;
-    });
+    socket.observe(req);
   });
   const wiring = await buildWiring();
   try {
@@ -451,8 +482,7 @@ test("cancelCultureSourceFetch aborts a real in-flight fetch and leaves the fina
 
     const materialized = await materializePromise;
     assert.equal(materialized.status, "cancelled");
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.equal(serverSawClose, true, "the server should observe the aborted connection actually close");
+    await socket.waitForClose("the server should observe the aborted connection actually close");
 
     const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.equal(finalRecord?.status, "cancelled");
@@ -465,13 +495,11 @@ test("cancelCultureSourceFetch aborts a real in-flight fetch and leaves the fina
 });
 
 test("agentOrchestration.childRun.cancel (the GENERIC child-Run cancel endpoint) routes a culture-research child Run through its OWN durable cancellation mechanism instead of racing it — actually aborts the real in-flight socket AND leaves the culture-fetch intent record genuinely 'cancelled', never a child Run marked 'cancelled' while the underlying fetch keeps running unaware (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 5)", async () => {
-  let serverSawClose = false;
+  const socket = closeObserver();
   const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/plain" });
     res.write("partial");
-    _req.on("close", () => {
-      serverSawClose = true;
-    });
+    socket.observe(_req);
   });
   const wiring = await buildWiring();
   try {
@@ -495,8 +523,7 @@ test("agentOrchestration.childRun.cancel (the GENERIC child-Run cancel endpoint)
 
     const materialized = await materializePromise;
     assert.equal(materialized.status, "cancelled", "the underlying fetch must actually be stopped, not left running while the child Run says cancelled");
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.equal(serverSawClose, true, "the real in-flight socket must actually be aborted by the GENERIC cancel endpoint, not merely a status flip");
+    await socket.waitForClose("the real in-flight socket must actually be aborted by the GENERIC cancel endpoint, not merely a status flip");
 
     const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.equal(finalRecord?.status, "cancelled", "the culture-fetch intent record itself must converge to cancelled, never left 'fetching' behind a cancelled child Run");
@@ -510,13 +537,11 @@ test("agentOrchestration.childRun.cancel (the GENERIC child-Run cancel endpoint)
 });
 
 test("distributed cancellation: a SECOND, independent instance (own DurableCultureFetchStore wrapping the same memoryStore, own EMPTY abortControllers map — no in-process AbortController for this fetch at all) can still stop the fetch a FIRST instance is holding the live socket for (TASK-011 remediation, 2026-07-19 coordinator distributed-defects review, issue 2)", async () => {
-  let serverSawClose = false;
+  const socket = closeObserver();
   const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/plain" });
     res.write("partial");
-    _req.on("close", () => {
-      serverSawClose = true;
-    });
+    socket.observe(_req);
   });
   const wiring = await buildWiring();
   try {
@@ -543,8 +568,7 @@ test("distributed cancellation: a SECOND, independent instance (own DurableCultu
 
     const materialized = await materializePromise;
     assert.equal(materialized.status, "cancelled");
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.equal(serverSawClose, true, "instance A's poll loop must have aborted its own live socket in response to instance B's durable flag");
+    await socket.waitForClose("instance A's poll loop must have aborted its own live socket in response to instance B's durable flag");
 
     const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_ORGANIZATION, proposalId, childRunId);
     assert.equal(finalRecord?.status, "cancelled");

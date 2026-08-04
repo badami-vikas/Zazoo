@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-03T14:06:16.136Z",
+  "generatedAt": "2026-08-04T00:48:35.619Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1262,7 +1262,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 551,
+      "sourceLine": 552,
       "rank": 37
     }
   ]

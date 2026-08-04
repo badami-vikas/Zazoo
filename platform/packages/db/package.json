@@ -16,7 +16,8 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "BRIDGE_DB_TEST_SNAPSHOT=1 node --experimental-test-coverage --test-concurrency=4 --test-coverage-include='dist/src/**' --test-coverage-exclude='**/test/**' --test-coverage-lines=54 --test dist/test/*.test.js",
+    "test": "BRIDGE_DB_TEST_SNAPSHOT=1 node ../../scripts/test-shards.mjs \"dist/test/*.test.js\"",
+    "test:coverage": "BRIDGE_DB_TEST_SNAPSHOT=1 node --experimental-test-coverage --test-concurrency=4 --test-coverage-include='dist/src/**' --test-coverage-exclude='**/test/**' --test-coverage-lines=54 --test dist/test/*.test.js",
     "typecheck": "tsc -b --noEmit false",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate"

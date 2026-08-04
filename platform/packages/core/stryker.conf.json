@@ -1,0 +1,42 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": [
+    "Mutation testing for the governance-critical core (ADR-163). This is the",
+    "systematic form of the 2026-08-03 audit's hand-check: it edits production code",
+    "(&& -> ||, > -> >=, returns -> null) and reports every mutant NO test noticed.",
+    "A surviving mutant is a test-suite blind spot on the exact line it mutated —",
+    "which is what coverage percentages cannot tell you.",
+    "",
+    "Deliberately NOT part of `pnpm test`. Every mutant re-runs the whole core suite,",
+    "so this is minutes-to-tens-of-minutes work: run it on a schedule or before",
+    "touching the pipeline, never in the inner loop. `incremental: true` means a",
+    "re-run only re-tests mutants whose code actually changed.",
+    "",
+    "`mutate` is scoped to the enforcement path — the taint sink map (ADR-161), the",
+    "policy/authority evaluators, and the governed pipeline. Those are the files where",
+    "a silent test gap is a security gap. Widen only with a reason to."
+  ],
+  "packageManager": "pnpm",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "node --test dist/test/*.test.js"
+  },
+  "buildCommand": "tsc -b",
+  "mutate": [
+    "src/pipeline.ts",
+    "src/policy/**/*.ts",
+    "src/capability/**/*.ts"
+  ],
+  "incremental": true,
+  "incrementalFile": ".stryker-tmp/incremental.json",
+  "reporters": ["clear-text", "html", "json"],
+  "htmlReporter": { "fileName": "reports/mutation/index.html" },
+  "jsonReporter": { "fileName": "reports/mutation/mutation-report.json" },
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": null
+  },
+  "timeoutMS": 120000,
+  "concurrency": 4
+}

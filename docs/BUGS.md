@@ -2440,5 +2440,14 @@ What each answer means:
 
 ## 2026-08-03 — api socket-abort tests flake under CPU contention (WATCH)
 - Task: TASK-036
-- Status: OPEN (watch)
+- Status: RESOLVED 2026-08-04 — reproduced and fixed at the root, exactly as this entry prescribed.
+  Reproduction: a plain `pnpm run test` of `apps/api` on a machine already running the db suite failed
+  the same assertion; the immediate rerun passed 393/393. Root cause was a fixed `setTimeout(100)`
+  followed by `assert.equal(serverSawClose, true)` — the server's `close` event is asynchronous, so
+  the assertion was really measuring scheduler latency, not whether the socket was aborted. Fix: a
+  `closeObserver()` helper in `jobpilot-culture-research.test.ts` that AWAITS the `close` event with a
+  10s deadline, applied to all three occurrences of the pattern (the entry named two; a third had the
+  same defect). Load now costs time instead of truth. Proven non-vacuous: sabotaging the compiled test
+  so the close is never observed fails with "timed out after 10s waiting for the server to observe the
+  socket close"; restoring it passes. `--test-concurrency=4` was left in place.
 - Evidence: with `--test-concurrency=4`, `jobpilot-culture-research.test.ts` tests "cancelCultureSourceFetch aborts a real in-flight fetch..." and "agentOrchestration.childRun.cancel ... actually aborts the real in-flight socket" failed once ("the server should observe the aborted connection actually close", false !== true) during a run that shared the CPU with the full db suite (683s real vs 1537s user). Rerun alone on an idle machine: 57/57 clean. Interpretation: timing-sensitive real-socket assertions flake under heavy load, not a concurrency-safety defect. If CI shows the same signature, widen the socket-close wait in those two tests rather than re-pinning the whole suite to --test-concurrency=1 (that pin cost ~6 min/run and contradicted AP-019's own resolution).

@@ -12,6 +12,7 @@
     "dev": "vite",
     "preview": "vite preview",
     "test": "node --test src/app/data/*.test.mjs test/*.test.mjs",
+    "test:coverage": "node --test src/app/data/*.test.mjs test/*.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

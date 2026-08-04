@@ -30,7 +30,12 @@ jobs:
       # --force: never trust turbo's remote/local cache in CI — a green run must mean THIS
       # checkout was tested, not a replayed log from an unrelated branch/worktree
       # (see known-issues.md 2026-07-03, "turbo cache replays across worktrees").
-      - run: pnpm turbo run typecheck test build --force
+      # `test:coverage`, not `test`: the per-package coverage floors are the gate and
+      # they live only in the `test:coverage` script. `test` is the coverage-free fast
+      # variant for local iteration (node --experimental-test-coverage roughly doubles
+      # per-test time — nodejs/node#55103). Every package defines `test:coverage`, so
+      # this runs the whole suite exactly once, with the floors enforced.
+      - run: pnpm turbo run typecheck test:coverage build --force
 
   security-audit:
     name: security audit (no HIGH+ vulnerable deps)

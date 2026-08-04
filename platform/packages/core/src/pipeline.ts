@@ -95,7 +95,16 @@ export interface ProposeOptions {
   requireHumanReview?: boolean;
 }
 
-function sinkForRequest(req: ActionRequest): TaintSinkId | null {
+/**
+ * Exported for the table-driven conformance test only (not re-exported from
+ * index.ts — the package's public surface is unchanged). ADR-161 recorded that
+ * this map needed "a table-driven conformance test over every `resourceType`, so
+ * an unmapped combination fails loudly rather than silently resolving to null";
+ * 2026-08-04 mutation testing confirmed the gap concretely — every rule except
+ * the `integration` one (the only rule with a dedicated regression pack) had
+ * surviving mutants, i.e. the suite could not tell a live rule from a dead one.
+ */
+export function sinkForRequest(req: ActionRequest): TaintSinkId | null {
   if (req.resourceType === "external:send" || req.action === "share") {
     return "external_send";
   }
