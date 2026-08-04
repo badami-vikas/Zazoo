@@ -33,11 +33,14 @@ export interface CommonsStore {
   listVersions(name: string): Promise<CommonsModuleEntry[]>;
   /** Every published entry (all modules, all versions). */
   listAll(): Promise<CommonsModuleEntry[]>;
-  /** Persist one capability archetype (roadmap-v2 Phase 4). Immutable:
-   * archetype names are deterministic per pattern, so a re-publish of an
-   * existing name is the many-workspaces dedupe case — the FIRST published
-   * entry stays authoritative and callers surface it idempotently. */
-  putArchetype(entry: CommonsArchetypeEntry): Promise<void>;
+  /** Persist one capability archetype (roadmap-v2 Phase 4). Archetype names
+   * are deterministic per pattern; a re-publish of an existing name is the
+   * many-workspaces case — the server AGGREGATES (contributions += 1, max
+   * support band, tag union) and supersedes the stored entry with a freshly
+   * signed revision via `{ replace: true }`. Without the flag, an existing
+   * name rejects (`DuplicateArchetypeError`) so replacement is always an
+   * explicit aggregation, never an accidental overwrite. */
+  putArchetype(entry: CommonsArchetypeEntry, options?: { replace?: boolean }): Promise<void>;
   getArchetype(name: string): Promise<CommonsArchetypeEntry | null>;
   listAllArchetypes(): Promise<CommonsArchetypeEntry[]>;
 }
@@ -155,13 +158,13 @@ export class FsCommonsStore implements CommonsStore {
     return join(this.#archetypeRoot, `${safeSegment(name)}.json`);
   }
 
-  async putArchetype(entry: CommonsArchetypeEntry): Promise<void> {
+  async putArchetype(entry: CommonsArchetypeEntry, options: { replace?: boolean } = {}): Promise<void> {
     await this.#migration;
     await mkdir(this.#archetypeRoot, { recursive: true });
     try {
       await writeFile(this.#archetypePath(entry.archetype.name), JSON.stringify(entry, null, 2), {
         encoding: "utf8",
-        flag: "wx",
+        flag: options.replace ? "w" : "wx",
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {

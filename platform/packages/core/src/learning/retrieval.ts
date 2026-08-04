@@ -164,6 +164,25 @@ export interface VectorHit {
   score: number;
 }
 
+/** A text-embedding seam for the vector lane. `id` names the embedding
+ * SPACE (model identity) — it becomes the `embeddingModel` on every vector
+ * written or searched with this embedder, so switching embedders switches
+ * spaces and never compares incompatible vectors. Implementations: the
+ * deterministic lexical `hashingEmbed` fallback (id `HASHING_EMBEDDER_ID`),
+ * or a real model behind `ModelProvider.embed` (e.g. Ollama nomic-embed). */
+export interface TextEmbedder {
+  id: string;
+  embed(texts: string[]): Promise<number[][]>;
+}
+
+/** The always-available lexical fallback as a `TextEmbedder`. */
+export function hashingTextEmbedder(dim = 128): TextEmbedder {
+  return {
+    id: HASHING_EMBEDDER_ID,
+    embed: async (texts) => texts.map((text) => hashingEmbed(text, dim)),
+  };
+}
+
 /** The vector lane's storage seam. Deliberately stores REFS + vectors only —
  * no content, no text — so the graph/MemoryStore stays the single source of
  * truth and the index is rebuildable (`clear` + re-upsert) at any time. */

@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   HASHING_EMBEDDER_ID,
+  hashingEmbed,
   recordSignal,
   type MemoryWrite,
   type ModelCompletionRequest,
@@ -251,6 +252,77 @@ test("HARD INVARIANT: a Cloud-Plane thread gets no Local-Plane memory even with 
     assert.equal(prepared.disclosure.memory.length, 0);
     assert.doesNotMatch(prepared.disclosure.system, /texas hill country/);
     assert.doesNotMatch(prepared.disclosure.system, /quarterly paperwork/);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("a configured semantic embedder owns the space: indexer and chat query share it, hashing space stays empty", async () => {
+  const local = new FusionChatModel();
+  const embedCalls: string[][] = [];
+  // A deterministic stand-in for a real embedding model: a different id (its
+  // own space) and a different dimension than the hashing fallback.
+  const fakeSemantic = {
+    id: "fake-semantic-test-v1",
+    embed: async (texts: string[]) => {
+      embedCalls.push(texts);
+      return texts.map((text) => hashingEmbed(text, 64));
+    },
+  };
+  const wiring = await buildWiring({
+    retrievalFusionEnabled: true,
+    modelProviders: [local],
+    semanticEmbedder: fakeSemantic,
+  });
+  try {
+    await seedRecencyShadowedCorpus(wiring);
+    const pass = await indexMemoryEmbeddings({
+      memoryStore: wiring.memoryStore,
+      vectorIndex: wiring.vectorIndex,
+      organizationId: PILOT_ORGANIZATION,
+      ownerUserId: PILOT_USER,
+      embedder: wiring.semanticEmbedder!,
+    });
+    assert.equal(pass.embeddingModel, "fake-semantic-test-v1");
+    assert.equal(pass.indexed, 7);
+    // Vectors live in the semantic space, NOT the hashing fallback space.
+    const inSemantic = await wiring.vectorIndex.existingIds("memory", "fake-semantic-test-v1", [OLD_RELEVANT_ID]);
+    const inHashing = await wiring.vectorIndex.existingIds("memory", HASHING_EMBEDDER_ID, [OLD_RELEVANT_ID]);
+    assert.deepEqual(inSemantic, new Set([OLD_RELEVANT_ID]));
+    assert.deepEqual(inHashing, new Set());
+
+    // Chat embeds the QUERY with the same embedder and recalls through the
+    // semantic space.
+    await sendHvacQuestion(wiring);
+    const system = local.calls[0]!.system ?? "";
+    assert.match(system, /texas hill country/);
+    assert.ok(embedCalls.some((texts) => texts.some((text) => text.includes("hvac businesses in texas"))));
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("a failing semantic embedder degrades the vector lane; the chat turn still completes", async () => {
+  const local = new FusionChatModel();
+  const wiring = await buildWiring({
+    retrievalFusionEnabled: true,
+    modelProviders: [local],
+    semanticEmbedder: {
+      id: "broken-semantic-v1",
+      embed: async () => {
+        throw new Error("model server down");
+      },
+    },
+  });
+  try {
+    await seedRecencyShadowedCorpus(wiring);
+    await sendHvacQuestion(wiring);
+    assert.equal(local.calls.length, 1);
+    const system = local.calls[0]!.system ?? "";
+    // Structured recency still fills the slot; the vector lane is empty, so
+    // the recency-shadowed old row cannot appear — honest degradation.
+    assert.match(system, /quarterly paperwork/);
+    assert.doesNotMatch(system, /texas hill country/);
   } finally {
     await wiring.close();
   }

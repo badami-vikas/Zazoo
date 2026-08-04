@@ -644,6 +644,7 @@ export async function buildServer() {
         vectorIndex: wiring.vectorIndex,
         organizationId: PILOT_ORGANIZATION,
         ownerUserId: wiring.pilotUserId,
+        ...(wiring.semanticEmbedder ? { embedder: wiring.semanticEmbedder } : {}),
       });
     } catch (err) {
       app.log.error({ err }, "memory embedding index failed");

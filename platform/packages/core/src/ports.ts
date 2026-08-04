@@ -544,6 +544,12 @@ export interface AutomationDefinition {
   /** Execution residency for the owning Agent. */
   agentPlane: import("./types.js").Plane;
   steps: AutomationStepDef[];
+  /** Lifecycle state. Absent = "active" (every pre-existing definition).
+   * A "draft" — e.g. the learning promotion machinery's repeated-behavior
+   * proposals — is a REVIEW ARTIFACT: `AutomationRegistry.load` never
+   * returns one, so the executor cannot start it (fail closed by
+   * construction); activation is a later explicit save as "active". */
+  status?: "active" | "draft";
 }
 
 /** Loads Automation definitions from the canonical store. */

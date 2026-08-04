@@ -24,10 +24,9 @@
  * Local-Plane chat path.
  */
 import {
-  HASHING_EMBEDDER_ID,
   fuseRetrieval,
   fusedToMemorySnippets,
-  hashingEmbed,
+  hashingTextEmbedder,
   isLearningObservationEntry,
   labelFromLegacyTrustOrigin,
   type MemoryEntry,
@@ -36,6 +35,7 @@ import {
   type RetrievalLaneResult,
   type RetrievedMemorySnippet,
   type TaintLabel,
+  type TextEmbedder,
   type VectorIndex,
 } from "@bridge/core";
 import type { DrizzleGraphStore } from "@bridge/db";
@@ -57,33 +57,44 @@ function isIndexableProseRow(entry: MemoryEntry): boolean {
 
 /** One indexer pass: embed every current prose Memory row not yet in the
  * vector index. Idempotent — already-indexed rows are skipped; a full
- * rebuild is `vectorIndex.clear(...)` followed by one pass. */
+ * rebuild is `vectorIndex.clear(...)` followed by one pass. The active
+ * embedder names the space: a SEMANTIC embedder (wiring's
+ * `semanticEmbedder`, e.g. Ollama nomic-embed) when configured, else the
+ * deterministic lexical fallback. Switching embedders switches spaces —
+ * the indexer backfills the new space; stale spaces are reclaimed with
+ * `vectorIndex.clear(oldId)`. */
 export async function indexMemoryEmbeddings(deps: {
   memoryStore: MemoryStore;
   vectorIndex: VectorIndex;
   organizationId: string;
   ownerUserId: string;
-}): Promise<{ scanned: number; indexed: number }> {
+  embedder?: TextEmbedder;
+}): Promise<{ scanned: number; indexed: number; embeddingModel: string }> {
+  const embedder = deps.embedder ?? hashingTextEmbedder();
   const scope = { organizationId: deps.organizationId, userId: deps.ownerUserId };
   const rows = await deps.memoryStore.retrieve({ limit: INDEXER_SCAN_LIMIT }, scope);
   const indexable = rows.filter(isIndexableProseRow);
   const existing = await deps.vectorIndex.existingIds(
     MEMORY_VECTOR_ENTITY_TYPE,
-    HASHING_EMBEDDER_ID,
+    embedder.id,
     indexable.map((row) => row.id),
   );
   const missing = indexable.filter((row) => !existing.has(row.id));
   if (missing.length > 0) {
+    const embeddings = await embedder.embed(missing.map((row) => row.content.slice(0, MAX_SNIPPET_CHARS)));
+    if (embeddings.length !== missing.length) {
+      throw new Error(`embedder ${embedder.id} returned ${embeddings.length} vectors for ${missing.length} texts`);
+    }
     await deps.vectorIndex.upsert(
-      missing.map((row) => ({
+      missing.map((row, index) => ({
         entityType: MEMORY_VECTOR_ENTITY_TYPE,
         entityId: row.id,
-        embeddingModel: HASHING_EMBEDDER_ID,
-        embedding: hashingEmbed(row.content.slice(0, MAX_SNIPPET_CHARS)),
+        embeddingModel: embedder.id,
+        embedding: embeddings[index]!,
       })),
     );
   }
-  return { scanned: indexable.length, indexed: missing.length };
+  return { scanned: indexable.length, indexed: missing.length, embeddingModel: embedder.id };
 }
 
 function memoryCandidate(entry: MemoryEntry): RetrievalCandidate {
@@ -118,7 +129,11 @@ export async function fusedChatMemory(deps: {
   ownerUserId: string;
   query: string;
   limit?: number;
+  /** Must be the SAME embedder the indexer runs with — query and stored
+   * vectors only meet inside one embedding space. */
+  embedder?: TextEmbedder;
 }): Promise<FusedChatMemory> {
+  const embedder = deps.embedder ?? hashingTextEmbedder();
   const scope = { organizationId: deps.organizationId, userId: deps.ownerUserId };
   const limit = deps.limit ?? 5;
   const taintByCandidateId = new Map<string, TaintLabel>();
@@ -140,13 +155,23 @@ export async function fusedChatMemory(deps: {
 
   // Lane 2 — vector similarity: ids from the index, HYDRATED through the
   // authority-scoped store read (refs only in the index — unreadable or
-  // machinery rows drop out here).
-  const vectorHits = await deps.vectorIndex.search({
-    entityType: MEMORY_VECTOR_ENTITY_TYPE,
-    embeddingModel: HASHING_EMBEDDER_ID,
-    embedding: hashingEmbed(deps.query),
-    limit: LANE_LIMIT,
-  });
+  // machinery rows drop out here). A failed query embed (e.g. the semantic
+  // model's server is down) degrades to an empty lane — the chat turn never
+  // fails because a lane did.
+  let vectorHits: Awaited<ReturnType<VectorIndex["search"]>> = [];
+  try {
+    const [queryEmbedding] = await embedder.embed([deps.query]);
+    if (queryEmbedding) {
+      vectorHits = await deps.vectorIndex.search({
+        entityType: MEMORY_VECTOR_ENTITY_TYPE,
+        embeddingModel: embedder.id,
+        embedding: queryEmbedding,
+        limit: LANE_LIMIT,
+      });
+    }
+  } catch {
+    vectorHits = [];
+  }
   const vectorCandidates: RetrievalCandidate[] = [];
   for (const hit of vectorHits) {
     const row = await deps.memoryStore.get(hit.entityId, scope);

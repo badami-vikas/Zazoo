@@ -187,6 +187,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
         agentPlane,
         skillPipeline: steps,
         trigger: {},
+        status: definition.status ?? "active",
       })
       .onConflictDoUpdate({
         target: automations.id,
@@ -195,7 +196,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
           agentId,
           agentPlane,
           skillPipeline: steps,
-          status: "active",
+          status: definition.status ?? "active",
         },
       });
     });
