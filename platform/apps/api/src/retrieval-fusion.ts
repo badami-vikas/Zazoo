@@ -69,7 +69,7 @@ export async function indexMemoryEmbeddings(deps: {
   organizationId: string;
   ownerUserId: string;
   embedder?: TextEmbedder;
-}): Promise<{ scanned: number; indexed: number; embeddingModel: string }> {
+}): Promise<{ scanned: number; indexed: number; embeddingModel: string; reclaimedModels: string[] }> {
   const embedder = deps.embedder ?? hashingTextEmbedder();
   const scope = { organizationId: deps.organizationId, userId: deps.ownerUserId };
   const rows = await deps.memoryStore.retrieve({ limit: INDEXER_SCAN_LIMIT }, scope);
@@ -94,7 +94,20 @@ export async function indexMemoryEmbeddings(deps: {
       })),
     );
   }
-  return { scanned: indexable.length, indexed: missing.length, embeddingModel: embedder.id };
+  // Stale-space reclamation (ADR-172 follow-up): vectors in any space other
+  // than the ACTIVE embedder's are orphaned derived data — nothing queries
+  // them (search always filters on the active id) and the source rows can
+  // re-embed at any time. Clearing here keeps the index one-space-per-type
+  // without a separate maintenance job. Runs AFTER the active space is
+  // backfilled, so an embedder switch never has a moment with no usable
+  // space.
+  const reclaimedModels: string[] = [];
+  for (const model of await deps.vectorIndex.listModels(MEMORY_VECTOR_ENTITY_TYPE)) {
+    if (model === embedder.id) continue;
+    await deps.vectorIndex.clear(MEMORY_VECTOR_ENTITY_TYPE, model);
+    reclaimedModels.push(model);
+  }
+  return { scanned: indexable.length, indexed: missing.length, embeddingModel: embedder.id, reclaimedModels };
 }
 
 function memoryCandidate(entry: MemoryEntry): RetrievalCandidate {

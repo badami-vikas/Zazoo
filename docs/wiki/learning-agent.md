@@ -31,8 +31,13 @@ P@3 0.6, MRR 0.87) — regressions block ship. Embedder seam landed 2026-08-04 (
 lexical hashing fallback; failed embed = empty lane, never a space switch. Promotion
 machinery v1 landed 2026-08-04 (ADR-172): repeated behavior (threshold 6) → proposed
 Automation DRAFT (own lineage; accept mints status:"draft", empty steps, load-INVISIBLE —
-executor cannot start it; activation = later governed save). Open: eval automation over
-real usage, draft activation flow, live UI proof.
+executor cannot start it). Draft activation flow landed 2026-08-04 (ADR-173):
+`listByStatus` review surface, `drafts.update` via canonical step parse + skill-registry
+check, `drafts.activate` Human-explicit with static gates; run-time pipeline gates
+unchanged. Usage evals landed same day: self-retrieval cases mined from real prose
+Memories score the LIVE fused pipeline 6-hourly, EvalRuns keyed by embedding space,
+honest skip under 3 cases. Indexer reclaims non-active embedding spaces after backfill.
+Open: draft-editor UI, eval dataset refresh policy, live UI proof.
 
 **TASK-002 partial:** every onboarding question says why + effect. User may skip
 role model. Fixed-host Wikipedia research returns citation + separates documented

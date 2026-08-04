@@ -47,6 +47,7 @@ import {
   InMemoryOnboardingProfileStore,
   MemoryBackedOnboardingProfileStore,
   type MemoryStore,
+  type SkillRegistry,
   type TextEmbedder,
   type VectorIndex,
   type MemoryAuthScope,
@@ -497,6 +498,10 @@ export interface Wiring {
    * lexical hashing fallback; indexer and chat query ALWAYS share whichever
    * embedder this resolves to (one embedding space). */
   semanticEmbedder?: TextEmbedder;
+  /** The pipeline's own skill registry — read-only lookups for surfaces that
+   * statically validate a skill reference (e.g. Automation-draft activation)
+   * before the pipeline's run-time gates ever see it. */
+  skillRegistry: SkillRegistry;
   /** Feature flight for LA5 retrieval fusion (chat memory slot filled by
    * structured+vector+graph RRF fusion; scheduled embedding indexer). OFF by
    * default; enabled via `BRIDGE_RETRIEVAL_FUSION=1` (or a test override).
@@ -5058,6 +5063,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     retrievalFusionEnabled,
     commonsArchetypesEnabled,
     ...(semanticEmbedder ? { semanticEmbedder } : {}),
+    skillRegistry,
     dealpilot: {
       integrationId: dealPilotIntegrationId,
       store: dealPilotRuntimeStore,

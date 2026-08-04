@@ -127,10 +127,14 @@ test("vector index: refs only, cosine ranking, model spaces never mix, rebuildab
   const existing = await index.existingIds("memory", HASHING_EMBEDDER_ID, ["hvac", "saas", "nope"]);
   assert.deepEqual([...existing].sort(), ["hvac", "saas"]);
 
+  // listModels enumerates the spaces present — the reclamation scan.
+  assert.deepEqual(await index.listModels("memory"), [HASHING_EMBEDDER_ID, "someone-elses-space"]);
+
   // Rebuild seam: clear drops exactly one (entityType, model) space.
   await index.clear("memory", HASHING_EMBEDDER_ID);
   assert.deepEqual(await index.existingIds("memory", HASHING_EMBEDDER_ID, ["hvac", "saas"]), new Set());
   assert.deepEqual(await index.existingIds("memory", "someone-elses-space", ["other-model"]), new Set(["other-model"]));
+  assert.deepEqual(await index.listModels("memory"), ["someone-elses-space"]);
 });
 
 test("cosine similarity handles mixed lengths and zero vectors", () => {

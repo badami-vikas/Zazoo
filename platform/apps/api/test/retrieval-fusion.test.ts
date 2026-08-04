@@ -276,6 +276,15 @@ test("a configured semantic embedder owns the space: indexer and chat query shar
   });
   try {
     await seedRecencyShadowedCorpus(wiring);
+    // First index under the DEFAULT hashing space (an embedder upgrade
+    // scenario: old vectors already exist).
+    const hashingPass = await indexMemoryEmbeddings({
+      memoryStore: wiring.memoryStore,
+      vectorIndex: wiring.vectorIndex,
+      organizationId: PILOT_ORGANIZATION,
+      ownerUserId: PILOT_USER,
+    });
+    assert.equal(hashingPass.indexed, 7);
     const pass = await indexMemoryEmbeddings({
       memoryStore: wiring.memoryStore,
       vectorIndex: wiring.vectorIndex,
@@ -285,11 +294,14 @@ test("a configured semantic embedder owns the space: indexer and chat query shar
     });
     assert.equal(pass.embeddingModel, "fake-semantic-test-v1");
     assert.equal(pass.indexed, 7);
-    // Vectors live in the semantic space, NOT the hashing fallback space.
+    // Stale-space reclamation: the superseded hashing space was cleared in
+    // the same pass, AFTER the semantic space was backfilled.
+    assert.deepEqual(pass.reclaimedModels, [HASHING_EMBEDDER_ID]);
     const inSemantic = await wiring.vectorIndex.existingIds("memory", "fake-semantic-test-v1", [OLD_RELEVANT_ID]);
     const inHashing = await wiring.vectorIndex.existingIds("memory", HASHING_EMBEDDER_ID, [OLD_RELEVANT_ID]);
     assert.deepEqual(inSemantic, new Set([OLD_RELEVANT_ID]));
     assert.deepEqual(inHashing, new Set());
+    assert.deepEqual(await wiring.vectorIndex.listModels("memory"), ["fake-semantic-test-v1"]);
 
     // Chat embeds the QUERY with the same embedder and recalls through the
     // semantic space.

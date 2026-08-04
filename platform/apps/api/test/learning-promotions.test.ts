@@ -142,3 +142,68 @@ test("threshold → propose → accept saves an executor-proof draft; reject sup
     await wiring.close();
   }
 });
+
+test("draft lifecycle: list → empty-steps activation refused → update with a real skill → activate → executor-visible", async () => {
+  const wiring = await buildWiring({ learningObservationEnabled: true });
+  try {
+    const caller = makeCaller(wiring);
+    await recordDismissals(caller, PROMOTION_MIN_REPETITIONS);
+    const proposed = await caller.learning.promotions.propose({ organizationId: ORG });
+    const suggestion = proposed.suggestions.find((s) => s.pattern.attributeKey === "industry");
+    assert.ok(suggestion);
+    const accepted = await caller.learning.promotions.accept({
+      organizationId: ORG,
+      suggestionMemoryId: suggestion.memoryId,
+    });
+
+    // The draft surfaces on the review list (and ONLY there — load is null).
+    const listed = await caller.learning.promotions.drafts.list({ organizationId: ORG });
+    const draft = listed.drafts.find((d) => d.id === accepted.automationId);
+    assert.ok(draft, "accepted draft must appear on the drafts list");
+    assert.equal(draft.status, "draft");
+    assert.deepEqual(draft.steps, []);
+
+    // Governance gate 1: an empty draft cannot activate.
+    await assert.rejects(
+      () => caller.learning.promotions.drafts.activate({ organizationId: ORG, automationId: accepted.automationId }),
+      (error: unknown) =>
+        error instanceof TRPCError && error.code === "PRECONDITION_FAILED" && /no steps/.test(error.message),
+    );
+
+    // Governance gate 2: steps naming an unregistered skill are refused.
+    await assert.rejects(
+      () =>
+        caller.learning.promotions.drafts.update({
+          organizationId: ORG,
+          automationId: accepted.automationId,
+          steps: [{ skill: "no.such.skill", action: "write", resourceType: "signal" }],
+        }),
+      (error: unknown) => error instanceof TRPCError && error.code === "BAD_REQUEST" && /unknown skill/.test(error.message),
+    );
+
+    // A real registered governed skill (the observation digest, present
+    // while the learning flight is on) makes the draft completable.
+    const updated = await caller.learning.promotions.drafts.update({
+      organizationId: ORG,
+      automationId: accepted.automationId,
+      steps: [{ skill: "learning.observationDigest", action: "write", resourceType: "signal", dataScope: "all" }],
+    });
+    assert.equal(updated.steps, 1);
+    assert.equal(updated.status, "draft");
+    // Still a draft — still invisible to the executor's seam.
+    assert.equal(await wiring.automationRegistry.load(ORG, accepted.automationId), null);
+
+    // Activation flips the one bit that makes it startable.
+    const activated = await caller.learning.promotions.drafts.activate({
+      organizationId: ORG,
+      automationId: accepted.automationId,
+    });
+    assert.equal(activated.status, "active");
+    const loaded = await wiring.automationRegistry.load(ORG, accepted.automationId);
+    assert.ok(loaded, "an activated Automation must be loadable (executor-startable seam)");
+    assert.equal(loaded.steps.length, 1);
+    assert.equal((await caller.learning.promotions.drafts.list({ organizationId: ORG })).drafts.length, 0);
+  } finally {
+    await wiring.close();
+  }
+});
