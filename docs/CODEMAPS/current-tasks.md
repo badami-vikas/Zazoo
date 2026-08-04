@@ -22,3 +22,4 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-038 | ready | P1 | Secrets-at-rest and multi-tenancy security block | none |
 | TASK-040 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends) |
 | TASK-041 | ready | P2 | Pending Tests — live verification backlog | none — every item is independently runnable by whoever holds the machine, device, credential, or deploy rights it names |
+| TASK-042 | ready | P2 | Input-pack regeneration tests for Skills, Modules, and Integrations | none (methodology and draft constitution exist, TASK-033 archetype work is adjacent, not blocking) |

@@ -667,3 +667,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-07-31
 - Approval: AP-092 applied
 - Dependencies: none — every item is independently runnable by whoever holds the machine, device, credential, or deploy rights it names
+
+## Input-pack regeneration tests for Skills, Modules, and Integrations
+- ID: TASK-042
+- Status: ready
+- Priority: P2
+- Horizon: Convergence
+- Outcome: Each generated-artifact class (Skill, Module, Integration) has an empirically validated input-pack structure — constitution + contracts + mandate + harness layers sized by measured value — so the Builder Agent's growth substrate is defined by evidence, not opinion. Includes deciding per class whether a prescriptive structure is warranted at all or whether strong boundary conditions (harness-only) with autonomy inside them suffice, per the user's stated hypothesis.
+- Prototype test: for each class, an isolated no-repo-access agent given only the class's input pack produces a plan whose divergence triage (RULE-GAP / BLOAT / BETTER / WORSE) is recorded; the pack is amended until WORSE divergences attributable to missing pack layers reach zero or are explicitly accepted.
+- Scope: replicate the ADR-172 Learning Agent methodology (rubric pinned before output; divergences adopted on merit, never force-fit). Fix the pack gaps all three 2026-08-04 agents unanimously requested (concrete taint-label lattice, Proposal/Decision API shape, MemoryStore op signatures, consent-surface contract, budget primitives). Fold in the roster-wording cleanup: `foundational-agents.md` "5 Agents"/Internal Strategist wording vs canon 4 agents (AP-005/ADR-046, ADR-077). Constitution canonization itself is a separate APPROVALS gate, not this task.
+- Evidence: `outputs/2026-08-04-regeneration-test-learning-agent.md`; ADR-172.
+- Requests: user directive 2026-08-04 ("If successful, add a task to repeat this for skills, capabilities, modules, etc so we have clarity on structure for each of these (if at all a structure is required, I believe a strong boundary conditions with autonomy within it might be better approach)").
+- Approval: AP-099 APPLIED
+- Dependencies: none (methodology and draft constitution exist; TASK-033 archetype work is adjacent, not blocking)
