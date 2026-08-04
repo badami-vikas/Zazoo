@@ -151,6 +151,7 @@ export {
   parseEvidence,
 } from "./capability-store.js";
 export { DrizzleEvalStore } from "./eval-store.js";
+export { DrizzlePolicyParamStore } from "./policy-param-store.js";
 export {
   DrizzleOrganizationDefinitionStore,
   parseBlueprint,

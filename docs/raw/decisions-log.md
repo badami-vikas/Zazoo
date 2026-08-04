@@ -3918,3 +3918,45 @@ settled by the first run after this lands, and the probe is recorded in BUGS.
   boundary following `DrizzleCapabilityStore`'s reasoning — a malformed row throws loudly rather than
   reading back as "no scores", which would be indistinguishable from a genuinely failing capability.
   `VAR-1` policy params remain in-memory in both modes; that binding is still open under TASK-034.
+
+## ADR-165 — `policy_params` gets its reader, and an unrecognised param key fails loud rather than resolving to the default (2026-08-04; TASK-034)
+
+- **Context**: `policy_params` has existed in `schema.ts` since the VAR-1 batch with **no reader at
+  all** — a table with no consumer, the "roadmap batch without a consumer" pattern the 2026-08-02 dead-
+  code diagnosis named. `wiring.ts` bound `policyParams` to `InMemoryPolicyParamStore` outside the
+  persistent/in-memory split, so `resolveGates(await ctx.wiring.policyParams.get(organizationId))` in
+  `router.ts` always read `DEFAULT_POLICY_PARAMS`. This was invisible until now for a specific reason:
+  the gate that reads those thresholds could not run at all before ADR-164, because no eval run
+  survived a restart. Fixing the eval store is what made this binding matter.
+- **Decision**: Add `DrizzlePolicyParamStore` implementing the port's single `get()` method, bound in
+  **both** wiring modes (same reasoning as ADR-164 — dev/prod divergence is what hid the last one).
+  `param_key` is a dotted path into `PolicyParamsOverride` and `value` is the jsonb at that path, which
+  is the shape `(organization_id, policy_id, param_key, value)` was designed for.
+  Two decisions worth naming:
+  (a) **An unrecognised `param_key` throws.** The realistic failure is a typo — `aqv.gates.qualityMinn`
+  — in a row an operator believes tightened a promotion gate. Silently skipping it resolves the gate to
+  its default and reports success, which is the same failure class as the amnesiac eval store: a
+  governance control that looks applied and is not. The error names the full known-key set.
+  (b) **Range validation at the persistence boundary**, deliberately STRICTER than the in-memory
+  adapter, which accepts whatever a typed in-process call passes. The asymmetry is intentional and is
+  documented in the store: a row is data crossing a trust boundary (hand-edited SQL, a restored backup,
+  a future governed write) whereas `setOverride` is a compile-checked call. A stored `qualityMin: -1`
+  is not a preference — every candidate clears it, so the gate is disabled while still appearing
+  configured. Gate thresholds must be rates in `[0,1]`, `minCases`/`windowDays` positive integers,
+  `delta` in `(0,1]`, and a tunable's `floor` must not exceed its `ceil`.
+- **Rejected alternatives**: (a) *Store the whole override document in one row* — simpler to read, but
+  it discards the per-key `unique(organization_id, policy_id, param_key)` constraint the table already
+  has, and a governed single-knob nudge (VAR-1's actual write) would have to rewrite the whole
+  document. (b) *Skip unknown keys with a warning* — warnings are not read; the whole point of this
+  entry is that a silent no-op on a governance control is worse than a crash. (c) *Add write methods
+  mirroring `InMemoryPolicyParamStore.setOverride`/`setTunable`* — REJECTED as exactly the substrate-
+  without-a-consumer mistake this table already demonstrates. Nothing writes policy params today (the
+  Variance Adjuster only PROPOSES); the write lands with the governed nudge that needs it. Tests insert
+  rows directly, which is normal for a db-package test.
+- **Consequences**: Per-policy rows (`policy_id IS NOT NULL`) are **not** representable by the port —
+  `PolicyParams` is an Organization-wide document — so they are excluded by an explicit `isNull`
+  filter rather than silently folded in, and a test pins that so the limitation stays visible if
+  per-policy params are ever introduced. `InMemoryPolicyParamStore` is no longer referenced by
+  `wiring.ts` at all; it remains exported from core for tests. With ADR-164 and this entry, the
+  promotion gate now reads real eval history AND the Organization's real thresholds — the first
+  configuration where it can genuinely reject a candidate.

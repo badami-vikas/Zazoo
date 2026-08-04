@@ -15,6 +15,8 @@ import {
   DrizzleAutomationRunRecorder,
   InMemoryCanonicalIdentityStore,
   DrizzleCanonicalIdentityStore,
+  DrizzleEvalStore,
+  DrizzlePolicyParamStore,
   DrizzleGoalTaskStore,
   DrizzleSkillManifestRegistry,
   DrizzleChildAgentRunStore,
@@ -248,6 +250,20 @@ test("buildPersistentPorts: binds canonical identity to the REAL DrizzleCanonica
       ports.canonical instanceof DrizzleCanonicalIdentityStore,
       "canonical identity must be the real Drizzle-backed store once DATABASE_URL is set — " +
         "this is the lie this fix actually closes (was InMemoryCanonicalIdentityStore unconditionally)",
+    );
+    // ADR-164/ADR-165 — both of these were InMemory in BOTH modes, and both
+    // silently disabled the capability promotion gate rather than loosening it:
+    // an amnesiac eval store meant approve never found a baseline to compare
+    // against, and a defaults-only param store meant it compared against
+    // thresholds the Organization never chose. Pinned here so a regression to
+    // the in-memory fake is a red test, not a quiet re-opening of the gate.
+    assert.ok(
+      ports.evalStore instanceof DrizzleEvalStore,
+      "eval history must be Drizzle-backed — an in-memory eval store makes capability.approve skip its comparison entirely after any restart",
+    );
+    assert.ok(
+      ports.policyParams instanceof DrizzlePolicyParamStore,
+      "policy params must be Drizzle-backed — a defaults-only store silently ignores the Organization's own promotion thresholds",
     );
     assert.equal(ports.memory, undefined, "persistent mode must not expose in-memory-only governance stores");
     assert.equal(typeof ports.ensureOutreachGovernance, "function");
