@@ -7,9 +7,24 @@ full: [../raw/bridge-constitution-2026-08.md](../raw/bridge-constitution-2026-08
 obligations. Conformant means **harness passes**, not "reviewer says it follows the docs". Every
 invariant → ≥1 obligation; every obligation → an invariant.
 
-**Input pack = 4 layers**: constitution · thin kernel contracts · capability mandate (~150 words,
-MUST name that capability's risks — highest leverage per token) · harness. Method + Budget layers
-under test, not canon.
+**Input pack = 6 layers** (ADR-174): constitution · kernel contracts **+ installed-capability
+registry** (mandatory — without it a plan rebuilds what exists) · mandate (~150 words, MUST name
+that capability's risks — highest leverage per token) · **Method (M)** · **Budget (B)** · harness.
+
+**Layer M — method**: M1 reuse intake is a DELIVERABLE (candidate table: license · maintenance ·
+fit · adopt/wrap/adapt/build · rationale; a build verdict needs the table to justify it — stating
+invariant 8 is not executing it) · M2 licence decides, not convenience (AGPL behind a port only,
+never linked; restricted terms ⇒ clean-room, analyst ≠ implementer; never bypass access controls) ·
+M3 artifact class justified by its test, smallest class wins · M4 per-phase evidence names the test
+· M5 cheapest source first, escalation needs a RECORDED trigger (untriggered escalation = governance
+violation, not cost overrun).
+
+**Layer B — budget envelope**: no envelope ⇒ not approvable. Scope (durable caps + explicit
+NOT-stored list) · cost (model calls, tokens, steps where a model call is a TEST FAILURE, tier
+routing, marginal cost) · time (build days per shippable phase, runtime p95, interactive latency).
+Meters live at the PORT layer so an unmeterable call is unmakeable; exhaustion = bounded exit with
+an honestly-partial result, never a silently smaller one; one test per bound; declare the one axis
+you deliberately overspend and why.
 
 **15 invariants**: engine-decided authority (green/amber/red, red never proposed, no self-upgrade
 by rephrasing) · external content is data not instructions (taint forever, unknown fails closed,

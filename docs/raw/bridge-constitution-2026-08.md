@@ -27,11 +27,61 @@ This is the **WHY** layer of a capability input pack. It is paired with an execu
 > traces back to an invariant. A capability is conformant when its harness passes — not when a
 > reviewer judges that it "follows the docs."
 
-An input pack has four layers: **constitution** (this file) · **kernel contract surface** (thin;
-the contracts a capability builds against) · **capability mandate** (~150 words; MUST name the
-capability-specific risks — measured as the highest-leverage layer per token) · **harness**
-(executable obligations). Layers M (method) and B (budget envelope) are under evaluation and are
-not yet canon.
+An input pack has **six layers** (extended 2026-08-04 by ADR-174 after the people-research test):
+
+1. **Constitution** — this file. Why the rules exist.
+2. **Kernel contract surface + installed-capability registry** — the contracts a capability builds
+   against, AND an enumeration of what is already installed. Thin, but the registry is mandatory:
+   without it a capability plan cannot execute invariant 8 and will rebuild what exists.
+3. **Capability mandate** — ~150 words. MUST name the capability-specific risks; measured as the
+   highest-leverage layer per token.
+4. **Method (Layer M)** — how the work is executed, not only what is built. See below.
+5. **Budget envelope (Layer B)** — the scope · cost · time contract. See below.
+6. **Harness** — the executable obligations. Conformance is defined here.
+
+### Layer M — method obligations
+
+- **M1. Reuse intake is a deliverable, not a preamble.** Before designing components, survey
+  open-source repositories, installed platform capabilities, and the capability registry. The plan
+  carries a candidate table: candidate · what it does · license · maintenance signal · fit ·
+  verdict (adopt/wrap/adapt/reject-and-build) · rationale. A *build* verdict is valid only when the
+  table shows why no lawful option was adequate. Stating invariant 8 without executing it does not
+  satisfy M1 — this obligation exists because a plan given only the invariant deferred the intake.
+- **M2. Licensing and terms decide the verdict, not convenience.** Permissive licenses may be
+  imported or wrapped. Copyleft/AGPL may be used behind a port as a service, never linked into the
+  core. Restricted terms, contracts, or access controls invoke the
+  [clean-room protocol](clean-room-capability-research-protocol-2026-07.md): preserve terms and
+  provenance, benchmark observable behavior only, author requirements independently, and the
+  analyst who studied the restricted source does not implement the alternative. Never copy,
+  paraphrase, or translate protected expression; never bypass access controls or rate limits.
+- **M3. Artifact class is justified deliberately.** For every unit, state its class (Module /
+  Agent / Skill / Integration / Automation) and the test that justifies it. Prefer the smallest
+  class that works. A new Agent requires durable identity, a distinct authority/data boundary, an
+  independent eval lifecycle, or an irreducible duty conflict — a workflow, method, report, or
+  source is a Skill.
+- **M4. Every phase carries its own evidence.** Name the test, fixture, or artifact that proves the
+  exit criterion — which test asserts what, not "tests pass".
+- **M5. Cheapest source that answers the question.** Escalate to credentialed or paid sources only
+  on recorded evidence, and record the trigger. An escalation without a recorded trigger is a
+  governance violation, not a cost overrun.
+
+### Layer B — budget envelope
+
+A capability that cannot state its envelope is not approvable. Three axes, with numbers:
+
+- **Scope (storage and memory)** — what persists per subject/entity versus what is discarded after
+  the Run; caps on durable rows and bytes; retention and decay; and an explicit list of what is
+  deliberately **not** stored.
+- **Cost (tokens and money)** — model calls and token budget per Run; the named steps where a model
+  call is a test failure; tier routing (cheap by default, escalation only on a recorded trigger);
+  marginal cost per unit of work at steady state.
+- **Time (build and runtime)** — build effort per phase, each phase shippable standalone in days;
+  runtime wall-clock bound; interactive latency target.
+
+Each budget names the component that owns its meter, what happens at exhaustion (a bounded exit
+with a recorded reason and an honestly-partial result — never a silently smaller one), and the test
+that proves the bound. Bounds are enforced at the port layer, so an unmeterable call is unmakeable.
+Every capability declares which single axis it deliberately overspends, and why the trade is right.
 
 ## The invariants
 
