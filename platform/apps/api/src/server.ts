@@ -279,6 +279,24 @@ export function assertProductionEnv(): void {
     ) {
       invalid.push("public-cloud mode forbids credential vault keys");
     }
+    // At least one REMOTE model provider. `buildPersistentPorts` always registers
+    // LlamaCppProvider and OllamaProvider, but both are Local-Plane runtimes: the
+    // deployed image is plain `node:22-bookworm-slim` with no llama.cpp binary and
+    // no Ollama daemon, and OllamaProvider defaults to http://localhost:11434.
+    // Without an Anthropic or Groq key the container therefore boots "healthy"
+    // with a provider list that cannot serve a single turn — every Agent Run then
+    // fails at its first model call with a connection error instead of the deploy
+    // failing. render.yaml already declares both keys as `sync: false` secrets, so
+    // this asserts the contract that file already assumes.
+    //
+    // Scoped to public-cloud mode ON PURPOSE: a self-hosted production host may
+    // legitimately run a real local Ollama, and asserting there would refuse a
+    // valid deployment.
+    if (!process.env.ANTHROPIC_API_KEY?.trim() && !process.env.GROQ_API_KEY?.trim()) {
+      invalid.push(
+        "ANTHROPIC_API_KEY or GROQ_API_KEY (public-cloud has no local model runtime, so a remote provider is the only one that can answer)",
+      );
+    }
   } else {
     if (process.env.BRIDGE_LOCAL_RESIDENCY !== "encrypted-host-volume") {
       invalid.push("BRIDGE_LOCAL_RESIDENCY=encrypted-host-volume");

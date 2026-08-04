@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T05:34:25.072Z",
+  "generatedAt": "2026-08-04T06:05:17.417Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1155,10 +1155,11 @@
       "outcome": "Every environment variable the API reads in a deployed path is either set in `render.yaml`/the dashboard or fails loudly at boot; no production behaviour is governed by a silent code-level fallback; and the governance gates the kernel resolves are actually persisted.",
       "prototypeTest": "Boot the API with a deliberately incomplete environment and watch it refuse to start (or log an explicit warning naming each unset var) instead of silently using a fallback; write a `policyParams` value, restart the service, and read the same value back.",
       "scope": [
-        "`outputs/2026-08-03-unfinished-work-audit.md` Tier 1. LANDED 2026-08-03 in this task's first pass: the Google OAuth callback no longer redirects to `http://localhost:5173` in production (`google-oauth-routes.ts` now falls back to `renderWebOrigin()`, derived from the already-set `BRIDGE_RENDER_WEB_HOST`, before localhost), and the three `API_RATE_LIMIT_*` vars are pinned explicitly in `render.yaml` at their former hardcoded values. STILL OPEN: (a) `policyParams` is bound to `InMemoryPolicyParamStore` at `wiring.ts:4740` OUTSIDE the persistent/in-memory split, so `router.ts:12912` `resolveGates(...)` always reads defaults and every write dies at restart while a real `policyParams` pgTable sits unused at `packages/db/src/schema.ts:966` — needs a `DrizzlePolicyParamStore` bound in `buildPersistentPorts`",
+        "`outputs/2026-08-03-unfinished-work-audit.md` Tier 1. LANDED 2026-08-03 in this task's first pass: the Google OAuth callback no longer redirects to `http://localhost:5173` in production (`google-oauth-routes.ts` now falls back to `renderWebOrigin()`, derived from the already-set `BRIDGE_RENDER_WEB_HOST`, before localhost), and the three `API_RATE_LIMIT_*` vars are pinned explicitly in `render.yaml` at their former hardcoded values. STILL OPEN: (a) `policyParams` DONE 2026-08-04 (ADR-165) — `DrizzlePolicyParamStore` reads the long-unused `policy_params` table and is bound in both modes",
+        "an unrecognised `param_key` now throws instead of silently resolving the gate to its default, and out-of-range thresholds are refused at the persistence boundary. No write path was added: nothing writes policy params yet (the Variance Adjuster only proposes), and building unused substrate is the very pattern this table demonstrated",
         "(b) `evalStore` DONE 2026-08-04 (ADR-164) — `DrizzleEvalStore` + migration `0036_task034_eval_persistence`, bound in both modes",
         "this was not merely lost data but a silently disabled promotion gate (`capability.approve` skipped its comparison entirely when it could not load both candidate and baseline runs), and the gate can now actually reject",
-        "(c) a boot-time assertion listing every required-in-production env var",
+        "(c) boot-time env assertion DONE 2026-08-04 (ADR-166) — `assertProductionEnv()` already covered most of the contract, so the work was auditing every `process.env` read against `render.yaml` for the remaining gap: public-cloud production now requires `ANTHROPIC_API_KEY` or `GROQ_API_KEY`, because `buildPersistentPorts` unconditionally registers the Local-Plane LlamaCpp/Ollama providers that cannot exist in the deployed `node:22-bookworm-slim` image — without a remote key the container booted healthy and failed every Agent Run at its first model call. NOTE: verify both secrets are populated in the Render dashboard BEFORE the next manual deploy, or boot will now refuse. `SUPABASE_JWT_SECRET`, the `API_RATE_LIMIT_*` trio and the `GOOGLE_*`/`COMMONS_*` vars were checked and are correctly NOT required",
         "(d) `COMMONS_*` vars and the undeployed Commons service."
       ],
       "evidence": [

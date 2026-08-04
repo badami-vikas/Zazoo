@@ -3960,3 +3960,41 @@ settled by the first run after this lands, and the probe is recorded in BUGS.
   `wiring.ts` at all; it remains exported from core for tests. With ADR-164 and this entry, the
   promotion gate now reads real eval history AND the Organization's real thresholds — the first
   configuration where it can genuinely reject a candidate.
+
+## ADR-166 — Public-cloud production must carry a REMOTE model provider key; the always-registered local providers cannot answer there (2026-08-04; TASK-034)
+
+- **Context**: TASK-034 asked for "a boot-time assertion listing every required-in-production env var".
+  `assertProductionEnv()` already existed and was substantial (DATABASE_URL, SUPABASE_URL, origins,
+  pilot identity, residency paths, vault keys and rotation pairs), so the useful question was not "add
+  an assertion" but "which production-required variable does it still MISS". Auditing every
+  `process.env` read against `render.yaml` produced one real gap with a concrete failure mode.
+  `buildPersistentPorts` registers `LlamaCppProvider` and `OllamaProvider` **unconditionally**, adding
+  Anthropic/Groq only when their keys are set. Both unconditional providers are Local-Plane runtimes:
+  the deployed image is plain `node:22-bookworm-slim` with no llama.cpp binary and no Ollama daemon,
+  and `OllamaProvider` defaults to `http://localhost:11434`. So a public-cloud container with neither
+  key boots successfully, passes `/health/ready`, and then fails EVERY Agent Run at its first model
+  call with a connection error. `render.yaml` already declares both keys as `sync: false` secrets —
+  the contract existed, nothing enforced it.
+  Checked and found NOT to be gaps: `SUPABASE_JWT_SECRET` (optional by design — `SUPABASE_URL`, which
+  IS asserted, selects remote-JWKS verification, so a verifier always exists in production and SEC-1
+  fail-closed holds), the `API_RATE_LIMIT_*` trio (real defaults, pinned in `render.yaml`), and the
+  `GOOGLE_*` / `COMMONS_*` variables (absence disables an optional integration rather than breaking a
+  required path).
+- **Decision**: In production **public-cloud mode only**, require at least one of `ANTHROPIC_API_KEY`
+  or `GROQ_API_KEY`. Either alone satisfies it — the requirement is "one provider that can actually
+  answer", not a specific vendor.
+- **Rejected alternatives**: (a) *Assert it for all production* — a self-hosted production host may
+  legitimately run a real local Ollama, and asserting there would refuse a valid deployment. The
+  residency boundary is exactly the right scope line: the assertion says "this container has no local
+  model runtime", which is a fact about the Cloud Plane, not about production. (b) *Stop registering
+  the local providers in public-cloud mode* — cleaner-looking, but it converts a loud boot failure
+  into an empty provider list, i.e. the same silent breakage one layer down. (c) *Probe the providers
+  at readiness instead* — a network probe at boot makes startup depend on a third-party endpoint and
+  would flap; the env contract is checkable without leaving the process.
+- **Consequences**: **This changes deploy behaviour.** A Render deploy whose `ANTHROPIC_API_KEY` and
+  `GROQ_API_KEY` secrets are not actually populated will now refuse to boot instead of coming up
+  non-functional. That is the intended fail-closed direction and matches the container's existing
+  "refuse on incomplete production configuration" contract that CI already asserts, but it must be
+  verified in the Render dashboard before the next manual deploy (`autoDeploy: false`, so nothing
+  ships on merge). The test pins both directions, including the deliberate non-assertion off the
+  public cloud, so a future "tidy-up" that widens the check to all production fails loudly.

@@ -45,6 +45,9 @@ const PUBLIC_CLOUD_PRODUCTION_ENV = {
   BRIDGE_DEALPILOT_CREDENTIAL_VAULT: "disabled",
   BRIDGE_CREDENTIAL_VAULT_KEY_ID: undefined,
   BRIDGE_CREDENTIAL_VAULT_KEY: undefined,
+  // Public-cloud has no local model runtime, so a remote provider key is part of
+  // a COMPLETE public-cloud contract, not an optional extra.
+  ANTHROPIC_API_KEY: "test_fixture_anthropic_key",
 } as const;
 
 function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
@@ -589,4 +592,30 @@ test("/health/ready: reports ready with per-store checks on the in-memory/pglite
   } finally {
     await app.close();
   }
+});
+
+test("assertProductionEnv: public-cloud refuses to boot with no remote model provider, but a self-hosted host may rely on a local one", () => {
+  // The concrete failure this closes: the deployed image is plain
+  // node:22-bookworm-slim, and buildPersistentPorts unconditionally registers
+  // LlamaCppProvider + OllamaProvider (Ollama defaulting to localhost:11434).
+  // Without a remote key the container boots, reports ready, and then fails
+  // EVERY Agent Run at its first model call with a connection error.
+  for (const missing of [
+    { ANTHROPIC_API_KEY: undefined, GROQ_API_KEY: undefined },
+    { ANTHROPIC_API_KEY: "   ", GROQ_API_KEY: undefined },
+  ]) {
+    withEnv({ ...PUBLIC_CLOUD_PRODUCTION_ENV, ...missing }, () => {
+      assert.throws(() => assertProductionEnv(), /ANTHROPIC_API_KEY or GROQ_API_KEY/);
+    });
+  }
+  // Either key alone satisfies it — one working provider is the requirement.
+  withEnv({ ...PUBLIC_CLOUD_PRODUCTION_ENV, ANTHROPIC_API_KEY: undefined, GROQ_API_KEY: "test_fixture_groq_key" }, () => {
+    assert.doesNotThrow(() => assertProductionEnv());
+  });
+  // Deliberately NOT asserted off the public cloud: a self-hosted production
+  // host may run a real local Ollama, and refusing there would reject a valid
+  // deployment. COMPLETE_PRODUCTION_ENV carries no model key at all.
+  withEnv({ ...COMPLETE_PRODUCTION_ENV, ANTHROPIC_API_KEY: undefined, GROQ_API_KEY: undefined }, () => {
+    assert.doesNotThrow(() => assertProductionEnv());
+  });
 });
