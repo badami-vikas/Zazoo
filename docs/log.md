@@ -2686,3 +2686,9 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Added `docs/raw/freelancer-implementation-requirements-2026-07.md` with high-level third-party implementation requirements covering objective, non-negotiable architecture/governance constraints, security/reliability bar, scope boundaries, and definition of done.
 - Added wiki summary `docs/wiki/freelancer-handoff.md` and linked it from `docs/wiki/index.md` for quick navigation.
 - Recorded session outcome in `outputs/2026-07-25-freelancer-implementation-requirements.md`.
+
+## 2026-07-19 — Zazoo alternative homepage experiment (isolated branch)
+
+- Built experimental cinematic homepage at `/alternative-home.html` in `@zazoo/website` on branch `codex/zazoo-alt-home-creative-direction` (never merged; `/` untouched, only vite.config.ts gained a second entry).
+- Four scroll-driven chapters (paradigm patterns → AI-native org → Business AI Infrastructure → Managing Intelligence) with design decisions, 22+-case verified case-study library, contract tests, and headless-Chrome verification (desktop/375px/reduced-motion).
+- Output: outputs/2026-07-19-zazoo-alternative-homepage-experiment.md

@@ -1,0 +1,402 @@
+/* Section 2: 18-24s scroll-linked transformation across six beats,
+   also driven directly by the four controls + "Compare before". */
+.scene--organization {
+  height: 420vh;
+}
+
+.organization-stage {
+  display: grid;
+  grid-template-areas:
+    "copy living"
+    "lines living"
+    "closing living"
+    "controls controls";
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-rows: auto 1fr auto auto;
+  gap: clamp(0.6rem, 2vh, 1.4rem) clamp(1rem, 3vw, 3rem);
+  padding: clamp(1.2rem, 3vw, 2.6rem) clamp(1rem, 4vw, 3.5rem);
+  background:
+    radial-gradient(circle at 78% 30%, rgb(107 124 101 / 7%), transparent 26rem),
+    var(--parchment);
+}
+
+.organization-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  grid-area: copy;
+}
+
+.organization-copy h2 {
+  max-width: 16ch;
+  font-size: clamp(1.7rem, 3.2vw, 3rem);
+}
+
+.organization-copy p {
+  max-width: 44ch;
+  color: var(--body-ink);
+  font-size: clamp(0.98rem, 1.4vw, 1.15rem);
+  line-height: 1.55;
+}
+
+.organization-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  grid-area: lines;
+  align-self: end;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.organization-lines li {
+  max-width: 34ch;
+  color: var(--ink);
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(1.02rem, 1.6vw, 1.3rem);
+  line-height: 1.4;
+}
+
+.organization-closing {
+  grid-area: closing;
+  max-width: 44ch;
+  color: var(--body-ink);
+  font-size: clamp(0.95rem, 1.3vw, 1.1rem);
+}
+
+.organization-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  grid-area: controls;
+  justify-content: center;
+}
+
+.organization-controls button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--body-ink);
+  background: rgb(255 255 255 / 65%);
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: border-color 300ms ease, background 300ms ease, color 300ms ease;
+}
+
+.organization-controls button[aria-pressed="true"] {
+  border-color: var(--sage);
+  color: var(--ink);
+  background: rgb(107 124 101 / 14%);
+}
+
+.organization-controls .organization-compare[aria-pressed="true"] {
+  border-color: var(--body-ink);
+  background: rgb(46 64 87 / 10%);
+}
+
+/* The living organization */
+.org-living {
+  position: relative;
+  grid-area: living;
+  align-self: center;
+  width: 100%;
+  max-width: 620px;
+  aspect-ratio: 6 / 5;
+  margin: 0 auto;
+}
+
+.org-dept {
+  position: absolute;
+  width: 34%;
+  height: 34%;
+}
+
+.org-dept--one {
+  top: 4%;
+  left: 4%;
+}
+
+.org-dept--two {
+  top: 8%;
+  left: 46%;
+}
+
+.org-dept--three {
+  top: 52%;
+  left: 14%;
+}
+
+.org-dept__boundary {
+  position: absolute;
+  inset: 0;
+  border: 2px dashed rgb(46 64 87 / 45%);
+  border-radius: 18px;
+  transition: opacity 900ms ease, border-color 900ms ease;
+}
+
+.organization-stage[data-decisions="true"] .org-dept__boundary {
+  border-color: rgb(107 124 101 / 30%);
+  opacity: 0.35;
+}
+
+.org-worker--0 {
+  top: 16%;
+  left: 12%;
+}
+
+.org-worker--1 {
+  top: 34%;
+  left: 44%;
+}
+
+.org-worker--2 {
+  top: 12%;
+  left: 70%;
+}
+
+.doc-chip--held {
+  top: 8%;
+  left: 34%;
+}
+
+/* Knowledge flows: each held document travels into the shared current. */
+.organization-stage[data-knowledge="true"] .org-dept--one .doc-chip--held {
+  transform: translate(150px, 420px);
+}
+
+.organization-stage[data-knowledge="true"] .org-dept--two .doc-chip--held {
+  transform: translate(30px, 400px);
+}
+
+.organization-stage[data-knowledge="true"] .org-dept--three .doc-chip--held {
+  transform: translate(190px, 175px);
+}
+
+/* Decisions shorten: the hierarchy ladder quiets down, a direct path appears. */
+.org-ladder {
+  position: absolute;
+  top: 10%;
+  right: 2%;
+  width: 16%;
+  height: 62%;
+}
+
+.org-manager--top {
+  top: 0;
+  left: 30%;
+}
+
+.org-manager--mid {
+  top: 48%;
+  left: 30%;
+}
+
+.org-decision-path {
+  position: absolute;
+  top: 10%;
+  left: -46%;
+  width: 60%;
+  height: 74%;
+  background:
+    linear-gradient(var(--body-ink) 2px, transparent 2px) 0 0 / 100% 37% no-repeat,
+    linear-gradient(90deg, var(--body-ink) 2px, transparent 2px) 100% 0 / 2px 74% no-repeat,
+    linear-gradient(var(--body-ink) 2px, transparent 2px) 0 100% / 100% 2px no-repeat;
+  opacity: 0.4;
+  transition: opacity 900ms ease;
+}
+
+.organization-stage[data-decisions="true"] .org-decision-path {
+  opacity: 0.08;
+}
+
+.org-decision-short {
+  position: absolute;
+  top: 46%;
+  left: -270%;
+  width: 250%;
+  height: 2px;
+  background: var(--sage);
+  opacity: 0;
+  transform: scaleX(0.2);
+  transform-origin: right center;
+  transition: opacity 900ms ease, transform 900ms ease;
+}
+
+.organization-stage[data-decisions="true"] .org-decision-short {
+  opacity: 0.8;
+  transform: scaleX(1);
+}
+
+/* Capability compounds: the one success becomes a practice everywhere. */
+.org-success {
+  position: absolute;
+  top: 12%;
+  left: 12%;
+  width: 14px;
+  height: 14px;
+  background: var(--amber);
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+}
+
+.org-practice {
+  position: absolute;
+  top: 60%;
+  left: 16%;
+  width: 12px;
+  height: 12px;
+  background: rgb(196 149 90 / 85%);
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 900ms ease, transform 900ms ease;
+}
+
+.organization-stage[data-capability="true"] .org-practice {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Memory persists: a person leaves the immediate scene; their learning stays. */
+.org-leaver {
+  top: 74%;
+  left: 74%;
+}
+
+.organization-stage[data-memory="true"] .org-leaver {
+  opacity: 0.22;
+  transform: translateX(46px);
+}
+
+.org-memory-chip {
+  position: absolute;
+  top: 88%;
+  left: 66%;
+  width: 18px;
+  height: 24px;
+  border: 1px solid var(--amber);
+  border-radius: 3px;
+  background: rgb(255 255 255 / 92%);
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+.organization-stage[data-memory="true"] .org-memory-chip {
+  opacity: 1;
+}
+
+/* The shared current: a calm paper-toned flow, never a glowing network. */
+.org-current {
+  position: absolute;
+  right: 4%;
+  bottom: 2%;
+  left: 4%;
+  height: 9%;
+  border-radius: 999px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgb(107 124 101 / 18%) 0 34px,
+      rgb(77 126 168 / 14%) 34px 68px
+    );
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+.organization-stage[data-knowledge="true"] .org-current {
+  opacity: 0.55;
+}
+
+.organization-stage[data-settled="true"] .org-current {
+  opacity: 1;
+  animation: current-drift 9s linear infinite;
+}
+
+.scene[data-active="false"] .org-current,
+.organization-stage[data-reduced-motion="true"] .org-current {
+  animation-play-state: paused;
+}
+
+@keyframes current-drift {
+  from {
+    background-position: 0 0;
+  }
+
+  to {
+    background-position: 68px 0;
+  }
+}
+
+/* Outro: one ordinary task leaves the organization toward the next chapter. */
+.org-task-outro {
+  position: absolute;
+  bottom: -6%;
+  left: 48%;
+  width: 14px;
+  height: 18px;
+  border: 1px solid var(--steel);
+  border-radius: 3px;
+  background: #fff;
+  opacity: 0;
+  transition: opacity 900ms ease, transform 1200ms ease;
+}
+
+.organization-stage[data-settled="true"] .org-task-outro {
+  opacity: 1;
+  transform: translateY(26px) scale(1.35);
+}
+
+@media (max-width: 720px) {
+  .scene--organization {
+    height: 330vh;
+  }
+
+  .organization-stage {
+    grid-template-areas:
+      "copy"
+      "living"
+      "lines"
+      "closing"
+      "controls";
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto auto auto;
+    padding: 1rem;
+  }
+
+  .organization-lines {
+    align-self: center;
+  }
+
+  .organization-copy h2 {
+    font-size: 1.35rem;
+  }
+
+  .organization-lines li,
+  .organization-closing {
+    font-size: 0.92rem;
+  }
+
+  .org-living {
+    max-width: 92vw;
+  }
+
+  .organization-controls button {
+    padding: 0.5rem 0.8rem;
+    font-size: 0.85rem;
+  }
+
+  .organization-stage[data-knowledge="true"] .org-dept--one .doc-chip--held {
+    transform: translate(80px, 210px);
+  }
+
+  .organization-stage[data-knowledge="true"] .org-dept--two .doc-chip--held {
+    transform: translate(15px, 200px);
+  }
+
+  .organization-stage[data-knowledge="true"] .org-dept--three .doc-chip--held {
+    transform: translate(100px, 85px);
+  }
+}

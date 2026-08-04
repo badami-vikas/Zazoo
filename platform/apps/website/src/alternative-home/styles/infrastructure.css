@@ -1,0 +1,455 @@
+/* Section 3: 24-30s scroll-controlled story in five scenes.
+   Scene 1 task, scene 2 friction, scene 3 environment change,
+   scene 4 replay, scene 5 zoom out; definition appears last. */
+.scene--infrastructure {
+  height: 560vh;
+}
+
+.infrastructure-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(1.2rem, 3vw, 2.4rem) clamp(1rem, 4vw, 3.5rem);
+  background:
+    radial-gradient(circle at 30% 80%, rgb(196 149 90 / 6%), transparent 26rem),
+    var(--paper);
+}
+
+.infra-task {
+  color: var(--ink);
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(1.3rem, 2.4vw, 2.1rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-align: center;
+  transition: opacity 700ms ease, transform 700ms ease;
+}
+
+.infrastructure-stage[data-scene="5"] .infra-task {
+  opacity: 0.3;
+  transform: scale(0.8);
+}
+
+/* The world around one employee and one task */
+.infra-world {
+  position: relative;
+  flex: 1;
+  width: min(92vw, 760px);
+  min-height: 0;
+  transition: transform 1000ms ease;
+}
+
+.infrastructure-stage[data-scene="5"] .infra-world {
+  transform: scale(0.94);
+}
+
+.infra-employee {
+  top: 46%;
+  left: 42%;
+  width: 34px;
+  height: 66px;
+}
+
+.infra-employee .alt-person__head {
+  width: 20px;
+  height: 20px;
+}
+
+.infra-employee .alt-person__body {
+  top: 23px;
+  width: 27px;
+  height: 40px;
+  background: var(--steel);
+}
+
+.infra-card {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 104px;
+  padding: 12px 10px;
+  border: 1.5px solid var(--body-ink);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgb(26 43 60 / 10%);
+}
+
+.infra-card span {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+}
+
+.infra-card span:first-child {
+  width: 62%;
+  background: var(--steel-soft);
+}
+
+/* Friction: each question bends the path into a small detour. */
+.infra-detour {
+  --detour-angle: calc(var(--question-index) * 60deg + 12deg);
+
+  position: absolute;
+  top: calc(46% + sin(var(--detour-angle)) * 34%);
+  left: calc(46% + cos(var(--detour-angle)) * 38%);
+  width: 54px;
+  height: 54px;
+  opacity: 0;
+  transition: opacity 700ms ease;
+}
+
+.infrastructure-stage[data-scene="2"] .infra-detour,
+.infrastructure-stage[data-scene="3"] .infra-detour {
+  opacity: 0.85;
+}
+
+.infra-detour__loop {
+  position: absolute;
+  inset: 0;
+  border: 2px dashed rgb(46 64 87 / 55%);
+  border-radius: 50% 50% 50% 8px;
+}
+
+.infra-detour__mark {
+  position: absolute;
+  top: 32%;
+  left: 32%;
+  width: 36%;
+  height: 36%;
+  border: 2px solid rgb(46 64 87 / 65%);
+  border-radius: 50%;
+  background:
+    linear-gradient(var(--body-ink) 1.5px, transparent 1.5px) 50% 22% / 1.5px 32% no-repeat,
+    linear-gradient(90deg, var(--body-ink) 1.5px, transparent 1.5px) 52% 48% / 26% 1.5px no-repeat;
+}
+
+.infra-detour--1 .infra-detour__mark,
+.infra-detour--3 .infra-detour__mark {
+  border-radius: 3px;
+  background: linear-gradient(var(--border) 2px, transparent 2px) 3px 5px / 70% 5px repeat-y;
+}
+
+/* A question traced in the first pass: its detour is emphasized. */
+.infrastructure-stage[data-question="0"] .infra-detour--0,
+.infrastructure-stage[data-question="1"] .infra-detour--1,
+.infrastructure-stage[data-question="2"] .infra-detour--2,
+.infrastructure-stage[data-question="3"] .infra-detour--3,
+.infrastructure-stage[data-question="4"] .infra-detour--4,
+.infrastructure-stage[data-question="5"] .infra-detour--5 {
+  opacity: 1;
+  filter: none;
+}
+
+.infrastructure-stage[data-question="0"] .infra-detour--0 .infra-detour__loop,
+.infrastructure-stage[data-question="1"] .infra-detour--1 .infra-detour__loop,
+.infrastructure-stage[data-question="2"] .infra-detour--2 .infra-detour__loop,
+.infrastructure-stage[data-question="3"] .infra-detour--3 .infra-detour__loop,
+.infrastructure-stage[data-question="4"] .infra-detour--4 .infra-detour__loop,
+.infrastructure-stage[data-question="5"] .infra-detour--5 .infra-detour__loop {
+  border-color: var(--amber);
+}
+
+/* The environment, changed: knowledge, ownership, decisions, approvals,
+   people, and quiet companions come within reach. */
+.infra-environment {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+.infrastructure-stage[data-scene="3"] .infra-environment,
+.infrastructure-stage[data-scene="4"] .infra-environment,
+.infrastructure-stage[data-scene="5"] .infra-environment {
+  opacity: 1;
+}
+
+.infra-shelf {
+  position: absolute;
+  top: 30%;
+  left: 16%;
+  width: 64px;
+  height: 46px;
+  border-radius: 6px;
+  background:
+    linear-gradient(var(--sage) 3px, transparent 3px) 0 12px / 100% 16px repeat-y,
+    rgb(107 124 101 / 12%);
+}
+
+.infra-owner-flag {
+  position: absolute;
+  top: 34%;
+  left: 66%;
+  width: 16px;
+  height: 26px;
+  background: var(--sage);
+  clip-path: polygon(0 0, 100% 0, 100% 72%, 50% 100%, 0 72%);
+}
+
+.infra-decision-cards {
+  position: absolute;
+  top: 62%;
+  left: 20%;
+  width: 52px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 6px -6px 0 -1px var(--parchment), 6px -6px 0 0 var(--border);
+}
+
+.infra-approval-path {
+  position: absolute;
+  top: 24%;
+  left: 44%;
+  width: 2px;
+  height: 18%;
+  background: var(--sage);
+}
+
+.infra-approval-path::after {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: -5px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--sage);
+  border-radius: 50%;
+  background: #fff;
+}
+
+.infra-colleague--one {
+  top: 58%;
+  left: 66%;
+}
+
+.infra-colleague--two {
+  top: 22%;
+  left: 30%;
+}
+
+.infra-companion {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--amber);
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+}
+
+.infra-companion--one {
+  top: 50%;
+  left: 58%;
+}
+
+.infra-companion--two {
+  top: 68%;
+  left: 44%;
+}
+
+.infra-boundary {
+  position: absolute;
+  top: 44%;
+  left: 40%;
+  width: 26%;
+  height: 34%;
+  border: 1.5px dashed rgb(107 124 101 / 55%);
+  border-radius: 20px;
+}
+
+/* The two routes of the same task */
+.infra-route {
+  position: absolute;
+  top: 52%;
+  left: 8%;
+  width: 84%;
+  height: 3px;
+  transition: opacity 900ms ease;
+}
+
+.infra-route--tangled {
+  background: repeating-linear-gradient(90deg, rgb(46 64 87 / 45%) 0 10px, transparent 10px 16px);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+  transform: rotate(-2deg);
+  opacity: 0;
+}
+
+.infrastructure-stage[data-scene="2"] .infra-route--tangled,
+.infrastructure-stage[data-scene="3"] .infra-route--tangled {
+  opacity: 0.8;
+}
+
+.infra-route--clear {
+  background: linear-gradient(90deg, rgb(107 124 101 / 20%), var(--sage), rgb(107 124 101 / 20%));
+  opacity: 0;
+}
+
+.infrastructure-stage[data-scene="4"] .infra-route--clear,
+.infrastructure-stage[data-scene="5"] .infra-route--clear {
+  opacity: 1;
+}
+
+.infrastructure-stage[data-question]:not([data-question="none"])[data-scene="4"] .infra-route--clear,
+.infrastructure-stage[data-question]:not([data-question="none"])[data-scene="5"] .infra-route--clear {
+  height: 5px;
+  background: linear-gradient(90deg, rgb(196 149 90 / 30%), var(--amber), rgb(196 149 90 / 30%));
+}
+
+/* Zoom out: hundreds of calm work paths over one shared environment. */
+.infra-grid {
+  position: absolute;
+  inset: 4% 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8%;
+  opacity: 0;
+  transition: opacity 1000ms ease;
+}
+
+.infrastructure-stage[data-scene="5"] .infra-grid {
+  opacity: 1;
+}
+
+.infra-grid span {
+  position: relative;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 65%);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.infra-grid span i {
+  position: absolute;
+  top: 50%;
+  right: 14%;
+  left: 14%;
+  height: 2px;
+  background: var(--sage);
+  opacity: 0.7;
+}
+
+/* Friction questions are real buttons arranged around the work. */
+.infra-questions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  max-width: 900px;
+}
+
+.infra-questions button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--body-ink);
+  background: rgb(255 255 255 / 78%);
+  font-size: 0.92rem;
+  font-weight: 500;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 600ms ease, transform 600ms ease, border-color 300ms ease;
+}
+
+.infra-questions button[data-emerged="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.infra-questions button[aria-pressed="true"] {
+  border-color: var(--amber);
+  color: var(--ink);
+  background: rgb(196 149 90 / 14%);
+}
+
+/* The definition, displayed only after the replay.
+   pointer-events gate: while hidden it must never block the question buttons. */
+.infra-definition {
+  pointer-events: none;
+  position: absolute;
+  right: clamp(1rem, 6vw, 5rem);
+  bottom: clamp(4.2rem, 9vh, 6rem);
+  left: clamp(1rem, 6vw, 5rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  align-items: center;
+  padding: clamp(1rem, 2.5vw, 2rem);
+  border-radius: 22px;
+  text-align: center;
+  background: rgb(250 249 245 / 92%);
+  box-shadow: 0 18px 60px rgb(26 43 60 / 10%);
+  backdrop-filter: blur(6px);
+}
+
+.infra-definition[data-revealed="true"] {
+  pointer-events: auto;
+}
+
+.infra-definition h2 {
+  font-size: clamp(1.5rem, 2.6vw, 2.4rem);
+}
+
+.infra-definition__lead {
+  max-width: 52ch;
+  color: var(--ink);
+  font-size: clamp(1rem, 1.5vw, 1.2rem);
+}
+
+.infra-definition__supporting {
+  max-width: 66ch;
+  color: var(--body-ink);
+  font-size: clamp(0.9rem, 1.2vw, 1rem);
+}
+
+.infra-definition__contrast {
+  color: var(--ink);
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(1rem, 1.5vw, 1.25rem);
+}
+
+.infra-definition__closing {
+  max-width: 56ch;
+  color: var(--body-ink);
+  font-size: clamp(0.95rem, 1.3vw, 1.1rem);
+}
+
+@media (max-width: 720px) {
+  .scene--infrastructure {
+    height: 430vh;
+  }
+
+  .infra-world {
+    width: 94vw;
+  }
+
+  .infra-detour {
+    width: 38px;
+    height: 38px;
+  }
+
+  .infra-questions button {
+    padding: 0.45rem 0.7rem;
+    font-size: 0.8rem;
+  }
+
+  .infra-definition {
+    right: 0.6rem;
+    bottom: 3.6rem;
+    left: 0.6rem;
+    gap: 0.35rem;
+    padding: 0.9rem;
+  }
+
+  .infra-definition__supporting {
+    font-size: 0.8rem;
+  }
+
+  .infra-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
