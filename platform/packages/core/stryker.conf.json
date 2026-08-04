@@ -1,7 +1,7 @@
 {
   "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "_comment": [
-    "Mutation testing for the governance-critical core (ADR-163). This is the",
+    "Mutation testing for the governance-critical core (ADR-167). This is the",
     "systematic form of the 2026-08-03 audit's hand-check: it edits production code",
     "(&& -> ||, > -> >=, returns -> null) and reports every mutant NO test noticed.",
     "A surviving mutant is a test-suite blind spot on the exact line it mutated —",

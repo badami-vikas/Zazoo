@@ -229,7 +229,11 @@ import {
 import {
   acceptSuggestion as acceptLearningSuggestion,
   digestSignals as digestLearningSignals,
+  generalizeLearnedPreferences,
+  isLearningObservationEntry,
+  seedSuggestionsFromArchetypes,
   listSuggestions as listLearningSuggestions,
+  preferencesToMemorySnippets,
   recordSignal as recordLearningSignal,
   rejectSuggestion as rejectLearningSuggestion,
   retrieveLearnedPreferences,
@@ -794,6 +798,7 @@ export function anchorLineageKey(anchor: RedFlagAnchor): string {
  * state (e.g. "the ledger append succeeded but the outcome CAS never ran")
  * without needing a real, hard-to-trigger-on-demand process crash. */
 import { deterministicUuid } from "./deterministic-uuid.js";
+import { fusedChatMemory } from "./retrieval-fusion.js";
 export { deterministicUuid };
 
 /**
@@ -4362,7 +4367,20 @@ async function assembleChatCompletion(
       ? CHAT_LLAMA_PUBLIC_RESPONSE_SCHEMA
       : CHAT_PUBLIC_RESPONSE_SCHEMA;
 
-  const memoryRows = isCloud
+  // LA5 retrieval fusion (flight-gated, Local Plane only): the memory slot
+  // is filled by structured+vector+graph RRF fusion instead of the naive
+  // newest-8 slice. Flight off → the pre-fusion behavior below, unchanged.
+  const fusion = !isCloud && ctx.wiring.retrievalFusionEnabled
+    ? await fusedChatMemory({
+        memoryStore: ctx.wiring.memoryStore,
+        vectorIndex: ctx.wiring.vectorIndex,
+        graphStore: ctx.wiring.graphStore,
+        organizationId: thread.organizationId,
+        ownerUserId: thread.ownerUserId,
+        query: message,
+      })
+    : null;
+  const memoryRows = isCloud || fusion
     ? []
     : await ctx.wiring.memoryStore.retrieve(
         { limit: 8 },
@@ -4370,13 +4388,33 @@ async function assembleChatCompletion(
       );
   const selectedMemory = memoryRows
     .filter((entry) => entry.plane === "local")
+    // Learning-loop rows are stored as JSON machinery (signals, suggestion
+    // lineages, minted preferences) — never prompt-ready text. Preferences
+    // reach the model below as statements; signals/suggestions never do.
+    .filter((entry) => !isLearningObservationEntry(entry))
     .slice(0, 5);
-  const memory = selectedMemory.map((entry) => ({
-    source: `memory:${entry.id}`,
-    text: entry.content.slice(0, 4_000),
-    score: entry.confidence,
-    trustOrigin: entry.trustOrigin,
-  }));
+  const memory = fusion
+    ? fusion.snippets
+    : selectedMemory.map((entry) => ({
+        source: `memory:${entry.id}`,
+        text: entry.content.slice(0, 4_000),
+        score: entry.confidence,
+        trustOrigin: entry.trustOrigin,
+      }));
+  // TASK-032 prototype-test clause "accepting mints one preference whose
+  // statement reaches projectToSystemPrompt output" — accepted preferences
+  // (the ONLY rows acceptSuggestion mints, Human-gated) project into the
+  // run-context memory slot. Flight-gated and Local-Plane only: the flight
+  // off means learned preferences influence nothing, and the cloud consent
+  // boundary never sees them.
+  const learnedPreferences = isCloud || !ctx.wiring.learningObservationEnabled
+    ? []
+    : (await retrieveLearnedPreferences(
+        ctx.wiring.memoryStore,
+        { organizationId: thread.organizationId, userId: thread.ownerUserId },
+      )).slice(0, 5);
+  const preferenceSnippets = preferencesToMemorySnippets(learnedPreferences);
+  const combinedMemory = [...preferenceSnippets, ...memory];
 
   const runContext = assembleRunContext(
     {
@@ -4397,7 +4435,7 @@ async function assembleChatCompletion(
         approvalRequirement: "explicit_human",
         trustGrants: [],
       },
-      memory,
+      memory: combinedMemory,
       conversationHistory: history,
       outputContract: {
         description: canCreateTask
@@ -4413,15 +4451,24 @@ async function assembleChatCompletion(
     `chat:${thread.id}:request`,
     message,
   );
-  const memoryTaints = selectedMemory.map(
-    (entry) =>
-      entry.taintLabel ??
-      labelFromLegacyTrustOrigin(entry.trustOrigin, `memory:${entry.id}`),
+  const memoryTaints = fusion
+    ? fusion.taints
+    : selectedMemory.map(
+        (entry) =>
+          entry.taintLabel ??
+          labelFromLegacyTrustOrigin(entry.trustOrigin, `memory:${entry.id}`),
+      );
+  // acceptSuggestion always writes preferences with trustOrigin
+  // "user_content" and no explicit label, so the legacy mapping here is
+  // exactly what the stored rows carry.
+  const preferenceTaints = learnedPreferences.map((preference) =>
+    labelFromLegacyTrustOrigin("user_content", `memory:${preference.memoryId}`),
   );
   const taintLabel = joinTaintLabels(
     currentTaint,
     ...history.map((segment) => segment.taintLabel),
     ...memoryTaints,
+    ...preferenceTaints,
   );
   const system = projectToSystemPrompt(runContext);
   const request = {
@@ -4457,7 +4504,7 @@ async function assembleChatCompletion(
       system: request.system,
       currentMessage: message,
       history: history.map(({ role, content, dataScope }) => ({ role, content, dataScope })),
-      memory: memory.map(({ source, text }) => ({ source, text })),
+      memory: combinedMemory.map(({ source, text }) => ({ source, text })),
       surface: resolvedChatSurface(surface),
     },
   };
@@ -5284,6 +5331,20 @@ function assertLearningFlightEnabled(ctx: { wiring: Pick<Wiring, "learningObserv
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message: "learning observation flight is disabled (BRIDGE_LEARNING_OBSERVATION)",
+    });
+  }
+}
+
+/** Commons-archetype procedures need BOTH flights: the learning loop (the
+ * rows being generalized/seeded are its rows) AND the archetypes flight. */
+function assertArchetypesFlightEnabled(
+  ctx: { wiring: Pick<Wiring, "learningObservationEnabled" | "commonsArchetypesEnabled"> },
+): void {
+  assertLearningFlightEnabled(ctx);
+  if (!ctx.wiring.commonsArchetypesEnabled) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "commons archetypes flight is disabled (BRIDGE_COMMONS_ARCHETYPES)",
     });
   }
 }
@@ -12260,6 +12321,112 @@ export const appRouter = t.router({
             input.moduleId,
           );
           return { preferences };
+        }),
+    }),
+
+    /** Commons capability archetypes (roadmap-v2 Phase 4). Contribution is
+     * generalize-then-Human-publish: `preview` derives candidates locally
+     * and sends NOTHING; only the explicit `contribute` mutation publishes,
+     * and the payload is generalized fields only (screened source-side AND
+     * by the Commons server's privacy gate). `seed` is the consume half —
+     * archetypes become PROPOSED suggestions on the ordinary lineage
+     * machinery (suggested-then-accepted holds; a rejection suppresses). */
+    archetypes: t.router({
+      preview: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            moduleId: z.string().min(1).default("dealpilot"),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertArchetypesFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const preferences = await retrieveLearnedPreferences(
+            ctx.wiring.memoryStore,
+            { organizationId: input.organizationId, userId: ctx.identity.id },
+            input.moduleId,
+          );
+          return { candidates: generalizeLearnedPreferences(preferences, input.moduleId) };
+        }),
+
+      contribute: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            moduleId: z.string().min(1).default("dealpilot"),
+            /** Candidate names the Human approved for publishing. Empty is
+             * NOT "publish everything" — contribution is per-archetype
+             * explicit. */
+            names: z.array(z.string().min(1)).min(1),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertArchetypesFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const publishArchetype = ctx.wiring.commonsRegistry.publishArchetype?.bind(
+            ctx.wiring.commonsRegistry,
+          );
+          if (!publishArchetype) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "the configured Commons deployment does not support archetypes",
+            });
+          }
+          const preferences = await retrieveLearnedPreferences(
+            ctx.wiring.memoryStore,
+            { organizationId: input.organizationId, userId: ctx.identity.id },
+            input.moduleId,
+          );
+          const candidates = generalizeLearnedPreferences(preferences, input.moduleId);
+          const requested = new Set(input.names);
+          const selected = candidates.filter((candidate) => requested.has(candidate.name));
+          if (selected.length === 0) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "no matching archetype candidates" });
+          }
+          const published: Array<{ name: string; contentHash: string }> = [];
+          for (const candidate of selected) {
+            try {
+              published.push(await publishArchetype(candidate, { tags: [input.moduleId] }));
+            } catch (error) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: error instanceof Error ? error.message : "archetype publish failed",
+              });
+            }
+          }
+          return { published };
+        }),
+
+      seed: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            moduleId: z.string().min(1).default("dealpilot"),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertArchetypesFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const listArchetypes = ctx.wiring.commonsRegistry.listArchetypes?.bind(
+            ctx.wiring.commonsRegistry,
+          );
+          if (!listArchetypes) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "the configured Commons deployment does not support archetypes",
+            });
+          }
+          const { archetypes } = await listArchetypes({ domain: input.moduleId });
+          const seeded = await seedSuggestionsFromArchetypes(ctx.wiring.memoryStore, {
+            organizationId: input.organizationId,
+            ownerUserId: ctx.identity.id,
+            moduleId: input.moduleId,
+            archetypes: archetypes.map((entry) => entry.archetype),
+            nextId: () => ctx.run.ids.next(),
+            lineageIdFor: deterministicUuid,
+          });
+          return { seeded };
         }),
     }),
   }),

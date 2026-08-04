@@ -1,5 +1,5 @@
 /**
- * DrizzlePolicyParamStore against a real Postgres (PGlite), ADR-165.
+ * DrizzlePolicyParamStore against a real Postgres (PGlite), ADR-169.
  *
  * The consumer is `router.ts`'s `resolveGates(await policyParams.get(org))` —
  * the promotion gate's thresholds. Two properties matter more than CRUD here:

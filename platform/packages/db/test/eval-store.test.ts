@@ -1,5 +1,5 @@
 /**
- * DrizzleEvalStore against a real Postgres (PGlite), ADR-164.
+ * DrizzleEvalStore against a real Postgres (PGlite), ADR-168.
  *
  * The point of these tests is not CRUD coverage — it is the one property the
  * in-memory binding could never have: an eval run written before a restart is

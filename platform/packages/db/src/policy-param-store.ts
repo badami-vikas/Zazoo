@@ -1,11 +1,11 @@
 /**
  * DrizzlePolicyParamStore — binds @bridge/core's `PolicyParamStore` port
  * (policy/params.ts) to the `policy_params` table, which has existed in
- * schema.ts since the VAR-1 batch with no reader at all (ADR-165).
+ * schema.ts since the VAR-1 batch with no reader at all (ADR-169).
  *
  * Why it matters now: the port's single consumer is `router.ts`'s
  * `resolveGates(await ctx.wiring.policyParams.get(organizationId))` — the
- * promotion gate's thresholds. Until ADR-164 that gate could not run at all
+ * promotion gate's thresholds. Until ADR-168 that gate could not run at all
  * (no eval history survived a restart), so a defaults-only param store was
  * invisible. Now the gate runs, and it must read the Organization's ACTUAL
  * thresholds rather than a hard-coded copy of the defaults.

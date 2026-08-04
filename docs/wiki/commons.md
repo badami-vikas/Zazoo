@@ -7,6 +7,7 @@ Commons = signed registry of generalized Modules, Blueprints, Skills, Integratio
 - Publish privacy gate scans raw payload before parse. Reject personal IDs, emails, secrets, tokens, Field values, raw captures, Organization-specific content; return exact offending paths.
 - Marketplace = optional website discovery surface. App consumes installed Modules only. Install still passes signature, dependency, risk, lethal-trifecta, authority, and approval checks.
 - Registry starts honest/empty. Built-ins publish as generalized signed entries. No personal Memory.
+- Capability archetypes (roadmap-v2 Phase 4, TASK-033/ADR-163): `GET/POST /v1/archetypes`. Generalized preference patterns only (domain/action/attribute + banded support; deterministic name = many-workspace dedupe, first writer wins). Same privacy gate + Ed25519 signing. Client drops unverified entries. Contribution = per-archetype Human action behind `BRIDGE_COMMONS_ARCHETYPES`; consumption = seeds PROPOSED suggestions on the learning lineage (never auto-applied).
 - CM0 wire client/API consumption. CM1 signature/hash/publisher/security scan before corpus ingest.
 - Content hash: canonical manifest + provenance + scan. No hash recursion.
 - Provenance: six closed fields. Extra trust metadata rejected.

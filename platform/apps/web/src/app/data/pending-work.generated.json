@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T06:05:17.417Z",
+  "generatedAt": "2026-08-04T06:49:19.759Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1123,27 +1123,28 @@
     },
     {
       "id": "TASK-033",
-      "title": "TASK-033 — Secrets-at-rest and multi-tenancy security block",
-      "status": "pending",
-      "priority": "P1",
+      "title": "TASK-033 — Universal Commons capability archetypes (roadmap-v2 Phase 4)",
+      "status": "in-progress",
+      "priority": "P2",
       "horizon": "Core Modules",
-      "outcome": "No credential is stored in plaintext anywhere on the Local Plane, every Organization-scoped procedure verifies membership at the SQL boundary rather than trusting a client-supplied id, RLS is present in the tracked migrations that ship it, and no verification flag can be set by an unverified path.",
-      "prototypeTest": "A local pglite inspection after a Google connect shows the OAuth access and refresh tokens encrypted at rest (no readable token substring in the file); a cross-Organization call to each membership-surface procedure returns FORBIDDEN in a test that would have passed before; a fresh migration run shows RLS enabled and forced on every Organization-scoped table; and no code path sets `phoneVerified` without a real verification.",
+      "outcome": "The Universal Commons carries capability archetypes (roadmap-v2 Phase 4) — a workspace's accepted learned preferences can be generalized into personal-data-free archetype candidates and, only on an explicit per-archetype Human action, published to the Commons; a brand-new workspace can seed those archetypes as PROPOSED learning suggestions on the ordinary suggested-then-accepted lineage machinery, so every new workspace starts smarter without any prior user's private data leaving its machine.",
+      "prototypeTest": "Workspace A accepts a repeated-dismissal preference; preview derives one generalized candidate (no ids, no evidence refs, no user text — the organization-data gate finds nothing); contribute publishes exactly the Human-approved names; a FRESH workspace B with zero signals seeds the archetype as one proposed suggestion, mints nothing until the Human accepts, re-seed proposes nothing (same lineage), and a rejection permanently suppresses the pattern; a personal-shaped attribute value never leaves preview; the Commons server rejects an organization-shaped payload with offendingPaths; either flight off fails every archetypes procedure closed.",
       "scope": [
-        "docs/BUGS.md OPEN 2026-07-08 SECURITY M1-M6 (RLS absent from tracked migrations, `workspace.inviteMember`/`listMembers`/`create` lacking membership checks, Recon SSRF, dummy phone-OTP feeding `phoneVerified`, missing log redaction, client-asserted `linkedin` verification) plus the OPEN 2026-07-08 plaintext OAuth token storage in local pglite. The dealpilot `encrypted-file-credentials.ts` AES-256-GCM vault already exists and is the obvious reuse target — this is also the forcing function for the `@bridge/credentials` extraction listed in TASK-031."
-      ],
-      "evidence": [
-        "`outputs/2026-08-03-unfinished-work-audit.md` Tier 0.3. These entries have sat OPEN in the bug ledger since 2026-07-08 with no owning task, which is why they never surfaced in the execution queue."
+        "docs/raw/roadmap-v2-universal-commons.md §Universal Commons + §Phase 4 (+ closing light-egg directive)",
+        "outputs/2026-08-01-deal-copilot-agentic-freelancer-requirements.md §7.4 (Commons cross-workspace archetype mining)."
       ],
       "requests": [
-        "user directive 2026-08-03 (resolve the unfinished-work audit findings)"
+        "user directive 2026-08-04 (this session): audit the Egg/Commons plans for gaps and implement them next."
       ],
-      "approval": "none (bug-fix work; any schema/migration change made here is Tier C and needs its own row)",
-      "dependencies": [],
-      "canonicalStatus": "ready",
+      "approval": "none required yet — the Commons contract change is ADDITIVE (optional methods; existing deployments/mocks unaffected), all behavior is double-flight-gated OFF by default, and contribution egress is Human-explicit per archetype. Archetype UI (preview/contribute/seed surfaces) and aggregation semantics (support-band merging across many workspaces) are follow-ups.",
+      "dependencies": [
+        "TASK-032 (accepted preferences are the generalization source",
+        "suggestion lineage machinery is the seed target)."
+      ],
+      "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 499,
+      "sourceLine": 503,
       "rank": 33
     },
     {
@@ -1155,11 +1156,11 @@
       "outcome": "Every environment variable the API reads in a deployed path is either set in `render.yaml`/the dashboard or fails loudly at boot; no production behaviour is governed by a silent code-level fallback; and the governance gates the kernel resolves are actually persisted.",
       "prototypeTest": "Boot the API with a deliberately incomplete environment and watch it refuse to start (or log an explicit warning naming each unset var) instead of silently using a fallback; write a `policyParams` value, restart the service, and read the same value back.",
       "scope": [
-        "`outputs/2026-08-03-unfinished-work-audit.md` Tier 1. LANDED 2026-08-03 in this task's first pass: the Google OAuth callback no longer redirects to `http://localhost:5173` in production (`google-oauth-routes.ts` now falls back to `renderWebOrigin()`, derived from the already-set `BRIDGE_RENDER_WEB_HOST`, before localhost), and the three `API_RATE_LIMIT_*` vars are pinned explicitly in `render.yaml` at their former hardcoded values. STILL OPEN: (a) `policyParams` DONE 2026-08-04 (ADR-165) — `DrizzlePolicyParamStore` reads the long-unused `policy_params` table and is bound in both modes",
+        "`outputs/2026-08-03-unfinished-work-audit.md` Tier 1. LANDED 2026-08-03 in this task's first pass: the Google OAuth callback no longer redirects to `http://localhost:5173` in production (`google-oauth-routes.ts` now falls back to `renderWebOrigin()`, derived from the already-set `BRIDGE_RENDER_WEB_HOST`, before localhost), and the three `API_RATE_LIMIT_*` vars are pinned explicitly in `render.yaml` at their former hardcoded values. STILL OPEN: (a) `policyParams` DONE 2026-08-04 (ADR-169) — `DrizzlePolicyParamStore` reads the long-unused `policy_params` table and is bound in both modes",
         "an unrecognised `param_key` now throws instead of silently resolving the gate to its default, and out-of-range thresholds are refused at the persistence boundary. No write path was added: nothing writes policy params yet (the Variance Adjuster only proposes), and building unused substrate is the very pattern this table demonstrated",
-        "(b) `evalStore` DONE 2026-08-04 (ADR-164) — `DrizzleEvalStore` + migration `0036_task034_eval_persistence`, bound in both modes",
+        "(b) `evalStore` DONE 2026-08-04 (ADR-168) — `DrizzleEvalStore` + migration `0036_task034_eval_persistence`, bound in both modes",
         "this was not merely lost data but a silently disabled promotion gate (`capability.approve` skipped its comparison entirely when it could not load both candidate and baseline runs), and the gate can now actually reject",
-        "(c) boot-time env assertion DONE 2026-08-04 (ADR-166) — `assertProductionEnv()` already covered most of the contract, so the work was auditing every `process.env` read against `render.yaml` for the remaining gap: public-cloud production now requires `ANTHROPIC_API_KEY` or `GROQ_API_KEY`, because `buildPersistentPorts` unconditionally registers the Local-Plane LlamaCpp/Ollama providers that cannot exist in the deployed `node:22-bookworm-slim` image — without a remote key the container booted healthy and failed every Agent Run at its first model call. NOTE: verify both secrets are populated in the Render dashboard BEFORE the next manual deploy, or boot will now refuse. `SUPABASE_JWT_SECRET`, the `API_RATE_LIMIT_*` trio and the `GOOGLE_*`/`COMMONS_*` vars were checked and are correctly NOT required",
+        "(c) boot-time env assertion DONE 2026-08-04 (ADR-170) — `assertProductionEnv()` already covered most of the contract, so the work was auditing every `process.env` read against `render.yaml` for the remaining gap: public-cloud production now requires `ANTHROPIC_API_KEY` or `GROQ_API_KEY`, because `buildPersistentPorts` unconditionally registers the Local-Plane LlamaCpp/Ollama providers that cannot exist in the deployed `node:22-bookworm-slim` image — without a remote key the container booted healthy and failed every Agent Run at its first model call. NOTE: verify both secrets are populated in the Render dashboard BEFORE the next manual deploy, or boot will now refuse. `SUPABASE_JWT_SECRET`, the `API_RATE_LIMIT_*` trio and the `GOOGLE_*`/`COMMONS_*` vars were checked and are correctly NOT required",
         "(d) `COMMONS_*` vars and the undeployed Commons service."
       ],
       "evidence": [
@@ -1173,7 +1174,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 512,
+      "sourceLine": 529,
       "rank": 34
     },
     {
@@ -1203,7 +1204,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 525,
+      "sourceLine": 542,
       "rank": 35
     },
     {
@@ -1230,7 +1231,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 538,
+      "sourceLine": 555,
       "rank": 36
     },
     {
@@ -1264,8 +1265,33 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 553,
+      "sourceLine": 571,
       "rank": 37
+    },
+    {
+      "id": "TASK-038",
+      "title": "TASK-038 — Secrets-at-rest and multi-tenancy security block",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Core Modules",
+      "outcome": "No credential is stored in plaintext anywhere on the Local Plane, every Organization-scoped procedure verifies membership at the SQL boundary rather than trusting a client-supplied id, RLS is present in the tracked migrations that ship it, and no verification flag can be set by an unverified path.",
+      "prototypeTest": "A local pglite inspection after a Google connect shows the OAuth access and refresh tokens encrypted at rest (no readable token substring in the file); a cross-Organization call to each membership-surface procedure returns FORBIDDEN in a test that would have passed before; a fresh migration run shows RLS enabled and forced on every Organization-scoped table; and no code path sets `phoneVerified` without a real verification.",
+      "scope": [
+        "docs/BUGS.md OPEN 2026-07-08 SECURITY M1-M6 (RLS absent from tracked migrations, `workspace.inviteMember`/`listMembers`/`create` lacking membership checks, Recon SSRF, dummy phone-OTP feeding `phoneVerified`, missing log redaction, client-asserted `linkedin` verification) plus the OPEN 2026-07-08 plaintext OAuth token storage in local pglite. The dealpilot `encrypted-file-credentials.ts` AES-256-GCM vault already exists and is the obvious reuse target — this is also the forcing function for the `@bridge/credentials` extraction listed in TASK-031."
+      ],
+      "evidence": [
+        "`outputs/2026-08-03-unfinished-work-audit.md` Tier 0.3. These entries have sat OPEN in the bug ledger since 2026-07-08 with no owning task, which is why they never surfaced in the execution queue."
+      ],
+      "requests": [
+        "user directive 2026-08-03 (resolve the unfinished-work audit findings)"
+      ],
+      "approval": "none (bug-fix work; any schema/migration change made here is Tier C and needs its own row)",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 516,
+      "rank": 38
     }
   ]
 }

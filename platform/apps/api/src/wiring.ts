@@ -47,6 +47,7 @@ import {
   InMemoryOnboardingProfileStore,
   MemoryBackedOnboardingProfileStore,
   type MemoryStore,
+  type VectorIndex,
   type MemoryAuthScope,
   type MemoryEntry,
   InMemoryGoalTaskStore,
@@ -153,6 +154,7 @@ import {
   DrizzleOrganizationDefinitionStore,
   DrizzleModuleStore,
   DrizzleMemoryStore,
+  DrizzleVectorIndex,
   DrizzleLedgerStore,
   DrizzleTaintAuditStore,
   DrizzleRelationMaterializationStore,
@@ -478,6 +480,21 @@ export interface Wiring {
   cultureFetchAbortControllers: Map<string, AbortController>;
   /** Inspectable, correctable, deletable learned preferences. */
   memoryStore: MemoryStore;
+  /** LA5 vector lane storage (refs + vectors only, rebuildable) — same db as
+   * `memoryStore` so vector hits always hydrate from the store they index. */
+  vectorIndex: VectorIndex;
+  /** Feature flight for LA5 retrieval fusion (chat memory slot filled by
+   * structured+vector+graph RRF fusion; scheduled embedding indexer). OFF by
+   * default; enabled via `BRIDGE_RETRIEVAL_FUSION=1` (or a test override).
+   * Disabled means chat keeps the pre-fusion recency slice and no indexer
+   * runs — nothing new is stored or read. */
+  retrievalFusionEnabled: boolean;
+  /** Feature flight for Commons capability archetypes (roadmap-v2 Phase 4:
+   * generalize accepted preferences → contribute; seed suggestions from
+   * Commons archetypes). OFF by default; `BRIDGE_COMMONS_ARCHETYPES=1` (or a
+   * test override). Every `learning.archetypes.*` procedure fails closed
+   * while off — nothing is generalized, published, or seeded. */
+  commonsArchetypesEnabled: boolean;
   /** ModelProvider registry/router (@bridge/models): resolves capability manifest modelBindings to
    * providers, honoring planeDefault (capture/sensor plane = local models, never cloud
    * fallback). In-memory mode registers the network-free echo double; persistent mode
@@ -520,6 +537,12 @@ export interface BuildWiringOptions {
   /** Test/deployment override for the learning observation flight. Omitted
    * means the environment decides (`BRIDGE_LEARNING_OBSERVATION`), default OFF. */
   learningObservationEnabled?: boolean;
+  /** Test/deployment override for the LA5 retrieval-fusion flight. Omitted
+   * means the environment decides (`BRIDGE_RETRIEVAL_FUSION`), default OFF. */
+  retrievalFusionEnabled?: boolean;
+  /** Test/deployment override for the Commons-archetypes flight. Omitted
+   * means the environment decides (`BRIDGE_COMMONS_ARCHETYPES`), default OFF. */
+  commonsArchetypesEnabled?: boolean;
   /** Explicit provider set for composition tests or alternate deployments.
    * Omitted means the normal environment-bound providers for the selected mode. */
   modelProviders?: readonly ModelProvider[];
@@ -3337,11 +3360,11 @@ export interface ModePorts {
   helpdeskStore: DrizzleHelpdeskStore;
   resourcesStore: DrizzleResourcesStore;
   capabilityStore: CapabilityStore;
-  /** VAR-1 tunable space (ADR-165) — Drizzle-backed in BOTH modes. Its consumer
+  /** VAR-1 tunable space (ADR-169) — Drizzle-backed in BOTH modes. Its consumer
    * is the promotion gate's resolveGates(); a defaults-only store silently
    * ignores an Organization's own thresholds. */
   policyParams: PolicyParamStore;
-  /** EVAL-2/3 datasets, runs, comparisons (ADR-164). Drizzle-backed in BOTH
+  /** EVAL-2/3 datasets, runs, comparisons (ADR-168). Drizzle-backed in BOTH
    * modes — both resolve a real Drizzle database, and an amnesiac eval store
    * silently disables the capability promotion gate rather than loosening it. */
   evalStore: EvalStore;
@@ -3351,6 +3374,9 @@ export interface ModePorts {
    * (ADR-023); in-memory in in-memory mode, mirroring capabilityStore's split. */
   moduleStore: ModuleStore;
   memoryStore: MemoryStore;
+  /** LA5 vector lane — always over the SAME db as `memoryStore` (vector hits
+   * are refs that must hydrate from the store they index). */
+  vectorIndex: VectorIndex;
   /** AGS1 (TASK-007) — Goal/Task catalog Skills resolve against. In-memory
    * default (dev/test); `buildPersistentPorts` binds the real, restart-durable
    * `DrizzleGoalTaskStore` instead. */
@@ -3480,6 +3506,7 @@ export function buildPersistentPorts(env: {
     // longer in-memory-only once DATABASE_URL is set.
     moduleStore: new DrizzleModuleStore(db, PILOT_ORGANIZATION),
     memoryStore: new DrizzleMemoryStore(db),
+    vectorIndex: new DrizzleVectorIndex(db),
     // TASK-007 — real, restart-durable bindings (see the field's doc comment
     // on ModePorts for why these are no longer in-memory once DATABASE_URL is set).
     goalTasks: goalTaskStore,
@@ -3698,6 +3725,7 @@ export async function buildInMemoryPorts(env: {
       ? new DrizzleModuleStore(localDb, PILOT_ORGANIZATION)
       : new InMemoryModuleStore(),
     memoryStore: new DrizzleMemoryStore(localDb),
+    vectorIndex: new DrizzleVectorIndex(localDb),
     // TASK-007 — dependency-free in-memory default (dev/test). The SAME
     // GOVERNED_SKILL_MANIFEST_CATALOG code-declared list `buildPersistentPorts`
     // seeds into `skill_manifests` is registered here synchronously — one
@@ -4178,6 +4206,14 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const learningObservationEnabled =
     options.learningObservationEnabled ??
     ["1", "true"].includes((process.env.BRIDGE_LEARNING_OBSERVATION ?? "").trim().toLowerCase());
+  // LA5 flight — same override-then-environment resolution, default OFF.
+  const retrievalFusionEnabled =
+    options.retrievalFusionEnabled ??
+    ["1", "true"].includes((process.env.BRIDGE_RETRIEVAL_FUSION ?? "").trim().toLowerCase());
+  // Commons-archetypes flight (roadmap-v2 Phase 4) — same resolution, default OFF.
+  const commonsArchetypesEnabled =
+    options.commonsArchetypesEnabled ??
+    ["1", "true"].includes((process.env.BRIDGE_COMMONS_ARCHETYPES ?? "").trim().toLowerCase());
   const credentialProvider =
     process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT ??
     (runningUnderNodeTest() ? "os-keyring" : undefined);
@@ -4331,6 +4367,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     organizationDefinitionStore,
     moduleStore,
     memoryStore,
+    vectorIndex,
     goalTasks,
     taskManager,
     skillManifests,
@@ -4890,7 +4927,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   });
   const googleOAuthStates = new GoogleOAuthStateStore(localPlane.state);
 
-  // EVAL-3 eval history (ADR-164) and the VAR-1 tunable space (ADR-165) are both
+  // EVAL-3 eval history (ADR-168) and the VAR-1 tunable space (ADR-169) are both
   // Drizzle-backed in either mode now — no in-memory fake left on this path.
   const evalStore = modePorts.evalStore;
   const policyParams = modePorts.policyParams;
@@ -4933,6 +4970,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     pilotUserId,
     pilotUserEmail,
     learningObservationEnabled,
+    vectorIndex,
+    retrievalFusionEnabled,
+    commonsArchetypesEnabled,
     dealpilot: {
       integrationId: dealPilotIntegrationId,
       store: dealPilotRuntimeStore,

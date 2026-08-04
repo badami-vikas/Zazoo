@@ -251,7 +251,7 @@ test("buildPersistentPorts: binds canonical identity to the REAL DrizzleCanonica
       "canonical identity must be the real Drizzle-backed store once DATABASE_URL is set — " +
         "this is the lie this fix actually closes (was InMemoryCanonicalIdentityStore unconditionally)",
     );
-    // ADR-164/ADR-165 — both of these were InMemory in BOTH modes, and both
+    // ADR-168/ADR-169 — both of these were InMemory in BOTH modes, and both
     // silently disabled the capability promotion gate rather than loosening it:
     // an amnesiac eval store meant approve never found a baseline to compare
     // against, and a defaults-only param store meant it compared against

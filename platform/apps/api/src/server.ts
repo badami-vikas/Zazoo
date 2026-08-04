@@ -13,6 +13,7 @@ import { appRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
 import { isVerifierConfigured } from "./identity.js";
 import { buildWiring, LEARNING_DIGEST_AUTOMATION_ID, PILOT_ORGANIZATION } from "./wiring.js";
+import { indexMemoryEmbeddings } from "./retrieval-fusion.js";
 import { SeededRng, SystemClock, UuidGen, hashTaintValue, labelAtSource, type RunCtx } from "@bridge/core";
 import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
 import { reconcileOrganizationRelationshipMaterializations } from "./relationship-materializer.js";
@@ -627,6 +628,38 @@ export async function buildServer() {
     learningDigestTimer.unref();
   }
 
+  // LA5 (TASK-032) — scheduled memory-embedding indexer. Derived-index
+  // maintenance, not an agent action: it reads prose Memory rows and writes
+  // vectors (refs only, rebuildable), so it runs as a plain maintenance loop
+  // like the relationship-reconciliation timer rather than a governed
+  // Automation. Exists ONLY while the retrieval-fusion flight is on and
+  // never on the public cloud boundary.
+  let memoryIndexRunning = false;
+  const runMemoryEmbeddingIndex = async () => {
+    if (memoryIndexRunning) return;
+    memoryIndexRunning = true;
+    try {
+      await indexMemoryEmbeddings({
+        memoryStore: wiring.memoryStore,
+        vectorIndex: wiring.vectorIndex,
+        organizationId: PILOT_ORGANIZATION,
+        ownerUserId: wiring.pilotUserId,
+      });
+    } catch (err) {
+      app.log.error({ err }, "memory embedding index failed");
+    } finally {
+      memoryIndexRunning = false;
+    }
+  };
+  let memoryIndexTimer: NodeJS.Timeout | undefined;
+  let memoryIndexBootTimer: NodeJS.Timeout | undefined;
+  if (wiring.retrievalFusionEnabled && !wiring.publicCloudOnly) {
+    memoryIndexBootTimer = setTimeout(() => void runMemoryEmbeddingIndex(), 30_000);
+    memoryIndexBootTimer.unref();
+    memoryIndexTimer = setInterval(() => void runMemoryEmbeddingIndex(), 15 * 60_000);
+    memoryIndexTimer.unref();
+  }
+
   app.addHook("onClose", async () => {
     if (relationReconciliationTimer) {
       clearInterval(relationReconciliationTimer);
@@ -636,6 +669,12 @@ export async function buildServer() {
     }
     if (learningDigestTimer) {
       clearInterval(learningDigestTimer);
+    }
+    if (memoryIndexBootTimer) {
+      clearTimeout(memoryIndexBootTimer);
+    }
+    if (memoryIndexTimer) {
+      clearInterval(memoryIndexTimer);
     }
   });
 

@@ -7,7 +7,7 @@
  * over every `resourceType`, so an unmapped combination fails loudly rather than
  * silently resolving to `null`."
  *
- * 2026-08-04 mutation testing (ADR-163) turned that prediction into evidence.
+ * 2026-08-04 mutation testing (ADR-167) turned that prediction into evidence.
  * Mutating the map produced 31 SURVIVING mutants out of 61 — `req.action !== "read"`
  * could be replaced with the constant `true` and every test still passed. The one
  * rule with zero survivors was the `integration` rule, the only one with a

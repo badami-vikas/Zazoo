@@ -1,6 +1,6 @@
 /**
  * DrizzleEvalStore — binds @bridge/core's `EvalStore` port (eval/store.ts) to
- * `eval_datasets` / `eval_runs` / `eval_comparisons` (ADR-164).
+ * `eval_datasets` / `eval_runs` / `eval_comparisons` (ADR-168).
  *
  * Why this exists: `evalStore` was bound to `InMemoryEvalStore` in BOTH wiring
  * modes, so every eval run died with the process. That was not merely a lost

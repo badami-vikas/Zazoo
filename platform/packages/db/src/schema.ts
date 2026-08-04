@@ -1921,7 +1921,7 @@ export const researchRunSteps = pgTable(
 );
 
 /**
- * EVAL-2/3 persistence (ADR-164). Datasets, runs, and baseline-vs-candidate
+ * EVAL-2/3 persistence (ADR-168). Datasets, runs, and baseline-vs-candidate
  * comparisons for the Agent Quality Vector. Until now `evalStore` was bound to
  * `InMemoryEvalStore` in BOTH wiring modes, so every eval run died with the
  * process — which quietly disabled the capability promotion gate: `capability.

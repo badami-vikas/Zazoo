@@ -1,9 +1,12 @@
 import type {
+  CommonsArchetypeEntry,
   CommonsContentHash,
   CommonsModuleEntry,
   CommonsProvenance,
   CommonsSecurityScan,
 } from "./commons.js";
+import { archetypeName, parseCapabilityArchetype } from "../learning/archetype.js";
+import { findOrganizationDataPaths } from "./privacy.js";
 import {
   canonicalizeJson,
   type ManifestSignature,
@@ -34,7 +37,9 @@ export type CommonsEntryVerificationFailure =
   | "metadata_mismatch"
   | "missing_provenance"
   | "scan_failed"
-  | "invalid_signed_source";
+  | "invalid_signed_source"
+  | "invalid_archetype"
+  | "organization_data";
 
 export type CommonsEntryVerificationResult =
   | { valid: true }
@@ -142,6 +147,83 @@ export function verifyCommonsEntryContent(
   }
   const expected: CommonsContentHash = { algorithm: "sha256", value: `sha256:${hash(hashContent)}` };
   if (expected.value !== entry.integrity.value) return { valid: false, reason: "hash_mismatch" };
+  return { valid: true };
+}
+
+/** Canonical immutable archetype content — integrity/signature/publish time
+ * excluded by construction, mirroring `commonsModuleContent`. */
+export interface CommonsArchetypeContent {
+  archetype: CommonsArchetypeEntry["archetype"];
+  tags: string[];
+}
+
+export function commonsArchetypeContent(
+  entry: Pick<CommonsArchetypeEntry, "archetype" | "tags">,
+): CommonsArchetypeContent {
+  return { archetype: entry.archetype, tags: normalizeCommonsTags(entry.tags) };
+}
+
+export function computeCommonsArchetypeHash(
+  content: CommonsArchetypeContent,
+  hash: ContentHasher,
+): CommonsContentHash {
+  return { algorithm: "sha256", value: `sha256:${hash(canonicalizeJson(content))}` };
+}
+
+export function canonicalizeCommonsArchetypeSignedPayload(
+  content: CommonsArchetypeContent,
+  integrity: CommonsContentHash,
+  publishedAt: string,
+): string {
+  return canonicalizeJson({ content, integrity, publishedAt });
+}
+
+/** Full archetype-entry verification — shape, generalized-content gate,
+ * integrity hash, and (when a signature is present or a trusted key is
+ * pinned) the registry signature. Same fail-closed posture as module
+ * entries. */
+export function verifyCommonsArchetypeEntry(
+  entry: CommonsArchetypeEntry,
+  hash: ContentHasher,
+  verify: SignatureVerifier,
+  options: VerifyManifestOptions = {},
+): CommonsEntryVerificationResult {
+  let archetype;
+  try {
+    archetype = parseCapabilityArchetype(entry.archetype);
+  } catch {
+    return { valid: false, reason: "invalid_archetype" };
+  }
+  if (archetype.name !== archetypeName(archetype.domain, archetype)) {
+    return { valid: false, reason: "metadata_mismatch" };
+  }
+  const content = commonsArchetypeContent(entry);
+  if (findOrganizationDataPaths(content).length > 0) {
+    return { valid: false, reason: "organization_data" };
+  }
+  if (entry.integrity?.algorithm !== "sha256" || !entry.integrity.value) {
+    return { valid: false, reason: "missing_integrity" };
+  }
+  if (computeCommonsArchetypeHash(content, hash).value !== entry.integrity.value) {
+    return { valid: false, reason: "hash_mismatch" };
+  }
+  const signature = entry.signature;
+  if (!signature?.signature) return { valid: false, reason: "missing_signature" };
+  if (signature.algorithm !== "ed25519") return { valid: false, reason: "unsupported_algorithm" };
+  let validSignature = false;
+  try {
+    validSignature = verify(
+      canonicalizeCommonsArchetypeSignedPayload(content, entry.integrity, entry.publishedAt),
+      signature.signature,
+      signature.publicKey,
+    );
+  } catch {
+    validSignature = false;
+  }
+  if (!validSignature) return { valid: false, reason: "invalid_signature" };
+  if (options.trustedPublicKeys && !options.trustedPublicKeys.includes(signature.publicKey)) {
+    return { valid: false, reason: "untrusted_key" };
+  }
   return { valid: true };
 }
 

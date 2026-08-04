@@ -1,6 +1,6 @@
 # Test-speed research and execution — 2026-08-04
 
-**Task:** TASK-036 · **Decision:** ADR-163 · **Tier:** C (build/CI, cross-package)
+**Task:** TASK-036 · **Decision:** ADR-167 · **Tier:** C (build/CI, cross-package)
 
 User question: *"Are there better ways to speed up the tests?"* — asked after the 2026-08-03 audit
 had already deleted 10 cannot-fail test files and added the PGlite migration snapshot. This document
@@ -130,6 +130,6 @@ No — and the split is now mechanical rather than a matter of discipline:
 - `--experimental-test-coverage` remains the largest single multiplier in CI. Sampling coverage
   (gate on `main` only, skip on PRs) would cut CI time, at the cost of later gate feedback.
 - The three tools the user referenced are not test-speed tools: **Fabraix** is adversarial
-  red-teaming for customer-facing AI agents (relevant to the SECURITY track in TASK-033, not here),
+  red-teaming for customer-facing AI agents (relevant to the SECURITY track in TASK-038, not here),
   **Codag** compresses infrastructure logs for AI agents (a token-cost tool for debugging sessions),
   and **Traceforce** is device-level AI/MCP security for enterprises (not applicable to a solo repo).

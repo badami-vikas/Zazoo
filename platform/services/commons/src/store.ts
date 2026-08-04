@@ -17,6 +17,7 @@ import {
   adaptLegacyVocabularyEntry,
   isLegacyLicenseEntry,
   isLegacyVocabularyEntry,
+  type CommonsArchetypeEntry,
   type CommonsModuleEntry,
 } from "@bridge/core";
 import { migrateLegacyRegistry } from "./legacy-registry-migration.js";
@@ -32,12 +33,26 @@ export interface CommonsStore {
   listVersions(name: string): Promise<CommonsModuleEntry[]>;
   /** Every published entry (all modules, all versions). */
   listAll(): Promise<CommonsModuleEntry[]>;
+  /** Persist one capability archetype (roadmap-v2 Phase 4). Immutable:
+   * archetype names are deterministic per pattern, so a re-publish of an
+   * existing name is the many-workspaces dedupe case — the FIRST published
+   * entry stays authoritative and callers surface it idempotently. */
+  putArchetype(entry: CommonsArchetypeEntry): Promise<void>;
+  getArchetype(name: string): Promise<CommonsArchetypeEntry | null>;
+  listAllArchetypes(): Promise<CommonsArchetypeEntry[]>;
 }
 
 export class DuplicateVersionError extends Error {
   constructor(name: string, version: string) {
     super(`commons: ${name}@${version} is already published — versions are immutable, publish a new version instead`);
     this.name = "DuplicateVersionError";
+  }
+}
+
+export class DuplicateArchetypeError extends Error {
+  constructor(name: string) {
+    super(`commons: archetype ${name} is already published — archetypes are immutable`);
+    this.name = "DuplicateArchetypeError";
   }
 }
 
@@ -48,10 +63,12 @@ function safeSegment(s: string): string {
 /** Local-filesystem CommonsStore — the v1 local-first backing store. */
 export class FsCommonsStore implements CommonsStore {
   readonly #root: string;
+  readonly #archetypeRoot: string;
   readonly #migration: Promise<void>;
 
   constructor(dataDir: string) {
     this.#root = join(dataDir, "modules");
+    this.#archetypeRoot = join(dataDir, "archetypes");
     this.#migration = migrateLegacyRegistry(dataDir);
   }
 
@@ -132,5 +149,53 @@ export class FsCommonsStore implements CommonsStore {
       all.push(...(await this.listVersions(decodeURIComponent(dir))));
     }
     return all;
+  }
+
+  #archetypePath(name: string): string {
+    return join(this.#archetypeRoot, `${safeSegment(name)}.json`);
+  }
+
+  async putArchetype(entry: CommonsArchetypeEntry): Promise<void> {
+    await this.#migration;
+    await mkdir(this.#archetypeRoot, { recursive: true });
+    try {
+      await writeFile(this.#archetypePath(entry.archetype.name), JSON.stringify(entry, null, 2), {
+        encoding: "utf8",
+        flag: "wx",
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new DuplicateArchetypeError(entry.archetype.name);
+      }
+      throw error;
+    }
+  }
+
+  async getArchetype(name: string): Promise<CommonsArchetypeEntry | null> {
+    await this.#migration;
+    try {
+      return JSON.parse(await readFile(this.#archetypePath(name), "utf8")) as CommonsArchetypeEntry;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  async listAllArchetypes(): Promise<CommonsArchetypeEntry[]> {
+    await this.#migration;
+    let files: string[];
+    try {
+      files = await readdir(this.#archetypeRoot);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    const all: CommonsArchetypeEntry[] = [];
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      const entry = await this.getArchetype(decodeURIComponent(file.slice(0, -".json".length)));
+      if (entry !== null) all.push(entry);
+    }
+    return all.sort((a, b) => a.archetype.name.localeCompare(b.archetype.name));
   }
 }

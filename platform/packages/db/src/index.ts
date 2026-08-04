@@ -158,6 +158,7 @@ export {
 } from "./organization-definition-store.js";
 export { DrizzleModuleStore, parseModuleManifestRow } from "./module-store.js";
 export { DrizzleMemoryStore } from "./memory-store.js";
+export { DrizzleVectorIndex, EMBEDDING_TABLE_DIM } from "./vector-index.js";
 export { DrizzleChatStore } from "./chat-store.js";
 export { DrizzleGoalTaskStore } from "./goal-task-store.js";
 export { DrizzleTaskManagerStore } from "./task-manager-store.js";

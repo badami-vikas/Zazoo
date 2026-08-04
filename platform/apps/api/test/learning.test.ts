@@ -13,8 +13,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TRPCError } from "@trpc/server";
-import { SeededRng, SystemClock, UuidGen, hashTaintValue, labelAtSource, type RunCtx } from "@bridge/core";
+import {
+  SeededRng,
+  SystemClock,
+  UuidGen,
+  acceptSuggestion,
+  digestSignals,
+  hashTaintValue,
+  labelAtSource,
+  recordSignal,
+  type ModelCompletionRequest,
+  type ModelProvider,
+  type ModelTier,
+  type RunCtx,
+} from "@bridge/core";
 import { appRouter } from "../src/router.js";
+import { deterministicUuid } from "../src/deterministic-uuid.js";
 import {
   buildWiring,
   LEARNING_AGENT,
@@ -207,6 +221,122 @@ test("flight ON: another member cannot see or act on the owner's private learnin
       () => other.learning.suggestions.accept({ organizationId: ORG, suggestionMemoryId: suggestion.memoryId }),
       (error: unknown) => error instanceof TRPCError && error.code === "NOT_FOUND",
     );
+  } finally {
+    await wiring.close();
+  }
+});
+
+class LearningChatModel implements ModelProvider {
+  readonly id = "learning-chat-local";
+  readonly plane = "local" as const;
+  readonly tiers = ["cheap", "default"] as const satisfies readonly ModelTier[];
+  readonly models = { cheap: "learning-chat-v1", default: "learning-chat-v1" } as const;
+  readonly calls: ModelCompletionRequest[] = [];
+
+  routingHealth() {
+    return "healthy" as const;
+  }
+
+  async complete(request: ModelCompletionRequest) {
+    this.calls.push(request);
+    return {
+      text: JSON.stringify({ kind: "answer", text: "Understood." }),
+      model: "learning-chat-v1",
+      tier: request.tier,
+      usage: {
+        inputTokens: 12,
+        outputTokens: 4,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        source: "provider" as const,
+      },
+      ...(request.taintLabel ? { taintLabel: request.taintLabel } : {}),
+    };
+  }
+}
+
+async function sendLocalChatTurn(wiring: Wiring) {
+  const caller = await makeCaller(wiring);
+  const { thread } = await caller.chat.thread.create({
+    organizationId: ORG,
+    plane: "local",
+    clientRequestId: "learning-chat",
+  });
+  await caller.chat.turn.send({
+    organizationId: ORG,
+    threadId: thread.id,
+    clientRequestId: "learning-chat-turn",
+    message: "Which deals should I look at today?",
+  });
+}
+
+test("flight ON: an accepted preference statement reaches the chat system prompt; raw machinery never does", async () => {
+  const local = new LearningChatModel();
+  const wiring = await buildWiring({ learningObservationEnabled: true, modelProviders: [local] });
+  try {
+    const caller = await makeCaller(wiring);
+    await recordDismissals(caller, 3);
+    const digested = await caller.learning.digest({ organizationId: ORG });
+    const suggestion = digested.suggestions.find((s) => s.pattern.attributeKey === "industry");
+    assert.ok(suggestion, "expected an industry-pattern suggestion");
+    await caller.learning.suggestions.accept({ organizationId: ORG, suggestionMemoryId: suggestion.memoryId });
+
+    await sendLocalChatTurn(wiring);
+    assert.equal(local.calls.length, 1);
+    const system = local.calls[0]!.system ?? "";
+    // TASK-032 prototype-test clause: the minted preference's statement
+    // reaches projectToSystemPrompt output.
+    assert.match(system, /## Retrieved memory/);
+    assert.match(system, /Prefers "dismiss" when industry is "restaurants"/);
+    // Raw learning machinery (signal/suggestion JSON) never reaches a prompt.
+    assert.doesNotMatch(system, /observed_signal/);
+    assert.doesNotMatch(system, /learning_suggestion/);
+    assert.doesNotMatch(system, /"anchor"/);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("flight OFF: existing preference rows influence nothing — the chat prompt stays clean", async () => {
+  const local = new LearningChatModel();
+  const wiring = await buildWiring({ modelProviders: [local] }); // flight off
+  try {
+    // Rows minted while the flight WAS on still exist in the store — write
+    // them through the core loop directly (the tRPC surface fails closed).
+    // The persistent adapter's id/lineage columns are uuid-typed, so ids and
+    // lineage keys go through deterministicUuid exactly as the API layer does.
+    let n = 0;
+    const nextId = () => deterministicUuid(`learning-off-${++n}`);
+    for (let i = 0; i < 3; i += 1) {
+      await recordSignal(wiring.memoryStore, {
+        id: nextId(),
+        organizationId: ORG,
+        ownerUserId: PILOT_USER,
+        moduleId: "dealpilot",
+        recordKind: "deal",
+        recordId: `deal-${i}`,
+        action: "dismiss",
+        attributes: { industry: "restaurants" },
+      });
+    }
+    const scope = { organizationId: ORG, userId: PILOT_USER };
+    const [suggestion] = await digestSignals(wiring.memoryStore, {
+      organizationId: ORG,
+      ownerUserId: PILOT_USER,
+      moduleId: "dealpilot",
+      nextId,
+      lineageIdFor: deterministicUuid,
+    });
+    await acceptSuggestion(wiring.memoryStore, scope, suggestion!.memoryId, PILOT_USER, nextId);
+
+    await sendLocalChatTurn(wiring);
+    assert.equal(local.calls.length, 1);
+    const system = local.calls[0]!.system ?? "";
+    // Fail-closed: with the flight off the preference is dormant data, and
+    // machinery JSON stays out of the prompt regardless of the flight.
+    assert.doesNotMatch(system, /Prefers "dismiss"/);
+    assert.doesNotMatch(system, /observed_signal/);
+    assert.doesNotMatch(system, /"anchor"/);
   } finally {
     await wiring.close();
   }

@@ -11,6 +11,6 @@ dist/
 # Universal Commons local registry data (services/commons) — local-first store, never committed.
 .commons-data/
 
-# Stryker mutation testing (ADR-163): scratch dir + generated reports
+# Stryker mutation testing (ADR-167): scratch dir + generated reports
 .stryker-tmp/
 **/reports/mutation/

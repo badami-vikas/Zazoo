@@ -13,6 +13,7 @@
  */
 import type { ModuleKind, ModuleManifest } from "./types.js";
 import type { ManifestSignature } from "./signing.js";
+import type { CapabilityArchetype } from "../learning/archetype.js";
 
 export interface CommonsProvenance {
   sourceRepository: string;
@@ -124,6 +125,33 @@ export interface CommonsModuleDetail {
  * (services/commons) rejects anything organization-shaped — the client never
  * gets to decide that.
  */
+/** One published capability archetype as the registry stores/serves it
+ * (roadmap-v2 §Universal Commons / Phase 4). The payload is a
+ * `CapabilityArchetype` — generalized preference-pattern knowledge only,
+ * screened by the same server-side privacy gate module publishes go through.
+ * Archetype names are deterministic per pattern, so the registry naturally
+ * dedupes contributions from many workspaces (immutable once published). */
+export interface CommonsArchetypeEntry {
+  archetype: CapabilityArchetype;
+  tags: string[];
+  integrity: CommonsContentHash;
+  publishedAt: string;
+  /** Detached registry signature — same trust posture as module entries. */
+  signature?: ManifestSignature;
+}
+
+export interface CommonsArchetypeListQuery {
+  /** Filter to one generalized domain (e.g. "dealpilot"). */
+  domain?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CommonsArchetypeListResult {
+  archetypes: CommonsArchetypeEntry[];
+  total: number;
+}
+
 export interface CommonsRegistry {
   /** Curated registry listing — filter by kind and/or tag, paginated. */
   listAvailable(query?: CommonsListQuery): Promise<CommonsListResult>;
@@ -141,6 +169,17 @@ export interface CommonsRegistry {
       expectedContentHash?: string;
     },
   ): Promise<{ name: string; version: string; contentHash: string }>;
+  /** Capability archetypes for a domain (roadmap-v2 Phase 4). OPTIONAL —
+   * a deployment predating archetype support simply lacks the method, and
+   * consumers degrade honestly (typed "unsupported" error, no dead
+   * behavior). */
+  listArchetypes?(query?: CommonsArchetypeListQuery): Promise<CommonsArchetypeListResult>;
+  /** Publish a generalized archetype. Same privacy-gate contract as
+   * `publish` — the server rejects anything organization-shaped. */
+  publishArchetype?(
+    archetype: CapabilityArchetype,
+    options?: { tags?: string[] },
+  ): Promise<{ name: string; contentHash: string }>;
 }
 
 /** Publish refused — either invalid manifest shape or (the important case)

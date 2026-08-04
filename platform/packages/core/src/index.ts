@@ -52,6 +52,8 @@ export {
 export * from "./memory/stores.js";
 export * from "./memory/memory-store.js";
 export * from "./learning/observation.js";
+export * from "./learning/retrieval.js";
+export * from "./learning/archetype.js";
 export * from "./chat-store.js";
 export * from "./search-provider.js";
 export * from "./skills.js";
@@ -208,11 +210,16 @@ export {
 export {
   canonicalizeCommonsContent,
   canonicalizeCommonsSignedPayload,
+  canonicalizeCommonsArchetypeSignedPayload,
+  commonsArchetypeContent,
   commonsModuleContent,
+  computeCommonsArchetypeHash,
   computeCommonsContentHash,
   normalizeCommonsTags,
+  verifyCommonsArchetypeEntry,
   verifyCommonsEntry,
   verifyCommonsEntryContent,
+  type CommonsArchetypeContent,
   type CommonsModuleContent,
   type CommonsEntryVerificationFailure,
   type CommonsEntryVerificationResult,
@@ -282,6 +289,9 @@ export {
   type CommonsSecurityScan,
   type CommonsContentHash,
   type CommonsSignedSource,
+  type CommonsArchetypeEntry,
+  type CommonsArchetypeListQuery,
+  type CommonsArchetypeListResult,
 } from "./module/commons.js";
 export {
   adaptLegacyLicenseEntry,

@@ -3812,7 +3812,17 @@ settled by the first run after this lands, and the probe is recorded in BUGS.
 - **Decision**: Widen the rule to fire on every `integration` action. The audit's first reading — that the condition was a typo for `!== "read"` — was **rejected**: `credential_access` is semantically correct for reads (reading an integration IS accessing its stored credentials), so swapping the operator would have closed the write gap by opening a read gap, trading one uncovered half for the other. Gating both halves is the only fail-safe reading and strictly widens coverage; no previously-gated path loses its gate.
 - **Consequences**: Tainted integration writes now evaluate the sink policy and append a sink trace. New regression pack `packages/core/test/integration-sink.test.ts` pins both halves and was verified red-then-green (2 of 3 tests fail against the pre-fix condition, all 3 pass after). The tests must wire an `InMemoryTaintAuditStore`, because the sink trace is only written when `deps.taintAudit` is present — the rule is otherwise unobservable, which is the deeper reason it went untested. Broader lesson recorded in `outputs/2026-08-02-platform-bloat-audit.md`: sink-mapping rules need a table-driven conformance test over every `resourceType`, so an unmapped combination fails loudly rather than silently resolving to `null`.
 
-## ADR-163 — Coverage is a gate, not an inner-loop cost; and shared-process test shards are opt-in per suite on proof, never by default (2026-08-04; TASK-036)
+## ADR-163 — Capability archetypes enter the Commons as an additive optional contract, generalized at the source, seeded as ordinary suggestions (2026-08-04; TASK-033)
+
+**Decision.** Roadmap-v2 Phase 4 (Universal Commons capability archetypes) lands as: (1) a new archetype resource on the Commons contract (`GET/POST /v1/archetypes`, `CommonsArchetypeEntry`), exposed on `CommonsRegistry` as OPTIONAL methods; (2) generalization performed at the source (`generalizeLearnedPreferences`): accepted preference patterns reduce to generalized fields only (domain/action/attributeKey/attributeValue + banded support), screened through the same `findOrganizationDataPaths` gate the Commons server enforces, with publication a per-archetype explicit Human action behind a dedicated flight (`BRIDGE_COMMONS_ARCHETYPES`, default OFF, AND-gated with the learning flight); (3) consumption via `seedSuggestionsFromArchetypes`, which writes PROPOSED suggestions on the exact lineage a local digest of the same pattern would use.
+
+**Rationale.** Optional contract methods let the local service and Bridge Cloud roll forward independently — a deployment without archetype support degrades to a typed error, never dead behavior. Generalizing at the source (not only server-side) means personal-shaped data never leaves the machine even toward a compromised or misconfigured registry; the server gate remains authoritative defense in depth. Reusing the suggestion lineage for seeds makes "every new workspace starts smarter" inherit every already-proven invariant for free: suggested-then-accepted, annoyance cap, rejection suppression, no local/seeded duplicates, inspect/delete. Deterministic archetype names (pattern-derived slugs) give many-workspace dedupe without any coordination protocol.
+
+**Rejected.** Modeling archetypes as `CommonsModuleEntry` rows (shoehorns a knowledge record into a manifest contract; provenance/scan fields would be fabricated). Required (non-optional) registry methods (breaks every existing implementation and mock on a contract documented as permanent). Auto-applying archetypes to new workspaces (violates suggested-then-accepted; the roadmap's "receive a better generated workspace" is satisfied by proposals the Human reviews). Automatic/scheduled contribution (egress of derived knowledge stays a Human decision; a future Automation would need its own approval row).
+
+**Consequences.** The registry accumulates first-writer-wins entries per archetype name; support-band aggregation across many contributions is deliberately unspecified until real multi-workspace data exists (recorded as a TASK-033 follow-up with archetype UI). The archetype schema is versioned (`schemaVersion: 1`) and strict-parsed, so evolution is explicit.
+
+## ADR-167 — Coverage is a gate, not an inner-loop cost; and shared-process test shards are opt-in per suite on proof, never by default (2026-08-04; TASK-036)
 
 - **Context**: The 2026-08-03 audit cut the suite's *content* (10 cannot-fail files deleted, migration
   snapshot added) but left its *execution model* untouched: every package baked
@@ -3874,7 +3884,7 @@ settled by the first run after this lands, and the probe is recorded in BUGS.
   hostile to shared-process reuse), and `--experimental-test-coverage` remains the single largest
   multiplier in CI.
 
-## ADR-164 — Eval history is persisted, because an amnesiac eval store silently DISABLED the capability promotion gate (2026-08-04; TASK-034)
+## ADR-168 — Eval history is persisted, because an amnesiac eval store silently DISABLED the capability promotion gate (2026-08-04; TASK-034)
 
 - **Context**: `apps/api/src/wiring.ts` bound `evalStore` to `InMemoryEvalStore` in BOTH modes, with the
   comment "in-memory both modes (no Drizzle binding yet)". The 2026-08-03 unfinished-work audit filed
@@ -3919,17 +3929,17 @@ settled by the first run after this lands, and the probe is recorded in BUGS.
   reading back as "no scores", which would be indistinguishable from a genuinely failing capability.
   `VAR-1` policy params remain in-memory in both modes; that binding is still open under TASK-034.
 
-## ADR-165 — `policy_params` gets its reader, and an unrecognised param key fails loud rather than resolving to the default (2026-08-04; TASK-034)
+## ADR-169 — `policy_params` gets its reader, and an unrecognised param key fails loud rather than resolving to the default (2026-08-04; TASK-034)
 
 - **Context**: `policy_params` has existed in `schema.ts` since the VAR-1 batch with **no reader at
   all** — a table with no consumer, the "roadmap batch without a consumer" pattern the 2026-08-02 dead-
   code diagnosis named. `wiring.ts` bound `policyParams` to `InMemoryPolicyParamStore` outside the
   persistent/in-memory split, so `resolveGates(await ctx.wiring.policyParams.get(organizationId))` in
   `router.ts` always read `DEFAULT_POLICY_PARAMS`. This was invisible until now for a specific reason:
-  the gate that reads those thresholds could not run at all before ADR-164, because no eval run
+  the gate that reads those thresholds could not run at all before ADR-168, because no eval run
   survived a restart. Fixing the eval store is what made this binding matter.
 - **Decision**: Add `DrizzlePolicyParamStore` implementing the port's single `get()` method, bound in
-  **both** wiring modes (same reasoning as ADR-164 — dev/prod divergence is what hid the last one).
+  **both** wiring modes (same reasoning as ADR-168 — dev/prod divergence is what hid the last one).
   `param_key` is a dotted path into `PolicyParamsOverride` and `value` is the jsonb at that path, which
   is the shape `(organization_id, policy_id, param_key, value)` was designed for.
   Two decisions worth naming:
@@ -3957,11 +3967,11 @@ settled by the first run after this lands, and the probe is recorded in BUGS.
   `PolicyParams` is an Organization-wide document — so they are excluded by an explicit `isNull`
   filter rather than silently folded in, and a test pins that so the limitation stays visible if
   per-policy params are ever introduced. `InMemoryPolicyParamStore` is no longer referenced by
-  `wiring.ts` at all; it remains exported from core for tests. With ADR-164 and this entry, the
+  `wiring.ts` at all; it remains exported from core for tests. With ADR-168 and this entry, the
   promotion gate now reads real eval history AND the Organization's real thresholds — the first
   configuration where it can genuinely reject a candidate.
 
-## ADR-166 — Public-cloud production must carry a REMOTE model provider key; the always-registered local providers cannot answer there (2026-08-04; TASK-034)
+## ADR-170 — Public-cloud production must carry a REMOTE model provider key; the always-registered local providers cannot answer there (2026-08-04; TASK-034)
 
 - **Context**: TASK-034 asked for "a boot-time assertion listing every required-in-production env var".
   `assertProductionEnv()` already existed and was substantial (DATABASE_URL, SUPABASE_URL, origins,

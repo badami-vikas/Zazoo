@@ -356,8 +356,13 @@ export async function acceptSuggestion(
   const anchor = content?.["anchor"] as { moduleId?: unknown } | undefined;
   const moduleId = typeof anchor?.moduleId === "string" ? anchor.moduleId : "unknown";
   const accepted = await transitionSuggestion(store, scope, suggestionMemoryId, "accepted", actorUserId, nextId);
+  // A pattern with zero local observations (a Commons-archetype seed the
+  // Human accepted) words the preference without a count — "seen 0 times"
+  // would misstate how it was learned.
   const statement = pattern
-    ? `Prefers "${pattern.action}" when ${pattern.attributeKey} is "${pattern.attributeValue}" (seen ${pattern.count} times).`
+    ? pattern.count > 0
+      ? `Prefers "${pattern.action}" when ${pattern.attributeKey} is "${pattern.attributeValue}" (seen ${pattern.count} times).`
+      : `Prefers "${pattern.action}" when ${pattern.attributeKey} is "${pattern.attributeValue}".`
     : (typeof content?.["suggestedText"] === "string" ? (content["suggestedText"] as string) : "Accepted learned preference.");
   const preference = await store.write({
     id: nextId(),
@@ -394,19 +399,22 @@ export async function rejectSuggestion(
   return transitionSuggestion(store, scope, suggestionMemoryId, "rejected", actorUserId, nextId);
 }
 
-/** Current learned preferences for a Module (accepted only, by construction —
- * preferences are only ever minted by `acceptSuggestion`). */
+/** Current learned preferences (accepted only, by construction — preferences
+ * are only ever minted by `acceptSuggestion`). Omitting `moduleId` returns
+ * preferences across ALL installed Modules — the shape a generic surface
+ * (e.g. Chief of Staff chat) needs, since the light-egg rule forbids it from
+ * knowing which Modules exist. */
 export async function retrieveLearnedPreferences(
   store: MemoryStore,
   scope: MemoryAuthScope,
-  moduleId: string,
+  moduleId?: string,
 ): Promise<LearnedPreference[]> {
   const rows = await store.retrieve(
     {
       type: "preference",
       contentPathEquals: [
         { path: "anchor.kind", equals: PREFERENCE_KIND },
-        { path: "anchor.moduleId", equals: moduleId },
+        ...(moduleId ? [{ path: "anchor.moduleId", equals: moduleId }] : []),
       ],
     },
     scope,
@@ -415,15 +423,36 @@ export async function retrieveLearnedPreferences(
   for (const row of rows) {
     const content = parseContent(row);
     if (!content) continue;
+    const anchor = content["anchor"] as { moduleId?: unknown } | undefined;
     preferences.push({
       memoryId: row.id,
-      moduleId,
+      moduleId: moduleId ?? (typeof anchor?.moduleId === "string" ? anchor.moduleId : "unknown"),
       statement: typeof content["statement"] === "string" ? (content["statement"] as string) : "",
       pattern: content["pattern"] as unknown as DetectedPattern,
       provenance: content["provenance"] as LearnedPreference["provenance"],
     });
   }
   return preferences;
+}
+
+/** True when a Memory row is internal learning-loop machinery (a raw signal,
+ * a suggestion lineage row, or a minted preference row). Generic memory
+ * surfaces (e.g. the chat run-context's recent-memory slice) use this to keep
+ * raw learning JSON out of prompts: preferences reach the model ONLY as
+ * `preferencesToMemorySnippets` statements, and signals/suggestions never do. */
+export function isLearningObservationEntry(entry: Pick<MemoryEntry, "content">): boolean {
+  try {
+    const parsed: unknown = JSON.parse(entry.content);
+    if (parsed === null || typeof parsed !== "object") return false;
+    const anchor = (parsed as { anchor?: { kind?: unknown } }).anchor;
+    return (
+      anchor?.kind === SIGNAL_KIND ||
+      anchor?.kind === SUGGESTION_KIND ||
+      anchor?.kind === PREFERENCE_KIND
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Project learned preferences into the run context's generic memory slot —
