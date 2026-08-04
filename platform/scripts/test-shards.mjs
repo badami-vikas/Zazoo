@@ -43,9 +43,14 @@ if (patterns.length === 0) {
   process.exit(1);
 }
 
-// Half the cores by default: these shards are CPU-saturating (PGlite runs a real
-// Postgres in WASM), and the machine routinely hosts parallel agent worktrees.
-const defaultShards = Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2)));
+// A THIRD of the cores, not half. These shards are CPU-saturating (PGlite runs a
+// real Postgres in WASM) and they do not run alone: turbo runs other packages
+// concurrently, apps/api runs its own 4-way concurrency, and the machine hosts
+// parallel agent worktrees. At cores/2 an 8-core box was oversubscribed badly
+// enough to starve apps/api's event loop and fail a real-socket liveness test
+// three times (2026-08-04) — a self-inflicted flake that cost more than the
+// parallelism gained. db is no longer the critical path, so it yields first.
+const defaultShards = Math.max(1, Math.min(4, Math.floor(availableParallelism() / 3)));
 if (!Number.isFinite(shardCount) || shardCount < 1) {
   shardCount = Number(process.env.TEST_SHARDS) || defaultShards;
 }

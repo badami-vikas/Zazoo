@@ -435,14 +435,15 @@ function closeObserver(): { observe: (request: http.IncomingMessage) => void; wa
     async waitForClose(why) {
       if (closed) return;
       await new Promise<void>((resolve, reject) => {
-        // 30s, not 10s: this is a LIVENESS assertion ("the socket is aborted at
-        // all"), never a latency one. A generous deadline costs nothing on a
-        // healthy run — the event lands in milliseconds — and only ever fires
-        // when the abort genuinely does not happen. 10s was still too tight
-        // once the db suite began running 4 saturating shards alongside api's
-        // 4-way concurrency on an 8-core machine: the test process simply was
-        // not scheduled in time, which says nothing about the code under test.
-        const timer = setTimeout(() => reject(new Error(`timed out after 30s waiting for the server to observe the socket close — ${why}`)), 30_000);
+        // 120s. This is a LIVENESS assertion ("the socket is aborted at all"), never a
+        // latency one, so the deadline exists only to stop a hung test — it is not a
+        // performance budget. A generous value costs nothing on a healthy run (the
+        // event lands in milliseconds) and only ever fires when the abort genuinely
+        // does not happen. 100ms, then 10s, then 30s all proved to be measuring
+        // scheduler latency on a loaded machine rather than the code under test;
+        // picking a number the machine cannot miss ends that chase for good, and CI
+        // runners are slower than this laptop, not faster.
+        const timer = setTimeout(() => reject(new Error(`timed out after 120s waiting for the server to observe the socket close — ${why}`)), 120_000);
         notify = () => {
           clearTimeout(timer);
           resolve();
