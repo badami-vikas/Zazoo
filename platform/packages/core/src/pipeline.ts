@@ -37,6 +37,7 @@ import type {
   ActionRequest,
   Actor,
   Decision,
+  ExecutionSnapshot,
   LedgerEntry,
   PolicyResult,
   PostCommitPolicyResult,
@@ -271,6 +272,46 @@ function toPostCommitResults(results: PolicyResult[]): PostCommitPolicyResult[] 
   return out;
 }
 
+/**
+ * The execution snapshot persisted on every appended ledger row (A1-R1).
+ *
+ * Deliberately partial. It carries ONLY what the pipeline itself observes, because
+ * the Agent Quality Vector's reliability and efficiency axes read these fields and a
+ * fabricated value there would silently move a capability's promotion score.
+ *
+ * Populated: `terminalState` (a row only exists when the Skill produced output, so
+ * the state is `completed` by construction), `violationCount`, and the turn's
+ * wall-clock bounds.
+ *
+ * Deliberately ABSENT, and why:
+ * - `cost` / `tokenCount` — model usage lives behind `ModelProvider` and is not
+ *   threaded to the pipeline. Writing 0 would read as "free", not "unknown".
+ * - `baselineCost` — no component in the repo establishes a per-capability
+ *   baseline yet, so the efficiency ratio stays unavailable (not zero) until one does.
+ * - `planeGateRejected` / `approvalBypassAttempted` — an appended row passed the
+ *   authority gate by construction (`#reject` returns before any append), so these
+ *   are always false here and would add no signal.
+ */
+function buildExecutionSnapshot(input: {
+  policyResults: PolicyResult[];
+  startedAt?: string;
+  finishedAt: string;
+}): ExecutionSnapshot {
+  const violationCount = input.policyResults.filter(
+    (r) => r.effect === "block" || r.effect === "require_approval",
+  ).length;
+  return {
+    terminalState: "completed",
+    error: false,
+    timedOut: false,
+    fallbackUsed: false,
+    chainDepthExceeded: false,
+    violationCount,
+    ...(input.startedAt ? { startedAt: input.startedAt } : {}),
+    finishedAt: input.finishedAt,
+  };
+}
+
 export class UniversalActionPipeline {
   #deps: PipelineDeps;
 
@@ -281,6 +322,11 @@ export class UniversalActionPipeline {
   /** Phase 1: authority → pre-policy → skill → runtime-policy → review gate. */
   async propose(req: ActionRequest, ctx: RunCtx, options: ProposeOptions = {}): Promise<Proposal> {
     const { authority, policies, skills, ledger } = this.#deps;
+
+    // Wall-clock start of the turn. Persisted on the row's ExecutionSnapshot so the
+    // Agent Quality Vector has a real latency signal; a rejected request never
+    // reaches an append, so this is only ever paired with a completed Skill run.
+    const turnStartedAt = ctx.clock.nowISO();
 
     // The turn's effective provenance (PI-2). Input and ambient context combine
     // monotonically so a caller cannot downgrade an already-tainted context.
@@ -561,7 +607,7 @@ export class UniversalActionPipeline {
         null,
         ctx,
         effectiveTaint,
-        entryId,
+        { proposalId: entryId, startedAt: turnStartedAt },
       );
       return {
         id: entry.id,
@@ -583,7 +629,7 @@ export class UniversalActionPipeline {
       "auto",
       ctx,
       effectiveTaint,
-      entryId,
+      { proposalId: entryId, startedAt: turnStartedAt },
     );
     await this.#commit(entry, ctx);
     return {
@@ -729,6 +775,13 @@ export class UniversalActionPipeline {
             : original.diff,
       policyResults: original.policyResults,
       refLedgerId: original.id,
+      // The decision row inherits the proposal's capability attribution and its
+      // execution snapshot: the Skill ran once, at propose time (that is the whole
+      // point of propose→decide→commit). Re-deriving either here would either
+      // fabricate a second execution or silently orphan the decision from the
+      // capability whose quality it is evidence of.
+      ...(original.skill ? { skill: original.skill } : {}),
+      ...(original.executionSnapshot ? { executionSnapshot: original.executionSnapshot } : {}),
       ...(original.seed ? { seed: original.seed } : {}),
       ...(original.dataScope ? { dataScope: original.dataScope } : {}),
       ...(original.context ? { context: original.context } : {}),
@@ -840,8 +893,9 @@ export class UniversalActionPipeline {
     decision: LedgerEntry["userDecision"],
     ctx: RunCtx,
     effectiveTaint: TaintLabel,
-    proposalId?: string,
+    opts: { proposalId?: string; startedAt?: string } = {},
   ): Promise<LedgerEntry> {
+    const { proposalId, startedAt } = opts;
     const entry: LedgerEntry = {
       id: proposalId ?? ctx.ids.next(),
       organizationId: req.organizationId,
@@ -850,6 +904,7 @@ export class UniversalActionPipeline {
       ...(req.onBehalfOf ? { onBehalfOfType: req.onBehalfOf.type, onBehalfOfId: req.onBehalfOf.id } : {}),
       ...(req.onBehalfOf?.delegationId ? { delegationId: req.onBehalfOf.delegationId } : {}),
       action: req.action,
+      skill: req.skill,
       resourceType: req.resourceType,
       ...(req.resourceId ? { resourceId: req.resourceId } : {}),
       inputs: req.inputs,
@@ -860,6 +915,11 @@ export class UniversalActionPipeline {
       ...(req.seed ? { seed: req.seed } : {}),
       ...(req.dataScope ? { dataScope: req.dataScope } : {}),
       ...(req.context ? { context: req.context } : {}),
+      executionSnapshot: buildExecutionSnapshot({
+        policyResults,
+        ...(startedAt ? { startedAt } : {}),
+        finishedAt: ctx.clock.nowISO(),
+      }),
       trustOrigin: legacyTrustOriginFromLabel(effectiveTaint),
       taintLabel: effectiveTaint,
       createdAt: ctx.clock.nowISO(),
@@ -922,6 +982,13 @@ export class UniversalActionPipeline {
       actorId: req.actor.id,
       ...(req.onBehalfOf ? { onBehalfOfType: req.onBehalfOf.type, onBehalfOfId: req.onBehalfOf.id } : {}),
       action: req.action,
+      // Attribution, but deliberately NO execution snapshot: a rejected request
+      // never reached the Skill, so there is no execution to describe. Writing one
+      // would make a gate refusal indistinguishable from a failed run and would
+      // drag the capability's reliability axis down for being correctly governed.
+      // These rows carry `userDecision: null`, so `resolvedEpisodes` excludes them
+      // from scoring anyway — the attribution is here for audit, not for the score.
+      skill: req.skill,
       resourceType: req.resourceType,
       ...(req.resourceId ? { resourceId: req.resourceId } : {}),
       inputs: req.inputs,

@@ -81,6 +81,7 @@ import {
   type ModuleStore,
   type OnboardingProfileStore,
   type EvalStore,
+  LedgerAqvSource,
   type PolicyParamStore,
   type ResourceType,
   type GoalTaskStore,
@@ -424,6 +425,11 @@ export interface Wiring {
    * capabilityBudgets residency-gap pattern). capability.approve's Validated->Active
    * gate reads the candidate's + baseline-lineage's latest run from here. */
   evalStore: EvalStore;
+  /** A1-R1/F2 — Agent Quality Vector source over the append-only ledger. Scores a
+   * capability from the governed episodes it actually produced (attribution key:
+   * `LedgerEntry.skill`, migration 0037) rather than from a synthetic dataset.
+   * Ledger-backed in BOTH modes. */
+  aqvSource: LedgerAqvSource;
   /** policy_params tunable space (EVAL-3 promotion gates + VAR-1 nudges). In-memory in
    * both modes for now — defaults-only until a governed nudge is approved and a Drizzle
    * binding lands. */
@@ -4974,6 +4980,42 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const evalStore = modePorts.evalStore;
   const policyParams = modePorts.policyParams;
 
+  // A1-R1/F2 — the join that lets the Agent Quality Vector score a capability from
+  // REAL governed episodes instead of hand-written fixtures. Reads the append-only
+  // ledger (attribution key: `LedgerEntry.skill`, migration 0037) and takes the
+  // safety axis's violation evidence from capability_states. Both modes bind the
+  // same adapter over whichever ledger the mode resolved, so a score computed in
+  // development is computed the same way as one in production.
+  //
+  // Note the deliberate seam in `evidenceFor`: AQV is keyed by the SKILL id (what
+  // the ledger records), while `capability_states` is keyed by the manifest's UUID
+  // primary key. They are not the same string, so the manifest is resolved by name
+  // — and a miss returns undefined (no evidence) rather than throwing, because a
+  // capability can legitimately have run without ever being registered as a
+  // Commons manifest.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const aqvSource = new LedgerAqvSource(modeLedger, PILOT_ORGANIZATION, {
+    async evidenceFor(capabilityId: string) {
+      let manifestId: string | undefined;
+      if (UUID_RE.test(capabilityId)) {
+        manifestId = capabilityId;
+      } else {
+        const { items } = await capabilityStore.listManifests(PILOT_ORGANIZATION, {
+          limit: 500,
+          offset: 0,
+        });
+        const matches = items
+          .filter((row) => row.name === capabilityId)
+          .sort((a, b) => a.version.localeCompare(b.version));
+        manifestId = matches.at(-1)?.id;
+      }
+      if (!manifestId) return undefined;
+      const state = await capabilityStore.getState(manifestId);
+      const violationCount = state?.evidence?.violationCount;
+      return typeof violationCount === "number" ? { violationCount } : undefined;
+    },
+  });
+
   // Universal Commons client — binds CommonsRegistry port to the local Commons
   // service (COMMONS_URL env, default http://localhost:4780). loopback HTTP is
   // permitted by assertCommonsUrlTls; a remote plaintext URL is rejected.
@@ -5056,6 +5098,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     cultureFetchAbortControllers,
     memoryStore,
     evalStore,
+    aqvSource,
     policyParams,
     models,
     searchProviders,

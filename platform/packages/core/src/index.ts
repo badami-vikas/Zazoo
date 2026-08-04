@@ -264,6 +264,14 @@ export {
   type AqvSource,
   type AqvWindow,
 } from "./eval/aqv.js";
+export {
+  episodesFromLedger,
+  LedgerAqvSource,
+  scoreCapabilityFromLedger,
+  type AqvEvidenceReader,
+  type AqvLedgerReader,
+  type LedgerAqvSourceOptions,
+} from "./eval/ledger-aqv-source.js";
 export type { AxisScores, Comparison, EvalCase, EvalDataset, EvalRun, Scorer } from "./eval/types.js";
 export {
   InMemoryEvalStore,

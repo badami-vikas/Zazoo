@@ -167,6 +167,13 @@ test("migration 0029 upgrades legacy taint without data loss and replays", async
       SET "taint_label" = '{"version":1}'::jsonb
       WHERE "id" = '${ledgerUnknownId}'
     `);
+    // DrizzleLedgerStore is compiled against the CURRENT schema, so it selects
+    // every column head defines (0037 added `skill` and `execution_snapshot`).
+    // Exercising it against a 0029-era database therefore fails on a missing
+    // column for reasons that have nothing to do with taint. Migrate to head
+    // first: the assertion below is about the store's fail-closed handling of a
+    // malformed taint label, which is unaffected by later columns.
+    await migrate(db, { migrationsFolder: realMigrationsFolder() });
     const quarantined = await new DrizzleLedgerStore(db, {
       defaultOrganizationId: organizationId,
       defaultUserId: userId,
