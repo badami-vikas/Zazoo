@@ -515,6 +515,12 @@ export class InMemoryAutomationRegistry implements AutomationRegistry {
     // draft is a review artifact the executor must never be able to start.
     return def && def.status !== "draft" ? def : null;
   }
+
+  async listByStatus(organizationId: string, status: "active" | "draft"): Promise<AutomationDefinition[]> {
+    return [...this.automations.values()]
+      .filter((def) => def.organizationId === organizationId && (def.status ?? "active") === status)
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
 }
 
 interface RunRecord extends AutomationRunRecord {

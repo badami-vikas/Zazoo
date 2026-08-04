@@ -13,6 +13,7 @@ import {
   UnknownOrganizationError,
   OrganizationRenameRollbackError,
   databaseUuidSchema,
+  parseAutomationSteps,
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
@@ -12558,6 +12559,91 @@ export const appRouter = t.router({
             throw learningActionError(error);
           }
         }),
+
+      /** Draft review + activation (ADR-172 follow-up). Drafts are read
+       * through `listByStatus` — never `load`, which stays active-only so
+       * the executor's seam cannot see one. Activation is the governed
+       * step that makes a draft runnable: Human-explicit (this mutation),
+       * statically validated (non-empty canonical steps, every skill
+       * registered), and everything DEEPER — agent allow-list, taint,
+       * approvals — still binds at run time through the same pipeline
+       * gates every Automation goes through. Fabricated steps stay
+       * impossible: an empty draft simply cannot activate. */
+      drafts: t.router({
+        list: procedure
+          .input(z.object({ organizationId: z.string().min(1) }))
+          .query(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            const drafts = await ctx.wiring.automationRegistry.listByStatus(input.organizationId, "draft");
+            return { drafts };
+          }),
+
+        update: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              automationId: z.string().min(1),
+              /** Canonical step shapes — validated by the SAME
+               * parseAutomationSteps every registry write goes through. */
+              steps: z.array(z.record(z.unknown())).min(1),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            const drafts = await ctx.wiring.automationRegistry.listByStatus(input.organizationId, "draft");
+            const draft = drafts.find((definition) => definition.id === input.automationId);
+            if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "draft not found" });
+            let steps;
+            try {
+              steps = parseAutomationSteps(input.steps);
+            } catch (error) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: error instanceof Error ? error.message : "invalid steps",
+              });
+            }
+            for (const step of steps) {
+              if (!ctx.wiring.skillRegistry.get(step.skill)) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: `unknown skill "${step.skill}"` });
+              }
+            }
+            await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
+            return { automationId: draft.id, steps: steps.length, status: "draft" as const };
+          }),
+
+        activate: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              automationId: z.string().min(1),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            const drafts = await ctx.wiring.automationRegistry.listByStatus(input.organizationId, "draft");
+            const draft = drafts.find((definition) => definition.id === input.automationId);
+            if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "draft not found" });
+            if (draft.steps.length === 0) {
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message: "a draft with no steps cannot activate — give it real governed steps first",
+              });
+            }
+            for (const step of draft.steps) {
+              if (!ctx.wiring.skillRegistry.get(step.skill)) {
+                throw new TRPCError({
+                  code: "PRECONDITION_FAILED",
+                  message: `draft step targets unregistered skill "${step.skill}"`,
+                });
+              }
+            }
+            await ctx.wiring.automationRegistry.save({ ...draft, status: "active" });
+            return { automationId: draft.id, status: "active" as const };
+          }),
+      }),
     }),
   }),
 

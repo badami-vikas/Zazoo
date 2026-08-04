@@ -194,6 +194,10 @@ export interface VectorIndex {
   existingIds(entityType: string, embeddingModel: string, entityIds: string[]): Promise<Set<string>>;
   /** Drop every vector for (entityType, model) — the rebuild seam. */
   clear(entityType: string, embeddingModel: string): Promise<void>;
+  /** Every embedding-model id with vectors stored for `entityType` — the
+   * stale-space reclamation scan (spaces other than the active embedder's
+   * are orphaned derived data, safe to clear and rebuild). */
+  listModels(entityType: string): Promise<string[]>;
 }
 
 /** Cosine similarity; a shorter vector is zero-padded, so mixed lengths are
@@ -253,6 +257,14 @@ export class InMemoryVectorIndex implements VectorIndex {
     for (const key of [...this.rows.keys()]) {
       if (key.startsWith(`${entityType}:${embeddingModel}:`)) this.rows.delete(key);
     }
+  }
+
+  async listModels(entityType: string): Promise<string[]> {
+    const models = new Set<string>();
+    for (const entry of this.rows.values()) {
+      if (entry.entityType === entityType) models.add(entry.embeddingModel);
+    }
+    return [...models].sort();
   }
 }
 

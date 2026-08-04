@@ -556,6 +556,10 @@ export interface AutomationDefinition {
 export interface AutomationRegistry {
   load(organizationId: string, automationId: string): Promise<AutomationDefinition | null>;
   save(definition: AutomationDefinition): Promise<void>;
+  /** Every definition in one lifecycle state — the draft review/activation
+   * surface reads drafts through THIS (never `load`, which stays
+   * active-only so the executor's seam cannot see a draft). */
+  listByStatus(organizationId: string, status: "active" | "draft"): Promise<AutomationDefinition[]>;
 }
 
 /** Records attributable Automation Runs. */
