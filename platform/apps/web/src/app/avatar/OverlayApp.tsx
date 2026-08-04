@@ -27,11 +27,18 @@
  * On macOS the Rust window is an NSPanel configured for all Spaces and
  * fullscreen auxiliary presence.
  */
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { ChatView } from "../chat/ChatView";
-import { AvatarFigure } from "./AvatarOverlay";
 import { CompanionAsk } from "./CompanionAsk";
+import { CompanionZazooFace } from "./zazoo/CompanionZazooFace";
+import { ZazooDirector } from "./zazoo/director";
+import {
+  ANSWERED_PERFORMANCE,
+  CAPTURE_PERFORMANCE,
+  PTT_PRESSED_PERFORMANCE,
+  statusToPerformance,
+} from "./zazoo/status-performance";
 import { tauriInvoke, tauriListen } from "./tauri-internals";
 import {
   CAPTURE_EVENT,
@@ -97,6 +104,16 @@ export function OverlayApp() {
   const [pttActive, setPttActive] = useState(false);
   const [hovering, setHovering] = useState(false);
   const [blinking, setBlinking] = useState(false);
+  // Zazoo is the companion's face (desktop-companion wiki, Zazoo v1). The
+  // director instance must be stable — ZazooAvatar's rAF effect depends on it.
+  const director = useMemo(() => new ZazooDirector(), []);
+
+  // The rig is a pure rendering of AvatarStatus: every status change replays
+  // the derived pose. No emotion is stored anywhere; delete this effect and
+  // only pixels change.
+  useEffect(() => {
+    director.perform(statusToPerformance(status));
+  }, [director, status]);
   const blinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const avatarPointerGesture = useRef<AvatarPointerGesture | null>(null);
   const suppressAvatarClick = useRef(false);
@@ -196,6 +213,10 @@ export function OverlayApp() {
   useEffect(() => {
     function onCapture() {
       setBlinking(true);
+      // The blink tell, performed: a one-shot curious lift that auto-reverts
+      // to the status pose (director `duration`), alongside the 200ms flag
+      // the aria/live-region path still uses.
+      director.perform(CAPTURE_PERFORMANCE);
       if (blinkTimeout.current) clearTimeout(blinkTimeout.current);
       blinkTimeout.current = setTimeout(() => setBlinking(false), 200);
     }
@@ -213,7 +234,7 @@ export function OverlayApp() {
       if (blinkTimeout.current) clearTimeout(blinkTimeout.current);
       unlisten();
     };
-  }, []);
+  }, [director]);
 
   // Global push-to-talk (⌘⇧Space, registered Rust-side): pressing summons
   // the ask panel and starts voice capture; releasing stops it. Only the
@@ -224,6 +245,9 @@ export function OverlayApp() {
       unlisten = await tauriListen<string>(COMPANION_PTT_EVENT, (state) => {
         if (!sessionReady) return;
         if (state === "pressed") {
+          // Perk the ears on the keypress itself, ahead of mic-open — the
+          // listening status pose follows once CompanionAsk starts recording.
+          director.perform(PTT_PRESSED_PERFORMANCE);
           setMenuOpen(false);
           setPanel("ask");
           setPttActive(true);
@@ -235,7 +259,7 @@ export function OverlayApp() {
       console.error("[companion] push-to-talk listener failed", error);
     });
     return () => unlisten();
-  }, [sessionReady]);
+  }, [sessionReady, director]);
 
   // On mount: ask Rust to confirm the restored position is valid. This is
   // informational only — the actual restoration happens in Rust during window
@@ -504,7 +528,11 @@ export function OverlayApp() {
               ×
             </button>
           </div>
-          <CompanionAsk name={name} pttActive={pttActive} />
+          <CompanionAsk
+            name={name}
+            pttActive={pttActive}
+            onAnswered={() => director.perform(ANSWERED_PERFORMANCE)}
+          />
         </div>
       )}
 
@@ -628,18 +656,13 @@ export function OverlayApp() {
               style={{
                 cursor: "grab",
                 touchAction: "none",
-                animation:
-                  status === "idle" ? "bridge-companion-breathe 3.2s ease-in-out infinite" : undefined,
               }}
             >
-              <div className="w-11 h-11" role="img" aria-label={`Avatar state: ${label}`}>
-                <AvatarFigure
-                  avatarStyle={prefs.style}
-                  status={status}
-                  blinking={blinking}
-                  reducedMotion={false}
-                />
-              </div>
+              <CompanionZazooFace
+                director={director}
+                size={44}
+                label={`Avatar state: ${label}${blinking ? " (capturing)" : ""}`}
+              />
             </button>
           </div>
         </div>

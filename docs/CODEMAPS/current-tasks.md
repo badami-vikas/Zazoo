@@ -5,15 +5,15 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 
 | ID | Status | Priority | Task | Dependencies |
 |---|---|---|---|---|
-| TASK-006 | blocked | P1 | DealPilot ETA core prototype | TASK-001 |
+| TASK-006 | blocked | P1 | DealPilot ETA core prototype | a MANUAL production deploy (deployed source pinned at `163562a`, merging main does not publish), then the TASK-030 PT-5 cold-start evidence. TASK-001 is `done` and was a stale blocker. |
 | TASK-020 | ready | P4 | Browser companion and Avatar visual expansion | TASK-003, TASK-015 |
-| TASK-018 | blocked | P3 | Cross-platform release blockers | TASK-005 |
-| TASK-019 | blocked | P4 | Approved long-term optimization rollout | TASK-005, TASK-015 |
-| TASK-022 | blocked | P2 | Inference cost optimization: prompt caching + model tiering | external authorized Anthropic credential + live-test spend authorization |
-| TASK-027 | in_progress | P2 | Screen-aware companion ask prototype (clicky parity) | none |
+| TASK-018 | blocked | P3 | Cross-platform release blockers | remediation of the seven HIGH production-dependency advisories, plus the TASK-030 PT-6 OS-matrix and real-device checks. TASK-005 is `done` and was a stale blocker. |
+| TASK-019 | blocked | P4 | Approved long-term optimization rollout | user acceptance of the proposed phase mapping (AP-007 still PROPOSED) and reconciliation of the AP-008 ledger/status inconsistency. TASK-005 and TASK-015 are both `done` and were stale blockers — the real gate is an approval, not engineering. |
 | TASK-028 | in_progress | P2 | Autonomous background browser research agent | TASK-023 (done), TASK-007 (done), TASK-026 (done), TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it) |
 | TASK-029 | in_progress | P2 | WhatsApp Module with governed contact extraction | none |
+| TASK-029 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends) |
 | TASK-030 | in_progress | P2 | WhatsApp write-enabled messaging with a local searchable store | TASK-029 (in_progress — its exit test is unwalked, TASK-030 assumes the linked session and allowlist it built, and inherits its two filed defects as fixes in Track A) |
+| TASK-030 | ready | P2 | Pending Tests — live verification backlog | none — every item is independently runnable by whoever holds the machine, device, credential, or deploy rights it names |
 | TASK-031 | in_progress | P2 | Platform bloat cleanup and table-renderer standardization | none (must not disturb in-progress TASK-027/TASK-028 surfaces, router/wiring splits rebase-heavy — coordinate with active branches) |
 | TASK-032 | in_progress | P2 | Deal Copilot learning observation loop (generic Egg baseline v1) | none (builds on landed MemoryStore/TASK-002 substrate), unblocks retrieval (LA5) and promotion machinery follow-ups. |
 | TASK-033 | in_progress | P2 | Universal Commons capability archetypes (roadmap-v2 Phase 4) | TASK-032 (accepted preferences are the generalization source, suggestion lineage machinery is the seed target). |

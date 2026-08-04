@@ -90,6 +90,7 @@ import {
   type ChatStore,
   type SkillManifest,
   type TaintAuditStore,
+  FREE_CREDENTIALED_SEARCH_ADMISSION,
   type SearchProviderRouter,
   type ContentGuard,
   type GeocodingProvider,
@@ -188,12 +189,13 @@ import {
 } from "@bridge/local";
 import {
   AnthropicProvider,
-  FreeDirectSearchProviderRouter,
   GroqProvider,
   OllamaProvider,
   LlamaCppProvider,
   MANAGED_LLAMA_PROVIDER_ID,
+  ParallelSearchApiProvider,
   ParallelSearchProvider,
+  RightsVerifiedSearchProviderRouter,
   createLocalContentGuard,
   createModelRouter,
   type ModelRouter,
@@ -4146,9 +4148,24 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const geocodingProvider =
     options.geocodingProvider ?? localGeocodingProviderFromEnv(process.env);
   const events = new InMemoryEventBus();
+  // LA3 Phase 1 always ships the anonymous Parallel Search MCP adapter. Phase 2
+  // adds the credentialed REST adapter ONLY when a key is configured, and
+  // widens the admission policy to match. With no key the deployment keeps the
+  // original anonymous-only posture — the policy never widens on its own.
+  const parallelSearchApiKey = process.env.PARALLEL_API_KEY?.trim();
   const searchProviders =
     options.searchProviders ??
-    new FreeDirectSearchProviderRouter([new ParallelSearchProvider()]);
+    new RightsVerifiedSearchProviderRouter(
+      [
+        new ParallelSearchProvider(),
+        ...(parallelSearchApiKey
+          ? [new ParallelSearchApiProvider({ apiKey: parallelSearchApiKey })]
+          : []),
+      ],
+      parallelSearchApiKey
+        ? { admission: FREE_CREDENTIALED_SEARCH_ADMISSION }
+        : {},
+    );
   const skillRegistry = new InMemorySkillRegistry()
     .register(stageMutation)
     .register(stageCapture)

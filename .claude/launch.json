@@ -80,6 +80,16 @@
         "5177"
       ],
       "port": 5177
+    },
+    {
+      "name": "platform-web-parallel-worktree",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "node_modules/.bin/vite"
+      ],
+      "cwd": ".claude/worktrees/parallel-ai-api-search-e3922b/platform/apps/web",
+      "autoPort": true,
+      "port": 5179
     }
   ]
 }

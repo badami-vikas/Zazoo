@@ -2704,3 +2704,126 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Expanded shared path coverage to installable `bridge.package.yaml` manifests and the manifest-driven Module Detail page. Recorded the user-directed refinement as AP-041 on TASK-024 and regenerated the 24-task projection.
 - Validation: instruction structure/canonical pointers passed; parser 3/3; projection IDs/ranks/source metadata matched `docs/TASKS.md`; `git diff --check` passed. Direct web-data tests were dependency-blocked in the fresh clone (`react` absent); the initial 49/49 web result remains the latest runtime evidence and runtime code was unchanged.
 - Durable outcome: `outputs/2026-07-18-module-copilot-instructions.md`.
+
+# 2026-07-29 — Harness architecture research (docs/harness/, AP-090 PROPOSED)
+- User directive: analyse the harness architecture of pi.dev, n8n, OpenClaw, Codex, Claude, Relay.app, Cursor, Devin, opencode, CrewAI, AutoGen and peers plus research publications, then produce a comparative analysis, per-primitive documentation with a roadmap, and a learnings/next-steps report. Clarified scope: the **Bridge Engine as a product harness** (not the `.claude/` dev harness), governed-canon treatment.
+- Added `docs/harness/` — `README.md` index, `comparative-analysis.md` (20 external platforms across 12 axes, 15 convergent primitives, vocabulary-collision table, 2026 vendor-churn record), `primitives.md` (every Engine primitive with `file:line` evidence, status label, and roadmap; consolidated P0–P3 roadmap; doc-vs-code corrections), `learnings-and-next-steps.md` (evidence base tagged `[empirical]`/`[opinion]`, where evidence confirms and challenges our canon, tiered recommendations, standing measurement rules). Wiki companion `docs/wiki/harness.md`.
+- Every Bridge-side claim was verified against code at `file:line`, not inferred from docs. Ten doc-vs-code divergences recorded, three of which are canon claims with no referent: Run "replayable" has no replay driver, "Scheduled Automation" has no scheduler anywhere in `platform/`, and `Plan`/`Planner` have zero implementation. `docs/wiki/governance-agent.md:5-6` claims a Governance carve-out from the agent-floor approve-DENY that `pipeline.decide` does not implement — the current code is the safer state.
+- Verified empty-input gaps: `trustGrants` hardcoded `[]` at `router.ts:12951`, `:13423`, `:4213` while the `trust_grants` table exists and is never read, so Trusted Status is inert; activation budgets, Kill Switch, EvalStore, PolicyParamStore, CredentialBroker and SkillManifestRegistry are in-memory in **both** deployment modes. `LedgerEntry.executionSnapshot` has no writer and no column, so two of seven Agent Quality Vector axes cannot be fed. No `SandboxProvider` is wired into the API at all.
+- Research covered 36 papers plus primary vendor documentation. Load-bearing findings: scaffold choice alone moves GAIA accuracy up to 28 points within one model (arXiv 2606.08529); harness-only edits gained 14–21 points held-out with no weight change (2606.09498); instruction files *reduced* success while raising cost over 20% (2602.11988); skill benefits degrade to baseline once retrieval is realistic over 34k skills (2604.04323, which vindicates AGS1 deterministic dispatch); tau-bench pass^1 61% against pass^8 under 25% (2406.12045).
+- Two corrections to the brief's premises recorded: pi.dev is Mario Zechner's Pi harness (Earendil Inc.), not Parallel or "pi Labs", and OpenClaw's runtime is Pi in RPC mode; Relay.app is shutting down 2026-08-15 (free) / 2026-09-14 (paid), so it is documented as a post-mortem.
+- No code, schema, task-state or canon-doc changes. Recommendations remain proposals pending AP-088. Parallel Search MCP hit its free-tier rate limit partway through; affected sections say so inline and unverified claims are labelled.
+- Follow-up same day: added `docs/harness/comparative-analysis.md` §0 "At a glance" — four scannable tables (the 22-platform field matrix, the Bridge ahead/behind/rejected scorecard, the 15 convergent primitives with our coverage, and the 2026 vendor-churn record) ahead of the existing YAML depth, per user request for a tabulated read. README reading order updated to start there. No claims changed.
+
+# 2026-07-29 — LA3 Phase 2: credentialed SearchProvider tier (TASK-029, ADR-157, AP-091 PROPOSED)
+
+User asked whether the earlier 178-candidate Parallel.ai competitor survey was on the Learning/research Agent
+roadmap, how far along it was, and to "include and build" if not. It **was** on the roadmap
+(`learning-agent-roadmap-2026-07.md` §7, three phases) and had **never been tasked** past Phase 1.
+
+- Phase 2's blockers were not named in the survey: the router *hardcoded* `tier === 1 && access === "free_direct"`,
+  and `CredentialBroker` is `InMemoryCredentialBroker` so there was no durable home for a key.
+- Built the mechanism for one provider: `SearchProviderAdmissionPolicy` in `@bridge/core`
+  (`FREE_DIRECT_SEARCH_ADMISSION` = unchanged default; `FREE_CREDENTIALED_SEARCH_ADMISSION` = opt-in);
+  router refuses `paid`/`self_hosted` at construction; `FreeDirectSearchProviderRouter` →
+  `RightsVerifiedSearchProviderRouter` (no alias); `ParallelSearchApiProvider` (tier 2, `free_credentialed`)
+  registered only when `PARALLEL_API_KEY` is set; shared parsing extracted to `parallel-search-shared.ts`
+  so the two Parallel adapters cannot drift on security-critical checks.
+- Verified: platform typecheck 40/40; `@bridge/models` 42/42 (6 new); all 9 pre-existing Parallel/router tests
+  pass unchanged after the refactor; live end-to-end against the real API returned 3 citations with
+  `providerTier: 2`, `providerAccess: free_credentialed`, `trustOrigin: untrusted_external`, citation taint
+  `trust: untrusted`/`source: web`, and no credential anywhere in the result.
+- **Not closed**: rights re-verification is a human gate (URLs return 200 ≠ terms permit this use);
+  durable credential storage still unbuilt; the remaining 2–4 Tier-2 vendors are NOT built (each needs its
+  own rights verification — ADR-141's whole point).
+- Pre-existing, unrelated: `@bridge/db` "Drizzle metadata is rebased through 0033" test fails on main;
+  no schema or migration touched here.
+- Security: the API key was supplied in chat, so it is in the session transcript and should be rotated at
+  parallel.ai. It was not written into any repository file.
+
+# 2026-07-31 — TASK-028 kernel-Run migration: the destination (research.run.*)
+
+Merged origin/main first (11 commits: TASK-027 screen-aware companion, TASK-028 research agent) and
+de-collided three ids main had independently consumed — this branch's TASK-027 -> TASK-029,
+AP-088 -> AP-090, AP-089 -> AP-091. Main's landed work was left untouched because TASK-028 already
+references it.
+
+Then executed the next open code item on TASK-028: the recorded deviation that Research Run steps
+"run in the overlay, not yet as kernel child Runs".
+
+- Added `research.run.start` and `research.run.recordStep`. An acting step now becomes a real child
+  Agent Run via the existing `createChildAgentRun` + ledger path, reusing the Learning Agent's
+  already-signed `web-research` Goal/Task binding — no new manifest, no new signature.
+- **No schema change.** Child Agent Runs and the ledger are already durable, so the step ordinal
+  lives in a server-authored `stopCondition` prefix instead of a new table. Reads needed no new
+  endpoint either: `agentOrchestration.childRun.listByParentRun` already returns the timeline.
+- Governance properties pinned by tests: server-owned 12-step ceiling; replayed ordinals refused
+  rather than forking the timeline; `click`/`type` absent from the input enum so no client can mint
+  an audit trail for an unapproved BR3 actuation; `delegatedScope` derived from the tool.
+- `note` steps are ledger-only, not Runs. The child-run model refuses an empty delegated scope, and
+  granting a note `external:fetch:read` just to make it representable would give it authority it
+  never uses. Notes stay durable and inspectable; they are not Runs because they did not act.
+- **Half done, stated plainly**: the destination exists, the caller has not moved. `ResearchRun.tsx`
+  still runs the loop client-side. Moving it, plus the Run detail Page (which must merge child Runs
+  with ledger entries to show notes), is the next step.
+- Verified: platform typecheck 42/42; 3 new tests in `platform/apps/api/test/research-run-kernel.test.ts`
+  pass against the real `buildWiring()` composition root.
+
+# 2026-07-31 — Queue hygiene: TASK-030 Pending Tests; TASK-022 + TASK-027 closed (AP-092)
+
+User challenge exposed three real defects in the queue, all confirmed:
+
+1. **Stale dependencies.** TASK-006 was blocked on TASK-001, TASK-018 on TASK-005, TASK-019 on
+   TASK-005 + TASK-015 — every one of those is `done`. The rows read as engineering-blocked when the
+   real gates are a manual production deploy, seven HIGH dependency advisories, and an unapplied
+   approval respectively. Corrected in place; no queue reorder.
+2. **Finished work labelled unfinished.** TASK-022 and TASK-027 were carrying blocked/in_progress
+   labels that described the state of their PROOF, not their WORK. Both closed; their live checks
+   moved to TASK-030.
+3. **An invalid status token.** TASK-029 read `in-progress` (hyphen), which is not one of the six
+   valid values, so the generated projection had been silently dropping it. Now `in_progress`.
+
+**TASK-030 "Pending Tests"** collects PT-1 Anthropic cache hit · PT-2 local tier separation ·
+PT-3 companion validation sweep · PT-4 `research_locate` live check · PT-5 hosted cold-start
+evidence · PT-6 cross-platform release checks. It deliberately excludes build work and approval
+gates — those stay on their own tasks.
+
+On the LLM-agnostic question: the harness already is. `ModelProvider` carries
+tiers/models/pricing/routingHealth/plane, `MODEL_TIERS` is cheap|default|reasoning, and four
+adapters implement it. Tier routing, Anthropic cache wire-format parsing, and receipt construction
+are already proven with no credential. Only a real second Anthropic call showing non-zero
+`cache_read_input_tokens` remains, and it cannot move to Ollama — that field is Anthropic-API
+accounting, i.e. a provider feature behind an agnostic port, not a design gap. Ollama also maps one
+model to all three tiers today, so meaningful local tier separation is a config change (PT-2).
+
+TASK-020 was deliberately NOT closed: it is unbuilt scope, not a testing gap. No browser extension
+exists in `platform/apps/` and its Avatar clause wants production assets, not the procedural SVG rig.
+
+# 2026-07-31 — Session sprint: merge dedup · Zazoo companion face · governed session memory
+
+Sequential execution on explicit user direction ("execute all in one session sequentially"), with
+two Explore agents mapping the overlay-avatar and ask-memory seams in parallel.
+
+1. **Merge dedup (d40f333)**: main's `8bc1337` independently built the TASK-028 kernel-Run
+   migration, strictly more completely than this branch's `d43601e` (migration 0035 + FORCE RLS +
+   terminal freeze, real BR4 kernel resume, `/research` Page, requestStop/complete). Deleted this
+   branch's narrower `research.run.*` router + tests in the merge — one recording surface, not two.
+   Merged tree: typecheck 42/42; research-runs + agent-orchestration 21/21.
+2. **Zazoo v1 on the overlay (f136974)**: the wiki's recorded next step, done for the floating
+   window. Pure status→performance mapping (visual-only canon respected), 44px head-crop face with
+   reduced-motion fallback, capture one-shot, PTT ear-perk, answer celebration. Live browser proof
+   via the lab: one director drove both the full rig and the shipped face. NOT claimed: TASK-020's
+   production-asset clause (Zazoo is also procedural SVG). Pet deliberately unwired (drag
+   ambiguity).
+3. **Governed session memory (5b4e188)**: continuity existed ungoverned; now role-filter-before-
+   take, per-path char budgets, 15-min idle TTL, `screenDerived` provenance, honest consent copy.
+   cargo companion tests 17/17; web 99/99.
+4. **At-keyboard checks NOT executed, on purpose**: TASK-030 PT-3 (V2/V7–V10) requires the user
+   physically at the Mac (press ⌘⇧Space, revoke sharing, detach a monitor). No agent can perform
+   them; they remain open in TASK-030 with named pass conditions. Recorded here so the sprint's
+   "execute all" does not silently imply they ran.
+
+Environment note: the Browser-pane preview tool failed to spawn its helper this session; the
+worktree dev server was started manually (new `platform-web-parallel-worktree` launch.json entry)
+and the pane attached by URL — screenshots captured fine, so the playwright fallback in memory was
+not needed.

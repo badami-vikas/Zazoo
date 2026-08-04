@@ -413,7 +413,22 @@ tier_3_paid_or_self_hosted_only:
   infra_only: [Roundproxies]
 rollout:
   phase_1: "$0 — wire only rights-verified Parallel Search MCP behind the SearchProvider port; taint every result; fail explicitly if unavailable"
-  phase_2: "$0 at eval volume — add 2-4 proven Tier-2 providers (not all 33) as fallback adapters once Tier-1 coverage proves insufficient for a real need"
+  phase_2:
+    intent: "$0 at eval volume — add 2-4 proven Tier-2 providers (not all 33) as fallback adapters once Tier-1 coverage proves insufficient for a real need"
+    trigger_fired: "2026-07-29 — the sole anonymous Tier-1 endpoint rate-limited during live research use; a research lane with one unauthenticated shared provider has no fallback, no attribution, and no quota"
+    status: "MECHANISM COMPLETE FOR ONE PROVIDER (TASK-029, ADR-157, AP-091 PROPOSED) — breadth NOT built"
+    mechanism:
+      admission_policy: "tier/access moved out of the router body into SearchProviderAdmissionPolicy in @bridge/core; FREE_DIRECT_SEARCH_ADMISSION stays the DEFAULT so an unconfigured deployment keeps Phase 1 posture exactly; FREE_CREDENTIALED_SEARCH_ADMISSION is opt-in"
+      spend_guard: "router refuses at construction any policy admitting paid or self_hosted — widening admission can never become spend; Tier-3 still needs the phase_3 cost/ROI gate"
+      rename: "FreeDirectSearchProviderRouter -> RightsVerifiedSearchProviderRouter (no alias); rights/freshness/HTTPS-metadata/plane checks are what the class unconditionally guarantees, and the old name asserted a policy that is now a parameter"
+      first_adapter: "ParallelSearchApiProvider (tier 2, free_credentialed) against api.parallel.ai/v1beta/search; registered ONLY when PARALLEL_API_KEY is set, widening the policy in the same conditional"
+      same_vendor_rationale: "isolates the credentialed-path variable from the new-vendor variable — Parallel's terms were already reviewed under ADR-141 and the payload shape is identical, so the credential/admission/failover path is exercised without a second unknown"
+      anti_drift: "shared citation validation, SSRF-safe URL checks, taint labelling, and truncation bounds extracted to parallel-search-shared.ts; two copies of security-critical parsing would drift silently"
+      credential_handling: "key held in the adapter, sent only as an x-api-key header, never in provenance, citations, warnings, taint, errors, or logs; provenance records THAT a credentialed provider was used, never WHICH credential; pinning test asserts the key appears nowhere in the serialized outcome"
+    open_gates:
+      rights: "HUMAN GATE, not agent-verifiable. Technical behaviour verified and terms/privacy/quickstart URLs return 200 — that is NOT verification that Parallel's terms permit credentialed automated use at Bridge's volume. rights.verifiedAt 2026-07-29 starts the 90-day clock; the adapter self-disables 2026-10-27 pending re-review."
+      durable_credentials: "CredentialBroker is InMemoryCredentialBroker, so the key comes from process env rather than a governed durable store"
+      breadth: "the remaining 2-4 Tier-2 vendors (Exa, Tavily, Brave Search, Linkup et al.) are NOT built — each needs independent rights verification; shipping unverified adapters to look thorough is what ADR-141 exists to prevent"
   phase_3: "paid, evaluation-gated — Tier-3 only behind an explicit cost/ROI proposal + APPROVALS.md gate, never a silent default"
   non_goal: "self-hosted-only Tier-3 items deferred indefinitely — no hosting decision made for them yet"
 rights_review:

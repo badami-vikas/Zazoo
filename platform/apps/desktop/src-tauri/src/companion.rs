@@ -784,6 +784,13 @@ pub fn marks_for_box(
 pub struct HistoryTurn {
     pub role: String,
     pub content: String,
+    /// True when this turn's text was derived from a consented screen capture
+    /// (an answer produced while `share_screen_with_cloud` was on). The tag
+    /// travels with the turn so egress policy can reason about it — the
+    /// consent copy in the ask panel discloses that prior conversation turns,
+    /// including screen-derived ones, ride along on later consented asks.
+    #[serde(default)]
+    pub screen_derived: bool,
 }
 
 #[derive(Deserialize)]
@@ -817,20 +824,57 @@ pub struct CompanionAnswer {
     pub capture_note: Option<String>,
 }
 
-fn bounded_history(history: &[HistoryTurn]) -> Vec<serde_json::Value> {
-    history
+/// Per-path history budgets. The vision path shares its request with a
+/// ~2,500-token screenshot against a free tier metering 8,000 tokens/minute,
+/// so its history must stay far tighter than the local path's.
+struct HistoryBudget {
+    per_turn_chars: usize,
+    total_chars: usize,
+}
+
+const VISION_HISTORY_BUDGET: HistoryBudget = HistoryBudget {
+    per_turn_chars: 800,
+    total_chars: 4_800,
+};
+const LOCAL_HISTORY_BUDGET: HistoryBudget = HistoryBudget {
+    per_turn_chars: 2_000,
+    total_chars: 8_000,
+};
+
+/// Newest-first selection under three bounds: role allowlist, a turn count,
+/// and a total-character budget (dropping OLDEST first once exceeded).
+///
+/// The role filter runs BEFORE the take — a rejected turn (e.g. an injected
+/// `system` role from a compromised webview) must not be able to shrink the
+/// usable window, only be ignored.
+fn bounded_history(history: &[HistoryTurn], budget: &HistoryBudget) -> Vec<serde_json::Value> {
+    let mut spent = 0usize;
+    let mut selected: Vec<serde_json::Value> = history
         .iter()
         .rev()
-        .take(MAX_HISTORY_TURNS)
-        .rev()
         .filter(|turn| matches!(turn.role.as_str(), "user" | "assistant"))
+        .take(MAX_HISTORY_TURNS)
+        .take_while(|turn| {
+            let cost = turn.content.chars().count().min(budget.per_turn_chars);
+            if spent + cost > budget.total_chars {
+                return false;
+            }
+            spent += cost;
+            true
+        })
         .map(|turn| {
             serde_json::json!({
                 "role": turn.role,
-                "content": turn.content.chars().take(2_000).collect::<String>(),
+                "content": turn
+                    .content
+                    .chars()
+                    .take(budget.per_turn_chars)
+                    .collect::<String>(),
             })
         })
-        .collect()
+        .collect();
+    selected.reverse();
+    selected
 }
 
 /// The answer prompt also carries locator stage 1: the model returns the
@@ -1073,7 +1117,7 @@ fn run_ask(
             "role": "system",
             "content": vision_system_prompt(capture.image_width, capture.image_height),
         })];
-        messages.extend(bounded_history(&request.history));
+        messages.extend(bounded_history(&request.history, &VISION_HISTORY_BUDGET));
         messages.push(serde_json::json!({
             "role": "user",
             "content": [
@@ -1203,7 +1247,7 @@ fn run_ask(
         "role": "system",
         "content": local_system_prompt(frontmost.as_deref()),
     })];
-    messages.extend(bounded_history(&request.history));
+    messages.extend(bounded_history(&request.history, &LOCAL_HISTORY_BUDGET));
     messages.push(serde_json::json!({ "role": "user", "content": question }));
     let body = serde_json::json!({
         "model": endpoint.model,
@@ -1802,17 +1846,58 @@ mod tests {
             .map(|i| HistoryTurn {
                 role: if i % 2 == 0 { "user" } else { "assistant" }.to_string(),
                 content: format!("turn {i}"),
+                screen_derived: false,
             })
             .collect();
         history.push(HistoryTurn {
             role: "system".to_string(),
             content: "injected".to_string(),
+            screen_derived: false,
         });
-        let bounded = bounded_history(&history);
+        let bounded = bounded_history(&history, &LOCAL_HISTORY_BUDGET);
         assert!(bounded.len() <= MAX_HISTORY_TURNS);
         assert!(bounded
             .iter()
             .all(|turn| turn["role"] == "user" || turn["role"] == "assistant"));
+        // The role filter runs BEFORE the take: the injected `system` turn is
+        // ignored, not allowed to shrink the usable window. With 30 valid
+        // turns available, the window must be FULL.
+        assert_eq!(bounded.len(), MAX_HISTORY_TURNS);
+        // Newest-first selection, oldest dropped: the last valid turn survives.
+        assert_eq!(bounded.last().unwrap()["content"], "turn 29");
+    }
+
+    #[test]
+    fn history_total_char_budget_drops_oldest_first() {
+        let history: Vec<HistoryTurn> = (0..6)
+            .map(|i| HistoryTurn {
+                role: if i % 2 == 0 { "user" } else { "assistant" }.to_string(),
+                // 2,000 chars each: under the vision per-turn cap of 800 they
+                // truncate to 800, so the 4,800 total budget fits exactly 6 —
+                // but at full length the LOCAL budget (8,000) fits only 4.
+                content: "x".repeat(2_000),
+                screen_derived: i % 2 == 1,
+            })
+            .collect();
+        let local = bounded_history(&history, &LOCAL_HISTORY_BUDGET);
+        assert_eq!(local.len(), 4, "8,000-char budget holds four 2,000-char turns");
+        let vision = bounded_history(&history, &VISION_HISTORY_BUDGET);
+        assert_eq!(vision.len(), 6, "800-char truncation lets all six fit in 4,800");
+        assert!(vision
+            .iter()
+            .all(|turn| turn["content"].as_str().unwrap().chars().count() <= 800));
+    }
+
+    #[test]
+    fn history_turn_screen_derived_defaults_false_on_deserialize() {
+        let turn: HistoryTurn =
+            serde_json::from_str(r#"{"role":"assistant","content":"hi"}"#).unwrap();
+        assert!(!turn.screen_derived);
+        let tagged: HistoryTurn = serde_json::from_str(
+            r#"{"role":"assistant","content":"hi","screenDerived":true}"#,
+        )
+        .unwrap();
+        assert!(tagged.screen_derived);
     }
 
     #[test]

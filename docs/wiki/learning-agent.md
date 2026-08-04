@@ -99,7 +99,29 @@ No sequencer reorder. LA0/LA1 refine P0–P1 tracks (ADR-031/034).
 **LA3 provider survey + rights gate (TASK-023 DONE, ADR-111/141):** 178
 candidates checked. Phase 1 ships only anonymous Parallel Search MCP.
 Jina keyless + DuckDuckGo IA blocked: current direct-access rights not
-verified. Tier2 still signup-gated. Tier3 still cost/ROI + approval-gated.
+verified. Tier3 still cost/ROI + approval-gated.
 No paid escalation code. Full list: `../raw/learning-agent-roadmap-2026-07.md`
 §7. Real durable governed proof + landing:
 `../../outputs/2026-07-18-task023-governed-web-research.md`.
+
+**Phase 2 = MECHANISM ONLY, one provider (TASK-029, ADR-157, AP-091 PROPOSED, 2026-07-29).**
+Trigger fired: sole anonymous Tier-1 endpoint rate-limited under real use — one
+unauthenticated shared provider = no fallback, no attribution, no quota.
+Admission moved out of the router body into `SearchProviderAdmissionPolicy`
+(@bridge/core). `FREE_DIRECT_SEARCH_ADMISSION` stays **default** — unconfigured
+deployments are byte-identical to Phase 1. `FREE_CREDENTIALED_SEARCH_ADMISSION`
+is opt-in. Router **refuses at construction** any policy admitting `paid`/
+`self_hosted` ⇒ widening can never become spend. `FreeDirectSearchProviderRouter`
+→ `RightsVerifiedSearchProviderRouter` (no alias — old name asserted a policy
+that is now a parameter). First adapter = **same vendor credentialed**
+(`api.parallel.ai/v1beta/search`, tier 2), registered only when `PARALLEL_API_KEY`
+is set — isolates the credentialed-path variable from the new-vendor variable.
+Shared parsing extracted to `parallel-search-shared.ts` so the two adapters can't
+drift on citation/URL/taint/truncation checks. Key never touches provenance,
+citations, warnings, taint, or logs; pinning test asserts it.
+**Still open — do not read as done:** (1) **rights = human gate** — technical
+behaviour verified, terms/privacy URLs 200, but nobody has confirmed Parallel's
+terms permit credentialed automated use at our volume; `verifiedAt` 2026-07-29
+⇒ self-disables 2026-10-27. (2) **CredentialBroker still in-memory** — key comes
+from env, not a governed store. (3) **breadth NOT built** — Exa/Tavily/Brave/
+Linkup et al. each need their own rights verification.
