@@ -150,6 +150,7 @@ export {
   parseDependencies,
   parseEvidence,
 } from "./capability-store.js";
+export { DrizzleEvalStore } from "./eval-store.js";
 export {
   DrizzleOrganizationDefinitionStore,
   parseBlueprint,

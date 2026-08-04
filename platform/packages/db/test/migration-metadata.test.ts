@@ -16,7 +16,7 @@ const dbRoot = resolve(here, "../..");
 const migrationsFolder = resolve(dbRoot, "migrations");
 const drizzleKitBin = resolve(dbRoot, "node_modules/drizzle-kit/bin.cjs");
 
-test("Drizzle metadata is rebased through 0035 and generate is a deterministic no-op", () => {
+test("Drizzle metadata is rebased through 0036 and generate is a deterministic no-op", () => {
   const probe = mkdtempSync(resolve(dbRoot, ".drizzle-noop-"));
   const probeMigrations = join(probe, "migrations");
   try {
@@ -28,10 +28,10 @@ test("Drizzle metadata is rebased through 0035 and generate is a deterministic n
     };
     const last = journal.entries.at(-1);
     assert.deepEqual(last, {
-      idx: 35,
+      idx: 36,
       version: "7",
-      when: 1785484725856,
-      tag: "0035_task028_research_runs",
+      when: 1785814388328,
+      tag: "0036_task034_eval_persistence",
       breakpoints: true,
     });
     assert.ok(
@@ -60,7 +60,11 @@ test("Drizzle metadata is rebased through 0035 and generate is a deterministic n
     );
     assert.ok(
       readdirSync(join(probeMigrations, "meta")).includes("0035_snapshot.json"),
-      "current Research Run snapshot must be tracked",
+      "Research Run snapshot must remain tracked",
+    );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0036_snapshot.json"),
+      "current eval-persistence snapshot must be tracked",
     );
 
     const generated = spawnSync(
@@ -89,7 +93,9 @@ test("Drizzle metadata is rebased through 0035 and generate is a deterministic n
     assert.match(output, /No schema changes, nothing to migrate/);
     assert.equal(readFileSync(journalPath, "utf8"), journalBefore);
     assert.ok(
-      !readdirSync(probeMigrations).some((name) => /^0036_.*\.sql$/.test(name)),
+      // The NEXT index after the current head (0036). If `generate` allocates
+      // this, schema.ts and the committed migrations have drifted apart.
+      !readdirSync(probeMigrations).some((name) => /^0037_.*\.sql$/.test(name)),
       "no-op generation must not allocate another migration",
     );
   } finally {

@@ -246,6 +246,13 @@
       "when": 1785484725856,
       "tag": "0035_task028_research_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1785814388328,
+      "tag": "0036_task034_eval_persistence",
+      "breakpoints": true
     }
   ]
 }

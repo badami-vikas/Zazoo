@@ -49,7 +49,6 @@ import {
   type MemoryStore,
   type MemoryAuthScope,
   type MemoryEntry,
-  InMemoryEvalStore,
   InMemoryPolicyParamStore,
   InMemoryGoalTaskStore,
   InMemoryTaskManagerStore,
@@ -150,6 +149,7 @@ import {
   DrizzleHelpdeskStore,
   DrizzleResourcesStore,
   DrizzleCapabilityStore,
+  DrizzleEvalStore,
   DrizzleOrganizationDefinitionStore,
   DrizzleModuleStore,
   DrizzleMemoryStore,
@@ -3337,6 +3337,10 @@ export interface ModePorts {
   helpdeskStore: DrizzleHelpdeskStore;
   resourcesStore: DrizzleResourcesStore;
   capabilityStore: CapabilityStore;
+  /** EVAL-2/3 datasets, runs, comparisons (ADR-164). Drizzle-backed in BOTH
+   * modes — both resolve a real Drizzle database, and an amnesiac eval store
+   * silently disables the capability promotion gate rather than loosening it. */
+  evalStore: EvalStore;
   organizationDefinitionStore: OrganizationDefinitionStore;
   /** P2 capability modules (docs/raw/capability-module-format.md, ADR-018/ADR-023) —
    * module_installations-shaped rows. Real Drizzle-backed table in persistent mode
@@ -3462,6 +3466,7 @@ export function buildPersistentPorts(env: {
     helpdeskStore: new DrizzleHelpdeskStore(db, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(db),
     capabilityStore: new DrizzleCapabilityStore(db, PILOT_ORGANIZATION),
+    evalStore: new DrizzleEvalStore(db, PILOT_ORGANIZATION),
     organizationDefinitionStore: new DrizzleOrganizationDefinitionStore(
       db,
       PILOT_ORGANIZATION,
@@ -3678,6 +3683,7 @@ export async function buildInMemoryPorts(env: {
     helpdeskStore: new DrizzleHelpdeskStore(localDb, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(localDb),
     capabilityStore: new DrizzleCapabilityStore(localDb, PILOT_ORGANIZATION),
+    evalStore: new DrizzleEvalStore(localDb, PILOT_ORGANIZATION),
     organizationDefinitionStore: new DrizzleOrganizationDefinitionStore(
       localDb,
       PILOT_ORGANIZATION,
@@ -4878,8 +4884,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   });
   const googleOAuthStates = new GoogleOAuthStateStore(localPlane.state);
 
-  // EVAL-3 + VAR-1 substrate — in-memory both modes (no Drizzle binding yet).
-  const evalStore = new InMemoryEvalStore();
+  // EVAL-3 eval history is now Drizzle-backed in both modes (ADR-164); VAR-1
+  // policy params remain in-memory (no Drizzle binding yet).
+  const evalStore = modePorts.evalStore;
   const policyParams = new InMemoryPolicyParamStore();
 
   // Universal Commons client — binds CommonsRegistry port to the local Commons

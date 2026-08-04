@@ -1919,3 +1919,81 @@ export const researchRunSteps = pgTable(
     ),
   ],
 );
+
+/**
+ * EVAL-2/3 persistence (ADR-164). Datasets, runs, and baseline-vs-candidate
+ * comparisons for the Agent Quality Vector. Until now `evalStore` was bound to
+ * `InMemoryEvalStore` in BOTH wiring modes, so every eval run died with the
+ * process — which quietly disabled the capability promotion gate: `capability.
+ * approve` only compares when it can load a run for BOTH the candidate and its
+ * lineage baseline, and after any restart there were none, so the gate fell
+ * through to "not applicable" and approved.
+ *
+ * Ids are caller-supplied opaque strings (dataset ids are stable slugs like
+ * `eval-internal-strategist-seed`; run ids are minted by the store), so the
+ * primary keys are composite `(organization_id, id)` rather than the uuid PK
+ * used by row-shaped tables. Every table is organization-scoped like the rest of
+ * the schema — the port interface carries no organizationId, so the Drizzle
+ * store is bound to one organization at construction instead.
+ *
+ * `started_at`/`finished_at` are text, not timestamptz, deliberately: the port
+ * type defines them as opaque ISO-8601 strings that must round-trip unchanged,
+ * and ISO-8601 sorts identically as text. Storing them as timestamps would
+ * silently rewrite a caller's own value on read.
+ */
+export const evalDatasets = pgTable(
+  "eval_datasets",
+  {
+    id: text("id").notNull(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    capabilityType: text("capability_type").notNull(),
+    version: text("version").notNull(),
+    /** EvalCase[] — input/reference/labels/rubric/origin per case. */
+    cases: jsonb("cases").notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.organizationId, t.id], name: "eval_datasets_pk" })],
+);
+
+export const evalRuns = pgTable(
+  "eval_runs",
+  {
+    id: text("id").notNull(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    /** The capability under evaluation — a manifest id for capability runs. */
+    capabilityId: text("capability_id").notNull(),
+    capabilityVersion: text("capability_version").notNull(),
+    datasetId: text("dataset_id").notNull(),
+    /** Array<{ caseId, axes: AxisScores }>. */
+    perCase: jsonb("per_case").notNull().default([]),
+    /** AxisScores — the aggregate the promotion gate compares. */
+    aggregate: jsonb("aggregate").notNull().default({}),
+    modelVersion: text("model_version"),
+    startedAt: text("started_at").notNull(),
+    finishedAt: text("finished_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.id], name: "eval_runs_pk" }),
+    // listRuns(capabilityId) ordered by started_at — the promotion gate's only
+    // read path, and it asks for the LATEST run, so keep it index-ordered.
+    index("eval_runs_capability_idx").on(t.organizationId, t.capabilityId, t.startedAt),
+  ],
+);
+
+export const evalComparisons = pgTable(
+  "eval_comparisons",
+  {
+    id: text("id").notNull(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    /** Full EvalRun snapshots, not references: a comparison is EVIDENCE for a
+     *  promotion decision and must stay readable even if a run row is later
+     *  removed or a dataset is re-versioned. */
+    baseline: jsonb("baseline").notNull(),
+    candidate: jsonb("candidate").notNull(),
+    deltas: jsonb("deltas").notNull().default({}),
+    verdict: text("verdict").notNull(),
+    significance: jsonb("significance").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.organizationId, t.id], name: "eval_comparisons_pk" })],
+);

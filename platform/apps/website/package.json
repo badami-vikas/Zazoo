@@ -8,7 +8,7 @@
     "build": "vite build",
     "dev": "vite --host 127.0.0.1",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test-reporter=dot --test test/*.test.mjs",
     "test:coverage": "node --test test/*.test.mjs",
     "typecheck": "tsc --noEmit"
   },

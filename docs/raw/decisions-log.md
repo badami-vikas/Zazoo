@@ -3873,3 +3873,48 @@ settled by the first run after this lands, and the probe is recorded in BUGS.
   rather than done: `apps/api` is now the critical path at ~284s standalone (303 `buildWiring` calls,
   hostile to shared-process reuse), and `--experimental-test-coverage` remains the single largest
   multiplier in CI.
+
+## ADR-164 — Eval history is persisted, because an amnesiac eval store silently DISABLED the capability promotion gate (2026-08-04; TASK-034)
+
+- **Context**: `apps/api/src/wiring.ts` bound `evalStore` to `InMemoryEvalStore` in BOTH modes, with the
+  comment "in-memory both modes (no Drizzle binding yet)". The 2026-08-03 unfinished-work audit filed
+  this as a persistence gap. It is worse than that. `capability.approve` (`router.ts`) runs the
+  promotion comparison only when it can load a run for the candidate AND its lineage baseline:
+  `if (candidate && baseline) { … compareRuns … if (verdict === "reject") throw }`. With an amnesiac
+  store, after any restart both reads returned empty, the `if` never entered, and approve proceeded
+  **as though the gate were not applicable**. The gate could not fail, because it could not see. A
+  security control that no-ops silently is worse than one that is absent, because the absent one is
+  visible in the code review.
+- **Decision**: Add `eval_datasets` / `eval_runs` / `eval_comparisons` (migration `0036`, purely
+  additive — three CREATE TABLEs, no ALTER of an existing table) and `DrizzleEvalStore`, bound in
+  **both** wiring modes. Both modes already resolve a real Drizzle database (persistent Postgres, or
+  Drizzle-on-PGlite for zero-infra dev), so there was never a reason for the in-memory fake to be the
+  dev binding; making dev match production is what keeps the gate honest in the mode it is actually
+  exercised in.
+  Three shape decisions, each against the obvious default:
+  (a) **Composite `(organization_id, id)` primary keys**, not the schema's usual uuid PK — dataset ids
+  are caller-supplied stable slugs (`eval-internal-strategist-seed`) and run ids are minted by the
+  store. The same slug in two Organizations is two datasets, not a conflict.
+  (b) **The store is bound to one Organization at construction.** The port's methods carry no
+  organizationId while every table here is Organization-scoped; widening the port would have touched
+  core and every call site. An instance IS one Organization's view, and every read and write runs
+  inside `withOrganizationOnly`, so RLS applies exactly as for the row-shaped stores.
+  (c) **`started_at`/`finished_at` are `text`, not `timestamptz`.** The port types them as opaque
+  ISO-8601 strings; ISO-8601 sorts identically as text, and storing them as timestamps would silently
+  rewrite a caller's own value on read. Correctness of round-trip beat SQL-native typing.
+- **Rejected alternatives**: (a) *Widen the `EvalStore` port with organizationId* — cleaner in the
+  abstract, but a core-and-all-call-sites change for a store with one consumer; revisit when a second
+  Organization is real. (b) *Keep in-memory in dev, Drizzle only in persistent mode* — this is exactly
+  the split that produced the bug, and dev is where the gate is exercised most. (c) *Store comparisons
+  as foreign keys to `eval_runs` rather than embedded snapshots* — normalised, but a comparison is
+  EVIDENCE for a promotion decision and must stay readable if a run row is later removed or a dataset
+  re-versioned, so both runs are embedded as jsonb.
+- **Consequences**: The promotion gate can now actually reject. That is a behaviour change, not just a
+  persistence one: a candidate that loses to its baseline will start throwing `capability.approve:
+  candidate does not beat baseline` where it previously sailed through — correct, and worth stating
+  because the first such rejection will look like a new bug. The restart property is pinned by a test
+  that opens a genuinely **file-backed** PGlite twice (`memory://` would prove nothing, since a
+  memory-backed instance starts empty on every open). jsonb columns are Zod-validated at the read
+  boundary following `DrizzleCapabilityStore`'s reasoning — a malformed row throws loudly rather than
+  reading back as "no scores", which would be indistinguishable from a genuinely failing capability.
+  `VAR-1` policy params remain in-memory in both modes; that binding is still open under TASK-034.

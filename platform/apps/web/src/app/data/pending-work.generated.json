@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T00:48:35.619Z",
+  "generatedAt": "2026-08-04T04:31:24.338Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1156,7 +1156,8 @@
       "prototypeTest": "Boot the API with a deliberately incomplete environment and watch it refuse to start (or log an explicit warning naming each unset var) instead of silently using a fallback; write a `policyParams` value, restart the service, and read the same value back.",
       "scope": [
         "`outputs/2026-08-03-unfinished-work-audit.md` Tier 1. LANDED 2026-08-03 in this task's first pass: the Google OAuth callback no longer redirects to `http://localhost:5173` in production (`google-oauth-routes.ts` now falls back to `renderWebOrigin()`, derived from the already-set `BRIDGE_RENDER_WEB_HOST`, before localhost), and the three `API_RATE_LIMIT_*` vars are pinned explicitly in `render.yaml` at their former hardcoded values. STILL OPEN: (a) `policyParams` is bound to `InMemoryPolicyParamStore` at `wiring.ts:4740` OUTSIDE the persistent/in-memory split, so `router.ts:12912` `resolveGates(...)` always reads defaults and every write dies at restart while a real `policyParams` pgTable sits unused at `packages/db/src/schema.ts:966` — needs a `DrizzlePolicyParamStore` bound in `buildPersistentPorts`",
-        "(b) `evalStore` has the same in-memory-in-both-modes problem",
+        "(b) `evalStore` DONE 2026-08-04 (ADR-164) — `DrizzleEvalStore` + migration `0036_task034_eval_persistence`, bound in both modes",
+        "this was not merely lost data but a silently disabled promotion gate (`capability.approve` skipped its comparison entirely when it could not load both candidate and baseline runs), and the gate can now actually reject",
         "(c) a boot-time assertion listing every required-in-production env var",
         "(d) `COMMONS_*` vars and the undeployed Commons service."
       ],
@@ -1262,7 +1263,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 552,
+      "sourceLine": 553,
       "rank": 37
     }
   ]
