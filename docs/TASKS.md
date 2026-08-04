@@ -680,3 +680,22 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-08-04 ("If successful, add a task to repeat this for skills, capabilities, modules, etc so we have clarity on structure for each of these (if at all a structure is required, I believe a strong boundary conditions with autonomy within it might be better approach)").
 - Approval: AP-099 APPLIED
 - Dependencies: none (methodology and draft constitution exist; TASK-033 archetype work is adjacent, not blocking)
+
+## Constitution enforcement mechanisms (ADR-173 adopt-list)
+- ID: TASK-043
+- Status: ready
+- Priority: P2
+- Horizon: Convergence
+- Outcome: The five mechanisms adopted from the ADR-172 regeneration test exist as executable harness obligations rather than review conventions, so constitution conformance is provable per capability instead of asserted.
+- Prototype test: each item below has a test that fails when the mechanism is removed. A mechanism with no failing-on-removal test is not done.
+- Scope:
+  - **E1 — closed port-set allowlist (adopt now).** Build-time structural test snapshotting each capability package's injected-port set + import graph against a reviewed allowlist file; adding a port fails CI until the allowlist changes; the allowlist file is approval-gated. First target: the Learning surfaces (`core/learning`, `core/memory`), whose `neverExecutes` today rests on the ad-hoc "core holds no pipeline handle" property (ADR-077).
+  - **E2 — shown-text acceptance hash (adopt now).** Acceptance records the hash of exactly what the user was shown; a bulk-accept audit query can distinguish reviewed from rubber-stamped acceptances.
+  - **E3 — sensitivity tiers, raise-only (adopt now; invariant 15).** Deterministic gate classifying claim CONTENT about a person: red classes (health, protected characteristics, psychological/relationship-quality conclusions, financial distress) are never proposed; amber claims render as observed facts with evidence shown, never conclusions; model-assisted scoring may only raise a tier. Red-class fixtures must never reach a proposal.
+  - **E4 — claim→evidence map (adopt, medium effort).** Every proposed durable statement references >=1 evidence/observation id, machine-checked before emission; multi-clause statements are checked per clause, not per record.
+  - **E5 — paraphrase-robust rejection fingerprints (sequenced).** Semantic fingerprint with backoff-to-permanent, tested against a paraphrase corpus. BLOCKED on the semantic embedder (LA5 ships lexical hashing v1) — do not start before it lands.
+  - Explicitly NOT in scope: restructuring the server-side shared net-guard into an out-of-process egress broker (ADR-173 rejected it as redundant; the desktop shell already holds the chokepoint).
+- Evidence: ADR-173; `outputs/2026-08-04-regeneration-test-learning-agent.md`.
+- Requests: user directive 2026-08-04 ("Incorporate the 6 ideas, if validated to be better").
+- Approval: AP-100 APPLIED
+- Dependencies: E5 depends on the semantic embedder (learning-agent LA5 open item). E1-E4 have none.

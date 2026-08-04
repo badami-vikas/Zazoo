@@ -23,3 +23,4 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-040 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends) |
 | TASK-041 | ready | P2 | Pending Tests — live verification backlog | none — every item is independently runnable by whoever holds the machine, device, credential, or deploy rights it names |
 | TASK-042 | ready | P2 | Input-pack regeneration tests for Skills, Modules, and Integrations | none (methodology and draft constitution exist, TASK-033 archetype work is adjacent, not blocking) |
+| TASK-043 | ready | P2 | Constitution enforcement mechanisms (ADR-173 adopt-list) | E5 depends on the semantic embedder (learning-agent LA5 open item). E1-E4 have none. |
