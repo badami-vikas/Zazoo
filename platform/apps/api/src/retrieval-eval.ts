@@ -17,6 +17,17 @@
  * embedding-space id as capability_version so runs across embedder
  * switches stay comparable side by side. Fewer than MIN_CASES prose rows
  * skips honestly — an empty workspace produces no fake numbers.
+ *
+ * DATASET REFRESH POLICY (ADR-174): runs score a STORED dataset version so
+ * consecutive runs compare like for like — a moving case set would make
+ * every delta ambiguous (did retrieval change, or the questions?). Before
+ * scoring, stored cases whose source Memory no longer exists are PRUNED
+ * (a deleted row is corpus drift, not pipeline regression). The dataset
+ * refreshes — a NEW immutable version minted from freshly mined cases —
+ * only when (a) none exists yet, (b) pruning left fewer than MIN_CASES
+ * live cases, or (c) the live stored set and the freshly mined set have
+ * drifted apart (Jaccard overlap of case ids < 0.5). Old versions stay in
+ * the store, so historical runs keep pointing at exactly what they scored.
  */
 import {
   evaluateRetrieval,
@@ -69,11 +80,43 @@ export type UsageEvalResult =
       skipped: false;
       cases: number;
       runId: string;
+      datasetId: string;
+      /** True when this pass minted a new dataset version (refresh policy fired). */
+      datasetRefreshed: boolean;
       precisionAtK: number;
       recallAtK: number;
       mrr: number;
       embeddingModel: string;
     };
+
+const DATASET_PREFIX = "retrieval-usage:";
+/** Below this id-overlap between the live stored cases and freshly mined
+ * cases, the workspace has moved on and comparisons would mislead. */
+const REFRESH_JACCARD_THRESHOLD = 0.5;
+
+function datasetVersionOf(id: string, organizationId: string): number | null {
+  const base = `${DATASET_PREFIX}${organizationId}`;
+  if (id === base) return 1; // pre-policy unversioned dataset = v1
+  if (!id.startsWith(`${base}:v`)) return null;
+  const version = Number(id.slice(`${base}:v`.length));
+  return Number.isInteger(version) && version >= 1 ? version : null;
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 1;
+  let intersection = 0;
+  for (const value of a) if (b.has(value)) intersection += 1;
+  return intersection / (a.size + b.size - intersection);
+}
+
+/** Rehydrate RetrievalEvalCases from a stored dataset's rows. */
+function storedCasesOf(cases: Array<{ id: string; input: unknown; reference?: unknown }>): RetrievalEvalCase[] {
+  return cases.flatMap((row) =>
+    typeof row.input === "string" && Array.isArray(row.reference) && row.reference.every((v) => typeof v === "string")
+      ? [{ id: row.id, query: row.input, relevantIds: row.reference }]
+      : [],
+  );
+}
 
 /** One scheduled eval pass: mine cases from real rows, run them through the
  * LIVE fused retrieval pipeline, persist the scored run. */
@@ -88,8 +131,52 @@ export async function runUsageRetrievalEval(deps: {
   nowISO: () => string;
 }): Promise<UsageEvalResult> {
   const embedder = deps.embedder ?? hashingTextEmbedder();
-  const cases = await buildUsageEvalCases(deps);
-  if (cases.length < MIN_CASES) return { skipped: true, cases: cases.length };
+  const mined = await buildUsageEvalCases(deps);
+  if (mined.length < MIN_CASES) return { skipped: true, cases: mined.length };
+
+  // Refresh policy (see module header): reuse the latest stored dataset
+  // version when its live cases still describe this workspace; otherwise
+  // mint the next immutable version from the freshly mined cases.
+  const scope = { organizationId: deps.organizationId, userId: deps.ownerUserId };
+  const { items: allDatasets } = await deps.evalStore.listDatasets({ limit: 200, offset: 0 });
+  const latest = allDatasets
+    .map((dataset) => ({ dataset, version: datasetVersionOf(dataset.id, deps.organizationId) }))
+    .filter((entry): entry is { dataset: (typeof allDatasets)[number]; version: number } => entry.version !== null)
+    .sort((a, b) => b.version - a.version)[0];
+
+  const liveStored: RetrievalEvalCase[] = [];
+  if (latest) {
+    // Prune cases whose source row is gone — corpus drift, not regression.
+    for (const storedCase of storedCasesOf(latest.dataset.cases)) {
+      const row = await deps.memoryStore.get(storedCase.id, scope);
+      if (row) liveStored.push(storedCase);
+    }
+  }
+  const minedIds = new Set(mined.map((evalCase) => evalCase.id));
+  const storedIds = new Set(liveStored.map((evalCase) => evalCase.id));
+  const needsRefresh =
+    !latest || liveStored.length < MIN_CASES || jaccard(minedIds, storedIds) < REFRESH_JACCARD_THRESHOLD;
+
+  let datasetId: string;
+  let cases: RetrievalEvalCase[];
+  if (needsRefresh) {
+    datasetId = `${DATASET_PREFIX}${deps.organizationId}:v${(latest?.version ?? 0) + 1}`;
+    cases = mined;
+    await deps.evalStore.createDataset({
+      id: datasetId,
+      capability_type: "retrieval",
+      version: "usage-mined-v1",
+      cases: mined.map((evalCase) => ({
+        id: evalCase.id,
+        input: evalCase.query,
+        reference: evalCase.relevantIds,
+        origin: "mined",
+      })),
+    });
+  } else {
+    datasetId = latest.dataset.id;
+    cases = liveStored;
+  }
 
   const startedAt = deps.nowISO();
   const retrieve = async (query: string, k: number): Promise<string[]> => {
@@ -110,20 +197,6 @@ export async function runUsageRetrievalEval(deps: {
   };
   const report = await evaluateRetrieval(cases, retrieve, EVAL_K);
 
-  const datasetId = `retrieval-usage:${deps.organizationId}`;
-  if (!(await deps.evalStore.getDataset(datasetId))) {
-    await deps.evalStore.createDataset({
-      id: datasetId,
-      capability_type: "retrieval",
-      version: "usage-mined-v1",
-      cases: cases.map((evalCase) => ({
-        id: evalCase.id,
-        input: evalCase.query,
-        reference: evalCase.relevantIds,
-        origin: "mined",
-      })),
-    });
-  }
   const run = await deps.evalStore.createRun({
     capability_id: RETRIEVAL_EVAL_CAPABILITY_ID,
     capability_version: embedder.id,
@@ -144,6 +217,8 @@ export async function runUsageRetrievalEval(deps: {
     skipped: false,
     cases: cases.length,
     runId: run.id,
+    datasetId,
+    datasetRefreshed: needsRefresh,
     precisionAtK: report.precisionAtK,
     recallAtK: report.recallAtK,
     mrr: report.mrr,

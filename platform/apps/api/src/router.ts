@@ -805,6 +805,7 @@ export function anchorLineageKey(anchor: RedFlagAnchor): string {
  * without needing a real, hard-to-trigger-on-demand process crash. */
 import { deterministicUuid } from "./deterministic-uuid.js";
 import { fusedChatMemory } from "./retrieval-fusion.js";
+import { RETRIEVAL_EVAL_CAPABILITY_ID } from "./retrieval-eval.js";
 export { deterministicUuid };
 
 /**
@@ -5341,6 +5342,24 @@ function assertLearningFlightEnabled(ctx: { wiring: Pick<Wiring, "learningObserv
     });
   }
 }
+
+function assertRetrievalFlightEnabled(ctx: { wiring: Pick<Wiring, "retrievalFusionEnabled"> }): void {
+  if (!ctx.wiring.retrievalFusionEnabled) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "retrieval fusion flight is disabled (BRIDGE_RETRIEVAL_FUSION)",
+    });
+  }
+}
+
+/** HONEST METRIC LABEL (ADR-174): every surface showing these numbers must
+ * carry it. The eval measures whether retrieval finds the organization's own
+ * notes again (self-retrieval consistency) — it is NOT human-judged
+ * relevance, and dashboards must never present it as such. */
+export const RETRIEVAL_EVAL_METRIC = "self_retrieval" as const;
+export const RETRIEVAL_EVAL_METRIC_NOTE =
+  "Self-retrieval consistency: how reliably retrieval finds this organization's own notes again. " +
+  "Not human-judged relevance.";
 
 /** Commons-archetype procedures need BOTH flights: the learning loop (the
  * rows being generalized/seeded are its rows) AND the archetypes flight. */
@@ -12644,6 +12663,52 @@ export const appRouter = t.router({
             return { automationId: draft.id, status: "active" as const };
           }),
       }),
+    }),
+
+    /** Retrieval quality read surface (ADR-174). `status` always answers so
+     * clients hide the card honestly while the fusion flight is off; `evals`
+     * serves recent scheduled runs WITH the honest metric label — these are
+     * self-retrieval consistency numbers, never presented as human-judged
+     * relevance. */
+    retrieval: t.router({
+      status: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          return { enabled: ctx.wiring.retrievalFusionEnabled };
+        }),
+
+      evals: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            limit: z.number().int().min(1).max(50).default(10),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertRetrievalFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const { items, total } = await ctx.wiring.evalStore.listRuns(RETRIEVAL_EVAL_CAPABILITY_ID, {
+            limit: input.limit,
+            offset: 0,
+          });
+          return {
+            metric: RETRIEVAL_EVAL_METRIC,
+            metricNote: RETRIEVAL_EVAL_METRIC_NOTE,
+            total,
+            // Store order is oldest-first; the card wants newest-first.
+            runs: [...items].reverse().map((run) => ({
+              runId: run.id,
+              startedAt: run.started_at,
+              datasetId: run.dataset_id,
+              embeddingModel: run.capability_version,
+              cases: run.perCase.length,
+              recallAtK: run.aggregate.route_r ?? 0,
+              precisionAtK: run.aggregate.route_p ?? 0,
+              mrr: run.aggregate.success ?? 0,
+            })),
+          };
+        }),
     }),
   }),
 

@@ -121,17 +121,123 @@ test("mined cases come from prose rows only, the live pipeline scores them, and 
     assert.equal(runs.total, 1);
     assert.equal(runs.items[0]!.capability_version, "bridge-hashing-lexical-v1");
     assert.equal(runs.items[0]!.perCase.length, CORPUS.length);
-    const dataset = await wiring.evalStore.getDataset(`retrieval-usage:${ORG}`);
+    assert.equal(result.datasetRefreshed, true);
+    assert.equal(result.datasetId, `retrieval-usage:${ORG}:v1`);
+    const dataset = await wiring.evalStore.getDataset(`retrieval-usage:${ORG}:v1`);
     assert.ok(dataset);
     assert.ok(dataset.cases.every((evalCase) => evalCase.origin === "mined"));
 
-    // A second pass appends another comparable run (same capability id).
+    // REFRESH POLICY: a stable workspace REUSES the stored dataset version
+    // (run-over-run comparability), no new dataset minted.
     const again = await runUsageRetrievalEval(evalDeps(wiring));
     assert.equal(again.skipped, false);
+    assert.equal(again.datasetRefreshed, false);
+    assert.equal(again.datasetId, `retrieval-usage:${ORG}:v1`);
     assert.equal(
       (await wiring.evalStore.listRuns(RETRIEVAL_EVAL_CAPABILITY_ID, { limit: 10, offset: 0 })).total,
       2,
     );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("REFRESH POLICY: corpus drift mints the next dataset version; dead cases are pruned first", async () => {
+  const wiring = await buildWiring({ retrievalFusionEnabled: true });
+  try {
+    await seedCorpus(wiring);
+    const scope = { organizationId: ORG, userId: PILOT_USER };
+    const first = await runUsageRetrievalEval(evalDeps(wiring));
+    assert.equal(first.skipped, false);
+    assert.equal(first.datasetId, `retrieval-usage:${ORG}:v1`);
+
+    // Prune-only drift: forget ONE source row. Four of five stored cases
+    // stay live and still overlap the mined set — no refresh, and the run
+    // scores only the live cases (the deleted row is corpus drift, not a
+    // pipeline regression).
+    assert.equal(await wiring.memoryStore.forget("eeeeeeee-0000-4000-8000-000000000000", scope), true);
+    const pruned = await runUsageRetrievalEval(evalDeps(wiring));
+    assert.equal(pruned.skipped, false);
+    assert.equal(pruned.datasetRefreshed, false);
+    assert.equal(pruned.datasetId, `retrieval-usage:${ORG}:v1`);
+    assert.equal(pruned.cases, CORPUS.length - 1);
+
+    // Real drift: the workspace moves on — most old rows gone, new topics
+    // written. Jaccard falls below the threshold and v2 is minted from the
+    // freshly mined cases; v1 stays in the store for historical runs.
+    for (let i = 1; i <= 3; i += 1) {
+      assert.equal(await wiring.memoryStore.forget(`eeeeeeee-0000-4000-8000-00000000000${i}`, scope), true);
+    }
+    const NEW_TOPICS = [
+      "Commercial landscaping contracts renew every spring across the metro region",
+      "Fleet maintenance schedules should batch by vehicle class and mileage",
+      "Vendor payment terms longer than sixty days require finance approval",
+      "Warehouse safety walkthroughs happen on the first monday of the month",
+    ];
+    for (let i = 0; i < NEW_TOPICS.length; i += 1) {
+      await wiring.memoryStore.write(
+        proseRow(`ffffffff-0000-4000-8000-00000000000${i}`, NEW_TOPICS[i]!, `2026-04-0${i + 1}T00:00:00.000Z`),
+      );
+    }
+    const drifted = await runUsageRetrievalEval(evalDeps(wiring));
+    assert.equal(drifted.skipped, false);
+    assert.equal(drifted.datasetRefreshed, true);
+    assert.equal(drifted.datasetId, `retrieval-usage:${ORG}:v2`);
+    assert.ok(await wiring.evalStore.getDataset(`retrieval-usage:${ORG}:v1`), "old version stays for history");
+    assert.ok(await wiring.evalStore.getDataset(`retrieval-usage:${ORG}:v2`));
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("learning.retrieval surface: status always answers; evals are flight-gated and honestly labeled", async () => {
+  const { TRPCError } = await import("@trpc/server");
+  // Flight OFF: status reports disabled, evals fail closed.
+  const offWiring = await buildWiring();
+  try {
+    const clock = new SystemClock();
+    const rng = new SeededRng(59);
+    const caller = appRouter.createCaller({
+      wiring: offWiring,
+      run: { clock, rng, ids: new UuidGen(clock, rng) },
+      identity: { type: "user" as const, id: PILOT_USER },
+      authenticated: true,
+      verifying: false,
+    });
+    assert.deepEqual(await caller.learning.retrieval.status({ organizationId: ORG }), { enabled: false });
+    await assert.rejects(
+      () => caller.learning.retrieval.evals({ organizationId: ORG }),
+      (error: unknown) => error instanceof TRPCError && error.code === "PRECONDITION_FAILED",
+    );
+  } finally {
+    await offWiring.close();
+  }
+
+  // Flight ON: runs come back newest-first, each response carrying the
+  // honest metric label — self-retrieval, never presented as relevance.
+  const wiring = await buildWiring({ retrievalFusionEnabled: true });
+  try {
+    await seedCorpus(wiring);
+    await runUsageRetrievalEval(evalDeps(wiring));
+    await runUsageRetrievalEval(evalDeps(wiring));
+    const clock = new SystemClock();
+    const rng = new SeededRng(61);
+    const caller = appRouter.createCaller({
+      wiring,
+      run: { clock, rng, ids: new UuidGen(clock, rng) },
+      identity: { type: "user" as const, id: PILOT_USER },
+      authenticated: true,
+      verifying: false,
+    });
+    assert.deepEqual(await caller.learning.retrieval.status({ organizationId: ORG }), { enabled: true });
+    const evals = await caller.learning.retrieval.evals({ organizationId: ORG });
+    assert.equal(evals.metric, "self_retrieval");
+    assert.match(evals.metricNote, /Not human-judged relevance/);
+    assert.equal(evals.total, 2);
+    assert.equal(evals.runs.length, 2);
+    assert.equal(evals.runs[0]!.embeddingModel, "bridge-hashing-lexical-v1");
+    assert.ok(evals.runs[0]!.recallAtK >= 0.8);
+    assert.equal(evals.runs[0]!.cases, CORPUS.length);
   } finally {
     await wiring.close();
   }
