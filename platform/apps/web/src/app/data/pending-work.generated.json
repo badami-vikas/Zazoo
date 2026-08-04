@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T07:16:52.193Z",
+  "generatedAt": "2026-08-04T07:38:57.485Z",
   "items": [
     {
       "id": "TASK-026",
@@ -31,7 +31,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 56,
+      "sourceLine": 58,
       "rank": 1
     },
     {
@@ -62,7 +62,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 70,
+      "sourceLine": 72,
       "rank": 2
     },
     {
@@ -96,7 +96,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 84,
+      "sourceLine": 86,
       "rank": 3
     },
     {
@@ -129,7 +129,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 98,
+      "sourceLine": 100,
       "rank": 4
     },
     {
@@ -160,7 +160,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 111,
+      "sourceLine": 113,
       "rank": 5
     },
     {
@@ -193,7 +193,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 124,
+      "sourceLine": 126,
       "rank": 6
     },
     {
@@ -229,7 +229,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 139,
+      "sourceLine": 141,
       "rank": 7
     },
     {
@@ -272,7 +272,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 153,
+      "sourceLine": 155,
       "rank": 8
     },
     {
@@ -326,7 +326,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 170,
+      "sourceLine": 172,
       "rank": 9
     },
     {
@@ -367,7 +367,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 184,
+      "sourceLine": 186,
       "rank": 10
     },
     {
@@ -405,7 +405,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 197,
+      "sourceLine": 199,
       "rank": 11
     },
     {
@@ -441,7 +441,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 210,
+      "sourceLine": 212,
       "rank": 12
     },
     {
@@ -478,7 +478,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 224,
+      "sourceLine": 226,
       "rank": 13
     },
     {
@@ -514,7 +514,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 238,
+      "sourceLine": 240,
       "rank": 14
     },
     {
@@ -545,7 +545,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 252,
+      "sourceLine": 254,
       "rank": 15
     },
     {
@@ -582,7 +582,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 266,
+      "sourceLine": 268,
       "rank": 16
     },
     {
@@ -613,7 +613,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 280,
+      "sourceLine": 282,
       "rank": 17
     },
     {
@@ -642,7 +642,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 296,
+      "sourceLine": 298,
       "rank": 18
     },
     {
@@ -677,7 +677,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 310,
+      "sourceLine": 312,
       "rank": 19
     },
     {
@@ -712,7 +712,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 324,
+      "sourceLine": 326,
       "rank": 20
     },
     {
@@ -743,7 +743,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 337,
+      "sourceLine": 339,
       "rank": 21
     },
     {
@@ -780,7 +780,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 350,
+      "sourceLine": 352,
       "rank": 22
     },
     {
@@ -807,7 +807,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 363,
+      "sourceLine": 365,
       "rank": 23
     },
     {
@@ -841,7 +841,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 376,
+      "sourceLine": 378,
       "rank": 24
     },
     {
@@ -872,7 +872,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 389,
+      "sourceLine": 391,
       "rank": 25
     },
     {
@@ -904,8 +904,36 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 402,
+      "sourceLine": 404,
       "rank": 26
+    },
+    {
+      "id": "TASK-024",
+      "title": "TASK-024 — Path-scoped Copilot instructions for developed Modules",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "Future Copilot sessions editing a developed Module automatically receive its established architecture, trust boundaries, reuse rules, and canonical design pointers instead of inventing a parallel pattern.",
+      "prototypeTest": "Inspect every `.github/instructions/*.instructions.md` file; each has valid `applyTo` frontmatter covering its Module's implementation paths, points to `CLAUDE.md` as canonical, captures the Module's load-bearing invariants, and explicitly prevents known design regressions without duplicating full plans.",
+      "scope": [
+        "`.github/instructions/module-development.instructions.md`",
+        "developed Module adapters for DealPilot, JobPilot, Relationship, Task Manager, and nested Helpdesk"
+      ],
+      "evidence": [
+        "user problem statement 2026-07-18 — future Copilot sessions currently risk creating whole new designs or patterns",
+        "follow-up directive required each adapter to be elaborated from the corresponding current code rather than high-level design alone"
+      ],
+      "requests": [
+        "module instruction-file directive 2026-07-18",
+        "current-code pattern elaboration directive 2026-07-18"
+      ],
+      "approval": "AP-040 and AP-041 applied",
+      "dependencies": [],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 404,
+      "rank": 27
     },
     {
       "id": "TASK-027",
@@ -931,8 +959,8 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 428,
-      "rank": 27
+      "sourceLine": 430,
+      "rank": 28
     },
     {
       "id": "TASK-028",
@@ -972,8 +1000,8 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 442,
-      "rank": 28
+      "sourceLine": 444,
+      "rank": 29
     },
     {
       "id": "TASK-029",
@@ -1004,8 +1032,8 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 415,
-      "rank": 29
+      "sourceLine": 417,
+      "rank": 30
     },
     {
       "id": "TASK-030",
@@ -1050,8 +1078,8 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 455,
-      "rank": 30
+      "sourceLine": 457,
+      "rank": 31
     },
     {
       "id": "TASK-031",
@@ -1087,8 +1115,8 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 468,
-      "rank": 31
+      "sourceLine": 470,
+      "rank": 32
     },
     {
       "id": "TASK-032",
@@ -1118,8 +1146,8 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 484,
-      "rank": 32
+      "sourceLine": 486,
+      "rank": 33
     },
     {
       "id": "TASK-033",
@@ -1144,8 +1172,8 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 503,
-      "rank": 33
+      "sourceLine": 505,
+      "rank": 34
     },
     {
       "id": "TASK-034",
@@ -1174,8 +1202,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 529,
-      "rank": 34
+      "sourceLine": 531,
+      "rank": 35
     },
     {
       "id": "TASK-035",
@@ -1204,8 +1232,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 542,
-      "rank": 35
+      "sourceLine": 544,
+      "rank": 36
     },
     {
       "id": "TASK-036",
@@ -1231,8 +1259,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 555,
-      "rank": 36
+      "sourceLine": 557,
+      "rank": 37
     },
     {
       "id": "TASK-037",
@@ -1240,33 +1268,26 @@
       "status": "pending",
       "priority": "P3",
       "horizon": "Convergence",
-      "outcome": "No unlanded work exists only on one machine, dirty worktrees are either committed or discarded deliberately, and the branch list reflects real in-flight work.",
-      "prototypeTest": "Every branch carrying unique commits exists on the remote; `git stash list` is empty or its contents are landed on a branch; no worktree holds untracked source files; the stale local `main` is reset to `origin/main`.",
+      "outcome": "Learning Agent's LA3 research lane gains a governed `web-research` Skill backed by a provider-agnostic `SearchProvider` port (same shape as `ModelProvider`/`MemoryStore`/`ContentGuard`), wired first to $0 Tier-1 direct-access sources (Parallel Search MCP, Jina AI keyless, DuckDuckGo Instant Answer API) with a pre-vetted Tier-2 (signup-gated free tier) and Tier-3 (paid/self-hosted-only) expansion path, and every fetched result tagged `untrusted_external` taint per PI-1/PI-2 before reaching a Memory or prompt.",
+      "prototypeTest": "From a real workspace, Learning Agent runs a `web-research` Skill call for a bounded research objective, returns cited results sourced from at least one Tier-1 provider with provenance/taint recorded on the resulting Memory/Result, degrades gracefully if a provider is unavailable, and never silently escalates to a paid Tier-3 provider without a prior `docs/APPROVALS.md` cost/ROI gate.",
       "scope": [
-        "`outputs/2026-08-03-unfinished-work-audit.md` Tier 0.1-0.2. DONE 2026-08-03: `claude/whatsapp-module-contact-extractor-9cfff3` (52 commits, the strict superset of all 13 WhatsApp branches — verified `git rev-list --count contact-extractor..<each>` = 0) was pushed to origin on the user's explicit go-ahead",
-        "the WhatsApp Module is no longer single-disk. STILL OPEN: (a) `stash@{0}` on `claude/xenodochial-lamarr-9e9247` holds 51 files / +3351-516 of dealpilot/jobpilot connector work from 2026-07-04 — land or drop explicitly",
-        "(b) uncommitted `platform/packages/db/migrations/002_add_location_geo.sql` + `Tools/recon/lib/geocode.ts` in worktree `romantic-kowalevski-2a3e18` — an uncommitted migration is the single most dangerous loose file",
-        "(c) uncommitted `platform/apps/api/test/authentication.test.ts` in worktree `codex-roadmap-batch-1`",
-        "(d) uncommitted doc work in `kind-volhard-17651e`",
-        "(e) unpushed single-commit branch `worktree-agent-a1b0df5fd0a4fa8a8` (2026-07-07) carrying `feat(core): foreign-capability importer (Track F3)`",
-        "(f) 15 of 35 worktrees dirty and ~20 clean agent worktrees prunable",
-        "(g) the MAIN checkout is 299 commits behind `origin/main` — do not build or deploy from it",
-        "(h) the twelve subsumed WhatsApp checkpoint branches are deletable once the superset lands",
-        "(i) `origin` still points at `github.com/badami-vikas/relationship-os`, which now reports the repository has MOVED to `github.com/manishsbhoopalam8498/relationship-os` — the remote URL should be updated deliberately."
+        "docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)"
       ],
       "evidence": [
-        "`outputs/2026-08-03-unfinished-work-audit.md`"
+        "outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning"
       ],
       "requests": [
-        "user directive 2026-08-03"
+        "user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)"
       ],
-      "approval": "none",
-      "dependencies": [],
+      "approval": "AP-039 applied",
+      "dependencies": [
+        "TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)"
+      ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 572,
-      "rank": 37
+      "sourceLine": 574,
+      "rank": 38
     },
     {
       "id": "TASK-038",
@@ -1290,8 +1311,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 516,
-      "rank": 38
+      "sourceLine": 518,
+      "rank": 39
     }
   ]
 }

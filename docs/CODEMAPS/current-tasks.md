@@ -20,5 +20,5 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-034 | ready | P2 | Production configuration correctness | none |
 | TASK-035 | ready | P2 | Governed surfaces reachable and manageable from the UI | none |
 | TASK-036 | ready | P1 | Green CI and an honest event backbone | none |
-| TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | none |
+| TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses) |
 | TASK-038 | ready | P1 | Secrets-at-rest and multi-tenancy security block | none |
