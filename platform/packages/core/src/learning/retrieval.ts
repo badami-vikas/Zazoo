@@ -28,9 +28,9 @@ import type { RetrievedMemorySnippet } from "../run-context.js";
 import type { Plane, TrustOrigin } from "../types.js";
 
 /** roadmap-v2 §RAG knowledge layers: personal (private to the user),
- * workspace (shared inside the Organization), external (governed research —
+ * organization (shared across the Organization), external (governed research —
  * always quarantined `untrusted_external`). */
-export type KnowledgeLayer = "personal" | "workspace" | "external";
+export type KnowledgeLayer = "personal" | "organization" | "external";
 
 export type RetrievalLaneName = "structured" | "vector" | "graph";
 

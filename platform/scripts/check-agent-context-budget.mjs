@@ -18,7 +18,12 @@ export const DEFAULT_CONTEXT_BUDGETS = Object.freeze({
   projectSkillBytes: 524_288,
   alwaysLoadedBytes: 10_240,
   disabledSkillOverrides: 111,
-  disabledPlugins: 4,
+  // Five project plugin entries, all disabled. Project settings are COMMITTED and
+  // apply to every agent in this repo, so an enabled plugin here is always-loaded
+  // skill metadata charged to every session — a reviewed recurring cost per
+  // CLAUDE.md. Enable plugins per-user in ~/.claude/settings.json instead, where
+  // the choice is personal and costs no one else context.
+  disabledPlugins: 5,
 });
 
 function bytes(content) {

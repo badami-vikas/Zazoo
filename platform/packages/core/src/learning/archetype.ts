@@ -2,16 +2,16 @@
  * Capability archetypes (roadmap-v2-universal-commons §Universal Commons +
  * §Phase 4) — the privacy-preserving network effect made concrete:
  *
- *   "Suppose many acquisition-search workspaces independently develop
+ *   "Suppose many acquisition-search organizations independently develop
  *    similar document intake workflows. The Commons recognizes the common
  *    pattern and creates a reusable capability archetype. Future
- *    acquisition-search users receive a better generated workspace without
+ *    acquisition-search users receive a better generated organization without
  *    any previous user's private data being shared."
  *
  * Two pure halves, both Module-agnostic (light-egg rule — this file knows
  * nothing about deals or jobs):
  *
- *  - CONTRIBUTE: `generalizeLearnedPreferences` turns a workspace's accepted
+ *  - CONTRIBUTE: `generalizeLearnedPreferences` turns a organization's accepted
  *    learned preferences into `CapabilityArchetype` candidates carrying ONLY
  *    generalized fields — no ids, no evidence refs, no user-written text, no
  *    exact counts (support is banded). Every candidate is screened through
@@ -19,7 +19,7 @@
  *    anything personal-shaped is dropped HERE, before it could ever leave
  *    the machine. Publishing itself stays an explicit Human action.
  *
- *  - CONSUME: `seedSuggestionsFromArchetypes` lets a NEW workspace start
+ *  - CONSUME: `seedSuggestionsFromArchetypes` lets a NEW organization start
  *    smarter — archetypes fetched from the Commons become PROPOSED learning
  *    suggestions riding the exact same lineage machinery as locally-digested
  *    patterns (same lineage key, so a local digest and an archetype seed can
@@ -40,19 +40,19 @@ import {
 
 export const ARCHETYPE_SCHEMA_VERSION = 1;
 
-/** Coarse support bands — exact repetition counts stay on the workspace. */
+/** Coarse support bands — exact repetition counts stay on the organization. */
 export type ArchetypeSupportBand = "3-5" | "6-10" | "11+";
 
 /** One generalized preference pattern as the Commons stores it. Every field
- * is generalized vocabulary; nothing identifies a workspace, user, or
+ * is generalized vocabulary; nothing identifies a organization, user, or
  * record. */
 export interface CapabilityArchetype {
   schemaVersion: typeof ARCHETYPE_SCHEMA_VERSION;
   /** Deterministic slug — same pattern always yields the same name, so the
-   * Commons can dedupe contributions from many workspaces. */
+   * Commons can dedupe contributions from many organizations. */
   name: string;
   /** Generalized domain the pattern was observed in (e.g. "dealpilot" —
-   * a Module id is generalized vocabulary, never workspace data). */
+   * a Module id is generalized vocabulary, never organization data). */
   domain: string;
   kind: "preference_pattern";
   action: string;
@@ -191,7 +191,7 @@ export interface SeedFromArchetypesOptions {
 }
 
 /**
- * Propose suggestions from Commons archetypes — the "every new workspace
+ * Propose suggestions from Commons archetypes — the "every new organization
  * starts smarter" half. Writes PROPOSED suggestion rows only (never a
  * preference), on the SAME lineage a local digest of the same pattern would
  * use: an existing lineage row (proposed/accepted/rejected, local or seeded)
@@ -222,7 +222,7 @@ export async function seedSuggestionsFromArchetypes(
     const current = await store.currentForLineage(options.organizationId, options.ownerUserId, lineageKey);
     if (current) continue;
     const suggestedText =
-      `Workspaces like yours often choose "${archetype.action}" when ${archetype.attributeKey} is ` +
+      `Organizations like yours often choose "${archetype.action}" when ${archetype.attributeKey} is ` +
       `"${archetype.attributeValue}". Remember this as a preference?`;
     const row = await store.casSupersede({
       organizationId: options.organizationId,

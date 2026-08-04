@@ -9,8 +9,8 @@
  *  - contribute publishes ONLY generalized fields (asserted against the
  *    same organization-data gate the Commons server runs) and only the
  *    names the Human approved;
- *  - a SECOND workspace seeding from the Commons receives the pattern as a
- *    PROPOSED suggestion (never a preference) — "every new workspace starts
+ *  - a SECOND organization seeding from the Commons receives the pattern as a
+ *    PROPOSED suggestion (never a preference) — "every new organization starts
  *    smarter" while suggested-then-accepted holds;
  *  - a registry without archetype support fails closed with a typed error.
  */
@@ -134,14 +134,14 @@ test("either flight off fails closed for every archetype procedure", async () =>
   }
 });
 
-test("contribute publishes generalized-only payloads; a fresh workspace seeds them as proposals", async () => {
+test("contribute publishes generalized-only payloads; a fresh organization seeds them as proposals", async () => {
   const registry = new ArchetypeRegistryDouble();
 
-  // Workspace A: observe → digest → Human accepts → preview → contribute.
-  const workspaceA = await buildWiring({ learningObservationEnabled: true, commonsArchetypesEnabled: true });
+  // Organization A: observe → digest → Human accepts → preview → contribute.
+  const organizationA = await buildWiring({ learningObservationEnabled: true, commonsArchetypesEnabled: true });
   try {
-    swapRegistry(workspaceA, registry);
-    const caller = makeCaller(workspaceA, 42);
+    swapRegistry(organizationA, registry);
+    const caller = makeCaller(organizationA, 42);
     await acceptOneDismissPattern(caller);
 
     const preview = await caller.learning.archetypes.preview({ organizationId: ORG });
@@ -166,17 +166,17 @@ test("contribute publishes generalized-only payloads; a fresh workspace seeds th
     assert.doesNotMatch(json, /deal-arch|evidenceSignalIds|memoryId/);
     assert.ok(!json.includes(PILOT_USER) && !json.includes(ORG));
   } finally {
-    await workspaceA.close();
+    await organizationA.close();
   }
 
-  // Workspace B: brand new, zero signals — seeding proposes, never mints.
-  const workspaceB = await buildWiring({ learningObservationEnabled: true, commonsArchetypesEnabled: true });
+  // Organization B: brand new, zero signals — seeding proposes, never mints.
+  const organizationB = await buildWiring({ learningObservationEnabled: true, commonsArchetypesEnabled: true });
   try {
-    swapRegistry(workspaceB, registry);
-    const caller = makeCaller(workspaceB, 43);
+    swapRegistry(organizationB, registry);
+    const caller = makeCaller(organizationB, 43);
     const seeded = await caller.learning.archetypes.seed({ organizationId: ORG });
     assert.equal(seeded.seeded.length, 1);
-    assert.match(seeded.seeded[0]!.suggestedText, /Workspaces like yours/);
+    assert.match(seeded.seeded[0]!.suggestedText, /Organizations like yours/);
 
     const listed = await caller.learning.suggestions.list({ organizationId: ORG, status: "proposed" });
     assert.ok(listed.suggestions.some((s) => s.memoryId === seeded.seeded[0]!.memoryId));
@@ -193,7 +193,7 @@ test("contribute publishes generalized-only payloads; a fresh workspace seeds th
     assert.equal(preferences.length, 1);
     assert.doesNotMatch(preferences[0]!.statement, /seen 0 times/);
   } finally {
-    await workspaceB.close();
+    await organizationB.close();
   }
 });
 

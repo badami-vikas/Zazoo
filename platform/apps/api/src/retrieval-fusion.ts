@@ -182,7 +182,7 @@ export async function fusedChatMemory(deps: {
         id: `person:${person.id}`,
         text: `Known person: ${label}${detail ? ` (${detail})` : ""}`,
         source: `person:${person.id}`,
-        layer: "workspace",
+        layer: "organization",
         // plane deliberately ABSENT: graph residency varies by mode, and the
         // core gate fails closed (treats unlabeled as local) — conservative.
       });
@@ -199,7 +199,7 @@ export async function fusedChatMemory(deps: {
           id: `timeline:${item.id}`,
           text: `${label}: ${item.summary.slice(0, MAX_SNIPPET_CHARS)}`,
           source: `timeline:${item.id}`,
-          layer: "workspace",
+          layer: "organization",
         });
       }
     }

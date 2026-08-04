@@ -6,6 +6,7 @@ import ts from "typescript";
 
 const PLATFORM_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BASELINE_PATH = path.join(PLATFORM_ROOT, "scripts", "retired-vocabulary-baseline.json");
+const ALLOWLIST_PATH = path.join(PLATFORM_ROOT, "scripts", "retired-vocabulary-allowlist.json");
 const SOURCE_ROOTS = ["apps", "modules", "packages", "services", "tools"];
 const TYPESCRIPT_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 const SOURCE_EXTENSIONS = new Set([...TYPESCRIPT_EXTENSIONS, ".rs", ".sql"]);
@@ -737,6 +738,61 @@ export function inventoryForSource(relativePath, source) {
   throw new Error(`Unsupported vocabulary source extension: ${extension}`);
 }
 
+/**
+ * Reviewed exemptions (ADR-171). The gate has always told the reader to "add a
+ * reviewed compatibility adapter to the explicit allowlist"; that allowlist did
+ * not exist, so the only way to green was regenerating the whole baseline —
+ * which forgives every genuine regression at the same time. An entry drops one
+ * FAMILY under one path prefix from the inventory, so an exempt word is never
+ * counted rather than being counted and then grandfathered.
+ *
+ * Exported for the test that pins the shape and the reason requirement.
+ */
+export function applyAllowlist(inventory, entries) {
+  if (!entries?.length) return inventory;
+  const filtered = {};
+  for (const [family, filesByFamily] of Object.entries(inventory)) {
+    const kept = Object.fromEntries(
+      Object.entries(filesByFamily).filter(
+        ([relativePath]) =>
+          !entries.some((entry) => entry.family === family && relativePath.startsWith(entry.pathPrefix)),
+      ),
+    );
+    if (Object.keys(kept).length > 0) filtered[family] = kept;
+  }
+  return filtered;
+}
+
+/** Every entry must name a family, a path prefix, a reason, and its review. An
+ *  unexplained exemption is indistinguishable from a silenced regression. */
+export function assertAllowlist(allowlist) {
+  if (allowlist?.version !== 1 || !Array.isArray(allowlist.entries)) {
+    throw new Error("Unsupported retired-vocabulary allowlist format");
+  }
+  for (const entry of allowlist.entries) {
+    for (const field of ["family", "pathPrefix", "reason", "reviewed"]) {
+      if (typeof entry?.[field] !== "string" || entry[field].trim().length === 0) {
+        throw new Error(`retired-vocabulary allowlist entry is missing "${field}"`);
+      }
+    }
+    if (entry.reason.trim().length < 40) {
+      throw new Error(
+        `retired-vocabulary allowlist entry for "${entry.family}" needs a real reason, not a label`,
+      );
+    }
+  }
+  return allowlist.entries;
+}
+
+async function readAllowlist() {
+  try {
+    return assertAllowlist(JSON.parse(await readFile(ALLOWLIST_PATH, "utf8")));
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
 async function buildInventory() {
   const inventory = {};
   const files = (
@@ -761,8 +817,10 @@ async function buildInventory() {
     }
   }
 
+  const allowed = applyAllowlist(inventory, await readAllowlist());
+
   return Object.fromEntries(
-    Object.entries(inventory)
+    Object.entries(allowed)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([family, filesByFamily]) => [
         family,

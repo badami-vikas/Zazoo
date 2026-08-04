@@ -7,6 +7,8 @@ import {
   inventoryForSource,
   isSourceFileName,
   shouldIgnore,
+  applyAllowlist,
+  assertAllowlist,
 } from "./check-retired-vocabulary.mjs";
 
 test("scanner covers private identifiers, interpolated templates, and JSX text", () => {
@@ -233,4 +235,55 @@ test("Rust and SQL scanners cover identifiers and strings without counting comme
   );
   assert.equal(sql.workflow["packages/db/src/probe.sql"].identifier, 1);
   assert.equal(sql.workflow["packages/db/src/probe.sql"].string, 1);
+});
+
+test("allowlist drops only the exempted family under the exempted path prefix", () => {
+  const inventory = {
+    tool: {
+      "packages/research/src/chat-planner.ts": { identifier: { abc: 1 } },
+      "modules/whatsapp/src/tools.ts": { identifier: { def: 1 } },
+    },
+    element: { "packages/research/src/http-reader.ts": { identifier: { ghi: 1 } } },
+  };
+  const filtered = applyAllowlist(inventory, [
+    { family: "tool", pathPrefix: "packages/research/", reason: "x".repeat(40), reviewed: "AP-096" },
+  ]);
+  // The exempt file is gone; the SAME family elsewhere is untouched, so an
+  // exemption can never quietly cover Bridge-owned vocabulary in another module.
+  assert.deepEqual(Object.keys(filtered.tool), ["modules/whatsapp/src/tools.ts"]);
+  // A different family under the same prefix is untouched too.
+  assert.ok(filtered.element["packages/research/src/http-reader.ts"]);
+});
+
+test("a family emptied by the allowlist disappears rather than lingering as an empty entry", () => {
+  const filtered = applyAllowlist(
+    { tool: { "packages/research/src/engine.ts": { identifier: { abc: 1 } } } },
+    [{ family: "tool", pathPrefix: "packages/research/", reason: "x".repeat(40), reviewed: "AP-096" }],
+  );
+  assert.deepEqual(filtered, {});
+});
+
+test("an allowlist entry without a real reason is refused — an unexplained exemption is a silenced regression", () => {
+  const entry = { family: "tool", pathPrefix: "packages/research/", reviewed: "AP-096" };
+  assert.throws(() => assertAllowlist({ version: 1, entries: [entry] }), /missing "reason"/);
+  assert.throws(
+    () => assertAllowlist({ version: 1, entries: [{ ...entry, reason: "legacy" }] }),
+    /needs a real reason/,
+  );
+  for (const field of ["family", "pathPrefix", "reviewed"]) {
+    const partial = { family: "tool", pathPrefix: "p/", reason: "x".repeat(40), reviewed: "AP-096" };
+    delete partial[field];
+    assert.throws(() => assertAllowlist({ version: 1, entries: [partial] }), new RegExp(`missing "${field}"`));
+  }
+  assert.throws(() => assertAllowlist({ version: 2, entries: [] }), /Unsupported/);
+});
+
+test("the committed allowlist itself satisfies the review contract", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const raw = JSON.parse(await readFile(new URL("./retired-vocabulary-allowlist.json", import.meta.url), "utf8"));
+  const entries = assertAllowlist(raw);
+  assert.ok(entries.length > 0);
+  // Every exemption must name the review that approved it, so the file cannot
+  // accumulate entries nobody signed off on.
+  for (const entry of entries) assert.match(entry.reviewed, /AP-\d+/);
 });

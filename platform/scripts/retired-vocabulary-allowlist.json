@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "_comment": [
+    "Reviewed exemptions from check:vocabulary (ADR-171, AP-096).",
+    "",
+    "The gate's failure message has always told the reader to 'add a reviewed",
+    "compatibility adapter to the explicit allowlist'. That allowlist did not",
+    "exist until 2026-08-04, so the ONLY way to get a green gate was to",
+    "regenerate the whole baseline — which silently forgives every genuine",
+    "regression at the same time. This file is that missing mechanism.",
+    "",
+    "An entry exempts one retired-vocabulary FAMILY under one path prefix, and",
+    "must say why the word is not the retired product noun in that location.",
+    "Exempt only where the term is a foreign contract Bridge does not own",
+    "(a model's tool-calling JSON, a third-party API field, a spec keyword).",
+    "Never exempt Bridge's own vocabulary: rename that instead."
+  ],
+  "entries": [
+    {
+      "family": "tool",
+      "pathPrefix": "packages/research/",
+      "reason": "LLM tool-calling, not the retired Bridge product noun. The research planner prompts a model for {\"tool\":\"search\"|\"read\",\"argument\":...} and parses that response; `tool` here is the model provider's own function-calling vocabulary, shared with every LLM API. Renaming it would break the contract with the model rather than migrate a Bridge identifier — the word is not ours to rename.",
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+    },
+    {
+      "family": "tool",
+      "pathPrefix": "packages/core/src/research-run.ts",
+      "reason": "The persisted research step shape carries the model's chosen tool name (search/read). It is the same LLM tool-calling contract as packages/research, just durable — renaming the field would rename the model's vocabulary, not a Bridge identifier.",
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+    },
+    {
+      "family": "tool",
+      "pathPrefix": "packages/db/test/research-run-store.test.ts",
+      "reason": "Test fixtures for the persisted research step shape above; they assert the model's tool-calling field names and must match the contract exactly.",
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+    },
+    {
+      "family": "tool",
+      "pathPrefix": "apps/api/test/research-runs.test.ts",
+      "reason": "Same LLM tool-calling contract asserted at the API boundary — the fixtures mirror the model response shape the research planner parses.",
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+    },
+    {
+      "family": "element",
+      "pathPrefix": "apps/desktop/src-tauri/vendor/",
+      "reason": "Vendored third-party bundle (wppconnect-wa.js). Not Bridge source: it is copied upstream code that must stay byte-identical to what was reviewed, so its identifiers are not ours to migrate.",
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+    },
+    {
+      "family": "element",
+      "pathPrefix": "apps/web/src/app/pages/whatsapp/",
+      "reason": "DOM API vocabulary — HTMLElement, element.getBoundingClientRect(), observer.observe(element). This is the browser's own noun for a node in the document, unrelated to the retired Bridge product element; renaming it would fight the platform API.",
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+    },
+    {
+      "family": "element",
+      "pathPrefix": "packages/research/",
+      "reason": "HTML/DOM vocabulary: http-reader strips <script>/<nav> ELEMENTS from fetched pages by tag name, and the screen locator returns a located on-screen element with x/y. Both are the web platform's own noun for a document node, not the retired Bridge product element.",
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
+    }
+  ]
+}

@@ -19,6 +19,7 @@ function baseFiles() {
           two: false,
           three: false,
           four: false,
+          five: false,
         },
         skillOverrides,
       }),
@@ -80,7 +81,7 @@ test('missing skill scoping and enabled plugins fail closed', () => {
 
   const result = analyzeAgentContext(files);
   assert.ok(result.violations.includes('disabled skill overrides are 0, expected 111'));
-  assert.ok(result.violations.includes('disabled plugins are 0, expected 4'));
+  assert.ok(result.violations.includes('disabled plugins are 0, expected 5'));
   assert.ok(result.violations.includes('every project skill override must be off'));
   assert.ok(result.violations.includes('every project plugin entry must be disabled'));
   assert.ok(result.violations.includes('Claude workflows must remain disabled for this project'));

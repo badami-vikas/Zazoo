@@ -4008,3 +4008,44 @@ settled by the first run after this lands, and the probe is recorded in BUGS.
   verified in the Render dashboard before the next manual deploy (`autoDeploy: false`, so nothing
   ships on merge). The test pins both directions, including the deliberate non-assertion off the
   public cloud, so a future "tidy-up" that widens the check to all production fails loudly.
+
+## ADR-171 — The vocabulary gate gets the explicit allowlist its own error message promised; foreign contracts are exempted, Bridge's own nouns are renamed (2026-08-04; TASK-036)
+
+- **Context**: `check:vocabulary` has been red since 2026-07-31 and runs BEFORE the turbo step in
+  `ci.yml`, so it gates everything behind it. Its failure text has always ended "Migrate the
+  identifier/copy, or add a reviewed compatibility adapter to the explicit allowlist" — but **no
+  allowlist existed**. The only lever was `--write-baseline`, which the script itself refuses when the
+  inventory grew (verified empirically: it prints "Refusing to grow the retired-vocabulary baseline").
+  So the gate offered no legitimate path to green, which is why it stayed red for a month. Meanwhile
+  main's own 2026-08-04 landings (Commons archetypes, LA5 retrieval fusion) newly reintroduced the
+  retired noun `workspace` — including `KnowledgeLayer = "personal" | "workspace" | "external"` and the
+  user-facing copy "Workspaces like yours".
+- **Decision**: Separate the two populations instead of treating them alike.
+  (a) **Rename what Bridge owns.** `workspace` → `organization` across the four files main's landings
+  touched (`learning/retrieval.ts`, `learning/archetype.ts`, `retrieval-fusion.ts`,
+  `learning-archetypes.test.ts`), including the `KnowledgeLayer` union value and the user-visible
+  "Organizations like yours" copy. Safe as a pure code rename: `layer` is computed per retrieval
+  candidate and is NOT persisted to any column, so there is no migration.
+  (b) **Build the promised allowlist** (`scripts/retired-vocabulary-allowlist.json`) and exempt only
+  FOREIGN contracts — words Bridge does not own and cannot rename without breaking someone else's
+  interface: LLM tool-calling (`{"tool":"search"|"read"}` is the model's function-calling vocabulary,
+  already exempted case-by-case for the Anthropic provider, which set the precedent), the DOM/HTML
+  `element` (HTMLElement, getBoundingClientRect, tag stripping), and a vendored third-party bundle
+  that must stay byte-identical to what was reviewed. Every entry must carry `family`, `pathPrefix`,
+  a `reason` of real length, and the `reviewed` approval id; `assertAllowlist` throws otherwise,
+  because an unexplained exemption is indistinguishable from a silenced regression.
+- **Rejected alternatives**: (a) *Regenerate the baseline* — TASK-036 already called this "voiding the
+  gate", and the script actively refuses it. Not attempted beyond confirming the refusal. (b) *Exempt
+  the `tool` family repo-wide* — it would have turned the gate green in one line while silently
+  covering `modules/whatsapp`'s "Tools" Page and `whatsapp.tool.*` capability ids, which ARE Bridge's
+  own retired noun. The allowlist is deliberately path-prefixed so an exemption cannot leak into
+  another module. (c) *Rename WhatsApp's Tool vocabulary in this pass* — see consequences.
+- **Consequences**: The gate now has a legitimate, reviewable path to green, and the `workspace`
+  regression main introduced is gone. **It is still red**, on two clusters this decision deliberately
+  does NOT resolve: (1) `modules/whatsapp` + `modules/manifests` + the WhatsApp web surfaces use
+  **Tool** as Bridge product vocabulary (a user-visible "Tools" Page, `whatsapp.tool.*` capability
+  ids) — migrating that renames a Page and governed capability identifiers while WhatsApp branches are
+  in flight, so it needs its own approval and coordination; (2) `knowledge`, `project` and
+  `legacy_plane` occurrences in the learning/retrieval files, where "knowledge layer" is roadmap-v2
+  §RAG architecture vocabulary and whether it must become Memory is a canon question, not a
+  mechanical rename. Both are recorded on TASK-036 rather than guessed at.
