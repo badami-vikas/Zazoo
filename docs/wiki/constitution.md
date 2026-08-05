@@ -1,13 +1,13 @@
 # Constitution — rules capabilities grow from
 
 full: [../raw/bridge-constitution-2026-08.md](../raw/bridge-constitution-2026-08.md) · canon
-2026-08-04 (AP-100, ADR-173). Proven first: ADR-172 regeneration test.
+2026-08-04 (AP-103, ADR-176). Proven first: ADR-175 regeneration test.
 
 **Mechanism**: constitution = human-readable WHY. Harness = same rules compiled to executable
 obligations. Conformant means **harness passes**, not "reviewer says it follows the docs". Every
 invariant → ≥1 obligation; every obligation → an invariant.
 
-**Input pack = 6 layers** (ADR-174): constitution · kernel contracts **+ installed-capability
+**Input pack = 6 layers** (ADR-177): constitution · kernel contracts **+ installed-capability
 registry** (mandatory — without it a plan rebuilds what exists) · mandate (~150 words, MUST name
 that capability's risks — highest leverage per token) · **Method (M)** · **Budget (B)** · harness.
 

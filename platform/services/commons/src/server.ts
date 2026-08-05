@@ -20,12 +20,14 @@ import {
   commonsArchetypeContent,
   computeCommonsArchetypeHash,
   computeCommonsContentHash,
+  maxSupportBand,
   normalizeCommonsTags,
   parseCapabilityArchetype,
   parseModuleManifest,
   ModuleManifestValidationError,
   verifyCommonsArchetypeEntry,
   verifyCommonsEntry,
+  type CapabilityArchetype,
   type CommonsArchetypeEntry,
   type CommonsListResult,
   type CommonsModuleDetail,
@@ -391,43 +393,79 @@ export function buildCommonsServer(
     }
     const tags = normalizeCommonsTags(tagsRaw as string[]);
 
-    // Many-workspaces dedupe: archetype names are deterministic per pattern,
-    // so a re-publish of a known name idempotently returns the stored entry.
+    // Many-workspaces aggregation: archetype names are deterministic per
+    // pattern, so a re-publish of a known name is another workspace
+    // corroborating the same pattern. The stored entry is superseded by a
+    // freshly signed revision: contributions += 1, supportBand = max band
+    // seen, tags union. Counting is anonymous — no contributor identity is
+    // recorded (the privacy gate would reject one anyway); the publish
+    // bearer token is the only replay control, so `contributions` is
+    // corroboration signal from trusted publishers, not a hard census.
+    const buildSignedEntry = (
+      body: { archetype: CapabilityArchetype; tags: string[]; contributions: number },
+    ): CommonsArchetypeEntry | null => {
+      const content = commonsArchetypeContent(body);
+      const integrity = computeCommonsArchetypeHash(content, sha256);
+      const unsigned: Omit<CommonsArchetypeEntry, "signature"> = {
+        ...body,
+        integrity,
+        publishedAt: new Date().toISOString(),
+      };
+      const entry: CommonsArchetypeEntry = { ...unsigned, signature: signCommonsArchetypeEntry(unsigned, keyPair) };
+      const check = verifyCommonsArchetypeEntry(entry, sha256, ed25519ManifestVerifier, {
+        trustedPublicKeys: [keyPair.publicKeyPem],
+      });
+      return check.valid ? entry : null;
+    };
+
     const existing = await store.getArchetype(archetype.name);
     if (existing) {
+      const aggregated = buildSignedEntry({
+        archetype: { ...existing.archetype, supportBand: maxSupportBand(existing.archetype.supportBand, archetype.supportBand) },
+        tags: normalizeCommonsTags([...existing.tags, ...tags]),
+        contributions: (Number.isInteger(existing.contributions) ? existing.contributions : 1) + 1,
+      });
+      if (!aggregated) {
+        return reply.status(500).send({ error: "signing_failed", message: "aggregated revision failed verification" });
+      }
+      await store.putArchetype(aggregated, { replace: true });
       return reply.status(200).send({
-        name: existing.archetype.name,
-        contentHash: existing.integrity.value,
-        deduplicated: true,
+        name: aggregated.archetype.name,
+        contentHash: aggregated.integrity.value,
+        contributions: aggregated.contributions,
+        supportBand: aggregated.archetype.supportBand,
+        aggregated: true,
       });
     }
 
-    const content = commonsArchetypeContent({ archetype, tags });
-    const integrity = computeCommonsArchetypeHash(content, sha256);
-    const unsigned: Omit<CommonsArchetypeEntry, "signature"> = {
-      archetype,
-      tags,
-      integrity,
-      publishedAt: new Date().toISOString(),
-    };
-    const entry: CommonsArchetypeEntry = { ...unsigned, signature: signCommonsArchetypeEntry(unsigned, keyPair) };
-    const check = verifyCommonsArchetypeEntry(entry, sha256, ed25519ManifestVerifier, {
-      trustedPublicKeys: [keyPair.publicKeyPem],
-    });
-    if (!check.valid) {
-      return reply.status(500).send({ error: "signing_failed", message: check.reason });
+    const entry = buildSignedEntry({ archetype, tags, contributions: 1 });
+    if (!entry) {
+      return reply.status(500).send({ error: "signing_failed", message: "entry failed verification after signing" });
     }
     try {
       await store.putArchetype(entry);
     } catch {
-      // Lost a publish race — the first writer's entry is authoritative.
+      // Lost a first-publish race — re-read and aggregate on top instead.
       const raced = await store.getArchetype(archetype.name);
-      if (raced) {
-        return reply.status(200).send({ name: raced.archetype.name, contentHash: raced.integrity.value, deduplicated: true });
+      if (!raced) throw new Error("commons: archetype publish failed without a stored entry");
+      const aggregated = buildSignedEntry({
+        archetype: { ...raced.archetype, supportBand: maxSupportBand(raced.archetype.supportBand, archetype.supportBand) },
+        tags: normalizeCommonsTags([...raced.tags, ...tags]),
+        contributions: (Number.isInteger(raced.contributions) ? raced.contributions : 1) + 1,
+      });
+      if (!aggregated) {
+        return reply.status(500).send({ error: "signing_failed", message: "aggregated revision failed verification" });
       }
-      throw new Error("commons: archetype publish failed without a stored entry");
+      await store.putArchetype(aggregated, { replace: true });
+      return reply.status(200).send({
+        name: aggregated.archetype.name,
+        contentHash: aggregated.integrity.value,
+        contributions: aggregated.contributions,
+        supportBand: aggregated.archetype.supportBand,
+        aggregated: true,
+      });
     }
-    return reply.status(201).send({ name: archetype.name, contentHash: integrity.value });
+    return reply.status(201).send({ name: archetype.name, contentHash: entry.integrity.value, contributions: 1 });
   });
 
   return app;

@@ -100,4 +100,13 @@ export class DrizzleVectorIndex implements VectorIndex {
         ),
       );
   }
+
+  async listModels(entityType: string): Promise<string[]> {
+    const rows = await this.#db
+      .selectDistinct({ embeddingModel: embeddings.embeddingModel })
+      .from(embeddings)
+      .where(eq(embeddings.entityType, entityType))
+      .orderBy(embeddings.embeddingModel);
+    return rows.map((row) => row.embeddingModel);
+  }
 }

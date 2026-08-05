@@ -1,6 +1,6 @@
 # Deliverable 1 — retroactive portfolio budget measurement (BUILT / DISCARDED / PLANNED)
 
-Methodology: Layer B axes from ADR-174 (scope/storage, cost/tokens, time/build+runtime) applied
+Methodology: Layer B axes from ADR-177 (scope/storage, cost/tokens, time/build+runtime) applied
 retroactively across the whole portfolio. Every number below is MEASURED (from git history,
 `find`/`wc`, or `docs/TASKS.md` verbatim) or explicitly marked NOT AVAILABLE with what would close
 the gap. No number is an unlabeled estimate.
@@ -38,7 +38,7 @@ exclude vendor directories or it silently inflates by orders of magnitude.
 
 ## Q1 — which capabilities are over-budget, on which axis
 
-**No BUILT capability had a declared Layer B budget to be over** — every one predates ADR-174
+**No BUILT capability had a declared Layer B budget to be over** — every one predates ADR-177
 (2026-08-04); the envelope requirement is new and cannot be applied retroactively as a pass/fail.
 What can be done honestly: compare measured numbers against the one concrete reference point this
 session produced — D2's people-research budget envelope (29 engineer-days, ≤256 KB/subject
@@ -47,7 +47,7 @@ durable, ≤$0.13/run) — and flag genuine outliers.
 - **SCOPE — `Tools/recon` is the clear outlier.** 8,735 LOC against a blueprint (Deliverable 2's
   D2 plan) that solves the same problem with **three net-new components** plus reuse/wrap of
   existing libraries. This is not a retroactive judgment on Recon's authors — no budget existed
-  when it was built — but it is the concrete, measured form of the duplication ADR-174 already
+  when it was built — but it is the concrete, measured form of the duplication ADR-177 already
   flagged: `@bridge/dedupe` (213 LOC) carries the same match-tier vocabulary Recon reimplements
   standalone, and Recon's own SSRF guard sits beside the platform's separately-built net-guard.
 - **SCOPE/TIME — `Tools/hni`, `Tools/card-scanner`, `Tools/recorder` each landed as a single

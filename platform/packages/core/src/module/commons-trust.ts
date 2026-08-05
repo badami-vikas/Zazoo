@@ -150,17 +150,24 @@ export function verifyCommonsEntryContent(
   return { valid: true };
 }
 
-/** Canonical immutable archetype content — integrity/signature/publish time
- * excluded by construction, mirroring `commonsModuleContent`. */
+/** Canonical archetype content — integrity/signature/publish time excluded
+ * by construction, mirroring `commonsModuleContent`. `contributions` is part
+ * of the signed content: every aggregation is a freshly signed revision, so
+ * a tampered count fails verification like any other content change. */
 export interface CommonsArchetypeContent {
   archetype: CommonsArchetypeEntry["archetype"];
   tags: string[];
+  contributions: number;
 }
 
 export function commonsArchetypeContent(
-  entry: Pick<CommonsArchetypeEntry, "archetype" | "tags">,
+  entry: Pick<CommonsArchetypeEntry, "archetype" | "tags" | "contributions">,
 ): CommonsArchetypeContent {
-  return { archetype: entry.archetype, tags: normalizeCommonsTags(entry.tags) };
+  return {
+    archetype: entry.archetype,
+    tags: normalizeCommonsTags(entry.tags),
+    contributions: entry.contributions,
+  };
 }
 
 export function computeCommonsArchetypeHash(
@@ -196,6 +203,9 @@ export function verifyCommonsArchetypeEntry(
   }
   if (archetype.name !== archetypeName(archetype.domain, archetype)) {
     return { valid: false, reason: "metadata_mismatch" };
+  }
+  if (!Number.isInteger(entry.contributions) || entry.contributions < 1) {
+    return { valid: false, reason: "invalid_archetype" };
   }
   const content = commonsArchetypeContent(entry);
   if (findOrganizationDataPaths(content).length > 0) {

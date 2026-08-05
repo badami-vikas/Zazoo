@@ -119,7 +119,7 @@ gloss I wrote, not an export.
 > (accurate-but-unsettling inferences destroy trust).
 
 Note: at the time this ran, the roster count was stated as "five" in this sentence even though
-the wiki's own roster wording was self-contradictory that day (later resolved by ADR-173 to
+the wiki's own roster wording was self-contradictory that day (later resolved by ADR-176 to
 confirm five is correct). This detail was carried into the prompt without being checked against
 the repo — the agent could not have checked it either, since it had no repo access.
 
@@ -149,7 +149,7 @@ the repo — the agent could not have checked it either, since it had no repo ac
 - No repository access — 0 tool calls in its run; it could not and did not read any file.
 - No installed-capability inventory (it did not know `@bridge/dedupe`, the entity-disambiguation
   wiki page, or any other existing package existed).
-- No Method layer (M1–M5 did not exist yet — that came from ADR-174, later the same day, in
+- No Method layer (M1–M5 did not exist yet — that came from ADR-177, later the same day, in
   response to a different test).
 - No mandatory Budget envelope (Layer B also postdates this run).
 - No code, types, file paths, test files, or ADRs. Everything above is the complete text.

@@ -13,6 +13,7 @@ import {
   UnknownOrganizationError,
   OrganizationRenameRollbackError,
   databaseUuidSchema,
+  parseAutomationSteps,
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
@@ -227,11 +228,16 @@ import {
   type ThesisSourceDiscoveryProposal,
 } from "@bridge/dealpilot";
 import {
+  acceptAutomationDraft,
   acceptSuggestion as acceptLearningSuggestion,
+  detectAutomationDraftCandidates,
   digestSignals as digestLearningSignals,
   generalizeLearnedPreferences,
   isLearningObservationEntry,
+  listPromotionSuggestions,
+  rejectAutomationDraft,
   seedSuggestionsFromArchetypes,
+  supportBandRank,
   listSuggestions as listLearningSuggestions,
   preferencesToMemorySnippets,
   recordSignal as recordLearningSignal,
@@ -799,6 +805,7 @@ export function anchorLineageKey(anchor: RedFlagAnchor): string {
  * without needing a real, hard-to-trigger-on-demand process crash. */
 import { deterministicUuid } from "./deterministic-uuid.js";
 import { fusedChatMemory } from "./retrieval-fusion.js";
+import { RETRIEVAL_EVAL_CAPABILITY_ID } from "./retrieval-eval.js";
 export { deterministicUuid };
 
 /**
@@ -4378,6 +4385,7 @@ async function assembleChatCompletion(
         organizationId: thread.organizationId,
         ownerUserId: thread.ownerUserId,
         query: message,
+        ...(ctx.wiring.semanticEmbedder ? { embedder: ctx.wiring.semanticEmbedder } : {}),
       })
     : null;
   const memoryRows = isCloud || fusion
@@ -5334,6 +5342,24 @@ function assertLearningFlightEnabled(ctx: { wiring: Pick<Wiring, "learningObserv
     });
   }
 }
+
+function assertRetrievalFlightEnabled(ctx: { wiring: Pick<Wiring, "retrievalFusionEnabled"> }): void {
+  if (!ctx.wiring.retrievalFusionEnabled) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "retrieval fusion flight is disabled (BRIDGE_RETRIEVAL_FUSION)",
+    });
+  }
+}
+
+/** HONEST METRIC LABEL (ADR-174): every surface showing these numbers must
+ * carry it. The eval measures whether retrieval finds the organization's own
+ * notes again (self-retrieval consistency) — it is NOT human-judged
+ * relevance, and dashboards must never present it as such. */
+export const RETRIEVAL_EVAL_METRIC = "self_retrieval" as const;
+export const RETRIEVAL_EVAL_METRIC_NOTE =
+  "Self-retrieval consistency: how reliably retrieval finds this organization's own notes again. " +
+  "Not human-judged relevance.";
 
 /** Commons-archetype procedures need BOTH flights: the learning loop (the
  * rows being generalized/seeded are its rows) AND the archetypes flight. */
@@ -12418,15 +12444,270 @@ export const appRouter = t.router({
             });
           }
           const { archetypes } = await listArchetypes({ domain: input.moduleId });
+          // Most-corroborated first: the annoyance cap should spend its
+          // budget on patterns many organizations converged on. Ties break
+          // by name for determinism.
+          const ranked = [...archetypes].sort(
+            (a, b) =>
+              ((b.contributions ?? 1) - (a.contributions ?? 1)) ||
+              (supportBandRank(b.archetype.supportBand) - supportBandRank(a.archetype.supportBand)) ||
+              a.archetype.name.localeCompare(b.archetype.name),
+          );
           const seeded = await seedSuggestionsFromArchetypes(ctx.wiring.memoryStore, {
             organizationId: input.organizationId,
             ownerUserId: ctx.identity.id,
             moduleId: input.moduleId,
-            archetypes: archetypes.map((entry) => entry.archetype),
+            archetypes: ranked.map((entry) => entry.archetype),
             nextId: () => ctx.run.ids.next(),
             lineageIdFor: deterministicUuid,
           });
           return { seeded };
+        }),
+    }),
+
+    /** Promotion machinery (roadmap-v2 §Capability Evolution): heavily
+     * repeated behavior → an Automation DRAFT. Suggested-then-accepted
+     * throughout; an accepted draft is saved with status "draft", which the
+     * registry's `load` never returns — the executor cannot start it.
+     * Activation is a later explicit, governed step, not part of accept. */
+    promotions: t.router({
+      propose: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            moduleId: z.string().min(1).default("dealpilot"),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertLearningFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const suggestions = await detectAutomationDraftCandidates(ctx.wiring.memoryStore, {
+            organizationId: input.organizationId,
+            ownerUserId: ctx.identity.id,
+            moduleId: input.moduleId,
+            nextId: () => ctx.run.ids.next(),
+            lineageIdFor: deterministicUuid,
+          });
+          return { suggestions };
+        }),
+
+      list: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            moduleId: z.string().min(1).default("dealpilot"),
+            status: z.enum(["proposed", "accepted", "rejected"]).optional(),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertLearningFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const suggestions = await listPromotionSuggestions(
+            ctx.wiring.memoryStore,
+            { organizationId: input.organizationId, userId: ctx.identity.id },
+            input.moduleId,
+            input.status,
+          );
+          return { suggestions };
+        }),
+
+      accept: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            suggestionMemoryId: z.string().min(1),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertLearningFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          try {
+            const { suggestion, draft } = await acceptAutomationDraft(
+              ctx.wiring.memoryStore,
+              { organizationId: input.organizationId, userId: ctx.identity.id },
+              input.suggestionMemoryId,
+              ctx.identity.id,
+              () => ctx.run.ids.next(),
+            );
+            // Deterministic id: the same accepted pattern always names the
+            // same draft row (re-derivable on any instance).
+            const automationId = deterministicUuid(
+              `learning:promotion:automation:${input.organizationId}:${draft.moduleId}:${draft.pattern.action}:${draft.pattern.attributeKey}=${draft.pattern.attributeValue}`,
+            );
+            await ctx.wiring.automationRegistry.save({
+              id: automationId,
+              organizationId: input.organizationId,
+              name: draft.name,
+              agentId: LEARNING_AGENT,
+              agentPlane: "local",
+              steps: draft.steps,
+              status: "draft",
+            });
+            return {
+              suggestionMemoryId: suggestion.id,
+              automationId,
+              status: "draft" as const,
+              name: draft.name,
+              description: draft.description,
+            };
+          } catch (error) {
+            throw learningActionError(error);
+          }
+        }),
+
+      reject: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            suggestionMemoryId: z.string().min(1),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertLearningFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          try {
+            const rejected = await rejectAutomationDraft(
+              ctx.wiring.memoryStore,
+              { organizationId: input.organizationId, userId: ctx.identity.id },
+              input.suggestionMemoryId,
+              ctx.identity.id,
+              () => ctx.run.ids.next(),
+            );
+            return { suggestionMemoryId: rejected.id };
+          } catch (error) {
+            throw learningActionError(error);
+          }
+        }),
+
+      /** Draft review + activation (ADR-172 follow-up). Drafts are read
+       * through `listByStatus` — never `load`, which stays active-only so
+       * the executor's seam cannot see one. Activation is the governed
+       * step that makes a draft runnable: Human-explicit (this mutation),
+       * statically validated (non-empty canonical steps, every skill
+       * registered), and everything DEEPER — agent allow-list, taint,
+       * approvals — still binds at run time through the same pipeline
+       * gates every Automation goes through. Fabricated steps stay
+       * impossible: an empty draft simply cannot activate. */
+      drafts: t.router({
+        list: procedure
+          .input(z.object({ organizationId: z.string().min(1) }))
+          .query(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            const drafts = await ctx.wiring.automationRegistry.listByStatus(input.organizationId, "draft");
+            return { drafts };
+          }),
+
+        update: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              automationId: z.string().min(1),
+              /** Canonical step shapes — validated by the SAME
+               * parseAutomationSteps every registry write goes through. */
+              steps: z.array(z.record(z.unknown())).min(1),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            const drafts = await ctx.wiring.automationRegistry.listByStatus(input.organizationId, "draft");
+            const draft = drafts.find((definition) => definition.id === input.automationId);
+            if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "draft not found" });
+            let steps;
+            try {
+              steps = parseAutomationSteps(input.steps);
+            } catch (error) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: error instanceof Error ? error.message : "invalid steps",
+              });
+            }
+            for (const step of steps) {
+              if (!ctx.wiring.skillRegistry.get(step.skill)) {
+                throw new TRPCError({ code: "BAD_REQUEST", message: `unknown skill "${step.skill}"` });
+              }
+            }
+            await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
+            return { automationId: draft.id, steps: steps.length, status: "draft" as const };
+          }),
+
+        activate: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              automationId: z.string().min(1),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            const drafts = await ctx.wiring.automationRegistry.listByStatus(input.organizationId, "draft");
+            const draft = drafts.find((definition) => definition.id === input.automationId);
+            if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "draft not found" });
+            if (draft.steps.length === 0) {
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message: "a draft with no steps cannot activate — give it real governed steps first",
+              });
+            }
+            for (const step of draft.steps) {
+              if (!ctx.wiring.skillRegistry.get(step.skill)) {
+                throw new TRPCError({
+                  code: "PRECONDITION_FAILED",
+                  message: `draft step targets unregistered skill "${step.skill}"`,
+                });
+              }
+            }
+            await ctx.wiring.automationRegistry.save({ ...draft, status: "active" });
+            return { automationId: draft.id, status: "active" as const };
+          }),
+      }),
+    }),
+
+    /** Retrieval quality read surface (ADR-174). `status` always answers so
+     * clients hide the card honestly while the fusion flight is off; `evals`
+     * serves recent scheduled runs WITH the honest metric label — these are
+     * self-retrieval consistency numbers, never presented as human-judged
+     * relevance. */
+    retrieval: t.router({
+      status: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          return { enabled: ctx.wiring.retrievalFusionEnabled };
+        }),
+
+      evals: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            limit: z.number().int().min(1).max(50).default(10),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertRetrievalFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const { items, total } = await ctx.wiring.evalStore.listRuns(RETRIEVAL_EVAL_CAPABILITY_ID, {
+            limit: input.limit,
+            offset: 0,
+          });
+          return {
+            metric: RETRIEVAL_EVAL_METRIC,
+            metricNote: RETRIEVAL_EVAL_METRIC_NOTE,
+            total,
+            // Store order is oldest-first; the card wants newest-first.
+            runs: [...items].reverse().map((run) => ({
+              runId: run.id,
+              startedAt: run.started_at,
+              datasetId: run.dataset_id,
+              embeddingModel: run.capability_version,
+              cases: run.perCase.length,
+              recallAtK: run.aggregate.route_r ?? 0,
+              precisionAtK: run.aggregate.route_p ?? 0,
+              mrr: run.aggregate.success ?? 0,
+            })),
+          };
         }),
     }),
   }),

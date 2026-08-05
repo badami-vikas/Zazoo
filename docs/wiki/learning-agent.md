@@ -2,7 +2,7 @@
 
 full: [../raw/learning-agent-roadmap-2026-07.md](../raw/learning-agent-roadmap-2026-07.md)
 
-1 of 5 permanent agents (roster settled 2026-08-04, AP-100/ADR-173: Chief of Staff · Learning ·
+1 of 5 permanent agents (roster settled 2026-08-04, AP-103/ADR-176: Chief of Staff · Learning ·
 Internal Strategist · Governance · Capability Builder; Communications stays a Skill family per
 ADR-046/AP-005 — the "4" count omitted Internal Strategist). Learns from conversations, behavior,
 corrections, connected systems, docs; runs research; feeds every other
@@ -28,9 +28,18 @@ prompt as statements only (LA1 exit met on chat surface 2026-08-03); machinery J
 reaches a prompt. LA5 retrieval fusion v1 landed 2026-08-04 behind `BRIDGE_RETRIEVAL_FUSION`
 (default OFF): structured+vector+graph RRF-fused into chat memory slot; cross-plane gate
 fails closed; vector index = refs only, rebuildable; eval baseline PINNED (recall@3 1.0,
-P@3 0.6, MRR 0.87) — regressions block ship. Embedder = lexical hashing v1 (semantic model
-swaps in behind port). Open: semantic embedder, eval automation over real usage, promotion
-machinery, live UI proof.
+P@3 0.6, MRR 0.87) — regressions block ship. Embedder seam landed 2026-08-04 (ADR-172):
+`TextEmbedder` id = embedding space; semantic resolution by ALLOWLIST (Ollama `embedModelId`),
+lexical hashing fallback; failed embed = empty lane, never a space switch. Promotion
+machinery v1 landed 2026-08-04 (ADR-172): repeated behavior (threshold 6) → proposed
+Automation DRAFT (own lineage; accept mints status:"draft", empty steps, load-INVISIBLE —
+executor cannot start it). Draft activation flow landed 2026-08-04 (ADR-173):
+`listByStatus` review surface, `drafts.update` via canonical step parse + skill-registry
+check, `drafts.activate` Human-explicit with static gates; run-time pipeline gates
+unchanged. Usage evals landed same day: self-retrieval cases mined from real prose
+Memories score the LIVE fused pipeline 6-hourly, EvalRuns keyed by embedding space,
+honest skip under 3 cases. Indexer reclaims non-active embedding spaces after backfill.
+Open: draft-editor UI, eval dataset refresh policy, live UI proof.
 
 **TASK-002 partial:** every onboarding question says why + effect. User may skip
 role model. Fixed-host Wikipedia research returns citation + separates documented

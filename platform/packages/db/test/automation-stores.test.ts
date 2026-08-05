@@ -244,3 +244,50 @@ test("Automation Run records retain Agent attribution and organization scope", a
     await close();
   }
 });
+
+test("draft Automations are load-invisible but listable by status; activation flips the seam", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const organizationId = await seedOrganization(db, "draft");
+    const agentId = await seedAgent(db, organizationId);
+    const registry = new DrizzleAutomationRegistry(db);
+    const draftId = "aaaaaaaa-0000-4000-8000-00000000d4af";
+
+    await registry.save({
+      id: draftId,
+      organizationId,
+      name: "Draft: dismiss when industry is restaurants",
+      agentId,
+      agentPlane: "local",
+      steps: [],
+      status: "draft",
+    });
+
+    // The executor's seam (load) never sees a draft…
+    assert.equal(await registry.load(organizationId, draftId), null);
+    // …but the review surface (listByStatus) does.
+    const drafts = await registry.listByStatus(organizationId, "draft");
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.id, draftId);
+    assert.equal(drafts[0]!.status, "draft");
+    assert.deepEqual(drafts[0]!.steps, []);
+    assert.equal((await registry.listByStatus(organizationId, "active")).length, 0);
+
+    // Activation (steps filled in, status active) makes it loadable.
+    await registry.save({
+      id: draftId,
+      organizationId,
+      name: "Dismiss restaurants deals",
+      agentId,
+      agentPlane: "local",
+      steps: [validStep],
+      status: "active",
+    });
+    const loaded = await registry.load(organizationId, draftId);
+    assert.ok(loaded);
+    assert.equal(loaded.steps.length, 1);
+    assert.equal((await registry.listByStatus(organizationId, "draft")).length, 0);
+  } finally {
+    await close();
+  }
+});

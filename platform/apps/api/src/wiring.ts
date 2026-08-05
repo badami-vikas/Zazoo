@@ -47,6 +47,8 @@ import {
   InMemoryOnboardingProfileStore,
   MemoryBackedOnboardingProfileStore,
   type MemoryStore,
+  type SkillRegistry,
+  type TextEmbedder,
   type VectorIndex,
   type MemoryAuthScope,
   type MemoryEntry,
@@ -485,6 +487,15 @@ export interface Wiring {
   /** LA5 vector lane storage (refs + vectors only, rebuildable) — same db as
    * `memoryStore` so vector hits always hydrate from the store they index. */
   vectorIndex: VectorIndex;
+  /** Semantic embedder for the LA5 vector lane, when a local embed-capable
+   * model is available (Ollama nomic-embed today). Absent = the deterministic
+   * lexical hashing fallback; indexer and chat query ALWAYS share whichever
+   * embedder this resolves to (one embedding space). */
+  semanticEmbedder?: TextEmbedder;
+  /** The pipeline's own skill registry — read-only lookups for surfaces that
+   * statically validate a skill reference (e.g. Automation-draft activation)
+   * before the pipeline's run-time gates ever see it. */
+  skillRegistry: SkillRegistry;
   /** Feature flight for LA5 retrieval fusion (chat memory slot filled by
    * structured+vector+graph RRF fusion; scheduled embedding indexer). OFF by
    * default; enabled via `BRIDGE_RETRIEVAL_FUSION=1` (or a test override).
@@ -545,6 +556,10 @@ export interface BuildWiringOptions {
   /** Test/deployment override for the Commons-archetypes flight. Omitted
    * means the environment decides (`BRIDGE_COMMONS_ARCHETYPES`), default OFF. */
   commonsArchetypesEnabled?: boolean;
+  /** Explicit semantic embedder for the LA5 vector lane (tests/deployments).
+   * Omitted means the wiring resolves one from the registered local
+   * providers (Ollama when present); none found = lexical hashing fallback. */
+  semanticEmbedder?: TextEmbedder;
   /** Explicit provider set for composition tests or alternate deployments.
    * Omitted means the normal environment-bound providers for the selected mode. */
   modelProviders?: readonly ModelProvider[];
@@ -4231,6 +4246,20 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const commonsArchetypesEnabled =
     options.commonsArchetypesEnabled ??
     ["1", "true"].includes((process.env.BRIDGE_COMMONS_ARCHETYPES ?? "").trim().toLowerCase());
+  // LA5 semantic embedder — explicit override wins; otherwise the ONLY
+  // provider trusted for real semantics today is Ollama (its embed hits a
+  // genuine embedding model). The Echo double's pseudo-embed is a test
+  // artifact and must never be mistaken for semantics, so resolution is an
+  // id allowlist, not duck-typing on `embed`.
+  const resolveSemanticEmbedder = (providers: readonly ModelProvider[]): TextEmbedder | undefined => {
+    const ollama = providers.find(
+      (provider) => provider.id === "ollama" && provider.plane === "local" && typeof provider.embed === "function",
+    );
+    if (!ollama?.embed) return undefined;
+    const embed = ollama.embed.bind(ollama);
+    const embedModelId = (ollama as ModelProvider & { embedModelId?: unknown }).embedModelId;
+    return { id: typeof embedModelId === "string" ? embedModelId : "ollama:embed", embed };
+  };
   const credentialProvider =
     process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT ??
     (runningUnderNodeTest() ? "os-keyring" : undefined);
@@ -4418,6 +4447,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       )
     : modeTaintAudit;
   const modelProviders = options.modelProviders ? [...options.modelProviders] : modeModelProviders;
+  const semanticEmbedder = options.semanticEmbedder ?? resolveSemanticEmbedder(modelProviders);
   // Kernel policies are deployment-invariant safety rules. Persistent mode also
   // evaluates organization policies from Postgres; it must not replace these rules.
   const staticPolicyStore = new InMemoryPolicyStore(policies);
@@ -4990,6 +5020,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     vectorIndex,
     retrievalFusionEnabled,
     commonsArchetypesEnabled,
+    ...(semanticEmbedder ? { semanticEmbedder } : {}),
+    skillRegistry,
     dealpilot: {
       integrationId: dealPilotIntegrationId,
       store: dealPilotRuntimeStore,

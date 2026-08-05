@@ -436,9 +436,10 @@ export async function retrieveLearnedPreferences(
 }
 
 /** True when a Memory row is internal learning-loop machinery (a raw signal,
- * a suggestion lineage row, or a minted preference row). Generic memory
- * surfaces (e.g. the chat run-context's recent-memory slice) use this to keep
- * raw learning JSON out of prompts: preferences reach the model ONLY as
+ * a suggestion lineage row, a minted preference row, or a promotion-draft
+ * suggestion). Generic memory surfaces (e.g. the chat run-context's
+ * recent-memory slice and the embedding indexer) use this to keep raw
+ * learning JSON out of prompts: preferences reach the model ONLY as
  * `preferencesToMemorySnippets` statements, and signals/suggestions never do. */
 export function isLearningObservationEntry(entry: Pick<MemoryEntry, "content">): boolean {
   try {
@@ -448,7 +449,8 @@ export function isLearningObservationEntry(entry: Pick<MemoryEntry, "content">):
     return (
       anchor?.kind === SIGNAL_KIND ||
       anchor?.kind === SUGGESTION_KIND ||
-      anchor?.kind === PREFERENCE_KIND
+      anchor?.kind === PREFERENCE_KIND ||
+      anchor?.kind === "automation_draft_suggestion"
     );
   } catch {
     return false;

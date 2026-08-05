@@ -14,6 +14,7 @@ import { makeContextFactory } from "./context.js";
 import { isVerifierConfigured } from "./identity.js";
 import { buildWiring, LEARNING_DIGEST_AUTOMATION_ID, PILOT_ORGANIZATION } from "./wiring.js";
 import { indexMemoryEmbeddings } from "./retrieval-fusion.js";
+import { runUsageRetrievalEval } from "./retrieval-eval.js";
 import { SeededRng, SystemClock, UuidGen, hashTaintValue, labelAtSource, type RunCtx } from "@bridge/core";
 import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
 import { reconcileOrganizationRelationshipMaterializations } from "./relationship-materializer.js";
@@ -644,6 +645,7 @@ export async function buildServer() {
         vectorIndex: wiring.vectorIndex,
         organizationId: PILOT_ORGANIZATION,
         ownerUserId: wiring.pilotUserId,
+        ...(wiring.semanticEmbedder ? { embedder: wiring.semanticEmbedder } : {}),
       });
     } catch (err) {
       app.log.error({ err }, "memory embedding index failed");
@@ -658,6 +660,57 @@ export async function buildServer() {
     memoryIndexBootTimer.unref();
     memoryIndexTimer = setInterval(() => void runMemoryEmbeddingIndex(), 15 * 60_000);
     memoryIndexTimer.unref();
+  }
+
+  // LA5 — scheduled retrieval eval over real usage. Mines self-retrieval
+  // cases from the organization's own prose Memories, runs them through the
+  // LIVE fused pipeline, persists the scored EvalRun. Every 6 hours plus a
+  // post-boot run 2 minutes in (after the first index pass); skips honestly
+  // below the minimum case count. Same maintenance-loop posture as the
+  // indexer — measurement, not agent action.
+  let retrievalEvalRunning = false;
+  const runRetrievalEval = async () => {
+    if (retrievalEvalRunning) return;
+    retrievalEvalRunning = true;
+    try {
+      const result = await runUsageRetrievalEval({
+        memoryStore: wiring.memoryStore,
+        vectorIndex: wiring.vectorIndex,
+        graphStore: wiring.graphStore,
+        evalStore: wiring.evalStore,
+        organizationId: PILOT_ORGANIZATION,
+        ownerUserId: wiring.pilotUserId,
+        ...(wiring.semanticEmbedder ? { embedder: wiring.semanticEmbedder } : {}),
+        nowISO: () => new SystemClock().nowISO(),
+      });
+      if (result.skipped) {
+        app.log.info({ cases: result.cases }, "retrieval usage eval skipped (too few prose memories)");
+      } else {
+        app.log.info(
+          {
+            runId: result.runId,
+            cases: result.cases,
+            recallAtK: result.recallAtK,
+            precisionAtK: result.precisionAtK,
+            mrr: result.mrr,
+            embeddingModel: result.embeddingModel,
+          },
+          "retrieval usage eval recorded",
+        );
+      }
+    } catch (err) {
+      app.log.error({ err }, "retrieval usage eval failed");
+    } finally {
+      retrievalEvalRunning = false;
+    }
+  };
+  let retrievalEvalTimer: NodeJS.Timeout | undefined;
+  let retrievalEvalBootTimer: NodeJS.Timeout | undefined;
+  if (wiring.retrievalFusionEnabled && !wiring.publicCloudOnly) {
+    retrievalEvalBootTimer = setTimeout(() => void runRetrievalEval(), 120_000);
+    retrievalEvalBootTimer.unref();
+    retrievalEvalTimer = setInterval(() => void runRetrievalEval(), 6 * 60 * 60_000);
+    retrievalEvalTimer.unref();
   }
 
   app.addHook("onClose", async () => {
@@ -675,6 +728,12 @@ export async function buildServer() {
     }
     if (memoryIndexTimer) {
       clearInterval(memoryIndexTimer);
+    }
+    if (retrievalEvalBootTimer) {
+      clearTimeout(retrievalEvalBootTimer);
+    }
+    if (retrievalEvalTimer) {
+      clearInterval(retrievalEvalTimer);
     }
   });
 

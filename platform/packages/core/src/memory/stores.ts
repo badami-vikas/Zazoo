@@ -510,7 +510,16 @@ export class InMemoryAutomationRegistry implements AutomationRegistry {
     this.register(def);
   }
   async load(organizationId: string, automationId: string): Promise<AutomationDefinition | null> {
-    return this.automations.get(`${organizationId}:${automationId}`) ?? null;
+    const def = this.automations.get(`${organizationId}:${automationId}`) ?? null;
+    // Mirrors DrizzleAutomationRegistry's `status = 'active'` filter: a
+    // draft is a review artifact the executor must never be able to start.
+    return def && def.status !== "draft" ? def : null;
+  }
+
+  async listByStatus(organizationId: string, status: "active" | "draft"): Promise<AutomationDefinition[]> {
+    return [...this.automations.values()]
+      .filter((def) => def.organizationId === organizationId && (def.status ?? "active") === status)
+      .sort((a, b) => a.id.localeCompare(b.id));
   }
 }
 

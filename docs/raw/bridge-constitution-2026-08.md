@@ -13,10 +13,10 @@ tags: [governance, kernel, capability-growth, invariants, harness]
 
 # Bridge Constitution
 
-Canonized 2026-08-04 by user approval (AP-100, ADR-173). Validated empirically before
+Canonized 2026-08-04 by user approval (AP-103, ADR-176). Validated empirically before
 canonization: three isolated agents given only this invariant set plus an executable harness
 independently regrew the load-bearing architecture of the Learning Agent
-(`outputs/2026-08-04-regeneration-test-learning-agent.md`, ADR-172).
+(`outputs/2026-08-04-regeneration-test-learning-agent.md`, ADR-175).
 
 ## How this document is used
 
@@ -27,7 +27,7 @@ This is the **WHY** layer of a capability input pack. It is paired with an execu
 > traces back to an invariant. A capability is conformant when its harness passes — not when a
 > reviewer judges that it "follows the docs."
 
-An input pack has **six layers** (extended 2026-08-04 by ADR-174 after the people-research test):
+An input pack has **six layers** (extended 2026-08-04 by ADR-177 after the people-research test):
 
 1. **Constitution** — this file. Why the rules exist.
 2. **Kernel contract surface + installed-capability registry** — the contracts a capability builds
@@ -127,7 +127,7 @@ Every capability declares which single axis it deliberately overspends, and why 
     the person ("avoids them"). Model-assisted scoring may only **raise** sensitivity, never lower
     it. Accurate-but-unsettling inference destroys trust as effectively as being wrong.
 
-## Enforcement mechanisms (adopted 2026-08-04, ADR-173)
+## Enforcement mechanisms (adopted 2026-08-04, ADR-176)
 
 These are the *how* for invariants above; each is a harness obligation, not a review convention.
 

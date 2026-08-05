@@ -75,15 +75,24 @@ class ArchetypeRegistryDouble implements CommonsRegistry {
   async publishArchetype(archetype: CapabilityArchetype) {
     this.publishedPayloads.push(archetype);
     const existing = this.entries.get(archetype.name);
-    if (existing) return { name: archetype.name, contentHash: existing.integrity.value };
+    if (existing) {
+      existing.contributions += 1;
+      return {
+        name: archetype.name,
+        contentHash: existing.integrity.value,
+        contributions: existing.contributions,
+        aggregated: true,
+      };
+    }
     const entry: CommonsArchetypeEntry = {
       archetype,
       tags: [archetype.domain],
+      contributions: 1,
       integrity: { algorithm: "sha256", value: `sha256:${"0".repeat(64)}` },
       publishedAt: new Date().toISOString(),
     };
     this.entries.set(archetype.name, entry);
-    return { name: archetype.name, contentHash: entry.integrity.value };
+    return { name: archetype.name, contentHash: entry.integrity.value, contributions: 1 };
   }
 }
 

@@ -1,6 +1,6 @@
 # People-research regeneration test — does the pack reproduce Recon, and what was missing? (2026-08-04)
 
-Second experiment in the ADR-172 series. User questions: (a) do generated plans align with the
+Second experiment in the ADR-175 series. User questions: (a) do generated plans align with the
 **execution plan**, not just the architecture — e.g. does a research capability actually go look
 for open-source repositories and follow a method? (b) can a Builder Agent, given the right inputs,
 grow the people-research capability Recon was built to solve? (c) if not, what additional input or
@@ -12,7 +12,7 @@ Two isolated agents, no repo access, same problem statement (pre-meeting brief o
 thin seed; ambiguous names; ~zero marginal cost; non-consenting subject), same constitution,
 kernel contracts, mandate, and harness (H1–H9 including misattribution and rights-basis gates).
 
-- **D1** — the pack as it stood after ADR-173.
+- **D1** — the pack as it stood after ADR-176.
 - **D2** — same pack **plus two candidate layers**: **Layer M (method obligations)** — reuse
   intake as a deliverable with a licensed candidate table, licensing verdicts, clean-room
   protocol, deliberate artifact-class justification, per-phase evidence, cheapest-source-first;
@@ -149,12 +149,12 @@ The input pack becomes **six layers**, and the two new ones are not optional:
 
 | Layer | Answers | Evidence it is needed |
 |---|---|---|
-| Constitution | why | ADR-172: harness-only missed authority/ledger/flags/vocabulary |
+| Constitution | why | ADR-175: harness-only missed authority/ledger/flags/vocabulary |
 | Kernel contracts **+ installed-capability registry** | what to build against, and what already exists | D1 could not tell whether people-research already existed; `entity-disambiguation` is installed and it never saw it |
-| Mandate (~150 words, names the risks) | what and what could go wrong | ADR-172: highest leverage per token |
+| Mandate (~150 words, names the risks) | what and what could go wrong | ADR-175: highest leverage per token |
 | **Method (Layer M)** | how the work is executed | D1 deferred reuse intake; D2 executed it and cut scope to 3 components |
 | **Budget (Layer B)** | scope · cost · time envelope | D1 produced no numbers; D2 produced enforceable ones with tests |
-| Harness | conformance | ADR-172: recovered ~80% of safety architecture alone |
+| Harness | conformance | ADR-175: recovered ~80% of safety architecture alone |
 
 Recommended next: pin Layers M and B into the pack spec, add the installed-capability registry to
 the contracts layer, then graduate to build-generation on one capability.

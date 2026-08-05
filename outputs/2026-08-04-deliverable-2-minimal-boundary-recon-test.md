@@ -76,7 +76,7 @@ core of what Recon does — never appeared.
    stated explicitly rather than left implicit — confirmed again here.
 2. **A genuinely strong H3 mechanism.** "A dependency/import scan in CI fails the build if any
    file in this capability imports a messaging/posting/payment client" is a more concrete,
-   directly implementable version of the "structural port-set allowlist" idea adopted in ADR-173,
+   directly implementable version of the "structural port-set allowlist" idea adopted in ADR-176,
    arrived at from harness obligations alone. Worth folding into the TASK-043 E1 implementation
    as the literal mechanism (import-graph static analysis) rather than leaving it abstract.
 
