@@ -375,6 +375,18 @@ function AgentsSection({
                       </span>
                     ))}
                   </div>
+                  {/* ADR-180: this Agent's own Run surface, declared by the
+                      manifest (`run_route`). Research Runs reach the user
+                      through the Learning Agent that owns them, not a nav item. */}
+                  {agent.runRoute && (
+                    <Link
+                      to={agent.runRoute}
+                      className="inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium no-underline hover:bg-[var(--color-surface)]"
+                      style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}
+                    >
+                      Open Runs
+                    </Link>
+                  )}
                   <ul className="divide-y rounded border" style={{ borderColor: "var(--color-border)" }}>
                     {agent.skillIds.map((skillId) => {
                       const skill = capabilities.get(skillId);

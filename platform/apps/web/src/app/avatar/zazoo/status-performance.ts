@@ -71,3 +71,22 @@ export const PTT_PRESSED_PERFORMANCE: ZazooPerformance = {
   attention: "user",
   energy: 0.6,
 };
+
+/** One-shot when the user pets the avatar (a plain click on the collapsed
+ * face) — the one emotion in the rig's vocabulary with no other trigger. */
+export const PET_PERFORMANCE: ZazooPerformance = {
+  emotion: "celebrating",
+  warmth: 1,
+  energy: 0.7,
+  attention: "user",
+  duration: 1.4,
+};
+
+/** "Meditate" from the right-click menu — sets both the felt state and the
+ * whole-body action, so it visibly differs from plain idle. */
+export const MEDITATE_PERFORMANCE: ZazooPerformance = {
+  emotion: "sleepy",
+  action: "meditating",
+  energy: 0.15,
+  warmth: 0.8,
+};

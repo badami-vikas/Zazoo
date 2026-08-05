@@ -7,7 +7,6 @@ import {
   Eye,
   Layers,
   LockKeyhole,
-  MoreHorizontal,
   Plus,
   RefreshCw,
   Target,
@@ -18,12 +17,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu";
+import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { DataViews } from "../dataviews/DataViews";
 import { viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow, GraphNode } from "../dataviews/types";
@@ -655,23 +649,9 @@ export function DealPilotPage() {
                   <Plus className="size-4" /> Add Deal
                 </button>
               )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={`${PAGE_META[pageId].label} controls`}
-                    className="rounded-md border p-1.5 hover:bg-black/5"
-                    style={{ borderColor: "var(--color-border)" }}
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem asChild>
-                    <Link to="/module/deal-pilot">Control Panel / Module Detail</Link>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* ADR-180: the 3-dots Control Panel entry was the menu's only item
+                  and duplicated the scroll-revealed Intelligence Section's
+                  "Manage in Module Detail" link, so the control is removed. */}
             </div>
           </div>
           {notice && (
@@ -707,9 +687,9 @@ export function DealPilotPage() {
               )}
             </div>
           )}
-          <div className="flex-1 space-y-8 overflow-auto p-4">
-            {dealStats && (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <ModuleSurfaceLayout
+            above={dealStats ? (
+              <div className="grid grid-cols-2 gap-3 px-3 pt-3 sm:grid-cols-4 sm:px-4 sm:pt-4">
                 <StatCard label="Showing" value={String(dealStats.showing)} icon={Layers} />
                 <StatCard label="Total EV" value={formatMoney(dealStats.totalEv)} icon={TrendingUp} />
                 <StatCard
@@ -724,29 +704,33 @@ export function DealPilotPage() {
                   icon={Activity}
                 />
               </div>
-            )}
-            <section className="min-h-[18rem]" aria-label={`${PAGE_META[pageId].label} Database`}>
-              <DataViews
-                spec={tableSpec}
-                view={view}
-                data={dataRows}
-                searchPlaceholder={`Search ${PAGE_META[pageId].label.toLowerCase()}…`}
-                onViewChange={setView}
-                onInsert={createRecord}
-                {...(pageId !== "theses" ? { onUpdate: updateRecord } : {})}
-                formRecord={formRecord}
-                onEditRecord={(row) => {
-                  setFormRecord(row);
-                  setView(viewConfigForKind(tableSpec, "form", view));
-                }}
-                onOpenRecord={openRecord}
-              />
-            </section>
-            <ModuleFilesSection moduleName="deal-pilot" />
-            <div className="mt-6">
-              <ModuleIntelligenceSection moduleName="deal-pilot" />
-            </div>
-          </div>
+            ) : null}
+            table={
+              <section className="h-full" aria-label={`${PAGE_META[pageId].label} Database`}>
+                <DataViews
+                  spec={tableSpec}
+                  view={view}
+                  data={dataRows}
+                  searchPlaceholder={`Search ${PAGE_META[pageId].label.toLowerCase()}…`}
+                  onViewChange={setView}
+                  onInsert={createRecord}
+                  {...(pageId !== "theses" ? { onUpdate: updateRecord } : {})}
+                  formRecord={formRecord}
+                  onEditRecord={(row) => {
+                    setFormRecord(row);
+                    setView(viewConfigForKind(tableSpec, "form", view));
+                  }}
+                  onOpenRecord={openRecord}
+                />
+              </section>
+            }
+            below={
+              <>
+                <ModuleFilesSection moduleName="deal-pilot" />
+                <ModuleIntelligenceSection moduleName="deal-pilot" />
+              </>
+            }
+          />
         </>
       )}
     </div>

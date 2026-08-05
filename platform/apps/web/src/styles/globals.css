@@ -86,6 +86,15 @@
   --transition-gentle: 400ms ease-out;
   --transition-orbit: 2s ease-in-out;
 
+  /* Shell-boundary shadows (ADR-187) — soft depth separation between major
+     shell regions (left rail | main content | right chat panel) instead of a
+     hard 1px border. Two directions only: the boundary "faces" whichever
+     region is doing the separating (right = rail's right edge, left = chat
+     panel's left edge). Kept deliberately subtle: a 1px contact line at the
+     panel's own border color plus a soft blur, no visible ruled line. */
+  --shadow-shell-right: 1px 0 0 0 var(--color-border), 2px 0 8px rgba(0, 0, 0, 0.03);
+  --shadow-shell-left: -1px 0 0 0 var(--color-border), -2px 0 8px rgba(0, 0, 0, 0.03);
+
   /* Sidebar (Bridge palette) */
   --sidebar: #FAF9F5;
   --sidebar-foreground: #1A2B3C;

@@ -103,10 +103,11 @@ test("VOCAB5 upgrades the immutable Relationship manifest", async () => {
   assert.ok(current);
   // 0.3.0 (bumped from 0.2.3 by ADR-178, which renamed the display name to
   // NetworkManager and made this Module a nav PARENT for the WhatsApp
-  // sub-module — a genuine, immutable manifest content change, never a
-  // stale-test-vs-code drift). See modules/manifests/src/index.ts's built-in
+  // sub-module) merged with 0.2.4's Learning Agent `runRoute` (ADR-180) as
+  // 0.3.1 — a genuine, immutable manifest content change, never a
+  // stale-test-vs-code drift. See modules/manifests/src/index.ts's built-in
   // NetworkManager manifest for the current version.
-  assert.equal(current.manifest.version, "0.3.0");
+  assert.equal(current.manifest.version, "0.3.1");
 
   const priorManifest = structuredClone(current.manifest);
   priorManifest.version = "0.2.1";
@@ -130,7 +131,7 @@ test("VOCAB5 upgrades the immutable Relationship manifest", async () => {
 
   assert.equal((await store.get(prior.id))?.state, "legacy");
   const available = await store.getAvailable(PILOT_ORGANIZATION, "relationship");
-  assert.equal(available?.moduleVersion, "0.3.0");
+  assert.equal(available?.moduleVersion, "0.3.1");
   assert.ok(
     available?.manifest.capabilities.some(
       (capability) => capability.id === "relationship.submodule.relations",

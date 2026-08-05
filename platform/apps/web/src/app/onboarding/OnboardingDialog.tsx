@@ -5,11 +5,21 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Badge } from "../components/ui/badge";
-import { nextQuestion, buildBlueprintFromAnswers, isComplete, answeredCount, MAX_QUESTIONS, organizationNameFromEmail, type OnboardingAnswers } from "./questions";
+import {
+  nextQuestionGroup,
+  resolveAvatarStyleFromText,
+  buildBlueprintFromAnswers,
+  isComplete,
+  answeredCount,
+  MAX_QUESTIONS,
+  defaultOrganizationName,
+  type OnboardingAnswers,
+} from "./questions";
 import { AvatarSetupProgress, type AvatarSetupState } from "../avatar/AvatarSetupProgress";
 import {
   dispatchCaptureEvent,
   updateAvatarPrefs,
+  AVATAR_STYLES,
   type AvatarPrefs,
   type AvatarStyle,
 } from "../avatar/avatar-store";
@@ -56,9 +66,11 @@ export interface OnboardingDialogProps {
   onProposed?: (organization: { id: string; name: string }) => void;
   /** Called after activation with persisted visual preferences. */
   onAvatarReady?: (prefs: AvatarPrefs) => void;
-  /** User's email address — used to pre-populate the organization_name question
-   * via organizationNameFromEmail() per spec-organization-naming.md. Optional: if
-   * absent, the organization_name field starts empty for the user to fill in. */
+  /** User's email address. E3 (2026-08-05): the Organization-name question is
+   * no longer asked — the name is DEFAULTED from this email via
+   * defaultOrganizationName() per spec-organization-naming.md, and can be
+   * changed afterwards on the Organization page. Optional: without an email the
+   * default is a neutral "My Organization". */
   userEmail?: string;
 }
 
@@ -114,13 +126,17 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
   const [step, setStep] = useState<Step>("trust");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [textDraft, setTextDraft] = useState("");
-  const [multiDrafts, setMultiDrafts] = useState<Record<string, string[]>>({});
+  // E4 (2026-08-05, "group them"): one draft map for the WHOLE active screen —
+  // every question on it stays purely local until a single group-level
+  // Continue commits them all to `answers` at once. Replaces the old
+  // one-question-at-a-time `textDraft`/`multiDrafts` pair.
+  const [groupDrafts, setGroupDrafts] = useState<Record<string, string | string[]>>({});
   const [outcome, setOutcome] = useState<SubmitOutcome>(null);
   const [recommendationResult, setRecommendationResult] = useState<RecommendationResult | null>(null);
   const [recommendationDecision, setRecommendationDecision] = useState<RecommendationDecision>("pending");
   const [learningError, setLearningError] = useState<string | null>(null);
   const [accessibilityGranted, setAccessibilityGranted] = useState<boolean | null>(null);
+  const [accessibilityRequesting, setAccessibilityRequesting] = useState(false);
   const [screenSensor, setScreenSensor] = useState<SensorDescriptor | null>(null);
   const [trustCheckRunning, setTrustCheckRunning] = useState(false);
   const [trustCheckResult, setTrustCheckResult] = useState<{
@@ -129,9 +145,17 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
   } | null>(null);
   const [trustCheckError, setTrustCheckError] = useState<string | null>(null);
 
-  const question = useMemo(() => nextQuestion(answers), [answers]);
+  const group = useMemo(() => nextQuestionGroup(answers), [answers]);
   const blueprint = useMemo(() => buildBlueprintFromAnswers(answers), [answers]);
-  const avatarStyle = (answers.avatar_style as AvatarStyle | undefined) ?? "owl";
+  // E4: the typed companion name doubles as the style resolver's input. Prefer
+  // the live draft (so the preview updates as the user types) and fall back to
+  // the committed answer once that screen's group has been submitted.
+  const activeAvatarText =
+    (typeof groupDrafts.avatar_style === "string" ? groupDrafts.avatar_style : undefined) ??
+    (typeof answers.avatar_style === "string" ? answers.avatar_style : undefined) ??
+    "";
+  const avatarStyle: AvatarStyle = resolveAvatarStyleFromText(activeAvatarText) ?? "owl";
+  const avatarName = activeAvatarText.trim() || undefined;
 
   // Setup progress maps to real state, never a fake timer:
   //   questions answered -> 0..~0.7 of the way there
@@ -171,15 +195,6 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
             ? "ready"
             : "saving";
 
-  // Pre-populate the organization_name text field with the email-derived name
-  // (spec-organization-naming.md) when that question becomes active. Only seeds
-  // the draft once — the user can freely edit it before pressing Next.
-  useEffect(() => {
-    if (question?.id === "organization_name" && textDraft === "" && userEmail) {
-      setTextDraft(organizationNameFromEmail(userEmail));
-    }
-  }, [question?.id]);
-
   useEffect(() => {
     if (!open || step !== "trust" || !window.__BRIDGE_DESKTOP__) return undefined;
     let active = true;
@@ -215,8 +230,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
     setAnswers({});
     setStep("trust");
     setError(null);
-    setTextDraft("");
-    setMultiDrafts({});
+    setGroupDrafts({});
     setOutcome(null);
     setRecommendationResult(null);
     setRecommendationDecision("pending");
@@ -230,8 +244,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
     setAnswers({});
     setStep("questions");
     setError(null);
-    setTextDraft("");
-    setMultiDrafts({});
+    setGroupDrafts({});
     setOutcome(null);
     setRecommendationResult(null);
     setRecommendationDecision("pending");
@@ -266,6 +279,23 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
     }
   }
 
+  /** Explicit-action-only (never on mount): calls the OS's own Accessibility
+   * prompt via ax_request_permission. macOS shows its System Settings dialog
+   * asynchronously and does not notify this process when the user acts on
+   * it, so this only re-reads the CURRENT trust state immediately after and
+   * leaves the 1.5s poll in the effect above to pick up a later grant. */
+  async function requestAccessibility() {
+    setAccessibilityRequesting(true);
+    try {
+      const granted = await desktopInvoke<boolean>("ax_request_permission");
+      setAccessibilityGranted(granted);
+    } catch (permissionError) {
+      setTrustCheckError(String(permissionError));
+    } finally {
+      setAccessibilityRequesting(false);
+    }
+  }
+
   async function decideRecommendation(decision: "approve" | "veto") {
     if (!recommendationResult) return;
     setRecommendationDecision("approving");
@@ -282,27 +312,80 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
     }
   }
 
-  function answer(id: string, value: string | string[]) {
-    const updated = { ...answers, [id]: value };
+  /** Reads a question's current value: the in-progress draft for this screen
+   * if the user has touched it, else an already-committed answer (re-entering
+   * a screen never happens today, but keeps this correct if it ever does),
+   * else the kind-appropriate empty value. */
+  function draftFor(id: string, kind: "text" | "single_select" | "multi_select"): string | string[] {
+    if (groupDrafts[id] !== undefined) return groupDrafts[id]!;
+    if (answers[id] !== undefined) return answers[id]!;
+    return kind === "multi_select" ? [] : "";
+  }
+
+  function setDraftValue(id: string, value: string) {
+    setGroupDrafts((current) => ({ ...current, [id]: value }));
+  }
+
+  function toggleGroupMulti(id: string, value: string, maxSelections?: number) {
+    setGroupDrafts((current) => {
+      const drafted = Array.isArray(current[id]) ? (current[id] as string[]) : [];
+      if (drafted.includes(value)) {
+        return { ...current, [id]: drafted.filter((item) => item !== value) };
+      }
+      // "Up to 3" is a real cap, not a suggestion: once it is reached the extra
+      // option simply does not select (the UI also disables it).
+      if (maxSelections !== undefined && drafted.length >= maxSelections) return current;
+      return { ...current, [id]: [...drafted, value] };
+    });
+  }
+
+  /** Commits every question on the CURRENT screen to `answers` in one update,
+   * then clears the screen's drafts and advances — either to the next group
+   * or, once `isComplete`, to the preview step. Text values are trimmed on
+   * commit (not on every keystroke) so the input never fights the user. */
+  function commitGroup() {
+    if (!group) return;
+    const patch: OnboardingAnswers = {};
+    for (const q of group.questions) {
+      const raw = draftFor(q.id, q.kind);
+      patch[q.id] = typeof raw === "string" ? raw.trim() : raw;
+    }
+    const updated = { ...answers, ...patch };
     setAnswers(updated);
-    setTextDraft("");
+    setGroupDrafts({});
     if (isComplete(updated)) setStep("preview");
   }
 
-  function toggleMulti(id: string, value: string) {
-    setMultiDrafts((currentDrafts) => {
-      const current = currentDrafts[id] ?? [];
-      const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
-      return { ...currentDrafts, [id]: next };
-    });
+  /** role_model is the one question with its own explicit "Skip" — committing
+   * an empty string is what `nextQuestion`/`nextQuestionGroup` already treat
+   * as "answered, declined" (see questions.ts), so this reuses that path
+   * rather than inventing a second skip mechanism. */
+  function skipRoleModel() {
+    const updated = { ...answers, role_model: "" };
+    setAnswers(updated);
+    setGroupDrafts({});
+    if (isComplete(updated)) setStep("preview");
   }
+
+  const groupValid = Boolean(
+    group &&
+      group.questions.every((q) => {
+        if (q.kind !== "text" || q.id === "role_model") return true;
+        const value = draftFor(q.id, q.kind);
+        return typeof value === "string" && value.trim().length > 0;
+      }),
+  );
 
   async function submit() {
     setSubmitting(true);
     setError(null);
     try {
-      const organizationName =
+      // E3 (2026-08-05): the Organization name is DEFAULTED from the signed-in
+      // email rather than asked as a question. An explicit answer (Settings
+      // re-entry, or a future advanced flow) still wins.
+      const answeredName =
         typeof answers.organization_name === "string" ? answers.organization_name.trim() : "";
+      const organizationName = answeredName || defaultOrganizationName(userEmail);
       if (!organizationName) throw new Error("An Organization name is required to finish setup.");
       if (organizationName.length > 120) {
         throw new Error("Organization names must be 120 characters or fewer.");
@@ -328,7 +411,11 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
       setStep("submitted");
       onProposed?.(organization);
       if (result.activated) {
-        const saved = updateAvatarPrefs({ style: avatarStyle, avatarReady: true });
+        const saved = updateAvatarPrefs({
+          style: avatarStyle,
+          avatarReady: true,
+          ...(avatarName ? { avatarName } : {}),
+        });
         onAvatarReady?.(saved);
       }
       try {
@@ -402,9 +489,31 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
                 <Badge variant="outline">Not requested</Badge>
               </div>
               <div className="flex items-start justify-between gap-3 rounded-md border p-3">
-                <div>
+                <div className="space-y-1">
                   <p className="font-medium">Accessibility</p>
-                  <p className="text-muted-foreground">Why: it can help Bridge understand controls you point to. Consequence: this setup only checks the current OS grant; it does not read the accessibility tree.</p>
+                  <p className="text-muted-foreground">
+                    Why: not used by anything running today. It is investigated groundwork for one planned, optional
+                    feature — letting you customize the Fn-key global summon for the companion, which needs
+                    Accessibility to suppress the OS's own Fn action — that Bridge has not built yet. Consequence:
+                    granting it now only sets the OS permission; nothing changes in Bridge until that feature ships.
+                    Fully skippable — Bridge works completely without it.
+                  </p>
+                  {window.__BRIDGE_DESKTOP__ && !accessibilityGranted && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void requestAccessibility()}
+                      disabled={accessibilityRequesting}
+                    >
+                      {accessibilityRequesting ? "Opening System Settings…" : "Grant Accessibility"}
+                    </Button>
+                  )}
+                  {window.__BRIDGE_DESKTOP__ && !accessibilityGranted && (
+                    <p className="text-xs text-muted-foreground">
+                      Opens macOS's own Accessibility settings. If you don't grant it there, this stays skippable —
+                      onboarding continues either way.
+                    </p>
+                  )}
                 </div>
                 <Badge variant={accessibilityGranted ? "default" : "outline"}>
                   {window.__BRIDGE_DESKTOP__ ? (accessibilityGranted ? "Granted" : "Not granted") : "Desktop only"}
@@ -448,80 +557,99 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
           </div>
         )}
 
-        {step === "questions" && question && (
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">{question.prompt}</p>
-              {question.helpText && <p className="text-xs text-muted-foreground">{question.helpText}</p>}
-              <p className="text-xs text-[var(--color-steel)]"><strong>Why:</strong> {question.why}</p>
-              <p className="text-xs text-muted-foreground"><strong>Consequence:</strong> {question.consequence}</p>
-            </div>
+        {step === "questions" && group && (
+          <div className="space-y-5">
+            {/* E4 ("group them"): every question on this screen is shown
+                together and stays purely local (`groupDrafts`) until one
+                Continue commits the whole screen — no more one-question
+                interstitials. */}
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</p>
 
-            {question.kind === "single_select" && (
-              <div className="flex flex-col gap-2">
-                {question.options?.map((opt) => (
-                  <Button
-                    key={opt.value}
-                    variant="outline"
-                    className="justify-start"
-                    onClick={() => answer(question.id, opt.value)}
-                  >
-                    {opt.label}
-                  </Button>
-                ))}
-              </div>
-            )}
+            {group.questions.map((q, index) => (
+              <div key={q.id} className={index > 0 ? "space-y-1 border-t pt-4" : "space-y-1"}>
+                <p className="text-sm font-medium">{q.prompt}</p>
+                {q.helpText && <p className="text-xs text-muted-foreground">{q.helpText}</p>}
+                <p className="text-xs text-[var(--color-steel)]"><strong>Why:</strong> {q.why}</p>
+                <p className="text-xs text-muted-foreground"><strong>Consequence:</strong> {q.consequence}</p>
 
-            {question.kind === "multi_select" && (
-              <div className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  {question.options?.map((opt) => {
-                    const selected = (multiDrafts[question.id] ?? []).includes(opt.value);
-                    return (
-                      <Badge
+                {q.kind === "text" && (
+                  <div className="flex gap-2 pt-1">
+                    <Input
+                      autoFocus={index === 0}
+                      placeholder={q.placeholder}
+                      maxLength={240}
+                      value={draftFor(q.id, q.kind) as string}
+                      onChange={(e) => setDraftValue(q.id, e.target.value)}
+                    />
+                    {q.id === "role_model" && (
+                      <Button variant="ghost" onClick={skipRoleModel}>
+                        Skip
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {q.id === "avatar_style" && (
+                  // Live, honest resolution of the typed name (E4): only the
+                  // 16 real hand-drawn styles can ever be shown, so this says
+                  // plainly whether the typed word matched one.
+                  <p className="text-xs text-[var(--color-steel)] pt-0.5">
+                    {(() => {
+                      const typed = draftFor(q.id, q.kind) as string;
+                      const matched = resolveAvatarStyleFromText(typed);
+                      const label = matched ? AVATAR_STYLES.find((o) => o.value === matched)?.label : undefined;
+                      return label ? `Will look like a ${label}.` : "No animal recognized yet — will keep its current look.";
+                    })()}
+                  </p>
+                )}
+
+                {q.kind === "single_select" && (
+                  <div className="flex flex-col gap-2 pt-1">
+                    {q.options?.map((opt) => (
+                      <Button
                         key={opt.value}
-                        variant={selected ? "default" : "outline"}
-                        className="cursor-pointer select-none py-1.5 px-3"
-                        onClick={() => toggleMulti(question.id, opt.value)}
+                        variant={draftFor(q.id, q.kind) === opt.value ? "default" : "outline"}
+                        className="justify-start"
+                        onClick={() => setDraftValue(q.id, opt.value)}
                       >
                         {opt.label}
-                      </Badge>
-                    );
-                  })}
-                </div>
-                <Button size="sm" onClick={() => answer(question.id, multiDrafts[question.id] ?? [])}>
-                  Continue
-                </Button>
-              </div>
-            )}
+                      </Button>
+                    ))}
+                  </div>
+                )}
 
-            {question.kind === "text" && (
-              <div className="flex gap-2">
-                <Input
-                  autoFocus
-                  placeholder={question.placeholder}
-                  maxLength={question.id === "organization_name" ? 120 : undefined}
-                  value={textDraft}
-                  onChange={(e) => setTextDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && textDraft.trim()) answer(question.id, textDraft.trim());
-                  }}
-                />
-                <Button disabled={!textDraft.trim()} onClick={() => answer(question.id, textDraft.trim())}>
-                  Next
-                </Button>
-                {question.id === "role_model" && (
-                  <Button variant="ghost" onClick={() => answer(question.id, "")}>
-                    Skip
-                  </Button>
+                {q.kind === "multi_select" && (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {q.options?.map((opt) => {
+                      const drafted = draftFor(q.id, q.kind) as string[];
+                      const selected = drafted.includes(opt.value);
+                      const atCap = q.maxSelections !== undefined && !selected && drafted.length >= q.maxSelections;
+                      return (
+                        <Badge
+                          key={opt.value}
+                          variant={selected ? "default" : "outline"}
+                          aria-disabled={atCap}
+                          className={`select-none py-1.5 px-3 ${atCap ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                          onClick={() => toggleGroupMulti(q.id, opt.value, q.maxSelections)}
+                        >
+                          {opt.label}
+                        </Badge>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-            )}
-            {answered > 0 && (
-              <Button variant="ghost" size="sm" onClick={startOver}>
-                Start over
+            ))}
+
+            <div className="flex items-center gap-2 pt-1">
+              <Button onClick={commitGroup} disabled={!groupValid}>
+                Continue
               </Button>
-            )}
+              {answered > 0 && (
+                <Button variant="ghost" size="sm" onClick={startOver}>
+                  Start over
+                </Button>
+              )}
+            </div>
           </div>
         )}
 

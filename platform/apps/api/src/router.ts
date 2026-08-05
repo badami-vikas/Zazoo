@@ -19,6 +19,10 @@ import {
 import type { ApiContext } from "./context.js";
 import type { LocalPlane } from "@bridge/local";
 import { isPublicCloudProcedureAllowed } from "./deployment-boundary.js";
+import {
+  isModelProviderKeyId,
+  type ModelProviderKeyId,
+} from "./model-provider-keys.js";
 import { LocalGeocodingProviderError } from "./geocoding-provider.js";
 import {
   applyApprovedRelationshipMaterialization,
@@ -82,6 +86,12 @@ import {
   type Wiring,
 } from "./wiring.js";
 import { resolveAuthorizedAgentRoleTemplate } from "./agent-role-templates.js";
+import {
+  planChatTaskNode,
+  resolveChatThreadTaskAnchor,
+  type ChatTaskAnchorCandidate,
+  type ParentCandidateTask,
+} from "@bridge/core";
 import type {
   Action,
   Actor,
@@ -95,6 +105,7 @@ import type {
   PolicyResult,
   ResourceType,
   RunContext,
+  TaskRecord,
 } from "@bridge/core";
 import {
   AgentFloorDeniedError,
@@ -2099,6 +2110,53 @@ const dealpilotProcedure = procedure.use(async ({ ctx, next }) => {
   return next();
 });
 
+/**
+ * Gate for Settings surfaces that handle raw secrets (today: model-provider API
+ * keys). Same authentication + membership floor as `dealpilotProcedure`, plus
+ * an explicit Human check — an Agent, Automation, or team principal must never
+ * be able to install or remove a credential on the user's behalf, which is the
+ * rule `SourceCredentialService` already enforces for DealPilot.
+ */
+const credentialSettingsProcedure = procedure.use(async ({ ctx, next }) => {
+  const authenticationRequired =
+    ctx.verifying || ctx.wiring.persistent || process.env.NODE_ENV === "production";
+  if (authenticationRequired && !ctx.authenticated) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "authentication required to manage credentials",
+    });
+  }
+  if (ctx.identity.type !== "user") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only an authenticated Human can manage stored credentials",
+    });
+  }
+  await assertMembership(ctx.wiring.organizationStore, PILOT_ORGANIZATION, ctx.identity.id);
+  return next();
+});
+
+function assertModelProviderKeyId(value: string): ModelProviderKeyId {
+  if (!isModelProviderKeyId(value)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `"${value}" is not a configurable model provider`,
+    });
+  }
+  return value;
+}
+
+/** Key bytes are Local Plane only — the public cloud API refuses to hold them. */
+function assertModelProviderKeyStorage(wiring: Pick<Wiring, "publicCloudOnly">): void {
+  if (wiring.publicCloudOnly) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "Model-provider API keys are stored on the Bridge desktop app (the Local Plane) and are not accepted by the public cloud API.",
+    });
+  }
+}
+
 const actionEnum = z.enum(["read", "write", "execute", "share", "archive"]);
 const actorTypeEnum = z.enum(["user", "team", "agent"]);
 const resourceTypeEnum = z.enum([
@@ -3365,12 +3423,31 @@ const chatSendInput = z.object({
   retryTurnId: z.string().uuid().optional(),
 }).strict();
 
+/** A parent Task the deterministic matcher put forward, carried into the
+ * review card WITH the terms that produced it so the reviewer can judge it
+ * (AP-021 / "explain before automating" — never a silent auto-parenting). */
+const chatTaskParentCandidateSchema = z.object({
+  taskId: z.string().uuid(),
+  title: z.string().trim().min(1).max(160),
+  reason: z.string().trim().min(1).max(400),
+  score: z.number().min(0).max(1),
+}).strict();
+
 const chatCreateTaskOutputSchema = z.object({
   kind: z.literal("task_create"),
+  /** "append" continues the Task node this Chat thread already owns; "create"
+   * mints a new node. Defaulted so proposals staged before ADR-183 still
+   * parse as the create-a-new-node shape they were. */
+  mode: z.enum(["create", "append"]).default("create"),
   taskId: z.string().uuid(),
   title: z.string().trim().min(1).max(160),
   outcome: z.string().trim().min(1).max(2_000),
   exitTest: z.string().trim().min(1).max(2_000),
+  /** The reviewer's parent decision — suggested by the matcher, editable and
+   * clearable before approval. */
+  parentTaskId: z.string().uuid().nullable().default(null),
+  parentRationale: z.string().trim().min(1).max(400).nullable().default(null),
+  parentCandidates: z.array(chatTaskParentCandidateSchema).max(5).default([]),
   status: z.literal("proposed"),
 }).strict();
 
@@ -4649,6 +4726,66 @@ async function resolveChatCreateTaskSkill(
   return { ...resolution, manifest: resolution.manifest };
 }
 
+/** How far back a thread is scanned for the Task node it already owns. Bounded
+ * on purpose (CLAUDE.md: bounded reads) — one page of turns, one cheap
+ * deterministic ledger lookup per assistant turn, no extra table. */
+const CHAT_TASK_ANCHOR_SCAN_TURNS = 100;
+
+/** Every Task node this Chat thread has staged, with the Human decision on it.
+ * The thread -> Task reference is the one that already exists: the proposal id
+ * is derived from the turn id, and the proposal's own inputs name the Task. */
+async function chatThreadTaskNodes(
+  wiring: Wiring,
+  scope: ChatOwnerScope,
+  threadId: string,
+): Promise<ChatTaskAnchorCandidate[]> {
+  const page = await wiring.chatStore.listTurns(scope, threadId, {
+    limit: CHAT_TASK_ANCHOR_SCAN_TURNS,
+  });
+  const staged = await Promise.all(
+    page.items
+      .filter((turn) => turn.role === "assistant")
+      .map(async (turn) => {
+        const entry = await wiring.ledger.get(idempotentUuid(`${turn.id}:proposal`));
+        if (!entry || entry.organizationId !== scope.organizationId) return null;
+        const input = chatTaskProposalInput(entry);
+        if (
+          !input ||
+          input.chatThreadId !== threadId ||
+          input.chatTurnId !== turn.id ||
+          entry.onBehalfOfId !== scope.ownerUserId
+        ) {
+          return null;
+        }
+        const decision = await wiring.ledger.decisionFor(entry.id);
+        return {
+          turnId: turn.id,
+          sequence: turn.sequence,
+          taskId: input.taskId,
+          accepted:
+            decision?.userDecision === "approve" || decision?.userDecision === "edit",
+        } satisfies ChatTaskAnchorCandidate;
+      }),
+  );
+  return staged.filter((candidate): candidate is ChatTaskAnchorCandidate => candidate !== null);
+}
+
+/** Open Tasks this owner may legitimately see, shaped for the parent matcher.
+ * Another member's private Task is never a suggestion. */
+function chatTaskParentCandidates(
+  tasks: readonly TaskRecord[],
+  ownerUserId: string,
+): ParentCandidateTask[] {
+  return tasks
+    .filter((task) => task.visibility === "organization" || task.ownerId === ownerUserId)
+    .map((task) => ({
+      taskId: task.id,
+      title: task.title,
+      ...(task.outcomes[0]?.target ? { outcome: task.outcomes[0].target } : {}),
+      status: task.status,
+    }));
+}
+
 async function stageChatTaskProposal(
   ctx: Pick<ApiContext, "identity" | "run" | "wiring">,
   thread: ChatThread,
@@ -4675,7 +4812,29 @@ async function stageChatTaskProposal(
     thread.organizationId,
     goalTaskRef,
   );
-  const taskId = idempotentUuid(`${assistantTurnId}:task`);
+  const newTaskId = idempotentUuid(`${assistantTurnId}:task`);
+  // The user's directive: one Task node per Chat thread, follow-ups continue
+  // it. The node is found from the refs/ledger the thread already has — the
+  // parent suggestion is computed deterministically and stays a suggestion.
+  const anchor = resolveChatThreadTaskAnchor(
+    (await chatThreadTaskNodes(ctx.wiring, scope, thread.id)).filter(
+      (candidate) => candidate.turnId !== assistantTurnId,
+    ),
+  );
+  const anchorTask = anchor
+    ? await ctx.wiring.taskManager.get(thread.organizationId, anchor.taskId)
+    : null;
+  const plan = planChatTaskNode({
+    title: envelope.title,
+    outcome: envelope.outcome,
+    ...(anchorTask ? { anchor: { taskId: anchorTask.id, status: anchorTask.status } } : {}),
+    candidates: chatTaskParentCandidates(
+      await ctx.wiring.taskManager.list(thread.organizationId),
+      thread.ownerUserId,
+    ),
+    newTaskId,
+  });
+  const taskId = plan.mode === "append" ? plan.taskId : newTaskId;
   const existingProposal = await ctx.wiring.ledger.get(proposalId);
   if (existingProposal) {
     const existingInput = chatTaskProposalInput(existingProposal);
@@ -4735,10 +4894,14 @@ async function stageChatTaskProposal(
       dataScope: "private",
       inputs: {
         kind: "task_create",
+        mode: plan.mode,
         taskId,
         title: envelope.title,
         outcome: envelope.outcome,
         exitTest: envelope.exitTest,
+        parentTaskId: plan.mode === "create" ? plan.parent?.taskId ?? null : null,
+        parentRationale: plan.mode === "create" ? plan.parent?.reason ?? null : null,
+        parentCandidates: plan.mode === "create" ? [...plan.parentCandidates] : [],
         visibility: "private",
         chatThreadId: thread.id,
         chatTurnId: assistantTurnId,
@@ -5072,10 +5235,14 @@ function chatLedgerEntryIsProposal(entry: LedgerEntry): boolean {
 function chatTaskProposalInput(entry: LedgerEntry) {
   const parsed = z.object({
     kind: z.literal("task_create"),
+    mode: z.enum(["create", "append"]).default("create"),
     taskId: z.string().uuid(),
     title: z.string().trim().min(1),
     outcome: z.string().trim().min(1),
     exitTest: z.string().trim().min(1),
+    parentTaskId: z.string().uuid().nullable().default(null),
+    parentRationale: z.string().trim().min(1).max(400).nullable().default(null),
+    parentCandidates: z.array(chatTaskParentCandidateSchema).max(5).default([]),
     visibility: z.literal("private"),
     chatThreadId: z.string().uuid(),
     chatTurnId: z.string().uuid(),
@@ -5092,7 +5259,13 @@ function chatTaskProposalInput(entry: LedgerEntry) {
     entry.resourceId !== input.taskId ||
     entry.dataScope !== "private" ||
     entry.id !== idempotentUuid(`${input.chatTurnId}:proposal`) ||
-    input.taskId !== idempotentUuid(`${input.chatTurnId}:task`) ||
+    // A new node's id stays derived from its turn. An "append" targets a Task
+    // this turn did NOT mint, so the id cannot be checked here — the target is
+    // instead re-verified against the thread's own accepted Task nodes in
+    // `requireChatTaskProposalBinding` and `finishChatTaskDecision`.
+    (input.mode === "create" && input.taskId !== idempotentUuid(`${input.chatTurnId}:task`)) ||
+    (input.mode === "append" && input.parentTaskId !== null) ||
+    input.parentTaskId === input.taskId ||
     !chatLedgerEntryIsProposal(entry)
   ) {
     return null;
@@ -5185,14 +5358,83 @@ async function finishChatTaskDecision(
     return { runId, task: null };
   }
   const output = chatCreateTaskOutputSchema.parse(resolvedOutput);
-  if (output.taskId !== input.taskId) {
+  if (output.taskId !== input.taskId || output.mode !== input.mode) {
     throw new Error("Chat Task review cannot retarget the proposed Task");
+  }
+  if (output.mode === "append" && output.parentTaskId !== null) {
+    throw new Error("A Chat follow-up appends to its Task node and cannot re-parent it");
+  }
+  if (output.parentTaskId === output.taskId) {
+    throw new Error("A Task cannot be its own parent");
   }
   if (existingRun && existingRun.status !== "running") {
     return {
       runId,
       task: await wiring.taskManager.get(original.organizationId, output.taskId),
     };
+  }
+  const seam = { nextId: () => run.ids.next(), nowISO: () => run.clock.nowISO() };
+  // Follow-up in a thread that already owns a Task node: continue THAT node.
+  // The target is re-verified here (the mutation choke point) against the
+  // thread's own accepted nodes, so an "append" can never be pointed at an
+  // arbitrary record by a forged proposal.
+  if (output.mode === "append") {
+    const chatScope = chatOwnerScope(original.organizationId, ownerUserId);
+    const nodes = await chatThreadTaskNodes(wiring, chatScope, input.chatThreadId);
+    if (!nodes.some((node) => node.accepted && node.taskId === output.taskId)) {
+      throw new Error(
+        `Chat Task ${output.taskId} is not a Task node this Chat thread already owns`,
+      );
+    }
+    const anchorTask = await wiring.taskManager.get(
+      original.organizationId,
+      output.taskId,
+    );
+    if (!anchorTask) throw new Error(`Chat Task ${output.taskId} no longer exists`);
+    const appended = await wiring.taskManager.appendOutcome(
+      original.organizationId,
+      output.taskId,
+      {
+        id: idempotentUuid(`${input.chatTurnId}:outcome`),
+        title: output.title,
+        measure: "Completion",
+        target: output.outcome,
+        indicatorKind: "lagging",
+        northStar: false,
+      },
+      seam,
+    );
+    if (!existingRun || existingRun.status === "running") {
+      await wiring.automationRunRecorder.finish(
+        {
+          runId,
+          organizationId: original.organizationId,
+          status: "completed",
+          output: {
+            kind: "result",
+            proposalId: original.id,
+            taskId: appended.id,
+            mode: "append",
+          },
+        },
+        run,
+      );
+    }
+    return { runId, task: appended };
+  }
+  // The reviewer may keep, clear, or change the suggested parent — but only to
+  // a Task that really exists and that this owner may see.
+  if (output.parentTaskId) {
+    const parent = await wiring.taskManager.get(
+      original.organizationId,
+      output.parentTaskId,
+    );
+    if (
+      !parent ||
+      (parent.visibility !== "organization" && parent.ownerId !== ownerUserId)
+    ) {
+      throw new Error(`Parent Task ${output.parentTaskId} is not available to this owner`);
+    }
   }
   const createInput = {
     id: output.taskId,
@@ -5207,6 +5449,7 @@ async function finishChatTaskDecision(
       indicatorKind: "lagging" as const,
       northStar: true,
     }],
+    ...(output.parentTaskId ? { parentTaskId: output.parentTaskId } : {}),
     exitTest: output.exitTest,
     status: "committed" as const,
     priority: "P1" as const,
@@ -5406,11 +5649,39 @@ export const appRouter = t.router({
           );
           const local = await ctx.wiring.managedModel.status();
           const cloud = resolveChatModel(ctx.wiring, "cloud");
+          // Reuse ModelProviderKeyStore.list's own configured/active bits
+          // (ADR-181/AP-104) rather than re-deriving "is a key saved" here —
+          // this is the same read Settings -> API Keys shows, just folded
+          // into the status Chat already polls so the composer can offer
+          // Cloud as a real choice instead of only a forced local-model path.
+          const keyStatuses = await ctx.wiring.modelProviderKeys.list(input.organizationId, {
+            env: process.env,
+            activeProviderIds: new Set(ctx.wiring.models.providers().keys()),
+          });
+          const cloudKey = keyStatuses.find((status) => status.providerId === "groq");
+          const cloudKeySaved = Boolean(cloudKey?.configured || cloudKey?.fromEnvironment);
           return {
             local,
             cloud: cloud
-              ? { available: true as const, providerId: cloud.id, modelTier: CHAT_MODEL_TIER }
-              : { available: false as const, providerId: null, modelTier: CHAT_MODEL_TIER },
+              ? {
+                  available: true as const,
+                  providerId: cloud.id,
+                  modelTier: CHAT_MODEL_TIER,
+                  configured: true,
+                  restartRequired: false,
+                }
+              : {
+                  available: false as const,
+                  providerId: null,
+                  modelTier: CHAT_MODEL_TIER,
+                  // A key can be saved (Settings -> API Keys) but not yet
+                  // active in THIS process — `createModelRouter` snapshots
+                  // providers at construction (ADR-181). Distinguishing the
+                  // two lets Chat say "restart to activate" instead of the
+                  // misleading "no key configured" for both cases.
+                  configured: cloudKeySaved,
+                  restartRequired: cloudKeySaved,
+                },
           };
         }),
       install: authenticatedProcedure
@@ -12071,6 +12342,85 @@ export const appRouter = t.router({
    * Backed by the governed integration store on the LOCAL plane. Granting an
    * agent-floor DENY scope (external:send, network_graph:full) is refused here.
    */
+  /**
+   * Settings → API Keys. Model-provider API keys the user types are secrets, so
+   * every procedure here obeys the same rules as DealPilot Source credentials
+   * (ADR-181): a Human actor only, key bytes travel INBOUND only, and the store
+   * behind them is the Local Plane credential vault. No procedure in this
+   * router can return a key — `list` reports existence and age, and the raw
+   * value is read exactly once by process wiring at boot.
+   */
+  modelProviderKey: t.router({
+    /** Per-slot status: stored?, active in this process?, set via environment? */
+    list: credentialSettingsProcedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return {
+          /** Saving a key needs the desktop Local Plane; the cloud API refuses. */
+          storageAvailable: !ctx.wiring.publicCloudOnly,
+          providers: await ctx.wiring.modelProviderKeys.list(input.organizationId, {
+            env: process.env,
+            activeProviderIds: new Set(ctx.wiring.models.providers().keys()),
+          }),
+        };
+      }),
+
+    save: credentialSettingsProcedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          providerId: z.string().min(1),
+          apiKey: z.string().trim().min(1).max(2_000),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const providerId = assertModelProviderKeyId(input.providerId);
+        assertModelProviderKeyStorage(ctx.wiring);
+        await ctx.wiring.modelProviderKeys.save(
+          input.organizationId,
+          providerId,
+          input.apiKey,
+        );
+        // Deliberately returns no echo of the value, not even masked. The
+        // provider is constructed from the vault at boot, so this response
+        // states the honest activation requirement rather than implying the
+        // key is already routing traffic (AP-021).
+        return {
+          providerId,
+          stored: true,
+          activation: ctx.wiring.models.providers().has(providerId)
+            ? ("already_active" as const)
+            : ("restart_required" as const),
+        };
+      }),
+
+    clear: credentialSettingsProcedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          providerId: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const providerId = assertModelProviderKeyId(input.providerId);
+        assertModelProviderKeyStorage(ctx.wiring);
+        const removed = await ctx.wiring.modelProviderKeys.clear(
+          input.organizationId,
+          providerId,
+        );
+        return {
+          providerId,
+          removed,
+          // Removing the stored key does not un-register a provider this
+          // process already built from it.
+          stillActive: ctx.wiring.models.providers().has(providerId),
+        };
+      }),
+  }),
+
   integration: t.router({
     /** The platforms Bridge can connect, with their declared OAuth scopes. */
     providers: procedure.query(() =>
@@ -12726,9 +13076,17 @@ export const appRouter = t.router({
         z.object({
           organizationId: z.string().min(1),
           avatarStyle: z.string().min(1),
+          // Whitelisted onboarding answer keys. E3 (2026-08-05) trimmed the
+          // USER-FACING question set to the five documented manual questions
+          // and added `workday` / `work_context` / `work_lives`; the older keys
+          // stay accepted because saved profiles still carry them and an
+          // explicit answer still overrides the derived value.
           answers: z.object({
             profession: z.string().optional(),
             avatar_style: z.string().optional(),
+            workday: z.array(z.string()).optional(),
+            work_context: z.string().optional(),
+            work_lives: z.array(z.string()).optional(),
             role_model: z.string().optional(),
             role_model_why: z.string().optional(),
             domain: z.string().optional(),

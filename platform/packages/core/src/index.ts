@@ -71,6 +71,7 @@ export * from "./search-provider.js";
 export * from "./skills.js";
 export * from "./goal-task.js";
 export * from "./task-manager.js";
+export * from "./chat-task-planning.js";
 export * from "./skill-manifest.js";
 export * from "./child-agent-run.js";
 export * from "./research-run.js";

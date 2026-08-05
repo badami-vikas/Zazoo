@@ -617,9 +617,13 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "external",
     manifest: {
       name: "relationship",
-      // 0.3.0: display name aligned to the owner-declared Module set, and this
-      // Module becomes a nav PARENT (WhatsApp declares it, ADR-178).
-      version: "0.3.0",
+      // 0.2.4 added the Learning Agent's `runRoute` (ADR-180). 0.3.0 (a
+      // parallel workstream) renamed the display name to "NetworkManager"
+      // and made this Module a nav PARENT (WhatsApp declares it, ADR-178).
+      // 0.3.1 is the union of both — Module content is IMMUTABLE at a given
+      // version, so a manifest carrying both changes needs a version past
+      // either parent, not a pick between them.
+      version: "0.3.1",
       kind: "organization_definition",
       summary: "Signals, People, Communities, and governed relationship continuity.",
       description:
@@ -680,6 +684,10 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
             name: "Learning Agent",
             capabilityId: "relationship.agent.learning",
             skillIds: ["relationship.help-request.stage-offer", "web-research"],
+            // The Research Run surface (TASK-028) belongs to the Agent that
+            // consumes the `web-research` Skill — not to a top-level nav entry
+            // of its own (ADR-180).
+            runRoute: "/research",
           },
         ],
         automations: [{

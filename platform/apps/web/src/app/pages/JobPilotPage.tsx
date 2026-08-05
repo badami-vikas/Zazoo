@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Briefcase, MoreHorizontal } from "lucide-react";
-import { Link } from "react-router";
+import { Briefcase } from "lucide-react";
 import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
 import { RedFlagControl } from "../components/shared/RedFlagControl";
 import { RedFlagProvider } from "../components/shared/RedFlagProvider";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu";
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow } from "../dataviews/types";
 
@@ -142,23 +136,9 @@ export function JobPilotPage() {
           >
             {insightsOpen ? "Hide insights" : "Show insights"}
           </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="JobPilot controls"
-                className="rounded-md border p-1.5 hover:bg-black/5"
-                style={{ borderColor: "var(--color-border)" }}
-              >
-                <MoreHorizontal className="size-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem asChild>
-                <Link to="/module/job-pilot">Control Panel / Module Detail</Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* ADR-180: the 3-dots Control Panel entry was the menu's only item and
+              duplicated the scroll-revealed Intelligence Section's "Manage in
+              Module Detail" link, so the control is removed entirely. */}
         </div>
       </div>
       <CollapsibleInsights
@@ -169,48 +149,52 @@ export function JobPilotPage() {
           { id: "review", label: "Awaiting review", value: String(page.items.filter((item) => item.application?.stage === "awaiting_review").length) },
         ]}
       />
-      <div className="flex-1 space-y-8 overflow-auto p-4">
-        <section aria-label="Jobs Database">
-          <DataViews
-            spec={spec}
-            view={view}
-            data={rows}
-            searchPlaceholder="Search jobs…"
-            onViewChange={setView}
-            onUpdate={moveStage}
-            canUpdateRow={(row) => Boolean(row["id"])}
-          />
-        </section>
-        {page.items.some((item) => item.application) && (
-          <RedFlagProvider scope={{ moduleId: "jobpilot" }}>
-            <section className="space-y-3" aria-labelledby="jobpilot-fit-signals">
-              <h2 id="jobpilot-fit-signals" className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
-                Fit signals
-              </h2>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {page.items.flatMap((item) => item.application ? [{
-                  item,
-                  application: item.application,
-                }] : []).map(({ item, application }) => (
-                  <article key={application.id} className="rounded-md border p-3" style={{ borderColor: "var(--color-border)" }}>
-                    <h3 className="mb-2 text-sm font-medium">{item.title}</h3>
-                    <FitSignalBullets
-                      applicationId={application.id}
-                      stage={application.stage}
-                      flag={application.flag}
-                      fitScore={application.fitScore}
-                    />
-                  </article>
-                ))}
-              </div>
-            </section>
-          </RedFlagProvider>
-        )}
-        <ModuleFilesSection moduleName="job-pilot" />
-        <div className="mt-6">
-          <ModuleIntelligenceSection moduleName="job-pilot" />
-        </div>
-      </div>
+      <ModuleSurfaceLayout
+        table={
+          <section aria-label="Jobs Database" className="h-full">
+            <DataViews
+              spec={spec}
+              view={view}
+              data={rows}
+              searchPlaceholder="Search jobs…"
+              onViewChange={setView}
+              onUpdate={moveStage}
+              canUpdateRow={(row) => Boolean(row["id"])}
+            />
+          </section>
+        }
+        below={
+          <>
+            {page.items.some((item) => item.application) && (
+              <RedFlagProvider scope={{ moduleId: "jobpilot" }}>
+                <section className="space-y-3" aria-labelledby="jobpilot-fit-signals">
+                  <h2 id="jobpilot-fit-signals" className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
+                    Fit signals
+                  </h2>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {page.items.flatMap((item) => item.application ? [{
+                      item,
+                      application: item.application,
+                    }] : []).map(({ item, application }) => (
+                      <article key={application.id} className="rounded-md border p-3" style={{ borderColor: "var(--color-border)" }}>
+                        <h3 className="mb-2 text-sm font-medium">{item.title}</h3>
+                        <FitSignalBullets
+                          applicationId={application.id}
+                          stage={application.stage}
+                          flag={application.flag}
+                          fitScore={application.fitScore}
+                        />
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              </RedFlagProvider>
+            )}
+            <ModuleFilesSection moduleName="job-pilot" />
+            <ModuleIntelligenceSection moduleName="job-pilot" />
+          </>
+        }
+      />
     </div>
   );
 }

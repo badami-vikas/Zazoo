@@ -1,0 +1,182 @@
+/**
+ * notch-home.test.mjs — the pure geometry and drop physics behind Zazoo's
+ * notch home (roadmap Z1).
+ *
+ * These are the parts that decide WHERE the companion ends up. A sign error or
+ * a bad clamp here puts him off-screen, which is exactly the class of bug that
+ * has already cost this project a debugging session (the stale
+ * `overlay_positions.json` anchor), so it is pinned rather than eyeballed.
+ */
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import ts from "typescript";
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+async function loadNotchHome() {
+  const source = readFileSync(
+    resolve(here, "../src/app/avatar/notch-home.ts"),
+    "utf8",
+  );
+  const js = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const url = `data:text/javascript;base64,${Buffer.from(js).toString("base64")}`;
+  return import(url);
+}
+
+/** The live probe on this MacBook Air (Mac14,2): notch AND the Dock (93pt,
+ * bottom-oriented) + menu bar (33pt), both measured via `NSScreen`. */
+const GEOMETRY = {
+  hasNotch: true,
+  x: 646,
+  y: 0,
+  width: 179,
+  height: 32,
+  screenWidth: 1470,
+  screenHeight: 956,
+  scaleFactor: 2,
+  visibleLeft: 0,
+  visibleTop: 33,
+  visibleRight: 1470,
+  visibleBottom: 863,
+};
+
+test("the drop column spans the full display height", async () => {
+  const { dropColumnBox } = await loadNotchHome();
+  const box = dropColumnBox(GEOMETRY);
+  assert.equal(box.height, 956, "the fall must be animatable inside one window");
+});
+
+test("the landed window rests at the bottom-RIGHT, clear of the Dock", async () => {
+  const { landedWindowRect } = await loadNotchHome();
+  const rect = landedWindowRect(GEOMETRY);
+  assert.ok(rect.x >= GEOMETRY.visibleLeft, "left edge clear of the Dock/menu-bar area");
+  assert.ok(rect.x + rect.width <= GEOMETRY.visibleRight, "right edge on screen");
+  assert.ok(
+    rect.y + rect.height <= GEOMETRY.visibleBottom,
+    "bottom edge sits above the Dock — landing INSIDE the Dock's 93pt strip is the exact " +
+      "bug being fixed: on-screen by raw coordinates, but visually swallowed by the Dock",
+  );
+  // User directive (with reference screenshot): the rest position is the
+  // bottom-right corner, past the Dock's right end — NOT under the notch.
+  assert.ok(
+    rect.x + rect.width >= GEOMETRY.visibleRight - 40,
+    "he should rest at the right edge of the visible area",
+  );
+});
+
+test("the bounce is zero before impact, hops after it, and dies out", async () => {
+  const { bounceOffsetY, squashSettled } = await loadNotchHome();
+  assert.equal(bounceOffsetY(0), 0);
+  assert.equal(bounceOffsetY(0.99), 0, "no bounce while still falling");
+  assert.ok(bounceOffsetY(1.15) > 8, "a visible hop right after impact");
+  assert.ok(
+    bounceOffsetY(2.2) < 2 && squashSettled(2.2),
+    "converged by the time the squash has settled — the rAF must be able to stop",
+  );
+});
+
+test("the glide starts only after impact and ends at the landing centre", async () => {
+  const { glideCenterX, landedWindowRect } = await loadNotchHome();
+  const fallCentre = GEOMETRY.x + GEOMETRY.width / 2;
+  assert.equal(glideCenterX(0.5, GEOMETRY), fallCentre, "vertical fall — no drift");
+  assert.equal(glideCenterX(1, GEOMETRY), fallCentre, "still on the fall line at impact");
+  const rect = landedWindowRect(GEOMETRY);
+  const landCentre = rect.x + rect.width / 2;
+  assert.ok(
+    Math.abs(glideCenterX(2.5, GEOMETRY) - landCentre) < 0.5,
+    "settles at the landing corner",
+  );
+});
+
+test("a notch near the screen edge still lands the window fully on screen", async () => {
+  const { landedWindowRect } = await loadNotchHome();
+  // Contrived, but the clamp is the whole reason this function exists.
+  const rect = landedWindowRect({ ...GEOMETRY, x: 0, width: 20 });
+  assert.ok(rect.x >= GEOMETRY.visibleLeft, "must clamp rather than go negative");
+  assert.ok(rect.x + rect.width <= GEOMETRY.visibleRight);
+});
+
+test("a left-oriented Dock is avoided too, not just a bottom one", async () => {
+  const { landedWindowRect } = await loadNotchHome();
+  // Dock moved to the left edge, 70pt wide.
+  const rect = landedWindowRect({ ...GEOMETRY, visibleLeft: 70 });
+  assert.ok(rect.x >= 70, "must not land under a side-docked Dock either");
+});
+
+test("the fall accelerates rather than sliding at constant speed", async () => {
+  const { fallProgress } = await loadNotchHome();
+  assert.equal(fallProgress(0), 0);
+  assert.equal(fallProgress(1), 1);
+  // Weight reads as covering less than half the distance by the halfway point.
+  assert.ok(fallProgress(0.5) < 0.4, "gravity, not a linear slide");
+  assert.ok(fallProgress(0.9) > fallProgress(0.5));
+  assert.equal(fallProgress(2), 1, "clamped past landing");
+});
+
+test("squash-and-stretch conserves volume and settles back to rest", async () => {
+  const { landingSquash, squashSettled } = await loadNotchHome();
+
+  const airborne = landingSquash(0.9);
+  assert.ok(airborne.scaleY > 1, "stretches along the fall axis");
+  assert.ok(airborne.scaleX < 1, "and narrows, so it is not a plain scale-up");
+  assert.ok(
+    Math.abs(airborne.scaleX * airborne.scaleX * airborne.scaleY - 1) < 0.001,
+    "volume preserved",
+  );
+
+  const impact = landingSquash(1);
+  assert.ok(impact.scaleY < 1, "impact squashes the body");
+  assert.ok(impact.scaleX > 1, "and spreads it sideways");
+
+  // The settle must actually converge — an avatar left mid-wobble forever
+  // would pin a rAF at 60fps for the life of the session.
+  assert.ok(!squashSettled(1), "still animating at impact");
+  assert.ok(squashSettled(2.2), "converged a beat later");
+  const settled = landingSquash(2.2);
+  assert.ok(Math.abs(settled.scaleY - 1) < 0.05, "back to rest");
+});
+
+test("landing offset keeps the avatar above the Dock, not merely above the screen edge", async () => {
+  const { landingOffsetY, LANDED_AVATAR_SIZE } = await loadNotchHome();
+  const y = landingOffsetY(GEOMETRY);
+  assert.ok(y > 0);
+  assert.ok(
+    y + LANDED_AVATAR_SIZE <= GEOMETRY.visibleBottom,
+    "must rest above the Dock's own strip, not merely above raw screen height",
+  );
+});
+
+test("Zazoo peeks left of the notch, not centred under it", async () => {
+  const { avatarPeekCenterX } = await loadNotchHome();
+  const boxWidth = 300;
+  const centerX = avatarPeekCenterX(boxWidth, GEOMETRY);
+  const windowCentre = boxWidth / 2;
+  assert.ok(centerX < windowCentre, "must sit left of the window's own centre");
+  // Should land on the cutout's own left edge, in window-local coordinates.
+  const notchLocalLeft = boxWidth / 2 - GEOMETRY.width / 2;
+  assert.ok(Math.abs(centerX - notchLocalLeft) < 0.01);
+});
+
+test("on a flat panel with no cutout, Zazoo falls back to centred", async () => {
+  const { avatarPeekCenterX } = await loadNotchHome();
+  const flat = { ...GEOMETRY, hasNotch: false, width: 0 };
+  assert.equal(avatarPeekCenterX(300, flat), 150);
+});
+
+test("FREE_BOX matches the collapsed free-mode window size — a correctness pin, not a style choice", async () => {
+  const { FREE_BOX } = await loadNotchHome();
+  // Live-reproduced regression: OverlayApp.tsx's WINDOW_SIZE.collapsed is
+  // 96x96. Landing at any OTHER size lets that component's own resize
+  // effect (re-armed the instant `home` flips to "free") immediately
+  // overwrite this module's Dock-aware placement via the pre-existing
+  // `overlay_resize` command, whose bottom-right-pin formula has no idea
+  // where the Dock is. Verified live: a 300x190 landing box drifted to a
+  // position with ~80% of its height behind the Dock. If OverlayApp's
+  // collapsed size ever changes, this constant must change with it.
+  assert.deepEqual(FREE_BOX, { width: 96, height: 96 });
+});

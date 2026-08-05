@@ -29,6 +29,7 @@ mod annotate;
 mod api_sidecar;
 mod companion;
 mod jobs;
+mod notch;
 mod model_supervisor;
 mod overlay;
 mod providers;
@@ -169,6 +170,10 @@ fn create_windows(
         eprintln!("[bridge-desktop] failed to create annotate window(s): {err}");
     }
     overlay::start_display_topology_watcher(app.clone(), overlay_init_script.to_string());
+    // Zazoo's notch home (Z1): permission-free cursor poll -> edge-triggered
+    // hover events. Started alongside the topology watcher so a display change
+    // and a notch change are observed by the same lifecycle.
+    notch::start_hover_watcher(app.clone());
     true
 }
 
@@ -421,6 +426,7 @@ pub fn run() {
         .manage(model_supervisor::ModelSupervisorState::default())
         .manage(overlay::DisplayTopologyState::default())
         .manage(overlay::OverlaySessionState::default())
+        .manage(notch::NotchState::default())
         .manage(companion::CompanionState::default())
         .manage(companion::CompanionAskJobs::default())
         .manage(whatsapp_webview::WhatsAppState::default())
@@ -477,6 +483,9 @@ pub fn run() {
             overlay::overlay_conceal,
             overlay::overlay_save_position,
             overlay::overlay_get_position,
+            notch::notch_geometry,
+            overlay::overlay_dock_notch,
+            overlay::overlay_undock_free,
             overlay::focus_main_window,
             annotate::annotate_show,
             annotate::annotate_clear,
@@ -511,6 +520,7 @@ pub fn run() {
             research_webview::research_close,
             open_google_oauth,
             providers::accessibility::ax_permission_status,
+            providers::accessibility::ax_request_permission,
         ])
         .setup(|app| {
             // Register the companion push-to-talk shortcut (⌘⇧Space).

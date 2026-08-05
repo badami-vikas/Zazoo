@@ -153,6 +153,18 @@ export function ModuleIntelligenceSection({
                       {agent.skillIds.length} {agent.skillIds.length === 1 ? "Skill" : "Skills"}
                     </p>
                   </div>
+                  {/* ADR-180: an Agent's Run surface (e.g. Research Runs for the
+                      Learning Agent) is reached through the Agent that owns it,
+                      from the manifest's run_route — never a nav entry. */}
+                  {agent.runRoute && (
+                    <Link
+                      to={agent.runRoute}
+                      className="shrink-0 rounded-md border px-2 py-1 text-xs font-medium no-underline hover:bg-[var(--color-surface)]"
+                      style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}
+                    >
+                      Runs
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>
