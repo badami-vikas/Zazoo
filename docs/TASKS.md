@@ -671,3 +671,36 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-07-31
 - Approval: AP-092 applied
 - Dependencies: none — every item is independently runnable by whoever holds the machine, device, credential, or deploy rights it names
+
+## Input-pack regeneration tests for Skills, Modules, and Integrations
+- ID: TASK-042
+- Status: ready
+- Priority: P2
+- Horizon: Convergence
+- Outcome: Each generated-artifact class (Skill, Module, Integration) has an empirically validated input-pack structure — constitution + contracts + mandate + harness layers sized by measured value — so the Builder Agent's growth substrate is defined by evidence, not opinion. Includes deciding per class whether a prescriptive structure is warranted at all or whether strong boundary conditions (harness-only) with autonomy inside them suffice, per the user's stated hypothesis.
+- Prototype test: for each class, an isolated no-repo-access agent given only the class's input pack produces a plan whose divergence triage (RULE-GAP / BLOAT / BETTER / WORSE) is recorded; the pack is amended until WORSE divergences attributable to missing pack layers reach zero or are explicitly accepted.
+- Scope: replicate the ADR-175 Learning Agent methodology (rubric pinned before output; divergences adopted on merit, never force-fit). Fix the pack gaps all three 2026-08-04 agents unanimously requested (concrete taint-label lattice, Proposal/Decision API shape, MemoryStore op signatures, consent-surface contract, budget primitives). Fold in the roster-wording cleanup: `foundational-agents.md` "5 Agents"/Internal Strategist wording vs canon 4 agents (AP-005/ADR-046, ADR-077). Constitution canonization itself is a separate APPROVALS gate, not this task.
+- Layers M and B are now canon (ADR-177) and part of every pack this task validates; the per-class question is whether each artifact class needs MORE than M+B+harness, or whether boundary conditions plus autonomy suffice.
+- Evidence: `outputs/2026-08-04-regeneration-test-learning-agent.md`; `outputs/2026-08-04-people-research-regeneration-method-budget.md`; ADR-175, ADR-177.
+- Requests: user directive 2026-08-04 ("If successful, add a task to repeat this for skills, capabilities, modules, etc so we have clarity on structure for each of these (if at all a structure is required, I believe a strong boundary conditions with autonomy within it might be better approach)").
+- Approval: AP-102 APPLIED
+- Dependencies: none (methodology and draft constitution exist; TASK-033 archetype work is adjacent, not blocking)
+
+## Constitution enforcement mechanisms (ADR-176 adopt-list)
+- ID: TASK-043
+- Status: ready
+- Priority: P2
+- Horizon: Convergence
+- Outcome: The five mechanisms adopted from the ADR-175 regeneration test exist as executable harness obligations rather than review conventions, so constitution conformance is provable per capability instead of asserted.
+- Prototype test: each item below has a test that fails when the mechanism is removed. A mechanism with no failing-on-removal test is not done.
+- Scope:
+  - **E1 — closed port-set allowlist (adopt now).** Build-time structural test snapshotting each capability package's injected-port set + import graph against a reviewed allowlist file; adding a port fails CI until the allowlist changes; the allowlist file is approval-gated. First target: the Learning surfaces (`core/learning`, `core/memory`), whose `neverExecutes` today rests on the ad-hoc "core holds no pipeline handle" property (ADR-077).
+  - **E2 — shown-text acceptance hash (adopt now).** Acceptance records the hash of exactly what the user was shown; a bulk-accept audit query can distinguish reviewed from rubber-stamped acceptances.
+  - **E3 — sensitivity tiers, raise-only (adopt now; invariant 15).** Deterministic gate classifying claim CONTENT about a person: red classes (health, protected characteristics, psychological/relationship-quality conclusions, financial distress) are never proposed; amber claims render as observed facts with evidence shown, never conclusions; model-assisted scoring may only raise a tier. Red-class fixtures must never reach a proposal.
+  - **E4 — claim→evidence map (adopt, medium effort).** Every proposed durable statement references >=1 evidence/observation id, machine-checked before emission; multi-clause statements are checked per clause, not per record.
+  - **E5 — paraphrase-robust rejection fingerprints (sequenced).** Semantic fingerprint with backoff-to-permanent, tested against a paraphrase corpus. BLOCKED on the semantic embedder (LA5 ships lexical hashing v1) — do not start before it lands.
+  - Explicitly NOT in scope: restructuring the server-side shared net-guard into an out-of-process egress broker (ADR-176 rejected it as redundant; the desktop shell already holds the chokepoint).
+- Evidence: ADR-176; `outputs/2026-08-04-regeneration-test-learning-agent.md`.
+- Requests: user directive 2026-08-04 ("Incorporate the 6 ideas, if validated to be better").
+- Approval: AP-103 APPLIED
+- Dependencies: E5 depends on the semantic embedder (learning-agent LA5 open item). E1-E4 have none.

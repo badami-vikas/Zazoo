@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T15:56:06.350Z",
+  "generatedAt": "2026-08-05T08:29:00.552Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1381,6 +1381,63 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 631,
       "rank": 41
+    },
+    {
+      "id": "TASK-042",
+      "title": "TASK-042 — Input-pack regeneration tests for Skills, Modules, and Integrations",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "Each generated-artifact class (Skill, Module, Integration) has an empirically validated input-pack structure — constitution + contracts + mandate + harness layers sized by measured value — so the Builder Agent's growth substrate is defined by evidence, not opinion. Includes deciding per class whether a prescriptive structure is warranted at all or whether strong boundary conditions (harness-only) with autonomy inside them suffice, per the user's stated hypothesis.",
+      "prototypeTest": "for each class, an isolated no-repo-access agent given only the class's input pack produces a plan whose divergence triage (RULE-GAP / BLOAT / BETTER / WORSE) is recorded; the pack is amended until WORSE divergences attributable to missing pack layers reach zero or are explicitly accepted.",
+      "scope": [
+        "replicate the ADR-175 Learning Agent methodology (rubric pinned before output",
+        "divergences adopted on merit, never force-fit). Fix the pack gaps all three 2026-08-04 agents unanimously requested (concrete taint-label lattice, Proposal/Decision API shape, MemoryStore op signatures, consent-surface contract, budget primitives). Fold in the roster-wording cleanup: `foundational-agents.md` \"5 Agents\"/Internal Strategist wording vs canon 4 agents (AP-005/ADR-046, ADR-077). Constitution canonization itself is a separate APPROVALS gate, not this task."
+      ],
+      "evidence": [
+        "`outputs/2026-08-04-regeneration-test-learning-agent.md`",
+        "`outputs/2026-08-04-people-research-regeneration-method-budget.md`",
+        "ADR-175, ADR-177."
+      ],
+      "requests": [
+        "user directive 2026-08-04 (\"If successful, add a task to repeat this for skills, capabilities, modules, etc so we have clarity on structure for each of these (if at all a structure is required, I believe a strong boundary conditions with autonomy within it might be better approach)\")."
+      ],
+      "approval": "AP-102 APPLIED",
+      "dependencies": [
+        "none (methodology and draft constitution exist",
+        "TASK-033 archetype work is adjacent, not blocking)"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 676,
+      "rank": 42
+    },
+    {
+      "id": "TASK-043",
+      "title": "TASK-043 — Constitution enforcement mechanisms (ADR-176 adopt-list)",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "The five mechanisms adopted from the ADR-175 regeneration test exist as executable harness obligations rather than review conventions, so constitution conformance is provable per capability instead of asserted.",
+      "prototypeTest": "each item below has a test that fails when the mechanism is removed. A mechanism with no failing-on-removal test is not done.",
+      "scope": [],
+      "evidence": [
+        "ADR-176",
+        "`outputs/2026-08-04-regeneration-test-learning-agent.md`."
+      ],
+      "requests": [
+        "user directive 2026-08-04 (\"Incorporate the 6 ideas, if validated to be better\")."
+      ],
+      "approval": "AP-103 APPLIED",
+      "dependencies": [
+        "E5 depends on the semantic embedder (learning-agent LA5 open item). E1-E4 have none."
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 690,
+      "rank": 43
     }
   ]
 }

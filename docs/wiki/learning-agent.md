@@ -2,7 +2,9 @@
 
 full: [../raw/learning-agent-roadmap-2026-07.md](../raw/learning-agent-roadmap-2026-07.md)
 
-1 of 4 permanent agents (ADR-046). Learns from conversations, behavior,
+1 of 5 permanent agents (roster settled 2026-08-04, AP-103/ADR-176: Chief of Staff · Learning ·
+Internal Strategist · Governance · Capability Builder; Communications stays a Skill family per
+ADR-046/AP-005 — the "4" count omitted Internal Strategist). Learns from conversations, behavior,
 corrections, connected systems, docs; runs research; feeds every other
 agent. `neverExecutes: true` — enforced in code, only firm thing built.
 
