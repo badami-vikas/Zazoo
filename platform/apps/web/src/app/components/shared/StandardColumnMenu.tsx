@@ -65,8 +65,20 @@ export function StandardColumnMenuPanel({
         <div
           role="menu"
           aria-label={`${label} column actions`}
-          className="fixed z-[80] max-h-[min(70vh,420px)] w-56 overflow-auto rounded-xl border bg-white py-1 text-left normal-case tracking-normal shadow-xl"
-          style={{ left: position.x, top: position.y, borderColor: "var(--color-border)" }}
+          className="fixed z-[80] max-h-[min(70vh,420px)] w-56 overflow-auto rounded-xl border py-1 text-left normal-case tracking-normal shadow-xl"
+          // `--popover` rather than a `bg-white` class: this panel is the same
+          // kind of surface as `DropdownMenuContent` (which `StandardRowMenu`
+          // renders), and that token is the one the `.dark` block overrides.
+          // NOT `--color-surface`: the `@theme inline` block re-declares it
+          // from a frozen light hex AFTER `.dark`, so it does not survive a
+          // dark-mode flip.
+          style={{
+            left: position.x,
+            top: position.y,
+            borderColor: "var(--color-border)",
+            background: "var(--popover)",
+            color: "var(--popover-foreground)",
+          }}
           onPointerDown={(event) => event.stopPropagation()}
         >
           {["Rename", "Edit column", "Change type", "AI Smartfill"].map((command) => (
@@ -74,13 +86,13 @@ export function StandardColumnMenuPanel({
               {command}
             </button>
           ))}
-          <button type="button" role="menuitem" onClick={() => { onFilter(); onClose(); }} className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5">
+          <button type="button" role="menuitem" onClick={() => { onFilter(); onClose(); }} className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10">
             Filter
           </button>
-          <button type="button" role="menuitem" onClick={() => { onSort("asc"); onClose(); }} className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5">
+          <button type="button" role="menuitem" onClick={() => { onSort("asc"); onClose(); }} className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10">
             Sort ascending
           </button>
-          <button type="button" role="menuitem" onClick={() => { onSort("desc"); onClose(); }} className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5">
+          <button type="button" role="menuitem" onClick={() => { onSort("desc"); onClose(); }} className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10">
             Sort descending
           </button>
           <button
@@ -93,7 +105,7 @@ export function StandardColumnMenuPanel({
             // true reason instead of inventing a column-specific one.
             title={onGroup ? undefined : "Unavailable: grouping is not wired for this View yet"}
             onClick={() => { onGroup?.(); onClose(); }}
-            className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 disabled:opacity-45"
+            className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-45"
           >
             Group
           </button>
@@ -108,7 +120,7 @@ export function StandardColumnMenuPanel({
             disabled={!onHide}
             title={onHide ? undefined : "Unavailable: this surface cannot persist column visibility"}
             onClick={() => { onHide?.(); onClose(); }}
-            className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 disabled:opacity-45"
+            className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-45"
           >
             Hide column
           </button>
@@ -162,7 +174,7 @@ export function StandardColumnMenu(props: StandardColumnMenuItemProps) {
       <button
         type="button"
         aria-label={`Open ${props.label} column menu`}
-        className="rounded p-0.5 hover:bg-black/5"
+        className="rounded p-0.5 hover:bg-black/5 dark:hover:bg-white/10"
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           setPosition(clampMenuPosition({ x: rect.left, y: rect.bottom + 4 }));
