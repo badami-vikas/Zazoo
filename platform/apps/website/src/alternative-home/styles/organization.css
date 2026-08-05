@@ -164,15 +164,15 @@
 }
 
 /* Knowledge flows: each held document travels into the shared current. */
-.organization-stage[data-knowledge="true"] .org-dept--one .doc-chip--held {
+.organization-stage[data-memory-held="true"] .org-dept--one .doc-chip--held {
   transform: translate(150px, 420px);
 }
 
-.organization-stage[data-knowledge="true"] .org-dept--two .doc-chip--held {
+.organization-stage[data-memory-held="true"] .org-dept--two .doc-chip--held {
   transform: translate(30px, 400px);
 }
 
-.organization-stage[data-knowledge="true"] .org-dept--three .doc-chip--held {
+.organization-stage[data-memory-held="true"] .org-dept--three .doc-chip--held {
   transform: translate(190px, 175px);
 }
 
@@ -306,7 +306,7 @@
   transition: opacity 900ms ease;
 }
 
-.organization-stage[data-knowledge="true"] .org-current {
+.organization-stage[data-memory-held="true"] .org-current {
   opacity: 0.55;
 }
 
@@ -388,15 +388,15 @@
     font-size: 0.85rem;
   }
 
-  .organization-stage[data-knowledge="true"] .org-dept--one .doc-chip--held {
+  .organization-stage[data-memory-held="true"] .org-dept--one .doc-chip--held {
     transform: translate(80px, 210px);
   }
 
-  .organization-stage[data-knowledge="true"] .org-dept--two .doc-chip--held {
+  .organization-stage[data-memory-held="true"] .org-dept--two .doc-chip--held {
     transform: translate(15px, 200px);
   }
 
-  .organization-stage[data-knowledge="true"] .org-dept--three .doc-chip--held {
+  .organization-stage[data-memory-held="true"] .org-dept--three .doc-chip--held {
     transform: translate(100px, 85px);
   }
 }

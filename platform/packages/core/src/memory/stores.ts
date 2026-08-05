@@ -509,17 +509,27 @@ export class InMemoryAutomationRegistry implements AutomationRegistry {
   async save(def: AutomationDefinition): Promise<void> {
     this.register(def);
   }
+  /** Normalizes the same way DrizzleAutomationRegistry does, so a read through
+   * either adapter answers "how does this Automation start?" identically.
+   * Without this the in-memory store returns `trigger: undefined` where the
+   * database returns `{kind:"manual"}` — a difference every caller would then
+   * have to remember to defend against, which is how sibling adapters drift. */
+  #withTrigger(def: AutomationDefinition): AutomationDefinition {
+    return { ...def, trigger: def.trigger ?? { kind: "manual" } };
+  }
+
   async load(organizationId: string, automationId: string): Promise<AutomationDefinition | null> {
     const def = this.automations.get(`${organizationId}:${automationId}`) ?? null;
     // Mirrors DrizzleAutomationRegistry's `status = 'active'` filter: a
     // draft is a review artifact the executor must never be able to start.
-    return def && def.status !== "draft" ? def : null;
+    return def && def.status !== "draft" ? this.#withTrigger(def) : null;
   }
 
   async listByStatus(organizationId: string, status: "active" | "draft"): Promise<AutomationDefinition[]> {
     return [...this.automations.values()]
       .filter((def) => def.organizationId === organizationId && (def.status ?? "active") === status)
-      .sort((a, b) => a.id.localeCompare(b.id));
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((def) => this.#withTrigger(def));
   }
 }
 

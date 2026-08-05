@@ -49,6 +49,17 @@ export {
   type AutomationRunByIdRequest,
   type AutomationRunResult,
 } from "./automation-executor.js";
+export {
+  AutomationTriggerError,
+  MAX_SCHEDULE_MINUTES,
+  cadenceLabel,
+  dueAutomations,
+  parseAutomationTrigger,
+  undispatchedTriggers,
+  type AutomationScheduleState,
+  type AutomationTrigger,
+  type DueAutomation,
+} from "./automation-trigger.js";
 export * from "./memory/stores.js";
 export * from "./memory/memory-store.js";
 export * from "./learning/observation.js";
@@ -265,6 +276,14 @@ export {
   type AqvSource,
   type AqvWindow,
 } from "./eval/aqv.js";
+export {
+  episodesFromLedger,
+  LedgerAqvSource,
+  scoreCapabilityFromLedger,
+  type AqvEvidenceReader,
+  type AqvLedgerReader,
+  type LedgerAqvSourceOptions,
+} from "./eval/ledger-aqv-source.js";
 export type { AxisScores, Comparison, EvalCase, EvalDataset, EvalRun, Scorer } from "./eval/types.js";
 export {
   InMemoryEvalStore,

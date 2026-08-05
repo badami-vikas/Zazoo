@@ -123,6 +123,7 @@ import {
   suspendOnFailure,
   resolveActivationApproval,
   compareRuns,
+  computeAqv,
   buildWhyBetterCard,
   resolveGates,
   classifyApprovalBand,
@@ -2860,7 +2861,7 @@ const automationCreateInput = z.object({
 // namespace; governance (approve) routes through the pipeline's decide()
 // semantics — human identity from ctx.identity, agents blocked by the floor.
 // ---------------------------------------------------------------------------
-const capabilityTypeEnum = z.enum(["skill", "automation", "agent", "integration", "view", "dashboard"]);
+const capabilityTypeEnum = z.enum(["skill", "automation", "agent", "integration", "database"]);
 const capabilityOriginEnum = z.enum(["built_in", "template", "community", "ai_generated", "user_code"]);
 const capabilityAudienceEnum = z.enum(["private", "team", "external_visible"]);
 
@@ -15208,6 +15209,41 @@ export const appRouter = t.router({
         throw err;
       }
     }),
+
+    /**
+     * The Agent Quality Vector for one capability, computed from the governed
+     * episodes it actually produced (A1-R1/F2).
+     *
+     * Read-only and deterministic: no model call, no write, no promotion side
+     * effect. `reliability` and `efficiency` are nullable BY DESIGN — null means
+     * "not measured", which is not the same as 0 ("measured and bad"), and callers
+     * must render the difference rather than collapsing it.
+     */
+    quality: procedure
+      .input(
+        capabilityIdInput.extend({
+          from: z.string().datetime().optional(),
+          to: z.string().datetime().optional(),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        const window = {
+          ...(input.from ? { from: input.from } : {}),
+          ...(input.to ? { to: input.to } : {}),
+        };
+        const { records, evidence } = await ctx.wiring.aqvSource.listAqvRecords(
+          input.manifestId,
+          window,
+        );
+        const aqv = computeAqv(records, window, evidence ?? {});
+        return {
+          ...aqv,
+          capabilityId: input.manifestId,
+          /** How many scored episodes carried an execution snapshot. Lets a caller
+           * say "3 of 40 episodes instrumented" instead of implying full coverage. */
+          instrumentedEpisodes: records.filter((r) => r.executionSnapshot !== undefined).length,
+        };
+      }),
 
     /**
      * Advance validated -> approved -> active -> trusted. This is the governed

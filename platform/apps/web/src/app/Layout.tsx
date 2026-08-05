@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles } from "lucide-react";
-import { moduleNavTarget } from "@bridge/module-manifests";
+import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight } from "lucide-react";
+import { moduleNavTarget, buildModuleNavTree } from "@bridge/module-manifests";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -51,13 +51,35 @@ type NavModule = {
   to: string;
   base: string;
   icon: typeof Boxes;
+  /** Set when this Module declares a nav parent (ADR-178) — it renders nested. */
+  parentModule?: string | undefined;
 };
 
-// Task Manager is a default Module: it always appears under Home regardless of
+// TaskManager is a default Module: it always appears under Home regardless of
 // modules.list state, so the Modules list is never empty and never errors out.
 const DEFAULT_MODULES: NavModule[] = [
-  { moduleName: "task-manager", displayName: "Task Manager", to: "/task-manager", base: "/task-manager", icon: ListChecks },
+  { moduleName: "task-manager", displayName: "TaskManager", to: "/task-manager", base: "/task-manager", icon: ListChecks },
 ];
+
+// Which parent Modules are expanded, persisted per Organization. A Module with
+// sub-modules starts COLLAPSED — the promise of the hierarchy is that the rail
+// shows roots until you ask for more — but an active sub-module always forces
+// its parent open, so navigating to a nested Page can never leave the rail
+// pointing at nothing.
+const EXPANDED_KEY = `bridge.${PILOT_ORGANIZATION}.rail.expandedModules.v1`;
+
+function loadExpandedModules(): string[] {
+  try {
+    const raw = window.localStorage.getItem(EXPANDED_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    // A corrupt or unavailable store degrades to "everything collapsed", which
+    // is a valid nav state — never an error surface.
+    return [];
+  }
+}
 
 export default function Layout() {
   const auth = useAuthSession();
@@ -118,8 +140,23 @@ export default function Layout() {
   // TASK-001 VOCAB6: installed modules from modules.list (real API, not
   // hardcoded). Only `available` state modules appear in the nav.
   const [installedModules, setInstalledModules] = useState<
-    { moduleName: string; displayName: string }[] | null
+    { moduleName: string; displayName: string; parentModule?: string | undefined }[] | null
   >(null);
+  const [expandedModules, setExpandedModules] = useState<string[]>(() => loadExpandedModules());
+
+  function toggleModuleExpanded(moduleName: string) {
+    setExpandedModules((current) => {
+      const next = current.includes(moduleName)
+        ? current.filter((name) => name !== moduleName)
+        : [...current, moduleName];
+      try {
+        window.localStorage.setItem(EXPANDED_KEY, JSON.stringify(next));
+      } catch {
+        // Persistence is a convenience; the nav still works for this session.
+      }
+      return next;
+    });
+  }
 
   // TASK-001 VOCAB6: load installed modules from modules.list for the nav.
   // Only `available` state modules appear. Fetched once per mount.
@@ -138,6 +175,7 @@ export default function Layout() {
           .map((p) => ({
             moduleName: p.moduleName,
             displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
+            parentModule: p.manifest?.module?.parentModule,
           }));
         setInstalledModules(available);
       })
@@ -258,6 +296,7 @@ export default function Layout() {
       to: nav?.landing ?? `/module/${mod.moduleName}`,
       base: nav?.base ?? `/module/${mod.moduleName}`,
       icon: Boxes,
+      parentModule: mod.parentModule,
     };
   });
   const navModules: NavModule[] = [
@@ -266,6 +305,8 @@ export default function Layout() {
       (mod) => !DEFAULT_MODULES.some((def) => def.moduleName === mod.moduleName),
     ),
   ];
+  // ADR-178: roots first, sub-modules nested one level under their parent.
+  const navTree = buildModuleNavTree(navModules);
 
   // Rail nav item — TWO layouts sharing one active-state treatment.
   // Collapsed: icon + short label stacked/centered. Expanded: icon + full label in a row.
@@ -280,6 +321,79 @@ export default function Layout() {
 
   function navLabelClass(extra = ""): string {
     return railExpanded ? `text-sm font-medium leading-none truncate ${extra}` : `text-[9px] font-medium leading-none ${extra}`;
+  }
+
+  // Highlight for the Module's data Pages (base) AND its /module/:name
+  // capability inventory, so the rail entry stays lit on the overview reached
+  // from a data Page's Intelligence Section.
+  function moduleActive(mod: NavModule): boolean {
+    return isActive(mod.base) || isActive(`/module/${mod.moduleName}`);
+  }
+
+  /** One rail entry. `disclosure` adds the sub-module expand/collapse control;
+   *  `nested` renders the smaller indented treatment for a sub-module. */
+  function renderModuleLink(
+    mod: NavModule,
+    opts: {
+      active: boolean;
+      nested?: boolean;
+      disclosure?: { open: boolean; listId: string; onToggle: () => void };
+    },
+  ) {
+    const Icon = mod.icon;
+    const { active, nested, disclosure } = opts;
+    const iconSize = nested ? "w-4 h-4" : "w-5 h-5";
+    return (
+      <div key={mod.moduleName} className="relative flex items-center">
+        <Link
+          to={mod.to}
+          // The chevron sits ON the row, so reserve its width — otherwise a
+          // long Module name renders underneath the control.
+          className={`${navItemClass(active)}${disclosure ? " pr-8" : ""}`}
+          title={mod.displayName}
+          aria-current={active ? "page" : undefined}
+        >
+          {active && <ActiveBar />}
+          <Icon
+            className={`${iconSize} shrink-0`}
+            style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }}
+          />
+          <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>{mod.displayName}</span>
+        </Link>
+        {disclosure && (
+          <button
+            type="button"
+            onClick={disclosure.onToggle}
+            aria-expanded={disclosure.open}
+            aria-controls={disclosure.listId}
+            aria-label={`${disclosure.open ? "Collapse" : "Expand"} ${mod.displayName} sub-modules`}
+            className="absolute right-1 flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-surface)]"
+          >
+            <ChevronRight
+              className={`h-3.5 w-3.5 transition-transform ${disclosure.open ? "rotate-90" : ""}`}
+              style={{ color: "var(--color-warm-gray)" }}
+            />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  /** Mobile drawer entry — same hierarchy, indentation instead of disclosure. */
+  function renderMobileModuleLink(mod: NavModule, nested: boolean) {
+    const Icon = mod.icon;
+    return (
+      <Link
+        key={mod.moduleName}
+        to={mod.to}
+        onClick={() => setMobileModulesOpen(false)}
+        className={`flex items-center gap-3 rounded-lg py-3 text-sm font-medium ${nested ? "pl-9 pr-3" : "px-3"}`}
+        style={{ color: "var(--color-navy)" }}
+      >
+        <Icon className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+        {mod.displayName}
+      </Link>
+    );
   }
 
   function ActiveBar() {
@@ -474,24 +588,42 @@ export default function Layout() {
           {/* Modules under Home — Task Manager (default) first, then installed
               Modules from modules.list. Always non-empty, so no "unavailable"
               or "no modules" state is ever rendered. */}
-          {navModules.map((mod) => {
-            // Highlight for the Module's data Pages (base) AND its /module/:name
-            // capability inventory, so the rail entry stays lit on the overview
-            // reached from a data Page's Intelligence Section.
-            const active = isActive(mod.base) || isActive(`/module/${mod.moduleName}`);
-            const Icon = mod.icon;
+          {navTree.map((node) => {
+            const parentActive = moduleActive(node.module);
+            const anyChildActive = node.children.some(moduleActive);
+            // An active sub-module forces its parent open — otherwise the rail
+            // would show a collapsed parent with no visible current item.
+            const open =
+              node.children.length > 0 &&
+              (expandedModules.includes(node.module.moduleName) || anyChildActive);
+            const listId = `nav-submodules-${node.module.moduleName}`;
             return (
-              <Link
-                key={mod.moduleName}
-                to={mod.to}
-                className={navItemClass(active)}
-                title={mod.displayName}
-                aria-current={active ? "page" : undefined}
-              >
-                {active && <ActiveBar />}
-                <Icon className="w-5 h-5 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-                <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>{mod.displayName}</span>
-              </Link>
+              <div key={node.module.moduleName} className="flex flex-col gap-0.5">
+                {renderModuleLink(node.module, {
+                  // The parent row stays a link — clicking the Module always
+                  // opens the Module. Disclosure is a SEPARATE control, so the
+                  // chevron can never swallow a navigation the user asked for.
+                  active: parentActive || (!open && anyChildActive),
+                  disclosure:
+                    node.children.length > 0 && railExpanded
+                      ? { open, listId, onToggle: () => toggleModuleExpanded(node.module.moduleName) }
+                      : undefined,
+                })}
+                {open && (
+                  <div id={listId} className="flex flex-col gap-0.5 pl-4">
+                    {node.children.map((child) =>
+                      renderModuleLink(child, { active: moduleActive(child), nested: true }),
+                    )}
+                  </div>
+                )}
+                {/* Rail collapsed to icons: there is no room for a nested list,
+                    so sub-modules render inline as siblings rather than being
+                    hidden behind a disclosure the user cannot see. */}
+                {!railExpanded &&
+                  node.children.map((child) =>
+                    renderModuleLink(child, { active: moduleActive(child) }),
+                  )}
+              </div>
             );
           })}
 
@@ -572,21 +704,15 @@ export default function Layout() {
               />
             </div>
             <div className="space-y-1">
-              {navModules.map((module) => {
-                const Icon = module.icon;
-                return (
-                  <Link
-                    key={module.moduleName}
-                    to={module.to}
-                    onClick={() => setMobileModulesOpen(false)}
-                    className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
-                    style={{ color: "var(--color-navy)" }}
-                  >
-                    <Icon className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
-                    {module.displayName}
-                  </Link>
-                );
-              })}
+              {/* Same one-level hierarchy as the rail. The drawer has room, so
+                  sub-modules are shown indented rather than behind a
+                  disclosure — one fewer tap to reach a nested Module. */}
+              {navTree.map((node) => (
+                <div key={node.module.moduleName} className="space-y-1">
+                  {renderMobileModuleLink(node.module, false)}
+                  {node.children.map((child) => renderMobileModuleLink(child, true))}
+                </div>
+              ))}
             </div>
             <div className="mt-3 space-y-1 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
               <Link

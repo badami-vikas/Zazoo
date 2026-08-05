@@ -21,6 +21,7 @@ import { alias } from "drizzle-orm/pg-core";
 import {
   AlreadyResolvedError,
   type DataScope,
+  type ExecutionSnapshot,
   type LedgerEntry,
   type LedgerStore,
   type RunContext,
@@ -73,6 +74,7 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
     ...(row.onBehalfOfId ? { onBehalfOfId: row.onBehalfOfId } : {}),
     ...(row.delegationId ? { delegationId: row.delegationId } : {}),
     action: row.action as LedgerEntry["action"],
+    ...(row.skill ? { skill: row.skill } : {}),
     resourceType: row.resourceType as LedgerEntry["resourceType"],
     ...(row.resourceId ? { resourceId: row.resourceId } : {}),
     inputs: row.inputs,
@@ -85,6 +87,9 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
     ...(row.dataScope ? { dataScope: row.dataScope as DataScope } : {}),
     ...(row.context != null ? { context: row.context as RunContext } : {}),
     ...(row.trustOrigin ? { trustOrigin: row.trustOrigin as TrustOrigin } : {}),
+    ...(row.executionSnapshot != null
+      ? { executionSnapshot: row.executionSnapshot as ExecutionSnapshot }
+      : {}),
     taintLabel: storedTaintLabelOrUnknown(row.taintLabel).label,
     createdAt: row.createdAt.toISOString(),
   };
@@ -266,6 +271,7 @@ export class DrizzleLedgerStore implements LedgerStore {
           ...(entry.onBehalfOfId ? { onBehalfOfId: entry.onBehalfOfId } : {}),
           ...(entry.delegationId ? { delegationId: entry.delegationId } : {}),
           action: entry.action,
+          ...(entry.skill ? { skill: entry.skill } : {}),
           resourceType: entry.resourceType,
           ...(entry.resourceId ? { resourceId: entry.resourceId } : {}),
           inputs: entry.inputs,
@@ -278,6 +284,7 @@ export class DrizzleLedgerStore implements LedgerStore {
           ...(entry.dataScope ? { dataScope: entry.dataScope } : {}),
           ...(entry.context ? { context: entry.context } : {}),
           ...(entry.trustOrigin ? { trustOrigin: entry.trustOrigin } : {}),
+          ...(entry.executionSnapshot ? { executionSnapshot: entry.executionSnapshot } : {}),
           taintLabel:
             entry.taintLabel ??
             labelFromLegacyTrustOrigin(

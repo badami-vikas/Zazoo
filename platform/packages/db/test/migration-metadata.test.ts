@@ -16,7 +16,7 @@ const dbRoot = resolve(here, "../..");
 const migrationsFolder = resolve(dbRoot, "migrations");
 const drizzleKitBin = resolve(dbRoot, "node_modules/drizzle-kit/bin.cjs");
 
-test("Drizzle metadata is rebased through 0036 and generate is a deterministic no-op", () => {
+test("Drizzle metadata is rebased through 0038 and generate is a deterministic no-op", () => {
   const probe = mkdtempSync(resolve(dbRoot, ".drizzle-noop-"));
   const probeMigrations = join(probe, "migrations");
   try {
@@ -28,10 +28,10 @@ test("Drizzle metadata is rebased through 0036 and generate is a deterministic n
     };
     const last = journal.entries.at(-1);
     assert.deepEqual(last, {
-      idx: 36,
+      idx: 38,
       version: "7",
-      when: 1785814388328,
-      tag: "0036_task034_eval_persistence",
+      when: 1785867456920,
+      tag: "0038_capability_type_database",
       breakpoints: true,
     });
     assert.ok(
@@ -64,7 +64,11 @@ test("Drizzle metadata is rebased through 0036 and generate is a deterministic n
     );
     assert.ok(
       readdirSync(join(probeMigrations, "meta")).includes("0036_snapshot.json"),
-      "current eval-persistence snapshot must be tracked",
+      "eval-persistence snapshot must remain tracked",
+    );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0037_snapshot.json"),
+      "AQV ledger-attribution snapshot must remain tracked",
     );
 
     const generated = spawnSync(
@@ -93,9 +97,12 @@ test("Drizzle metadata is rebased through 0036 and generate is a deterministic n
     assert.match(output, /No schema changes, nothing to migrate/);
     assert.equal(readFileSync(journalPath, "utf8"), journalBefore);
     assert.ok(
-      // The NEXT index after the current head (0036). If `generate` allocates
+      // The NEXT index after the current head (0038). If `generate` allocates
       // this, schema.ts and the committed migrations have drifted apart.
-      !readdirSync(probeMigrations).some((name) => /^0037_.*\.sql$/.test(name)),
+      // 0038 is a pure DATA migration (capability_type 'view' -> 'database'),
+      // so it has no snapshot and cannot make generate produce one — the
+      // schema shape is byte-identical either side of it.
+      !readdirSync(probeMigrations).some((name) => /^0039_.*\.sql$/.test(name)),
       "no-op generation must not allocate another migration",
     );
   } finally {

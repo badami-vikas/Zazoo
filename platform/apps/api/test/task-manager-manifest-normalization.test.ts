@@ -30,7 +30,7 @@ test("built-in Task Manager upgrade converges to the same canonical manifest Com
 test("built-in Task Manager publishes create-task as a new immutable version", async () => {
   const builtIn = BUILT_IN_MODULES.find((candidate) => candidate.manifest.name === "task-manager");
   assert.ok(builtIn);
-  assert.equal(builtIn.manifest.version, "1.0.3");
+  assert.equal(builtIn.manifest.version, "1.1.0");
   const createTaskCapability = "task-manager.skill.create-task";
   const previousManifest = parseModuleManifest({
     module: {
@@ -69,7 +69,7 @@ test("built-in Task Manager publishes create-task as a new immutable version", a
 
   assert.equal((await store.get(previous.id))?.state, "legacy");
   const upgraded = await store.getAvailable(PILOT_ORGANIZATION, "task-manager");
-  assert.equal(upgraded?.moduleVersion, "1.0.3");
+  assert.equal(upgraded?.moduleVersion, "1.1.0");
   assert.ok(
     upgraded?.manifest.capabilities.some(
       (capability) => capability.id === createTaskCapability,

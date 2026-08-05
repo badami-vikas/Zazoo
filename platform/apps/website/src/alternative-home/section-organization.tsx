@@ -42,7 +42,7 @@ export function OrganizationScene() {
       <div
         className="scene__sticky organization-stage"
         data-reduced-motion={reducedMotion}
-        data-knowledge={stage >= 1}
+        data-memory-held={stage >= 1}
         data-decisions={stage >= 2}
         data-capability={stage >= 3}
         data-memory={stage >= 4}

@@ -990,6 +990,11 @@ export const ledger = pgTable("ledger", {
   onBehalfOfId: uuid("on_behalf_of_id"),
   delegationId: uuid("delegation_id").references(() => delegations.id),
   action: text("action").notNull(),
+  /** The Skill that produced this row (`ActionRequest.skill`) — the capability
+   * attribution key the Agent Quality Vector groups by. Nullable: rows appended
+   * before migration 0037 predate the column and are excluded from scoring rather
+   * than guessed at. */
+  skill: text("skill"),
   resourceType: text("resource_type").notNull(),
   resourceId: uuid("resource_id"),
   inputs: jsonb("inputs"),
@@ -1014,6 +1019,11 @@ export const ledger = pgTable("ledger", {
    * operator | user_content | untrusted_external. Nullable — absent on rows not
    * ingested from a tagged source. Tag-and-persist only; gating is PI-2. */
   trustOrigin: text("trust_origin"),
+  /** What the pipeline observed while producing this row: terminal state, policy
+   * violation count, and wall-clock bounds. Read by the Agent Quality Vector's
+   * reliability/safety axes. Cost and token counts are deliberately absent — see
+   * `buildExecutionSnapshot` in @bridge/core's pipeline for why. */
+  executionSnapshot: jsonb("execution_snapshot"),
   taintLabel: jsonb("taint_label").notNull().default(UNKNOWN_LABEL),
   createdAt: now(),
 });
@@ -1260,7 +1270,7 @@ export const capabilityManifests = pgTable(
   {
     id: uuidPk(),
     organizationId: uuid("organization_id").notNull().references(() => organizations.id),
-    capabilityType: text("capability_type").notNull(), // skill | automation | agent | integration | view | dashboard
+    capabilityType: text("capability_type").notNull(), // skill | automation | agent | integration | database (ADR-180: "view"→"database", "dashboard" removed)
     /** REG-1 Component Registry discriminator (undefined-elements §2) — reuse
      * this table as the registry rather than forking a second source of truth.
      * Nullable: pre-REG-1 rows have no kind; overlap detection falls back to

@@ -25,17 +25,25 @@ jobs:
           cache: pnpm
           cache-dependency-path: platform/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check:agent-context
-      - run: pnpm check:vocabulary
-      # --force: never trust turbo's remote/local cache in CI — a green run must mean THIS
-      # checkout was tested, not a replayed log from an unrelated branch/worktree
-      # (see known-issues.md 2026-07-03, "turbo cache replays across worktrees").
-      # `test:coverage`, not `test`: the per-package coverage floors are the gate and
-      # they live only in the `test:coverage` script. `test` is the coverage-free fast
-      # variant for local iteration (node --experimental-test-coverage roughly doubles
-      # per-test time — nodejs/node#55103). Every package defines `test:coverage`, so
-      # this runs the whole suite exactly once, with the floors enforced.
-      - run: pnpm turbo run typecheck test:coverage build --force
+      # ONE gate list, defined once in platform/package.json as `verify`, called by
+      # both CI and humans. Previously CI listed `check:agent-context` and
+      # `check:vocabulary` as extra steps here while local verification ran only
+      # `turbo run ...` — so a root-script gate was invisible to `turbo`, and main
+      # sat red for six consecutive runs while every local check was green
+      # (BUGS.md OPEN 2026-08-03). Adding a gate to `verify` now necessarily adds it
+      # to CI, and there is no second list to forget.
+      #
+      # --force is CI-only: never trust turbo's remote/local cache here — a green run
+      # must mean THIS checkout was tested, not a replayed log from an unrelated
+      # branch/worktree (known-issues.md 2026-07-03). Locally the cache is a feature,
+      # which is the one deliberate difference between the two invocations.
+      #
+      # `verify` runs test:coverage, not test: the per-package coverage floors are the
+      # gate and live only in that script. `test` is the coverage-free fast variant for
+      # local iteration (coverage roughly doubles per-test time — nodejs/node#55103).
+      - run: pnpm verify
+        env:
+          TURBO_FORCE: "true"
 
   security-audit:
     name: security audit (no HIGH+ vulnerable deps)

@@ -139,6 +139,49 @@ export function organizationFilesRoot(
   return root;
 }
 
+/**
+ * Module Files live at `~/Documents/Bridge/<Organization>/<Module display
+ * name>/`, so RENAMING a Module's display name renames the folder the owner's
+ * own documents sit in. Left alone, the rename would create a fresh empty
+ * folder beside the old one and the files would simply stop appearing — a
+ * silent loss of the user's own data, which is the worst version of the
+ * "success-shaped failure" pattern the bug ledger keeps recording.
+ *
+ * This table carries each rename forward exactly once. Keyed by
+ * `<Organization>/<previous display name>`-independent module label: previous
+ * label → current label (APPROVALS 2026-08-05, ADR-178).
+ */
+const MODULE_FILE_ROOT_RENAMES: ReadonlyMap<string, string> = new Map([
+  ["DealPilot", "DealManager"],
+  ["JobPilot", "JobManager"],
+  ["Relationship", "NetworkManager"],
+  ["Task Manager", "TaskManager"],
+]);
+
+/**
+ * Adopt a previously-named Module folder, once. Deliberately conservative: it
+ * acts ONLY when the new folder does not exist and the old one does, so it can
+ * never merge two directories, never overwrites, and re-running is a no-op. A
+ * failure is swallowed — losing the adoption leaves the old folder untouched on
+ * disk, which is recoverable; letting it throw would break Files entirely.
+ */
+async function adoptRenamedModuleFolder(organizationRoot: string, moduleLabel: string): Promise<void> {
+  const previousLabel = [...MODULE_FILE_ROOT_RENAMES.entries()].find(
+    ([, current]) => current === moduleLabel,
+  )?.[0];
+  if (!previousLabel) return;
+  const target = resolve(organizationRoot, safePathSegment(moduleLabel, "Module name"));
+  const source = resolve(organizationRoot, safePathSegment(previousLabel, "Module name"));
+  try {
+    if (await pathMetadata(target)) return;
+    const existing = await pathMetadata(source);
+    if (!existing?.isDirectory() || existing.isSymbolicLink()) return;
+    await rename(source, target);
+  } catch {
+    // Non-fatal by design — see the doc comment above.
+  }
+}
+
 async function writableModuleFilesRoot(
   organizationName: string,
   moduleName: string,
@@ -147,11 +190,10 @@ async function writableModuleFilesRoot(
   const bridgeRoot = resolve(bridgeRootOverride ?? join(homedir(), "Documents", "Bridge"));
   await mkdir(bridgeRoot, { recursive: true, mode: 0o700 });
   const canonicalBridgeRoot = await realpath(bridgeRoot);
-  const root = resolve(
-    bridgeRoot,
-    safePathSegment(organizationName, "Organization name"),
-    safePathSegment(moduleName, "Module name"),
-  );
+  const organizationRoot = resolve(bridgeRoot, safePathSegment(organizationName, "Organization name"));
+  const root = resolve(organizationRoot, safePathSegment(moduleName, "Module name"));
+  await mkdir(organizationRoot, { recursive: true, mode: 0o700 });
+  await adoptRenamedModuleFolder(organizationRoot, moduleName);
   await mkdir(root, { recursive: true, mode: 0o700 });
   const canonicalRoot = await realpath(root);
   const descendant = relative(canonicalBridgeRoot, canonicalRoot);
@@ -679,6 +721,10 @@ export async function listModuleFiles(
   if (organizationMetadata.isSymbolicLink() || !organizationMetadata.isDirectory()) {
     throw new ModuleFilesPathError("Organization File root");
   }
+  // Listing is usually the FIRST thing that touches a Module's folder after a
+  // rename, so the adoption has to run here too — otherwise the Files Section
+  // renders empty and the owner concludes their documents are gone.
+  await adoptRenamedModuleFolder(organizationRoot, moduleName);
   const rootMetadata = await pathMetadata(root);
   if (!rootMetadata) return { root, items, truncated: false };
   if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) {

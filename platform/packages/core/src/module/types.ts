@@ -71,7 +71,24 @@ export interface ModuleAutomationBinding {
   name: string;
   capabilityId: string;
   agentId: string;
+  /**
+   * Human-readable description of what starts this Automation ("Upcoming
+   * meeting Event"). DISPLAY ONLY — it is prose rendered in Module Detail and
+   * has never been interpreted by any runtime path. {@link schedule} is the
+   * machine-readable half; the two are separate precisely so this string can
+   * stay descriptive without anyone mistaking it for a contract.
+   */
   trigger: string;
+  /**
+   * The typed trigger the scheduler acts on (ADR-179). Absent means the
+   * Automation starts only when something explicitly runs it.
+   *
+   * Before this existed, a manifest could say `trigger: "Scheduled"` and
+   * nothing scheduled it — the string was rendered in the UI and dropped on
+   * the floor at install time. A Module that wants a cadence now states it
+   * here, in a form the scheduler can read.
+   */
+  schedule?: import("../automation-trigger.js").AutomationTrigger;
   procedure: string;
   /** Persisted Automation definition backing the governed Agent Run. */
   automationId?: string;
@@ -96,6 +113,25 @@ export interface ModuleCapabilityNeed {
 export interface ModuleSurfaceManifest {
   displayName: string;
   route: string;
+  /**
+   * Sub-module declaration: the `name` of the Module this one nests under in
+   * navigation (docs/wiki/ui-architecture.md rule 1.5, ADR-178). Absent means
+   * this Module is a nav root.
+   *
+   * This is a NAVIGATION relation only. A sub-module is still a whole Module —
+   * its own manifest, its own version, its own capability trust lifecycle, its
+   * own install/uninstall. Declaring a parent grants NOTHING: no shared
+   * credentials, no inherited permissions, no plane relaxation. A sub-module
+   * that reads the parent's data must still hold its own capability and pass
+   * the same gates it would at the root.
+   *
+   * Nesting is ONE LEVEL. The parent named here must itself be a nav root, and
+   * the reference is resolved late (at nav-build time) rather than at parse
+   * time, because a manifest is parsed alone and cannot see its siblings — an
+   * unresolvable parent must degrade to "render at root", never to "hide the
+   * Module", or an install would silently vanish from the nav.
+   */
+  parentModule?: string;
   pages: ModulePageBinding[];
   agents: ModuleAgentBinding[];
   automations: ModuleAutomationBinding[];

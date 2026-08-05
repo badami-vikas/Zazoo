@@ -35,7 +35,7 @@ function exec(overrides: Partial<CapabilityExecutionSpec["sandbox"]> = {}, isola
 // --- Isolation floor: "require sandboxing for any executable capability" ---
 
 test("evaluateSandboxRequirement: a declarative capability (no execution) is trivially satisfied", () => {
-  const r = evaluateSandboxRequirement(cap({ capabilityType: "view" }));
+  const r = evaluateSandboxRequirement(cap({ capabilityType: "database" }));
   assert.equal(r.requiresSandbox, false);
   assert.equal(r.satisfied, true);
 });

@@ -43,7 +43,7 @@ test("RRF fusion rewards cross-lane agreement and is deterministic", () => {
   // b appears in all three lanes → top; a in two lanes → second.
   assert.deepEqual(first.candidates.map((c) => c.id).slice(0, 2), ["b", "a"]);
   assert.deepEqual([...first.candidates.find((c) => c.id === "b")!.lanes].sort(), ["graph", "structured", "vector"]);
-  assert.equal(first.suppressedCrossPlane, 0);
+  assert.equal(first.suppressedByPlaneGate, 0);
   // Determinism: identical input → identical output.
   const second = fuseRetrieval({ lanes, requesterPlane: "local" });
   assert.deepEqual(second.candidates, first.candidates);
@@ -83,11 +83,11 @@ test("HARD INVARIANT: cloud requester never sees local-plane or unlabeled candid
   const fused = fuseRetrieval({ lanes, requesterPlane: "cloud" });
   assert.deepEqual(fused.candidates.map((c) => c.id), ["cloud-row"]);
   // The gate demonstrably fired — three drops (local twice + unlabeled once).
-  assert.equal(fused.suppressedCrossPlane, 3);
+  assert.equal(fused.suppressedByPlaneGate, 3);
   // A local requester sees everything (cloud rows are not secret from local).
   const local = fuseRetrieval({ lanes, requesterPlane: "local" });
   assert.equal(local.candidates.length, 3);
-  assert.equal(local.suppressedCrossPlane, 0);
+  assert.equal(local.suppressedByPlaneGate, 0);
 });
 
 test("fused candidates project into memory snippets with normalized scores", () => {
