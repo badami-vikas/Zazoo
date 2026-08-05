@@ -1,6 +1,6 @@
 /**
  * StandardRowMenu — the per-row 3-dots actions menu, shared by BOTH table
- * renderers (ADR-172).
+ * renderers (ADR-192).
  *
  * WHY IT IS SPLIT THIS WAY: the items used to live inline inside the DOM
  * `TableView`, which meant the canvas renderer had no way to show them without

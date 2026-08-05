@@ -87,6 +87,21 @@ export function supportBandForCount(count: number): ArchetypeSupportBand {
   return "3-5";
 }
 
+const SUPPORT_BAND_RANK: Record<ArchetypeSupportBand, number> = { "3-5": 0, "6-10": 1, "11+": 2 };
+
+export function supportBandRank(band: ArchetypeSupportBand): number {
+  return SUPPORT_BAND_RANK[band];
+}
+
+/** Aggregation rule for many-workspace contributions of the same pattern:
+ * the entry keeps the STRONGEST band seen. Bands are coarse by design, so
+ * max (not sum) is the honest combiner — two workspaces each seeing a
+ * pattern 3 times is corroboration (tracked by `contributions`), not the
+ * same evidence as one workspace seeing it 11 times. */
+export function maxSupportBand(a: ArchetypeSupportBand, b: ArchetypeSupportBand): ArchetypeSupportBand {
+  return SUPPORT_BAND_RANK[a] >= SUPPORT_BAND_RANK[b] ? a : b;
+}
+
 /**
  * Generalize accepted learned preferences into archetype candidates.
  * Dropped (never returned): patterns whose fields trip the organization-data

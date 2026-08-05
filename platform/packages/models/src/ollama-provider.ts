@@ -111,6 +111,13 @@ export class OllamaProvider implements ModelProvider {
     };
   }
 
+  /** Names the embedding SPACE for vector-index callers — vectors from
+   * different models must never be compared, so the model identity travels
+   * with every stored/queried vector as its `embeddingModel`. */
+  get embedModelId(): string {
+    return `ollama:${this.#embedModel}`;
+  }
+
   async embed(texts: string[]): Promise<number[][]> {
     const body = { model: this.#embedModel, input: texts };
     const res = await this.#fetchImpl(`${this.#baseUrl}/api/embed`, {

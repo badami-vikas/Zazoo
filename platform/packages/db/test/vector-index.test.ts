@@ -63,10 +63,14 @@ test("DrizzleVectorIndex: upsert, cosine search, model isolation, rebuild", asyn
     );
     assert.deepEqual(await index.existingIds("memory", HASHING_EMBEDDER_ID, []), new Set());
 
+    // listModels enumerates spaces per entity type (reclamation scan).
+    assert.deepEqual(await index.listModels("memory"), [HASHING_EMBEDDER_ID, "other-space"].sort());
+
     // Rebuild seam: clear drops one (type, model) space only.
     await index.clear("memory", HASHING_EMBEDDER_ID);
     assert.deepEqual(await index.existingIds("memory", HASHING_EMBEDDER_ID, [ID_A, ID_B]), new Set());
     assert.deepEqual(await index.existingIds("memory", "other-space", [ID_C]), new Set([ID_C]));
+    assert.deepEqual(await index.listModels("memory"), ["other-space"]);
   } finally {
     await close();
   }

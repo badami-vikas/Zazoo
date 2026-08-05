@@ -134,6 +134,12 @@ export interface CommonsModuleDetail {
 export interface CommonsArchetypeEntry {
   archetype: CapabilityArchetype;
   tags: string[];
+  /** How many contributions this entry aggregates (>= 1). Counting is
+   * ANONYMOUS by design — the registry never records which workspace
+   * contributed, so the count is corroboration signal, not attribution.
+   * Each aggregation supersedes the entry with a freshly signed revision:
+   * `supportBand` becomes the max band seen and tags union. */
+  contributions: number;
   integrity: CommonsContentHash;
   publishedAt: string;
   /** Detached registry signature — same trust posture as module entries. */
@@ -175,11 +181,19 @@ export interface CommonsRegistry {
    * behavior). */
   listArchetypes?(query?: CommonsArchetypeListQuery): Promise<CommonsArchetypeListResult>;
   /** Publish a generalized archetype. Same privacy-gate contract as
-   * `publish` — the server rejects anything organization-shaped. */
+   * `publish` — the server rejects anything organization-shaped. A known
+   * name AGGREGATES (contributions += 1, max support band, tag union) and
+   * reports `aggregated: true`. */
   publishArchetype?(
     archetype: CapabilityArchetype,
     options?: { tags?: string[] },
-  ): Promise<{ name: string; contentHash: string }>;
+  ): Promise<{
+    name: string;
+    contentHash: string;
+    contributions?: number;
+    supportBand?: string;
+    aggregated?: boolean;
+  }>;
 }
 
 /** Publish refused — either invalid manifest shape or (the important case)

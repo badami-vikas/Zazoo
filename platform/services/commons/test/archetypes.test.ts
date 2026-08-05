@@ -52,16 +52,39 @@ test("archetype publish → list roundtrip, dedupe, privacy gate, auth", async (
   assert.equal(firstBody.name, "preference.dealpilot.dismiss.industry.restaurants");
   assert.match(firstBody.contentHash, /^sha256:[0-9a-f]{64}$/);
 
-  // A second workspace publishing the SAME pattern dedupes idempotently.
+  // A second organization publishing the SAME pattern aggregates: the entry
+  // is superseded by a freshly signed revision with contributions 2 and the
+  // max support band seen.
   const second = await app.inject({
+    method: "POST",
+    url: "/v1/archetypes",
+    headers: AUTH_HEADERS,
+    payload: { archetype: { ...archetype(), supportBand: "6-10" }, tags: ["deal-flow"] },
+  });
+  assert.equal(second.statusCode, 200);
+  const secondBody = second.json() as {
+    aggregated?: boolean;
+    contributions?: number;
+    supportBand?: string;
+    contentHash: string;
+  };
+  assert.equal(secondBody.aggregated, true);
+  assert.equal(secondBody.contributions, 2);
+  assert.equal(secondBody.supportBand, "6-10");
+  assert.notEqual(secondBody.contentHash, firstBody.contentHash);
+
+  // A third weaker contribution keeps the max band, bumps the count, and
+  // unions tags — and the served revision still signature-verifies.
+  const third = await app.inject({
     method: "POST",
     url: "/v1/archetypes",
     headers: AUTH_HEADERS,
     payload: { archetype: archetype() },
   });
-  assert.equal(second.statusCode, 200);
-  assert.equal((second.json() as { deduplicated?: boolean }).deduplicated, true);
-  assert.equal((second.json() as { contentHash: string }).contentHash, firstBody.contentHash);
+  assert.equal(third.statusCode, 200);
+  const thirdBody = third.json() as { contributions?: number; supportBand?: string };
+  assert.equal(thirdBody.contributions, 3);
+  assert.equal(thirdBody.supportBand, "6-10");
 
   // Privacy gate: a personal-shaped attribute value is rejected with paths.
   const leaky = await app.inject({
@@ -94,9 +117,21 @@ test("archetype publish → list roundtrip, dedupe, privacy gate, auth", async (
   const all = await app.inject({ method: "GET", url: "/v1/archetypes" });
   assert.equal((all.json() as { total: number }).total, 2);
   const dealOnly = await app.inject({ method: "GET", url: "/v1/archetypes?domain=dealpilot" });
-  const dealBody = dealOnly.json() as { total: number; archetypes: Array<{ archetype: { domain: string }; signature?: { algorithm: string } }> };
+  const dealBody = dealOnly.json() as {
+    total: number;
+    archetypes: Array<{
+      archetype: { domain: string; supportBand: string };
+      contributions: number;
+      tags: string[];
+      signature?: { algorithm: string };
+    }>;
+  };
   assert.equal(dealBody.total, 1);
   assert.equal(dealBody.archetypes[0]!.archetype.domain, "dealpilot");
+  // The served entry is the aggregated revision: count 3, max band, tag union.
+  assert.equal(dealBody.archetypes[0]!.contributions, 3);
+  assert.equal(dealBody.archetypes[0]!.archetype.supportBand, "6-10");
+  assert.deepEqual(dealBody.archetypes[0]!.tags, ["acquisition-search", "deal-flow"]);
   // Every served entry carries the registry's ed25519 signature.
   assert.equal(dealBody.archetypes[0]!.signature?.algorithm, "ed25519");
 });

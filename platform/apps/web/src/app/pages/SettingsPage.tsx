@@ -196,6 +196,8 @@ function LearningSection() {
         </div>
       </Card>
       <ObservedLearningCard />
+      <AutomationDraftsCard />
+      <RetrievalQualityCard />
       <Card>
         <div className="p-6 space-y-3">
           <div className="font-semibold text-sm text-[var(--color-navy)]">Day-7 reflection</div>
@@ -264,6 +266,9 @@ function LearningSection() {
 
 type LearningSuggestionList = Awaited<ReturnType<typeof trpc.learning.suggestions.list.query>>;
 type LearningPreferenceList = Awaited<ReturnType<typeof trpc.learning.preferences.list.query>>;
+type PromotionSuggestionList = Awaited<ReturnType<typeof trpc.learning.promotions.list.query>>;
+type PromotionDraftList = Awaited<ReturnType<typeof trpc.learning.promotions.drafts.list.query>>;
+type RetrievalEvalList = Awaited<ReturnType<typeof trpc.learning.retrieval.evals.query>>;
 
 /**
  * TASK-032 — observed-learning review: the "your Egg noticed a pattern — keep
@@ -572,6 +577,261 @@ function ApiKeysSection() {
         </>
       )}
     </div>
+  );
+}
+
+/** Draft editor for repeated-behavior Automation promotions (ADR-172/173).
+ * Suggested-then-accepted throughout: proposals only become drafts on
+ * explicit acceptance, a draft NEVER runs (the executor cannot even load
+ * it), and activation is a separate explicit step that requires real
+ * governed steps. Flight-gated like every learning surface — renders
+ * nothing while the flight is off or the API is unreachable. */
+function AutomationDraftsCard() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [proposals, setProposals] = useState<PromotionSuggestionList | null>(null);
+  const [drafts, setDrafts] = useState<PromotionDraftList | null>(null);
+  const [stepSkill, setStepSkill] = useState<Record<string, string>>({});
+  const [stepAction, setStepAction] = useState<Record<string, string>>({});
+  const [stepResource, setStepResource] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState<string | null>(null);
+
+  function refresh() {
+    trpc.learning.status
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then((status) => {
+        setEnabled(status.enabled);
+        if (!status.enabled) return;
+        trpc.learning.promotions.list
+          .query({ organizationId: PILOT_ORGANIZATION, status: "proposed" })
+          .then(setProposals)
+          .catch((error) => setMessage(String(error)));
+        trpc.learning.promotions.drafts.list
+          .query({ organizationId: PILOT_ORGANIZATION })
+          .then(setDrafts)
+          .catch((error) => setMessage(String(error)));
+      })
+      .catch(() => setEnabled(false)); // unreachable API = treat as off, render nothing dead
+  }
+  useEffect(refresh, []);
+
+  if (enabled !== true) return null;
+
+  async function propose() {
+    const result = await trpc.learning.promotions.propose.mutate({ organizationId: PILOT_ORGANIZATION });
+    setMessage(
+      result.suggestions.length === 0
+        ? "No heavily repeated behavior found — Automation candidates need more repetitions than preferences."
+        : `Found ${result.suggestions.length} candidate${result.suggestions.length === 1 ? "" : "s"} to review.`,
+    );
+    refresh();
+  }
+
+  async function acceptProposal(suggestionMemoryId: string) {
+    const result = await trpc.learning.promotions.accept.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId });
+    setMessage(`Draft "${result.name}" created. It never runs until you give it steps and explicitly activate it.`);
+    refresh();
+  }
+
+  async function rejectProposal(suggestionMemoryId: string) {
+    await trpc.learning.promotions.reject.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId });
+    setMessage("Dismissed. This behavior will not be proposed as an Automation again.");
+    refresh();
+  }
+
+  async function addStep(automationId: string, existingSteps: PromotionDraftList["drafts"][number]["steps"]) {
+    const skill = (stepSkill[automationId] ?? "").trim();
+    const resourceType = (stepResource[automationId] ?? "").trim();
+    if (!skill || !resourceType) {
+      setMessage("A step needs a Skill id and a resource type.");
+      return;
+    }
+    try {
+      await trpc.learning.promotions.drafts.update.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        automationId,
+        steps: [
+          ...existingSteps.map((step) => ({ ...step })),
+          { skill, action: stepAction[automationId] ?? "write", resourceType },
+        ],
+      });
+      setStepSkill((previous) => ({ ...previous, [automationId]: "" }));
+      setMessage("Step added. The draft still never runs until you activate it.");
+    } catch (error) {
+      setMessage(String(error)); // server refusal (unknown skill, invalid step) surfaced verbatim
+    }
+    refresh();
+  }
+
+  async function activate(automationId: string) {
+    if (!window.confirm("Activate this Automation? It becomes startable and every run passes Bridge's governance gates.")) {
+      return;
+    }
+    try {
+      const result = await trpc.learning.promotions.drafts.activate.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        automationId,
+      });
+      setMessage(`Automation ${result.automationId} is now active.`);
+    } catch (error) {
+      setMessage(String(error)); // typed refusals (no steps, unregistered skill) surfaced verbatim
+    }
+    refresh();
+  }
+
+  return (
+    <Card>
+      <div className="p-6 space-y-3">
+        <div className="font-semibold text-sm text-[var(--color-navy)]">Automation drafts</div>
+        <p className="text-xs text-[var(--color-navy-mid)]">
+          When you repeat the same decision many times, Bridge can propose drafting an Automation. A draft never runs:
+          it waits for your review, needs real governed steps, and only your explicit activation makes it startable —
+          after which every run still passes Bridge&apos;s governance gates.
+        </p>
+        <button type="button" onClick={() => void propose()} className="text-xs font-semibold px-3 py-2 rounded-lg border">
+          Check for automation candidates
+        </button>
+        {proposals && proposals.suggestions.length === 0 && (
+          <p className="text-xs text-[var(--color-warm-gray)]">No candidates are waiting for review.</p>
+        )}
+        {proposals?.suggestions.map((proposal) => (
+          <div key={proposal.memoryId} className="rounded-lg border p-3 space-y-1">
+            <p className="text-sm">{proposal.suggestedText}</p>
+            <p className="text-xs text-[var(--color-warm-gray)]">
+              Evidence: {proposal.pattern.evidenceSignalIds.length} of your own {proposal.pattern.action} decisions ·
+              private · Local Plane
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void acceptProposal(proposal.memoryId)}
+                className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white"
+              >
+                Draft an Automation
+              </button>
+              <button
+                type="button"
+                onClick={() => void rejectProposal(proposal.memoryId)}
+                className="text-xs font-semibold px-3 py-2 rounded-lg border"
+              >
+                No, dismiss
+              </button>
+            </div>
+          </div>
+        ))}
+        {drafts && drafts.drafts.length > 0 && (
+          <div className="space-y-2 pt-2">
+            <div className="font-semibold text-xs text-[var(--color-navy)]">Drafts awaiting steps and activation</div>
+            {drafts.drafts.map((draft) => (
+              <div key={draft.id} className="rounded-lg border p-3 space-y-2">
+                <p className="text-sm">{draft.name}</p>
+                <p className="text-xs text-[var(--color-warm-gray)]">
+                  Status: draft — never runs · {draft.steps.length === 0 ? "no steps yet" : `${draft.steps.length} step${draft.steps.length === 1 ? "" : "s"}`}
+                </p>
+                {draft.steps.map((step, index) => (
+                  <p key={`${draft.id}-step-${index}`} className="text-xs font-mono text-[var(--color-navy-mid)]">
+                    {index + 1}. {step.skill} · {step.action} · {step.resourceType}
+                  </p>
+                ))}
+                <div className="flex flex-wrap gap-2 items-center">
+                  <input
+                    type="text"
+                    placeholder="Skill id (e.g. learning.observationDigest)"
+                    value={stepSkill[draft.id] ?? ""}
+                    onChange={(event) => setStepSkill((previous) => ({ ...previous, [draft.id]: event.target.value }))}
+                    className="text-xs px-2 py-2 rounded-lg border flex-1 min-w-[16rem]"
+                  />
+                  <select
+                    value={stepAction[draft.id] ?? "write"}
+                    onChange={(event) => setStepAction((previous) => ({ ...previous, [draft.id]: event.target.value }))}
+                    className="text-xs px-2 py-2 rounded-lg border"
+                  >
+                    <option value="read">read</option>
+                    <option value="write">write</option>
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Resource type (e.g. signal)"
+                    value={stepResource[draft.id] ?? ""}
+                    onChange={(event) => setStepResource((previous) => ({ ...previous, [draft.id]: event.target.value }))}
+                    className="text-xs px-2 py-2 rounded-lg border w-40"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void addStep(draft.id, draft.steps)}
+                    className="text-xs font-semibold px-3 py-2 rounded-lg border"
+                  >
+                    Add step
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void activate(draft.id)}
+                  disabled={draft.steps.length === 0}
+                  className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white disabled:opacity-40"
+                >
+                  Activate
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
+      </div>
+    </Card>
+  );
+}
+
+/** Retrieval quality read-out (ADR-174). The metric label is NON-NEGOTIABLE
+ * honesty: these are self-retrieval consistency numbers — can Bridge find
+ * your own notes again — never human-judged relevance, and the card says so
+ * verbatim from the API's own metricNote. */
+function RetrievalQualityCard() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [evals, setEvals] = useState<RetrievalEvalList | null>(null);
+
+  useEffect(() => {
+    trpc.learning.retrieval.status
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then((status) => {
+        setEnabled(status.enabled);
+        if (!status.enabled) return;
+        trpc.learning.retrieval.evals
+          .query({ organizationId: PILOT_ORGANIZATION })
+          .then(setEvals)
+          .catch(() => setEvals(null));
+      })
+      .catch(() => setEnabled(false)); // unreachable API = treat as off, render nothing dead
+  }, []);
+
+  if (enabled !== true) return null;
+
+  return (
+    <Card>
+      <div className="p-6 space-y-3">
+        <div className="font-semibold text-sm text-[var(--color-navy)]">Retrieval quality</div>
+        <p className="text-xs text-[var(--color-navy-mid)]">
+          {evals?.metricNote ??
+            "Self-retrieval consistency: how reliably retrieval finds this organization's own notes again. Not human-judged relevance."}
+        </p>
+        {(!evals || evals.runs.length === 0) && (
+          <p className="text-xs text-[var(--color-warm-gray)]">
+            No eval runs recorded yet. Bridge scores its own retrieval every few hours while retrieval fusion is on.
+          </p>
+        )}
+        {evals?.runs.map((run) => (
+          <div key={run.runId} className="rounded-lg border p-3 space-y-1">
+            <p className="text-sm">
+              Recall {Math.round(run.recallAtK * 100)}% · Precision {Math.round(run.precisionAtK * 100)}% · MRR{" "}
+              {run.mrr.toFixed(2)}
+            </p>
+            <p className="text-xs text-[var(--color-warm-gray)]">
+              {new Date(run.startedAt).toLocaleString()} · {run.cases} self-retrieval cases · space {run.embeddingModel} ·
+              dataset {run.datasetId}
+            </p>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 

@@ -203,7 +203,7 @@ export class HttpCommonsClient implements CommonsRegistry {
   async publishArchetype(
     archetype: CapabilityArchetype,
     options: { tags?: string[] } = {},
-  ): Promise<{ name: string; contentHash: string }> {
+  ): Promise<{ name: string; contentHash: string; contributions?: number; supportBand?: string; aggregated?: boolean }> {
     const res = await fetch(`${this.#baseUrl}/v1/archetypes`, {
       method: "POST",
       headers: {
@@ -213,7 +213,13 @@ export class HttpCommonsClient implements CommonsRegistry {
       body: JSON.stringify({ archetype, tags: options.tags ?? [] }),
     });
     if (res.status === 201 || res.status === 200) {
-      return (await res.json()) as { name: string; contentHash: string };
+      return (await res.json()) as {
+        name: string;
+        contentHash: string;
+        contributions?: number;
+        supportBand?: string;
+        aggregated?: boolean;
+      };
     }
     const body = (await res.json().catch(() => ({}))) as { message?: string; offendingPaths?: string[] };
     if (res.status === 422) {

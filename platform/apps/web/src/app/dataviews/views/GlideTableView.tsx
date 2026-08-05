@@ -1,6 +1,6 @@
 /**
  * GlideTableView — the canvas renderer for the `table` view kind (ADR-160), and
- * since ADR-172 / AP-102 the ONLY renderer any table actually reaches:
+ * since ADR-192 / AP-102 the ONLY renderer any table actually reaches:
  * `TableView` is still the registered entry point but now always delegates here
  * (`GLIDE_ROW_THRESHOLD = 0`). "Ensure all tables are derived from the same
  * primitive" means this file is that primitive.

@@ -120,6 +120,41 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
     this.#db = db;
   }
 
+  async listByStatus(organizationId: string, status: "active" | "draft"): Promise<AutomationDefinition[]> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const rows = await tx
+        .select({
+          id: automations.id,
+          name: automations.name,
+          agentId: automations.agentId,
+          agentPlane: automations.agentPlane,
+          pipeline: automations.skillPipeline,
+        })
+        .from(automations)
+        .where(
+          and(
+            eq(automations.organizationId, organizationId),
+            eq(automations.status, status),
+          ),
+        )
+        .orderBy(automations.id);
+      return rows.map((row) => {
+        if (row.agentPlane !== "local" && row.agentPlane !== "cloud") {
+          throw new Error(`Invalid Automation Agent Plane for ${row.id}: ${row.agentPlane}`);
+        }
+        return {
+          id: row.id,
+          name: row.name,
+          organizationId,
+          agentId: row.agentId,
+          agentPlane: row.agentPlane,
+          steps: parseAutomationSteps(row.pipeline),
+          status,
+        };
+      });
+    });
+  }
+
   async load(organizationId: string, automationId: string): Promise<AutomationDefinition | null> {
     return withOrganizationOnly(this.#db, organizationId, async (tx) => {
     const rows = await tx
@@ -187,6 +222,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
         agentPlane,
         skillPipeline: steps,
         trigger: {},
+        status: definition.status ?? "active",
       })
       .onConflictDoUpdate({
         target: automations.id,
@@ -195,7 +231,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
           agentId,
           agentPlane,
           skillPipeline: steps,
-          status: "active",
+          status: definition.status ?? "active",
         },
       });
     });

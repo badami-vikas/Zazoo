@@ -1,7 +1,7 @@
 /**
  * TableView — the entry point for the `table` view kind, registered under kind
  * "table" in registry.ts. It is still the ONLY component the registry knows
- * about; what changed (ADR-172 / AP-102) is what it renders.
+ * about; what changed (ADR-192 / AP-102) is what it renders.
  *
  * ONE RENDERER NOW: `GLIDE_ROW_THRESHOLD` is 0, so every table — including the
  * empty one — is drawn by the canvas `GlideTableView`. The DOM renderer
