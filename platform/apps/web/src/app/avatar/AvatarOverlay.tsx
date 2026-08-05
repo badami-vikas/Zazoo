@@ -27,12 +27,12 @@ export interface AvatarOverlayProps {
   /** False once the shell knows onboarding has NOT happened. The companion is
    * present either way (user directive 2026-08-05), but AP-021 forbids
    * offering actions that cannot execute yet — so before setup the click
-   * target drives onboarding instead of navigating into an empty workspace,
+   * target drives onboarding instead of navigating into an empty organization,
    * and the popover says so plainly. Defaults to true so an unknown state
    * never invents a "not set up" claim. */
   setupComplete?: boolean;
   /** Opens the onboarding dialog — the one thing the companion CAN do before
-   * a workspace exists. */
+   * an organization exists. */
   onStartSetup?: () => void;
 }
 
@@ -350,9 +350,9 @@ export function AvatarOverlay({
   const label = STATUS_LABEL[status];
   const name = avatarName || "Bridge Avatar";
   // Honest affordance copy: before setup the companion greets and offers the
-  // one action it can actually perform, rather than implying workspace powers
-  // it does not have yet (AP-021).
-  const actionLabel = setupComplete ? label : "Ready when you are — let's set your workspace up";
+  // one action it can actually perform, rather than implying organization
+  // powers it does not have yet (AP-021).
+  const actionLabel = setupComplete ? label : "Ready when you are — let's set your organization up";
 
   return (
     <div
