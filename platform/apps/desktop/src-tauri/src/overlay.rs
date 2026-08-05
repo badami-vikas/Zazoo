@@ -103,6 +103,11 @@ pub struct DisplayTopologyState {
     position_save_generations: Mutex<HashMap<String, u64>>,
     position_save_workers: Mutex<HashSet<String>>,
     running: AtomicBool,
+    /// True while the companion window is docked at the notch. The drag-end
+    /// free-bounds enforcement must not run then — a docked window's top edge
+    /// legitimately sits at y=0, which the notch-return check would otherwise
+    /// re-trigger forever.
+    docked: AtomicBool,
 }
 
 impl Default for DisplayTopologyState {
@@ -112,6 +117,7 @@ impl Default for DisplayTopologyState {
             failed_labels: Mutex::new(HashSet::new()),
             position_save_generations: Mutex::new(HashMap::new()),
             position_save_workers: Mutex::new(HashSet::new()),
+            docked: AtomicBool::new(false),
             running: AtomicBool::new(false),
         }
     }
@@ -440,11 +446,34 @@ fn anchor_bottom_right(win: &WebviewWindow, monitor: &Monitor) -> tauri::Result<
             width: (COLLAPSED_SIZE * scale).round() as u32,
             height: (COLLAPSED_SIZE * scale).round() as u32,
         });
-        let position = logical_anchor_position(
-            logical_monitor_bounds(monitor),
-            size.width as f64 / scale,
-            size.height as f64 / scale,
-        );
+        let window_w = size.width as f64 / scale;
+        let window_h = size.height as f64 / scale;
+
+        // `logical_monitor_bounds` is the FULL panel (Tauri's `Monitor` API has
+        // no Dock concept), so a hardcoded MARGIN_BOTTOM anchored against it can
+        // land the window inside the Dock's own strip — on screen by monitor
+        // bounds, but rendered BEHIND the Dock's opaque, topmost bar. Live-
+        // measured on this machine: default MARGIN_BOTTOM=96 against a 93pt
+        // Dock left only 3pt of the window clear. `notch::current_geometry`'s
+        // `visible_bottom`/`visible_right` (from `NSScreen.visibleFrame`, the
+        // same fix already applied to the notch-drop landing spot) is the
+        // Dock-aware bound; fall back to the plain monitor-bounds anchor only
+        // if that lookup is unavailable, so this can never regress to "no
+        // anchor at all".
+        let position = match crate::notch::current_geometry(win.app_handle()) {
+            Some(geo) => {
+                // `visible_bottom`/`visible_right` already exclude the Dock
+                // and menu bar, so the margin here only needs to be a small
+                // aesthetic gap, not a Dock-sized guess.
+                const VISIBLE_MARGIN: f64 = 24.0;
+                PersistedPosition {
+                    x: (geo.visible_right - window_w - VISIBLE_MARGIN).round() as i32,
+                    y: (geo.visible_bottom - window_h - VISIBLE_MARGIN).round() as i32,
+                    space: PositionSpace::Logical,
+                }
+            }
+            None => logical_anchor_position(logical_monitor_bounds(monitor), window_w, window_h),
+        };
         win.set_position(LogicalPosition::new(position.x as f64, position.y as f64))
     }
     #[cfg(not(target_os = "macos"))]
@@ -609,7 +638,9 @@ fn create_one_overlay_window(
 #[cfg(target_os = "macos")]
 fn configure_macos_panel(window: &WebviewWindow) -> tauri::Result<()> {
     let panel = window.to_panel::<AvatarPanel>()?;
-    panel.set_level(PanelLevel::Floating.value());
+    // Status (25) > Dock (20): the companion must never render behind the
+    // Dock (see set_panel_above_menu_bar).
+    panel.set_level(PanelLevel::Status.value());
     panel.set_floating_panel(true);
     panel.set_hides_on_deactivate(false);
     panel.set_becomes_key_only_if_needed(true);
@@ -628,6 +659,110 @@ fn configure_macos_panel(window: &WebviewWindow) -> tauri::Result<()> {
         panel.is_floating_panel(),
         panel.can_become_key_window(),
     );
+    Ok(())
+}
+
+/// Raise the companion panel above the menu bar so a notch-docked box can sit
+/// flush with the top of the display. `Floating` (4) renders BELOW the menu
+/// bar, which would clip the bed at the notch's own height and break the
+/// illusion that the cutout itself is growing.
+///
+/// Docked level is `PopUpMenu` (101) — the highest level `tauri-nspanel`
+/// exposes — rather than `Status` (25): third-party notch utilities (screen
+/// recorders' recording indicators, other notch-shelf apps) commonly run at
+/// `Status` or `MainMenu`, and Zazoo occupying the notch is meant to be the
+/// TOP layer among them, per user directive. `PopUpMenu` is safe here only
+/// because the panel is `nonactivating` and never takes key focus — a normal
+/// window at this level would be able to sit over an actual open menu.
+#[cfg(target_os = "macos")]
+fn set_panel_above_menu_bar(window: &WebviewWindow, above: bool) -> Result<(), String> {
+    let panel = window.to_panel::<AvatarPanel>().map_err(|e| e.to_string())?;
+    // Free mode is `Status` (25), NOT `Floating` (4): the Dock itself is
+    // level 20, so a Floating-level companion resting near the screen bottom
+    // renders BEHIND the Dock's bar — measured live via the window server
+    // (companion at layer 4, invisible behind the Dock at layer 20), which
+    // read to the user as the avatar having vanished. User directive: the
+    // companion is always the top layer.
+    panel.set_level(if above {
+        PanelLevel::PopUpMenu.value()
+    } else {
+        PanelLevel::Status.value()
+    });
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_panel_above_menu_bar(_window: &WebviewWindow, _above: bool) -> Result<(), String> {
+    Ok(())
+}
+
+/// Dock the companion window as a box horizontally centred on the notch with
+/// its top edge flush to the display top.
+///
+/// The webview asks for a box size rather than a "state" because the same
+/// primitive serves every notch pose: the resting sliver, the hover bed, the
+/// expanded chat panel, and the full-height column the drop animation plays
+/// inside. Keeping the window a plain rectangle means the jump can be animated
+/// in CSS *within* one window instead of by stepping the window's own origin,
+/// which no compositor makes smooth.
+#[tauri::command]
+pub fn overlay_dock_notch(
+    window: WebviewWindow,
+    app: AppHandle,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let geometry = crate::notch::current_geometry(&app)
+        .ok_or_else(|| "notch geometry unavailable".to_string())?;
+
+    // Centre on the cutout when there is one; on a flat panel the roadmap's
+    // documented fallback is top-centre of the display.
+    let centre = if geometry.has_notch {
+        geometry.x + geometry.width / 2.0
+    } else {
+        geometry.screen_width / 2.0
+    };
+    let left = (centre - width / 2.0).max(0.0).min(geometry.screen_width - width);
+    eprintln!(
+        "[bridge-desktop] notch dock: window rect x={left} y=0 w={width} h={height} (notch centre={centre})"
+    );
+
+    app.state::<DisplayTopologyState>()
+        .docked
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    set_panel_above_menu_bar(&window, true)?;
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_position(LogicalPosition::new(left, 0.0))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Return the companion to a free-floating window at an explicit logical
+/// position — the landing site of the drop, or a restored saved position.
+#[tauri::command]
+pub fn overlay_undock_free(
+    window: WebviewWindow,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    eprintln!("[bridge-desktop] notch landing: undock to x={x} y={y} w={width} h={height}");
+    window
+        .app_handle()
+        .state::<DisplayTopologyState>()
+        .docked
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    set_panel_above_menu_bar(&window, false)?;
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_position(LogicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -729,6 +864,61 @@ pub(crate) fn close_overlay_window(app: &AppHandle, label: &str) -> tauri::Resul
     }
 }
 
+/// Drag-end policy for the FREE companion window (never the docked one):
+///
+/// 1. **Return-to-notch**: released with its horizontal centre inside the
+///    notch hot zone and its top edge in the menu-bar strip → emit
+///    `bridge:notch-return` so the webview re-docks (bed slide-in). The
+///    window is not moved here; the dock command the webview issues does it.
+/// 2. **Dock/off-screen clamp**: user directive — the avatar may never rest
+///    inside the Dock area or off screen. Clamp the rest position into
+///    `NSScreen.visibleFrame` (Dock- and menu-bar-excluded).
+///
+/// Runs on the debounced drag-end path, so mid-drag positions are untouched.
+fn enforce_free_bounds(app: &AppHandle, window: &WebviewWindow) {
+    if app
+        .state::<DisplayTopologyState>()
+        .docked
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return;
+    }
+    let Some(geo) = crate::notch::current_geometry(app) else {
+        return;
+    };
+    let scale = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
+    let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) else {
+        return;
+    };
+    let x = pos.x as f64 / scale;
+    let y = pos.y as f64 / scale;
+    let w = size.width as f64 / scale;
+    let h = size.height as f64 / scale;
+
+    let (zone_left, _zone_top, zone_right, zone_bottom) = geo.hot_zone();
+    let centre_x = x + w / 2.0;
+    if y <= zone_bottom && centre_x >= zone_left && centre_x <= zone_right {
+        if let Err(error) = window.emit("bridge:notch-return", true) {
+            eprintln!("[bridge-desktop] notch-return emit failed: {error}");
+        }
+        return;
+    }
+
+    const MARGIN: f64 = 8.0;
+    let min_x = geo.visible_left + MARGIN;
+    let max_x = (geo.visible_right - w - MARGIN).max(min_x);
+    let min_y = geo.visible_top + MARGIN;
+    let max_y = (geo.visible_bottom - h - MARGIN).max(min_y);
+    let clamped_x = x.clamp(min_x, max_x);
+    let clamped_y = y.clamp(min_y, max_y);
+    if (clamped_x - x).abs() > 0.5 || (clamped_y - y).abs() > 0.5 {
+        eprintln!(
+            "[bridge-desktop] free companion clamped from ({x},{y}) to ({clamped_x},{clamped_y}) — Dock/off-screen rest is not allowed"
+        );
+        let _ = window.set_position(LogicalPosition::new(clamped_x, clamped_y));
+    }
+}
+
 fn schedule_position_persist(app: &AppHandle, window: &WebviewWindow) {
     let label = window.label().to_string();
     let should_spawn = {
@@ -782,6 +972,7 @@ fn schedule_position_persist(app: &AppHandle, window: &WebviewWindow) {
                 );
                 return;
             };
+            enforce_free_bounds(&handle, &save_window);
             if let Err(error) = persist_collapsed_window_position(&handle, &save_window) {
                 eprintln!(
                     "[bridge-desktop] failed to persist position for overlay {save_label}: {error}"
@@ -1180,6 +1371,14 @@ pub fn focus_main_window(app: AppHandle, route: Option<String>) -> Result<(), St
     }
     let _ = win.unminimize();
     let _ = win.show();
+    // On macOS `set_focus` alone only raises the window WITHIN this app — if
+    // another app is frontmost, or the main window sits on a different Space,
+    // nothing visibly happens. The companion panel is non-activating and all-
+    // Spaces, so the user can be looking at the avatar with the app itself
+    // stranded behind everything. Activating the app first is what actually
+    // brings Bridge forward.
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     win.set_focus().map_err(|e| e.to_string())
 }
 

@@ -613,7 +613,11 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "external",
     manifest: {
       name: "relationship",
-      version: "0.2.3",
+      // 0.2.4 — adds the Learning Agent's `runRoute` (ADR-180). Module content
+      // is IMMUTABLE at a given version: `seedBuiltInModules` refuses to
+      // rewrite an installed manifest in place, so any capability change has
+      // to arrive as a new version that supersedes the previous one.
+      version: "0.2.4",
       kind: "organization_definition",
       summary: "Signals, People, Communities, and governed relationship continuity.",
       description:
@@ -674,6 +678,10 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
             name: "Learning Agent",
             capabilityId: "relationship.agent.learning",
             skillIds: ["relationship.help-request.stage-offer", "web-research"],
+            // The Research Run surface (TASK-028) belongs to the Agent that
+            // consumes the `web-research` Skill — not to a top-level nav entry
+            // of its own (ADR-180).
+            runRoute: "/research",
           },
         ],
         automations: [{

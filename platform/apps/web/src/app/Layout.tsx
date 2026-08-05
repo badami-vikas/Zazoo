@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, Telescope } from "lucide-react";
+import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles } from "lucide-react";
 import { moduleNavTarget } from "@bridge/module-manifests";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
@@ -19,7 +19,7 @@ import {
   ResizeHandle,
   CollapseToggleButton,
 } from "./components/shared/PanelControl";
-import { DesktopWindowChrome } from "./components/shared/DesktopWindowChrome";
+import { DesktopTitlebar } from "./components/shared/DesktopWindowChrome";
 import { useAuthSession } from "./auth/AuthSession";
 
 /**
@@ -27,10 +27,15 @@ import { useAuthSession } from "./auth/AuthSession";
  * first-class left-nav items, sourced from modules.list (not hardcoded).
  * Each Module links to its PRIMARY data Page (ADR-152/AP-084 — the first
  * manifest Page, buttons-at-top), not the /module/:name capability inventory;
- * the inventory stays reachable via each data Page's Intelligence Section +
- * 3-dots Control Panel.
+ * the inventory stays reachable via each data Page's Intelligence Section
+ * ("Manage in Module Detail"); the duplicate 3-dots Control Panel entry was
+ * dropped in ADR-180.
  * Deprecated surfaces (Knowledge, Intelligence, standalone Tools,
  * Projects) are removed from primary nav. Settings moves to its own section.
+ *
+ * RAIL SCOPE (ADR-180, user directive 2026-08-05): the rail carries ONLY the
+ * profile/Organization control at the top, Modules, Second Brain, Intelligence
+ * and Settings — Settings last, in a footer that never scrolls.
  *
  * Panel behaviour: usePanelControl (§5b) — left sidebar and right AgentPanel
  * share the same collapse/expand/resize/keyboard/ARIA contract via the shared
@@ -60,8 +65,17 @@ export default function Layout() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
-  const [avatarPrefs, setAvatarPrefs] = useState<AvatarPrefs | null>(null);
-  const [organizationConfirmed, setOrganizationConfirmed] = useState<boolean | null>(null);
+  // Resolved SYNCHRONOUSLY from localStorage (falling back to the deliberate
+  // "owl" default) so the companion is on screen at first paint instead of
+  // waiting on a network round-trip. The blueprint/profile effect below only
+  // refines the style; it no longer decides whether the avatar exists.
+  const [avatarPrefs, setAvatarPrefs] = useState<AvatarPrefs | null>(() =>
+    typeof window === "undefined" ? null : loadAvatarPrefs(false),
+  );
+  /** null = the readiness check has not resolved yet. false = onboarding has
+   * demonstrably not happened, so the companion must not offer workspace
+   * actions it cannot perform (AP-021). */
+  const [setupComplete, setSetupComplete] = useState<boolean | null>(null);
   const [organizationName, setOrganizationName] = useState<string | undefined>(undefined);
   const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
@@ -145,37 +159,42 @@ export default function Layout() {
     trpc.organization.blueprint.get
       .query({ organizationId: PILOT_ORGANIZATION })
       .then(async (res) => {
-        // Existing users (a organization already has an active blueprint) never
-        // see onboarding forced back open; the avatar just defaults to a
-        // server-saved Avatar if this browser never saved prefs (spec section
-        // 4, item 4 — "no forced re-onboarding").
         const hasOrganization = Boolean(res.definition);
-        setOrganizationConfirmed(hasOrganization);
-        if (!hasOrganization) setOnboardingOpen(true);
         const storedPrefs = hasStoredPrefs() ? loadAvatarPrefs(true) : null;
         let resolvedPrefs = storedPrefs ?? loadAvatarPrefs(hasOrganization);
         let persistResolvedPrefs = hasOrganization && storedPrefs === null;
-        if (hasOrganization) {
-          try {
-            const { profile } = await trpc.onboarding.getProfile.query({
-              organizationId: PILOT_ORGANIZATION,
-            });
-            if (profile && isAvatarStyle(profile.avatarStyle)) {
-              resolvedPrefs = {
-                ...resolvedPrefs,
-                style: profile.avatarStyle,
-                avatarReady: true,
-              };
-              persistResolvedPrefs = true;
-            } else if (profile) {
-              persistResolvedPrefs = false;
-              console.error(`[avatar] unsupported saved Avatar style "${profile.avatarStyle}"`);
-            }
-          } catch (failure) {
+        // A saved onboarding profile is the honest record of "onboarding has
+        // happened". The blueprint alone is not: a pre-seeded Organization
+        // would silently count as onboarded. Unknown (the query failed) is
+        // treated as "already onboarded" so a broken API never forces a modal.
+        let onboardingCompleted: boolean | null = null;
+        try {
+          const { profile } = await trpc.onboarding.getProfile.query({
+            organizationId: PILOT_ORGANIZATION,
+          });
+          onboardingCompleted = profile !== null;
+          if (profile && isAvatarStyle(profile.avatarStyle)) {
+            resolvedPrefs = {
+              ...resolvedPrefs,
+              style: profile.avatarStyle,
+              avatarReady: true,
+            };
+            persistResolvedPrefs = true;
+          } else if (profile) {
             persistResolvedPrefs = false;
-            console.error("[avatar] failed to restore saved Avatar preferences", failure);
+            console.error(`[avatar] unsupported saved Avatar style "${profile.avatarStyle}"`);
           }
+        } catch (failure) {
+          persistResolvedPrefs = false;
+          console.error("[avatar] failed to restore saved Avatar preferences", failure);
         }
+        // User directive 2026-08-05: "if a user onboarding hasnt happened, the
+        // onboarding process should launch at launch by default". Fires only
+        // after this readiness check resolves (no flash for returning users),
+        // once per mount, and never again after a profile exists.
+        const needsOnboarding = onboardingCompleted === false || (onboardingCompleted === null && !hasOrganization);
+        setSetupComplete(!needsOnboarding);
+        if (needsOnboarding) setOnboardingOpen(true);
         if (persistResolvedPrefs) saveAvatarPrefs(resolvedPrefs);
         setAvatarPrefs(resolvedPrefs);
       })
@@ -191,8 +210,13 @@ export default function Layout() {
     if (hasStoredPrefs()) setAvatarPrefs(loadAvatarPrefs(true));
   }, []);
 
-  const desktopAvatarSessionReady =
-    organizationConfirmed === true && avatarPrefs?.avatarReady === true;
+  // User directive 2026-08-05: "Irrespective of onboarding, I want the avatar
+  // to appear." Companion presence is no longer gated on organization
+  // confirmation or on the onboarding-completion flag it used to carry — the
+  // authed shell being mounted IS the session. What the companion may DO is
+  // still gated (see `setupComplete` below and AP-021): before setup it greets
+  // and drives onboarding instead of offering actions that cannot execute.
+  const desktopAvatarSessionReady = avatarPrefs !== null;
 
   useEffect(() => {
     const invoke = window.__TAURI_INTERNALS__?.invoke;
@@ -268,25 +292,39 @@ export default function Layout() {
   const intelligenceActive = isActive("/intelligence");
   const settingsActive = isActive("/settings");
   const secondBrainActive = isActive("/second-brain");
-  // TASK-028 shipped the Research Run detail Page at /research on 2026-07-31 but
-  // never linked it from anywhere — it was reachable only by typing the URL.
-  const researchActive = isActive("/research");
+  // ADR-180 (user directive 2026-08-05): the rail is reserved for Modules,
+  // Second Brain, Intelligence, Settings and the profile/Organization control at
+  // the top. Research is NOT a rail citizen — `/research` is the Run surface of
+  // the `web-research` Skill consumed by the Relationship Module's Learning
+  // Agent, so it is reached from Intelligence → Agents (and the per-Module
+  // Intelligence Section), never from a top-level nav entry of its own.
 
   return (
-    <div className="flex h-screen w-full overflow-hidden font-sans">
+    <div className="flex flex-col h-screen w-full overflow-hidden font-sans">
+      {/* macOS-only full-width titlebar strip (ADR-187) — reserves the
+          traffic-light gutter ONCE, above all three shell columns, instead of
+          inside the rail alone. That is what keeps the rail/main-content/chat
+          header rows landing at the same y (ask below) instead of drifting by
+          the gutter's height. Renders nothing off macOS desktop. */}
+      <DesktopTitlebar organizationName={organizationName} />
+
+      <div className="flex flex-1 min-h-0 w-full overflow-hidden">
       {/* Desktop/tablet sidebar — hidden below sm; uses shared PanelControl
           semantics (§5b, TASK-001): same snap/collapse/resize/ARIA contract as
           the right AgentPanel via the usePanelControl hook above. */}
       <nav
         id="panel-left"
         aria-label="Module navigation"
-        className={`hidden sm:flex shrink-0 border-r flex-col relative ${rail.dragWidth === null ? "transition-[width] duration-150" : ""} ${
+        className={`hidden sm:flex shrink-0 flex-col relative ${rail.dragWidth === null ? "transition-[width] duration-150" : ""} ${
           !railExpanded ? "cursor-pointer" : ""
         }`}
         style={{
           width: rail.dragWidth ?? (railExpanded ? rail.panelWidth : RAIL_COLLAPSED),
           backgroundColor: "var(--color-background)",
-          borderColor: "var(--color-border)",
+          // Shell-boundary separation is a soft shadow, not a hard rule
+          // (ADR-187 / docs/wiki/ui-architecture.md "Shell boundaries") — the
+          // rail|main-content seam reads as depth, not a drawn line.
+          boxShadow: "var(--shadow-shell-right)",
         }}
         onClick={(e) => {
           if (!railExpanded && !(e.target as HTMLElement).closest("a, button, [role='separator']")) {
@@ -309,11 +347,8 @@ export default function Layout() {
           value={rail.dragWidth ?? rail.panelWidth}
           min={RAIL_COLLAPSED}
           max={RAIL_EXTENDED}
+          isDragging={rail.isDragging}
         />
-
-        {/* macOS-only titlebar lane: AppKit's real traffic lights overlay this
-            draggable Sidebar space. Other platforms keep native chrome. */}
-        <DesktopWindowChrome expanded={railExpanded} />
 
         {/* Organization switcher — h-14 matches center Header and right panel headers. */}
         <div
@@ -422,7 +457,14 @@ export default function Layout() {
         {/* Top nav — Home + installed Modules (VOCAB6) + "+New", icon+label stacked.
             Modules are sourced from modules.list (not hardcoded). Each links to
             its primary data Page (moduleNavTarget landing, ADR-152/AP-084). */}
-        <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
+        {/* THE ONLY SCROLLER IN THE RAIL. `min-h-0` is load-bearing: a flex
+            item's default `min-height: auto` lets this region grow to its
+            content instead of to its share of the column, which pushed the
+            pinned footer (Settings) off the bottom of the viewport and made the
+            whole rail scroll — the user could scroll past Settings. With
+            `min-h-0` the region takes exactly the leftover height, scrolls its
+            own overflow, and the footer below stays fixed on screen (ADR-180). */}
+        <div className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
           <Link to="/" className={navItemClass(homeActive)} title="Home">
             {homeActive && <ActiveBar />}
             <Home className="w-5 h-5 shrink-0" style={{ color: homeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
@@ -466,7 +508,11 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Bottom section — Second Brain + Intelligence sit above Settings.
+        {/* PINNED FOOTER — never scrolls (`shrink-0`, and the region above owns
+            the overflow). Settings is the LAST entry, at the absolute bottom of
+            the rail: there is nothing to scroll past it (user directive
+            2026-08-05, ADR-180).
+            Second Brain + Intelligence sit above Settings.
             Second Brain is the cross-Module Graph preset; Intelligence is the
             cross-Module capability inventory (Agents · Automations · Skills ·
             Integrations) at its own top-level route (ADR-154). */}
@@ -484,11 +530,6 @@ export default function Layout() {
             <Sparkles className="w-5 h-5 shrink-0" style={{ color: intelligenceActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Intelligence</span>
           </Link>
-          <Link to="/research" className={navItemClass(researchActive)} title="Research">
-            {researchActive && <ActiveBar />}
-            <Telescope className="w-5 h-5 shrink-0" style={{ color: researchActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            <span className={navLabelClass()}>Research</span>
-          </Link>
           <Link to="/settings" className={navItemClass(settingsActive)} title="Settings">
             {settingsActive && <ActiveBar />}
             <Settings className="w-5 h-5 shrink-0" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
@@ -505,6 +546,7 @@ export default function Layout() {
           Hidden below sm: a 336px side panel doesn't fit alongside the mobile bottom tab bar. */}
       <div className="hidden sm:flex">
         <AgentPanel />
+      </div>
       </div>
 
       {mobileModulesOpen && (
@@ -665,6 +707,7 @@ export default function Layout() {
         <OnboardingDialog
           open={onboardingOpen}
           onOpenChange={setOnboardingOpen}
+          {...(auth.session?.user?.email ? { userEmail: auth.session.user.email } : {})}
           // Does NOT close the dialog (see OnboardingDialog.tsx's prop comment,
           // docs/BUGS.md cosmetic-auto-close fix) — only marks that onboarding
           // no longer needs to auto-open on a future mount.
@@ -678,24 +721,26 @@ export default function Layout() {
           }}
           onAvatarReady={(prefs) => {
             setAvatarPrefs(prefs);
-            setOrganizationConfirmed(true);
+            setSetupComplete(true);
           }}
         />
       )}
 
       {/* Persistent avatar overlay — every route, inside the authed shell
-          (spec-consolidation-2026-07.md section 3). Renders once prefs are
-          resolved (either from localStorage or the existing-user fallback)
-          so it never flashes a default style before the real one loads.
+          (spec-consolidation-2026-07.md section 3). Present IRRESPECTIVE of
+          onboarding (user directive 2026-08-05): prefs resolve synchronously,
+          so the companion is there from first paint with the deliberate "owl"
+          default until a saved style loads.
           SUPPRESSED in the desktop shell (R-002): there the avatar is an
           OS-level floating companion window (apps/desktop overlay.rs +
           apps/web OverlayApp.tsx) and rendering both would duplicate it;
           plain-browser deploys keep this in-page overlay. */}
-      {organizationConfirmed === true &&
-        avatarPrefs?.avatarReady &&
+      {avatarPrefs &&
         !(typeof window !== "undefined" && window.__TAURI_INTERNALS__) && (
         <AvatarOverlay
           style={avatarPrefs.style}
+          setupComplete={setupComplete !== false}
+          onStartSetup={() => setOnboardingOpen(true)}
           {...(avatarPrefs.avatarName ? { avatarName: avatarPrefs.avatarName } : {})}
           {...(organizationName ? { organizationName } : {})}
         />

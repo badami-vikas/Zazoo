@@ -57,8 +57,8 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
       <aside
         id="panel-right"
         aria-label="Collapsed chat panel"
-        className="w-12 shrink-0 border-l flex flex-col items-center gap-1.5 pt-3 relative cursor-pointer"
-        style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}
+        className="w-12 shrink-0 flex flex-col items-center gap-1.5 pt-3 relative cursor-pointer"
+        style={{ boxShadow: "var(--shadow-shell-left)", backgroundColor: "var(--color-surface)" }}
         onClick={(e) => {
           if (!(e.target as HTMLElement).closest("a, button, [role='separator']")) {
             setCollapsedPersisted(false);
@@ -76,6 +76,7 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
           value={PANEL_MIN_WIDTH}
           min={PANEL_MIN_WIDTH}
           max={PANEL_MAX_WIDTH}
+          isDragging={panel.isDragging}
         />
         <AvatarIcon style={avatarStyle} size={28} />
       </aside>
@@ -86,8 +87,14 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
     <aside
       id="panel-right"
       aria-label="Chat panel"
-      style={{ width: mobile ? "min(100vw, 360px)" : dragWidth ?? panelWidth, borderColor: "var(--color-border)" }}
-      className={`shrink-0 border-l flex flex-col h-full overflow-hidden bg-white relative ${dragWidth === null ? "transition-[width] duration-75" : ""}`}
+      style={{
+        width: mobile ? "min(100vw, 360px)" : dragWidth ?? panelWidth,
+        // Shell-boundary separation is a soft shadow, not a hard rule
+        // (ADR-187) — mobile keeps its own overlay border, drawn separately.
+        boxShadow: mobile ? undefined : "var(--shadow-shell-left)",
+        borderColor: "var(--color-border)",
+      }}
+      className={`shrink-0 flex flex-col h-full overflow-hidden bg-white relative ${mobile ? "border-l" : ""} ${dragWidth === null ? "transition-[width] duration-75" : ""}`}
       onKeyDown={(e) => {
         if (e.key !== "Escape") return;
         if (mobile) collapse();
@@ -107,6 +114,7 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
           value={dragWidth ?? panelWidth}
           min={PANEL_MIN_WIDTH}
           max={PANEL_MAX_WIDTH}
+          isDragging={panel.isDragging}
         />
       )}
       <div className="h-14 flex items-center justify-between px-4 border-b shrink-0" style={{ borderColor: "var(--color-border)" }}>

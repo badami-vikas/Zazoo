@@ -81,6 +81,12 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSPasteboard",
     "NSPasteboardItem",
     "NSApplication",
+    # Zazoo's notch home (Z1): NSScreen carries `safeAreaInsets` and the
+    # `auxiliaryTop{Left,Right}Area` pair the notch rect is derived from;
+    # NSEvent supplies the permission-free global cursor position the
+    # hover watcher polls (a CGEventTap would need Input Monitoring).
+    "NSScreen",
+    "NSEvent",
 ] }
 
 # Debug-build crypto at release speed. The model supervisor re-verifies the

@@ -40,20 +40,45 @@ export function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
+/** Portrait aspect of the full-body ZazooAvatar artboard (viewBox 240×310). */
+const FULL_BODY_ASPECT = 240 / 310;
+
 export function CompanionZazooFace({
   director,
   size = 44,
   label,
+  /** `false` shows the whole animal (body, tail, gestures) letterboxed into a
+   * `size` box instead of the square head crop — the collapsed overlay uses
+   * this so hops, waves and tail motion are actually visible. */
+  crop = true,
 }: {
   director: ZazooDirector;
   size?: number;
   label: string;
+  crop?: boolean;
 }) {
   const reducedMotion = usePrefersReducedMotion();
   if (reducedMotion) {
     return (
       <div role="img" aria-label={label}>
         <ZazooCompact size={size} />
+      </div>
+    );
+  }
+  if (!crop) {
+    return (
+      <div
+        role="img"
+        aria-label={label}
+        style={{
+          width: size,
+          height: size,
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "flex-end",
+        }}
+      >
+        <ZazooAvatar director={director} width={size * FULL_BODY_ASPECT} />
       </div>
     );
   }

@@ -1,34 +1,47 @@
 /**
- * TableView — the entry point for the `table` view kind, and the DOM renderer
- * itself: a real <table> driven by TableSpec's columns + ViewConfig's
- * sorts/rowFilters via engine.ts (applyFilters/applySorts), never a hardcoded
- * column list. Registered under kind "table" in registry.ts.
+ * TableView — the entry point for the `table` view kind, registered under kind
+ * "table" in registry.ts. It is still the ONLY component the registry knows
+ * about; what changed (ADR-172 / AP-102) is what it renders.
  *
- * TWO RENDERERS, ONE KIND (ADR-160). Past `GLIDE_ROW_THRESHOLD` rows this
- * delegates to the canvas `GlideTableView`, because the DOM path below renders
- * EVERY sorted row — no virtualization — and stalls on the large directories
- * the product is meant to carry. Both renderers read the same TableSpec, the
- * same ViewConfig, the same engine filters/sorts, and the same cell semantics
- * from `../cell-format.js`, so switching is a performance decision, never a
- * change in what the data means. The DOM path stays the default because it is
- * the one that can carry the governed red-flag control and full a11y.
+ * ONE RENDERER NOW: `GLIDE_ROW_THRESHOLD` is 0, so every table — including the
+ * empty one — is drawn by the canvas `GlideTableView`. The DOM renderer
+ * (`DomTableView`, below) is deliberately LEFT IN PLACE but is now unreachable:
+ * raising the threshold back above 0 is the single-line revert if the canvas
+ * path turns out to regress something in live use. Do not treat the dead code
+ * as an accident, and do not add features to it — it is a parachute, not a
+ * second surface.
+ *
+ * WHY THE FLIP IS SAFE NOW. ADR-160 kept DOM as the default because the canvas
+ * path was missing the governed affordances only the DOM table carried. All of
+ * them have since been reproduced on canvas without forking any component:
+ *   - the red-flag control (open flags painted by `drawCell`, the real
+ *     `<RedFlagControl>` mounted as a DOM overlay on hover/tap);
+ *   - the column header menu (the SAME `StandardColumnMenuPanel`, opened from
+ *     Glide's `onHeaderMenuClick`);
+ *   - the per-row 3-dots menu (the SAME `StandardRowMenuItems`);
+ *   - the Notion-style zero-row state (header + empty body + add row, never a
+ *     message box replacing the table — AP-081);
+ *   - a trailing "+ New row", present only when a governed insert path exists.
+ * Both renderers read the same TableSpec, the same ViewConfig, the same engine
+ * filters/sorts and the same cell semantics from `../cell-format.js`, so the
+ * flip changes how a table is painted, never what its data means.
+ *
+ * STILL DOM-ONLY, HONESTLY: a canvas grid is not a semantic <table>, so the
+ * `aria-sort` headers and per-cell DOM structure below have no canvas
+ * equivalent. Glide supplies its own ARIA grid roles and keyboard navigation;
+ * screen-reader parity has NOT been verified in a live browser.
  *
  * Mobile-width-safe: the shadcn Table component already wraps itself in a
  * `overflow-x-auto` container (components/ui/table.tsx), so at 375px the table
  * scrolls horizontally INSIDE its own box rather than blowing out the page.
+ * The canvas grid scrolls horizontally inside its own container likewise.
  */
 import { applyFilters, applySorts } from "@bridge/tables";
-import { MoreHorizontal, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table.js";
 import { Button } from "../../components/ui/button.js";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../../components/ui/dropdown-menu.js";
 import { StandardColumnMenu } from "../../components/shared/StandardColumnMenu.js";
+import { StandardRowMenu } from "../../components/shared/StandardRowMenu.js";
 import { RedFlagControl } from "../../components/shared/RedFlagControl.js";
 import { RedFlagProvider } from "../../components/shared/RedFlagProvider.js";
 import { isFlaggableValue, isSupportedRedFlagModule, moduleIdFromDatabaseId } from "../eligibility.js";
@@ -37,19 +50,21 @@ import { formatCell, renderCell } from "../cell-format.js";
 import { GlideTableView } from "./GlideTableView.js";
 
 /**
- * Above this many rows the DOM renderer's cost (every row mounted, no
- * virtualization) outweighs the governed affordances it alone can paint, and
- * the canvas renderer takes over. Chosen as the point where a full re-render
- * on a keystroke in the DataViews search box becomes perceptible.
+ * Rows above which the canvas renderer takes over. ZERO — i.e. always (AP-102):
+ * one table primitive, not two that drift. It is kept as a named constant
+ * rather than deleted precisely so the flip is revertible in one line (set it
+ * back to e.g. 400 to restore the DOM path for small tables).
  */
-export const GLIDE_ROW_THRESHOLD = 400;
+export const GLIDE_ROW_THRESHOLD = 0;
 
 export function TableView(props: DataViewProps) {
   const { spec, view, data } = props;
-  // Count what will actually be painted, not the unfiltered input: a 50k-row
-  // dataset filtered down to 20 rows should still get the richer DOM path.
+  // Count what will actually be painted, not the unfiltered input. At a
+  // threshold of 0 this only matters for the revert case, but `>=` (not `>`)
+  // is what makes a ZERO-row table take the canvas path too — the empty state
+  // is part of the surface being standardised, not an exception to it.
   const visibleCount = applyFilters(data, view.rowFilters, view.filterMatch).length;
-  if (visibleCount > GLIDE_ROW_THRESHOLD) return <GlideTableView {...props} />;
+  if (visibleCount >= GLIDE_ROW_THRESHOLD) return <GlideTableView {...props} />;
   return <DomTableView {...props} />;
 }
 
@@ -184,58 +199,15 @@ function DomTableView({
                   );
                 })}
                 <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="sm" variant="ghost" aria-label="Open row actions">
-                        <MoreHorizontal className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem disabled={!onOpenRecord} onSelect={() => onOpenRecord?.(row)}>
-                        Open
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={!onEditRecord || !rowCanUpdate}
-                        onSelect={() => rowCanUpdate && onEditRecord?.(row)}
-                      >
-                        Edit
-                      </DropdownMenuItem>
-                      {/* No Page supplies `onDuplicate`/`onPin` yet, so these are
-                          disabled everywhere. Canon requires interactive-looking UI
-                          to perform OR EXPLAIN a governed action (AP-021), so — like
-                          the Delete item below — they must carry a reason rather than
-                          grey out silently. Remove the title when a Page wires the
-                          governed handler. */}
-                      <DropdownMenuItem
-                        disabled={!onDuplicate}
-                        title={onDuplicate ? undefined : "Unavailable: duplicating a Record needs a governed insert Action on this Page"}
-                        onSelect={() => void onDuplicate?.(row)}
-                      >
-                        Duplicate
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={!onPin || !stableRecordId}
-                        title={
-                          onPin
-                            ? stableRecordId
-                              ? undefined
-                              : "Unavailable: this row has no stable Record id to pin"
-                            : "Unavailable: pinning needs a governed pin Action on this Page"
-                        }
-                        onSelect={() => stableRecordId && void onPin?.(stableRecordId)}
-                      >
-                        Pin
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        disabled
-                        variant="destructive"
-                        title="Unavailable: deletion requires dependency preview and undo support"
-                      >
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <StandardRowMenu
+                    row={row}
+                    stableRecordId={stableRecordId}
+                    canUpdate={rowCanUpdate}
+                    onOpenRecord={onOpenRecord}
+                    onEditRecord={onEditRecord}
+                    onDuplicate={onDuplicate}
+                    onPin={onPin}
+                  />
                 </TableCell>
               </TableRow>
             );

@@ -133,6 +133,10 @@ import { fileURLToPath } from "node:url";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
 import { localGeocodingProviderFromEnv } from "./geocoding-provider.js";
 import { GoogleOAuthStateStore } from "./google-oauth-state.js";
+import {
+  MODEL_PROVIDER_KEY_SLOTS,
+  ModelProviderKeyStore,
+} from "./model-provider-keys.js";
 import { ResidencyRoutingLedgerStore } from "./residency-ledger.js";
 import type { CommonsRegistry } from "@bridge/core";
 import {
@@ -503,6 +507,11 @@ export interface Wiring {
    * registers Ollama (local) + Anthropic + Groq (cloud, only when their respective
    * API keys are set). */
   models: ModelRouter;
+  /** Settings → API Keys: model-provider API keys the user typed, stored in the
+   * governed Local Plane credential vault (ADR-181). Reads through this store
+   * report existence only; the raw key is read exactly once, at boot, to
+   * register the provider above. */
+  modelProviderKeys: ModelProviderKeyStore;
   /** TASK-023 public-web SearchProvider router. Phase 1 accepts only
    * rights-verified Tier-1 free-direct providers and has no paid escalation path. */
   searchProviders: SearchProviderRouter;
@@ -2984,25 +2993,51 @@ const TASK_MANAGER_SKILL_OWNERS: Readonly<Record<string, string>> = {
   "task-manager.completed-bay-sweep": "governance",
 };
 
+/** A deterministic parent-Task suggestion carried into Human review (ADR-183).
+ * `reason` is the explanation shown in the card — never omitted. */
+const TASK_MANAGER_PARENT_CANDIDATE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["taskId", "title", "reason", "score"],
+  properties: {
+    taskId: { type: "string", format: "uuid" },
+    title: { type: "string", minLength: 1, maxLength: 160 },
+    reason: { type: "string", minLength: 1, maxLength: 400 },
+    score: { type: "number", minimum: 0, maximum: 1 },
+  },
+} as const;
+
 const TASK_MANAGER_CREATE_TASK_INPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: [
     "kind",
+    "mode",
     "taskId",
     "title",
     "outcome",
     "exitTest",
+    "parentTaskId",
+    "parentRationale",
+    "parentCandidates",
     "visibility",
     "chatThreadId",
     "chatTurnId",
   ],
   properties: {
     kind: { const: "task_create" },
+    mode: { enum: ["create", "append"] },
     taskId: { type: "string", format: "uuid" },
     title: { type: "string", minLength: 1, maxLength: 160 },
     outcome: { type: "string", minLength: 1, maxLength: 2_000 },
     exitTest: { type: "string", minLength: 1, maxLength: 2_000 },
+    parentTaskId: { type: ["string", "null"] },
+    parentRationale: { type: ["string", "null"], maxLength: 400 },
+    parentCandidates: {
+      type: "array",
+      maxItems: 5,
+      items: TASK_MANAGER_PARENT_CANDIDATE_SCHEMA,
+    },
     visibility: { const: "private" },
     chatThreadId: { type: "string", format: "uuid" },
     chatTurnId: { type: "string", format: "uuid" },
@@ -3012,13 +3047,32 @@ const TASK_MANAGER_CREATE_TASK_INPUT_SCHEMA = {
 const TASK_MANAGER_CREATE_TASK_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["kind", "taskId", "title", "outcome", "exitTest", "status"],
+  required: [
+    "kind",
+    "mode",
+    "taskId",
+    "title",
+    "outcome",
+    "exitTest",
+    "parentTaskId",
+    "parentRationale",
+    "parentCandidates",
+    "status",
+  ],
   properties: {
     kind: { const: "task_create" },
+    mode: { enum: ["create", "append"] },
     taskId: { type: "string", format: "uuid" },
     title: { type: "string" },
     outcome: { type: "string" },
     exitTest: { type: "string" },
+    parentTaskId: { type: ["string", "null"] },
+    parentRationale: { type: ["string", "null"], maxLength: 400 },
+    parentCandidates: {
+      type: "array",
+      maxItems: 5,
+      items: TASK_MANAGER_PARENT_CANDIDATE_SCHEMA,
+    },
     status: { const: "proposed" },
   },
 } as const;
@@ -4183,10 +4237,14 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
           const values = inputs as Record<string, unknown>;
           const proposedOutput = {
             kind: "task_create",
+            mode: values.mode ?? "create",
             taskId: values.taskId,
             title: values.title,
             outcome: values.outcome,
             exitTest: values.exitTest,
+            parentTaskId: values.parentTaskId ?? null,
+            parentRationale: values.parentRationale ?? null,
+            parentCandidates: values.parentCandidates ?? [],
             status: "proposed",
           };
           return { proposedOutput, diff: { to: proposedOutput } };
@@ -4417,7 +4475,11 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         modeTaintAudit,
       )
     : modeTaintAudit;
-  const modelProviders = options.modelProviders ? [...options.modelProviders] : modeModelProviders;
+  // Copied, not aliased: the boot-time model-provider-key load below appends
+  // to this list and must not mutate the mode's own port record.
+  const modelProviders = options.modelProviders
+    ? [...options.modelProviders]
+    : [...modeModelProviders];
   // Kernel policies are deployment-invariant safety rules. Persistent mode also
   // evaluates organization policies from Postgres; it must not replace these rules.
   const staticPolicyStore = new InMemoryPolicyStore(policies);
@@ -4432,6 +4494,56 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         },
       }
     : policyStore;
+
+  // The governed secret vault is constructed HERE, above the model router,
+  // because Settings → API Keys stores model-provider keys in it and the
+  // router below has to be able to register a provider from a saved key at
+  // boot (ADR-181). Its only inputs are `credentialProvider` and the resolved
+  // local directory, both settled well above this point.
+  const credentialVaultRoot = effectiveLocalDir ?? localDir;
+  if (credentialProvider === "encrypted-file" && !credentialVaultRoot) {
+    throw new Error(
+      "The encrypted-file credential vault requires a durable BRIDGE_LOCAL_DIR",
+    );
+  }
+  const dealPilotCredentialVault =
+    options.dealPilotCredentialVault ??
+    (credentialProvider === "disabled"
+      ? publicCloudCredentialVault()
+      : credentialProvider === "encrypted-file"
+      ? encryptedCredentialVaultFromEnv(
+          join(credentialVaultRoot!, "credential-vault"),
+        )
+      : new KeyringSourceCredentialVault());
+  const modelProviderKeys = new ModelProviderKeyStore({
+    state: localPlane.state,
+    vault: dealPilotCredentialVault,
+  });
+
+  // A model-provider key saved in Settings becomes a live provider exactly
+  // once, HERE, at boot — which is why the Settings UI says "restart to
+  // activate" rather than implying a hot swap (AP-021: no fabricated
+  // capability). `read` touches the vault only when a reference was actually
+  // published, so a deployment that never saved a key never prompts the OS
+  // keyring. Test-injected provider lists are left alone.
+  if (!options.modelProviders && !publicCloudOnly) {
+    for (const slot of MODEL_PROVIDER_KEY_SLOTS) {
+      if (modelProviders.some((provider) => provider.id === slot.id)) continue;
+      let savedKey: string | null = null;
+      try {
+        savedKey = await modelProviderKeys.read(PILOT_ORGANIZATION, slot.id);
+      } catch (error) {
+        // Never log the key or anything derived from it — only that the
+        // vault refused, and why, so an unreadable keyring is diagnosable.
+        console.warn(
+          `[wiring] stored ${slot.id} API key could not be read from the credential vault:`,
+          error instanceof Error ? error.message : "unknown error",
+        );
+      }
+      if (!savedKey) continue;
+      if (slot.id === "groq") modelProviders.push(new GroqProvider({ apiKey: savedKey }));
+    }
+  }
 
   // ModelProvider registry/router — resolves capability manifest modelBindings honoring
   // planeDefault (local-default bindings NEVER fall through to a cloud provider).
@@ -4540,21 +4652,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       : dealPilotStore;
   const localOrganizationStore = new DrizzleOrganizationStore(localDatabase.db);
   const integrationStore = new DrizzleIntegrationStore(localDatabase.db);
-  const credentialVaultRoot = effectiveLocalDir ?? localDir;
-  if (credentialProvider === "encrypted-file" && !credentialVaultRoot) {
-    throw new Error(
-      "The encrypted-file credential vault requires a durable BRIDGE_LOCAL_DIR",
-    );
-  }
-  const dealPilotCredentialVault =
-    options.dealPilotCredentialVault ??
-    (credentialProvider === "disabled"
-      ? publicCloudCredentialVault()
-      : credentialProvider === "encrypted-file"
-      ? encryptedCredentialVaultFromEnv(
-          join(credentialVaultRoot!, "credential-vault"),
-        )
-      : new KeyringSourceCredentialVault());
+  // `dealPilotCredentialVault` is constructed above the model router (ADR-181);
+  // only its DealPilot-specific reconciliation stays here, next to the store it
+  // reconciles against.
   if (!publicCloudOnly) {
     await reconcileCredentialOperations(
       dealPilotStore,
@@ -4990,6 +5090,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     vectorIndex,
     retrievalFusionEnabled,
     commonsArchetypesEnabled,
+    modelProviderKeys,
     dealpilot: {
       integrationId: dealPilotIntegrationId,
       store: dealPilotRuntimeStore,

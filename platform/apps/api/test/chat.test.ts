@@ -21,6 +21,7 @@ import {
   LlamaCppProvider,
   MANAGED_LLAMA_MODEL_ID,
 } from "@bridge/models";
+import { InMemorySourceCredentialVault } from "@bridge/dealpilot";
 import { appRouter } from "../src/router.js";
 import {
   buildWiring,
@@ -95,6 +96,9 @@ async function withChatWiring<T>(
     localDir: join(root, "local"),
     moduleFilesBridgeRoot: join(root, "files"),
     modelProviders: providers,
+    // Avoid touching the real OS keyring for these deterministic tests;
+    // the model-provider-key status test below writes to this directly.
+    dealPilotCredentialVault: new InMemorySourceCredentialVault(),
   });
   try {
     return await operation(wiring);
@@ -174,6 +178,59 @@ test("Chat fails visibly when no eligible local model is configured", async () =
     });
     assert.equal(failed.turns.at(-1)?.state, "failed");
     assert.equal(failed.turns.at(-1)?.errorCode, "chat_turn_failed");
+  });
+});
+
+test("chat.model.status reports Cloud availability, honoring the ADR-181 restart-required boundary", async () => {
+  const local = new ChatModel(
+    "local",
+    () => JSON.stringify({ kind: "answer", text: "local reply" }),
+  );
+
+  // No Groq key saved at all: Cloud is neither available nor configured.
+  await withChatWiring([local], async (wiring) => {
+    const caller = makeCaller(wiring, 41);
+    const status = await caller.chat.model.status({ organizationId: PILOT_ORGANIZATION });
+    assert.deepEqual(status.cloud, {
+      available: false,
+      providerId: null,
+      modelTier: "default" as const,
+      configured: false,
+      restartRequired: false,
+    });
+  });
+
+  // A key is saved in the SAME governed vault Settings -> API Keys uses
+  // (ADR-181), but this process's model router was constructed before the
+  // save, so the provider is not registered yet. Status must say "saved,
+  // needs a restart" rather than either "connected" (fabricated, AP-021) or
+  // "not configured" (loses the user's own saved state).
+  await withChatWiring([local], async (wiring) => {
+    await wiring.modelProviderKeys.save(PILOT_ORGANIZATION, "groq", "sk-test-not-yet-active");
+    const caller = makeCaller(wiring, 42);
+    const status = await caller.chat.model.status({ organizationId: PILOT_ORGANIZATION });
+    assert.deepEqual(status.cloud, {
+      available: false,
+      providerId: null,
+      modelTier: "default" as const,
+      configured: true,
+      restartRequired: true,
+    });
+  });
+
+  // Once a Cloud-plane provider IS registered (post-restart, in practice),
+  // status reports it as available and configured with no restart pending.
+  const cloud = new ChatModel("cloud", () => JSON.stringify({ kind: "answer", text: "cloud reply" }));
+  await withChatWiring([local, cloud], async (wiring) => {
+    const caller = makeCaller(wiring, 43);
+    const status = await caller.chat.model.status({ organizationId: PILOT_ORGANIZATION });
+    assert.deepEqual(status.cloud, {
+      available: true,
+      providerId: cloud.id,
+      modelTier: "default" as const,
+      configured: true,
+      restartRequired: false,
+    });
   });
 });
 
@@ -552,16 +609,23 @@ test("Chat Task proposals approve, edit, and veto through governed lifecycle", a
   );
   await withChatWiring([local], async (wiring) => {
     const caller = makeCaller(wiring, 28);
-    const { thread } = await caller.chat.thread.create({
-      organizationId: PILOT_ORGANIZATION,
-      plane: "local",
-      clientRequestId: "task-lifecycle",
-    });
+    // One Task node per thread (ADR-183): a second create in the SAME thread
+    // appends to the node already there, so each lifecycle branch below gets
+    // its own thread.
+    async function newThread(clientRequestId: string) {
+      const created = await caller.chat.thread.create({
+        organizationId: PILOT_ORGANIZATION,
+        plane: "local",
+        clientRequestId,
+      });
+      return created.thread;
+    }
+    const thread = await newThread("task-lifecycle");
 
-    async function propose(message: string, clientRequestId: string) {
+    async function propose(message: string, clientRequestId: string, threadId = thread.id) {
       const view = await caller.chat.turn.send({
         organizationId: PILOT_ORGANIZATION,
-        threadId: thread.id,
+        threadId,
         clientRequestId,
         message,
       });
@@ -570,10 +634,14 @@ test("Chat Task proposals approve, edit, and veto through governed lifecycle", a
       assert.ok(turn?.proposal);
       const output = turn.proposal.proposedOutput as {
         kind: "task_create";
+        mode: "create" | "append";
         taskId: string;
         title: string;
         outcome: string;
         exitTest: string;
+        parentTaskId: string | null;
+        parentRationale: string | null;
+        parentCandidates: { taskId: string; title: string; reason: string; score: number }[];
         status: "proposed";
       };
       assert.equal(output.status, "proposed");
@@ -581,24 +649,24 @@ test("Chat Task proposals approve, edit, and veto through governed lifecycle", a
     }
 
     const approved = await propose("Create approved work", "approve");
+    assert.equal(approved.output.mode, "create");
     const createTaskManifest = wiring.skillManifests
       .forSkill(PILOT_ORGANIZATION, "task-manager.create-task")
       .at(0);
     assert.deepEqual(
-      createTaskManifest?.outputSchema,
-      {
-        type: "object",
-        additionalProperties: false,
-        required: ["kind", "taskId", "title", "outcome", "exitTest", "status"],
-        properties: {
-          kind: { const: "task_create" },
-          taskId: { type: "string", format: "uuid" },
-          title: { type: "string" },
-          outcome: { type: "string" },
-          exitTest: { type: "string" },
-          status: { const: "proposed" },
-        },
-      },
+      (createTaskManifest?.outputSchema as { required?: string[] })?.required,
+      [
+        "kind",
+        "mode",
+        "taskId",
+        "title",
+        "outcome",
+        "exitTest",
+        "parentTaskId",
+        "parentRationale",
+        "parentCandidates",
+        "status",
+      ],
     );
     const localSchema = local.calls[0]?.responseFormat?.schema as
       | { required?: string[] }
@@ -646,11 +714,12 @@ test("Chat Task proposals approve, edit, and veto through governed lifecycle", a
     );
     assert.deepEqual(runAfterTaskChange?.output, runBeforeTaskChange?.output);
 
-    const edited = await propose("Create editable work", "edit");
+    const editThread = await newThread("task-lifecycle-edit");
+    const edited = await propose("Create editable work", "edit", editThread.id);
     await caller.action.decide({
       proposalId: edited.proposal.id,
       decision: "edit",
-      chatThreadId: thread.id,
+      chatThreadId: editThread.id,
       chatTurnId: edited.turn.id,
       editedOutput: { ...edited.output, title: "Human-edited Task" },
     });
@@ -659,11 +728,12 @@ test("Chat Task proposals approve, edit, and veto through governed lifecycle", a
       "Human-edited Task",
     );
 
-    const vetoed = await propose("Create vetoed work", "veto");
+    const vetoThread = await newThread("task-lifecycle-veto");
+    const vetoed = await propose("Create vetoed work", "veto", vetoThread.id);
     await caller.action.decide({
       proposalId: vetoed.proposal.id,
       decision: "veto",
-      chatThreadId: thread.id,
+      chatThreadId: vetoThread.id,
       chatTurnId: vetoed.turn.id,
     });
     assert.equal(
@@ -671,11 +741,13 @@ test("Chat Task proposals approve, edit, and veto through governed lifecycle", a
       null,
     );
 
-    const final = await caller.chat.thread.get({
-      organizationId: PILOT_ORGANIZATION,
-      threadId: thread.id,
-    });
-    for (const turn of final.turns.filter((candidate) => candidate.role === "assistant")) {
+    const finals = await Promise.all(
+      [thread.id, editThread.id, vetoThread.id].map((threadId) =>
+        caller.chat.thread.get({ organizationId: PILOT_ORGANIZATION, threadId }),
+      ),
+    );
+    const finalTurns = finals.flatMap((view) => view.turns);
+    for (const turn of finalTurns.filter((candidate) => candidate.role === "assistant")) {
       assert.equal(turn.state, "completed");
       assert.ok(turn.refs.some((ref) => ref.kind === "automation_run"));
       assert.ok(turn.refs.some((ref) => ref.kind === "result"));
@@ -684,12 +756,120 @@ test("Chat Task proposals approve, edit, and veto through governed lifecycle", a
       assert.notEqual(turn.automationRun.status, "running");
       assert.ok(turn.result);
     }
-    const editedReloaded = final.turns.find((turn) => turn.id === edited.turn.id);
+    const editedReloaded = finalTurns.find((turn) => turn.id === edited.turn.id);
     assert.equal(
       (editedReloaded?.decision?.proposedOutput as { title?: string } | undefined)?.title,
       "Human-edited Task",
     );
     assert.equal(editedReloaded?.result?.task?.title, "Human-edited Task");
+  });
+});
+
+test("a Chat follow-up continues the thread's Task node instead of minting a sibling", async () => {
+  let turn = 0;
+  const local = new ChatModel("local", () => {
+    turn += 1;
+    return JSON.stringify({
+      kind: "create_task",
+      text: "Review this Task.",
+      title: turn === 1 ? "Ship the pricing page" : "Ship the pricing page copy",
+      outcome:
+        turn === 1
+          ? "The pricing page is live."
+          : "The pricing page copy is reviewed.",
+      exitTest: "The page renders for a signed-out visitor.",
+    });
+  });
+  await withChatWiring([local], async (wiring) => {
+    const caller = makeCaller(wiring, 44);
+    const { thread } = await caller.chat.thread.create({
+      organizationId: PILOT_ORGANIZATION,
+      plane: "local",
+      clientRequestId: "follow-up-thread",
+    });
+    async function send(clientRequestId: string, message: string) {
+      const view = await caller.chat.turn.send({
+        organizationId: PILOT_ORGANIZATION,
+        threadId: thread.id,
+        clientRequestId,
+        message,
+      });
+      const assistant = view.turns.at(-1)!;
+      return {
+        assistant,
+        output: assistant.proposal!.proposedOutput as {
+          mode: "create" | "append";
+          taskId: string;
+          parentTaskId: string | null;
+          parentRationale: string | null;
+          parentCandidates: { taskId: string }[];
+        },
+      };
+    }
+
+    const first = await send("follow-up-1", "Get the pricing page shipped.");
+    assert.equal(first.output.mode, "create");
+    assert.equal(first.output.parentTaskId, null);
+    await caller.action.decide({
+      proposalId: first.assistant.proposal!.id,
+      decision: "approve",
+      chatThreadId: thread.id,
+      chatTurnId: first.assistant.id,
+    });
+    const node = await wiring.taskManager.get(
+      PILOT_ORGANIZATION,
+      first.output.taskId,
+    );
+    assert.ok(node);
+
+    const followUp = await send("follow-up-2", "Also review the copy on it.");
+    assert.equal(followUp.output.mode, "append");
+    assert.equal(followUp.output.taskId, first.output.taskId);
+    assert.equal(followUp.output.parentTaskId, null);
+    await caller.action.decide({
+      proposalId: followUp.assistant.proposal!.id,
+      decision: "approve",
+      chatThreadId: thread.id,
+      chatTurnId: followUp.assistant.id,
+    });
+
+    // Same node, one more Outcome — no sibling Task was created.
+    const tasks = await wiring.taskManager.list(PILOT_ORGANIZATION);
+    const chatTasks = tasks.filter(
+      (task) => task.requiredSkillId === "task-manager.create-task",
+    );
+    assert.deepEqual(chatTasks.map((task) => task.id), [first.output.taskId]);
+    const continued = await wiring.taskManager.get(
+      PILOT_ORGANIZATION,
+      first.output.taskId,
+    );
+    assert.equal(continued?.outcomes.length, 2);
+    assert.equal(continued?.outcomes[1]?.title, "Ship the pricing page copy");
+    assert.equal(continued?.outcomes[1]?.northStar, false);
+
+    // A NEW thread that repeats the same subject gets an explained parent
+    // suggestion rather than a silent re-parent.
+    const { thread: second } = await caller.chat.thread.create({
+      organizationId: PILOT_ORGANIZATION,
+      plane: "local",
+      clientRequestId: "follow-up-sibling-thread",
+    });
+    const sibling = await caller.chat.turn.send({
+      organizationId: PILOT_ORGANIZATION,
+      threadId: second.id,
+      clientRequestId: "follow-up-3",
+      message: "Ship the pricing page copy too.",
+    });
+    const siblingOutput = sibling.turns.at(-1)!.proposal!.proposedOutput as {
+      mode: string;
+      parentTaskId: string | null;
+      parentRationale: string | null;
+      parentCandidates: { taskId: string; reason: string }[];
+    };
+    assert.equal(siblingOutput.mode, "create");
+    assert.equal(siblingOutput.parentTaskId, first.output.taskId);
+    assert.match(siblingOutput.parentRationale ?? "", /^Shares .*"pricing"/);
+    assert.ok(siblingOutput.parentCandidates.length >= 1);
   });
 });
 

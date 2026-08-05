@@ -192,6 +192,11 @@ export function IntelligencePage() {
                     .filter(Boolean)
                     .join(" · ")}
                   source={agent.mod}
+                  // ADR-180: an Agent's Run surface is reached through the
+                  // Agent, from its manifest-declared run_route. This is how
+                  // Research Runs are reached now that /research is no longer a
+                  // left-nav entry.
+                  action={agent.runRoute ? { to: agent.runRoute, label: "Runs" } : undefined}
                 />
               ))}
             </Rows>

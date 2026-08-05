@@ -246,13 +246,20 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     if (plane !== undefined && plane !== "local" && plane !== "cloud") {
       fail(`module.module.agents[${index}].plane must be local or cloud`);
     }
+    const agentRunRoute = agent.runRoute ?? agent.run_route;
     const binding: ModuleAgentBinding = {
       id: requiredString(agent.id, `module.module.agents[${index}].id`),
       name: requiredString(agent.name, `module.module.agents[${index}].name`),
       capabilityId: requiredString(agent.capabilityId ?? agent.capability_id, `module.module.agents[${index}].capability_id`),
       skillIds: parseStringArray(agent.skillIds ?? agent.skill_ids, `module.module.agents[${index}].skill_ids`),
       ...(plane ? { plane } : {}),
+      ...(agentRunRoute !== undefined
+        ? { runRoute: requiredString(agentRunRoute, `module.module.agents[${index}].run_route`) }
+        : {}),
     };
+    if (binding.runRoute && !binding.runRoute.startsWith("/")) {
+      fail(`module.module.agents[${index}].run_route must start with /`);
+    }
     if (capabilityById.get(binding.capabilityId)?.capabilityType !== "agent") {
       fail(`module.module.agents[${index}].capability_id must reference an agent capability`);
     }

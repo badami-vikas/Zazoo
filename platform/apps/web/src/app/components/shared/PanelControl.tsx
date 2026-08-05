@@ -229,11 +229,19 @@ export function CollapseToggleButton({
 }
 
 /**
- * ResizeHandle — the drag target on each panel's inner edge. Renders a
- * persistent, vertically-centred double-sided arrow (↔) chip so the resize
- * affordance is always discoverable (user request 2026-07-27), plus a hairline
- * that brightens on hover/focus. Dragging resizes; on a collapsed panel the
- * surrounding empty space is what expands it (owned by the panel, not here).
+ * ResizeHandle — the drag target on each panel's inner edge. Hover/focus-only
+ * affordance (ADR-187, user ask 2026-08-05 — supersedes the "always visible"
+ * request from 2026-07-27): the hairline and double-sided arrow (↔) chip are
+ * invisible at rest and fade in only when the ~8px hit-zone is hovered or the
+ * separator has keyboard focus, via `group-hover`/`group-focus-within` CSS —
+ * the control stays mounted throughout (never unmounted), so a drag in
+ * progress can force it visible with `isDragging` without any unmount/remount
+ * flicker. Keyboard reachability is preserved: the separator itself is
+ * `tabIndex={0}` and `group-focus-within` reveals the affordance the moment
+ * it (or anything inside it) receives focus, so keyboard users are never
+ * locked out by the hover-only default. Dragging resizes; on a collapsed
+ * panel the surrounding empty space is what expands it (owned by the panel,
+ * not here).
  */
 export function ResizeHandle({
   side,
@@ -243,6 +251,7 @@ export function ResizeHandle({
   value,
   min,
   max,
+  isDragging = false,
 }: {
   side: PanelSide;
   onMouseDown: (e: React.MouseEvent) => void;
@@ -251,8 +260,12 @@ export function ResizeHandle({
   value: number;
   min: number;
   max: number;
+  /** Force the affordance visible mid-drag so fast mouse movement outside the
+   * hit-zone during a drag can't flicker it away (ask 2026-08-05). */
+  isDragging?: boolean;
 }) {
   const edge = side === "left" ? "right-0" : "left-0";
+  const revealed = isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100";
   return (
     <div
       role="separator"
@@ -268,12 +281,14 @@ export function ResizeHandle({
       className={`group absolute top-0 ${edge} h-full w-2 cursor-col-resize z-20 flex items-center justify-center focus:outline-none ${side === "right" ? "-ml-1" : "-mr-1"}`}
       title={label ?? "Drag to resize"}
     >
-      {/* Full-height hairline flush with the panel edge; brightens on hover/focus. */}
+      {/* Full-height hairline flush with the panel edge; hidden at rest,
+          revealed on hover/focus/drag. */}
       <div
-        className={`absolute inset-y-0 ${edge} w-px bg-[var(--color-border)] group-hover:bg-[var(--color-steel-light)] group-focus:bg-[var(--color-steel-light)] transition-colors`}
+        className={`absolute inset-y-0 ${edge} w-px bg-[var(--color-steel-light)] transition-opacity duration-150 ${revealed}`}
       />
-      {/* Persistent double-sided arrow affordance, vertically centred. */}
-      <span className="relative z-10 flex h-7 w-4 items-center justify-center rounded-full border bg-[var(--color-background)] text-[var(--color-warm-gray)] shadow-sm opacity-60 transition-opacity group-hover:opacity-100 group-focus:opacity-100" style={{ borderColor: "var(--color-border)" }}>
+      {/* Double-sided arrow affordance, vertically centred; hidden at rest,
+          revealed on hover/focus/drag. */}
+      <span className={`relative z-10 flex h-7 w-4 items-center justify-center rounded-full border bg-[var(--color-background)] text-[var(--color-warm-gray)] shadow-sm transition-opacity duration-150 ${revealed}`} style={{ borderColor: "var(--color-border)" }}>
         <MoveHorizontal className="h-3 w-3" />
       </span>
     </div>

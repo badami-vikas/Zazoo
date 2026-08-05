@@ -24,7 +24,7 @@ async function loadQuestionsModule() {
     },
   }).outputText.replace(
     /import \{ AVATAR_STYLES \} from "\.\.\/avatar\/avatar-store";/,
-    `const AVATAR_STYLES = [{ value: "owl", label: "Owl" }];`,
+    `const AVATAR_STYLES = [{ value: "owl", label: "Owl" }, { value: "fox", label: "Fox" }];`,
   );
   return import(`data:text/javascript;base64,${Buffer.from(javascript).toString("base64")}`);
 }
@@ -44,18 +44,95 @@ async function loadAvatarStoreModule() {
   return import(`data:text/javascript;base64,${Buffer.from(storeJavaScript).toString("base64")}`);
 }
 
+/** Walks the real adaptive flow, answering each question with a plausible
+ * value, and returns every question the user would actually be shown. */
+async function walkFlow(seed = {}, options = {}) {
+  const { nextQuestion } = await loadQuestionsModule();
+  const answers = { ...seed };
+  const asked = [];
+  for (let guard = 0; guard < 20; guard += 1) {
+    const question = nextQuestion(answers, options);
+    if (!question) return asked;
+    asked.push(question);
+    if (question.kind === "multi_select") {
+      answers[question.id] = [question.options[0].value];
+    } else if (question.kind === "single_select") {
+      answers[question.id] = question.options[0].value;
+    } else {
+      answers[question.id] = "Sales lead at a SaaS startup; I run and cook";
+    }
+  }
+  throw new Error("onboarding flow did not terminate");
+}
+
+test("the user-facing onboarding set is exactly the five documented manual questions", async () => {
+  // docs/raw/bridge-foundational-agents-onboarding-2026-07.md step 6. Avatar
+  // style is spec STEP 3 and is deliberately not one of the five.
+  const asked = await walkFlow();
+  assert.deepEqual(
+    asked.map((question) => question.id),
+    ["avatar_style", "profession", "workday", "work_context", "work_lives", "watch_first"],
+  );
+  const manual = asked.filter((question) => question.id !== "avatar_style");
+  assert.equal(manual.length, 5);
+  const workday = asked.find((question) => question.id === "workday");
+  assert.equal(workday.maxSelections, 3, "spec allows up to 3 workday picks");
+});
+
 test("every onboarding question declares separate why and consequence copy", async () => {
   const source = await readFile(questionsUrl, "utf8");
-  const questions = source.match(/const Q_[A-Z_]+: OnboardingQuestion = \{[\s\S]*?\n\};/g) ?? [];
-  assert.equal(questions.length, 9);
-  for (const question of questions) {
-    assert.match(question, /\n\s+why:\s+"/);
-    assert.match(question, /\n\s+consequence:\s+"/);
+  for (const question of await walkFlow()) {
+    assert.ok(question.why, `${question.id} must declare why`);
+    assert.ok(question.consequence, `${question.id} must declare a consequence`);
+    assert.notEqual(question.why, question.consequence);
   }
   assert.doesNotMatch(source, /helpText: "Bridge calls this an Record/);
   assert.match(source, /sales_deals: \{ nodeType: "record", label: "Deal" \}/);
   assert.match(source, /job_search: \{ nodeType: "record", label: "Application" \}/);
   assert.match(source, /support: \{ nodeType: "event", label: "Support Event" \}/);
+});
+
+test("role-model questions are gated out of the default flow, not deleted", async () => {
+  // They belong to a separately-approved requirement
+  // (docs/raw/requirement-role-model-learning-dealpilot-ui-2026-07-14.md).
+  const byDefault = (await walkFlow()).map((question) => question.id);
+  assert.ok(!byDefault.includes("role_model"));
+  assert.ok(!byDefault.includes("role_model_why"));
+  const restored = (await walkFlow({}, { includeRoleModel: true })).map((question) => question.id);
+  assert.ok(restored.includes("role_model"));
+  assert.ok(restored.includes("role_model_why"));
+});
+
+test("dropped questions are derived or defaulted, never silently lost", async () => {
+  const { inferDomain, derivedVocabName, derivedViewStyle, defaultOrganizationName, buildBlueprintFromAnswers } =
+    await loadQuestionsModule();
+
+  // domain + vocabulary + view style are inferred from profession/workday.
+  const sales = { profession: "Sales lead at a SaaS startup", workday: ["pipeline"] };
+  assert.equal(inferDomain(sales), "sales_deals");
+  assert.equal(derivedViewStyle(sales), "board");
+  assert.equal(derivedVocabName({ profession: "Recruiter" }), "Candidate");
+  assert.equal(inferDomain({ profession: "Support manager" }), "support");
+  // A generic profession still lands somewhere honest.
+  assert.equal(inferDomain({ profession: "Chief of staff" }), "relationships");
+  assert.equal(derivedViewStyle({ profession: "Chief of staff" }), "table");
+  // An explicit answer still overrides every derived value.
+  assert.equal(inferDomain({ profession: "Recruiter", domain: "relationships" }), "relationships");
+  assert.equal(derivedVocabName({ profession: "Recruiter", vocab_name: "Applicant" }), "Applicant");
+  assert.equal(derivedViewStyle({ profession: "Sales lead", view_style: "table" }), "table");
+  // The Organization name is defaulted from the signed-in email.
+  assert.equal(defaultOrganizationName("alice@acmecorp.com"), "Acmecorp");
+  assert.equal(defaultOrganizationName(undefined), "My Organization");
+
+  // The adaptive contextual answer becomes a real starter column.
+  const blueprint = buildBlueprintFromAnswers({
+    profession: "Sales lead at a SaaS startup",
+    workday: ["pipeline"],
+    work_context: "amount",
+    work_lives: ["email"],
+    watch_first: [],
+  });
+  assert.ok(blueprint.entities[0].fields.some((field) => field.id === "amount" && field.kind === "number"));
 });
 
 test("onboarding trust ceremony is bounded, visible, inspectable, and stoppable", async () => {
@@ -170,13 +247,60 @@ test("Avatar preference reads accept only the canonical v2 shape", async () => {
   }
 });
 
-test("multi-select onboarding choices stay editable until Continue commits them", async () => {
+test("grouped onboarding choices stay editable until the screen's Continue commits them", async () => {
+  // E4 (2026-08-05, "group them"): questions are now batched per screen behind
+  // one `groupDrafts` map and one Continue, replacing the old one-question
+  // `multiDrafts`/`toggleMulti` pair. The guarantee this test protects is
+  // unchanged: nothing reaches `answers` (governed state) until committed.
   const source = await readFile(dialogUrl, "utf8");
-  assert.match(source, /const \[multiDrafts, setMultiDrafts\] = useState<Record<string, string\[\]>>\(\{\}\)/);
-  assert.match(source, /const selected = \(multiDrafts\[question\.id\] \?\? \[\]\)\.includes\(opt\.value\)/);
-  assert.match(source, /answer\(question\.id, multiDrafts\[question\.id\] \?\? \[\]\)/);
-  const toggleBody = source.match(/function toggleMulti[\s\S]*?\n  \}/)?.[0] ?? "";
+  assert.match(source, /const \[groupDrafts, setGroupDrafts\] = useState<Record<string, string \| string\[\]>>\(\{\}\)/);
+  assert.match(source, /const drafted = draftFor\(q\.id, q\.kind\) as string\[\]/);
+  assert.match(source, /const selected = drafted\.includes\(opt\.value\)/);
+  assert.match(source, /onClick=\{\(\) => toggleGroupMulti\(q\.id, opt\.value, q\.maxSelections\)\}/);
+  // "Up to 3" (spec step 6, manual question 2) is enforced, not just suggested.
+  assert.match(source, /if \(maxSelections !== undefined && drafted\.length >= maxSelections\) return current;/);
+  const toggleBody = source.match(/function toggleGroupMulti[\s\S]*?\n  \}/)?.[0] ?? "";
   assert.doesNotMatch(toggleBody, /setAnswers/);
+  // The actual commit path — every question on the screen, one state update.
+  const commitBody = source.match(/function commitGroup\(\)[\s\S]*?\n  \}/)?.[0] ?? "";
+  assert.match(commitBody, /setAnswers\(updated\)/);
+  assert.match(commitBody, /setGroupDrafts\(\{\}\)/);
+});
+
+test("onboarding questions are batched into topical screens, not asked one at a time", async () => {
+  // E4: nextQuestionGroup batches the same six ids nextQuestion() walks
+  // singly. Completion semantics must agree exactly with nextQuestion/
+  // isComplete — this is a presentation layer, not a second source of truth.
+  const { nextQuestion, nextQuestionGroup, isComplete } = await loadQuestionsModule();
+  let answers = {};
+  const seenIds = [];
+  const groupTitles = [];
+  for (let guard = 0; guard < 10; guard += 1) {
+    const group = nextQuestionGroup(answers);
+    if (!group) break;
+    groupTitles.push(group.title);
+    assert.ok(group.questions.length >= 1, `${group.title} must carry at least one question`);
+    for (const q of group.questions) {
+      seenIds.push(q.id);
+      answers = { ...answers, [q.id]: q.kind === "multi_select" ? [q.options[0].value] : q.kind === "single_select" ? q.options[0].value : "Sales lead at a SaaS startup; I run and cook" };
+    }
+  }
+  assert.deepEqual(seenIds, ["avatar_style", "profession", "workday", "work_context", "work_lives", "watch_first"]);
+  assert.equal(groupTitles.length, 3, "the five manual questions plus avatar_style batch into exactly three screens");
+  assert.equal(nextQuestion(answers), null, "nextQuestion must agree the flow is complete once every group is committed");
+  assert.ok(isComplete(answers));
+});
+
+test("typing a known animal into the companion-name question resolves a real style; anything else keeps the current one", async () => {
+  // AP-021 honesty: Bridge can only ever RENDER the 16 real, hand-drawn
+  // styles, so a typed word that doesn't match one of them must not be
+  // silently accepted as if it would change the look.
+  const { resolveAvatarStyleFromText } = await loadQuestionsModule();
+  assert.equal(resolveAvatarStyleFromText("Rex the Fox"), "fox");
+  assert.equal(resolveAvatarStyleFromText("owl"), "owl");
+  assert.equal(resolveAvatarStyleFromText("OWL"), "owl", "matching is case-insensitive");
+  assert.equal(resolveAvatarStyleFromText("Foxglove"), undefined, "must match a WHOLE word, not a substring");
+  assert.equal(resolveAvatarStyleFromText("Luna"), undefined, "a plain name with no recognized animal resolves to nothing");
 });
 
 test("dialog overlay forwards the Radix Presence ref", async () => {
@@ -185,15 +309,18 @@ test("dialog overlay forwards the Radix Presence ref", async () => {
   assert.match(source, /<DialogPrimitive\.Overlay\s+ref=\{ref\}/);
 });
 
-test("onboarding persists the chosen Organization name and refreshes the shell", async () => {
+test("onboarding persists the Organization name and refreshes the shell", async () => {
   const [dialog, layout, settings] = await Promise.all([
     readFile(dialogUrl, "utf8"),
     readFile(layoutUrl, "utf8"),
     readFile(settingsUrl, "utf8"),
   ]);
+  // E3 (2026-08-05): the Organization name is no longer a question. An explicit
+  // answer still wins; otherwise it is DEFAULTED from the signed-in email.
   assert.match(dialog, /answers\.organization_name/);
+  assert.match(dialog, /defaultOrganizationName\(userEmail\)/);
+  assert.match(layout, /userEmail: auth\.session\.user\.email/);
   assert.match(dialog, /trpc\.organization\.rename\.mutate/);
-  assert.match(dialog, /maxLength=\{question\.id === "organization_name" \? 120 : undefined\}/);
   assert.ok(
     dialog.indexOf("trpc.organization.rename.mutate") < dialog.indexOf("trpc.organization.blueprint.propose.mutate"),
     "Organization rename must succeed before blueprint proposal and activation",

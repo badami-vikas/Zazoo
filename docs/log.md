@@ -2836,3 +2836,156 @@ not needed.
 - Shard parallelism cut from cores/2 to cores/3 and the socket liveness deadline raised to 120s. Three failures of the same real-socket test in one day were self-inflicted: db sharding at cores/2 alongside apps/api's 4-way concurrency oversubscribed an 8-core box enough to starve the api event loop, and raising the deadline 100ms → 10s → 30s was chasing scheduler latency rather than a defect. Cost of the fix, stated honestly: db goes 210s → 412s (2 shards instead of 4) and the full run 8m00 → 12m27. Stability bought with wall-clock, on the view that a run that fails spuriously is worth less than a slower run that does not.
 - Verified: 72/72 turbo typecheck+test+build tasks green, db 233/233 sharded, after a clean `--frozen-lockfile` install.
 - Follow-up the same day: merging the copilot branch turned `check:agent-context` RED again. Its six `.github/instructions/*.instructions.md` files were written on 2026-07-18, before the context budget existed, and each restated ~3.8KB of Module canon that already lives in `docs/wiki` — a second, drifting copy charged to agent context. Rewritten as pointer-only files (one line each, naming the canon doc and the single rule most likely to be broken), 22,560 bytes → 2,048, exactly at the reviewed path-instruction budget. The budget was NOT raised: a guard that gets relaxed whenever it fires is not a guard. Their copy also used the retired noun `workspace`, which the rewrite removes.
+
+## 2026-08-05 — Rail scope closed, Settings pinned, duplicate Control Panel dropped (ADR-180 / AP-103)
+
+- Three user directives in one pass. The Settings-scrolls-away bug was one missing class: the rail's `flex-1 overflow-y-auto` region had no `min-h-0`, so `min-height: auto` let it outgrow its share of the column and shove the `shrink-0` footer (Second Brain · Intelligence · Settings) below the viewport. Structure was already right; only the constraint was missing.
+- "Research is an agent" turned out to be neither Agent nor Automation on inspection: `web-research` is declared a **`skill`** capability bound to the Relationship Module's **Learning Agent**, and `/research` (TASK-028) is that Skill's Run timeline. Removed from the rail and relocated behind the owning Agent via a new optional `ModuleAgentBinding.runRoute` in `@bridge/core` — the same contract automations already had — rather than a hardcoded route map in the web app. Rendered in Intelligence → Agents, the per-Module Intelligence Section, and Module Detail.
+- The "separate control panel inside the 3-dots" was a single `<Link>` to `/module/:name` on JobPilot/DealPilot/Signals, pointing at exactly what the scroll-revealed Intelligence Section already offers as "Manage in Module Detail". Nothing to merge; the item and its now-empty trigger were removed. `app/dataviews/ControlPanel.tsx` — the sliders popover — is mounted **nowhere** and never was (already noted in `pending-work.generated.json:1193`); left untouched, not deleted.
+- Reported, not acted on: **Home** and **"+New"** also sit outside the user's stated allowed rail set. Both predate the directive and removing them is a much larger IA change, so they wait on the user.
+- Verified: `@bridge/core` builds, 14 module-manifest assertions + the manifests catalog suite green, `apps/web tsc --noEmit` clean for every file touched. Residual `SettingsPage` `modelProviderKey` errors are a stale `apps/api` dist against another workstream's in-flight `router.ts`, not this change. No browser in the worktree, so the pinned footer and the three "Runs" links are unverified at runtime.
+
+## 2026-08-05 — Settings → API Keys stores a model-provider key in the existing credential vault (ADR-181, AP-104)
+
+- User directive: "I should ideally be able to add API [keys] in the API section of settings." Investigated before building: a governed secret mechanism already existed (`SourceCredentialVault`, OS keyring + AES-256-GCM encrypted file, fail-closed provider gate, throws in public-cloud mode), so nothing new was invented and no crypto was rolled.
+- Key bytes → the vault under scope `model-provider:groq`. Local Plane state holds only the opaque reference + timestamp. `modelProviderKey.list` reports existence/age/activation, never the value or a mask; the one raw-read path is called by boot wiring only. Human-only procedure gate, public-cloud refusal, pinning test that the key and its last four characters appear nowhere in state or in any response.
+- `createModelRouter` snapshots providers at construction, so activation is at the NEXT boot. The vault is now built above the router in `wiring.ts` so a saved key really does register `GroqProvider` on restart, and the UI says "Saved · inactive — restart Bridge to activate" instead of implying a live swap (AP-021). Live re-registration considered and deferred with reasons in the ADR.
+- Verified: `tsc --noEmit` clean in `apps/api` and `apps/web`; 4 new assertions green; `public-cloud-boundary` 2/2 and `dealpilot-durability` 5/5 unchanged after the vault hoist. Not verified: no live run — boot registration, a real keyring write, and the rendered section were not exercised against a running API.
+
+## 2026-08-05 — Zazoo's notch home: measured cutout, concealed-at-rest window, one-window drop (ADR-184, AP-106)
+
+Built roadmap Z1's notch home to the user's directive. New `src-tauri/src/notch.rs` measures the
+cutout from `NSScreen` (live: 179x32 at x=646 on 1470x956) and runs a 60ms, permission-free
+`NSEvent::mouseLocation` poll emitting edge-triggered hover events; `overlay_dock_notch` /
+`overlay_undock_free` centre the panel on the cutout and move it between menu-bar-level (25) and
+floating (4). New web `notch-home.ts` (pure geometry + gravity/squash physics) and `NotchHome.tsx`
+(bed, meditation, composer, drag-to-drop). The drop animates inside ONE full-height window rather
+than by stepping the window origin.
+
+Verified live: Rust reports the same geometry the Swift probe measured; a scripted cursor sweep
+drives hover with correct top-left conversion and the 48pt pad; present/conceal moves 0 -> 1 on
+notch entry; 4 Rust + 6 JS assertions pass; `tsc --noEmit` clean; app boots with no errors.
+Not verified: the rendered choreography (no `.app` bundle, so the native panel cannot be captured),
+multi-display, idle CPU. Fn-key shortcuts NOT built — consuming CGEventTap probed DENIED.
+
+## 2026-08-05 — Onboarding asks for Accessibility permission (ADR-185, AP-107)
+
+User directive: "The app should ask for accessibility permission while onboarding." Added
+`providers/accessibility::ax_request_permission` (`AXIsProcessTrustedWithOptions` +
+`kAXTrustedCheckOptionPrompt`, a narrowly-scoped one-call CoreFoundation dictionary, released
+immediately after) beside the existing read-only `ax_permission_status`, and a "Grant Accessibility"
+button on onboarding's existing "trust" step (`OnboardingDialog.tsx`) — click-only, never on mount,
+fully skippable, copy honest that Accessibility gates no shipped capability yet (only the still-
+unbuilt Fn-key summon customization from ADR-184).
+
+Blocker checked before writing UI, per the brief: `target/debug/bridge-desktop` has no `.app`
+bundle (`find` under `target/` finds none; `tauri.conf.json` has `bundle.active: true` but no
+evidence `tauri build` has run here). TCC keys an Accessibility grant to the bundled app identity,
+so a grant obtained from today's raw binary is not reliably durable across the next `cargo build` —
+the same limitation ADR-184 already recorded for the Fn-key CGEventTap probe and for computer-use
+screenshot verification. The button ships anyway (real live-polled state, same code becomes durable
+once bundled) with the caveat stated in the ADR/AP row rather than hidden.
+
+Verified: `cargo build` clean (2 pre-existing unrelated warnings only), `cargo test accessibility`
+1/1 (no test added for the prompt command — it triggers a real OS dialog), `tsc --noEmit` clean in
+`apps/web`, `onboarding-learning.test.mjs` 15/15 unchanged. Debug binary launched fresh against a
+scratch `BRIDGE_LOCAL_DIR`: log showed `api sidecar healthy`, panel/notch/overlay ready lines, 15s
+of `200`-status traffic, zero `Error`/`panic` lines, stopped cleanly. Not verified: the rendered
+onboarding screen and the live click → OS-dialog → poll-detects-grant round trip — no `.app` bundle
+for computer-use to attach to and screenshot the native window.
+
+## 2026-08-05 — Chat composer redesign: rounded row with attachment/model/mic/send (ADR-186, AP-108)
+
+User directive: "Keep the right hand AI chat bar UI similar to claude code UI with an option to add
+attachment, choose model, a voice icon for voice input and a miniature arrow acting as send button."
+`ChatView.tsx`'s bottom bar (shared by the full right-hand panel and the avatar overlay's `compact`
+panel) becomes one `rounded-2xl` bordered container — paperclip · model pill · textarea · mic ·
+circular `ArrowUp` send — instead of a bare `<textarea>` beside a rectangular "Send" button.
+
+Investigated before building each control, per AP-021. Attachment: no upload pipeline exists
+anywhere in the repo (grepped `ChatView.tsx`/`useChat.ts`), so the paperclip ships **honestly
+disabled** with a tooltip explaining why, not a silent no-op. Model: a thread's `plane` is fixed at
+creation server-side, so the pill starts a fresh Chat on the chosen plane via the existing
+`chat.newChat(plane)` rather than pretending to swap models mid-thread; while landing this, a
+concurrent workstream extended `chat.model.status` with `configured`/`restartRequired` (ADR-181/
+AP-104), and the pill's disabled Cloud option now explains "restart to activate" vs "add a key in
+Settings" instead of being unexplained. Voice: the mic wires to `companion_transcribe` (Groq
+Whisper STT) — the SAME app-wide Tauri command `avatar/CompanionAsk.tsx`'s push-to-talk already
+calls (confirmed registered globally, not window-scoped, in `lib.rs`'s `invoke_handler!`) — gated on
+the existing `window.__TAURI_INTERNALS__` feature-detection global so a plain-browser render of
+`ChatView` (the common `apps/web` case outside Tauri) shows it **honestly disabled** instead of
+faking capture. Dictation fills the composer's draft for human review rather than auto-sending,
+since a Chat turn can trigger a governed Task proposal (ADR-183/AP-105).
+
+This file was being edited by another in-flight workstream during the change (the `chat.model`
+shape above, plus `ModelSetup`'s copy); reconciled by re-reading the file before each edit rather
+than overwriting its work, and the two composer changes now compose cleanly.
+
+Verified: `tsc --noEmit` clean in `apps/web` and `apps/api`. Live browser check against the Vite dev
+server at `127.0.0.1:5173` (the worktree's tRPC API itself answers "Failed to fetch" — a known
+environment limitation, not a composer defect): DOM inspection confirmed all four controls render
+with correct `aria-label`s and stay inside the panel's bounds at 1600×900 in both light and a forced
+`.dark` class, and that the attachment/mic buttons report `disabled: true` with their honest tooltip
+text outside Tauri. Not verified: the `compact` avatar-overlay path live — that surface is a
+Tauri-only window with no reachable route in this browser preview, so it rests on type-check and
+code review only.
+
+## 2026-08-05 — Shell header misalignment fixed: one shared macOS titlebar strip, shadows replace shell borders, hover-only resize handles (ADR-187, AP-113)
+
+User-described screenshot: the left rail's own header (avatar + org name + collapse icon) sat
+visibly lower than the main-content page header and the chat-panel header — two underlines instead
+of one. Root cause: `DesktopWindowChrome`'s `h-8` traffic-light spacer was stacked ABOVE the rail's
+`h-14` header ONLY; all three headers were already `h-14` (56px), so the bug was a per-column
+y-origin drift, not a height mismatch.
+
+Rewrote `DesktopWindowChrome.tsx` as `DesktopTitlebar` — one full-width `data-tauri-drag-region`
+strip mounted in `Layout.tsx` above ALL THREE shell columns instead of inside the rail alone, so no
+column can drift out of alignment with the others again (structural, not policed by convention).
+`title_bar_style: Overlay` was already set in `tauri.conf.json`, so the workspace/organization name
+renders inline in that strip, left-aligned past a reserved 78px traffic-light gutter — literally
+next to the native traffic lights, the preferred outcome over the font-size fallback; the rail's own
+interactive org-switcher is untouched below it.
+
+Also: `globals.css` gains `--shadow-shell-right`/`--shadow-shell-left` (no `--shadow-*` tokens
+existed before — grepped first) and `Layout.tsx`'s `<nav>` / `AgentPanel.tsx`'s `<aside>` swap
+`border-r`/`border-l` for them on the rail|main-content and main-content|chat-panel seams only
+(internal per-panel header `border-b` dividers untouched). `PanelControl.tsx`'s `ResizeHandle`
+arrow/hairline go `opacity-0` at rest, revealed via `group-hover`/`group-focus-within` (never
+unmounted — a keyboard-focused handle stays reachable), with a new `isDragging` prop forcing
+visibility for the whole drag so a fast pointer move outside the ~8px hit-zone can't flicker it away.
+
+Stayed out of `ChatView.tsx`'s composer internals per the concurrent composer-redesign workstream
+(ADR-186/AP-108) sharing this batch.
+
+Verified: `npx tsc --noEmit` clean in `apps/web`. Live-measured via the Browser preview
+(`127.0.0.1:5173`, dev server already running) with `getBoundingClientRect()`: all three `h-14`
+headers report identical `{top, bottom}` — `{0, 59.5}` in plain browser mode, `{32, 91.5}` with
+`window.__BRIDGE_DESKTOP_PLATFORM__` forced to `"macos"` via a same-document client-side route
+change (a full reload resets the flag, so this was done in-place). Confirmed the shell-boundary
+`box-shadow` renders as a soft seam, not a hard border, in both light and forced-dark mode; confirmed
+the resize-handle arrow is `opacity: 0` at rest and `opacity: 1` on real pointer hover and on
+`.focus()` (`:focus-within` match); checked both collapsed and expanded rail states. Not verified:
+the real native traffic-light buttons and their exact pixel geometry — only exist in a running
+bundled `.app` (none exists in this worktree, the same limitation ADR-184/AP-107 already recorded),
+so confirm on the real desktop app that the workspace-name label doesn't crowd the real lights.
+
+## 2026-08-05 — Notch entrance choreography, 3-line composer, smoother drop, project auto-compact default
+
+User directive (four items). (1) "The hover when I put it back is appearing too low" — the revealed
+notch panel is now 300×136 (was 300×168) with Zazoo flush under the cutout instead of 4pt below it,
+and the bed slab tucked under his feet rather than crossing his middle. (2) The notch composer is a
+3-line `<textarea>`, not a 1-line `<input>`; the chat-pose box grew to 400×152 to hold it. (3) "The
+falling animation is not smooth" — the drop no longer drives React state once per frame; it writes
+`transform`/`left` directly onto the element from rAF, and waits for the full-height-column window
+resize plus two presented frames before its first animated frame. (4) "When hovered over notch, the
+sleeping avatar should slide with the bed, then the avatar should stand as bed slides back" — built
+as a four-phase entrance (`tucked` → `sleeping` → `standing` → `awake`, surfaced as `data-entrance`).
+
+Also fixed in passing: every vertical measurement now derives from `avatarDrawnHeight()` (the rig's
+240×310 viewBox makes a width-84 avatar 108.5pt tall), which was cropping his legs and putting the
+last frame of the fall inside the Dock strip.
+
+Rationale, rejected alternatives and the verification trace: ADR-191.
+
+Separately, at the user's request `autoCompactWindow: 400000` is now a project default in
+`.claude/settings.json` (it was only in the user-level `~/.claude/settings.json`).

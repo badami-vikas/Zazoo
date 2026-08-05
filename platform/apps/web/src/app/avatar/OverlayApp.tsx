@@ -36,10 +36,14 @@ import { ZazooDirector } from "./zazoo/director";
 import {
   ANSWERED_PERFORMANCE,
   CAPTURE_PERFORMANCE,
+  MEDITATE_PERFORMANCE,
+  PET_PERFORMANCE,
   PTT_PRESSED_PERFORMANCE,
   statusToPerformance,
 } from "./zazoo/status-performance";
 import { tauriInvoke, tauriListen } from "./tauri-internals";
+import { NotchHome, type NotchPose } from "./NotchHome";
+import type { NotchGeometry } from "./notch-home";
 import {
   CAPTURE_EVENT,
   STATUS_LABEL,
@@ -57,8 +61,34 @@ interface AvatarPointerGesture {
 }
 
 const AVATAR_DRAG_THRESHOLD_PX = 4;
+/** Fills the 96px collapsed window minus the 10px drag handle above it, so
+ * the whole animal is visible rather than a head cropped into a chip. */
+const AVATAR_RENDER_SIZE = 84;
 const AVATAR_SESSION_READY_EVENT = "bridge:avatar-session-ready";
 const COMPANION_PTT_EVENT = "bridge:companion-ptt";
+const NOTCH_HOVER_EVENT = "bridge:notch-hover";
+
+/** Which home Zazoo currently lives in. Persisted, because dragging him out of
+ * the notch is a deliberate choice that must survive a restart — waking to find
+ * him back in the notch would silently undo the gesture. */
+type AvatarHome = "notch" | "free";
+const HOME_STORAGE_KEY = "bridge.avatar.home.v1";
+
+function loadHome(): AvatarHome {
+  try {
+    return window.localStorage.getItem(HOME_STORAGE_KEY) === "free" ? "free" : "notch";
+  } catch {
+    return "notch";
+  }
+}
+
+function saveHome(home: AvatarHome) {
+  try {
+    window.localStorage.setItem(HOME_STORAGE_KEY, home);
+  } catch {
+    // A companion that cannot persist its home still works; it just forgets.
+  }
+}
 
 /** Full Invoko-spec vocabulary; v1 drives the first four (+ error). */
 export type CompanionState =
@@ -82,7 +112,10 @@ const WINDOW_SIZE: Record<
   { w: number; h: number }
 > = {
   collapsed: { w: 96, h: 96 },
-  hover: { w: 300, h: 96 },
+  // Taller, not wider: the hover chat bar renders ABOVE the avatar (user
+  // directive) so the window grows upward from the pinned bottom-right
+  // corner instead of stretching leftward across the Dock.
+  hover: { w: 300, h: 150 },
   expanded: { w: 320, h: 400 },
   chat: { w: 320, h: 420 },
   ask: { w: 380, h: 500 },
@@ -90,8 +123,10 @@ const WINDOW_SIZE: Record<
 };
 
 export function OverlayApp() {
-  // Persisted visual preferences are not proof that this launch has an active
-  // Organization. The native shell owns that session-scoped readiness gate.
+  // Persisted visual preferences carry the deliberate "owl" default, so the
+  // companion has a face before onboarding has ever run. The native shell owns
+  // the session-scoped readiness gate (app running / signed in), which is now
+  // the ONLY gate on the companion window appearing.
   const [prefs, setPrefs] = useState(() => loadAvatarPrefs(false));
   const [sessionReady, setSessionReady] = useState(false);
   const status = useAvatarStatus();
@@ -124,6 +159,82 @@ export function OverlayApp() {
   // Right-click menu (Hide / Meditate / Observe).
   const [menuOpen, setMenuOpen] = useState(false);
   const [observing, setObserving] = useState(false);
+
+  // Hover chat input (replaces the old hover status label — typing here and
+  // pressing Enter opens the full chat panel with the message already sent).
+  const [hoverDraft, setHoverDraft] = useState("");
+  const [chatSeed, setChatSeed] = useState<{ text: string; nonce: number } | null>(null);
+
+  // --- Notch home (roadmap Z1) -------------------------------------------
+  const [home, setHome] = useState<AvatarHome>(() =>
+    typeof window === "undefined" ? "notch" : loadHome(),
+  );
+  const [notchGeometry, setNotchGeometry] = useState<NotchGeometry | null>(null);
+  const [notchHover, setNotchHover] = useState(false);
+  // The Rust cursor poll only tests a small fixed rect around the cutout — it
+  // has no idea the bed it just woke actually extends further down. Once the
+  // window is real, its OWN DOM hover is a second, more accurate signal; the
+  // two are OR'd below so the window stays up for as long as the cursor is
+  // anywhere over the actual rendered content, not just the narrow wake zone.
+  const [notchDomHover, setNotchDomHover] = useState(false);
+  const [notchPose, setNotchPose] = useState<NotchPose>("bed");
+
+  useEffect(() => {
+    let active = true;
+    void tauriInvoke("notch_geometry").then((geo) => {
+      if (active && geo) setNotchGeometry(geo as NotchGeometry);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // The Rust cursor poll is the only way to know the pointer reached the notch:
+  // at rest the window is concealed, so it has no hit area of its own.
+  useEffect(() => {
+    let unlisten: () => void = () => undefined;
+    void (async () => {
+      unlisten = await tauriListen<{ inside: boolean }>(NOTCH_HOVER_EVENT, (payload) => {
+        setNotchHover(Boolean(payload?.inside));
+      });
+    })().catch((error: unknown) => {
+      console.error("[companion] notch hover listener failed", error);
+    });
+    return () => unlisten();
+  }, []);
+
+  // Dragging the free avatar back up to the notch re-docks it (Rust's
+  // drag-end check emits this when the window is released with its centre in
+  // the notch hot zone). NotchHome's mount slide-in plays the "pull the bed
+  // out and settle onto it" beat.
+  useEffect(() => {
+    let unlisten: () => void = () => undefined;
+    void (async () => {
+      unlisten = await tauriListen("bridge:notch-return", () => {
+        setNotchPose("bed");
+        setHome("notch");
+        saveHome("notch");
+      });
+    })().catch((error: unknown) => {
+      console.error("[companion] notch-return listener failed", error);
+    });
+    return () => unlisten();
+  }, []);
+
+  // In the notch the window is on screen only while it is wanted — hovering
+  // the cutout (Rust signal), hovering the revealed bed/composer itself (DOM
+  // signal — the geometric wake zone is intentionally too small to cover
+  // that), or holding an open composer. Anything else conceals it, so a
+  // sleeping Zazoo costs the desktop nothing.
+  const notchVisible =
+    home === "notch" && (notchHover || notchDomHover || notchPose === "chat");
+  useEffect(() => {
+    if (home !== "notch" || !sessionReady) return;
+    void tauriInvoke(notchVisible ? "overlay_present" : "overlay_conceal");
+    // Once concealed, the window's own hover has nothing to report — clear it
+    // so a stale `true` doesn't pin the window open forever the next wake.
+    if (!notchVisible) setNotchDomHover(false);
+  }, [home, sessionReady, notchVisible]);
 
   const expanded = panel !== "none";
 
@@ -187,11 +298,17 @@ export function OverlayApp() {
     };
   }, []);
 
+  // The OS-level window follows the same single gate as the render above:
+  // session readiness only, never onboarding completion (user directive
+  // 2026-08-05). Without this the companion window would stay concealed even
+  // though the component was willing to render.
   useEffect(() => {
-    void tauriInvoke(
-      sessionReady && prefs.avatarReady ? "overlay_present" : "overlay_conceal",
-    );
-  }, [sessionReady, prefs.avatarReady]);
+    // In the notch home, visibility is the hover contract's to decide (the
+    // window is concealed at rest so the desktop is untouched). Presenting
+    // here too would race that effect for control of one window.
+    if (home === "notch") return;
+    void tauriInvoke(sessionReady ? "overlay_present" : "overlay_conceal");
+  }, [sessionReady, home]);
 
   // Derived companion state (the machine's read model).
   const working =
@@ -278,6 +395,10 @@ export function OverlayApp() {
   // whatever panel state was active, and always gets its own (smallest)
   // window size.
   useEffect(() => {
+    // In the notch, NotchHome owns the window box (it must stay centred on the
+    // cutout, which `overlay_resize` knows nothing about). Two effects sizing
+    // one window would fight every frame.
+    if (home !== "free") return;
     const size = menuOpen
       ? WINDOW_SIZE.menu
       : panel === "ask"
@@ -290,7 +411,19 @@ export function OverlayApp() {
               ? WINDOW_SIZE.hover
               : WINDOW_SIZE.collapsed;
     void tauriInvoke("overlay_resize", { width: size.w, height: size.h });
-  }, [panel, hovering, menuOpen]);
+  }, [panel, hovering, menuOpen, home]);
+
+  // Free-floating Zazoo rests in meditation and opens his eyes when you reach
+  // for him — the same contract as the notch bed, so the two homes behave
+  // identically once he has landed.
+  useEffect(() => {
+    if (home !== "free" || status !== "idle") return;
+    director.perform(
+      hovering || expanded
+        ? { emotion: "calm", action: "idle", attention: "user", energy: 0.4 }
+        : { emotion: "calm", action: "meditating", energy: 0.15, warmth: 0.8 },
+    );
+  }, [home, hovering, expanded, status, director]);
 
   function openStatusPanel() {
     if (panel === "status") {
@@ -353,11 +486,18 @@ export function OverlayApp() {
       suppressAvatarClick.current = false;
       return;
     }
+    // A plain click pets the avatar (a one-shot reaction) AND still opens
+    // the status panel — petting is a reaction, not a replacement gesture.
+    director.perform(PET_PERFORMANCE);
     openStatusPanel();
   }
 
-  function openChatPanel() {
-    setPanel((prev) => (prev === "chat" ? "none" : "chat"));
+  function submitHoverDraft() {
+    const text = hoverDraft.trim();
+    if (!text) return;
+    setChatSeed({ text, nonce: Date.now() });
+    setHoverDraft("");
+    setPanel("chat");
   }
 
   function openAskPanel() {
@@ -375,6 +515,10 @@ export function OverlayApp() {
     setMenuOpen(false);
     setPanel("none");
     setAvatarStatus("idle");
+    // Meditating is a felt state + whole-body action layered on top of idle
+    // status, not a new AvatarStatus — it persists until the next status
+    // change (e.g. listening) naturally overrides it.
+    director.perform(MEDITATE_PERFORMANCE);
   }
 
   function handleObserve() {
@@ -389,7 +533,41 @@ export function OverlayApp() {
 
   const name = prefs.avatarName || "Bridge Avatar";
   const label = STATUS_LABEL[status];
-  if (!sessionReady || !prefs.avatarReady) return null;
+  // User directive 2026-08-05: "Irrespective of onboarding, I want the avatar
+  // to appear." The onboarding-completion gate (`prefs.avatarReady`) is gone;
+  // the native shell's session gate stays, because a companion window with no
+  // app session behind it could not act on anything at all.
+  if (!sessionReady) return null;
+
+  // Notch home: a wholly different surface, not a variant of the free overlay.
+  // It only renders once geometry is known — placing a notch panel from
+  // guessed coordinates would put it somewhere arbitrary on the display.
+  if (home === "notch" && notchGeometry) {
+    return (
+      <NotchHome
+        director={director}
+        geometry={notchGeometry}
+        pose={notchPose}
+        onPose={setNotchPose}
+        onDomHoverChange={setNotchDomHover}
+        visible={notchVisible}
+        name={name}
+        onSubmit={(text) => {
+          setChatSeed({ text, nonce: Date.now() });
+          setNotchPose("chat");
+          setPanel("chat");
+        }}
+        onLanded={() => {
+          setHome("free");
+          saveHome("free");
+          setNotchPose("bed");
+          // Landing is an arrival, not a state: the settle performance is over,
+          // so hand back to the resting meditation the free home defaults to.
+          director.perform(MEDITATE_PERFORMANCE);
+        }}
+      />
+    );
+  }
 
   return (
     <div
@@ -549,14 +727,20 @@ export function OverlayApp() {
               type="button"
               aria-label="Close chat"
               className="text-muted-foreground hover:text-[var(--color-steel)]"
-              onClick={() => setPanel("none")}
+              onClick={() => {
+                setPanel("none");
+                setChatSeed(null);
+              }}
             >
               ×
             </button>
           </div>
           <ChatView
+            key={chatSeed?.nonce ?? "chat"}
             surface="avatar_overlay"
             compact
+            initialDraft={chatSeed?.text}
+            autoSend={!!chatSeed}
             onOpenTask={(taskId) => {
               void tauriInvoke("focus_main_window", {
                 route: `/task-manager/${taskId}`,
@@ -567,35 +751,40 @@ export function OverlayApp() {
       )}
 
       {!menuOpen && (
-        <div className="flex items-center justify-end gap-2" style={{ flex: "0 0 auto" }}>
+        <div
+          className="flex flex-col items-end justify-end gap-1.5"
+          style={{ flex: "0 0 auto" }}
+        >
+          {/* The chat bar sits ABOVE the avatar (user directive), never
+           * beside it — beside pushed the row leftward over the Dock. */}
           {state === "hover" && (
-            <>
+            <div className="flex items-center gap-1.5 w-full">
               <button
                 type="button"
                 onClick={openAskPanel}
                 aria-label={`Ask ${name} about your screen`}
                 title="Ask about my screen (⌘⇧Space)"
-                className="rounded-full bg-background border border-border shadow-md w-8 h-8 flex items-center justify-center hover:opacity-90"
+                className="rounded-full bg-background border border-border shadow-md w-8 h-8 flex items-center justify-center hover:opacity-90 flex-shrink-0"
               >
                 <span aria-hidden="true" style={{ fontSize: "14px" }}>
                   ✨
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={openChatPanel}
-                aria-label={`Chat with ${name}`}
-                title="Chat"
-                className="rounded-full bg-background border border-border shadow-md w-8 h-8 flex items-center justify-center hover:opacity-90"
-              >
-                <span aria-hidden="true" style={{ fontSize: "14px" }}>
-                  💬
-                </span>
-              </button>
-              <div className="whitespace-nowrap rounded-[var(--radius-button)] bg-[var(--color-navy)] text-[var(--color-background)] text-xs px-2 py-1">
-                {label}
-              </div>
-            </>
+              {/* Typing here and hitting Enter opens the chat panel with this
+               * message already sent (ChatView's autoSend). */}
+              <input
+                type="text"
+                value={hoverDraft}
+                onChange={(event) => setHoverDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") submitHoverDraft();
+                }}
+                onFocus={() => setHovering(true)}
+                placeholder={`Message ${name}…`}
+                aria-label={`Message ${name}`}
+                className="min-w-0 flex-1 rounded-[var(--radius-button)] border border-border bg-background shadow-md text-xs px-2.5 py-1.5 focus:outline-none focus-visible:ring-2"
+              />
+            </div>
           )}
           {/* Avatar button + drag handle wrapper.
            *
@@ -652,15 +841,23 @@ export function OverlayApp() {
               onClick={activateAvatar}
               aria-label={`${name}, ${label}`}
               title={`${label} — drag to move`}
-              className="w-14 h-14 rounded-full bg-background border border-border shadow-md flex items-center justify-center focus:outline-none focus-visible:ring-2"
+              className="flex items-center justify-center focus:outline-none focus-visible:ring-2 rounded-md"
               style={{
                 cursor: "grab",
                 touchAction: "none",
+                // No plate behind the companion: the transparent overlay
+                // window shows the animal itself, not a chip with a face in it.
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                width: AVATAR_RENDER_SIZE,
+                height: AVATAR_RENDER_SIZE,
               }}
             >
               <CompanionZazooFace
                 director={director}
-                size={44}
+                size={AVATAR_RENDER_SIZE}
+                crop={false}
                 label={`Avatar state: ${label}${blinking ? " (capturing)" : ""}`}
               />
             </button>

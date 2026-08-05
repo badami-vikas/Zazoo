@@ -4065,3 +4065,527 @@ settled by the first run after this lands, and the probe is recorded in BUGS.
 - **Credential handling**: the key is held in the adapter instance, sent only as an `x-api-key` request header, and never written to provenance, citations, warnings, the taint label, errors, or logs. Provenance records *that* a credentialed provider was used (`providerAccess: free_credentialed`) and never *which* credential. A pinning test asserts the key string appears nowhere in the serialized outcome. This keeps the ADR-006 "tools never own OAuth" spirit intact even though the broker is not yet the source: the capability, the Skill, and the prompt never see the secret.
 - **Alternatives rejected**: (a) **Relax the hardcoded predicate in place** to `tier <= 2` — invisible policy, no way for a deployment to opt out, and nothing stopping a later edit from admitting `paid`. (b) **Register the credentialed provider unconditionally and let it fail without a key** — turns a configuration absence into a runtime failover attempt and a misleading `attempts` trail; the constructor now refuses an empty key outright. (c) **Add 3–4 new Tier-2 vendors now** (Exa/Tavily/Brave/Linkup) — each needs independent rights verification, which is a human gate; shipping four unverified adapters to look thorough would be exactly the rights violation ADR-141 was written to prevent. (d) **Route the key through `CredentialBroker` now** — the broker is `InMemoryCredentialBroker` and returns grant *references* that a connector resolves; there is no durable credential store behind it yet, so wiring it would add ceremony without adding durability or protection. Recorded as open work rather than faked. (e) **Copy the parsing helpers into the new adapter** — see above; drift risk on security-critical code.
 - **Consequences**: The research lane has a real fallback rung and Phase 2's mechanism is complete for one provider. Deployments without a key are byte-for-byte unchanged in posture. **Two gates remain open and are NOT closed by this ADR**: (i) a *human* must confirm the Parallel customer terms permit credentialed automated use at Bridge's volume — I verified technical behaviour and that the terms/privacy/quickstart URLs return 200, which is not the same as verifying permission; (ii) durable credential storage is unbuilt, so the key currently comes from process env. The `rights.verifiedAt` of `2026-07-29` starts the router's 90-day expiry clock, so this adapter stops executing on 2026-10-27 pending re-review — deliberate, matching Phase 1. Verified: platform typecheck 40/40; `@bridge/models` 42/42 (6 new); live end-to-end against the real API with correct tier/access/provenance/taint and no credential leakage. The pre-existing `@bridge/db` Drizzle-metadata test failure is unrelated (no schema or migration touched).
+
+## ADR-172 — The canvas renderer gets real red-flag parity by keeping the governed control in DOM and letting the canvas paint only state (2026-08-04; TASK-031; AP-102; closes the deviation recorded in ADR-160 and AP-093)
+
+- **Context**: ADR-160 shipped two renderers behind the `table` kind with one deliberate asymmetry — the canvas path paints no red-flag glyphs, because `RedFlagControl` is a DOM popover and a flag-looking mark that could not open the governed Action would violate AP-021. That asymmetry was justified on the grounds that "the DOM path — which does carry it — is the default for every dataset small enough to review row-by-row". Investigation on 2026-08-04 found the premise held far more strongly than intended: `TableView.tsx:45` dispatches to `GlideTableView` only past `GLIDE_ROW_THRESHOLD = 400` *visible* rows, and every page that mounts `<DataViews>` pages at 25–50 rows (`RelationshipPage` limit 50, `CONTEXT_PAGE_SIZE = 25`). The canvas renderer had therefore **never rendered in practice** since it landed — its 260 lines were live, unflagged, and unreachable. Because the two renderers carry disjoint feature sets (canvas: column resize/reorder, `freezeColumns`, inline edit, virtualization, range copy; DOM: red flags, row actions, `aria-sort`), the user-visible feature set silently changed as a function of result-set size, which is the defect the user reported. The user then directed that Glide become the sole table renderer (AP-102), and chose red-flag parity as the first increment — correctly, since it is the single constraint ADR-160 named as the reason the DOM path had to stay default.
+- **Decision**: Close the AP-021 gap by splitting the flag into two cooperating layers rather than porting the popover to canvas. **(1) Canvas paints state only.** A `drawCell` callback paints the red flag glyph *exclusively* for anchors whose current flag is `status === "open"` — the glossary's "an open flag is ALWAYS visible, it IS the state". It has no hit target and no handler, so it is not interactive-looking UI in AP-021's sense; non-open flags paint nothing, preserving the hover-only discipline for the un-flagged case. **(2) DOM carries the Action.** Exactly one real `<RedFlagControl>` is mounted, absolutely positioned over the hovered cell's bounds inside a `relative` container, right-aligned so it lands precisely on the painted glyph. This works because `RedFlagControl`'s popover was *already* `position: fixed` and viewport-clamped via `clampMenuPosition` — it never needed to live inside the cell's DOM subtree, which is the observation that makes canvas parity cheap. Anchor shape, `renderedValue`, and the eligibility gate (`isSupportedRedFlagModule`, `isFlaggableValue`, stable persisted `id`) are identical to the DOM path, and `RedFlagProvider` is mounted once per table for one batched query. Touch, which never fires `onItemHovered`, reaches the same control through `onCellClicked`. `RedFlagControl.tsx` and `RedFlagProvider.tsx` are **unmodified** — zero governance logic is reimplemented. The hardcoded `height: 60vh` is also replaced with container-driven height in the same change.
+- **Rejected alternatives**: (a) *`customRenderers`* — the obvious Glide idiom for custom cells, rejected because it replaces the cell **kind**, which would have forced re-implementing the overlay editor, Bubble/Boolean/RAG rendering and range copy for every flaggable cell in order to add a decoration. `drawCell` was verified to be a real `DataEditor` prop in 6.0.3 (absent from the `Omit` list in `data-editor.d.ts:17`) and decorates instead: it calls `drawContent()` first, then paints on top, so every existing cell kind and the built-in editor survive untouched. (b) *Re-implement the flag popover on canvas* — would duplicate six review rounds of governed mutation logic (create/clear/reopen/forget/retryLearning/enact/revoke, the `pendingSaveRef` blur-vs-click serialization, the on-demand approval check) into a second copy that would immediately drift. (c) *Drop `GLIDE_ROW_THRESHOLD` to 0 in this same increment*, as the literal reading of the user's directive would allow — rejected because `StandardColumnMenu`, row actions, the Notion-style empty state and DOM a11y have **no canvas equivalent yet**, so flipping now would close the red-flag gap by opening three others, repeating exactly the silent-asymmetry failure this ADR exists to end. The threshold change is gated on demonstrated parity per AP-102. (d) *Accept the deviation permanently* — leaves the product with a table whose governed feedback affordance disappears above 400 rows, i.e. precisely on the large directories where review matters most.
+- **Consequences**: The AP-021 objection that justified ADR-160's asymmetry is answered, so the sole remaining blockers to a single renderer are feature parity items, not governance ones. `GlideTableView.tsx` grows 260 → 519 lines; `TableView.tsx` changes by comment only and `GLIDE_ROW_THRESHOLD` is untouched, so **this increment changes nothing a user sees today** — it makes the next increment safe. Three behaviour notes worth flagging: the canvas now enforces **enacted-correction suppression** (`learningStatus === "applied"` paints "(corrected, pending re-entry)" instead of the raw value) — a behaviour *addition* on that path, without which the canvas would silently have un-done an approved, enacted correction; two presentational overrides are passed through `RedFlagControl`'s existing `className` prop because on canvas *mounting* is the hover signal rather than CSS `:hover`; and `DANGER_HEX` hardcodes the light-theme `--danger` since canvas cannot read CSS variables, consistent with the existing `bridgeTheme` (the grid is light-only today; dark is separate work). **Not verified**: no runtime/browser exercise of hover→overlay alignment, the touch tap path, or the painted glyph — the canvas path still only engages above 400 rows and the flag layers need a live tRPC backend, so correctness rests on typecheck (web clean, verified independently), the existing suite (no regression; these view components have no test coverage), a successful `vite build`, and static reading of Glide's source for coordinate spaces and index re-mapping. It is also unconfirmed whether Glide's mousedown selection fires when the overlay button is clicked (`RedFlagControl` stops propagation on `click`, not `mousedown`) — harmless if so. A container-height floor of `min-h-96` was added because the only caller renders the view inside an auto-height block where `height: 100%` resolves to zero; that floor is a symptom of the page-layout work still being open and should be removed when `DataViews`' parents declare a real height. Finally, the two risks AP-102 accepts remain open and become load-bearing on every page once the threshold drops: the `glide-data-grid@6` → `marked@^4` peer mismatch (pnpm resolved `marked@18.0.5`) and the HIGH `brace-expansion` advisory via Glide/Linaria (`BUGS.md:823`).
+
+## ADR-173 — `<DataViews>` owns the height contract, and a Module surface is one screenful of table with its sections below the fold (2026-08-04; TASK-031; AP-102; completes ADR-172)
+
+- **Context**: With ADR-172's parity work done, `GLIDE_ROW_THRESHOLD` dropped to 0 and `GlideTableView` became the sole table renderer. Two layout defects then became load-bearing. (a) `GlideTableView` carried a `min-h-96` floor purely because its parent rendered it inside `div.space-y-3`, which has no definite height, so `height: 100%` resolved to zero and the canvas would have vanished — a magic number standing in for a missing contract. (b) All nine `<DataViews>` pages put the table AND the `ModuleFilesSection`/`ModuleIntelligenceSection` in ONE page-level scroller (`TaskManagerPage.tsx:202`, `SignalsPage.tsx:200`, `DealPilotPage.tsx:710`, `RelationshipPage.tsx:483`, `ModuleDetailPage.tsx:805`), so the table never owned a scroll region and never filled the viewport. The user's requirement — table covers the screen, Files/Intelligence appear only on scroll, scroll the table first then the page — was unreachable from that shape. Notably the reference the user cited (`avilo-dashboard-v9`) does NOT solve this either: it is a plain document-scrolling table with `overflow-x-auto` only, no viewport fill, no sticky header, and its own design note argues *against* nested scroll regions. So this is net-new design, not a port.
+- **Decision**: Move the height contract up to `<DataViews>` and encode the surface shape once. `DataViews` root becomes `flex h-full min-h-0 flex-col`, with the toolbar `flex-none` and the view in an explicit definite-height box; `GlideTableView`'s `min-h-96` is deleted. A new `fill` prop (default `true`) lets a surface opt out to a fixed `h-[28rem]` — used only by `OrganizationPage`, which stacks N compiled views down one auto-height plan preview where no viewport share exists to hand out. The view box stays `overflow-auto` in both modes rather than `overflow-hidden`, because every non-canvas renderer (Form/Board/Gallery/Tree/Calendar/Graph/Dashboard) is content-sized with no internal scroller and clipping them would regress them. A new `components/shared/ModuleSurfaceLayout.tsx` encodes the page shape in one place — page scroller > one `h-full` screenful (`above` / table / `footer`) > `below` in normal flow — adopted by the five pages that have both a table and below-fold sections. Scroll handoff is **native chaining**, deliberately: no wheel interception, no scroll hijacking, and `overscroll-behavior` is set nowhere on this path (verified Glide's own dist sets none either; the app's only `overscroll-contain` is an unrelated modal at `OnboardingDialog.tsx:371`).
+- **Rejected alternatives**: (a) *Keep `min-h-96` and give the parent no height* — leaves a magic number encoding a bug, and the table still never fills the screen. (b) *Edit all nine pages ad hoc* — the shape would drift immediately; the user explicitly asked that tables derive from the same primitive. (c) *Implement the user's "1.5x the visible rows" literally as a scroll rule* — would require intercepting wheel events to cut the table's scroll short and force early handoff. Rejected: at 36px rows in a ~600px region ~15 rows are visible, so their 25–50-row tables bottom out in one to three gestures and the requested behaviour falls out of native chaining for free. Hijacking scroll to simulate it would break keyboard/trackpad/momentum scrolling and fight the platform. (d) *Force the primitive onto the four table-free pages* — would add an empty table slot for nothing.
+- **Consequences**: Adopted by `TaskManagerPage`, `SignalsPage`, `JobPilotPage`, `DealPilotPage` (list surface), `RelationshipPage`. NOT adopted by `ModuleDetailPage`, `RelationshipHelpdeskPage`, `RelationshipSubmodulePage`, `TaskRecordDetailPage` — none has a table, so the requirement does not apply. `SignalsPage`'s selected-Signal strip is placed in `footer`, not `below`, deliberately: it is the direct response to clicking a row and pushing it off-screen would read as "nothing happened". Real trade accepted: removing the floor means a short viewport (or a DealPilot stat-card row wrapping to two lines) leaves the grid only a few rows tall — correct for "fills the screen", but a genuine change from the old 24rem guarantee, and it will look cramped below roughly 500px of content height. `fill={false}` also boxes each `OrganizationPage` preview at 28rem with its own scrollbar, which is fine for table/board kinds but will scroll rather than grow if a plan compiles a *form* view there. Zero-row surfaces still satisfy AP-081 (header + empty body + trailing add row) but the empty grid now stretches the full screen, so the "No records yet" note sits in a much larger empty field. **Not verified at runtime**: there is no browser or live backend in this worktree, so scroll-to-fill, the canvas→page handoff, and the visual result of every layout above are reasoned from CSS, not observed — this is the first thing to check on the next live run. Verified only: web typecheck clean, suite green (116 assertions), `vite build` succeeds.
+
+## ADR-180 — The left rail is Modules + Second Brain + Intelligence + Settings only, Settings pinned in a non-scrolling footer; an Agent's Runs are reached through the Agent; the 3-dots Control Panel entry is dropped as a duplicate (2026-08-05; user directive; AP-103; amends ADR-152/ADR-154 nav canon and the UI-RULES "Control Panel in 3-dots" rule from AP-011)
+
+- **Context**: Three defects reported in one user directive. (a) **Settings scrolled away.** `Layout.tsx` already had the right shape — a `flex-1 overflow-y-auto` middle region and a `shrink-0` footer holding Second Brain · Intelligence · Settings — but the middle region had no `min-h-0`. A flex item's default `min-height: auto` refuses to shrink below its content, so with enough installed Modules the scroller grew past its share of the column and pushed the footer below the viewport: the whole rail scrolled and the user could scroll past Settings. The bug was one missing class, not a missing structure. (b) **Research occupied a rail slot it does not qualify for.** The user's rule: the rail is reserved for Modules, Settings, Intelligence and Second Brain, alongside the profile control at the top. Reading the code, "Research" is not a Module and not an Agent either — `web-research` is declared in `modules/manifests/src/index.ts` as a **`skill` capability**, bound to the Relationship Module's **Learning Agent** (`relationship.agent.learning`), and `/research` (TASK-028) is that Skill's Run timeline. Canon already says Skills stay under their consuming Agent, so a top-level nav entry was the one place it could not live. It had been linked there only because TASK-028 shipped the Page with no other route in. (c) **Two Control Panels.** `docs/wiki/ui-architecture.md` (AP-011) requires "Control Panel in 3-dots". In the shipped code the 3-dots menu on `JobPilotPage`, `DealPilotPage` and `SignalsPage` contained exactly ONE item — `<Link to="/module/:name">Control Panel / Module Detail</Link>` — while the scroll-revealed `ModuleIntelligenceSection` below the table already offered "Manage in Module Detail" to the same route. Separately, `app/dataviews/ControlPanel.tsx` (the sliders popover with the honest "not wired" association sections) is **mounted nowhere at all** and has been since it was written; `pending-work.generated.json:1193` already recorded that mismatch.
+- **Decision**: (a) Add `min-h-0` to the rail's scroll region and document why it is load-bearing; the footer keeps `shrink-0`, so Settings is the last item on screen with nothing scrollable after it. (b) Remove the Research rail entry (and the now-unused `Telescope` import). Relocate the surface to the Agent that owns it, **manifest-driven rather than hardcoded**: `ModuleAgentBinding` gains an optional `runRoute?: string` — the same contract `ModuleAutomationBinding` already had, parsed and `/`-validated identically in `core/src/module/manifest.ts` — and the Learning Agent declares `runRoute: "/research"`. Three surfaces render it from the manifest: Intelligence → Agents (a "Runs" action, reusing the existing `Row.action` slot), the per-Module Intelligence Section's Agents tab, and Module Detail's Agent disclosure ("Open Runs"). The `/research` route itself is unchanged and still deep-linkable. (c) Delete the 3-dots control from all three Pages. Because its only entry was the duplicate, an empty menu button would be interactive-looking UI that performs nothing — barred by the actionability rule — so the trigger goes with the item. The scroll-revealed Intelligence Section becomes the single path to Module Detail. `ControlPanel.tsx` is left in place, untouched and still unmounted: it is not what the 3-dots rendered, deleting it is not required by this directive, and its association-graph BUGS entry is the real gate on it.
+- **Rejected alternatives**: (a) *Give the rail `overflow: hidden` or `position: sticky` on the footer* — hides the overflow rather than allocating height; long Module lists would become unreachable. (b) *Move Research under Intelligence as a fourth top-level tab* — Intelligence's four tabs are the capability grammar (Agents · Automations · Skills · Integrations); a "Research" tab would reintroduce the same category error one level down. (c) *Treat Research as an Automation* — the manifest is explicit that `web-research` is a `skill`, and no Automation binds it; classifying it otherwise to justify a placement would be fiction. (d) *Hardcode a `{"learning-agent": "/research"}` map in the web app* — the exact informal per-Page hardcoded list the View-grammar canon forbids; the manifest field costs three lines in core and cannot drift from the Module that owns the Agent. (e) *Merge `ControlPanel.tsx`'s Views/Columns sections into the Intelligence Section* — nothing to merge: the component never rendered, its Views/Columns data is already served by the DataViews switcher and `StandardColumnMenu`, and its six other sections are honest "not wired" placeholders. Moving placeholders would add noise below every table. (f) *Also delete `ControlPanel.tsx`* — out of scope for a nav/menu directive, and the file is the only written-down design for the association panel that BUGS.md still tracks.
+- **Consequences**: `Layout.tsx`, `IntelligencePage.tsx`, `ModuleIntelligenceSection.tsx`, `ModuleDetailPage.tsx`, `JobPilotPage.tsx`, `DealPilotPage.tsx`, `SignalsPage.tsx`, `core/src/module/{types,manifest}.ts`, `modules/manifests/src/index.ts`. The `runRoute` addition is additive and optional, so every existing manifest keeps parsing; snake_case `run_route` is accepted for symmetry with the rest of the parser. **Research is now two clicks deep** (Intelligence → Agents → Runs, or a Module's Intelligence Section) instead of one — a deliberate cost of the rail rule, and it is at least discoverable now, which it was not before ADR-180's predecessor linked it. **The 3-dots menu no longer exists on the three data Pages**, so `docs/wiki/ui-architecture.md`'s "Control Panel ⚙ slot … moves into 3-dots" line is amended, not merely reinterpreted: the admin path is the Intelligence Section → Module Detail. If a Page later needs genuinely page-scoped admin actions, the 3-dots may return — but with real items, not a link that already exists ten pixels below. **Audit finding, reported and NOT acted on**: two rail entries fall outside the user's stated allowed set — **Home** (`/`) and the **"+New"** button. Both predate this directive, neither was named in it, and deleting the only route to the Home Page or the only Module/Record creation entry point unilaterally would be a much larger IA change; they are flagged for the user's decision. The Organization switcher at the top is treated as the "profile at the top" the directive allows. The mobile bottom tab bar (Home · Modules · Chat · Settings · Sign out) is a separate surface and was left alone. **Not verified at runtime**: no browser in this worktree, so the pinned-footer fix and the three "Runs" links are reasoned from CSS and types, not observed. Verified: `@bridge/core` builds, its 14 module-manifest assertions pass, `@bridge/module-manifests`' catalog suite passes, and `apps/web` `tsc --noEmit` reports none of my files. The web typecheck is NOT clean overall — `SettingsPage.tsx` reports missing `modelProviderKey` on the tRPC client, which is a **stale `apps/api` dist** against another workstream's in-flight `router.ts` (source has the procedure, `dist/src/router.d.ts` does not); untouched here.
+
+## ADR-182 — The Glide table's visual language is Avilo Advisory's, expressed in live Bridge tokens: uppercase tracked 10px headers, no vertical rules, 40px rows, and a `useGridPalette()` hook that reads `globals.css` at runtime instead of frozen hex (2026-08-05; user directive; extends ADR-160/ADR-172/ADR-173; touches only `dataviews/views/`)
+
+- **Context**: User directive, verbatim: *"the table UI is not visually what I expected for and I dont want to compramize on it. I want it very similar to avilo advisory table visually."* The reference is `avilo-dashboard-v9` (`platform/apps/web/src/app/components/DataTable.tsx` + `styles/app.css`), whose `@avilo/tables` is a downstream fork of this repo's `platform/packages/tables` — the data engine is already shared, so the entire gap was presentational. Measured diff against `GlideTableView`'s shipped look: header **10px / 600 / UPPERCASE / `tracking-[0.07em]` / faint** on a soft tint with **one** full-weight `border-b` rule, versus Bridge's **12px / 600 / sentence case / mid-navy** with a rule of the same weight as every row; **no vertical grid lines at all** in Avilo (column boundary carried by a 16px `px-4` gutter) versus a `borderColor` rule on every column boundary in Bridge; **`py-2.5` on 13px text ⇒ ~40px rows under a ~35px header**, versus Bridge's inverted 36px rows under a 40px header with 12px `cellHorizontalPadding`; row rules `border-line-soft` (#f2f4f7, near-invisible) versus `#ECEAE3` at nearly full border weight; **no zebra striping** in either; hover `bg-accent-soft/40` (an accent wash) in Avilo versus **no hover state at all** in Bridge; card chrome `rounded-xl` + 1px border + `shadow-[0_1px_2px_rgba(16,24,40,0.04)]` versus `rounded-md` + border, no shadow; Avilo shows **no row-number gutter**, Bridge showed `rowMarkers="number"`; and Avilo carries a `tfoot` aggregate row (`border-t-2`, per-column Sum/Avg/Count dropdowns) that Bridge has no equivalent of. Avilo's own palette is a cool grey-blue (`--color-ink #101828`, `--color-line #e4e7ec`, `--color-accent #1570ef`); Bridge's is a warm navy/parchment. **Licence check: `avilo-dashboard-v9` carries NO `LICENSE`/`COPYING` file, is `"private": true`, and its `package.json` describes itself as "Structured for lift into relationship-os"** — same owner, no restrictive terms found, so no clean-room protocol is triggered. No code was copied regardless: what follows is an independent token mapping of the measured geometry.
+- **Decision**: Borrow the **geometry and hierarchy**, never the palette. (a) New `dataviews/views/grid-theme.ts` exposes `useGridPalette()`, which reads nine Bridge custom properties (`--color-background/-surface/-navy/-navy-mid/-warm-gray/-border/-steel/-amber-soft`, `--danger`) off `document.documentElement` with `getComputedStyle`, derives every tint by sRGB blending rather than by authoring a second set of literals, and rebuilds on a `MutationObserver` over `<html>`'s `class` — the `.dark` signal. This deletes the `bridgeTheme` object of frozen hex whose own comment admitted "this grid does not yet follow the dark palette at all". (b) Geometry: `rowHeight` 36→**40**, `headerHeight` 40→**36**, `cellHorizontalPadding` 12→**16**, `headerFontStyle` `600 12px`→**`600 10px`**, `roundingRadius` 0. (c) `verticalBorder={false}` plus a fully transparent `borderColor`; `horizontalBorderColor` becomes a 55% blend of `--color-border` into the cell background; `headerBottomBorderColor` stays full `--color-border` — the one full-weight rule in the grid. (d) Row hover arrives through `getRowThemeOverride` against a `hoverRow` set from the existing `onItemHovered`, tinted `mix(background, steel, 0.07)`. (e) Uppercase and letter-spacing are the two things Glide's `Theme` cannot express, so `makeDrawHeader` — a **`drawHeader` DECORATOR**, exactly the choice ADR-172 made for `drawCell` — paints the tracked uppercase label, a drawn sort chevron, and a faint three-dot menu marker. Per-character tracking is applied by hand rather than via `ctx.letterSpacing`, which is absent from older WKWebViews and would silently degrade. (f) `rowMarkers="none"`. (g) Card chrome to `rounded-xl` + the 1px lift.
+- **Rejected alternatives**: (a) *Revert to the DOM `TableView` to chase the look* — ADR-172/AP-102 made Glide the sole renderer for virtualization reasons that a visual complaint does not touch, and the DOM path has no virtualization at all. (b) *Copy Avilo's hexes into the theme* — would hard-fork the grid off the brand palette and break dark mode a second time; the directive explicitly asked for token mapping. (c) *Keep the frozen `bridgeTheme` literals and just edit the numbers* — same trap one iteration later; the reason the grid ignored `.dark` was the literals, not the values. (d) *Replace cell kinds with `customRenderers` to control typography per cell* — would force re-implementing editing, the overlay, and range copy for every kind, and is the trade ADR-172 already refused. (e) *Read the CSS variables once at module load* — cheaper, but a `.dark` flip would then need a remount. (f) *`ctx.letterSpacing`* — see above. (g) **Porting the aggregate footer row** — deliberately NOT done: Glide has no footer, so it would mean a `freezeTrailingRows` summary row that shifts every row index the flag layers, row menu and trailing add-row depend on, plus a port of Avilo's `lib/aggregate.ts` (Sum/Avg/Min/Max/Count and their per-column dropdowns). That is a feature, not a visual language, and folding it into a styling change would put the ADR-172 parity work at risk. (h) *Right-aligning numeric columns with tabular figures* — visible in Avilo, but its alignment comes from per-column renderers rather than `kind`, and right-aligned text would collide with the flag glyph the canvas paints at the cell's right edge. Both (g) and (h) are reported as open, not silently dropped.
+- **Consequences**: `platform/apps/web/src/app/dataviews/views/grid-theme.ts` (new) and `GlideTableView.tsx`. Since `GLIDE_ROW_THRESHOLD = 0`, this changes **every table in the product** — Task Manager, Signals, JobPilot, DealPilot, Relationship, Organization previews. All four governed affordances are untouched and were re-read before editing: the `drawCell` flag glyph (now taking `--danger` as an argument instead of a frozen `#C0573E`), the DOM `RedFlagControl` overlay, `StandardColumnMenuPanel` via `onHeaderMenuClick`, the trailing row-actions column, and the `trailingRowOptions` "+ New row". The sort arrow is **no longer spliced into the column title string** (`col.label + "  ↑"`), which means a sorted column's `title` is now just its label — anything reading titles for display gets the clean value, and the chevron is drawn instead. **Row markers are gone**, which also removes marker-click row selection; reverting is one word. **40px rows mean ~10% fewer rows per screen**, which interacts with ADR-173's viewport-fill contract: a short viewport now shows about one row less than before. Verified at runtime, not merely reasoned: the worktree's tRPC API is unreachable outside the Tauri shell, so the app's own tables render "Failed to fetch" — a **temporary** Vite entry (`table-lab.html` + `src/table-lab.tsx`, both moved out of the repo after use, nothing committed) mounted `GlideTableView` against 24 static rows and confirmed on screen: uppercase tracked faint headers, the drawn ascending chevron, absent vertical rules, soft row rules, the 40px rhythm, the accent hover wash on the hovered row, the trailing "+ New row", and — after toggling `.dark` on `<html>` — a full live repaint in the dark palette, which is the direct proof that the `MutationObserver` path works. **NOT verified**: the red-flag glyph and its popover, the column menu and the row menu, none of which the static harness can reach without the API; and no real Bridge Module data has been seen with the new theme. `apps/web` `tsc --noEmit` reports nothing in either changed file (the pre-existing `SettingsPage.tsx` `modelProviderKey` errors are another workstream's stale `apps/api` dist, as recorded under ADR-180).
+
+## ADR-181 — Settings → API Keys stores model-provider secrets in the EXISTING Local Plane credential vault, and activation stays at boot (2026-08-05; AP-103)
+
+- **Context**: The user asked, plainly: "I should ideally be able to add API [keys] in the API section of settings." Today the only way to give Bridge a Groq key is `GROQ_API_KEY` in the process environment, read once at API boot (`wiring.ts`, the `...(process.env.GROQ_API_KEY ? [new GroqProvider()] : [])` branch). There is no `.env` file in the repo, only `.env.example`, so on a fresh desktop install there is no user-reachable path at all. Settings already had an **API Keys** section, rendering the honest `NothingConfigured` empty state ("key management doesn't exist yet"). Investigation before designing anything found that a **governed secret mechanism already exists and is production-shaped**: `SourceCredentialVault` (`platform/modules/dealpilot/src/credentials.ts`) with two approved adapters — `KeyringSourceCredentialVault` (OS keyring via `@napi-rs/keyring`) and `EncryptedFileSourceCredentialVault` (AES-256-GCM, key-id rotation, `0600` files) — selected by `BRIDGE_DEALPILOT_CREDENTIAL_VAULT`, which fails closed when it does not name an approved provider, and which is replaced in public-cloud mode by a vault whose every method throws. So step 4 of the brief ("if no governed store exists, stop and report") did not fire.
+- **Decision**: **(1) Reuse the existing vault rather than build a second secret store.** A model-provider key is stored through `SourceCredentialVault` under scope `{organizationId, sourceId: "model-provider:<providerId>"}`, in the `password` field. No new crypto, no new file format, no new keyring service — the residency posture, the rotation story, and the public-cloud refusal all come for free and cannot drift from DealPilot's. **(2) Split secret from reference.** Key bytes go to the vault; the opaque vault reference plus an `updatedAt` timestamp go to the Local Plane `LocalStateStore` under namespace `model-provider-keys.v1`. A reference is not a secret — without the keyring or the file key it yields nothing — and publishing it is what lets boot find the key without a plaintext copy living anywhere. New file: `platform/apps/api/src/model-provider-keys.ts`. **(3) No read path returns key bytes.** `modelProviderKey.list` returns `{configured, updatedAt, fromEnvironment, active}` per slot and nothing else; the raw value is reachable only from `ModelProviderKeyStore.read()`, whose sole caller is process wiring. **(4) Activation is at boot, and the UI says so.** `createModelRouter` snapshots its provider Map at construction, so the running process cannot gain a provider afterwards. The vault construction was therefore hoisted above the router in `wiring.ts`, and a saved key now registers `GroqProvider` at the *next* start. The save response carries an explicit `activation: "restart_required" | "already_active"` and the Settings row renders "Saved · inactive — restart Bridge to activate", never a fabricated "connected" (AP-021). **(5) A slot table gates the surface.** `MODEL_PROVIDER_KEY_SLOTS` currently holds Groq only, because Groq is the only provider `wiring.ts` knows how to construct from a saved key; adding a row without the matching construction would be exactly the fabricated capability AP-021 forbids, so the two move together. **(6) Human-only, Local-Plane-only.** A new `credentialSettingsProcedure` applies the same authentication + membership floor as `dealpilotProcedure` plus an explicit `identity.type === "user"` check, mirroring `SourceCredentialService`'s human-only rule; the mutations additionally refuse in public-cloud mode, and the default-deny `PUBLIC_CLOUD_PROCEDURES` allowlist already keeps the whole router closed there.
+- **Where the secret is at rest, stated exactly**: macOS Keychain / libsecret / Windows Credential Manager under service `com.bridge.dealpilot` when `BRIDGE_DEALPILOT_CREDENTIAL_VAULT=os-keyring`; or `<BRIDGE_LOCAL_DIR>/credential-vault/*.credential`, AES-256-GCM with a base64 key from `BRIDGE_CREDENTIAL_VAULT_KEY`, when `=encrypted-file`. Never Postgres, never Supabase, never `localStorage`, never a plain file, never a log line, never a tRPC response body. A pinning test asserts the key string and its last four characters appear in neither the state rows nor any `list()` result.
+- **Rejected alternatives**: (a) **Add `register()` to `ModelRouter` for live activation** — the honest-looking answer, rejected for this increment because the router's construction-time validation (id normalization, duplicate rejection, tier/model checks) is a kernel contract consumed by every capability binding, and mutating a live registry mid-flight while completions are in progress is a concurrency question that deserves its own decision rather than being smuggled in behind a Settings field. The cost of deferring is one honest sentence in the UI, not a broken promise. (b) **Store the key in Postgres, encrypted with an app secret** — invents a second key-management story next to a working one and puts a user-typed secret on a plane that syncs; contradicts the residency canon. (c) **`localStorage` in the web app + send-per-request** — puts the secret in the browser and on the wire on every call; not a store, a leak. (d) **Write a `.env` file from the API** — the brief forbids it, and it would put a plaintext key on disk with no rotation, no scoping, and no delete path. (e) **A masked echo (`gsk_…f2a1`) in `list`** — the conventional UX, rejected because a mask is value-derived and tells the user nothing `configured: true` plus `updatedAt` does not. (f) **Ship Anthropic and every other provider slot at once** — each needs its own boot-time construction and its own honest activation story; one slot proves the seam.
+- **Consequences**: The user can now set the Groq key from Settings → API Keys on the desktop app; it survives restart, can be replaced (the superseded vault entry is deleted only after the new reference is durably published) and can be deleted. `GROQ_API_KEY` still wins when set, and the row says so rather than silently losing to it. Three honest limits carried forward: **(i)** a saved key does nothing until restart, by design and stated in the UI; **(ii)** the vault is scoped `sourceId: "model-provider:groq"` inside a *DealPilot*-named service/namespace — the abstraction is generic (`{organizationId, sourceId}`) but the name is not, and renaming `@bridge/dealpilot`'s credential module to a shared package is deferred rather than done mid-flight; **(iii)** in public-cloud mode the section renders an honest "desktop only" state, because the vault there refuses everything. Also of note, `wiring.ts` now builds `dealPilotCredentialVault` ~100 lines earlier (above the model router); only DealPilot's `reconcileCredentialOperations` stayed in place, and the `modelProviders` array is now copied rather than aliased so the boot-time append cannot mutate a mode's port record. **Verified**: `npx tsc --noEmit` clean in `platform/apps/api` and `platform/apps/web`; 4 new assertions in `apps/api/test/model-provider-keys.test.ts` pass; `public-cloud-boundary` (2/2) and `dealpilot-durability` (5/5) pass unchanged after the vault hoist. **Not verified**: no live run — the boot-time registration path, the OS keyring write on a real machine, and the rendered Settings section were not exercised against a running API in this worktree.
+
+## ADR-183 — A Chat thread owns ONE Task node: follow-up turns append to it, and a new node carries a deterministic, explainable parent SUGGESTION the Human can change before approving (2026-08-05; user directive; TASK-026; extends the ADR-035/TASK-026 governed Chat lifecycle)
+
+- **User directive (verbatim)**: "Each time the user inputs, a new task node is created. Continue follow up conversations in same node. Also before adding a task node into task manager, see if this is a child node to any existing task nodes and map it accordingly."
+- **Decision (1 — one node per thread)**: a Chat thread mints its Task node once. Every later turn in the SAME thread that the model classifies as `create_task` is staged as `mode: "append"` against that node instead of a sibling Task. Approval appends one non-northStar `TaskOutcome` (`id = idempotentUuid("<chatTurnId>:outcome")`, so reconciling the same decision twice is a no-op) through a new `TaskManagerStore.appendOutcome` (`withAppendedOutcome` pure helper; `InMemory` + `Drizzle` implementations, optimistic version guard). The node's own exit test is NOT overwritten — the card says so rather than silently dropping the follow-up's exit test, which stays in the ledger inputs.
+- **How the thread references its Task — no new table**: the reference already existed. The proposal id is `idempotentUuid("<assistantTurnId>:proposal")` and the proposal's own inputs name the `taskId`, so the thread's nodes are recovered by scanning one bounded page of turns (`CHAT_TASK_ANCHOR_SCAN_TURNS = 100`) and doing one deterministic `ledger.get` per assistant turn. The node the thread OWNS is the **earliest accepted** (`approve`/`edit`) one — earliest, so it stays stable as the conversation grows. A closed node (`done`/`abandoned`/`archived`) is never appended to; the follow-up becomes a new node with the closed one suggested as its parent.
+- **Decision (2 — parent matching is a suggestion, never an act)**: `suggestTaskParent` (pure, `@bridge/core/chat-task-planning.ts`) scores term overlap between the proposed title+outcome and each **open, owner-visible** Task (stopworded, ≥3-char tokens, ≥2 shared terms, ≥0.34 coverage, deterministic tie-break), with same-thread lineage outranking overlap. The winner and up to five ranked alternatives ride into the proposal's inputs AND proposed output as `parentTaskId` / `parentRationale` / `parentCandidates`, and the review card prints the reason ("Shares \"pricing\", \"page\" with this Task."). The reviewer keeps it, clears it to top level, or swaps it; any change is sent as `edit`, never as a bare `approve` of something the Human altered. Nothing is parented without that decision.
+- **Rejected — an LLM call for parent matching**: it would put a model in the path of where work lands, cost a second inference per Task turn, and degrade to a confident guess when no provider is configured. The deterministic matcher degrades to "no parent suggested", which is the honest answer. (If a model is ever added it must stay a re-ranker over these same candidates, with the same review gate.)
+- **Rejected — silent auto-parenting on a high score**: AP-021 (no fabricated capability) and "explain before automating". A wrong silent re-parent moves the user's work without them ever seeing it.
+- **Rejected — a new `chat_turn_task_refs` table / a new `chat_turn_refs.kind`**: the `kind` CHECK constraint would need a migration, and the thread→Task reference is already derivable from the deterministic proposal id plus the proposal inputs. No migration was written.
+- **Rejected — treating a follow-up as a CHILD task of the thread's node**: the directive says the same node, not a subtree. Children remain what the parent matcher proposes across threads.
+- **Rejected — letting an append rewrite the node's title/outcome/exit test**: an append would then be an unreviewable overwrite of previously approved canon. It only adds.
+- **Consequences**: (a) the `task-manager.create-task` input/output contracts gained `mode`, `parentTaskId`, `parentRationale`, `parentCandidates` — all defaulted in the zod parsers, so proposals staged before this ADR still parse as the create-a-new-node shape they were; (b) `chatTaskProposalInput`'s "taskId is derived from the turn id" invariant now holds only for `mode: "create"` — an append's target is instead re-verified against the thread's own accepted nodes inside `finishChatTaskDecision`, the single mutation choke point both the decide route and the thread-reload reconciler pass through, so a forged proposal still cannot point an append at an arbitrary record; (c) a reviewer-chosen parent is checked for existence and owner-visibility before create; (d) the lifecycle test that staged three proposals in one thread now uses one thread per branch, because a second create in one thread is by design an append; (e) staging a Task proposal costs one bounded turn page plus one ledger lookup per assistant turn, and one `taskManager.list` for candidates.
+- **Not verified**: browser-level check of the new card controls (a dev server owned by another workstream held :5173). Typecheck + the targeted suites are the evidence.
+
+## ADR-184 — Zazoo's notch home is a concealed window woken by a permission-free cursor poll, and the drop is animated inside one full-height window
+
+**Date**: 2026-08-05 · **Status**: accepted · **Task**: roadmap Z1 (`zazoo-companion-avatar-roadmap-2026-07.md`) · **Approval**: AP-106
+
+**Context.** User directive: Zazoo should live in the MacBook camera notch — hover it and he slides
+out on a bed and meditates; click and the notch expands with a chat bar; drag him out and he jumps to
+the bottom of the screen, compresses, expands and lands realistically, then defaults to meditation
+with hover opening his eyes and a chat bar appearing above him. Roadmap Z1 already specified a notch
+home; this directive supersedes its "peek HEAD-ONLY to the LEFT of the notch" detail with a
+slide-out-on-a-bed performance, and adds the composer and the drop.
+
+**Three physical constraints drove the design, each measured rather than assumed.**
+
+1. **There is no display behind the cutout.** A live `NSScreen` probe on this machine (Mac14,2)
+   reports `safeAreaInsets.top = 32` and auxiliary areas of 646 and 645 points, giving a 179×32
+   cutout at x=646 on a 1470×956 logical panel. The cutout is camera housing: anything drawn at
+   those coordinates is invisible. So Zazoo can never be rendered "in" the notch. What reads as the
+   notch expanding is a black panel flush with the display top whose top 32 points are left pure
+   black, blending with the physical cutout. Every layout offset derives from the measured height.
+2. **A concealed window cannot receive hover.** At rest the companion window is concealed entirely,
+   so the desktop is untouched — which means it has no hit area to fire `mouseenter`. A background
+   thread therefore polls `NSEvent::mouseLocation` at 60ms and emits edge-triggered events when the
+   cursor crosses a hot zone padded 48pt each side and 14pt below the cutout. Verified live: a
+   scripted cursor sweep to x=600 (46pt LEFT of the cutout) registers as hover, and the window
+   present/conceal count moves 0 → 1 on entry.
+3. **The panel must outrank the menu bar.** `PanelLevel::Floating` (4) renders below the menu bar
+   and would clip the bed at the cutout's own height. Docking raises the panel to
+   `PanelLevel::Status` (25) and undocking lowers it back.
+
+**Decision.**
+- Notch geometry, the cursor poll and the hot zone live in Rust (`src-tauri/src/notch.rs`); the
+  webview receives measured points and never guesses. `NSScreen` is main-thread-only, so reads hop
+  via `run_on_main_thread` with a bounded 500ms wait and are cached, re-read ~1s, and logged on
+  change — a wrong cutout must be visible in the log rather than silently mislaying the companion.
+- **Cursor polling, not a CGEventTap.** A probe confirmed a consuming HID tap is DENIED without
+  Accessibility while `NSEvent::mouseLocation` needs no TCC grant at all. The peek therefore costs
+  the user no permission prompt.
+- **The drop is animated inside ONE window.** The window grows to a full-height column, Zazoo falls
+  down it in CSS, and the window shrinks to the landing rect on the last frame. Stepping the
+  window's own origin per frame was rejected: no compositor makes that smooth, and a moving window
+  drags its shadow and fights the display server.
+- Fall is `t²` (gravity, not a symmetric ease); squash-and-stretch conserves volume
+  (`scaleX = 1/√scaleY`) so it reads as a body rather than a scale animation; impact is followed by
+  a decaying elastic settle with an explicit convergence test so the rAF cannot spin forever.
+- The chosen home is persisted (`bridge.avatar.home.v1`): dragging Zazoo out is a deliberate gesture
+  and waking to find him back in the notch would silently undo it.
+- One window, two homes — not two windows. A second companion window would risk two visible Zazoos.
+
+**Rejected alternatives.**
+- *Draw inside the cutout* — impossible; no display behind it.
+- *A permanent 1px hover strip instead of concealing* — leaves a window over the menu bar
+  permanently, swallowing clicks meant for menu-bar items.
+- *CGEventTap for hover/Fn* — needs Accessibility, prompts the user, and was measured DENIED.
+- *Animating the window position for the drop* — janky, and fights the compositor.
+- *A separate notch window* — duplicate Zazoo risk, and two windows to keep in sync.
+
+**Consequences.**
+- The companion is invisible at rest in the notch home. Discoverability now rests entirely on the
+  user knowing to hover the notch; no affordance advertises it. Recorded as a known gap.
+- The 60ms poll runs for the life of the app. It is two arithmetic comparisons and one Cocoa call
+  per tick with edge-triggered IPC, but it is not free, and Z1's "< 1% CPU hidden" exit criterion is
+  NOT yet measured.
+- Notch geometry is read from `mainScreen`. Multi-display and display-swap behaviour is unverified.
+- **Fn-key shortcut customization is NOT implemented.** Probes established that observing Fn needs a
+  listen-only tap (Input Monitoring) and that *suppressing* the OS's own 🌐 action needs a consuming
+  tap (Accessibility, measured DENIED). Neither grant can attach to the current raw `cargo build`
+  binary, which has no `.app` bundle. This remains open work, not a shipped capability.
+
+### ADR-184 addendum (2026-08-05, same day) — peek-left, Dock-aware landing, DOM-hover persistence, top-layer docking
+
+User live-testing surfaced four issues in the shipped Z1 slice, each fixed and re-verified rather
+than left as a known gap:
+
+1. **Peek position.** Zazoo drew centred under the cutout; the roadmap's original framing (and
+   user feedback) wants him peeking out to the LEFT of it. New `avatarPeekCenterX()` computes his
+   window-local horizontal centre against the notch's own left edge (`boxWidth/2 - notchWidth/2`);
+   the docked window itself stays notch-centred (ample margin either side), only the drawn position
+   moves. Falls back to window-centred on a flat panel.
+2. **Landing behind the Dock.** `landedWindowRect`/`landingOffsetY` clamped to raw `screenWidth`/
+   `screenHeight`, not the Dock-excluded area — a live probe found the bottom-oriented Dock occupies
+   93pt, and the old landing math (`screenHeight - 190`) put the window entirely inside that strip,
+   so the avatar was on-screen by coordinate but physically rendered BEHIND the Dock's own opaque,
+   topmost bar. `NotchGeometry` now also carries `visibleLeft/Top/Right/Bottom` from
+   `NSScreen.visibleFrame` (which already insets whichever edge the Dock occupies, so this is
+   correct for a bottom, left, or right Dock without special-casing orientation), and both
+   functions clamp to it with a 16pt margin.
+3. **Hover didn't persist onto the revealed content.** The Rust wake zone is deliberately a small
+   fixed rect around the cutout (46pt tall) — it has no idea the bed it just woke actually extends
+   ~110pt further down. Moving the cursor onto the bed left the geometric zone, flipping
+   `notchHover` false and concealing the window mid-interaction. Fixed by adding a second signal:
+   the window's OWN `onMouseEnter`/`onMouseLeave`, OR'd with the Rust signal in `OverlayApp`. Rust
+   still does the one job it uniquely can (waking a window that doesn't yet have hit-testing);
+   DOM hover, once real, is the more accurate authority on "is the cursor still over Zazoo's home".
+4. **Layering.** Docked level was `PanelLevel::Status` (25); raised to `PanelLevel::PopUpMenu`
+   (101, the highest `tauri-nspanel` exposes) per user directive that Zazoo should be the top layer
+   among any other notch-shelf utilities. Safe only because the panel is `nonactivating` and never
+   takes key focus.
+
+**Verified**: live `NSScreen` probe of `visibleFrame` confirms the 93pt bottom Dock inset this
+machine has; 9 JS assertions (`notch-home.test.mjs`, up from 6) including a synthetic left-Dock
+case; 4 Rust assertions; `cargo build` and `tsc --noEmit` both clean; the wake/present pipeline
+re-verified live via a scripted cursor sweep (present count 0 -> 1 on notch entry, unchanged by
+this addendum). **Not verified**: the rendered peek-left position, the sustained-hover feel, and
+the PopUpMenu layering against a real competing notch utility — none are visually inspectable from
+here (no `.app` bundle for computer-use to attach to); they need the user's eyes.
+
+## ADR-186 — The Chat composer becomes one rounded input row (attachment · model pill · text · mic · circular send arrow), and the mic wires to the same real Groq Whisper command the companion already uses instead of a fabricated capture (2026-08-05; user directive; AP-108; extends TASK-026/ADR-183's governed Chat lifecycle)
+
+**Date**: 2026-08-05 · **Status**: accepted · **Task**: Chat composer redesign · **Approval**: AP-108
+
+**Context.** User directive, verbatim: "Keep the right hand AI chat bar UI similar to claude code UI
+with an option to add attachment, choose model, a voice icon for voice input and a miniature arrow
+acting as send button." `ChatView.tsx`'s composer (used both at full size in the right Chat panel and
+`compact` inside the avatar overlay's smaller panel) was a plain bordered `<textarea>` next to a
+rectangular "Send" text button, with no attachment or voice affordance and no in-composer model
+choice — `docs/wiki/ui-architecture.md` did not yet document a composer shape at all.
+
+**What this row approves.**
+1. **Layout**: the textarea and a control row (attachment · model pill on the left, mic · send on the
+   right) now live inside one `rounded-2xl` bordered container with a focus ring, matching the
+   referenced "Claude Code UI" pattern. `compact` shrinks paddings/icon sizes (`size-7` vs `size-8`)
+   rather than changing structure, so the same JSX serves both the full panel and the avatar
+   overlay's smaller panel per its existing `compact` contract.
+2. **Attachment**: a `Paperclip` icon button ships **honestly disabled** — `ChatView.tsx`/`useChat.ts`
+   have no upload pipeline anywhere in the repo (verified by grep), so per AP-021 the button carries
+   `title="Attachments aren't supported yet — this Chat doesn't have an upload pipeline"` instead of
+   being a silent no-op or a fabricated affordance.
+3. **Model choice**: a compact pill `<select>` (aria-label "Chat model") shows "Local model" /
+   "Cloud · groq" and, concurrently with another in-flight workstream's `chat.model.status` changes
+   (ADR-181/AP-104's restart-required distinction), the disabled Cloud option's label now says
+   "restart to activate" or "add a key in Settings" instead of just being unexplained-disabled. A
+   thread's `plane` is fixed at creation server-side, so choosing a model starts a fresh Chat on that
+   plane via the existing `chat.newChat(plane)` call — a real, already-governed action, not a live
+   per-message model swap that does not exist in the backend.
+4. **Voice**: a `Mic` button reuses `companion_transcribe` (Groq Whisper STT), the SAME Tauri command
+   `avatar/CompanionAsk.tsx`'s push-to-talk already calls, registered as an app-wide Tauri command
+   (not window-scoped) — confirmed in `apps/desktop/src-tauri/src/lib.rs`'s `invoke_handler!` and
+   `companion.rs`. `ChatView.tsx` detects the desktop shell via the existing
+   `window.__TAURI_INTERNALS__` global (same feature-detection pattern as `avatar/tauri-internals.ts`)
+   and only enables the button there; a plain-browser render of `ChatView` (the common case for
+   `apps/web` outside Tauri) shows the mic **disabled** with
+   `title="Voice input is available in the Bridge desktop app"` rather than pretending to capture
+   audio. Inside the shell, a click still checks `companion_capabilities().cloudStt` (needs a Groq
+   key) before requesting the mic, and records via `MediaRecorder` exactly like `CompanionAsk`.
+   **Deliberate behavioural difference from `CompanionAsk`**: dictation fills the composer's `draft`
+   state rather than auto-sending — a Chat turn can trigger a governed Task proposal (ADR-183/AP-105),
+   so the human still reviews the transcribed text before it becomes a message.
+5. **Send**: the rectangular "Send" button becomes a circular icon button (`ArrowUp` glyph,
+   `rounded-full`) at the trailing edge of the control row, keeping its existing disabled/loading
+   logic (`Loader2` spinner while `chat.sending`) unchanged.
+
+**Not done.** No new backend attachment-upload endpoint, no live per-message model swap, no changes
+to send/task-creation/threading logic — this is the composer's visual/interaction shell only. Voice
+capture code (`MediaRecorder` + base64 + `companion_transcribe`) is duplicated from `CompanionAsk`
+rather than extracted to a shared hook in this pass, to keep the change surgical; a follow-up could
+hoist it.
+
+**Verified**: `tsc --noEmit` clean in `apps/web` and `apps/api` after reconciling with the concurrent
+`chat.model.status` (`configured`/`restartRequired`) workstream that landed in the same file/router
+during this change. Live browser check via the Vite dev server at `127.0.0.1:5173` (the worktree's
+tRPC API itself is unreachable — "Failed to fetch" — a known limitation of this environment, not of
+the composer): confirmed via DOM inspection that all four controls render with correct
+`aria-label`s and stay within the panel's bounds at desktop width (1600×900) in both light and a
+forced `.dark` class, that the attachment and mic buttons report `disabled: true` with their honest
+tooltip text in the plain-browser context, that typing grows the textarea and enables Send, and that
+`compact` styling was NOT independently exercised live — the avatar overlay is a Tauri-only window
+with no reachable route in this browser preview, so only the full-panel path was visually confirmed;
+the compact path is verified by type-check and code review only.
+
+## ADR-185 — Onboarding gains an explicit, skippable Accessibility-prompt action, with an honest caveat that the current unbundled dev build makes any grant non-durable
+
+**Date**: 2026-08-05 · **Status**: accepted · **Task**: onboarding UX · **Approval**: AP-107
+
+**Context.** User directive: "The app should ask for accessibility permission while onboarding."
+Onboarding's existing "trust" step already reads and displays the live Accessibility grant state
+(`ax_permission_status`, `AXIsProcessTrusted()` — see `providers/accessibility.rs`, built for the
+Zazoo Fn-key investigation recorded in ADR-184) but had no way to trigger the OS's own grant dialog
+— that command's own doc comment flagged `ax_request_permission` as "not built here" pending a real
+permission-dialog round-trip to verify against.
+
+**Investigated before building, honestly.** `AXIsProcessTrustedWithOptions` with the
+`kAXTrustedCheckOptionPrompt` option is the ONLY supported way to raise macOS's own System
+Settings → Privacy & Security → Accessibility dialog and add this process to that list — there is
+no in-app grant path, and once denied once the OS requires the user to flip the toggle themselves
+with no way to re-trigger the dialog from the app. **A blocker was checked before writing any UI**:
+the currently built binary (`target/debug/bridge-desktop`) is a raw `cargo build` executable with
+**no `.app` bundle** — no `Info.plist`, no attached bundle identifier, confirmed by `find`ing no
+`.app` anywhere under `target/` and by `tauri.conf.json` carrying `bundle.active: true` with no
+evidence a `tauri build` has ever been run in this worktree. macOS's TCC (the permission system
+Accessibility is part of) grants trust to a specific bundled app identity; a raw executable's grant
+is keyed to that binary's own path/signature, which changes on every `cargo build`. **This mirrors
+the SAME unbundled-binary blocker ADR-184 already hit** for Fn-key CGEventTap work and for
+computer-use screenshot verification of the native panel.
+
+**What this row approves.**
+1. `providers/accessibility.rs` gains `ax_request_permission` — an `unsafe` FFI call building a
+   one-entry `CFDictionary` (`{kAXTrustedCheckOptionPrompt: kCFBooleanTrue}`) via CoreFoundation's
+   own CF-owned callbacks (so CF manages the boxed `CFBoolean`'s retain count, not this code),
+   passed to `AXIsProcessTrustedWithOptions`, then released immediately — the dictionary never
+   outlives this one function call. Same `#[cfg(target_os = "macos")]` / stub-`false` pairing as
+   `ax_permission_status` and the rest of this codebase's platform-provider pattern (`notch.rs`,
+   `overlay.rs`). Registered in `lib.rs`'s `invoke_handler!` alongside the existing check command;
+   no capability-file entry needed (`capabilities/default.json` already documents that raw
+   `#[tauri::command]`s work without an ACL entry — only plugin commands need one).
+2. Onboarding's "trust" step (`OnboardingDialog.tsx`) gains a "Grant Accessibility" button on the
+   existing Accessibility row, calling `ax_request_permission` **only on click, never on mount** —
+   an unsolicited OS permission dialog is bad UX independent of any platform review rule. The copy
+   is deliberately narrow and present-tense honest (AP-021): Accessibility powers no shipped
+   capability today; it is investigated groundwork for one planned, optional feature (customizing
+   the Fn-key global companion summon, per ADR-184's "consuming CGEventTap... measured DENIED
+   without Accessibility"). Granting it now sets only the OS permission — nothing in Bridge's
+   behaviour changes until that feature ships. The row stays skippable exactly as before: the
+   "trust" step's Continue button has never required any permission grant, and this change adds no
+   new gate.
+3. **The bundling caveat is stated to the user here, not hidden behind a working-looking button.**
+   Clicking "Grant Accessibility" from today's `target/debug/bridge-desktop` will very likely show
+   the real macOS dialog and even let the user flip the toggle — but because the executable has no
+   stable bundle identity, that grant is NOT reliably durable across the next `cargo build` (a new
+   binary path/signature is a new TCC subject as far as macOS is concerned). The button still ships
+   because: (a) it correctly reports whatever the CURRENT process's live trust state is via the
+   existing 1.5s poll: a real Y/N answer, not a fabricated one; (b) once the app is bundled via
+   `tauri build` (`bundle.active: true`, identifier `ai.bridge.desktop`, already configured), the
+   exact same command becomes durable with zero code changes — this is a packaging gap, not a logic
+   gap; (c) the Fn-key feature this permission is groundwork for is itself unbuilt, so there is no
+   present harm from a grant that needs re-doing once bundled.
+
+**Rejected alternatives.**
+- *Silently prompt on mount* — rejected: violates explicit-user-action-only UX practice and this
+  session's already-stated review-pattern norm, independent of App Store rules not applying here.
+- *Wait to ship anything until the app is bundled* — rejected: the user's directive is to build the
+  onboarding ask now; the check/prompt commands and the UI are real, tested, correct code today, and
+  documenting the bundling caveat honestly is preferable to blocking on an unrelated packaging
+  workstream (`tauri build` is out of scope for an onboarding-copy directive).
+- *Claim the grant is permanent in the UI copy* — rejected outright as AP-021 fabrication; the
+  bundling caveat is stated in the row copy's own "Consequence" line implicitly via the "nothing
+  changes until that feature ships" framing, and explicitly here and in `docs/log.md`.
+- *Fold this into the five-question adaptive graph in `questions.ts`* — rejected: E3 (2026-08-05,
+  locked in this same log) fixed the user-facing manual set at EXACTLY five documented questions;
+  reusing the ALREADY-EXISTING "trust" step (which already shows Microphone/Accessibility/Screen
+  recording rows) keeps this change additive to a screen designed for exactly this kind of
+  permission disclosure, rather than reopening locked canon.
+
+**Consequences.**
+- A fresh install today can grant Accessibility during onboarding and see it work for that boot,
+  but a rebuilt dev binary loses the grant — this is a real, user-visible rough edge until the app
+  ships bundled, and is recorded rather than smoothed over.
+- No new capability shipped: Accessibility still gates nothing running today. This is purely the
+  disclosure + OS-permission-request half of a feature whose consuming half (Fn-key CGEventTap) is
+  still open work per ADR-184.
+- `providers/accessibility.rs` now touches CoreFoundation ownership for the first time (previously
+  scoped out as "genuinely unsafe to hand-roll without a live macOS session"); kept to the single
+  narrowest safe shape (one dictionary, one call, immediate release) rather than growing into a
+  general CF wrapper.
+
+**Verified**: `cargo build` clean in `apps/desktop/src-tauri` (2 pre-existing unrelated warnings
+only); `cargo test accessibility` 1/1 (the existing `ax_permission_status` test; no test was added
+for `ax_request_permission` itself since calling it triggers a REAL OS dialog, which must not run
+unattended in CI/dev loops — documented in the function's own doc comment); `tsc --noEmit` clean in
+`apps/web`; the pre-existing 15-assertion `onboarding-learning.test.mjs` suite passes unchanged
+(this change lives in the "trust" step, outside the five-question set that suite pins). The debug
+binary was launched fresh (`BRIDGE_LOCAL_DIR` pointed at a scratch dir) and its log showed
+`api sidecar healthy`, panel/notch/overlay ready lines, and repeated `200`-status `/health` and
+`/trpc/*` traffic with zero `Error`/`panic` lines over 15s, then stopped cleanly. **Not verified**:
+the rendered onboarding screen itself — no `.app` bundle exists for computer-use to attach to and
+screenshot the native window (the same limitation ADR-184 already recorded), so the button's actual
+click → OS-dialog → poll-picks-up-the-grant round trip was exercised by code review and the Rust
+FFI unit test, not watched end-to-end. The user's own eyes are needed to confirm the dialog appears
+
+### ADR-187 (2026-08-05) — one shared macOS titlebar strip replaces the rail-only spacer; shell seams become shadows; resize handles go hover-only
+
+**Problem, from a user screenshot (described in text, not forwarded as an image):** in the native
+desktop window the left rail's own header row (organization avatar + name + collapse icon) sat
+visibly LOWER than the main-content page header ("Settings" + gear + subtitle) and the chat panel
+header — two separate underlines near the top instead of one continuous line. Root cause: a
+`DesktopWindowChrome` `h-8` spacer reserved space for AppKit's overlaid traffic-light buttons
+(`title_bar_style: Overlay`, already set in `tauri.conf.json` — no native change needed) but was
+stacked ABOVE the rail's own `h-14` header ONLY, pushing that one header 32px lower than the other
+two, which never carried an equivalent offset. All three headers were already `h-14` (56px) — the
+bug was a per-column y-origin drift, not a height mismatch.
+
+**Fix — one shared origin, not three synchronized ones.** `DesktopWindowChrome.tsx` is rewritten
+around `DesktopTitlebar`: a single `data-tauri-drag-region` strip spanning the FULL window width,
+mounted in `Layout.tsx` ABOVE the rail|main-content|chat-panel flex row instead of inside the rail.
+Off macOS desktop it renders nothing (web, non-mac desktop already aligned at y=0). On macOS desktop
+every column's header now starts at the same y — either 0 or `MAC_TITLEBAR_H` (32px) — so there is
+nothing column-specific left that could drift the three `h-14` rows apart again; the invariant is
+structural, not something to keep re-checking. The workspace/organization name renders in this same
+strip, left-aligned past a reserved 78px traffic-light gutter — literally next to the traffic lights,
+per the user's ask — as a plain non-interactive label in the native-titlebar convention; the rail's
+own interactive org-switcher (avatar, dropdown, sign-out) is untouched below it. This was reachable
+without any Tauri/Rust window-config change because the overlay title bar was already configured;
+the fallback (shrinking the name's font size instead) was not needed.
+
+**Shell-boundary borders become shadows.** `globals.css` gains `--shadow-shell-right` /
+`--shadow-shell-left` (no `--shadow-*` tokens existed before this — grepped first, confirmed absent,
+then added rather than inventing ad hoc per-component values). `Layout.tsx`'s `<nav>` and
+`AgentPanel.tsx`'s `<aside>` (both collapsed and expanded variants) swap `border-r`/`border-l` for
+these shadow tokens on the rail|main-content and main-content|chat-panel seams only — the internal
+per-panel header `border-b` (rail org row, page `Header`, chat-panel header) is unchanged, since
+those are single-panel dividers, not shell-region boundaries.
+
+**Resize handles go hover/focus-only.** `PanelControl.tsx`'s `ResizeHandle` double-arrow chip and
+hairline were persistently visible (`opacity-60` at rest); now `opacity-0` at rest, revealed via
+`group-hover`/`group-focus-within` CSS only — the control stays mounted throughout (never
+unmount/remount), so it cannot flicker. A drag in progress can move the mouse outside the ~8px
+hit-zone fast enough to lose `:hover`; `ResizeHandle` gained an `isDragging` prop (threaded from
+`usePanelControl().isDragging` in both `Layout.tsx` and `AgentPanel.tsx`) that forces the affordance
+visible for the whole drag regardless of pointer position. Keyboard reachability is preserved
+because the separator itself is `tabIndex={0}` and IS the `group` — `group-focus-within` fires the
+moment it receives focus, hover-only at rest never locks out keyboard users.
+
+**Rejected alternatives:**
+- *Reserve the traffic-light gutter as horizontal rail padding in the collapsed (76px) rail state
+  too.* Rejected — the gutter (78px) alone would consume the entire collapsed rail width, leaving no
+  room for the avatar/collapse control; the full-width top-strip design sidesteps this because it is
+  never constrained by the rail's own width.
+- *Apply the same `h-8` spacer to every individual page header (`Header.tsx`, `SettingsPage.tsx`'s
+  own header block, `AgentPanel.tsx`) so each independently matches the rail.* Rejected — three
+  independently-applied spacers is exactly the "eyeballed, can drift apart again" shape the user
+  explicitly asked to avoid; one shared strip above all three columns makes drift structurally
+  impossible instead of merely policed by convention.
+- *Convert the internal per-panel header `border-b` (rail org row, `Header.tsx`, chat-panel header)
+  to shadows too, for full consistency with the "shadows not borders" theme.* Rejected as
+  out-of-scope — the user's ask named the nav|content and content|chat SHELL seams specifically; the
+  double-line artifact's other line was the drifted rail header, not these internal dividers, which
+  already matched `h-14` height and were never the reported bug.
+
+**Consequences.** The `DesktopWindowChrome` export name and shape changed (`DesktopTitlebar` +
+`useIsMacDesktop` + `MAC_TITLEBAR_H`/`MAC_TRAFFIC_LIGHT_GUTTER` constants) — its only caller,
+`Layout.tsx`, was updated in the same change. `Layout.tsx`'s outer wrapper gained one nesting level
+(`flex-col` outer, `flex flex-1 min-h-0` inner row) to host the shared strip above the three-column
+row; JSX balance confirmed by a clean `tsc --noEmit`, not by manual bracket-counting.
+
+**Verified:** `npx tsc --noEmit` clean in `apps/web`. Live-measured in the Browser preview
+(`http://127.0.0.1:5173`, dev server already running) via `getBoundingClientRect()`: the rail header,
+`Header.tsx` page header, and chat-panel header all report identical `{top, bottom}` in plain browser
+mode (`{0, 59.5}`), and — with `window.__BRIDGE_DESKTOP_PLATFORM__` forced to `"macos"` via a
+same-document client-side route change (a full navigation reload would have reset the flag) — all
+three again report identical `{top, bottom}` (`{32, 91.5}`), confirming the shared-strip fix holds in
+the simulated desktop path too. Confirmed the shell-boundary `box-shadow` renders (not a hard
+border) in both light and forced-dark (`.dark` class) mode. Confirmed the resize-handle arrow is
+`opacity: 0` at rest, `opacity: 1` on real pointer `:hover` (via the Browser tool's `hover` action)
+and on programmatic `.focus()` (`:focus-within` match). Checked both collapsed and expanded rail
+states. **Not verified:** the real native traffic-light buttons and their exact pixel geometry — that
+only exists in a running bundled `.app` (no `.app` bundle exists in this worktree, the same
+limitation ADR-184/AP-107 already recorded), so the browser preview can simulate the reserved-gutter
+layout but not the actual AppKit-drawn buttons next to it. The user's own eyes on the real desktop
+app are needed to confirm the workspace-name label doesn't crowd or overlap the real traffic lights.
+and the copy reads as intended.
+
+## ADR-190 — Chat's model gate stops forcing local-only: `chat.model.status` reports Cloud (Groq) availability with the ADR-181 restart-required distinction, and the composer offers a real Local/Cloud choice (2026-08-05; user directive; AP-112; extends ADR-181/AP-104; reconciles with the concurrent composer redesign in ADR-186/AP-108)
+
+**Date**: 2026-08-05 · **Status**: accepted · **Task**: Chat model selection · **Approval**: AP-112
+
+**Context.** User directive: "instead of downloading local model, provide an option for user to
+choose model including the groq model from API." `ChatView.tsx`'s `ModelSetup` forced every Local
+Plane thread through "Set up local model" / "Retry model setup" as the only path shown, and the
+composer disabled itself with "Set up the local model first" whenever that thread's local model
+was not `ready` — even on installs where a Groq key was already usable.
+
+**Investigated before building, per the brief.** Provider selection was NOT hardcoded to local: a
+Chat thread already carries a `plane: "local" | "cloud"` set at creation, `resolveChatModel(wiring,
+plane)` already picks whichever registered `ModelProvider` matches that plane, `chat.turn.send`
+already branches on `thread.plane === "cloud"` through the existing `chat.turn.prepareCloud` exact-
+context consent flow, and `chat.model.status` already returned `cloud: { available, providerId,
+modelTree }` computed from `resolveChatModel(wiring, "cloud")`. **The entire cloud path was already
+live** — the only gap was that nothing in the UI ever created a Cloud-plane thread or told the user
+Cloud was an option, so every user was silently funneled into `plane: "local"` by the default
+`newChat(undefined, "default")` call in `useChat`'s mount effect. This is a UI-choice gap, not a
+missing-plumbing gap, exactly as anticipated.
+
+**What this row approves.**
+1. `chat.model.status` (`apps/api/src/router.ts`) gains `cloud.configured` and
+   `cloud.restartRequired`, computed by reusing `ModelProviderKeyStore.list()` — the SAME
+   configured/active read Settings → API Keys already shows (ADR-181) — rather than re-deriving "is
+   a key saved" a second way. When `resolveChatModel` finds no registered Cloud provider, status now
+   distinguishes "no key saved anywhere" (`configured: false`) from "a key IS saved but this
+   process's `createModelRouter` snapshot predates it" (`configured: true, restartRequired: true`),
+   so Chat can say "restart to activate" instead of a misleading "not set up" for both cases.
+2. `ChatView.tsx`'s composer gains a small `<select>` (already present as a concurrent composer-
+   restyle landed it — this row extends it) that starts a NEW Chat thread on the chosen plane via
+   the existing `chat.newChat(plane)`; the Cloud option is enabled only when
+   `chat.model.cloud.available`, shown disabled with "restart to activate" when
+   `restartRequired`, and disabled with a pointer to Settings when not configured at all — never a
+   silently-omitted option that looks like Cloud doesn't exist.
+3. `ModelSetup`'s copy and the empty-thread message are rewritten to offer BOTH paths honestly:
+   set up the local model, OR (if Cloud is available) switch via the model menu, OR (if a key is
+   saved but inactive) restart Bridge, OR (if nothing is configured) a direct `Link` to
+   `/settings?section=api`.
+
+**Rationale.** The existing Cloud plumbing (thread `plane`, `resolveChatModel`, the
+`prepareCloud`/exact-context-consent turn flow) is provider-agnostic by construction and needed no
+new routing logic — building a second selection mechanism would have duplicated it. Reusing
+`ModelProviderKeyStore.list()`'s own `configured`/`active` fields inside `chat.model.status` keeps
+the "is Groq usable right now" answer in exactly one place instead of two boolean derivations that
+could drift.
+
+**Alternatives rejected.** A live-reload of the model router on key save was considered (would make
+"restart required" unnecessary) and rejected as out of scope here — ADR-181/AP-104 already declined
+that increment and nothing about this row's UI gap changes that tradeoff. A dedicated
+`chat.model.providers` endpoint was considered and rejected as duplicate surface: `chat.model.status`
+already carried `cloud` and is the endpoint `useChat` already polls.
+
+**Consequences / follow-ups.** `docs/wiki/decisions.md` gains a one-liner. The composer `<select>`
+is intentionally minimal chrome so a concurrent composer-restyle pass can re-skin it without
+touching this row's gating logic. Not done: no UI lets a user switch an EXISTING thread's plane
+mid-conversation — plane stays fixed at thread creation, matching the server contract; switching
+models means starting a new Chat, which the picker already does.
+
+**Verified**: `apps/api` `tsc --noEmit` clean; `apps/api` `chat.test.ts` 19/19 including three new
+assertions for `chat.model.status`'s not-configured / configured-but-restart-required / active-cloud
+cases against the real `ModelProviderKeyStore` (via `InMemorySourceCredentialVault`, not the OS
+keyring); `public-cloud-boundary.test.ts` 2/2 unchanged; `apps/web` `tsc --noEmit` clean;
+`apps/web/test/chat.test.mjs` 5/5 unchanged. A dev Vite server already running at `127.0.0.1:5173`
+in this worktree was used to load the panel — the composer's "Local model" select renders and the
+page shows no new console errors, only the pre-existing `Failed to fetch` from the tRPC API not
+being reachable in this worktree (a known, previously-recorded limitation, not caused by this
+change). **Not verified**: the actual Cloud send round-trip (needs a live API process with a real or
+test Groq provider registered, which this worktree's dev preview does not have), and the rendered
+restart-required/not-configured composer states (needs a saved key + a running API to observe, per
+the same limitation).
+
+## ADR-191 — The notch entrance is a bed-carries-a-sleeping-Zazoo performance, the drop is animated by direct DOM writes rather than React state, and every vertical layout is computed from the avatar's DRAWN height (2026-08-05; user directive; refines ADR-184)
+
+**Context.** The notch home shipped in ADR-184 with three user-visible faults reported after live
+use: the revealed panel sat "too low" (a 168pt box with the avatar parked 4pt below the cutout and a
+bed slab crossing his middle), the composer was a single-line `<input>`, and the drop "is not smooth".
+The user also specified the entrance choreography explicitly: "the sleeping avatar should slide with
+the bed, then the avatar should stand as bed slides back".
+
+**Decision.**
+
+1. *Entrance is a four-phase performance*, exposed on the root element as `data-entrance`
+   (`tucked` → `sleeping` → `standing` → `awake`) so it is observable from the browser lab. The
+   avatar is already rotated onto his side while tucked, so the slide out of the cutout is a pure
+   translation and the only rotation the eye sees is him standing up; the bed slides out with him
+   and retracts on its own once he is upright. The rotation pivots at his FEET (`transform-origin:
+   50% 100%`) so standing reads as rising, not spinning.
+2. *He lies CLOCKWISE.* He peeks only ~60pt left of the panel's left edge but his body is ~93pt
+   long, so lying counter-clockwise cropped his head off the panel (verified in the lab, screenshot).
+   The bed slab is offset 44pt right of his standing position to sit under the lying body.
+3. *The drop is animated by writing `transform`/`left` straight onto the element* from a rAF loop,
+   not by `setState` per frame. The previous implementation re-rendered this component — and the
+   whole avatar rig inside it — 60 times a second on top of the rig's own animation loop. The fall
+   also now waits for the native full-height-column resize to resolve AND for two presented frames
+   before its first animated frame; resizing a window mid-animation drops frames on its own.
+4. *Vertical layout is computed from `avatarDrawnHeight(width)`*, not from the requested width. The
+   rig draws on a 240×310 viewBox, so a width of 84 is 108.5pt tall. Treating the width as the height
+   is what let the panel crop his legs, and it put the last frame of the fall ~25pt inside the Dock
+   strip (`landingOffsetY` now subtracts the drawn height).
+5. *The notch avatar is 72pt wide* (free-floating stays 84) so the whole animal fits a panel sized to
+   the cutout, and the composer is a 3-line `<textarea>` (user directive).
+
+**Rejected.** Rotating about the element's centre for the sleep pose — the bounding box then fits
+without a compensating offset, but the stand looks like a pivot in mid-air rather than getting up.
+Keeping React state for the drop and memoising harder — the cost is the re-render itself, not the
+transform computation.
+
+**Consequences.** The docked box shrinks from 300×168 to 300×136 (bed) and 380×250 to 400×152
+(chat). `avatarDrawnHeight` is now the single place the rig's aspect ratio is encoded; changing the
+rig's viewBox requires changing it. `data-entrance`/`data-dropping` are load-bearing test hooks, not
+decoration.
+
+**Verified.** Headless Chrome against the lab (`overlay.html?lab=1`) at the live-measured Mac14,2
+geometry: phase trace shows `sleeping` (bbox 33–128 inside the 136 box, bed at 0) → `standing`
+(bed retracting to −185) → `awake` (avatar 32–125); the fall's per-frame Δy rises monotonically
+(0.8, 2, 3, 4, 5, 5.6, 7.3 … ) with no discontinuity, and the run ends by invoking
+`overlay_undock_free {x: 1358, y: 751, 96×96}` — bottom 847 against a visible floor of 863, right
+edge 1454 against 1470, i.e. the bottom-right corner clear of the Dock. Live app (pid 98187,
+HMR): the notch panel window now measures 300×136 at X=585 Y=0 via `CGWindowListCopyWindowInfo`.
+Not verified: a real CGEvent drag-out on the running app — every `bridge-desktop` window reported
+`onscreen=false` for the duration, and bringing it forward needs the Accessibility grant this
+unbundled dev binary cannot hold (the ADR-184 addendum limitation).

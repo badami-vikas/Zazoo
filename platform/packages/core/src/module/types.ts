@@ -59,6 +59,11 @@ export interface ModuleAgentBinding {
   capabilityId: string;
   skillIds: string[];
   plane?: Plane;
+  /** Route of this Agent's own Run surface (its Runs / watch-and-interrupt
+   * Page), when the Module ships one. Declared here — never hardcoded in a
+   * nav — so an Agent's Runs are reached through the Agent that owns them
+   * (ADR-180). Same contract as `ModuleAutomationBinding.runRoute`. */
+  runRoute?: string;
 }
 
 export interface ModuleAutomationBinding {

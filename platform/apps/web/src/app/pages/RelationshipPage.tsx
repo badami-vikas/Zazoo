@@ -21,6 +21,7 @@ import {
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { DataViews } from "../dataviews/DataViews";
@@ -480,8 +481,8 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
   if (rows === null) return <div className="p-4 sm:p-6 text-sm text-muted-foreground">Loading {plural.toLowerCase()}…</div>;
 
   return (
-    <div className="flex-1 overflow-auto">
-      <section aria-label={`${plural} landing section`}>
+    <ModuleSurfaceLayout
+      above={
         <div className="border-b px-4 py-3" style={{ borderColor: "var(--color-border)" }}>
           <Input
             value={search}
@@ -491,7 +492,9 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
             aria-label={`Search ${plural}`}
           />
         </div>
-        <div className="p-4">
+      }
+      table={
+        <section aria-label={`${plural} landing section`} className="h-full">
           <DataViews
             spec={spec}
             view={view}
@@ -514,27 +517,33 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
               if (scope === "full") navigate("/second-brain");
             }}
           />
-        </div>
-        {view.kind !== "form" && total > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3" style={{ borderColor: "var(--color-border)" }}>
-            <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
-              Showing {offset + 1}–{offset + rows.length} of {total}
-            </p>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}><ChevronLeft className="w-4 h-4" /> Previous</Button>
-              <Button size="sm" variant="outline" disabled={!hasMore} onClick={() => setOffset(offset + 50)}>Next <ChevronRight className="w-4 h-4" /></Button>
-            </div>
+        </section>
+      }
+      // Pagination belongs to the table, so it stays in the first screen
+      // rather than needing a scroll to reach.
+      footer={view.kind !== "form" && total > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3" style={{ borderColor: "var(--color-border)" }}>
+          <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+            Showing {offset + 1}–{offset + rows.length} of {total}
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}><ChevronLeft className="w-4 h-4" /> Previous</Button>
+            <Button size="sm" variant="outline" disabled={!hasMore} onClick={() => setOffset(offset + 50)}>Next <ChevronRight className="w-4 h-4" /></Button>
           </div>
-        )}
-      </section>
-      {kind === "person" && <IntakeReviewSection />}
-      <div className="m-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
-        <ModuleFilesSection moduleName="relationship" />
-      </div>
-      <div className="m-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
-        <ModuleIntelligenceSection moduleName="relationship" />
-      </div>
-    </div>
+        </div>
+      ) : null}
+      below={
+        <>
+          {kind === "person" && <IntakeReviewSection />}
+          <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
+            <ModuleFilesSection moduleName="relationship" />
+          </div>
+          <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
+            <ModuleIntelligenceSection moduleName="relationship" />
+          </div>
+        </>
+      }
+    />
   );
 }
 
