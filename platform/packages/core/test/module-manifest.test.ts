@@ -94,7 +94,7 @@ test("parseModuleManifest: validates Module Agent-owned Skills and Automations",
   const parsed = parseModuleManifest(
     rawManifest({
       capabilities: [
-        { id: "dummy.view", capability_type: "view", permissions: [] },
+        { id: "dummy.view", capability_type: "database", permissions: [] },
         { id: "dummy.skill", capability_type: "skill", permissions: [] },
         { id: "dummy.agent", capability_type: "agent", permissions: [] },
         { id: "dummy.automation", capability_type: "automation", permissions: [] },
@@ -251,7 +251,7 @@ test("parseModuleManifest: rejects a Module Skill not owned by a declared capabi
       parseModuleManifest(
         rawManifest({
           capabilities: [
-            { id: "dummy.view", capability_type: "view", permissions: [] },
+            { id: "dummy.view", capability_type: "database", permissions: [] },
             { id: "dummy.agent", capability_type: "agent", permissions: [] },
           ],
           module: {

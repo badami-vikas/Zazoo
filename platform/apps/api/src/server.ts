@@ -12,10 +12,14 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from "@trpc/server/a
 import { appRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
 import { isVerifierConfigured } from "./identity.js";
-import { buildWiring, LEARNING_DIGEST_AUTOMATION_ID, PILOT_ORGANIZATION } from "./wiring.js";
+import { buildWiring, PILOT_ORGANIZATION } from "./wiring.js";
 import { indexMemoryEmbeddings } from "./retrieval-fusion.js";
 import { runUsageRetrievalEval } from "./retrieval-eval.js";
-import { SeededRng, SystemClock, UuidGen, hashTaintValue, labelAtSource, type RunCtx } from "@bridge/core";
+import { SystemClock } from "@bridge/core";
+import {
+  startAutomationScheduler,
+  type AutomationSchedulerHandle,
+} from "./automation-scheduler.js";
 import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
 import { reconcileOrganizationRelationshipMaterializations } from "./relationship-materializer.js";
 import { SIDECAR_TOKEN_HEADER, validSidecarToken } from "./sidecar-auth.js";
@@ -580,53 +584,30 @@ export async function buildServer() {
     );
     relationReconciliationTimer.unref();
   }
-  // TASK-032 — scheduled learning observation digest. Runs the governed
-  // Automation (Learning Agent, advisory, propose-only) every 15 minutes and
-  // once shortly after boot. Exists ONLY while the flight is on and never on
-  // the public cloud boundary (the digest reads/writes private Local-Plane
-  // Memories). Reentrancy-guarded and unref'd like the reconciliation timer;
-  // a failed run logs and waits for the next tick — no retry storm.
-  let learningDigestRunning = false;
-  const runLearningDigest = async () => {
-    if (learningDigestRunning) return;
-    learningDigestRunning = true;
-    try {
-      const clock = new SystemClock();
-      const runCtx: RunCtx = {
-        clock,
-        rng: new SeededRng(clock.nowMs() >>> 0), // boundary seed (context.ts pattern)
-        ids: new UuidGen(clock, new SeededRng(clock.nowMs() >>> 0)),
-        // Scheduled kernel trigger — no human in the loop, no external
-        // content: system_generated/verified_system. The taint sink gate
-        // fails closed on an UNKNOWN label, so the label must be explicit.
-        taintLabel: labelAtSource("system_generated", {
-          ref: `schedule:${LEARNING_DIGEST_AUTOMATION_ID}`,
-          valueHash: hashTaintValue({ automationId: LEARNING_DIGEST_AUTOMATION_ID }),
-          sensitivity: "organization",
-          instructionRisk: "data",
-        }),
-      };
-      const result = await wiring.automationExecutor.runById(
-        { organizationId: PILOT_ORGANIZATION, automationId: LEARNING_DIGEST_AUTOMATION_ID },
-        runCtx,
-      );
-      if (result.status !== "completed") {
-        app.log.warn({ runId: result.runId, status: result.status }, "learning observation digest halted");
-      }
-    } catch (err) {
-      app.log.error({ err }, "learning observation digest failed");
-    } finally {
-      learningDigestRunning = false;
-    }
-  };
-  let learningDigestTimer: NodeJS.Timeout | undefined;
-  let learningDigestBootTimer: NodeJS.Timeout | undefined;
+  // ADR-179 — the generic Automation scheduler. This used to be a hardcoded
+  // `setInterval(..., 15 * 60_000)` naming ONE automation id, which meant any
+  // Automation declaring a schedule (in its manifest, or in the `cadence`
+  // column) simply never ran. The cadence now lives on each Automation as a
+  // typed trigger and this loop reads it, so adding a scheduled Automation
+  // needs no new timer and no server change.
+  //
+  // Same posture as before: flight-gated, off on the public cloud boundary
+  // (scheduled Runs touch private Local-Plane state), reentrancy-guarded and
+  // unref'd. A failed Run logs and waits for the next tick — no retry storm,
+  // and one broken Automation cannot stop the others.
+  let automationScheduler: AutomationSchedulerHandle | undefined;
   if (wiring.learningObservationEnabled && !wiring.publicCloudOnly) {
-    // First run shortly after boot (not inline: boot latency stays flat).
-    learningDigestBootTimer = setTimeout(() => void runLearningDigest(), 30_000);
-    learningDigestBootTimer.unref();
-    learningDigestTimer = setInterval(() => void runLearningDigest(), 15 * 60_000);
-    learningDigestTimer.unref();
+    automationScheduler = startAutomationScheduler({
+      registry: wiring.automationRegistry,
+      runRecorder: wiring.automationRunRecorder,
+      executor: wiring.automationExecutor,
+      organizationId: PILOT_ORGANIZATION,
+      log: {
+        info: (obj, msg) => app.log.info(obj as object, msg),
+        warn: (obj, msg) => app.log.warn(obj as object, msg),
+        error: (obj, msg) => app.log.error(obj as object, msg),
+      },
+    });
   }
 
   // LA5 (TASK-032) — scheduled memory-embedding indexer. Derived-index
@@ -717,12 +698,7 @@ export async function buildServer() {
     if (relationReconciliationTimer) {
       clearInterval(relationReconciliationTimer);
     }
-    if (learningDigestBootTimer) {
-      clearTimeout(learningDigestBootTimer);
-    }
-    if (learningDigestTimer) {
-      clearInterval(learningDigestTimer);
-    }
+    automationScheduler?.stop();
     if (memoryIndexBootTimer) {
       clearTimeout(memoryIndexBootTimer);
     }

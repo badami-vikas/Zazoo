@@ -115,7 +115,7 @@ function capabilityTypeFor(input: ForeignCapabilityDescriptorInput): CapabilityT
     case "pi-module": {
       const primitive = descriptor.primitive;
       if (primitive === "extension") return "skill";
-      if (primitive === "theme") return "view";
+      if (primitive === "theme") return "database";
       return "skill"; // skill | prompt
     }
     case "mcp-server":

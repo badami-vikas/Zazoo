@@ -9,7 +9,7 @@ import type {
   AutomationStepDef,
   RunCtx,
 } from "@bridge/core";
-import { canonicalizeJson } from "@bridge/core";
+import { canonicalizeJson, cadenceLabel, parseAutomationTrigger } from "@bridge/core";
 import {
   labelFromLegacyTrustOrigin,
   storedTaintLabelOrUnknown,
@@ -129,6 +129,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
           agentId: automations.agentId,
           agentPlane: automations.agentPlane,
           pipeline: automations.skillPipeline,
+          trigger: automations.trigger,
         })
         .from(automations)
         .where(
@@ -149,6 +150,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
           agentId: row.agentId,
           agentPlane: row.agentPlane,
           steps: parseAutomationSteps(row.pipeline),
+          trigger: parseAutomationTrigger(row.trigger),
           status,
         };
       });
@@ -164,6 +166,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
         agentId: automations.agentId,
         agentPlane: automations.agentPlane,
         pipeline: automations.skillPipeline,
+        trigger: automations.trigger,
       })
       .from(automations)
       .where(
@@ -189,6 +192,7 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
       agentId: row.agentId,
       agentPlane: row.agentPlane,
       steps,
+      trigger: parseAutomationTrigger(row.trigger),
     };
     });
   }
@@ -212,6 +216,12 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
       );
     }
     const steps = parseAutomationSteps(definition.steps);
+    // ADR-179: `trigger` and `cadence` were dead columns — `trigger` was
+    // hardcoded to `{}` and `cadence` never written at all. They now carry the
+    // real trigger and a human-readable projection of it. `cadence` is a
+    // PROJECTION, never a second source of truth: it is recomputed from
+    // `trigger` on every write, so the two cannot drift.
+    const trigger = definition.trigger ?? { kind: "manual" as const };
     await tx
       .insert(automations)
       .values({
@@ -221,7 +231,8 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
         agentId,
         agentPlane,
         skillPipeline: steps,
-        trigger: {},
+        trigger,
+        cadence: cadenceLabel(trigger),
         status: definition.status ?? "active",
       })
       .onConflictDoUpdate({
@@ -231,6 +242,8 @@ export class DrizzleAutomationRegistry implements AutomationRegistry {
           agentId,
           agentPlane,
           skillPipeline: steps,
+          trigger,
+          cadence: cadenceLabel(trigger),
           status: definition.status ?? "active",
         },
       });

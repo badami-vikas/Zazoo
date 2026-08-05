@@ -21,6 +21,7 @@ import type {
 } from "./types.js";
 import type { CapabilityExecutionSpec, CapabilityManifest, SandboxIsolationLevel } from "../capability/types.js";
 import { parseOrganizationBlueprint } from "../blueprint.js";
+import { parseAutomationTrigger } from "../automation-trigger.js";
 
 const MODULE_KINDS: readonly ModuleKind[] = [
   "skill",
@@ -243,8 +244,8 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
       capabilityId: requiredString(page.capabilityId ?? page.capability_id, `module.module.pages[${index}].capability_id`),
     };
     if (!binding.route.startsWith("/")) fail(`module.module.pages[${index}].route must start with /`);
-    if (capabilityById.get(binding.capabilityId)?.capabilityType !== "view") {
-      fail(`module.module.pages[${index}].capability_id must reference a view capability`);
+    if (capabilityById.get(binding.capabilityId)?.capabilityType !== "database") {
+      fail(`module.module.pages[${index}].capability_id must reference a database capability`);
     }
     return binding;
   });
@@ -282,6 +283,12 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     if (!isPlainObject(automation)) fail(`module.module.automations[${index}] must be an object`);
     const automationId = automation.automationId ?? automation.automation_id;
     const runRoute = automation.runRoute ?? automation.run_route;
+    // ADR-179: the machine-readable trigger, parsed with the same validator the
+    // Automation store uses so a manifest and a stored row cannot disagree
+    // about what a schedule means. A malformed schedule FAILS the manifest
+    // rather than silently degrading to "never runs".
+    const scheduleRaw = automation.schedule;
+    const schedule = scheduleRaw === undefined ? undefined : parseAutomationTrigger(scheduleRaw);
     const binding: ModuleAutomationBinding = {
       id: requiredString(automation.id, `module.module.automations[${index}].id`),
       name: requiredString(automation.name, `module.module.automations[${index}].name`),
@@ -291,6 +298,7 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
       ),
       agentId: requiredString(automation.agentId ?? automation.agent_id, `module.module.automations[${index}].agent_id`),
       trigger: requiredString(automation.trigger, `module.module.automations[${index}].trigger`),
+      ...(schedule !== undefined ? { schedule } : {}),
       procedure: requiredString(automation.procedure, `module.module.automations[${index}].procedure`),
       ...(automationId !== undefined
         ? { automationId: requiredString(automationId, `module.module.automations[${index}].automation_id`) }

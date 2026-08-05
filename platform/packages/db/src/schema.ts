@@ -1270,7 +1270,7 @@ export const capabilityManifests = pgTable(
   {
     id: uuidPk(),
     organizationId: uuid("organization_id").notNull().references(() => organizations.id),
-    capabilityType: text("capability_type").notNull(), // skill | automation | agent | integration | view | dashboard
+    capabilityType: text("capability_type").notNull(), // skill | automation | agent | integration | database (ADR-180: "view"→"database", "dashboard" removed)
     /** REG-1 Component Registry discriminator (undefined-elements §2) — reuse
      * this table as the registry rather than forking a second source of truth.
      * Nullable: pre-REG-1 rows have no kind; overlap detection falls back to

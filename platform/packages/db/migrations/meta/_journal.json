@@ -260,6 +260,13 @@
       "when": 1785867456919,
       "tag": "0037_aqv_ledger_attribution",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785867456920,
+      "tag": "0038_capability_type_database",
+      "breakpoints": true
     }
   ]
 }

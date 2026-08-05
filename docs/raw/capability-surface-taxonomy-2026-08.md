@@ -112,7 +112,7 @@ bug, not a style preference.
 | Thing | Axis 1 (Surface) | Axis 2 (Capability) | Why |
 |---|---|---|---|
 | **NetworkManager** | Module | container | Its own subject: the people graph |
-| People ↔ Communities | **Toggle** | — | Strong sibling cluster, different columns, same Page (rule 1.3) |
+| People ↔ Communities | **Toggle** | each a **Database** | Two Databases joined by a real many-to-many Relation (`community_members`) — the checkable form of "strongly related" (ADR-180) |
 | WhatsApp / Gmail / LinkedIn | **Sub-module** | each backed by an Integration | Related to NetworkManager, not strongly to the People table (rule 1.5) |
 | Gmail's OAuth connection | — | **Integration** | A governed connection with auth + sync contract |
 | "Draft a reply" | — | **Skill** | One bounded job; an Agent calls it; draft-only, egress-gated |
@@ -121,24 +121,55 @@ bug, not a style preference.
 | Dedupe / matching | — | **Engine** | Shared machinery, no authority, invisible |
 | **TaskManager** | Module | container | Unrelated subject (rule 1.6) |
 | **DealManager** | Module | container | Deals/Sources/Theses are their own subject |
-| Deals ↔ Sources ↔ Theses | **Toggle** | — | Same rule as People/Communities |
+| Deals ↔ Sources ↔ Theses | **Toggle** | each a **Database** | Same rule — but a **recorded gap**: the links are denormalised `thesisTag`/`sourceChannel` TEXT, not Relations, so this cluster fails the rule today (ADR-180) |
 | **JobManager** | Module | container | Unrelated subject |
 
 Note the symmetry: People/Communities and Deals/Sources/Theses are the *same rule*
 firing twice. That is the sign the taxonomy is real rather than post-hoc.
 
+**Two corrections from the owner, 2026-08-05 (ADR-180)**, both of which made the model
+smaller rather than larger:
+
+- **Page is not an axis value.** It is DERIVED: declaring a Database creates its Page. The
+  decision a person actually makes is "another Database in this Module, or another
+  Module?" — never "Page or Module?". Page was listed as a Surface value by mistake.
+- **The toggle hinge is the Database, not the column set.** "Different columns of the same
+  table" named the symptom; columns differ *because* the Database differs. Any subset of
+  one Database — fewer rows **or** fewer columns — is a **List**. This also resolved a
+  standing contradiction inside `ui-architecture-rules`: §1 said "different columns of the
+  same table", §5a said Add page appears "iff the column's source is a database-backed
+  entity/table". §5a is what the code implements.
+
+The owner's framing of the cluster is worth keeping verbatim, because it is what makes the
+rule checkable: the right-hand toggle elements behave as **parent Databases** to the
+left-hand ones, many-to-many — a child belongs to several parents, a parent holds several
+children. `ColumnSpec.relationTarget` and `relationParent` (`@bridge/tables`) already
+encode exactly that.
+
+**What a Module contains** (owner's model): Databases (each → a toggle Page) ·
+Sub-modules (each → a sub-page, own manifest) · Agents (Skills are owned BY Agents, never
+standalone) · Automations · Integrations. **"Tool" is not a primitive** — tool access is
+the *grant* of an Integration to an Agent or an Automation.
+
+**Where documentation sits:** neither axis. It is a Module **asset** (`references/` in the
+module directory; `docs/raw` + `docs/wiki` for this repo). Not callable, no permissions, no
+trust lifecycle — so it is not a Capability, and it renders nowhere by itself, so it is not
+a Surface.
+
 ## 5. OPEN — where canon and code disagree today
 
 Recorded rather than resolved. Each needs a decision; none should be silently patched.
 
-1. **"Capability" is defined twice, incompatibly.** `glossary.md` says a Capability is
-   "primarily a Skill or Integration". The code's `CapabilityType`
-   (`packages/core/src/capability/types.ts`) is
-   `skill | automation | agent | integration | view | dashboard`. Under the glossary an
-   Agent is not a Capability; under the code it is. **Recommendation:** adopt the code's
-   wider definition and fix the glossary — the trust model already operates uniformly on
-   all six.
-
+1. ~~**"Capability" is defined twice.**~~ **CLOSED 2026-08-05 (ADR-180, AP-106).** Adopted the
+   code's wider definition — a Capability is the governed ATOM (one trust lifecycle, its own
+   permissions and risk band), not a composite of Skills+Agents+Automations+docs — and fixed the
+   glossary to match. Two corrections went the other way, into the code: `capability_type: "view"`
+   became `"database"` (it always WAS the Database declaration; the built-ins name them "Deals
+   database and views" and give them record read/write permissions), and dead `"dashboard"` was
+   deleted. A **View** is a UI element the user picks at render time: no permissions, no trust
+   lifecycle, never a Capability. Residue: `ModuleKind` still carries a `"view"` member, a
+   different union meaning "a Module that ships a view" — left alone, and now inconsistent with
+   `CapabilityType`.
 2. ~~**Sub-module has no implementation.**~~ **CLOSED 2026-08-05 (ADR-178, AP-105).**
    `ModuleSurfaceManifest` now carries optional `parentModule`, and the left rail renders
    a one-level collapsible group (`buildModuleNavTree` +
@@ -156,10 +187,13 @@ Recorded rather than resolved. Each needs a decision; none should be silently pa
      `deal-pilot`, `job-pilot`. Only the display names moved. The identifier migration
      belongs to the vocabulary plan, which already carries 139 open violations.
 
-3. **"Scheduled Automation" has no scheduler.** The glossary defines it;
-   `AutomationDefinition` has no trigger or schedule field, and the only time-driven path
-   is one hardcoded 15-minute timer for one automation.
-
+3. ~~**"Scheduled Automation" has no scheduler.**~~ **CLOSED 2026-08-05 (ADR-179, AP-106).**
+   `AutomationTrigger` (`manual | schedule{everyMinutes} | event{event}`) now lives on
+   `AutomationDefinition`, the `automations.trigger`/`cadence` columns carry it instead of being
+   dead, and a generic scheduler reads each Automation's own cadence — replacing one hardcoded
+   `setInterval` that named a single automation id. Residue, stated rather than hidden: nothing
+   dispatches `event` triggers, so `undispatchedTriggers()` names every one and the scheduler logs
+   them at boot.
 4. **The Capability Builder cannot build.** Its declared responsibility is creating
    Agents, Skills, Automations and Modules; it currently emits descriptive text and runs
    a regex over prose. There is no single unified builder, and no classifier that decides

@@ -2803,7 +2803,7 @@ const automationCreateInput = z.object({
 // namespace; governance (approve) routes through the pipeline's decide()
 // semantics — human identity from ctx.identity, agents blocked by the floor.
 // ---------------------------------------------------------------------------
-const capabilityTypeEnum = z.enum(["skill", "automation", "agent", "integration", "view", "dashboard"]);
+const capabilityTypeEnum = z.enum(["skill", "automation", "agent", "integration", "database"]);
 const capabilityOriginEnum = z.enum(["built_in", "template", "community", "ai_generated", "user_code"]);
 const capabilityAudienceEnum = z.enum(["private", "team", "external_visible"]);
 

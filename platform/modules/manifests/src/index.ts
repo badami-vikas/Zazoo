@@ -149,9 +149,9 @@ function capability(
 }
 
 const dealPilotCapabilities = [
-  capability("deal-pilot.deals", "Deals database and views", "view", [readAll("record"), writeAll("record")]),
-  capability("deal-pilot.sources", "Sources database and views", "view", [readAll("record"), writeAll("record")]),
-  capability("deal-pilot.theses", "Theses database and views", "view", [readAll("record"), writeAll("record")]),
+  capability("deal-pilot.deals", "Deals database and views", "database", [readAll("record"), writeAll("record")]),
+  capability("deal-pilot.sources", "Sources database and views", "database", [readAll("record"), writeAll("record")]),
+  capability("deal-pilot.theses", "Theses database and views", "database", [readAll("record"), writeAll("record")]),
   capability(
     "dealpilot.source",
     "Source governed deal candidates",
@@ -188,7 +188,7 @@ const dealPilotCapabilities = [
 ];
 
 const jobPilotCapabilities = [
-  capability("job-pilot.jobs", "Jobs database and views", "view", [readAll("record"), writeAll("record")]),
+  capability("job-pilot.jobs", "Jobs database and views", "database", [readAll("record"), writeAll("record")]),
   capability("job-pilot.score-fit", "Score job fit", "skill", [readAll("record")]),
   capability("job-pilot.transition-application", "Validate application transition", "skill", [writeAll("record")]),
   capability(
@@ -216,39 +216,39 @@ const jobPilotCapabilities = [
 ];
 
 const relationshipCapabilities = [
-  capability("relationship.page.signals", "Signals", "view", [
+  capability("relationship.page.signals", "Signals", "database", [
     readPrivate("signal"),
     writePrivate("signal"),
     readPrivate("person"),
     readPrivate("community"),
   ]),
-  capability("relationship.page.people", "People", "view", [
+  capability("relationship.page.people", "People", "database", [
     readPrivate("person"),
     writePrivate("person"),
   ]),
-  capability("relationship.page.communities", "Communities", "view", [
+  capability("relationship.page.communities", "Communities", "database", [
     readPrivate("community"),
     writePrivate("community"),
   ]),
-  capability("relationship.submodule.relations", "Relations", "view", [
+  capability("relationship.submodule.relations", "Relations", "database", [
     readPrivate("relation"),
     writePrivate("relation"),
   ]),
-  capability("relationship.submodule.interactions", "Interactions", "view", [
+  capability("relationship.submodule.interactions", "Interactions", "database", [
     readPrivate("event"),
     writePrivate("event"),
   ]),
-  capability("relationship.submodule.introductions", "Introductions", "view", [
+  capability("relationship.submodule.introductions", "Introductions", "database", [
     readPrivate("event"),
     writePrivate("event"),
   ]),
-  capability("relationship.submodule.helpdesk", "Helpdesk", "view", [
+  capability("relationship.submodule.helpdesk", "Helpdesk", "database", [
     readPrivate("record"),
     writePrivate("record"),
     readPrivate("event"),
     writePrivate("event"),
   ]),
-  capability("relationship.submodule.sources", "Sources", "view", [
+  capability("relationship.submodule.sources", "Sources", "database", [
     readPrivate("record"),
   ]),
   capability("relationship.skill.timeline-synthesis", "Relationship timeline synthesis", "skill", [
@@ -348,8 +348,8 @@ const relationshipCapabilities = [
  * that matches it, and the manifest test asserts the two stay honest.
  */
 const whatsappCapabilities = [
-  capability("whatsapp.page.chats", "Chats", "view", [readPrivate("event")]),
-  capability("whatsapp.page.tools", "Tools", "view", [readPrivate("record")]),
+  capability("whatsapp.page.chats", "Chats", "database", [readPrivate("event")]),
+  capability("whatsapp.page.tools", "Tools", "database", [readPrivate("record")]),
   capability("whatsapp.tool.contact-extractor", "Contact Extractor", "skill", [
     readPrivate("person"),
     writePrivate("person"),
@@ -470,7 +470,7 @@ const taskManagerAutomations = [
 ] as const;
 
 const taskManagerCapabilities = [
-  capability("task-manager.tasks", "Tasks Database and Views", "view", [readAll("record"), writeAll("record")]),
+  capability("task-manager.tasks", "Tasks Database and Views", "database", [readAll("record"), writeAll("record")]),
   ...taskManagerSkills.map(([id]) =>
     capability(`task-manager.skill.${id}`, `Skill: ${id.replaceAll("-", " ")}`, "skill", [readAll("record"), writeAll("record")])
   ),

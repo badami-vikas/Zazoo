@@ -4859,6 +4859,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         organizationId: PILOT_ORGANIZATION,
         agentId,
         agentPlane: agent.plane,
+        // ADR-179: a Module's declared `schedule` now reaches the registry.
+        // Install used to read `automation.procedure` and drop everything else,
+        // so `trigger: "Scheduled"` in a manifest meant nothing at all.
+        ...(automation.schedule ? { trigger: automation.schedule } : {}),
         steps: [{
           skill: automation.procedure,
           action: permission.action as Action,
@@ -4918,6 +4922,11 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       organizationId: PILOT_ORGANIZATION,
       agentId: LEARNING_AGENT,
       agentPlane: "local",
+      // ADR-179: the digest's 15-minute cadence used to live in a hardcoded
+      // `setInterval` in server.ts that named this automation id directly. It
+      // now lives on the Automation, where it is data the scheduler reads —
+      // so a second scheduled Automation needs no new timer.
+      trigger: { kind: "schedule", everyMinutes: 15 },
       steps: [
         {
           skill: OBSERVATION_DIGEST_SKILL_ID,

@@ -30,7 +30,7 @@ import type { Plane, TrustOrigin } from "../types.js";
 /** roadmap-v2 §RAG knowledge layers: personal (private to the user),
  * organization (shared across the Organization), external (governed research —
  * always quarantined `untrusted_external`). */
-export type KnowledgeLayer = "personal" | "organization" | "external";
+export type MemoryLayer = "personal" | "organization" | "external";
 
 export type RetrievalLaneName = "structured" | "vector" | "graph";
 
@@ -43,7 +43,7 @@ export interface RetrievalCandidate {
   text: string;
   /** Provenance label surfaced in prompt projections (e.g. `memory:<id>`). */
   source: string;
-  layer: KnowledgeLayer;
+  layer: MemoryLayer;
   /** Residency of the underlying row. Fusion treats a MISSING plane as
    * local (fail closed) — callers should always set it explicitly. */
   plane?: Plane;
@@ -84,7 +84,7 @@ export interface FusionResult {
   candidates: FusedCandidate[];
   /** Count of candidates dropped by the cross-plane gate — surfaced so a
    * caller/test can prove the gate fired rather than silently passing. */
-  suppressedCrossPlane: number;
+  suppressedByPlaneGate: number;
 }
 
 /**
@@ -96,14 +96,14 @@ export function fuseRetrieval(input: FuseRetrievalInput): FusionResult {
   const limit = input.limit ?? 8;
   const k = input.rrfK ?? 60;
   const byId = new Map<string, FusedCandidate>();
-  let suppressedCrossPlane = 0;
+  let suppressedByPlaneGate = 0;
 
   for (const lane of input.lanes) {
     lane.candidates.forEach((candidate, index) => {
       // Cross-plane hard invariant: cloud requesters never see anything not
       // explicitly cloud-resident. Missing plane fails closed as local.
       if (input.requesterPlane === "cloud" && candidate.plane !== "cloud") {
-        suppressedCrossPlane += 1;
+        suppressedByPlaneGate += 1;
         return;
       }
       const contribution = 1 / (k + index + 1);
@@ -120,7 +120,7 @@ export function fuseRetrieval(input: FuseRetrievalInput): FusionResult {
   const candidates = [...byId.values()]
     .sort((a, b) => (b.fusedScore - a.fusedScore) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .slice(0, limit);
-  return { candidates, suppressedCrossPlane };
+  return { candidates, suppressedByPlaneGate };
 }
 
 /** Project fused candidates into the run-context memory slot. Scores are

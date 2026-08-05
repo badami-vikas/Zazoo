@@ -40,7 +40,7 @@ function generalizedManifest(version = "1.0.0", name = "example-view") {
     capabilities: [
       {
         id: `${name}.surface`,
-        capability_type: "view",
+        capability_type: "database",
         permissions: [{ resource_type: "person", action: "read", data_scope: "all", egress: false }],
       },
     ],
