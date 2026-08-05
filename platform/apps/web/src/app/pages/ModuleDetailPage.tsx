@@ -67,7 +67,7 @@ function SectionHeader({ icon: Icon, title }: { icon: LucideIcon; title: string 
 function SubmodulesSection({ pkg }: { pkg: ModuleRow }) {
   const prefix = `${pkg.moduleName}.submodule.`;
   const submodules = (pkg.manifest?.capabilities ?? []).filter(
-    (capability) => capability.capabilityType === "view" && capability.id.startsWith(prefix),
+    (capability) => capability.capabilityType === "database" && capability.id.startsWith(prefix),
   );
   if (submodules.length === 0) return null;
 

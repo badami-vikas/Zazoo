@@ -45,7 +45,7 @@ function generalizedManifest(name = "test-fixture-signed", version = "1.0.0"): M
     capabilities: [
       {
         id: `${name}.surface`,
-        capability_type: "view",
+        capability_type: "database",
         permissions: [{ resource_type: "person", action: "read", data_scope: "all", egress: false }],
       },
     ],

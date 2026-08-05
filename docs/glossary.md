@@ -12,12 +12,12 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Module Detail** — actionable Module overview showing its purpose, status, Pages, Agents, each Agent’s Skills, Automations, Integrations, Files, recent Runs, settings, and permitted management Actions.
 - **Blueprint** — versioned definition of an Organization’s installed Modules, default Pages, Views, Automations, and Home composition. A Blueprint proposes configuration; it does not bypass activation governance.
 - **Home** — cross-Module landing View that assembles relevant, recurring context and Actions.
-- **Page** — routable Module surface backed by one Database or an eligible parallel Database cluster and selected by a toggle or navigation item. Overview, Summary, Report, File, Result, or section-only content is not a Page.
-- **View** — presentation of a Page’s Database, such as table, cards, board, calendar, map, graph, or form.
+- **Page** — routable Module surface backed by one Database, selected by a toggle or navigation item. A Page is DERIVED, not designed: declaring a Database in a Module creates its Page. Overview, Summary, Report, File, Result, or section-only content is not a Page.
+- **View** — presentation of a Page’s Database, such as table, cards, board, calendar, map, graph, or form. A View is a UI element the user picks at render time: it holds no permissions, has no trust lifecycle, and is never a Capability (ADR-180).
 - **View Grammar** — registered View types and conversion rules that every Module and generated surface must follow.
-- **List** — saved Record subset of one Database with shared Fields.
+- **List** — saved selection over ONE Database: which rows, and which of its columns are shown. Both row filters and column subsets are Lists — a different projection of the same Database never earns its own Page (ADR-180).
 - **Section** — titled block within a Page.
-- **Database** — structured collection of Records governed by one schema.
+- **Database** — structured collection of Records governed by one schema. A Database is a Capability (`capability_type: database`) because it is what carries record permissions; each Database in a Module surfaces as exactly one Page.
 - **Record** — durable row in a Module Database.
 - **Record Detail** — routable surface for one Record’s Fields and related Sections. Every Record has one; Record Detail is not a sibling Module Page.
 - **Field** — typed value on a Record.
@@ -56,7 +56,7 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Communications Skill** — draft-only Skill for preparing communications. Sending remains a separate egress-governed Action.
 - **Integration** — governed connection to an external or local system, including authentication, synchronization, and data contracts.
 - **Engine** — reusable internal runtime machinery, such as execution, retrieval, routing, synchronization, policy evaluation, recurrence, or model selection. Agent-consumed Skills use Engines; Automations start Agent Runs.
-- **Capability** — governed callable behavior, primarily a Skill or Integration. Agents use Skills and Integrations; Views present their effects.
+- **Capability** — one governed unit with its own trust lifecycle, permissions, and risk band: a Skill, Automation, Agent, Integration, or Database. It is the ATOM the governance pipeline reasons about, not a composite of several. A Module is the shipping unit that bundles capabilities; asking whether something is "a Module or a Skill" is a category error (ADR-180).
 - **Capability Manifest** — source-of-truth declaration of a capability’s inputs, outputs, permissions, Integrations, risk evidence, rollback behavior, evaluation requirements, and optional UI surface.
 - **Module Installation** — Organization-scoped record that a Module and version are available for use.
 - **Module Version** — immutable release of a Module. Exactly one version is live for an installation; replacement and rollback preserve history.

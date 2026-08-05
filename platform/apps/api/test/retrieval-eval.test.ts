@@ -70,7 +70,7 @@ test("usage queries are deterministic distinctive tokens", () => {
   assert.equal(usageQueryFor(""), "");
 });
 
-test("an empty workspace skips honestly and persists nothing", async () => {
+test("an empty Organization skips honestly and persists nothing", async () => {
   const wiring = await buildWiring({ retrievalFusionEnabled: true });
   try {
     const result = await runUsageRetrievalEval(evalDeps(wiring));

@@ -106,7 +106,7 @@
 }
 
 /* State 1: tools in individual hands */
-.journey-tool {
+.journey-skill {
   position: absolute;
   top: 26%;
   left: 44%;
@@ -118,19 +118,19 @@
   transition: opacity 850ms ease, transform 850ms ease;
 }
 
-.journey-stage:not([data-stage="-"]) .journey-tool {
+.journey-stage:not([data-stage="-"]) .journey-skill {
   opacity: 1;
 }
 
-.journey-stage[data-stage="2"] .journey-tool,
-.journey-stage[data-stage="3"] .journey-tool,
-.journey-stage[data-stage="4"] .journey-tool {
+.journey-stage[data-stage="2"] .journey-skill,
+.journey-stage[data-stage="3"] .journey-skill,
+.journey-stage[data-stage="4"] .journey-skill {
   transform: translateY(34px);
   opacity: 0.5;
 }
 
 /* State 2: redesigned workflow inside teams */
-.journey-workflow {
+.journey-automation {
   position: absolute;
   right: 14%;
   bottom: 14%;
@@ -141,10 +141,10 @@
   transition: opacity 850ms ease;
 }
 
-.journey-stage[data-stage="1"] .journey-workflow,
-.journey-stage[data-stage="2"] .journey-workflow,
-.journey-stage[data-stage="3"] .journey-workflow,
-.journey-stage[data-stage="4"] .journey-workflow {
+.journey-stage[data-stage="1"] .journey-automation,
+.journey-stage[data-stage="2"] .journey-automation,
+.journey-stage[data-stage="3"] .journey-automation,
+.journey-stage[data-stage="4"] .journey-automation {
   opacity: 1;
 }
 
@@ -256,7 +256,7 @@
 /* Lens emphasis: the same illustration, re-lit */
 .journey-stage[data-lens="1"] .journey-value,
 .journey-stage[data-lens="1"] .journey-shared,
-.journey-stage[data-lens="1"] .journey-tool {
+.journey-stage[data-lens="1"] .journey-skill {
   filter: drop-shadow(0 0 6px rgb(196 149 90 / 55%));
 }
 

@@ -4,7 +4,7 @@
  * chief-of-staff.test.ts's harness (buildWiring() + appRouter.createCaller).
  */
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import {
 import {
   ModuleFilesPathError,
   ModuleFileContentConflictError,
+  listModuleFiles,
   moduleFilesRoot,
   readModuleFileContent,
   replaceModuleFileContent,
@@ -28,6 +29,7 @@ import {
 import { appRouter } from "../src/router.js";
 import {
   BUILT_IN_MODULES,
+  buildModuleNavTree,
   resolveModuleAutomationRuntimeId,
 } from "../src/built-in-modules.js";
 import {
@@ -38,6 +40,15 @@ import {
   seedBuiltInModules,
   type Wiring,
 } from "../src/wiring.js";
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -90,12 +101,12 @@ test("VOCAB5 upgrades the immutable Relationship manifest", async () => {
   const store = new InMemoryModuleStore();
   const current = BUILT_IN_MODULES.find((builtIn) => builtIn.manifest.name === "relationship");
   assert.ok(current);
-  // 0.2.3 (bumped from 0.2.2 by the TASK-023 governed-web-research merge
-  // `6e33f051`, which added the `web-research` capability/skill to the
-  // Relationship steward/help-routing Agent — a genuine, immutable manifest
-  // content change, never a stale-test-vs-code drift). See modules/manifests/
-  // src/index.ts's built-in Relationship manifest for the current version.
-  assert.equal(current.manifest.version, "0.2.3");
+  // 0.3.0 (bumped from 0.2.3 by ADR-178, which renamed the display name to
+  // NetworkManager and made this Module a nav PARENT for the WhatsApp
+  // sub-module — a genuine, immutable manifest content change, never a
+  // stale-test-vs-code drift). See modules/manifests/src/index.ts's built-in
+  // NetworkManager manifest for the current version.
+  assert.equal(current.manifest.version, "0.3.0");
 
   const priorManifest = structuredClone(current.manifest);
   priorManifest.version = "0.2.1";
@@ -119,7 +130,7 @@ test("VOCAB5 upgrades the immutable Relationship manifest", async () => {
 
   assert.equal((await store.get(prior.id))?.state, "legacy");
   const available = await store.getAvailable(PILOT_ORGANIZATION, "relationship");
-  assert.equal(available?.moduleVersion, "0.2.3");
+  assert.equal(available?.moduleVersion, "0.3.0");
   assert.ok(
     available?.manifest.capabilities.some(
       (capability) => capability.id === "relationship.submodule.relations",
@@ -626,7 +637,7 @@ test("modules.files: reads and writes through the configured canonical File root
       organizationId: PILOT_ORGANIZATION,
       moduleName: "deal-pilot",
     });
-    assert.equal(inventory.root, join(bridgeRoot, "Pilot Organization", "DealPilot"));
+    assert.equal(inventory.root, join(bridgeRoot, "Pilot Organization", "DealManager"));
     assert.equal(added.path, "notes.txt");
     assert.deepEqual(inventory.items.map((item) => item.path), ["notes.txt"]);
     assert.equal(
@@ -689,6 +700,95 @@ test("moduleFilesRoot: rejects Organization and Module traversal segments", () =
   assert.throws(() => moduleFilesRoot("..", "DealPilot"), ModuleFilesPathError);
   assert.throws(() => moduleFilesRoot("Bridge", "."), ModuleFilesPathError);
   assert.throws(() => moduleFilesRoot(" .. ", " .. "), ModuleFilesPathError);
+});
+
+test("modules.list carries parentModule through to the nav, nesting WhatsApp under NetworkManager", async () => {
+  // The whole seam in one test: manifest → module store → modules.list → the
+  // exact function the left rail calls. A field that parses but does not
+  // survive persistence would leave the hierarchy silently flat, which looks
+  // identical to "the feature was never built".
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const listed = await caller.modules.list({
+      organizationId: PILOT_ORGANIZATION,
+      limit: 100,
+      offset: 0,
+    });
+
+    const whatsapp = listed.items.find((item) => item.moduleName === "whatsapp");
+    assert.equal(whatsapp?.manifest.module?.parentModule, "relationship");
+    const relationship = listed.items.find((item) => item.moduleName === "relationship");
+    assert.equal(relationship?.manifest.module?.displayName, "NetworkManager");
+    assert.equal(relationship?.manifest.module?.parentModule, undefined);
+
+    const tree = buildModuleNavTree(
+      listed.items
+        .filter((item) => item.state === "available" && item.status === "installed")
+        .map((item) => ({
+          moduleName: item.moduleName,
+          parentModule: item.manifest.module?.parentModule,
+        })),
+    );
+    const network = tree.find((node) => node.module.moduleName === "relationship");
+    assert.ok(network, "NetworkManager must be a nav root");
+    assert.ok(
+      network.children.some((child) => child.moduleName === "whatsapp"),
+      "WhatsApp must render nested under NetworkManager",
+    );
+    assert.ok(
+      !tree.some((node) => node.module.moduleName === "whatsapp"),
+      "a nested sub-module must not ALSO appear as a root",
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("renaming a Module carries the owner's existing Files folder forward", async () => {
+  // ADR-178 renamed four Modules' display names, and the display name IS the
+  // folder name under ~/Documents/Bridge. Without adoption the rename would
+  // leave the owner's own documents in an orphaned folder and render an empty
+  // Files Section — a silent loss of user data, not an error they could see.
+  const bridgeRoot = await mkdtemp(join(tmpdir(), "bridge-module-rename-"));
+  try {
+    const legacy = join(bridgeRoot, "Pilot Organization", "DealPilot");
+    await mkdir(legacy, { recursive: true });
+    await writeFile(join(legacy, "notes.txt"), "evidence written before the rename", "utf8");
+
+    const inventory = await listModuleFiles("Pilot Organization", "DealManager", 200, bridgeRoot);
+
+    assert.equal(inventory.root, join(bridgeRoot, "Pilot Organization", "DealManager"));
+    assert.deepEqual(inventory.items.map((item) => item.path), ["notes.txt"]);
+    assert.equal(
+      await readFile(join(inventory.root, "notes.txt"), "utf8"),
+      "evidence written before the rename",
+    );
+    assert.equal(await pathExists(legacy), false, "the legacy folder is moved, never copied");
+  } finally {
+    await rm(bridgeRoot, { recursive: true, force: true });
+  }
+});
+
+test("Module folder adoption never merges into an existing folder", async () => {
+  // The dangerous case: BOTH folders exist (e.g. a partial upgrade already
+  // wrote under the new name). Adoption must stand down rather than merge or
+  // overwrite — the legacy folder stays put for a human to reconcile.
+  const bridgeRoot = await mkdtemp(join(tmpdir(), "bridge-module-rename-both-"));
+  try {
+    const organizationRoot = join(bridgeRoot, "Pilot Organization");
+    await mkdir(join(organizationRoot, "DealPilot"), { recursive: true });
+    await mkdir(join(organizationRoot, "DealManager"), { recursive: true });
+    await writeFile(join(organizationRoot, "DealPilot", "old.txt"), "old", "utf8");
+    await writeFile(join(organizationRoot, "DealManager", "new.txt"), "new", "utf8");
+
+    const inventory = await listModuleFiles("Pilot Organization", "DealManager", 200, bridgeRoot);
+
+    assert.deepEqual(inventory.items.map((item) => item.path), ["new.txt"]);
+    assert.equal(await pathExists(join(organizationRoot, "DealPilot", "old.txt")), true);
+  } finally {
+    await rm(bridgeRoot, { recursive: true, force: true });
+  }
 });
 
 test("saveModuleFile: writes local bytes without overwrite or path traversal", async () => {

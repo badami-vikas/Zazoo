@@ -544,6 +544,18 @@ export interface AutomationDefinition {
   /** Execution residency for the owning Agent. */
   agentPlane: import("./types.js").Plane;
   steps: AutomationStepDef[];
+  /**
+   * How this Automation starts (ADR-179). Absent = `{ kind: "manual" }`, which
+   * is the honest description of every definition written before triggers
+   * existed: they ran only when a human pressed something.
+   *
+   * Only `schedule` is acted on by the scheduler. Declaring a trigger does NOT
+   * widen authority — a scheduled Run goes through `pipeline.propose` as the
+   * Automation's own Agent with exactly the scope it already had, so putting a
+   * clock on an Automation can never let it do something a human-started run
+   * of the same Automation could not.
+   */
+  trigger?: import("./automation-trigger.js").AutomationTrigger;
   /** Lifecycle state. Absent = "active" (every pre-existing definition).
    * A "draft" — e.g. the learning promotion machinery's repeated-behavior
    * proposals — is a REVIEW ARTIFACT: `AutomationRegistry.load` never
