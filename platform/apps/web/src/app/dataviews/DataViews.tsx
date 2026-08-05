@@ -18,10 +18,13 @@
  *
  * HEIGHT IS DECLARED HERE, NOT GUESSED DOWNSTREAM. This shell used to be a
  * `space-y-3` stack — a box with no definite height — so a view that asks for
- * `height: 100%` (the canvas grid does; canvas cannot size itself to content)
- * resolved to ZERO and vanished. GlideTableView papered over that with a
- * `min-h-96` floor of its own. The floor is gone; the contract is now: the
- * shell ALWAYS hands its view a definite height.
+ * `height: 100%` resolved to ZERO and vanished. The canvas grid hit this first
+ * (canvas cannot size itself to content) and papered over it with a `min-h-96`
+ * floor of its own. That renderer is gone (ADR-194), but the contract it forced
+ * is the right one and still holds: the shell ALWAYS hands its view a definite
+ * height. `TableView` relies on it too — its sticky header, sticky aggregate
+ * footer and row windowing all need a real scroll viewport, not a box that
+ * grows to fit its own content.
  *
  *   - `fill` (default): the shell is a flex column at `h-full`, and the view
  *     takes `min-h-0 flex-1` — every pixel the Page gave the shell. Callers

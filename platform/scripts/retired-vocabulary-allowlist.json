@@ -6,7 +6,7 @@
     "The gate's failure message has always told the reader to 'add a reviewed",
     "compatibility adapter to the explicit allowlist'. That allowlist did not",
     "exist until 2026-08-04, so the ONLY way to get a green gate was to",
-    "regenerate the whole baseline \u2014 which silently forgives every genuine",
+    "regenerate the whole baseline — which silently forgives every genuine",
     "regression at the same time. This file is that missing mechanism.",
     "",
     "An entry exempts one retired-vocabulary FAMILY under one path prefix, and",
@@ -19,110 +19,116 @@
     {
       "family": "tool",
       "pathPrefix": "packages/research/",
-      "reason": "LLM tool-calling, not the retired Bridge product noun. The research planner prompts a model for {\"tool\":\"search\"|\"read\",\"argument\":...} and parses that response; `tool` here is the model provider's own function-calling vocabulary, shared with every LLM API. Renaming it would break the contract with the model rather than migrate a Bridge identifier \u2014 the word is not ours to rename.",
-      "reviewed": "AP-096 \u00b7 2026-08-04 \u00b7 TASK-036"
+      "reason": "LLM tool-calling, not the retired Bridge product noun. The research planner prompts a model for {\"tool\":\"search\"|\"read\",\"argument\":...} and parses that response; `tool` here is the model provider's own function-calling vocabulary, shared with every LLM API. Renaming it would break the contract with the model rather than migrate a Bridge identifier — the word is not ours to rename.",
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "packages/core/src/research-run.ts",
-      "reason": "The persisted research step shape carries the model's chosen tool name (search/read). It is the same LLM tool-calling contract as packages/research, just durable \u2014 renaming the field would rename the model's vocabulary, not a Bridge identifier.",
-      "reviewed": "AP-096 \u00b7 2026-08-04 \u00b7 TASK-036"
+      "reason": "The persisted research step shape carries the model's chosen tool name (search/read). It is the same LLM tool-calling contract as packages/research, just durable — renaming the field would rename the model's vocabulary, not a Bridge identifier.",
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "packages/db/test/research-run-store.test.ts",
       "reason": "Test fixtures for the persisted research step shape above; they assert the model's tool-calling field names and must match the contract exactly.",
-      "reviewed": "AP-096 \u00b7 2026-08-04 \u00b7 TASK-036"
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "apps/api/test/research-runs.test.ts",
-      "reason": "Same LLM tool-calling contract asserted at the API boundary \u2014 the fixtures mirror the model response shape the research planner parses.",
-      "reviewed": "AP-096 \u00b7 2026-08-04 \u00b7 TASK-036"
+      "reason": "Same LLM tool-calling contract asserted at the API boundary — the fixtures mirror the model response shape the research planner parses.",
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
     },
     {
       "family": "element",
       "pathPrefix": "apps/desktop/src-tauri/vendor/",
       "reason": "Vendored third-party bundle (wppconnect-wa.js). Not Bridge source: it is copied upstream code that must stay byte-identical to what was reviewed, so its identifiers are not ours to migrate.",
-      "reviewed": "AP-096 \u00b7 2026-08-04 \u00b7 TASK-036"
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
     },
     {
       "family": "element",
       "pathPrefix": "apps/web/src/app/pages/whatsapp/",
-      "reason": "DOM API vocabulary \u2014 HTMLElement, element.getBoundingClientRect(), observer.observe(element). This is the browser's own noun for a node in the document, unrelated to the retired Bridge product element; renaming it would fight the platform API.",
-      "reviewed": "AP-096 \u00b7 2026-08-04 \u00b7 TASK-036"
+      "reason": "DOM API vocabulary — HTMLElement, element.getBoundingClientRect(), observer.observe(element). This is the browser's own noun for a node in the document, unrelated to the retired Bridge product element; renaming it would fight the platform API.",
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
     },
     {
       "family": "element",
       "pathPrefix": "packages/research/",
       "reason": "HTML/DOM vocabulary: http-reader strips <script>/<nav> ELEMENTS from fetched pages by tag name, and the screen locator returns a located on-screen element with x/y. Both are the web platform's own noun for a document node, not the retired Bridge product element.",
-      "reviewed": "AP-096 \u00b7 2026-08-04 \u00b7 TASK-036"
+      "reviewed": "AP-096 · 2026-08-04 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "packages/db/src/research-run-store.ts",
       "reason": "The persistence half of the LLM tool-calling contract already exempted for packages/core/src/research-run.ts. AP-096 exempted the type and its test fixtures but missed the store that actually writes the column, so the same reviewed decision stopped one layer short of its own data path. `tool` here is the model's chosen function name, not a Bridge noun.",
-      "reviewed": "AP-106 \u00b7 2026-08-05 \u00b7 TASK-036"
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "packages/db/src/schema.ts",
-      "reason": "The `research_run_steps.tool` column and its CHECK constraint ('search','read','find','click','type','note') are the durable form of the model's function-calling vocabulary. Renaming the column would rename the model's contract, not a Bridge identifier \u2014 the same reasoning AP-096 already applied to the type that maps onto this column.",
-      "reviewed": "AP-106 \u00b7 2026-08-05 \u00b7 TASK-036"
+      "reason": "The `research_run_steps.tool` column and its CHECK constraint ('search','read','find','click','type','note') are the durable form of the model's function-calling vocabulary. Renaming the column would rename the model's contract, not a Bridge identifier — the same reasoning AP-096 already applied to the type that maps onto this column.",
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "apps/api/src/router.ts",
       "reason": "The research-run API boundary validates the model's step shape with z.enum(RESEARCH_STEP_TOOLS). It is the same LLM tool-calling contract AP-096 exempted, expressed as request validation; the enum must match the model vocabulary exactly or valid steps would be rejected.",
-      "reviewed": "AP-106 \u00b7 2026-08-05 \u00b7 TASK-036"
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "apps/web/src/app/pages/ResearchRunsPage.tsx",
-      "reason": "Renders the research step timeline, keying an icon off the model's tool name. Display of a foreign contract's value, not a Bridge product noun \u2014 the page has no Tool concept of its own to rename.",
-      "reviewed": "AP-106 \u00b7 2026-08-05 \u00b7 TASK-036"
+      "reason": "Renders the research step timeline, keying an icon off the model's tool name. Display of a foreign contract's value, not a Bridge product noun — the page has no Tool concept of its own to rename.",
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "apps/web/src/app/avatar/ResearchRun.tsx",
-      "reason": "The overlay's research step readout, same model tool-calling vocabulary as ResearchRunsPage \u2014 it displays the model's chosen function name.",
-      "reviewed": "AP-106 \u00b7 2026-08-05 \u00b7 TASK-036"
+      "reason": "The overlay's research step readout, same model tool-calling vocabulary as ResearchRunsPage — it displays the model's chosen function name.",
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "packages/db/test/rls.test.ts",
       "reason": "Inserts a research_run_steps fixture row, so it must supply the `tool` column value the CHECK constraint requires. Asserting RLS behaviour, not Bridge Tool vocabulary.",
-      "reviewed": "AP-106 \u00b7 2026-08-05 \u00b7 TASK-036"
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "packages/core/test/research-run.test.ts",
       "reason": "Test fixtures for the research step type already exempted at packages/core/src/research-run.ts; they assert the model's tool-calling field names and must match that contract exactly.",
-      "reviewed": "AP-106 \u00b7 2026-08-05 \u00b7 TASK-036"
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "apps/web/test/module-detail.test.mjs",
-      "reason": "A NEGATIVE assertion \u2014 assert.doesNotMatch(routes, /path: \"tools\"/) \u2014 that proves VOCAB6 deleted the standalone Tools hub. The gate was flagging the test that enforces the gate's own goal; the word can only appear here as the thing being forbidden.",
-      "reviewed": "AP-106 \u00b7 2026-08-05 \u00b7 TASK-036"
+      "reason": "A NEGATIVE assertion — assert.doesNotMatch(routes, /path: \"tools\"/) — that proves VOCAB6 deleted the standalone Tools hub. The gate was flagging the test that enforces the gate's own goal; the word can only appear here as the thing being forbidden.",
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
     },
     {
       "family": "element",
       "pathPrefix": "apps/website/src/alternative-home/",
       "reason": "DOM Element, not the retired Bridge 'element' primitive: a local `const element = ref.current` for getBoundingClientRect and a `ref={(element) => ...}` callback parameter. isAllowedTechnicalUse already exempts HTML*Element/getElementById/createElement, but not a bare local named `element`.",
-      "reviewed": "AP-106 \u00b7 2026-08-05 \u00b7 TASK-036"
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
     },
     {
       "family": "element",
       "pathPrefix": "apps/web/src/app/avatar/zazoo/RigInspector.tsx",
-      "reason": "`(ev.target as Element).setPointerCapture(...)` \u2014 the DOM Element interface from lib.dom.d.ts, a TypeScript built-in Bridge does not own and cannot rename.",
-      "reviewed": "AP-106 \u00b7 2026-08-05 \u00b7 TASK-036"
+      "reason": "`(ev.target as Element).setPointerCapture(...)` — the DOM Element interface from lib.dom.d.ts, a TypeScript built-in Bridge does not own and cannot rename.",
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
     },
     {
       "family": "project",
       "pathPrefix": "packages/core/test/learning-retrieval.test.ts",
       "reason": "The English VERB in the test title 'fused candidates project into memory snippets'. The script already exempts the verb form in three sibling core tests via a /\\bproject(?:s|ToPrompt)\\b/ pattern; this file was simply not in that list.",
-      "reviewed": "AP-106 \u00b7 2026-08-05 \u00b7 TASK-036"
+      "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+    },
+    {
+      "family": "element",
+      "pathPrefix": "apps/web/src/app/dataviews/views/TableView.tsx",
+      "reason": "DOM and library API names, not the retired Bridge product noun. The occurrences are `HTMLDivElement`/`HTMLElement`/`HTMLInputElement`/`HTMLSelectElement` (TypeScript's built-in DOM lib types) and `getScrollElement` (the option key `@tanstack/react-virtual` requires on its options object, ADR-194). Renaming either would break the contract with TypeScript's DOM typings or with the virtualizer rather than migrate a Bridge identifier — the word is not ours to rename here.",
+      "reviewed": "AP-114 · 2026-08-06 · ADR-194"
     }
   ]
 }

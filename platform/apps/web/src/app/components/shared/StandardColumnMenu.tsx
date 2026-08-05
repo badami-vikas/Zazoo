@@ -26,15 +26,15 @@ export interface StandardColumnMenuItemProps {
 }
 
 /**
- * The menu itself, split out from its trigger so BOTH table renderers can show
- * the SAME items with the SAME disabled reasons (AP-021). The DOM `TableView`
- * reaches it through `<StandardColumnMenu>` below (label + ⋮ trigger inside a
- * real <th>); the canvas `GlideTableView` has no DOM header to hang a trigger
- * on, so it mounts THIS panel directly at the coordinates Glide reports from
- * `onHeaderMenuClick`. Neither path forks the item list.
+ * The menu itself, split out from its trigger so any surface can show the SAME
+ * items with the SAME disabled reasons (AP-021). `TableView` reaches it through
+ * `<StandardColumnMenu>` below — label + ⋮ trigger inside a real <th>.
  *
- * It is already `position: fixed` and viewport-clamped, which is exactly what
- * lets it be positioned over a canvas header.
+ * The split was introduced for the canvas renderer, which had no DOM header to
+ * hang a trigger on and mounted this panel at the coordinates Glide reported.
+ * That renderer is gone (ADR-194), but the panel stays separately mountable and
+ * viewport-clamped: it is `position: fixed`, so it can be opened from anywhere
+ * without inheriting a <th>'s uppercase/tracking or its overflow clipping.
  */
 export function StandardColumnMenuPanel({
   label,

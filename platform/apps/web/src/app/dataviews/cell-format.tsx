@@ -1,15 +1,21 @@
 /**
- * Shared cell formatting for every `table`-kind renderer (ADR-160).
+ * Shared cell formatting for the `table` view kind (ADR-160, ADR-194).
  *
- * Both table renderers — the DOM `TableView` and the canvas `GlideTableView` —
- * read their cell semantics from HERE, so a column's `display` hint means
- * exactly the same thing whichever renderer is on screen. Before this module
- * the formatting lived inline in TableView, which is why reviving a second
- * renderer previously meant re-implementing (and drifting) the ADR-155 glyphs.
+ * `TableView` reads its cell semantics from HERE rather than inlining them, so
+ * a column's `display` hint means one thing on every surface that renders a
+ * cell. This module exists because the formatting used to live inline in the
+ * table, which is what made a second renderer re-implement (and drift from) the
+ * ADR-155 glyphs.
  *
  * `formatCell` is the plain-text projection — it is what a red-flag anchor
- * records and what the canvas renderer paints, so a flag raised against a
- * badge cell carries the same `renderedValue` in both renderers.
+ * records, so a flag raised against a badge cell carries the value the user
+ * actually saw rather than the glyph's markup.
+ *
+ * `displayText` is the text-only form of a display-hinted cell. It has no
+ * consumer in the app now that the canvas renderer is gone (ADR-194 restored
+ * the rich DOM `renderCell` on every path); it is kept because it is the
+ * projection any non-DOM consumer needs — CSV export, a plain-text digest — and
+ * it is covered by tests.
  */
 import type { ReactNode } from "react";
 import type { ColumnSpec } from "@bridge/tables";
@@ -24,12 +30,21 @@ export function formatCell(value: unknown): string {
 // ── ADR-155 opt-in rich display ──────────────────────────────────────────────
 // A column with no `display` hint renders as plain text in BOTH renderers.
 
+/**
+ * Badge tones carry an explicit dark variant. The light-only versions shipped
+ * unnoticed for as long as the canvas renderer was in front of them — canvas
+ * flattened every badge to plain text, so a light pill on a dark surface never
+ * actually rendered. ADR-194 put the real glyphs back on screen, which is what
+ * made the gap visible.
+ */
 const BADGE_TONES: Record<string, string> = {
-  green: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-  yellow: "bg-amber-50 text-amber-700 ring-amber-600/20",
-  red: "bg-rose-50 text-rose-700 ring-rose-600/20",
-  blue: "bg-sky-50 text-sky-700 ring-sky-600/20",
-  gray: "bg-slate-50 text-slate-600 ring-slate-500/20",
+  green:
+    "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-400/25",
+  yellow:
+    "bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-400/25",
+  red: "bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-950 dark:text-rose-300 dark:ring-rose-400/25",
+  blue: "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-950 dark:text-sky-300 dark:ring-sky-400/25",
+  gray: "bg-slate-50 text-slate-600 ring-slate-500/20 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-400/25",
 };
 
 const RAG_DOT: Record<string, string> = {
@@ -124,10 +139,20 @@ export function renderCell(col: ColumnSpec, value: unknown): ReactNode {
           const bar = pct >= 70 ? RAG_DOT.green : pct >= 40 ? RAG_DOT.yellow : RAG_DOT.red;
           return (
             <span className="inline-flex items-center gap-2" title={`${pct}%`}>
-              <span className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
+              {/* The unfilled track is a token, not `bg-slate-100`: a fixed light
+                  grey renders as a bright white bar on the dark surface. */}
+              <span
+                className="h-1.5 w-16 overflow-hidden rounded-full"
+                style={{ background: "var(--color-line-soft)" }}
+              >
                 <span className={`block h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
               </span>
-              <span className="text-xs tabular-nums text-slate-500">{pct}%</span>
+              <span
+                className="text-xs tabular-nums"
+                style={{ color: "var(--color-warm-gray)" }}
+              >
+                {pct}%
+              </span>
             </span>
           );
         }

@@ -3030,3 +3030,40 @@ Separately, at the user's request `autoCompactWindow: 400000` is now a project d
 - **Vocabulary 139 → 88.** 11 allowlist entries extend AP-096's already-reviewed LLM tool-calling exemption to the rest of its own data path (it had stopped one layer short, exempting the type but not the store, schema, router, or web surfaces), plus DOM `Element`, the English verb "project", and a negative assertion that enforces the gate's own goal. 6 genuine Bridge-owned renames applied. The remaining 88 are ~all WhatsApp "Tools" → Skills, which needs its own approval: it touches a user-visible route, a `databaseId`, and governed capability ids, and ADR-171/AP-096 declined it once already.
 - Found in passing and fixed: `InMemoryAutomationRegistry` returned `trigger: undefined` where the Drizzle one returned `{kind:"manual"}`. Sibling adapters answering the same question differently is how callers acquire defensive defaults.
 - Verified: turbo typecheck 44/44; 17 new tests; negative control on the anti-storm property (interval check disabled → the intended test failed, then restored).
+
+## 2026-08-06 — Table renderer reversed: canvas out, DOM `<table>` + windowing in (ADR-194, AP-114)
+
+Owner reported the table was not the Avilo replica asked for and asked directly whether Glide was
+the cause, restating "my priority is UI over others". It was the cause: `glide-data-grid` paints to
+`<canvas>`, which cannot use CSS, so ADR-182 had been hand-painting the Avilo language onto canvas
+(per-character letter-spacing, a drawn sort chevron, drawn menu dots) while the aggregate footer and
+right-aligned numerics stayed permanently unreachable and the rich cell glyphs degraded to flat text.
+The virtualization that bought had never actually run — pages page at 25–50 rows, and ADR-192 had
+already recorded the canvas path never rendering in production.
+
+- **Removed** `@glideapps/glide-data-grid`, `GlideTableView.tsx`, `grid-theme.ts`. Takes the
+  `marked@^4` peer conflict and the HIGH `brace-expansion` advisory with it.
+- **`TableView`** is now one DOM `<table>`: sticky header + sticky aggregate footer, `aria-sort`,
+  rich `renderCell` glyphs reachable again (badge pills, meter bars, RAG dots), right-aligned
+  numerics, inline edit through the existing `onUpdate` path, Notion-style zero-row state.
+- **Windowing** via `@tanstack/react-virtual` (already a dependency) above 100 rows, using spacer
+  rows so the semantic table survives. The threshold switches ONLY windowing — never markup or
+  features — which is the drift defect ADR-160's *renderer* threshold caused.
+- **Palette rule from ADR-182 kept**: Bridge tokens via `var(--color-*)`, never Avilo's hexes, so
+  dark mode still works. Promoted `--color-line-soft` / `--color-row-hover` out of the deleted canvas
+  theme into real tokens with dark values.
+- **Geometry in pixels, not rem utilities**: `html{font-size:17px}` inflates every rem 6.25%, so
+  `h-10` was 42.5px and silently broke the windowing estimate. Verified live: 40px rows, 36px
+  header, 16px padding.
+- **Fixed two latent dark-mode defects** the canvas had been hiding: badge tones and the meter track
+  were hardcoded light-palette classes that never rendered while canvas flattened glyphs to text.
+
+Evidence: headless-Chrome run over a throwaway harness (since removed) — real wheel scroll at
+`scrollTop 5000` windows to row 114 with 45 of 240 rows in the DOM, header pinned at every scroll
+position, aggregates computed over all 240 rows not the visible slice, dark repaint correct, zero
+page errors. `turbo typecheck build` green; web suite 144/144 with 10 new aggregate tests seen
+failing against a mutated implementation first. `check:vocabulary` clean for every changed file
+(one reviewed allowlist entry for TanStack's `getScrollElement` + TS DOM `HTML*Element` types).
+
+Reported, not fixed: `StandardColumnMenuPanel` still paints `bg-white` — a dark-mode leak predating
+this change, left out to keep the rewrite scoped.
