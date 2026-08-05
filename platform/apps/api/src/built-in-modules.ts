@@ -11,10 +11,13 @@ export {
   INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
   TASK_MANAGER_DRIFT_AUTOMATION_ID,
   TASK_MANAGER_SWEEP_AUTOMATION_ID,
+  buildModuleNavTree,
   isModuleRuntimeAutomationId,
   requireBuiltInModule,
   resolveModuleAgentRuntimeId,
   resolveModuleAutomationRuntimeId,
   type BuiltInModule,
   type CommonsBuiltInModule,
+  type ModuleNavNode,
+  type NavModuleLike,
 } from "@bridge/module-manifests";

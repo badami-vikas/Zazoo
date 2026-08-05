@@ -169,6 +169,62 @@ test("parseModuleManifest: rejects a Commons need without an attributable Module
   );
 });
 
+test("parseModuleManifest: parses a sub-module's parent_module in either casing", () => {
+  for (const key of ["parent_module", "parentModule"]) {
+    const parsed = parseModuleManifest(
+      rawManifest({
+        module: {
+          display_name: "Dummy",
+          route: "/dummy",
+          [key]: "network-manager",
+          pages: [],
+          agents: [],
+          automations: [],
+        },
+      }),
+    );
+    assert.equal(parsed.module?.parentModule, "network-manager");
+  }
+});
+
+test("parseModuleManifest: a Module with no parent_module has no parentModule key", () => {
+  // Absent must stay ABSENT rather than becoming "" or null — canonicalizeManifest
+  // hashes the object, so a phantom key would change every existing signature.
+  const parsed = parseModuleManifest(
+    rawManifest({
+      module: { display_name: "Dummy", route: "/dummy", pages: [], agents: [], automations: [] },
+    }),
+  );
+  assert.equal(parsed.module?.parentModule, undefined);
+  assert.equal(Object.hasOwn(parsed.module!, "parentModule"), false);
+});
+
+test("parseModuleManifest: rejects a malformed or self-referential parent_module", () => {
+  const withParent = (parent: string) =>
+    rawManifest({
+      module: {
+        display_name: "Dummy",
+        route: "/dummy",
+        parent_module: parent,
+        pages: [],
+        agents: [],
+        automations: [],
+      },
+    });
+  for (const bad of ["Network Manager", "/module/network", "network_manager", ""]) {
+    assert.throws(() => parseModuleManifest(withParent(bad)), ModuleManifestValidationError);
+  }
+  // A Module cannot parent itself — the ONE relational check a single manifest
+  // can answer. "Does the parent exist" is deliberately left to nav-build time.
+  assert.throws(() => parseModuleManifest(withParent("dummy-module")), /must not name the Module itself/);
+  // An unknown-but-well-formed parent PARSES: install order must not decide
+  // whether a manifest is valid.
+  assert.equal(
+    parseModuleManifest(withParent("not-installed-yet")).module?.parentModule,
+    "not-installed-yet",
+  );
+});
+
 test("parseModuleManifest: rejects a Module display name that traverses the File root", () => {
   for (const displayName of [" . ", " .. "]) {
     assert.throws(

@@ -218,6 +218,17 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
   const route = requiredString(raw.route, "module.module.route");
   if (!route.startsWith("/")) fail("module.module.route must start with /");
 
+  // Sub-module parent (ADR-178). Validated for SHAPE only: a manifest is parsed
+  // in isolation, so "does this parent exist" and "is the parent itself a
+  // sub-module" are nav-build-time questions (buildModuleNavTree), not parse-time
+  // ones. Rejecting an unknown name here would make install order significant.
+  const parentRaw = raw.parentModule ?? raw.parent_module;
+  const parentModule =
+    parentRaw === undefined ? undefined : requiredString(parentRaw, "module.module.parent_module");
+  if (parentModule !== undefined && !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(parentModule)) {
+    fail("module.module.parent_module must be a kebab-case module name");
+  }
+
   const capabilityById = new Map(capabilities.map((capability) => [capability.id, capability]));
 
   const pagesRaw = raw.pages ?? [];
@@ -324,7 +335,15 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     };
   });
 
-  return { displayName, route, pages, agents, automations, commonsNeeds };
+  return {
+    displayName,
+    route,
+    ...(parentModule !== undefined ? { parentModule } : {}),
+    pages,
+    agents,
+    automations,
+    commonsNeeds,
+  };
 }
 
 /**
@@ -404,6 +423,11 @@ export function parseModuleManifest(raw: unknown): ModuleManifest {
     manifestRoot.organizationVocab ?? manifestRoot.organization_vocab,
   );
   const module = parseModuleSurface(manifestRoot.module, capabilities);
+  // The one parent check that IS answerable from a single manifest: a Module
+  // cannot be its own parent. Everything else about the relation needs siblings.
+  if (module?.parentModule === name) {
+    fail("module.module.parent_module must not name the Module itself");
+  }
 
   return {
     name,

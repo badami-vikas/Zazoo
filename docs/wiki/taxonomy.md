@@ -36,7 +36,7 @@ Hinge = "different columns". Same shape → filter suffices. Different projectio
 
 **OPEN (canon vs code — do not silently patch):**
 1. "Capability" defined twice: glossary says Skill|Integration; code `CapabilityType` = skill|automation|agent|integration|view|dashboard. Recommend adopting code's wider def, fix glossary.
-2. **Sub-module has NO implementation** — canon in ui-architecture, but `ModuleManifest`/`ModuleSurfaceManifest` have no parent/child field and no nav renderer draws a collapsible group. Modules are flat today. The requested NetworkManager structure is NOT expressible in the manifest as it stands.
+2. ~~Sub-module has NO implementation~~ **CLOSED 2026-08-05 (ADR-178)** — `parentModule` field + one-level collapsible rail shipped. Nav relation ONLY: no inherited permissions/credentials/plane. Residue: only WhatsApp nests; Gmail is an Integration not a Module, LinkedIn does not exist — not faked. Identifiers (`relationship`/`deal-pilot`/`job-pilot`) unchanged; display names only.
 3. "Scheduled Automation" defined; no scheduler exists (one hardcoded 15-min timer).
 4. Capability Builder cannot build — emits text + regex; no unified builder, no Axis-2 classifier (`capabilityType` hand-declared everywhere).
 

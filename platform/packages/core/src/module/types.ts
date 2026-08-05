@@ -91,6 +91,25 @@ export interface ModuleCapabilityNeed {
 export interface ModuleSurfaceManifest {
   displayName: string;
   route: string;
+  /**
+   * Sub-module declaration: the `name` of the Module this one nests under in
+   * navigation (docs/wiki/ui-architecture.md rule 1.5, ADR-178). Absent means
+   * this Module is a nav root.
+   *
+   * This is a NAVIGATION relation only. A sub-module is still a whole Module —
+   * its own manifest, its own version, its own capability trust lifecycle, its
+   * own install/uninstall. Declaring a parent grants NOTHING: no shared
+   * credentials, no inherited permissions, no plane relaxation. A sub-module
+   * that reads the parent's data must still hold its own capability and pass
+   * the same gates it would at the root.
+   *
+   * Nesting is ONE LEVEL. The parent named here must itself be a nav root, and
+   * the reference is resolved late (at nav-build time) rather than at parse
+   * time, because a manifest is parsed alone and cannot see its siblings — an
+   * unresolvable parent must degrade to "render at root", never to "hide the
+   * Module", or an install would silently vanish from the nav.
+   */
+  parentModule?: string;
   pages: ModulePageBinding[];
   agents: ModuleAgentBinding[];
   automations: ModuleAutomationBinding[];

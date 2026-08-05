@@ -504,7 +504,10 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "external",
     manifest: {
       name: "deal-pilot",
-      version: "0.4.0",
+      // 0.5.0: display name aligned to the owner-declared Module set
+      // (APPROVALS 2026-08-05). `name`/`route` stay `deal-pilot` — those are
+      // identifiers, migrated separately under the vocabulary plan.
+      version: "0.5.0",
       kind: "organization_definition",
       summary: "Governed ETA sourcing across Deals, Sources, and Theses.",
       description:
@@ -515,7 +518,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       contextProviders: [],
       organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
       module: {
-        displayName: "DealPilot",
+        displayName: "DealManager",
         route: "/dealpilot/deals",
         pages: [
           {
@@ -564,7 +567,8 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "advisory",
     manifest: {
       name: "job-pilot",
-      version: "0.2.1",
+      // 0.3.0: display name aligned to the owner-declared Module set.
+      version: "0.3.0",
       kind: "organization_definition",
       summary: "Real job records and an application tracking pipeline.",
       description:
@@ -575,7 +579,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       contextProviders: [],
       organizationVocab: { alignsToBridgeTheme: true, domainTerms: { Record: "Application" } },
       module: {
-        displayName: "JobPilot",
+        displayName: "JobManager",
         route: "/jobpilot",
         pages: [{
           id: "jobs",
@@ -613,7 +617,9 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "external",
     manifest: {
       name: "relationship",
-      version: "0.2.3",
+      // 0.3.0: display name aligned to the owner-declared Module set, and this
+      // Module becomes a nav PARENT (WhatsApp declares it, ADR-178).
+      version: "0.3.0",
       kind: "organization_definition",
       summary: "Signals, People, Communities, and governed relationship continuity.",
       description:
@@ -628,7 +634,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       ],
       organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
       module: {
-        displayName: "Relationship",
+        displayName: "NetworkManager",
         route: "/module/relationship",
         pages: [
           {
@@ -707,7 +713,8 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       // manifest is immutable per version — content changes REQUIRE this bump,
       // or seedBuiltInModules refuses to start (the 2026-08-02 Local Plane
       // outage was exactly that refusal).
-      version: "0.2.0",
+      // 0.3.0: declares NetworkManager as its nav parent (ADR-178).
+      version: "0.3.0",
       kind: "organization_definition",
       summary: "Your WhatsApp Web session, with Tools that turn it into People and Communities.",
       description:
@@ -719,6 +726,11 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
       module: {
         displayName: "WhatsApp",
+        // A sub-module of NetworkManager: WhatsApp's Chats are a SOURCE of
+        // People and Communities, not a second copy of them. Nesting is nav
+        // only — the Local-Plane session, the capture, and every Skill here
+        // stay governed exactly as they were at the root.
+        parentModule: "relationship",
         route: "/module/whatsapp/chats",
         pages: [
           {
@@ -769,7 +781,8 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "operational",
     manifest: {
       name: "task-manager",
-      version: "1.0.3",
+      // 1.1.0: display name aligned to the owner-declared Module set.
+      version: "1.1.0",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:
@@ -780,7 +793,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       contextProviders: [],
       organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
       module: {
-        displayName: "Task Manager",
+        displayName: "TaskManager",
         route: "/task-manager",
         pages: [{
           id: "queue",
@@ -850,6 +863,89 @@ export function moduleNavTarget(
   const routes = mod.pages.map((page) => page.route).filter((route) => route.length > 0);
   if (routes.length === 0) return { landing: mod.route, base: mod.route };
   return { landing: routes[0]!, base: commonRoutePrefix(routes) };
+}
+
+/** The minimum a nav entry must expose for {@link buildModuleNavTree}. */
+export type NavModuleLike = {
+  moduleName: string;
+  parentModule?: string | undefined;
+};
+
+/** One nav root plus the sub-modules that nest under it (ADR-178). */
+export type ModuleNavNode<T extends NavModuleLike> = {
+  module: T;
+  children: T[];
+};
+
+/**
+ * Group installed Modules into the one-level nav tree the left rail renders
+ * (ADR-178, docs/wiki/ui-architecture.md rule 1.5).
+ *
+ * Every rule here exists to keep a Module VISIBLE. The failure this design
+ * refuses is the one the bug ledger keeps producing (AP-082/AP-085): a surface
+ * that quietly disappears because some reference did not resolve, leaving the
+ * user to discover it. So:
+ *
+ *   - A parent that is not installed is not an error — the orphan renders at
+ *     root. Uninstalling NetworkManager must not take WhatsApp off the nav.
+ *   - A parent that is ITSELF a sub-module does not create a second level. The
+ *     grandchild re-attaches to the root-most ancestor, so nesting is capped at
+ *     one level by construction rather than by everyone remembering the rule.
+ *   - A parent cycle terminates and both Modules render at root.
+ *
+ * Input order is preserved for roots and within each child list, so the caller
+ * (not this function) owns ordering policy.
+ */
+export function buildModuleNavTree<T extends NavModuleLike>(
+  modules: readonly T[],
+): ModuleNavNode<T>[] {
+  const byName = new Map<string, T>();
+  for (const mod of modules) byName.set(mod.moduleName, mod);
+
+  /** Walk up to the root-most ancestor; returns undefined for a nav root. */
+  function rootAncestorOf(mod: T): T | undefined {
+    let current: T | undefined = mod;
+    let parent: T | undefined;
+    const seen = new Set<string>([mod.moduleName]);
+    while (current?.parentModule) {
+      const next = byName.get(current.parentModule);
+      // Parent not installed, or a cycle — stop and use the last real ancestor.
+      if (!next || seen.has(next.moduleName)) break;
+      seen.add(next.moduleName);
+      parent = next;
+      current = next;
+    }
+    return parent;
+  }
+
+  const nodes: ModuleNavNode<T>[] = [];
+  const nodeByName = new Map<string, ModuleNavNode<T>>();
+  const pending: { child: T; parentName: string }[] = [];
+
+  for (const mod of modules) {
+    const parent = rootAncestorOf(mod);
+    if (!parent) {
+      const node: ModuleNavNode<T> = { module: mod, children: [] };
+      nodes.push(node);
+      nodeByName.set(mod.moduleName, node);
+      continue;
+    }
+    // Deferred: the parent may appear later in the input list.
+    pending.push({ child: mod, parentName: parent.moduleName });
+  }
+
+  for (const { child, parentName } of pending) {
+    const node = nodeByName.get(parentName);
+    // rootAncestorOf found a parent, so it IS in the input — but if that parent
+    // was itself filtered into nothing, refuse to drop the child.
+    if (!node) {
+      nodes.push({ module: child, children: [] });
+      continue;
+    }
+    node.children.push(child);
+  }
+
+  return nodes;
 }
 
 /** Longest shared leading path-segment prefix across the given routes. */

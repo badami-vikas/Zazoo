@@ -139,13 +139,22 @@ Recorded rather than resolved. Each needs a decision; none should be silently pa
    wider definition and fix the glossary — the trust model already operates uniformly on
    all six.
 
-2. **Sub-module has no implementation.** It is canon in `ui-architecture.md` (rule 1.5),
-   but `ModuleManifest` and `ModuleSurfaceManifest`
-   (`packages/core/src/module/types.ts`) have **no parent/child field**, and no nav
-   renderer draws a collapsible Module group. A Module today is flat: one route, a list
-   of Pages. **The requested NetworkManager structure is therefore not expressible in the
-   manifest as it stands** — it needs either a `parentModule` field plus a nav renderer,
-   or a deliberate decision to model sub-modules as ordinary Pages.
+2. ~~**Sub-module has no implementation.**~~ **CLOSED 2026-08-05 (ADR-178, AP-105).**
+   `ModuleSurfaceManifest` now carries optional `parentModule`, and the left rail renders
+   a one-level collapsible group (`buildModuleNavTree` +
+   `apps/web/src/app/Layout.tsx`). The relation is navigation ONLY — a sub-module keeps
+   its own manifest, version, and capability trust lifecycle, and declaring a parent
+   grants no permission, credential, or plane relaxation.
+
+   Two residues, recorded rather than closed:
+
+   - **Only WhatsApp actually nests.** The owner's structure also names Gmail and
+     LinkedIn as NetworkManager sub-modules. Gmail exists as an **Integration**
+     (`/integrations/google`), not a Module; LinkedIn has no implementation at all.
+     Neither was fabricated to make the picture match — they need real manifests first.
+   - **Identifiers were not renamed.** `name`/`route` still read `relationship`,
+     `deal-pilot`, `job-pilot`. Only the display names moved. The identifier migration
+     belongs to the vocabulary plan, which already carries 139 open violations.
 
 3. **"Scheduled Automation" has no scheduler.** The glossary defines it;
    `AutomationDefinition` has no trigger or schedule field, and the only time-driven path
