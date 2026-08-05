@@ -65,6 +65,8 @@ user approval remain universal. Never weaken a safety boundary to save tokens.
 - Runtime surfaces use real connected data or honest empty states. Any unavoidable runtime or test
   dummy is tracked in [docs/dummy.md](docs/dummy.md) with reason, represented element, and removal
   condition.
+- Evidence: a test proves nothing until seen failing unfixed; "zero results" != "nothing to do"; a
+  live process is not proof the right UI rendered. `pnpm verify` is the one gate list; CI runs it.
 - Before building a capability resembling an existing source, run reuse intake. Prefer lawful
   import/wrap/adapt. For restricted license/contract/patent/trademark/data/access, follow the
   [clean-room protocol](docs/raw/clean-room-capability-research-protocol-2026-07.md): preserve source
