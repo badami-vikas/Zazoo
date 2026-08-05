@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T09:40:56.221Z",
+  "generatedAt": "2026-08-05T08:21:59.818Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1396,7 +1396,8 @@
       ],
       "evidence": [
         "`outputs/2026-08-04-regeneration-test-learning-agent.md`",
-        "ADR-172."
+        "`outputs/2026-08-04-people-research-regeneration-method-budget.md`",
+        "ADR-172, ADR-174."
       ],
       "requests": [
         "user directive 2026-08-04 (\"If successful, add a task to repeat this for skills, capabilities, modules, etc so we have clarity on structure for each of these (if at all a structure is required, I believe a strong boundary conditions with autonomy within it might be better approach)\")."
@@ -1411,6 +1412,32 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 672,
       "rank": 42
+    },
+    {
+      "id": "TASK-043",
+      "title": "TASK-043 — Constitution enforcement mechanisms (ADR-173 adopt-list)",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "The five mechanisms adopted from the ADR-172 regeneration test exist as executable harness obligations rather than review conventions, so constitution conformance is provable per capability instead of asserted.",
+      "prototypeTest": "each item below has a test that fails when the mechanism is removed. A mechanism with no failing-on-removal test is not done.",
+      "scope": [],
+      "evidence": [
+        "ADR-173",
+        "`outputs/2026-08-04-regeneration-test-learning-agent.md`."
+      ],
+      "requests": [
+        "user directive 2026-08-04 (\"Incorporate the 6 ideas, if validated to be better\")."
+      ],
+      "approval": "AP-100 APPLIED",
+      "dependencies": [
+        "E5 depends on the semantic embedder (learning-agent LA5 open item). E1-E4 have none."
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 686,
+      "rank": 43
     }
   ]
 }
