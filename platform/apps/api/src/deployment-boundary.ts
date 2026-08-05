@@ -136,6 +136,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["integration.", "credential broker + connection secrets are Local Plane"],
   ["google.", "OAuth tokens are held in the Local Plane vault"],
   ["chat.model.", "managed local model lifecycle is a desktop-only concern"],
+  ["modelProviderKey.", "model-provider API keys are held in the Local Plane vault"],
 
   // — Governance/authoring surfaces: writing capability or authority state from a public
   //   shell would move the trust boundary, not just serve data.
