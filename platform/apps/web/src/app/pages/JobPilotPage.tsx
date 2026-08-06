@@ -122,27 +122,14 @@ export function JobPilotPage() {
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
       <Header tabs={[{ id: "JobPilot", icon: Briefcase }]} activeTab="JobPilot" onTabChange={() => {}} />
-      <div
-        className="flex items-center justify-between border-b px-4 py-2"
-        style={{ borderColor: "var(--color-border)", backgroundColor: "white" }}
-      >
-        <h2 className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>All Jobs</h2>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="rounded-md border px-2.5 py-1.5 text-xs font-medium"
-            style={{ borderColor: "var(--color-border)" }}
-            onClick={() => setInsightsOpen((open) => !open)}
-          >
-            {insightsOpen ? "Hide insights" : "Show insights"}
-          </button>
-          {/* ADR-180: the 3-dots Control Panel entry was the menu's only item and
-              duplicated the scroll-revealed Intelligence Section's "Manage in
-              Module Detail" link, so the control is removed entirely. */}
-        </div>
-      </div>
+      {/* The "All Jobs" bar is gone for the same reason as Signals': the tab
+          strip already names the surface, and the row existed only to carry a
+          labelled insights toggle that now sits inside the section.
+          ADR-180 removed the 3-dots menu — its one item duplicated the
+          Intelligence Section's "Manage in Module Detail". */}
       <CollapsibleInsights
         expanded={insightsOpen}
+        onToggle={() => setInsightsOpen((open) => !open)}
         metrics={[
           { id: "jobs", label: "Jobs", value: String(page.total) },
           { id: "tracked", label: "Tracked", value: String(page.items.filter((item) => item.application).length) },

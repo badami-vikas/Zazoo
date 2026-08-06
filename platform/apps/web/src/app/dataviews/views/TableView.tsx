@@ -134,6 +134,17 @@ export function TableView({
 
   const [aggregates, setAggregates] = useState<Record<string, AggregateKind>>({});
   const [editing, setEditing] = useState<{ key: string; col: string } | null>(null);
+  /**
+   * The in-place new-Element draft. Non-null means one blank row is appended to
+   * the body with an editor in every column.
+   *
+   * This used to be `onViewChange({ ...view, kind: "form" })` — clicking "add"
+   * swapped the whole surface for the Form View, so the table the user was
+   * reading vanished and their scroll position with it. Adding an Element is
+   * meant to happen where the Elements are; the Form View is still reachable as
+   * a View in its own right for anyone who wants the long form.
+   */
+  const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
 
   // A pending row-open, held back long enough for a second click to cancel it.
   const pendingOpen = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -153,6 +164,26 @@ export function TableView({
   // ignored scrolling entirely. Setting state on attach forces the re-render
   // that lets it measure the real element.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+
+  /**
+   * Hand the draft to the caller's governed insert path and clear it.
+   *
+   * An all-empty draft is a cancel, not an insert: the row is dismissed rather
+   * than sent, so a stray click on "+ Add element" cannot post a blank Element
+   * through the pipeline.
+   */
+  const commitDraft = useCallback(async () => {
+    if (!draft || !onInsert) return;
+    const filled = Object.entries(draft).filter(
+      ([, value]) => value !== undefined && value !== null && String(value).trim() !== "",
+    );
+    if (filled.length === 0) {
+      setDraft(null);
+      return;
+    }
+    await onInsert(Object.fromEntries(filled));
+    setDraft(null);
+  }, [draft, onInsert]);
   const windowed = sorted.length > VIRTUALIZE_ABOVE;
   const virtualizer = useVirtualizer({
     count: sorted.length,
@@ -403,13 +434,9 @@ export function TableView({
                   style={{ color: "var(--color-warm-gray)" }}
                 >
                   <span className="text-[13px] font-medium">No {spec.id} records yet.</span>
-                  {onInsert && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => onViewChange({ ...view, kind: "form" })}
-                    >
-                      <Plus className="size-3.5" /> Add row
+                  {onInsert && !draft && (
+                    <Button size="sm" variant="outline" onClick={() => setDraft({})}>
+                      <Plus className="size-3.5" /> Add element
                     </Button>
                   )}
                 </div>
@@ -417,16 +444,49 @@ export function TableView({
             </tr>
           )}
 
-          {onInsert && sorted.length > 0 && (
+          {/* The draft Element, in place. It sits inside <tbody> so it inherits
+              the same colgroup widths and sticky-column behaviour as a real
+              row — a floating overlay would have to re-derive both. */}
+          {onInsert && draft && (
+            <tr
+              className="bridge-table-row"
+              style={{ height: ROW_HEIGHT, borderBottom: "1px solid var(--color-line-soft)" }}
+            >
+              {columns.map((col, index) => (
+                <td key={col.id} style={{ paddingLeft: CELL_PAD_X, paddingRight: CELL_PAD_X }}>
+                  <DraftCell
+                    column={col}
+                    autoFocus={index === 0}
+                    value={draft[col.id]}
+                    onChange={(next) => setDraft((current) => ({ ...current, [col.id]: next }))}
+                    onCommit={() => void commitDraft()}
+                    onCancel={() => setDraft(null)}
+                  />
+                </td>
+              ))}
+              <td className="bridge-sticky-cell sticky right-0 z-10 whitespace-nowrap px-2 text-right">
+                <button
+                  type="button"
+                  onClick={() => void commitDraft()}
+                  className="rounded-md px-2 py-1 text-[12px] font-medium hover:bg-black/5 dark:hover:bg-white/10"
+                  style={{ color: "var(--color-navy)" }}
+                >
+                  Save
+                </button>
+              </td>
+            </tr>
+          )}
+
+          {onInsert && !draft && sorted.length > 0 && (
             <tr style={{ borderTop: "1px solid var(--color-line-soft)" }}>
               <td colSpan={colSpan} className="px-2 py-1.5">
                 <button
                   type="button"
-                  onClick={() => onViewChange({ ...view, kind: "form" })}
+                  onClick={() => setDraft({})}
                   className="bridge-add-row w-full rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors"
                   style={{ color: "var(--color-warm-gray)" }}
                 >
-                  + New row
+                  + Add element
                 </button>
               </td>
             </tr>
@@ -660,6 +720,79 @@ function InlineEditor({
       }}
       className={`w-full min-w-[80px] rounded-md border px-2 py-1 text-[13px] outline-none ${
         align === "right" ? "text-right" : ""
+      }`}
+      style={style}
+    />
+  );
+}
+
+/**
+ * One cell of the in-place new-Element draft row.
+ *
+ * Deliberately NOT `InlineEditor`: that component edits an existing value and
+ * treats blur-without-change as a cancel, which would tear the draft row down
+ * the moment the user tabbed between columns. A draft cell holds its value in
+ * the parent's draft object and only Escape dismisses.
+ */
+function DraftCell({
+  column,
+  value,
+  autoFocus,
+  onChange,
+  onCommit,
+  onCancel,
+}: {
+  column: ColumnSpec;
+  value: unknown;
+  autoFocus: boolean;
+  onChange: (next: unknown) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  const style = {
+    borderColor: "var(--color-steel)",
+    background: "var(--color-background)",
+    color: "var(--color-navy)",
+  };
+  const onKeyDown = (event: { key: string }) => {
+    if (event.key === "Enter") onCommit();
+    if (event.key === "Escape") onCancel();
+  };
+  const text = value === undefined || value === null ? "" : String(value);
+
+  if (column.options && column.options.length > 0) {
+    return (
+      <select
+        autoFocus={autoFocus}
+        value={text}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
+        className="w-full rounded-md border px-2 py-1 text-[13px] outline-none"
+        style={style}
+      >
+        <option value="">—</option>
+        {column.options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  const numeric = isNumericColumn(column);
+  return (
+    <input
+      autoFocus={autoFocus}
+      value={text}
+      placeholder={column.label}
+      inputMode={numeric ? "decimal" : undefined}
+      onChange={(event) =>
+        onChange(numeric && event.target.value !== "" ? Number(event.target.value) : event.target.value)
+      }
+      onKeyDown={onKeyDown}
+      className={`w-full min-w-[80px] rounded-md border px-2 py-1 text-[13px] outline-none ${
+        numeric ? "text-right" : ""
       }`}
       style={style}
     />
