@@ -15370,7 +15370,7 @@ export const appRouter = t.router({
         organizationId: input.organizationId,
         riskBand: manifestRow.computedRisk,
         audience: manifestRow.audience,
-        trustGrants: [], // trust_grants lookup is a store-layer follow-up; none in force yet
+        trustGrants: await ctx.wiring.capabilityStore.listTrustGrants(input.organizationId),
         killSwitch: ctx.wiring.capabilityKillSwitch,
         budgets: ctx.wiring.capabilityBudgets,
         todayKey: input.todayKey,
@@ -15842,7 +15842,7 @@ export const appRouter = t.router({
       // PKG-2 community-origin floor input: a module is treated at its
       // LEAST-trusted capability origin — if any bundled capability is
       // community/user_code (untrusted), the whole install is floored there.
-      const resolvedTrustGrants: TrustGrantView[] = []; // store-layer follow-up (same gap capability.activate has)
+      const resolvedTrustGrants = await ctx.wiring.capabilityStore.listTrustGrants(input.organizationId);
       const floorOrigin: CapabilityOrigin = installCapabilities.some((c) => isUntrustedOrigin(c.origin))
         ? "community"
         : "built_in";
