@@ -58,6 +58,11 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
 import {
@@ -68,7 +73,7 @@ import {
 } from "./registry.js";
 import { computeEligibleKinds, migrateViewConfig, viewConfigForKind } from "./eligibility.js";
 import { filterRowsByQuery } from "./rowSearch.js";
-import { Search } from "lucide-react";
+import { ArrowUpDown, Eye, MoreVertical, Plus, Search } from "lucide-react";
 import type { DataRow, DataViewProps } from "./types.js";
 
 export interface DataViewsProps
@@ -162,6 +167,30 @@ export function DataViews({
     onViewChange({ ...activeView!, rowFilters: nextFilters });
   }
 
+  /** What the "Sort by" row reports without being opened. */
+  const activeSortLabel =
+    activeView.sorts.length === 0
+      ? null
+      : (spec.columns.find((col) => col.id === activeView.sorts[0]!.id)?.label ??
+        activeView.sorts[0]!.id);
+
+  /** "Reset view" is only offered when there is something to reset — an enabled
+   * control that would visibly do nothing is the thing AP-021 forbids. Hidden
+   * columns are local state here, so they count as modification too. */
+  const viewIsModified =
+    activeView.sorts.length > 0 ||
+    activeView.rowFilters.length > 0 ||
+    hiddenColumns.size > 0 ||
+    search !== "" ||
+    filterDraft !== "";
+
+  function resetView() {
+    setHiddenColumns(new Set());
+    setSearch("");
+    setFilterDraft("");
+    onViewChange({ ...activeView!, sorts: [], rowFilters: [] });
+  }
+
   return (
     <div className={fill ? "flex h-full min-h-0 flex-col gap-3" : "flex flex-col gap-3"}>
       <div className="flex flex-none flex-wrap items-center justify-between gap-2">
@@ -211,29 +240,97 @@ export function DataViews({
             Filter
           </Button>
 
+          {/* The overflow menu, in the Avilo shape: the view-level commands
+              collect behind one ⋮ instead of each claiming a toolbar button.
+              "Columns" was the only one that had, and it is now "View options"
+              — the same checkbox list, under the name the reference uses. Each
+              entry carries its own count on the right so the menu says what
+              state the View is in before it is opened. */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline">
-                Columns
+              <Button size="sm" variant="ghost" aria-label="View actions" className="px-2">
+                <MoreVertical className="size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {spec.columns.map((col) => (
-                <DropdownMenuCheckboxItem
-                  key={col.id}
-                  checked={!hiddenColumns.has(col.id)}
-                  onCheckedChange={(checked) => {
-                    setHiddenColumns((prev) => {
-                      const next = new Set(prev);
-                      if (checked) next.delete(col.id);
-                      else next.add(col.id);
-                      return next;
-                    });
-                  }}
-                >
-                  {col.label}
-                </DropdownMenuCheckboxItem>
-              ))}
+            <DropdownMenuContent align="end" className="w-60">
+              {/* Disabled with a stated reason rather than hidden: AP-021 —
+                  interactive-looking UI must perform OR explain. Adding a
+                  column is a schema mutation and this surface has no governed
+                  capability for one. */}
+              <DropdownMenuItem
+                disabled
+                title="Unavailable: adding a column is a schema mutation, and this surface has no governed schema-mutation capability"
+                className="justify-between"
+              >
+                <span className="flex items-center gap-2">
+                  <Plus className="size-4" /> Add column
+                </span>
+                <span className="text-xs text-muted-foreground">{spec.columns.length} available</span>
+              </DropdownMenuItem>
+
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="justify-between">
+                  <span className="flex items-center gap-2">
+                    <Eye className="size-4" /> View options
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {hiddenColumns.size} hidden
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {spec.columns.map((col) => (
+                    <DropdownMenuCheckboxItem
+                      key={col.id}
+                      checked={!hiddenColumns.has(col.id)}
+                      onCheckedChange={(checked) => {
+                        setHiddenColumns((prev) => {
+                          const next = new Set(prev);
+                          if (checked) next.delete(col.id);
+                          else next.add(col.id);
+                          return next;
+                        });
+                      }}
+                    >
+                      {col.label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="justify-between">
+                  <span className="flex items-center gap-2">
+                    <ArrowUpDown className="size-4" /> Sort by
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {activeSortLabel ?? "None"}
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuItem
+                    disabled={!activeView || activeView.sorts.length === 0}
+                    onSelect={() => activeView && onViewChange({ ...activeView, sorts: [] })}
+                  >
+                    Clear sort
+                  </DropdownMenuItem>
+                  {spec.columns.map((col) => (
+                    <DropdownMenuItem
+                      key={col.id}
+                      onSelect={() =>
+                        activeView &&
+                        onViewChange({ ...activeView, sorts: [{ id: col.id, dir: "asc" }] })
+                      }
+                    >
+                      {col.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={resetView} disabled={!viewIsModified}>
+                Reset view
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

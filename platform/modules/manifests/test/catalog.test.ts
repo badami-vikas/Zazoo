@@ -10,8 +10,34 @@ import { canonicalizeManifest, parseModuleManifest } from "@bridge/core";
 
 test("built-in Module catalog has one manifest per Module name", () => {
   const names = BUILT_IN_MODULES.map(({ manifest }) => manifest.name);
-  assert.deepEqual(names, ["deal-pilot", "job-pilot", "relationship", "whatsapp", "task-manager"]);
+  assert.deepEqual(names, [
+    "deal-pilot",
+    "job-pilot",
+    "relationship",
+    "helpdesk",
+    "whatsapp",
+    "task-manager",
+  ]);
   assert.equal(new Set(names).size, names.length);
+});
+
+test("Helpdesk is a NetworkManager sub-module, and stays out of Commons", () => {
+  const helpdesk = requireBuiltInModule("helpdesk").manifest;
+  // The nav parent is what makes it appear indented under NetworkManager. Its
+  // absence is exactly why the Page was reachable by URL but invisible.
+  assert.equal(helpdesk.module?.parentModule, "relationship");
+  assert.equal(helpdesk.module?.route, "/module/relationship/helpdesk");
+  // Reuses the parent's already-declared sub-module capability rather than
+  // minting a second grant over the same private Records.
+  assert.deepEqual(
+    helpdesk.module?.pages.map((page) => page.capabilityId),
+    ["relationship.submodule.helpdesk"],
+  );
+  // Commons never carries personal data, and Help items are the owner's own.
+  assert.equal(
+    COMMONS_BUILT_IN_MODULES.some((pkg) => pkg.manifest.name === "helpdesk"),
+    false,
+  );
 });
 
 test("Task Manager is a signed installable Module with one Task Database and Agent-owned Skills", () => {
