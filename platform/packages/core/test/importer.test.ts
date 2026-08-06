@@ -65,7 +65,7 @@ test("translateForeignCapability: pi-module theme -> view", () => {
   );
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.import.translatedManifest.capabilityType, "view");
+  assert.equal(result.import.translatedManifest.capabilityType, "database");
 });
 
 test("translateForeignCapability: mcp-server without a sandboxPolicy is refused (PKG-1: carve-out removed)", () => {

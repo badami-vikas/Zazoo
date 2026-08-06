@@ -6,7 +6,7 @@ services:
     plan: free
     region: virginia
     branch: main
-    # Auto-deploys on push to main (ADR-175). The `supabase-migrate` CI job
+    # Auto-deploys on push to main (ADR-195). The `supabase-migrate` CI job
     # applies pending migrations first and finishes in well under a minute;
     # this Docker build takes several, so migrations land first in practice.
     # Not a transactional guarantee — Render's own git trigger fires on push

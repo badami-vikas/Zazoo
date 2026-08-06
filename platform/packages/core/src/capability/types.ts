@@ -13,7 +13,22 @@ export type CapabilityOrigin = "built_in" | "template" | "community" | "ai_gener
 /** Audience raises effective approval requirements (informational × shared ≠ auto). */
 export type Audience = "private" | "team" | "external_visible";
 
-export type CapabilityType = "skill" | "automation" | "agent" | "integration" | "view" | "dashboard";
+/**
+ * The governed unit. ADR-180 made two corrections here.
+ *
+ * `view` became `database`. The member was never a View: every capability that
+ * carried it declared a Database and its record permissions — the built-in
+ * manifests literally described them as "Deals database and views". A View
+ * (table, board, calendar, form) is a UI ELEMENT the user picks at render time;
+ * it holds no permissions and has no trust lifecycle, so it cannot be a
+ * capability. The Database is the thing that is governed, and naming it that
+ * makes the Page/Database relation legible: one Database, one Page.
+ *
+ * `dashboard` was removed. It was dead as a CapabilityType — the real dashboard
+ * concept lives in `BlueprintViewKind`, which is a View kind, exactly where the
+ * correction above says it belongs.
+ */
+export type CapabilityType = "skill" | "automation" | "agent" | "integration" | "database";
 
 /**
  * Component Registry discriminator (REG-1, undefined-elements §2). The

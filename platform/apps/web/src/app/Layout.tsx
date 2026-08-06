@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, Telescope } from "lucide-react";
-import { moduleNavTarget } from "@bridge/module-manifests";
+import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight } from "lucide-react";
+import { moduleNavTarget, buildModuleNavTree } from "@bridge/module-manifests";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -19,7 +19,7 @@ import {
   ResizeHandle,
   CollapseToggleButton,
 } from "./components/shared/PanelControl";
-import { DesktopWindowChrome } from "./components/shared/DesktopWindowChrome";
+import { DesktopTitlebar } from "./components/shared/DesktopWindowChrome";
 import { useAuthSession } from "./auth/AuthSession";
 
 /**
@@ -27,10 +27,15 @@ import { useAuthSession } from "./auth/AuthSession";
  * first-class left-nav items, sourced from modules.list (not hardcoded).
  * Each Module links to its PRIMARY data Page (ADR-152/AP-084 — the first
  * manifest Page, buttons-at-top), not the /module/:name capability inventory;
- * the inventory stays reachable via each data Page's Intelligence Section +
- * 3-dots Control Panel.
+ * the inventory stays reachable via each data Page's Intelligence Section
+ * ("Manage in Module Detail"); the duplicate 3-dots Control Panel entry was
+ * dropped in ADR-180.
  * Deprecated surfaces (Knowledge, Intelligence, standalone Tools,
  * Projects) are removed from primary nav. Settings moves to its own section.
+ *
+ * RAIL SCOPE (ADR-180, user directive 2026-08-05): the rail carries ONLY the
+ * profile/Organization control at the top, Modules, Second Brain, Intelligence
+ * and Settings — Settings last, in a footer that never scrolls.
  *
  * Panel behaviour: usePanelControl (§5b) — left sidebar and right AgentPanel
  * share the same collapse/expand/resize/keyboard/ARIA contract via the shared
@@ -46,13 +51,35 @@ type NavModule = {
   to: string;
   base: string;
   icon: typeof Boxes;
+  /** Set when this Module declares a nav parent (ADR-178) — it renders nested. */
+  parentModule?: string | undefined;
 };
 
-// Task Manager is a default Module: it always appears under Home regardless of
+// TaskManager is a default Module: it always appears under Home regardless of
 // modules.list state, so the Modules list is never empty and never errors out.
 const DEFAULT_MODULES: NavModule[] = [
-  { moduleName: "task-manager", displayName: "Task Manager", to: "/task-manager", base: "/task-manager", icon: ListChecks },
+  { moduleName: "task-manager", displayName: "TaskManager", to: "/task-manager", base: "/task-manager", icon: ListChecks },
 ];
+
+// Which parent Modules are expanded, persisted per Organization. A Module with
+// sub-modules starts COLLAPSED — the promise of the hierarchy is that the rail
+// shows roots until you ask for more — but an active sub-module always forces
+// its parent open, so navigating to a nested Page can never leave the rail
+// pointing at nothing.
+const EXPANDED_KEY = `bridge.${PILOT_ORGANIZATION}.rail.expandedModules.v1`;
+
+function loadExpandedModules(): string[] {
+  try {
+    const raw = window.localStorage.getItem(EXPANDED_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    // A corrupt or unavailable store degrades to "everything collapsed", which
+    // is a valid nav state — never an error surface.
+    return [];
+  }
+}
 
 export default function Layout() {
   const auth = useAuthSession();
@@ -60,8 +87,17 @@ export default function Layout() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
-  const [avatarPrefs, setAvatarPrefs] = useState<AvatarPrefs | null>(null);
-  const [organizationConfirmed, setOrganizationConfirmed] = useState<boolean | null>(null);
+  // Resolved SYNCHRONOUSLY from localStorage (falling back to the deliberate
+  // "owl" default) so the companion is on screen at first paint instead of
+  // waiting on a network round-trip. The blueprint/profile effect below only
+  // refines the style; it no longer decides whether the avatar exists.
+  const [avatarPrefs, setAvatarPrefs] = useState<AvatarPrefs | null>(() =>
+    typeof window === "undefined" ? null : loadAvatarPrefs(false),
+  );
+  /** null = the readiness check has not resolved yet. false = onboarding has
+   * demonstrably not happened, so the companion must not offer workspace
+   * actions it cannot perform (AP-021). */
+  const [setupComplete, setSetupComplete] = useState<boolean | null>(null);
   const [organizationName, setOrganizationName] = useState<string | undefined>(undefined);
   const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
@@ -104,8 +140,23 @@ export default function Layout() {
   // TASK-001 VOCAB6: installed modules from modules.list (real API, not
   // hardcoded). Only `available` state modules appear in the nav.
   const [installedModules, setInstalledModules] = useState<
-    { moduleName: string; displayName: string }[] | null
+    { moduleName: string; displayName: string; parentModule?: string | undefined }[] | null
   >(null);
+  const [expandedModules, setExpandedModules] = useState<string[]>(() => loadExpandedModules());
+
+  function toggleModuleExpanded(moduleName: string) {
+    setExpandedModules((current) => {
+      const next = current.includes(moduleName)
+        ? current.filter((name) => name !== moduleName)
+        : [...current, moduleName];
+      try {
+        window.localStorage.setItem(EXPANDED_KEY, JSON.stringify(next));
+      } catch {
+        // Persistence is a convenience; the nav still works for this session.
+      }
+      return next;
+    });
+  }
 
   // TASK-001 VOCAB6: load installed modules from modules.list for the nav.
   // Only `available` state modules appear. Fetched once per mount.
@@ -124,6 +175,7 @@ export default function Layout() {
           .map((p) => ({
             moduleName: p.moduleName,
             displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
+            parentModule: p.manifest?.module?.parentModule,
           }));
         setInstalledModules(available);
       })
@@ -145,37 +197,42 @@ export default function Layout() {
     trpc.organization.blueprint.get
       .query({ organizationId: PILOT_ORGANIZATION })
       .then(async (res) => {
-        // Existing users (a organization already has an active blueprint) never
-        // see onboarding forced back open; the avatar just defaults to a
-        // server-saved Avatar if this browser never saved prefs (spec section
-        // 4, item 4 — "no forced re-onboarding").
         const hasOrganization = Boolean(res.definition);
-        setOrganizationConfirmed(hasOrganization);
-        if (!hasOrganization) setOnboardingOpen(true);
         const storedPrefs = hasStoredPrefs() ? loadAvatarPrefs(true) : null;
         let resolvedPrefs = storedPrefs ?? loadAvatarPrefs(hasOrganization);
         let persistResolvedPrefs = hasOrganization && storedPrefs === null;
-        if (hasOrganization) {
-          try {
-            const { profile } = await trpc.onboarding.getProfile.query({
-              organizationId: PILOT_ORGANIZATION,
-            });
-            if (profile && isAvatarStyle(profile.avatarStyle)) {
-              resolvedPrefs = {
-                ...resolvedPrefs,
-                style: profile.avatarStyle,
-                avatarReady: true,
-              };
-              persistResolvedPrefs = true;
-            } else if (profile) {
-              persistResolvedPrefs = false;
-              console.error(`[avatar] unsupported saved Avatar style "${profile.avatarStyle}"`);
-            }
-          } catch (failure) {
+        // A saved onboarding profile is the honest record of "onboarding has
+        // happened". The blueprint alone is not: a pre-seeded Organization
+        // would silently count as onboarded. Unknown (the query failed) is
+        // treated as "already onboarded" so a broken API never forces a modal.
+        let onboardingCompleted: boolean | null = null;
+        try {
+          const { profile } = await trpc.onboarding.getProfile.query({
+            organizationId: PILOT_ORGANIZATION,
+          });
+          onboardingCompleted = profile !== null;
+          if (profile && isAvatarStyle(profile.avatarStyle)) {
+            resolvedPrefs = {
+              ...resolvedPrefs,
+              style: profile.avatarStyle,
+              avatarReady: true,
+            };
+            persistResolvedPrefs = true;
+          } else if (profile) {
             persistResolvedPrefs = false;
-            console.error("[avatar] failed to restore saved Avatar preferences", failure);
+            console.error(`[avatar] unsupported saved Avatar style "${profile.avatarStyle}"`);
           }
+        } catch (failure) {
+          persistResolvedPrefs = false;
+          console.error("[avatar] failed to restore saved Avatar preferences", failure);
         }
+        // User directive 2026-08-05: "if a user onboarding hasnt happened, the
+        // onboarding process should launch at launch by default". Fires only
+        // after this readiness check resolves (no flash for returning users),
+        // once per mount, and never again after a profile exists.
+        const needsOnboarding = onboardingCompleted === false || (onboardingCompleted === null && !hasOrganization);
+        setSetupComplete(!needsOnboarding);
+        if (needsOnboarding) setOnboardingOpen(true);
         if (persistResolvedPrefs) saveAvatarPrefs(resolvedPrefs);
         setAvatarPrefs(resolvedPrefs);
       })
@@ -191,8 +248,13 @@ export default function Layout() {
     if (hasStoredPrefs()) setAvatarPrefs(loadAvatarPrefs(true));
   }, []);
 
-  const desktopAvatarSessionReady =
-    organizationConfirmed === true && avatarPrefs?.avatarReady === true;
+  // User directive 2026-08-05: "Irrespective of onboarding, I want the avatar
+  // to appear." Companion presence is no longer gated on organization
+  // confirmation or on the onboarding-completion flag it used to carry — the
+  // authed shell being mounted IS the session. What the companion may DO is
+  // still gated (see `setupComplete` below and AP-021): before setup it greets
+  // and drives onboarding instead of offering actions that cannot execute.
+  const desktopAvatarSessionReady = avatarPrefs !== null;
 
   useEffect(() => {
     const invoke = window.__TAURI_INTERNALS__?.invoke;
@@ -234,6 +296,7 @@ export default function Layout() {
       to: nav?.landing ?? `/module/${mod.moduleName}`,
       base: nav?.base ?? `/module/${mod.moduleName}`,
       icon: Boxes,
+      parentModule: mod.parentModule,
     };
   });
   const navModules: NavModule[] = [
@@ -242,6 +305,8 @@ export default function Layout() {
       (mod) => !DEFAULT_MODULES.some((def) => def.moduleName === mod.moduleName),
     ),
   ];
+  // ADR-178: roots first, sub-modules nested one level under their parent.
+  const navTree = buildModuleNavTree(navModules);
 
   // Rail nav item — TWO layouts sharing one active-state treatment.
   // Collapsed: icon + short label stacked/centered. Expanded: icon + full label in a row.
@@ -258,6 +323,79 @@ export default function Layout() {
     return railExpanded ? `text-sm font-medium leading-none truncate ${extra}` : `text-[9px] font-medium leading-none ${extra}`;
   }
 
+  // Highlight for the Module's data Pages (base) AND its /module/:name
+  // capability inventory, so the rail entry stays lit on the overview reached
+  // from a data Page's Intelligence Section.
+  function moduleActive(mod: NavModule): boolean {
+    return isActive(mod.base) || isActive(`/module/${mod.moduleName}`);
+  }
+
+  /** One rail entry. `disclosure` adds the sub-module expand/collapse control;
+   *  `nested` renders the smaller indented treatment for a sub-module. */
+  function renderModuleLink(
+    mod: NavModule,
+    opts: {
+      active: boolean;
+      nested?: boolean;
+      disclosure?: { open: boolean; listId: string; onToggle: () => void };
+    },
+  ) {
+    const Icon = mod.icon;
+    const { active, nested, disclosure } = opts;
+    const iconSize = nested ? "w-4 h-4" : "w-5 h-5";
+    return (
+      <div key={mod.moduleName} className="relative flex items-center">
+        <Link
+          to={mod.to}
+          // The chevron sits ON the row, so reserve its width — otherwise a
+          // long Module name renders underneath the control.
+          className={`${navItemClass(active)}${disclosure ? " pr-8" : ""}`}
+          title={mod.displayName}
+          aria-current={active ? "page" : undefined}
+        >
+          {active && <ActiveBar />}
+          <Icon
+            className={`${iconSize} shrink-0`}
+            style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }}
+          />
+          <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>{mod.displayName}</span>
+        </Link>
+        {disclosure && (
+          <button
+            type="button"
+            onClick={disclosure.onToggle}
+            aria-expanded={disclosure.open}
+            aria-controls={disclosure.listId}
+            aria-label={`${disclosure.open ? "Collapse" : "Expand"} ${mod.displayName} sub-modules`}
+            className="absolute right-1 flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-surface)]"
+          >
+            <ChevronRight
+              className={`h-3.5 w-3.5 transition-transform ${disclosure.open ? "rotate-90" : ""}`}
+              style={{ color: "var(--color-warm-gray)" }}
+            />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  /** Mobile drawer entry — same hierarchy, indentation instead of disclosure. */
+  function renderMobileModuleLink(mod: NavModule, nested: boolean) {
+    const Icon = mod.icon;
+    return (
+      <Link
+        key={mod.moduleName}
+        to={mod.to}
+        onClick={() => setMobileModulesOpen(false)}
+        className={`flex items-center gap-3 rounded-lg py-3 text-sm font-medium ${nested ? "pl-9 pr-3" : "px-3"}`}
+        style={{ color: "var(--color-navy)" }}
+      >
+        <Icon className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+        {mod.displayName}
+      </Link>
+    );
+  }
+
   function ActiveBar() {
     return <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-r-full bg-[var(--color-steel)]" />;
   }
@@ -268,25 +406,39 @@ export default function Layout() {
   const intelligenceActive = isActive("/intelligence");
   const settingsActive = isActive("/settings");
   const secondBrainActive = isActive("/second-brain");
-  // TASK-028 shipped the Research Run detail Page at /research on 2026-07-31 but
-  // never linked it from anywhere — it was reachable only by typing the URL.
-  const researchActive = isActive("/research");
+  // ADR-180 (user directive 2026-08-05): the rail is reserved for Modules,
+  // Second Brain, Intelligence, Settings and the profile/Organization control at
+  // the top. Research is NOT a rail citizen — `/research` is the Run surface of
+  // the `web-research` Skill consumed by the Relationship Module's Learning
+  // Agent, so it is reached from Intelligence → Agents (and the per-Module
+  // Intelligence Section), never from a top-level nav entry of its own.
 
   return (
-    <div className="flex h-screen w-full overflow-hidden font-sans">
+    <div className="flex flex-col h-screen w-full overflow-hidden font-sans">
+      {/* macOS-only full-width titlebar strip (ADR-187) — reserves the
+          traffic-light gutter ONCE, above all three shell columns, instead of
+          inside the rail alone. That is what keeps the rail/main-content/chat
+          header rows landing at the same y (ask below) instead of drifting by
+          the gutter's height. Renders nothing off macOS desktop. */}
+      <DesktopTitlebar organizationName={organizationName} />
+
+      <div className="flex flex-1 min-h-0 w-full overflow-hidden">
       {/* Desktop/tablet sidebar — hidden below sm; uses shared PanelControl
           semantics (§5b, TASK-001): same snap/collapse/resize/ARIA contract as
           the right AgentPanel via the usePanelControl hook above. */}
       <nav
         id="panel-left"
         aria-label="Module navigation"
-        className={`hidden sm:flex shrink-0 border-r flex-col relative ${rail.dragWidth === null ? "transition-[width] duration-150" : ""} ${
+        className={`hidden sm:flex shrink-0 flex-col relative ${rail.dragWidth === null ? "transition-[width] duration-150" : ""} ${
           !railExpanded ? "cursor-pointer" : ""
         }`}
         style={{
           width: rail.dragWidth ?? (railExpanded ? rail.panelWidth : RAIL_COLLAPSED),
           backgroundColor: "var(--color-background)",
-          borderColor: "var(--color-border)",
+          // Shell-boundary separation is a soft shadow, not a hard rule
+          // (ADR-187 / docs/wiki/ui-architecture.md "Shell boundaries") — the
+          // rail|main-content seam reads as depth, not a drawn line.
+          boxShadow: "var(--shadow-shell-right)",
         }}
         onClick={(e) => {
           if (!railExpanded && !(e.target as HTMLElement).closest("a, button, [role='separator']")) {
@@ -309,11 +461,8 @@ export default function Layout() {
           value={rail.dragWidth ?? rail.panelWidth}
           min={RAIL_COLLAPSED}
           max={RAIL_EXTENDED}
+          isDragging={rail.isDragging}
         />
-
-        {/* macOS-only titlebar lane: AppKit's real traffic lights overlay this
-            draggable Sidebar space. Other platforms keep native chrome. */}
-        <DesktopWindowChrome expanded={railExpanded} />
 
         {/* Organization switcher — h-14 matches center Header and right panel headers. */}
         <div
@@ -422,7 +571,14 @@ export default function Layout() {
         {/* Top nav — Home + installed Modules (VOCAB6) + "+New", icon+label stacked.
             Modules are sourced from modules.list (not hardcoded). Each links to
             its primary data Page (moduleNavTarget landing, ADR-152/AP-084). */}
-        <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
+        {/* THE ONLY SCROLLER IN THE RAIL. `min-h-0` is load-bearing: a flex
+            item's default `min-height: auto` lets this region grow to its
+            content instead of to its share of the column, which pushed the
+            pinned footer (Settings) off the bottom of the viewport and made the
+            whole rail scroll — the user could scroll past Settings. With
+            `min-h-0` the region takes exactly the leftover height, scrolls its
+            own overflow, and the footer below stays fixed on screen (ADR-180). */}
+        <div className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
           <Link to="/" className={navItemClass(homeActive)} title="Home">
             {homeActive && <ActiveBar />}
             <Home className="w-5 h-5 shrink-0" style={{ color: homeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
@@ -432,24 +588,42 @@ export default function Layout() {
           {/* Modules under Home — Task Manager (default) first, then installed
               Modules from modules.list. Always non-empty, so no "unavailable"
               or "no modules" state is ever rendered. */}
-          {navModules.map((mod) => {
-            // Highlight for the Module's data Pages (base) AND its /module/:name
-            // capability inventory, so the rail entry stays lit on the overview
-            // reached from a data Page's Intelligence Section.
-            const active = isActive(mod.base) || isActive(`/module/${mod.moduleName}`);
-            const Icon = mod.icon;
+          {navTree.map((node) => {
+            const parentActive = moduleActive(node.module);
+            const anyChildActive = node.children.some(moduleActive);
+            // An active sub-module forces its parent open — otherwise the rail
+            // would show a collapsed parent with no visible current item.
+            const open =
+              node.children.length > 0 &&
+              (expandedModules.includes(node.module.moduleName) || anyChildActive);
+            const listId = `nav-submodules-${node.module.moduleName}`;
             return (
-              <Link
-                key={mod.moduleName}
-                to={mod.to}
-                className={navItemClass(active)}
-                title={mod.displayName}
-                aria-current={active ? "page" : undefined}
-              >
-                {active && <ActiveBar />}
-                <Icon className="w-5 h-5 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-                <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>{mod.displayName}</span>
-              </Link>
+              <div key={node.module.moduleName} className="flex flex-col gap-0.5">
+                {renderModuleLink(node.module, {
+                  // The parent row stays a link — clicking the Module always
+                  // opens the Module. Disclosure is a SEPARATE control, so the
+                  // chevron can never swallow a navigation the user asked for.
+                  active: parentActive || (!open && anyChildActive),
+                  disclosure:
+                    node.children.length > 0 && railExpanded
+                      ? { open, listId, onToggle: () => toggleModuleExpanded(node.module.moduleName) }
+                      : undefined,
+                })}
+                {open && (
+                  <div id={listId} className="flex flex-col gap-0.5 pl-4">
+                    {node.children.map((child) =>
+                      renderModuleLink(child, { active: moduleActive(child), nested: true }),
+                    )}
+                  </div>
+                )}
+                {/* Rail collapsed to icons: there is no room for a nested list,
+                    so sub-modules render inline as siblings rather than being
+                    hidden behind a disclosure the user cannot see. */}
+                {!railExpanded &&
+                  node.children.map((child) =>
+                    renderModuleLink(child, { active: moduleActive(child) }),
+                  )}
+              </div>
             );
           })}
 
@@ -466,7 +640,11 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Bottom section — Second Brain + Intelligence sit above Settings.
+        {/* PINNED FOOTER — never scrolls (`shrink-0`, and the region above owns
+            the overflow). Settings is the LAST entry, at the absolute bottom of
+            the rail: there is nothing to scroll past it (user directive
+            2026-08-05, ADR-180).
+            Second Brain + Intelligence sit above Settings.
             Second Brain is the cross-Module Graph preset; Intelligence is the
             cross-Module capability inventory (Agents · Automations · Skills ·
             Integrations) at its own top-level route (ADR-154). */}
@@ -484,11 +662,6 @@ export default function Layout() {
             <Sparkles className="w-5 h-5 shrink-0" style={{ color: intelligenceActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Intelligence</span>
           </Link>
-          <Link to="/research" className={navItemClass(researchActive)} title="Research">
-            {researchActive && <ActiveBar />}
-            <Telescope className="w-5 h-5 shrink-0" style={{ color: researchActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            <span className={navLabelClass()}>Research</span>
-          </Link>
           <Link to="/settings" className={navItemClass(settingsActive)} title="Settings">
             {settingsActive && <ActiveBar />}
             <Settings className="w-5 h-5 shrink-0" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
@@ -505,6 +678,7 @@ export default function Layout() {
           Hidden below sm: a 336px side panel doesn't fit alongside the mobile bottom tab bar. */}
       <div className="hidden sm:flex">
         <AgentPanel />
+      </div>
       </div>
 
       {mobileModulesOpen && (
@@ -530,21 +704,15 @@ export default function Layout() {
               />
             </div>
             <div className="space-y-1">
-              {navModules.map((module) => {
-                const Icon = module.icon;
-                return (
-                  <Link
-                    key={module.moduleName}
-                    to={module.to}
-                    onClick={() => setMobileModulesOpen(false)}
-                    className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
-                    style={{ color: "var(--color-navy)" }}
-                  >
-                    <Icon className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
-                    {module.displayName}
-                  </Link>
-                );
-              })}
+              {/* Same one-level hierarchy as the rail. The drawer has room, so
+                  sub-modules are shown indented rather than behind a
+                  disclosure — one fewer tap to reach a nested Module. */}
+              {navTree.map((node) => (
+                <div key={node.module.moduleName} className="space-y-1">
+                  {renderMobileModuleLink(node.module, false)}
+                  {node.children.map((child) => renderMobileModuleLink(child, true))}
+                </div>
+              ))}
             </div>
             <div className="mt-3 space-y-1 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
               <Link
@@ -665,6 +833,7 @@ export default function Layout() {
         <OnboardingDialog
           open={onboardingOpen}
           onOpenChange={setOnboardingOpen}
+          {...(auth.session?.user?.email ? { userEmail: auth.session.user.email } : {})}
           // Does NOT close the dialog (see OnboardingDialog.tsx's prop comment,
           // docs/BUGS.md cosmetic-auto-close fix) — only marks that onboarding
           // no longer needs to auto-open on a future mount.
@@ -678,24 +847,26 @@ export default function Layout() {
           }}
           onAvatarReady={(prefs) => {
             setAvatarPrefs(prefs);
-            setOrganizationConfirmed(true);
+            setSetupComplete(true);
           }}
         />
       )}
 
       {/* Persistent avatar overlay — every route, inside the authed shell
-          (spec-consolidation-2026-07.md section 3). Renders once prefs are
-          resolved (either from localStorage or the existing-user fallback)
-          so it never flashes a default style before the real one loads.
+          (spec-consolidation-2026-07.md section 3). Present IRRESPECTIVE of
+          onboarding (user directive 2026-08-05): prefs resolve synchronously,
+          so the companion is there from first paint with the deliberate "owl"
+          default until a saved style loads.
           SUPPRESSED in the desktop shell (R-002): there the avatar is an
           OS-level floating companion window (apps/desktop overlay.rs +
           apps/web OverlayApp.tsx) and rendering both would duplicate it;
           plain-browser deploys keep this in-page overlay. */}
-      {organizationConfirmed === true &&
-        avatarPrefs?.avatarReady &&
+      {avatarPrefs &&
         !(typeof window !== "undefined" && window.__TAURI_INTERNALS__) && (
         <AvatarOverlay
           style={avatarPrefs.style}
+          setupComplete={setupComplete !== false}
+          onStartSetup={() => setOnboardingOpen(true)}
           {...(avatarPrefs.avatarName ? { avatarName: avatarPrefs.avatarName } : {})}
           {...(organizationName ? { organizationName } : {})}
         />

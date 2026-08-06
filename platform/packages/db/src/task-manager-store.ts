@@ -6,6 +6,7 @@ import {
   draftTaskCreate,
   emitTasksMarkdown,
   taskProjectionContentHash,
+  withAppendedOutcome,
   withOutcomeTarget,
   withTaskStatus,
   type CreateTaskRecordInput,
@@ -273,6 +274,34 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
         return { task: unpack(saved), reopenProposal };
       }
       return { task: unpack(saved) };
+    });
+  }
+
+  async appendOutcome(
+    organizationId: string,
+    taskId: string,
+    outcome: TaskOutcome,
+    seam: TaskManagerIdClock,
+  ): Promise<TaskRecord> {
+    return this.scoped(organizationId, async (tx) => {
+      const [row] = await tx.select().from(tasks)
+        .where(and(eq(tasks.organizationId, organizationId), eq(tasks.id, taskId)))
+        .limit(1);
+      if (!row) throw new Error(`task-manager: unknown Task ${taskId}`);
+      const current = unpack(row);
+      const updated = withAppendedOutcome(current, outcome, seam.nowISO());
+      if (updated === current) return current;
+      const [saved] = await tx.update(tasks).set({
+        outcomes: [...updated.outcomes],
+        version: updated.version,
+        updatedAt: new Date(updated.updatedAt),
+      }).where(and(
+        eq(tasks.organizationId, organizationId),
+        eq(tasks.id, taskId),
+        eq(tasks.version, current.version),
+      )).returning();
+      if (!saved) throw new Error(`task-manager: Task ${taskId} changed during Outcome append`);
+      return unpack(saved);
     });
   }
 

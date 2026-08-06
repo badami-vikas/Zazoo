@@ -4,92 +4,42 @@
     {
       "name": "bridge-prototype",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "--prefix",
-        "Design Bridge AI Interface (Copy)",
-        "run",
-        "dev"
-      ],
+      "runtimeArgs": ["--prefix", "Design Bridge AI Interface (Copy)", "run", "dev"],
       "port": 5173
     },
     {
       "name": "recon",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "--prefix",
-        "Tools/recon",
-        "run",
-        "dev"
-      ],
+      "runtimeArgs": ["--prefix", "Tools/recon", "run", "dev"],
       "port": 3000
     },
     {
       "name": "hni",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "--prefix",
-        "Tools/hni",
-        "run",
-        "dev"
-      ],
+      "runtimeArgs": ["--prefix", "Tools/hni", "run", "dev"],
       "port": 3002,
       "autoPort": false
     },
     {
       "name": "platform-web",
       "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "node_modules/.bin/vite",
-        "--port",
-        "5174"
-      ],
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5174"],
       "cwd": "platform/apps/web",
       "port": 5174
     },
     {
       "name": "platform-web-worktree",
       "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "node_modules/.bin/vite",
-        "--port",
-        "5175"
-      ],
+      "runtimeArgs": ["node_modules/.bin/vite", "--port", "5175"],
       "cwd": ".claude/worktrees/egg-commons-composition-109d78/platform/apps/web",
       "port": 5175
     },
     {
-      "name": "zazoo-panda",
+      "name": "platform-web-tauri",
       "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "platform/apps/web/node_modules/vite/bin/vite.js",
-        "platform/apps/web",
-        "--port",
-        "5176"
-      ],
-      "port": 5176
-    },
-    {
-      "name": "oldplatform-preview",
-      "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "platform/apps/web/node_modules/vite/bin/vite.js",
-        "preview",
-        "--config",
-        "platform/apps/web/vite.zazoo.config.ts",
-        "--port",
-        "5177"
-      ],
-      "port": 5177
-    },
-    {
-      "name": "platform-web-parallel-worktree",
-      "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "node_modules/.bin/vite"
-      ],
-      "cwd": ".claude/worktrees/parallel-ai-api-search-e3922b/platform/apps/web",
-      "autoPort": true,
-      "port": 5179
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5173", "--host", "127.0.0.1"],
+      "cwd": "platform/apps/web",
+      "port": 5173
     }
   ]
 }

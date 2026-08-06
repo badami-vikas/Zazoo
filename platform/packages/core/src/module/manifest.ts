@@ -21,6 +21,7 @@ import type {
 } from "./types.js";
 import type { CapabilityExecutionSpec, CapabilityManifest, SandboxIsolationLevel } from "../capability/types.js";
 import { parseOrganizationBlueprint } from "../blueprint.js";
+import { parseAutomationTrigger } from "../automation-trigger.js";
 
 const MODULE_KINDS: readonly ModuleKind[] = [
   "skill",
@@ -218,6 +219,17 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
   const route = requiredString(raw.route, "module.module.route");
   if (!route.startsWith("/")) fail("module.module.route must start with /");
 
+  // Sub-module parent (ADR-178). Validated for SHAPE only: a manifest is parsed
+  // in isolation, so "does this parent exist" and "is the parent itself a
+  // sub-module" are nav-build-time questions (buildModuleNavTree), not parse-time
+  // ones. Rejecting an unknown name here would make install order significant.
+  const parentRaw = raw.parentModule ?? raw.parent_module;
+  const parentModule =
+    parentRaw === undefined ? undefined : requiredString(parentRaw, "module.module.parent_module");
+  if (parentModule !== undefined && !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(parentModule)) {
+    fail("module.module.parent_module must be a kebab-case module name");
+  }
+
   const capabilityById = new Map(capabilities.map((capability) => [capability.id, capability]));
 
   const pagesRaw = raw.pages ?? [];
@@ -232,8 +244,8 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
       capabilityId: requiredString(page.capabilityId ?? page.capability_id, `module.module.pages[${index}].capability_id`),
     };
     if (!binding.route.startsWith("/")) fail(`module.module.pages[${index}].route must start with /`);
-    if (capabilityById.get(binding.capabilityId)?.capabilityType !== "view") {
-      fail(`module.module.pages[${index}].capability_id must reference a view capability`);
+    if (capabilityById.get(binding.capabilityId)?.capabilityType !== "database") {
+      fail(`module.module.pages[${index}].capability_id must reference a database capability`);
     }
     return binding;
   });
@@ -246,13 +258,20 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     if (plane !== undefined && plane !== "local" && plane !== "cloud") {
       fail(`module.module.agents[${index}].plane must be local or cloud`);
     }
+    const agentRunRoute = agent.runRoute ?? agent.run_route;
     const binding: ModuleAgentBinding = {
       id: requiredString(agent.id, `module.module.agents[${index}].id`),
       name: requiredString(agent.name, `module.module.agents[${index}].name`),
       capabilityId: requiredString(agent.capabilityId ?? agent.capability_id, `module.module.agents[${index}].capability_id`),
       skillIds: parseStringArray(agent.skillIds ?? agent.skill_ids, `module.module.agents[${index}].skill_ids`),
       ...(plane ? { plane } : {}),
+      ...(agentRunRoute !== undefined
+        ? { runRoute: requiredString(agentRunRoute, `module.module.agents[${index}].run_route`) }
+        : {}),
     };
+    if (binding.runRoute && !binding.runRoute.startsWith("/")) {
+      fail(`module.module.agents[${index}].run_route must start with /`);
+    }
     if (capabilityById.get(binding.capabilityId)?.capabilityType !== "agent") {
       fail(`module.module.agents[${index}].capability_id must reference an agent capability`);
     }
@@ -271,6 +290,12 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     if (!isPlainObject(automation)) fail(`module.module.automations[${index}] must be an object`);
     const automationId = automation.automationId ?? automation.automation_id;
     const runRoute = automation.runRoute ?? automation.run_route;
+    // ADR-179: the machine-readable trigger, parsed with the same validator the
+    // Automation store uses so a manifest and a stored row cannot disagree
+    // about what a schedule means. A malformed schedule FAILS the manifest
+    // rather than silently degrading to "never runs".
+    const scheduleRaw = automation.schedule;
+    const schedule = scheduleRaw === undefined ? undefined : parseAutomationTrigger(scheduleRaw);
     const binding: ModuleAutomationBinding = {
       id: requiredString(automation.id, `module.module.automations[${index}].id`),
       name: requiredString(automation.name, `module.module.automations[${index}].name`),
@@ -280,6 +305,7 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
       ),
       agentId: requiredString(automation.agentId ?? automation.agent_id, `module.module.automations[${index}].agent_id`),
       trigger: requiredString(automation.trigger, `module.module.automations[${index}].trigger`),
+      ...(schedule !== undefined ? { schedule } : {}),
       procedure: requiredString(automation.procedure, `module.module.automations[${index}].procedure`),
       ...(automationId !== undefined
         ? { automationId: requiredString(automationId, `module.module.automations[${index}].automation_id`) }
@@ -324,7 +350,15 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     };
   });
 
-  return { displayName, route, pages, agents, automations, commonsNeeds };
+  return {
+    displayName,
+    route,
+    ...(parentModule !== undefined ? { parentModule } : {}),
+    pages,
+    agents,
+    automations,
+    commonsNeeds,
+  };
 }
 
 /**
@@ -404,6 +438,11 @@ export function parseModuleManifest(raw: unknown): ModuleManifest {
     manifestRoot.organizationVocab ?? manifestRoot.organization_vocab,
   );
   const module = parseModuleSurface(manifestRoot.module, capabilities);
+  // The one parent check that IS answerable from a single manifest: a Module
+  // cannot be its own parent. Everything else about the relation needs siblings.
+  if (module?.parentModule === name) {
+    fail("module.module.parent_module must not name the Module itself");
+  }
 
   return {
     name,

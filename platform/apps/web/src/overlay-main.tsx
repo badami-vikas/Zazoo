@@ -7,7 +7,14 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles/globals.css";
+import { installOverlayLabStub } from "./app/avatar/overlay-lab-stub";
 import { OverlayApp } from "./app/avatar/OverlayApp";
+
+// `overlay.html?lab=1` in a plain browser: stub the Tauri bridge so the
+// companion UI is drivable/verifiable outside the desktop shell (same spirit
+// as zazoo.html). Inert in the real app — the shell never adds the param, and
+// the stub refuses to overwrite a real bridge.
+installOverlayLabStub();
 
 createRoot(document.getElementById("overlay-root")!).render(
   <StrictMode>

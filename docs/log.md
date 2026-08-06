@@ -2837,6 +2837,159 @@ not needed.
 - Verified: 72/72 turbo typecheck+test+build tasks green, db 233/233 sharded, after a clean `--frozen-lockfile` install.
 - Follow-up the same day: merging the copilot branch turned `check:agent-context` RED again. Its six `.github/instructions/*.instructions.md` files were written on 2026-07-18, before the context budget existed, and each restated ~3.8KB of Module canon that already lives in `docs/wiki` — a second, drifting copy charged to agent context. Rewritten as pointer-only files (one line each, naming the canon doc and the single rule most likely to be broken), 22,560 bytes → 2,048, exactly at the reviewed path-instruction budget. The budget was NOT raised: a guard that gets relaxed whenever it fires is not a guard. Their copy also used the retired noun `workspace`, which the rewrite removes.
 
+## 2026-08-05 — Rail scope closed, Settings pinned, duplicate Control Panel dropped (ADR-180 / AP-103)
+
+- Three user directives in one pass. The Settings-scrolls-away bug was one missing class: the rail's `flex-1 overflow-y-auto` region had no `min-h-0`, so `min-height: auto` let it outgrow its share of the column and shove the `shrink-0` footer (Second Brain · Intelligence · Settings) below the viewport. Structure was already right; only the constraint was missing.
+- "Research is an agent" turned out to be neither Agent nor Automation on inspection: `web-research` is declared a **`skill`** capability bound to the Relationship Module's **Learning Agent**, and `/research` (TASK-028) is that Skill's Run timeline. Removed from the rail and relocated behind the owning Agent via a new optional `ModuleAgentBinding.runRoute` in `@bridge/core` — the same contract automations already had — rather than a hardcoded route map in the web app. Rendered in Intelligence → Agents, the per-Module Intelligence Section, and Module Detail.
+- The "separate control panel inside the 3-dots" was a single `<Link>` to `/module/:name` on JobPilot/DealPilot/Signals, pointing at exactly what the scroll-revealed Intelligence Section already offers as "Manage in Module Detail". Nothing to merge; the item and its now-empty trigger were removed. `app/dataviews/ControlPanel.tsx` — the sliders popover — is mounted **nowhere** and never was (already noted in `pending-work.generated.json:1193`); left untouched, not deleted.
+- Reported, not acted on: **Home** and **"+New"** also sit outside the user's stated allowed rail set. Both predate the directive and removing them is a much larger IA change, so they wait on the user.
+- Verified: `@bridge/core` builds, 14 module-manifest assertions + the manifests catalog suite green, `apps/web tsc --noEmit` clean for every file touched. Residual `SettingsPage` `modelProviderKey` errors are a stale `apps/api` dist against another workstream's in-flight `router.ts`, not this change. No browser in the worktree, so the pinned footer and the three "Runs" links are unverified at runtime.
+
+## 2026-08-05 — Settings → API Keys stores a model-provider key in the existing credential vault (ADR-181, AP-104)
+
+- User directive: "I should ideally be able to add API [keys] in the API section of settings." Investigated before building: a governed secret mechanism already existed (`SourceCredentialVault`, OS keyring + AES-256-GCM encrypted file, fail-closed provider gate, throws in public-cloud mode), so nothing new was invented and no crypto was rolled.
+- Key bytes → the vault under scope `model-provider:groq`. Local Plane state holds only the opaque reference + timestamp. `modelProviderKey.list` reports existence/age/activation, never the value or a mask; the one raw-read path is called by boot wiring only. Human-only procedure gate, public-cloud refusal, pinning test that the key and its last four characters appear nowhere in state or in any response.
+- `createModelRouter` snapshots providers at construction, so activation is at the NEXT boot. The vault is now built above the router in `wiring.ts` so a saved key really does register `GroqProvider` on restart, and the UI says "Saved · inactive — restart Bridge to activate" instead of implying a live swap (AP-021). Live re-registration considered and deferred with reasons in the ADR.
+- Verified: `tsc --noEmit` clean in `apps/api` and `apps/web`; 4 new assertions green; `public-cloud-boundary` 2/2 and `dealpilot-durability` 5/5 unchanged after the vault hoist. Not verified: no live run — boot registration, a real keyring write, and the rendered section were not exercised against a running API.
+
+## 2026-08-05 — Zazoo's notch home: measured cutout, concealed-at-rest window, one-window drop (ADR-184, AP-106)
+
+Built roadmap Z1's notch home to the user's directive. New `src-tauri/src/notch.rs` measures the
+cutout from `NSScreen` (live: 179x32 at x=646 on 1470x956) and runs a 60ms, permission-free
+`NSEvent::mouseLocation` poll emitting edge-triggered hover events; `overlay_dock_notch` /
+`overlay_undock_free` centre the panel on the cutout and move it between menu-bar-level (25) and
+floating (4). New web `notch-home.ts` (pure geometry + gravity/squash physics) and `NotchHome.tsx`
+(bed, meditation, composer, drag-to-drop). The drop animates inside ONE full-height window rather
+than by stepping the window origin.
+
+Verified live: Rust reports the same geometry the Swift probe measured; a scripted cursor sweep
+drives hover with correct top-left conversion and the 48pt pad; present/conceal moves 0 -> 1 on
+notch entry; 4 Rust + 6 JS assertions pass; `tsc --noEmit` clean; app boots with no errors.
+Not verified: the rendered choreography (no `.app` bundle, so the native panel cannot be captured),
+multi-display, idle CPU. Fn-key shortcuts NOT built — consuming CGEventTap probed DENIED.
+
+## 2026-08-05 — Onboarding asks for Accessibility permission (ADR-185, AP-107)
+
+User directive: "The app should ask for accessibility permission while onboarding." Added
+`providers/accessibility::ax_request_permission` (`AXIsProcessTrustedWithOptions` +
+`kAXTrustedCheckOptionPrompt`, a narrowly-scoped one-call CoreFoundation dictionary, released
+immediately after) beside the existing read-only `ax_permission_status`, and a "Grant Accessibility"
+button on onboarding's existing "trust" step (`OnboardingDialog.tsx`) — click-only, never on mount,
+fully skippable, copy honest that Accessibility gates no shipped capability yet (only the still-
+unbuilt Fn-key summon customization from ADR-184).
+
+Blocker checked before writing UI, per the brief: `target/debug/bridge-desktop` has no `.app`
+bundle (`find` under `target/` finds none; `tauri.conf.json` has `bundle.active: true` but no
+evidence `tauri build` has run here). TCC keys an Accessibility grant to the bundled app identity,
+so a grant obtained from today's raw binary is not reliably durable across the next `cargo build` —
+the same limitation ADR-184 already recorded for the Fn-key CGEventTap probe and for computer-use
+screenshot verification. The button ships anyway (real live-polled state, same code becomes durable
+once bundled) with the caveat stated in the ADR/AP row rather than hidden.
+
+Verified: `cargo build` clean (2 pre-existing unrelated warnings only), `cargo test accessibility`
+1/1 (no test added for the prompt command — it triggers a real OS dialog), `tsc --noEmit` clean in
+`apps/web`, `onboarding-learning.test.mjs` 15/15 unchanged. Debug binary launched fresh against a
+scratch `BRIDGE_LOCAL_DIR`: log showed `api sidecar healthy`, panel/notch/overlay ready lines, 15s
+of `200`-status traffic, zero `Error`/`panic` lines, stopped cleanly. Not verified: the rendered
+onboarding screen and the live click → OS-dialog → poll-detects-grant round trip — no `.app` bundle
+for computer-use to attach to and screenshot the native window.
+
+## 2026-08-05 — Chat composer redesign: rounded row with attachment/model/mic/send (ADR-186, AP-108)
+
+User directive: "Keep the right hand AI chat bar UI similar to claude code UI with an option to add
+attachment, choose model, a voice icon for voice input and a miniature arrow acting as send button."
+`ChatView.tsx`'s bottom bar (shared by the full right-hand panel and the avatar overlay's `compact`
+panel) becomes one `rounded-2xl` bordered container — paperclip · model pill · textarea · mic ·
+circular `ArrowUp` send — instead of a bare `<textarea>` beside a rectangular "Send" button.
+
+Investigated before building each control, per AP-021. Attachment: no upload pipeline exists
+anywhere in the repo (grepped `ChatView.tsx`/`useChat.ts`), so the paperclip ships **honestly
+disabled** with a tooltip explaining why, not a silent no-op. Model: a thread's `plane` is fixed at
+creation server-side, so the pill starts a fresh Chat on the chosen plane via the existing
+`chat.newChat(plane)` rather than pretending to swap models mid-thread; while landing this, a
+concurrent workstream extended `chat.model.status` with `configured`/`restartRequired` (ADR-181/
+AP-104), and the pill's disabled Cloud option now explains "restart to activate" vs "add a key in
+Settings" instead of being unexplained. Voice: the mic wires to `companion_transcribe` (Groq
+Whisper STT) — the SAME app-wide Tauri command `avatar/CompanionAsk.tsx`'s push-to-talk already
+calls (confirmed registered globally, not window-scoped, in `lib.rs`'s `invoke_handler!`) — gated on
+the existing `window.__TAURI_INTERNALS__` feature-detection global so a plain-browser render of
+`ChatView` (the common `apps/web` case outside Tauri) shows it **honestly disabled** instead of
+faking capture. Dictation fills the composer's draft for human review rather than auto-sending,
+since a Chat turn can trigger a governed Task proposal (ADR-183/AP-105).
+
+This file was being edited by another in-flight workstream during the change (the `chat.model`
+shape above, plus `ModelSetup`'s copy); reconciled by re-reading the file before each edit rather
+than overwriting its work, and the two composer changes now compose cleanly.
+
+Verified: `tsc --noEmit` clean in `apps/web` and `apps/api`. Live browser check against the Vite dev
+server at `127.0.0.1:5173` (the worktree's tRPC API itself answers "Failed to fetch" — a known
+environment limitation, not a composer defect): DOM inspection confirmed all four controls render
+with correct `aria-label`s and stay inside the panel's bounds at 1600×900 in both light and a forced
+`.dark` class, and that the attachment/mic buttons report `disabled: true` with their honest tooltip
+text outside Tauri. Not verified: the `compact` avatar-overlay path live — that surface is a
+Tauri-only window with no reachable route in this browser preview, so it rests on type-check and
+code review only.
+
+## 2026-08-05 — Shell header misalignment fixed: one shared macOS titlebar strip, shadows replace shell borders, hover-only resize handles (ADR-187, AP-113)
+
+User-described screenshot: the left rail's own header (avatar + org name + collapse icon) sat
+visibly lower than the main-content page header and the chat-panel header — two underlines instead
+of one. Root cause: `DesktopWindowChrome`'s `h-8` traffic-light spacer was stacked ABOVE the rail's
+`h-14` header ONLY; all three headers were already `h-14` (56px), so the bug was a per-column
+y-origin drift, not a height mismatch.
+
+Rewrote `DesktopWindowChrome.tsx` as `DesktopTitlebar` — one full-width `data-tauri-drag-region`
+strip mounted in `Layout.tsx` above ALL THREE shell columns instead of inside the rail alone, so no
+column can drift out of alignment with the others again (structural, not policed by convention).
+`title_bar_style: Overlay` was already set in `tauri.conf.json`, so the workspace/organization name
+renders inline in that strip, left-aligned past a reserved 78px traffic-light gutter — literally
+next to the native traffic lights, the preferred outcome over the font-size fallback; the rail's own
+interactive org-switcher is untouched below it.
+
+Also: `globals.css` gains `--shadow-shell-right`/`--shadow-shell-left` (no `--shadow-*` tokens
+existed before — grepped first) and `Layout.tsx`'s `<nav>` / `AgentPanel.tsx`'s `<aside>` swap
+`border-r`/`border-l` for them on the rail|main-content and main-content|chat-panel seams only
+(internal per-panel header `border-b` dividers untouched). `PanelControl.tsx`'s `ResizeHandle`
+arrow/hairline go `opacity-0` at rest, revealed via `group-hover`/`group-focus-within` (never
+unmounted — a keyboard-focused handle stays reachable), with a new `isDragging` prop forcing
+visibility for the whole drag so a fast pointer move outside the ~8px hit-zone can't flicker it away.
+
+Stayed out of `ChatView.tsx`'s composer internals per the concurrent composer-redesign workstream
+(ADR-186/AP-108) sharing this batch.
+
+Verified: `npx tsc --noEmit` clean in `apps/web`. Live-measured via the Browser preview
+(`127.0.0.1:5173`, dev server already running) with `getBoundingClientRect()`: all three `h-14`
+headers report identical `{top, bottom}` — `{0, 59.5}` in plain browser mode, `{32, 91.5}` with
+`window.__BRIDGE_DESKTOP_PLATFORM__` forced to `"macos"` via a same-document client-side route
+change (a full reload resets the flag, so this was done in-place). Confirmed the shell-boundary
+`box-shadow` renders as a soft seam, not a hard border, in both light and forced-dark mode; confirmed
+the resize-handle arrow is `opacity: 0` at rest and `opacity: 1` on real pointer hover and on
+`.focus()` (`:focus-within` match); checked both collapsed and expanded rail states. Not verified:
+the real native traffic-light buttons and their exact pixel geometry — only exist in a running
+bundled `.app` (none exists in this worktree, the same limitation ADR-184/AP-107 already recorded),
+so confirm on the real desktop app that the workspace-name label doesn't crowd the real lights.
+
+## 2026-08-05 — Notch entrance choreography, 3-line composer, smoother drop, project auto-compact default
+
+User directive (four items). (1) "The hover when I put it back is appearing too low" — the revealed
+notch panel is now 300×136 (was 300×168) with Zazoo flush under the cutout instead of 4pt below it,
+and the bed slab tucked under his feet rather than crossing his middle. (2) The notch composer is a
+3-line `<textarea>`, not a 1-line `<input>`; the chat-pose box grew to 400×152 to hold it. (3) "The
+falling animation is not smooth" — the drop no longer drives React state once per frame; it writes
+`transform`/`left` directly onto the element from rAF, and waits for the full-height-column window
+resize plus two presented frames before its first animated frame. (4) "When hovered over notch, the
+sleeping avatar should slide with the bed, then the avatar should stand as bed slides back" — built
+as a four-phase entrance (`tucked` → `sleeping` → `standing` → `awake`, surfaced as `data-entrance`).
+
+Also fixed in passing: every vertical measurement now derives from `avatarDrawnHeight()` (the rig's
+240×310 viewBox makes a width-84 avatar 108.5pt tall), which was cropping his legs and putting the
+last frame of the fall inside the Dock strip.
+
+Rationale, rejected alternatives and the verification trace: ADR-191.
+
+Separately, at the user's request `autoCompactWindow: 400000` is now a project default in
+`.claude/settings.json` (it was only in the user-level `~/.claude/settings.json`).
+
 # 2026-08-04 — TASK-032/033 follow-ups: promotion machinery, semantic embedder seam, archetype support-band aggregation
 - Promotion machinery v1 (roadmap-v2 §Capability Evolution "Repeated Action → Workflow"): core `learning/promotion.ts` detects heavily repeated patterns (threshold 6, above the preference digest's 3) and PROPOSES Automation drafts on their own suggestion lineage (distinct from the preference lineage — both promotions of one behavior can coexist). Human acceptance mints a `status: "draft"` AutomationDefinition with EMPTY steps — `AutomationRegistry.load` never returns a draft (Drizzle already filtered active; the in-memory registry now mirrors it), so the real executor throws "not found" (proven in test). Rejection suppresses at the store level; promotion rows classify as learning machinery (never reach prompts or the embedding index). tRPC `learning.promotions.{propose,list,accept,reject}` behind the learning flight.
 - Semantic embedder behind the LA5 vector port: core `TextEmbedder` seam (`id` names the embedding space) + `hashingTextEmbedder` fallback; wiring resolves `semanticEmbedder` from an id ALLOWLIST (Ollama, via new `embedModelId` = `ollama:<model>`), never duck-typing (the Echo double's pseudo-embed is not semantics); explicit `BuildWiringOptions.semanticEmbedder` override for tests/deployments. Indexer and chat query always share the resolved space; a failed semantic embed degrades the vector lane to empty — the chat turn completes on the remaining lanes.
@@ -2855,10 +3008,46 @@ not needed.
 - Settings → Learning gains two flight-gated cards (render nothing when off or unreachable): `AutomationDraftsCard` — a thin client over the governed promotion procedures (propose/accept/reject candidates; per-draft step editor emitting only canonical fields through `drafts.update`; Activate confirm-gated, disabled on empty drafts, server refusals surfaced verbatim) — and `RetrievalQualityCard`, which renders the API's own metricNote with an equivalent hardcoded fallback so eval numbers can never appear without the self-retrieval caveat.
 - Verified: api retrieval-eval suite 5/5 (stable-reuse, prune-only, and drift-refresh branches all asserted), web 117/117 incl. a new source-contract test (flight gates, inert-draft copy, disabled empty activation, verbatim refusals, label fallback, mounting), web production build + typecheck clean. ADR-174 records rationale and rejected alternatives.
 
-# 2026-08-07 — Render auto-deploy + Supabase migration automation (ADR-175, AP-102)
+# 2026-08-05 — Sub-modules become real: `parentModule` in the manifest, collapsible left rail, four Modules renamed (ADR-178, AP-105)
+- `ui-architecture.md` rule 1.5 had described a collapsible sub-module group since the IA was written and no code implemented it — recorded as an open canon-vs-code conflict in the taxonomy doc's §5.2, now CLOSED. `ModuleSurfaceManifest` gains optional `parentModule`; the CHILD declares it, because an installed parent manifest is immutable and cannot be edited when a sub-module appears later.
+- The relation is NAVIGATION only. A sub-module keeps its own manifest, version, capability trust lifecycle, and install/uninstall; declaring a parent grants no permission, no credential, no plane relaxation. WhatsApp nesting under NetworkManager changes where you click, not what it is allowed to do.
+- Every rule in `buildModuleNavTree` defends one invariant: an installed Module is a Module you can SEE. Unresolvable parent → child renders at root. Uninstalled parent → child renders at root. Grandchild → re-attaches to the root-most ancestor, so one-level nesting holds by construction rather than by convention. Cycle → terminates, both visible. Asserted over the real catalog: grouping is a re-arrangement, never a filter. This is deliberately designed against the AP-082/AP-085 class, where a surface vanished and the user found out first.
+- Parent references resolve at nav-build time, NOT parse time. A manifest is parsed alone and cannot see its siblings; rejecting an unknown parent would make install ORDER decide validity and let uninstalling a parent retroactively invalidate a stored child. Parse validates shape only — kebab-case, and not self-referential, the one relational question a single manifest can answer.
+- Display names now read NetworkManager / TaskManager / DealManager / JobManager (five manifest versions bumped). `name` and `route` identifiers are unchanged — that migration has its own deletion criteria and 139 violations are already open.
+- **The consequence that mattered most**: Module Files live at `~/Documents/Bridge/<Organization>/<Module display name>/`, so these renames rename folders holding the owner's own documents. Untreated, four fresh empty folders would have appeared beside the old ones and the Files Sections would have rendered empty — silent loss of user data wearing a success face. `module-files.ts` now carries each rename forward exactly once, on both the read and write paths, and stands down rather than merging when both folders exist.
+- Gmail and LinkedIn are in the owner's declared structure but do NOT exist as Modules (Gmail is an Integration at `/integrations/google`; LinkedIn has no implementation). Neither was fabricated to make the nav match the picture; both are recorded as needing real manifests.
+- Verified: 25 turbo tasks green across core, module-manifests, api, web — 9 new nav-tree tests, 4 new manifest-parse tests, 3 new API tests (including manifest → store → `modules.list` → the exact grouping function the rail calls). Three independent negative controls run before claiming any of it: nesting disabled, `parentModule` stripped from the catalog, folder adoption disabled — each failed the intended test, then was restored. NOT proven live in a browser: local reads need verified auth, and the app rendered only the default-Module fallback; the end-to-end API test exists because a screenshot was unavailable, not as a substitute for one.
+
+# 2026-08-05 — Scheduled Automation gets a runtime; Capability becomes the governed atom; `view` was always the Database (ADR-179, ADR-180, AP-106)
+- **Scheduler.** "Scheduled Automation" had been glossary vocabulary with no runtime. Three places carried a `trigger` and none worked: the manifest's was free-text English dropped at install, the `automations` table's `trigger jsonb`/`cadence text` were never read and `save` hardcoded `{}`, and `AutomationDefinition` had no trigger at all. The only non-human runner was one `setInterval` naming a single automation id. Now: typed `AutomationTrigger` (manual|schedule|event), the dead columns given real meaning, and a generic loop that reads each Automation's own cadence.
+- The due-calculation is PURE and takes `now` as an argument, so the interesting behaviour is tested by calling it rather than waiting on wall time. Three properties, each with a test: an Automation overdue by six hours fires ONCE (missed occurrences are not a queue to drain, or a restart becomes a burst of governed Runs); a never-run schedule is due immediately (waiting a full interval makes a fresh Organization look broken); `lastStartedAt` reads from the durable `automation_runs` rows, because the API restarts on every deploy and an in-memory cursor would re-fire everything.
+- `event` triggers are modelled but nothing dispatches them, so the scheduler NAMES every one at boot. Closing a "docs assert behaviour code lacks" gap while opening another would have been absurd.
+- Authority is untouched: a scheduled Run goes through the same executor a human Run uses, as the Automation's own Agent with the scope it already had. A clock cannot buy permission.
+- **Capability = the governed atom**, adopting the code's wider definition over the glossary's "primarily a Skill or Integration". A Module is the shipping unit that bundles capabilities; "Module or Skill?" is a category error.
+- **`capability_type: "view"` → `"database"`.** It was never a View: every capability carrying it declared record read/write permissions and was named for a Database — the built-ins literally read `capability("deal-pilot.deals", "Deals database and views", "view", ...)`. This is a rename to what the field always meant. Dead `"dashboard"` deleted; the real dashboard concept lives in `BlueprintViewKind`, a View kind, which is exactly where a View belongs. Migration 0038 moves the persisted values — stale `'view'` rows would make the parser reject an installed Module's page bindings on the next read.
+- **Toggle vs List, corrected — and a canon contradiction closed.** §1 of the UI rules said "different columns of the same table → TOGGLE"; §5a said Add page appears "iff the column's source is a database-backed entity/table". §5a is what the code implements. §1 named the symptom and mis-stated the cause: columns differ *because* the Database differs. Now: a different related **Database** → Toggle; any subset of ONE Database, rows **or columns** → List. And "strongly related" became checkable — the toggle cluster is Databases joined by **Relations** (`ColumnSpec.relationTarget`/`relationParent`, the real `community_members` join), not by resemblance. **Gap recorded:** DealPilot's Deals/Sources/Theses uses denormalised text tags rather than Relations, so it fails the rule today.
+- **Page is derived, not designed.** It was listed as a Surface-axis value by mistake; declaring a Database creates its Page. You never choose "Page vs Module" — you choose "another Database here, or another Module?".
+- **Vocabulary 139 → 88.** 11 allowlist entries extend AP-096's already-reviewed LLM tool-calling exemption to the rest of its own data path (it had stopped one layer short, exempting the type but not the store, schema, router, or web surfaces), plus DOM `Element`, the English verb "project", and a negative assertion that enforces the gate's own goal. 6 genuine Bridge-owned renames applied. The remaining 88 are ~all WhatsApp "Tools" → Skills, which needs its own approval: it touches a user-visible route, a `databaseId`, and governed capability ids, and ADR-171/AP-096 declined it once already.
+- Found in passing and fixed: `InMemoryAutomationRegistry` returned `trigger: undefined` where the Drizzle one returned `{kind:"manual"}`. Sibling adapters answering the same question differently is how callers acquire defensive defaults.
+- Verified: turbo typecheck 44/44; 17 new tests; negative control on the anti-storm property (interval check disabled → the intended test failed, then restored).
+
+# 2026-08-06 — External agent access planned as EA0–EA5, corrected against a sibling implementation that already shipped it (ADR-194, AP-114)
+- **Plan only. No code, no TASK rows.** Roadmap gains EA0–EA5 as phase ADD-ONs for letting Claude Code or any MCP client build Modules, Databases, Skills and Automations for a Bridge installation. New raw doc + wiki companion + roadmap ingest + index pointer.
+- **The plan recorded is not the plan first drafted.** Avilo Advisory — a sibling single-user offline-first desktop app — had already built substantially this design against an earlier draft and shipped it, and its review corrected four things. That review was more useful than the draft, so the corrections are recorded as corrections rather than quietly folded in.
+- **Transport determines the security requirement.** The draft made the H1 auth fix an unconditional blocker on all external access. With stdio the only caller is a process the user launched, so a token would be a secret stored on the same machine as the thing it protects. Bridge is desktop-first and local-first, so a stdio gateway crosses no network boundary and can precede the auth work. H1 is **un-coupled, not cancelled** — still a blocker for the product and for any networked transport. What stdio removes is the auth requirement; what it raises is data isolation, because Bridge's local plane holds real personal data where the sibling's store held only configuration.
+- **Isolation belongs in the import graph.** A helper called by each tool guards today's tools, not the import someone adds in six months to a service the gateway already depends on, three files away. The test walks transitive imports and fails on any reachable first-party file naming a personal-data table — and **fails if the walker resolves too few files**, because without that guard the suite goes green precisely when it stops testing anything. Verified by deliberately breaking it, over there; expect the same refactor pressure here (making it pass required moving a formula loader out of a reporting module that dragged every fact and override query into the graph).
+- **Restore/propose asymmetry adopted, with a qualifier.** Introducing a new state is a human decision; returning to an old one is not — restore cannot introduce anything new, appends rather than truncates, and is itself undoable. Bridge already had the append-only substrate and was missing only the permission conclusion. **But restore restores the document, not the world:** a restored Automation points at Integrations whose scopes and schemas have moved, and a configuration predating a security fix can re-enable a capability at an older trust band. So unattended restore requires that references still resolve identically and no trust band or credential grant has changed; otherwise it degrades to a proposal. Restore is also a *selection* capability — an agent cannot author a bad state but can pick the worst approved one at the worst moment — so external restores are notified and rate-limited.
+- **The sandbox recommendation was overbuilt.** Sandboxing is for emitted code; a schema whose components name bindings and never carry values, code or markup dissolves the risk by construction, and a sandbox there is corrosive — it invites relaxing the schema later on the grounds that it is contained. Replaced by shrinking the code-bearing surface: no sandbox for View/Database/Page/layout, BA0's sandbox kept strictly for capability bodies that execute. Standing rule: a sandbox must never justify a looser schema.
+- **Kept where Bridge differs.** The taint lattice stays — a lattice earns its complexity when several differently-trusted sources flow into each other, and Bridge has email, capture, scrape, Commons, MCP and external agents where a single-door app has one; that is now a criterion rather than an assumption. And the loopback-API route becomes mandatory rather than preferred: the sibling opened the same store file its app does and said so plainly as a code-level not OS-level guarantee, naming the route it did not take — Bridge has the API and the authority plane, so the cheap path would be a regression.
+- **Vendo demoted** from proposed import to pattern source only. It converges usefully (single choke point, constrained generation format, approval-gated tools, opt-in MCP door) but acts as the signed-in user with no taint, no residency planes and no versioned capability lifecycle — it retrofits adaptability onto static products, which Bridge is natively. Sixth alongside bolt.diy/Dyad/Budibase/Appsmith/ToolJet; no reuse intake needed unless a specific import is proposed; never a second governance plane beside the authority plane.
+- **Dev-time:** CODEOWNERS presumes multiple humans and is ceremony at one. What it protects is served by tests that always run — the isolation guard, an assertion that fails if an `activate`-shaped tool ever appears, forward-only history tests. "Never move the approval gate itself" adopted without qualification.
+- **Recorded as unverified and blocking:** whether a configuration version ledger equivalent exists in Bridge today. Propose-only ships without it; the list/get/restore tools do not. Also carried across: `drizzle-kit generate` re-emitting `CREATE TABLE` for hand-written un-snapshotted migrations would fail on the first statement for every existing install — Bridge writes hand-authored migrations and is at 0038.
+
+# 2026-08-07 — Render auto-deploy + Supabase migration automation (ADR-195, AP-115)
 
 - User directive, explicit tradeoff shown first: `render.yaml` `autoDeploy: false` on both hosted services was a deliberate manual-review gate (recorded in AP-101 and TASK-006's Dependencies field) protecting the free-tier hosted pilot from an unreviewed merge going live. User chose to flip both services to `autoDeploy: true` anyway.
-- New `.github/workflows/ci.yml` job `supabase-migrate`: runs only on a real push to `main` (never a PR), depends on the `platform` typecheck/test/build job passing first, and runs `pnpm migrate` (drizzle-kit) against `MIGRATION_DATABASE_URL` — the existing owner/session-pooler credential already documented in `platform/apps/api/.env.example`, distinct from the least-privilege `bridge_app` `DATABASE_URL` the API container runs with.
+- New `.github/workflows/ci.yml` job `supabase-migrate`: runs only on a real push to `main` (never a PR), depends on the `platform` job (now `pnpm verify`, per the concurrent CI-gate-consolidation landing) passing first, and runs `pnpm migrate` (drizzle-kit) against `MIGRATION_DATABASE_URL` — the existing owner/session-pooler credential already documented in `platform/apps/api/.env.example`, distinct from the least-privilege `bridge_app` `DATABASE_URL` the API container runs with.
 - Corrected TASK-006's stale Dependencies field, which named the now-superseded manual-deploy gate.
 - **Manual step required before this works**: `MIGRATION_DATABASE_URL` must be added to the repo's GitHub Actions secrets by the user directly — no credential was supplied in chat or written to any file. Until added, the job fails loudly (fail-closed), which is correct, not a regression.
-- **Residual risk, stated plainly, not silently fixed**: Render's git-triggered auto-deploy fires on the push event itself, independent of GitHub Actions' outcome — the new CI job cannot gate it. Ordering (migrations before the new code serves traffic) holds only in practice, because the migration job finishes in well under a minute while the API's Docker build takes several; it is not a transactional guarantee. A hard guarantee would need Render's Deploy API triggered from a post-migration CI step instead of Render's own git integration — deferred, not built (ADR-175 records the rejected alternatives).
+- **Residual risk, stated plainly, not silently fixed**: Render's git-triggered auto-deploy fires on the push event itself, independent of GitHub Actions' outcome — the new CI job cannot gate it. Ordering (migrations before the new code serves traffic) holds only in practice, because the migration job finishes in well under a minute while the API's Docker build takes several; it is not a transactional guarantee. A hard guarantee would need Render's Deploy API triggered from a post-migration CI step instead of Render's own git integration — deferred, not built (ADR-195 records the rejected alternatives).
+- Renumbered from a local ADR-175/AP-102 — both collided with already-landed, unrelated decisions on `main` (capability-structure regeneration). This session's entries are the later arrival.

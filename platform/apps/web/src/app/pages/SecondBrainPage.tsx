@@ -112,7 +112,10 @@ export function SecondBrainPage() {
           {actionStatus}
         </div>
       )}
-      <div className="flex-1 overflow-auto p-4">
+      {/* One surface, one view, nothing below the fold: the view region takes
+          the whole remaining height so the table/graph covers the screen, and
+          each renderer scrolls its own body. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
         {error ? (
           <p role="alert" className="rounded-md border border-red-200 p-4 text-sm text-red-600">
             Full graph could not load: {error}

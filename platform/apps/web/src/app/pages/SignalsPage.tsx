@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { MoreHorizontal, Radio } from "lucide-react";
+import { Radio } from "lucide-react";
 import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { collectAllPages } from "../lib/pagination";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
@@ -14,13 +14,8 @@ import { type DashboardMetric } from "../components/shared/DashboardRow";
 import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { Button } from "../components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu";
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow, GraphNode } from "../dataviews/types";
 
@@ -168,23 +163,12 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
           >
             {insightsOpen ? "Hide insights" : "Show insights"}
           </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Signal controls"
-                className="rounded-md border p-1.5 hover:bg-black/5"
-                style={{ borderColor: "var(--color-border)" }}
-              >
-                <MoreHorizontal className="size-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem asChild>
-                <Link to="/module/relationship">Control Panel / Module Detail</Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* ADR-180: the 3-dots menu held exactly ONE item — a link to Module
+              Detail — which the scroll-revealed Intelligence Section below the
+              table already offers as "Manage in Module Detail". A menu button
+              whose only entry is a duplicate is interactive-looking UI that
+              adds nothing, so the whole control is gone rather than left
+              opening an empty menu. */}
         </div>
       </div>
       <CollapsibleInsights
@@ -197,18 +181,23 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
         </div>
       )}
 
-      <div className="flex-1 space-y-8 overflow-auto p-4">
-        <section aria-label="Signals Database">
-          <DataViews
-            spec={SIGNALS_SPEC}
-            view={view}
-            data={rows}
-            onViewChange={setView}
-            onOpenRecord={openRecord}
-          />
-        </section>
-        {selectedSignal && (
-          <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-live="polite">
+      <ModuleSurfaceLayout
+        table={
+          <section aria-label="Signals Database" className="h-full">
+            <DataViews
+              spec={SIGNALS_SPEC}
+              view={view}
+              data={rows}
+              onViewChange={setView}
+              onOpenRecord={openRecord}
+            />
+          </section>
+        }
+        // The selected-Signal strip stays INSIDE the first screen: it is the
+        // direct response to clicking a row, so putting it below the fold
+        // would make selection look like it did nothing.
+        footer={selectedSignal ? (
+          <section className="mx-4 mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-live="polite">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>Selected Signal</p>
@@ -227,12 +216,14 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
             </div>
             {actionErrors[selectedSignal.id] && <p role="alert" className="mt-2 text-xs text-red-600">{actionErrors[selectedSignal.id]}</p>}
           </section>
-        )}
-        <ModuleFilesSection moduleName="relationship" />
-        <div className="mt-6">
-          <ModuleIntelligenceSection moduleName="relationship" />
-        </div>
-      </div>
+        ) : null}
+        below={
+          <>
+            <ModuleFilesSection moduleName="relationship" />
+            <ModuleIntelligenceSection moduleName="relationship" />
+          </>
+        }
+      />
     </div>
   );
 }

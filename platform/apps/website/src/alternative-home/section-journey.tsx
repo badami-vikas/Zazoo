@@ -58,8 +58,8 @@ export function JourneyScene() {
                 <span className="journey-dept__frame" />
                 <Person className="journey-worker journey-worker--a" />
                 <Person className="journey-worker journey-worker--b" />
-                <span className="journey-tool" />
-                <span className="journey-workflow" />
+                <span className="journey-skill" />
+                <span className="journey-automation" />
               </div>
             ))}
             <span className="journey-shared" />

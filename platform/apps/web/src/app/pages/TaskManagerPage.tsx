@@ -6,6 +6,7 @@ import { Header } from "../components/shared/Header";
 import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { DataViews } from "../dataviews/DataViews";
 import { computeEligibleKinds, viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow } from "../dataviews/types";
@@ -199,21 +200,24 @@ export function TaskManagerPage() {
           </div>
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-4">
-        {loading ? (
-          <p role="status" className="p-6 text-sm text-muted-foreground">Loading Task Records…</p>
-        ) : error ? (
-          <p role="alert" className="p-6 text-sm text-red-600">Task Manager could not load: {error}</p>
-        ) : (
-          <>
-            {/* Notion-like: the table is always present. When no Database is
-                connected we show an honest banner above the (empty) table
-                rather than hiding it. */}
-            {!API_TRANSPORT_CONFIGURED && (
-              <div className="mb-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                No Task Database is connected. Start the Bridge API to create the first real Task.
-              </div>
-            )}
+      <ModuleSurfaceLayout
+        above={
+          /* Notion-like: the table is always present. When no Database is
+             connected we show an honest banner above the (empty) table
+             rather than hiding it. It sits in the first screen, so it
+             shrinks the table instead of pushing it out of view. */
+          !API_TRANSPORT_CONFIGURED && !loading && !error ? (
+            <div className="mx-3 mt-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground sm:mx-4 sm:mt-4">
+              No Task Database is connected. Start the Bridge API to create the first real Task.
+            </div>
+          ) : null
+        }
+        table={
+          loading ? (
+            <p role="status" className="p-6 text-sm text-muted-foreground">Loading Task Records…</p>
+          ) : error ? (
+            <p role="alert" className="p-6 text-sm text-red-600">Task Manager could not load: {error}</p>
+          ) : (
             <DataViews
               spec={TASK_SPEC}
               view={view}
@@ -223,15 +227,15 @@ export function TaskManagerPage() {
               onOpenRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
               onEditRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
             />
+          )
+        }
+        below={
+          <>
+            <ModuleFilesSection moduleName="task-manager" />
+            <ModuleIntelligenceSection moduleName="task-manager" />
           </>
-        )}
-        <div className="mt-6">
-          <ModuleFilesSection moduleName="task-manager" />
-        </div>
-        <div className="mt-6">
-          <ModuleIntelligenceSection moduleName="task-manager" />
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 }

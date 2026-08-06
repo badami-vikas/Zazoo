@@ -96,7 +96,7 @@ test("uses semantic tier for inconclusive structural matches when embeddings exi
     row({
       id: "manifest-community-map-view",
       name: "Community Map View",
-      capabilityType: "view",
+      capabilityType: "database",
       manifest: { purpose: "Render Community membership as a organization view." },
     }),
   ];

@@ -23,13 +23,17 @@ function record(overrides: Partial<AqvRecord>): AqvRecord {
   };
 }
 
-test("computeAqv: returns zero axes for an empty window except safety", () => {
+test("computeAqv: an empty window is unmeasured, not failing", () => {
   const vector = computeAqv([], { from: "2026-07-01T00:00:00.000Z", to: "2026-07-31T00:00:00.000Z" });
   assert.equal(vector.episodeCount, 0);
   assert.equal(vector.success, 0);
   assert.equal(vector.correction, 0);
-  assert.equal(vector.reliability, 0);
-  assert.equal(vector.efficiency, 0);
+  // Reliability and efficiency are the two snapshot-derived axes. With no episodes
+  // there is nothing to derive them from, so they report null (unknown) rather than
+  // 0 (measured and bad) — otherwise an uninstrumented capability is indistinguishable
+  // from a broken one and the promotion gate blocks it for the wrong reason.
+  assert.equal(vector.reliability, null);
+  assert.equal(vector.efficiency, null);
   assert.equal(vector.safety, 1);
 });
 

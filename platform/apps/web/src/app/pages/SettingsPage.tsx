@@ -8,11 +8,13 @@
  *   Team & Permissions  → organization.listMembers + organization.inviteMember
  *   Sources             → google.list + integration.list (connected sources)
  *   Governance          → action.listPending (approvals) + ExecutionLedger
+ *   API Keys            → modelProviderKey.list/save/clear (ADR-181) — model-
+ *                         provider secrets in the Local Plane credential vault
  *
  * The former "Capabilities" section moved OUT of Settings and became the
  * top-level Intelligence page (ADR-154); `?section=intelligence` redirects there.
- * Notifications / Billing & Plan / Security / API Keys have NO backend yet —
- * they render honest "nothing configured" states, never fabricated toggles.
+ * Notifications / Billing & Plan / Security have NO backend yet — they render
+ * honest "nothing configured" states, never fabricated toggles.
  */
 import { useEffect, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
@@ -397,6 +399,184 @@ function ObservedLearningCard() {
         {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
       </div>
     </Card>
+  );
+}
+
+type ModelProviderKeyList = Awaited<ReturnType<typeof trpc.modelProviderKey.list.query>>;
+
+/**
+ * Settings → API Keys (ADR-181). Model-provider keys only — there is still no
+ * inbound Bridge API key to provision, and this section does not pretend
+ * otherwise.
+ *
+ * Honesty rules this component exists to keep (AP-021):
+ *  - The input is write-only. A saved key is NEVER read back, not even masked;
+ *    the row reports "Stored" plus when, and re-entering replaces it.
+ *  - Saving does not activate. The provider is constructed from the vault when
+ *    the API process boots, so a saved-but-unregistered key says exactly that
+ *    and asks for a restart, rather than showing a green "connected" state.
+ *  - When the API is the public cloud shell it cannot hold a key at all; the
+ *    section says so instead of offering a control that will fail.
+ */
+function ApiKeysSection() {
+  const [state, setState] = useState<ModelProviderKeyList | null>(null);
+  const [unavailable, setUnavailable] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  function refresh() {
+    trpc.modelProviderKey.list
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then((next) => {
+        setState(next);
+        setUnavailable(null);
+      })
+      .catch(() =>
+        setUnavailable(
+          "This Bridge API cannot manage model-provider keys. Keys are held in the Local Plane credential vault, which only the Bridge desktop app has.",
+        ),
+      );
+  }
+  useEffect(refresh, []);
+
+  async function save(providerId: string, label: string) {
+    const apiKey = drafts[providerId]?.trim();
+    if (!apiKey) return;
+    setBusy(providerId);
+    setNote(null);
+    try {
+      const result = await trpc.modelProviderKey.save.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        providerId,
+        apiKey,
+      });
+      setDrafts((prev) => ({ ...prev, [providerId]: "" }));
+      setNote(
+        result.activation === "already_active"
+          ? `${label} key saved to the Local Plane vault. ${label} is already running in this process; the saved key takes over at the next restart.`
+          : `${label} key saved to the Local Plane vault. Restart Bridge to activate ${label} — this running process built its providers at boot and does not pick the key up live.`,
+      );
+      refresh();
+    } catch (error) {
+      setNote(String(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function clear(providerId: string, label: string) {
+    if (!window.confirm(`Delete the stored ${label} API key from this machine's credential vault?`)) return;
+    setBusy(providerId);
+    setNote(null);
+    try {
+      const result = await trpc.modelProviderKey.clear.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        providerId,
+      });
+      setNote(
+        result.stillActive
+          ? `${label} key deleted from the vault. ${label} stays active until Bridge restarts.`
+          : `${label} key deleted from the vault.`,
+      );
+      refresh();
+    } catch (error) {
+      setNote(String(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <SectionHeader title="API Keys" desc="Model-provider credentials for this Organization." />
+
+      {unavailable && <NothingConfigured icon={Key} note={unavailable} />}
+
+      {state && !state.storageAvailable && (
+        <NothingConfigured
+          icon={Key}
+          note="Keys are entered on the Bridge desktop app. The public cloud API never holds a model-provider secret."
+        />
+      )}
+
+      {state?.storageAvailable && (
+        <>
+          <p className="text-xs leading-relaxed" style={{ color: "var(--color-warm-gray)" }}>
+            A key you enter here is written to this machine's credential vault — the operating system
+            keyring, or an encrypted file under your Bridge local directory. It stays on the Local
+            Plane: it is never stored in the database, never sent to Bridge Cloud, never written to a
+            log, and never returned to this page again. Deleting it here deletes it from the vault.
+          </p>
+
+          {state.providers.map((provider) => (
+            <Card key={provider.providerId}>
+              <div className="p-6 space-y-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="font-semibold text-sm text-[var(--color-navy)]">{provider.label}</div>
+                    <p className="text-xs text-[var(--color-navy-mid)] mt-0.5">{provider.description}</p>
+                  </div>
+                  <span className="text-xs shrink-0 text-[var(--color-warm-gray)]">
+                    {provider.active ? "Active" : provider.configured ? "Saved · inactive" : "Not configured"}
+                  </span>
+                </div>
+
+                <p className="text-xs text-[var(--color-warm-gray)]">
+                  {provider.fromEnvironment
+                    ? `This process was started with ${provider.envVar} set, and that environment value is what is running. A key saved here is used only when ${provider.envVar} is unset at the next start.`
+                    : provider.configured && provider.active
+                      ? `Stored ${provider.updatedAt ? new Date(provider.updatedAt).toLocaleString() : ""} and registered in this process.`
+                      : provider.configured
+                        ? `Stored ${provider.updatedAt ? new Date(provider.updatedAt).toLocaleString() : ""}. Not registered in this process — restart Bridge to activate it.`
+                        : `No key stored. ${provider.label} is not available to Agents until one is saved and Bridge restarts.`}
+                </p>
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={drafts[provider.providerId] ?? ""}
+                    onChange={(event) =>
+                      setDrafts((prev) => ({ ...prev, [provider.providerId]: event.target.value }))
+                    }
+                    placeholder={provider.configured ? "Enter a new key to replace the stored one" : `${provider.label} API key`}
+                    aria-label={`${provider.label} API key`}
+                    className="flex-1 px-4 py-2.5 border border-[var(--color-border)] rounded-lg text-sm font-mono focus:border-[var(--color-steel)] focus:ring-2 focus:ring-[var(--color-steel)]/10 outline-none transition-all bg-[var(--color-surface)] focus:bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void save(provider.providerId, provider.label)}
+                    disabled={busy === provider.providerId || !drafts[provider.providerId]?.trim()}
+                    className="text-xs font-semibold px-3 py-2.5 rounded-lg bg-[var(--color-steel)] text-white disabled:opacity-50"
+                  >
+                    {busy === provider.providerId ? "Saving…" : "Save key"}
+                  </button>
+                  {provider.configured && (
+                    <button
+                      type="button"
+                      onClick={() => void clear(provider.providerId, provider.label)}
+                      disabled={busy === provider.providerId}
+                      className="text-xs font-semibold px-3 py-2.5 rounded-lg border text-red-600 disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            </Card>
+          ))}
+
+          {note && <p className="text-xs text-[var(--color-steel)] break-words">{note}</p>}
+
+          <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+            Keys for calling <em>into</em> Bridge from your own code aren't issued yet — there's no
+            inbound API-key backend, so nothing is provisioned here.
+          </p>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -997,12 +1177,7 @@ export function SettingsPage() {
           </div>
         );
       case "api":
-        return (
-          <div className="flex flex-col gap-6">
-            <SectionHeader title="API Keys" desc="Programmatic access to the platform." />
-            <NothingConfigured icon={Key} note="API keys for programmatic access will be provisioned here — key management doesn't exist yet." />
-          </div>
-        );
+        return <ApiKeysSection />;
       case "help":
         return <HelpSection />;
       default:

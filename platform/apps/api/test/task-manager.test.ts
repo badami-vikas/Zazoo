@@ -159,7 +159,9 @@ test("Task Manager API durably reconciles a real projection File and runs comple
       expectedFileHash: null,
     });
     const path = join(
-      moduleFilesRoot("Pilot Organization", "Task Manager", filesRoot),
+      // The folder is named by the Module's DISPLAY name (ADR-178 renamed it
+      // "Task Manager" → "TaskManager"), so this path must track the manifest.
+      moduleFilesRoot("Pilot Organization", "TaskManager", filesRoot),
       "tasks.md",
     );
     const externalContent = emitted.projection.content.replace(

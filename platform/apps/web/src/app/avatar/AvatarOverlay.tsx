@@ -24,6 +24,16 @@ export interface AvatarOverlayProps {
   style: AvatarStyle;
   avatarName?: string;
   organizationName?: string;
+  /** False once the shell knows onboarding has NOT happened. The companion is
+   * present either way (user directive 2026-08-05), but AP-021 forbids
+   * offering actions that cannot execute yet — so before setup the click
+   * target drives onboarding instead of navigating into an empty organization,
+   * and the popover says so plainly. Defaults to true so an unknown state
+   * never invents a "not set up" claim. */
+  setupComplete?: boolean;
+  /** Opens the onboarding dialog — the one thing the companion CAN do before
+   * an organization exists. */
+  onStartSetup?: () => void;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -254,7 +264,13 @@ export function AvatarIcon({ style, size = 24 }: { style: AvatarStyle; size?: nu
   );
 }
 
-export function AvatarOverlay({ style: avatarStyle, avatarName, organizationName }: AvatarOverlayProps) {
+export function AvatarOverlay({
+  style: avatarStyle,
+  avatarName,
+  organizationName,
+  setupComplete = true,
+  onStartSetup,
+}: AvatarOverlayProps) {
   const status = useAvatarStatus();
   const reducedMotion = usePrefersReducedMotion();
   const navigate = useNavigate();
@@ -300,6 +316,13 @@ export function AvatarOverlay({ style: avatarStyle, avatarName, organizationName
    * without interrupting the active operation.
    */
   function wake() {
+    // AP-021: before setup there is no Memory ledger to navigate to and no
+    // pending-approval surface to read, so the only honest action is to open
+    // onboarding. Nothing else is offered.
+    if (!setupComplete) {
+      onStartSetup?.();
+      return;
+    }
     if (status !== "idle") {
       setOpen((v) => !v);
       // Still fetch pending count for the popover when opening.
@@ -326,6 +349,10 @@ export function AvatarOverlay({ style: avatarStyle, avatarName, organizationName
 
   const label = STATUS_LABEL[status];
   const name = avatarName || "Bridge Avatar";
+  // Honest affordance copy: before setup the companion greets and offers the
+  // one action it can actually perform, rather than implying organization
+  // powers it does not have yet (AP-021).
+  const actionLabel = setupComplete ? label : "Ready when you are — let's set your organization up";
 
   return (
     <div
@@ -388,15 +415,15 @@ export function AvatarOverlay({ style: avatarStyle, avatarName, organizationName
           <span className="block h-12 w-12">
             <AvatarFigure avatarStyle={avatarStyle} status={status} blinking={blinking} reducedMotion={reducedMotion} />
           </span>
-          <span className="text-[11px] font-medium text-center" style={{ color: "var(--color-navy-mid)" }}>{label}</span>
+          <span className="text-[11px] font-medium text-center" style={{ color: "var(--color-navy-mid)" }}>{actionLabel}</span>
         </div>
       )}
 
       <button
         type="button"
         onClick={wake}
-        aria-label={`${name}, ${label}`}
-        title={label}
+        aria-label={`${name}, ${actionLabel}`}
+        title={actionLabel}
         className="w-14 h-14 rounded-full bg-background border border-border shadow-md flex items-center justify-center focus:outline-none focus-visible:ring-2"
         style={{
           animation: reducedMotion || status !== "idle" ? undefined : "bridge-avatar-breathe 3.2s ease-in-out infinite",

@@ -2,6 +2,32 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **OPEN 2026-08-04 — Nine ADR numbers are assigned twice in `docs/raw/decisions-log.md`; ADR-160 is used three times and one of the two live ADR-160s has no wiki companion (attach: TASK-037).**
+  `grep -oE "^#+ *ADR-[0-9]+" docs/raw/decisions-log.md | grep -oE "[0-9]+" | sort -n | uniq -d` reports nine
+  duplicated numbers: `012, 026, 035, 086, 157, 158, 159, 160, 161`. The recent five are the load-bearing ones.
+  Top-level (`##`) collisions, i.e. two full decisions sharing one number:
+  `ADR-157` at `:3193` (WhatsApp contained webview, TASK-029) vs `:4059` (SearchProvider admission policy,
+  AP-091/TASK-029); `ADR-160` at `:3615` (manual vs automated send policy, TASK-030) vs `:3802` (the table
+  renderer decision, TASK-031); `ADR-161` at `:3705` (thread scroll position, TASK-030, written as `###`) vs
+  `:3809` (every `integration` action is a taint sink, TASK-031).
+  `ADR-160` additionally appears a third time at `:3686` (`### ADR-160 (2026-08-03) — Tags and Internal Notes
+  are scoped to the open chat`). Note this one is NOT labelled "addendum" — unlike ADR-158's five `###
+  addendum` entries at `:3226, :3259, :3311, :3346, :3390, :3449`, which legitimately share their parent's
+  number — so it reads as a distinct decision that took an already-used number.
+  Root cause: parallel agents each computed "next ADR number" independently at dispatch time against the same
+  base revision, so TASK-030's WhatsApp stream and TASK-031's cleanup stream both landed on 160 and 161. This
+  is a recurrence, not a one-off — the same failure produced the 157 pair.
+  Canon impact: `docs/wiki/decisions.md:213` records only the WhatsApp `ADR-160`. The table-renderer `ADR-160`
+  has NO wiki companion, which CLAUDE.md requires ("Changed raw docs require their wiki companion and log
+  entry"). Any future reference to "ADR-160" is ambiguous, and `wiki/ui-architecture.md` / `wiki/stack.md`
+  already cite it meaning the table one while `wiki/decisions.md` means the WhatsApp one.
+  Highest number currently in use is 171, so 172 is the next free integer.
+  Resolution needs a decision, not a silent renumber: renumbering a landed ADR breaks every inbound citation,
+  so the options are (a) suffix the later-landed duplicate (`ADR-160b`) and add a disambiguation note to both,
+  or (b) reserve number ranges per workstream at dispatch. Either way the missing `wiki/decisions.md` companion
+  for the table-renderer ADR must be added, and a `check:adr-numbers` guard belongs in the same root-script
+  verification path the vocabulary-gate defect above already calls for.
+
 - **OPEN 2026-08-03 — CI's `platform` job has been red on `main` since 2026-07-31; `check:vocabulary` fails on 98 TASK-028 research occurrences (attach: TASK-028).**
   Every push to `main` since `8bc1337` ("Make Research Runs durable kernel records…", 2026-07-31) has failed
   the `platform (typecheck + test + build)` job at the `pnpm check:vocabulary` step, which runs BEFORE

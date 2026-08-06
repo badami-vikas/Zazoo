@@ -23,9 +23,16 @@ export interface AQV {
   episodeCount: number;
   success: number;
   correction: number;
-  reliability: number;
+  /** `null` = no episode in the window carried an execution snapshot, so reliability
+   * is UNKNOWN. Distinct from 0, which means "runs happened and did not complete
+   * cleanly". Collapsing the two would make an unmeasured capability look failing
+   * and would block its promotion for lack of instrumentation rather than for cause. */
+  reliability: number | null;
   safety: number;
-  efficiency: number;
+  /** `null` = no episode had both a cost and a baseline to compare it against.
+   * Nothing in the platform produces a per-capability baseline cost yet, so in
+   * practice this is null today — deliberately, rather than a fabricated 0. */
+  efficiency: number | null;
 }
 
 export interface AqvSource {
@@ -69,9 +76,11 @@ export function computeCorrectionDepth(records: readonly AqvRecord[]): number {
   return edited.reduce((sum, record) => sum + normalizedDiffSize(record.diff), 0) / edited.length;
 }
 
-export function computeReliability(records: readonly AqvRecord[]): number {
-  const runs = resolvedEpisodes(records);
-  if (runs.length === 0) return 0;
+/** Share of resolved episodes that completed cleanly, over the episodes that were
+ * actually instrumented. Returns null when none were — see `AQV.reliability`. */
+export function computeReliability(records: readonly AqvRecord[]): number | null {
+  const runs = resolvedEpisodes(records).filter((record) => record.executionSnapshot !== undefined);
+  if (runs.length === 0) return null;
   return runs.filter((record) => isCleanCompletion(record.executionSnapshot)).length / runs.length;
 }
 
@@ -87,7 +96,7 @@ export function computeSafety(records: readonly AqvRecord[], evidence: AqvEviden
     : 1;
 }
 
-export function computeEfficiency(records: readonly AqvRecord[]): number {
+export function computeEfficiency(records: readonly AqvRecord[]): number | null {
   const successful = resolvedEpisodes(records).filter(
     (record) => (record.userDecision === "approve" || record.userDecision === "auto") && isCleanCompletion(record.executionSnapshot),
   );
@@ -99,7 +108,7 @@ export function computeEfficiency(records: readonly AqvRecord[]): number {
       return Math.min(baseline / cost, 1);
     })
     .filter((ratio): ratio is number => ratio !== null);
-  if (ratios.length === 0) return 0;
+  if (ratios.length === 0) return null;
   return ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length;
 }
 

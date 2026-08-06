@@ -158,5 +158,6 @@
     "tinystruct-patterns": "off",
     "ui-to-vue": "off",
     "x-api": "off"
-  }
+  },
+  "autoCompactWindow": 400000
 }

@@ -250,6 +250,25 @@ export function withOutcomeTarget(
   };
 }
 
+/** Append an Outcome to an existing Task node. Used when a Chat follow-up
+ * continues the node its thread already created instead of minting a sibling:
+ * the node accumulates the conversation's Outcomes. Replaying the same
+ * Outcome id is a no-op so a decision can be reconciled twice safely. */
+export function withAppendedOutcome(
+  task: TaskRecord,
+  outcome: TaskOutcome,
+  now: string,
+): TaskRecord {
+  if (task.outcomes.some((existing) => existing.id === outcome.id)) return task;
+  const appended: TaskOutcome = { ...outcome, northStar: false };
+  return {
+    ...task,
+    outcomes: [...task.outcomes, appended],
+    version: task.version + 1,
+    updatedAt: now,
+  };
+}
+
 export type RestructureOperation =
   | { kind: "promote"; taskId: string }
   | { kind: "re_parent"; taskId: string; parentTaskId: string }
@@ -757,6 +776,12 @@ export interface TaskManagerStore {
     target: string,
     seam: TaskManagerIdClock,
   ): Promise<{ task: TaskRecord; reopenProposal?: TaskChangeProposal }>;
+  appendOutcome(
+    organizationId: string,
+    taskId: string,
+    outcome: TaskOutcome,
+    seam: TaskManagerIdClock,
+  ): Promise<TaskRecord>;
   proposeRestructure(
     organizationId: string,
     operation: RestructureOperation,
@@ -860,6 +885,19 @@ export class InMemoryTaskManagerStore implements TaskManagerStore {
     const reopenProposal = { ...result.reopenProposal, id: seam.nextId() };
     this.proposals.set(reopenProposal.id, reopenProposal);
     return { task: result.task, reopenProposal };
+  }
+
+  async appendOutcome(
+    organizationId: string,
+    taskId: string,
+    outcome: TaskOutcome,
+    seam: TaskManagerIdClock,
+  ): Promise<TaskRecord> {
+    const task = await this.get(organizationId, taskId);
+    if (!task) throw new Error(`task-manager: unknown Task ${taskId}`);
+    const updated = withAppendedOutcome(task, outcome, seam.nowISO());
+    this.tasks.set(task.id, updated);
+    return updated;
   }
 
   async proposeRestructure(

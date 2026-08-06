@@ -176,6 +176,11 @@ export function OrganizationPage() {
                 return (
                   <DataViews
                     key={compiledView.id}
+                    // The plan preview stacks EVERY compiled view down one
+                    // auto-height page, so there is no viewport share to hand
+                    // out — the shell declares its own fixed view height here
+                    // instead of filling a container that has no height.
+                    fill={false}
                     spec={spec}
                     view={view}
                     data={rows}
