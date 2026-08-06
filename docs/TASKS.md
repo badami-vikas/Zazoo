@@ -706,3 +706,58 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-08-04 ("Incorporate the 6 ideas, if validated to be better").
 - Approval: AP-103 APPLIED
 - Dependencies: E5 depends on the semantic embedder (learning-agent LA5 open item). E1-E4 have none.
+
+---
+
+- ID: TASK-044
+- Status: ready
+- Priority: P2
+- Horizon: Convergence
+- Outcome: `capabilityBudgets` and `capabilityKillSwitch` are backed by Postgres tables, not lost on API restart. A kill switch pulled in one session stays pulled across deploys.
+- Prototype test: Pull the kill switch via the governance UI, restart the API process, confirm the kill switch is still active. Exhaust today's informational activation budget (20), restart the API, confirm the count is not reset.
+- Scope:
+  - Add `auto_activation_budgets` table (organizationId, riskBand, dayKey, count) + migration.
+  - Add `capability_kill_switch` table (organizationId, killedAt, killedBy, restoredAt) + migration.
+  - Implement `DrizzleAutoActivationBudgetStore` in `@bridge/db` binding `AutoActivationBudgetStore`.
+  - Implement `DrizzleKillSwitch` in `@bridge/db` binding `KillSwitchPort`.
+  - Wire both in `wiring.ts` for cloud and local deployment modes, replacing `InMemoryAutoActivationBudgetStore` and `InMemoryKillSwitch`.
+- Evidence: harness.md EMPTY INPUTS gap (2026-07-29); build-vs-buy session 2026-08-07.
+- Requests: R-052 (build-vs-buy session 2026-08-07)
+- Approval: none
+- Dependencies: none
+
+---
+
+- ID: TASK-045
+- Status: ready
+- Priority: P2
+- Horizon: Convergence
+- Outcome: Every pipeline execution that completes a Decision writes an execution snapshot to `DrizzleEvalStore`. The eval dashboard (Intelligence > Agents) shows real run data, not only retrieval-eval runs.
+- Prototype test: Invoke a Skill via Chat Panel. Open Intelligence > Agents eval surface. A new eval record appears with the correct capability_id and a score derived from the execution outcome.
+- Scope:
+  - Design decision required: extend `capability_states.evidence` with an `executionSnapshot` field, or add a dedicated `eval_snapshots` table (the latter is cleaner and matches how `runEvalDataset` expects rows).
+  - Wire a `writeExecutionSnapshot` call at the pipeline commit phase (`pipeline.ts` after `decide` commits).
+  - Add `routeMatchScorer` call for Agent routing decisions using the goal/task labels already on the ledger entry.
+  - Ensure the eval surface lists these snapshots alongside retrieval-eval runs.
+- Evidence: harness.md NEXT §1 (2026-07-29); build-vs-buy session 2026-08-07.
+- Requests: R-052 (build-vs-buy session 2026-08-07)
+- Approval: none
+- Dependencies: TASK-036 (green CI gate)
+
+---
+
+- ID: TASK-046
+- Status: ready
+- Priority: P2
+- Horizon: Convergence
+- Outcome: Capabilities with `isolation: "in-process-js"` execute inside `InProcessJsSandboxProvider` (node:vm). The PKG-1 sandbox floor gate at `module.install` is backed by an actual sandbox, not only a declarative check.
+- Prototype test: Install a capability declaring `isolation: "in-process-js"` and confirm it runs inside the vm context — verified by intentionally calling `process.exit()` inside the capability code and confirming the host process does not terminate.
+- Scope:
+  - Add `sandbox: SandboxProvider` to `PipelineDeps` in `pipeline.ts`.
+  - Instantiate `InProcessJsSandboxProvider` (already exists in `packages/core/src/server.ts`) in `wiring.ts` for both cloud and local deployment modes.
+  - Route skill execution through the sandbox when the manifest's declared isolation tier is not `"none"`.
+  - `NotImplementedContainerSandboxProvider` remains the placeholder for the container tier (future work).
+- Evidence: harness.md NEXT §2 (2026-07-29); build-vs-buy session 2026-08-07.
+- Requests: R-052 (build-vs-buy session 2026-08-07)
+- Approval: none
+- Dependencies: none
