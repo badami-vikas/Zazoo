@@ -413,6 +413,7 @@ export {
   type RunTraceMetadata,
   type ModelRunContext,
   type AssembleRunContextInput,
+  type ModelConversationSegment,
 } from "./run-context.js";
 
 // Onboarding profile store (ADR-033/R-029/R-030) — narrow, onboarding-scoped

@@ -179,35 +179,40 @@ function boundedConversationHistory(
   history: readonly ModelConversationSegment[] | undefined,
 ): ModelConversationSegment[] {
   if (!history) return [];
-  if (history.length > MAX_CONVERSATION_SEGMENTS) {
-    throw new Error(
-      `run context: conversation history exceeds ${MAX_CONVERSATION_SEGMENTS} segments`,
-    );
-  }
-  let total = 0;
-  return history.map((segment) => {
+
+  // Validate each segment's shape — a single oversized segment is a caller bug, not
+  // a long-conversation case and must still throw.
+  for (const seg of history) {
     if (
-      !["user", "assistant", "skill"].includes(segment.role) ||
-      !["private", "public"].includes(segment.dataScope) ||
-      typeof segment.content !== "string" ||
-      segment.content.length > MAX_CONVERSATION_SEGMENT_CHARS
+      !["user", "assistant", "skill"].includes(seg.role) ||
+      !["private", "public"].includes(seg.dataScope) ||
+      typeof seg.content !== "string" ||
+      seg.content.length > MAX_CONVERSATION_SEGMENT_CHARS
     ) {
       throw new Error("run context: invalid conversation-history segment");
     }
-    total += segment.content.length;
-    if (total > MAX_CONVERSATION_HISTORY_CHARS) {
-      throw new Error(
-        `run context: conversation history exceeds ${MAX_CONVERSATION_HISTORY_CHARS} characters`,
-      );
-    }
-    return {
-      ...segment,
-      taintLabel: {
-        ...segment.taintLabel,
-        originChain: segment.taintLabel.originChain.map((origin) => ({ ...origin })),
-      },
-    };
-  });
+  }
+
+  // Compact: drop oldest segments until within both limits. Each segment carries its
+  // own taintLabel, so dropping old context does not weaken taint on kept segments —
+  // the pipeline re-evaluates taint at proposal time from the current context only.
+  let working = history.slice() as ModelConversationSegment[];
+  while (working.length > MAX_CONVERSATION_SEGMENTS) {
+    working = working.slice(1);
+  }
+  let total = working.reduce((sum, seg) => sum + seg.content.length, 0);
+  while (total > MAX_CONVERSATION_HISTORY_CHARS && working.length > 1) {
+    total -= working[0]!.content.length;
+    working = working.slice(1);
+  }
+
+  return working.map((segment) => ({
+    ...segment,
+    taintLabel: {
+      ...segment.taintLabel,
+      originChain: segment.taintLabel.originChain.map((origin) => ({ ...origin })),
+    },
+  }));
 }
 
 /**

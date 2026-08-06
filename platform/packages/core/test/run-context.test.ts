@@ -8,6 +8,7 @@ import {
   UuidGen,
   type AssembleRunContextInput,
   type ContextItem,
+  type ModelConversationSegment,
   type ModelRunContext,
   type RunCtx,
 } from "../src/index.js";
@@ -246,4 +247,41 @@ test("projectToPrompt: a fully-populated context renders every section in ADR-02
 test("projectToPrompt: is a pure deterministic template — same context always yields the same string", () => {
   const ctx = assembleRunContext(test_fixture_input(), test_fixture_run_ctx());
   assert.equal(projectToPrompt(ctx), projectToPrompt(ctx));
+});
+
+function test_fixture_conversation_segment(content: string): ModelConversationSegment {
+  return {
+    role: "user",
+    dataScope: "private",
+    content,
+    taintLabel: {
+      version: 1,
+      trust: "verified_system",
+      source: "operator",
+      sensitivity: "private",
+      instructionRisk: "none",
+      provenanceHash: "sha256:test",
+      originChain: [],
+      originsTruncated: false,
+    },
+  };
+}
+
+test("assembleRunContext: compacts history > 24 segments instead of throwing — keeps the last 24", () => {
+  const history = Array.from({ length: 30 }, (_, i) => test_fixture_conversation_segment(`msg_${i}`));
+  const result = assembleRunContext(
+    { ...test_fixture_input(), conversationHistory: history },
+    test_fixture_run_ctx(),
+  );
+  assert.equal(result.conversationHistory.length, 24);
+  assert.equal(result.conversationHistory[0]!.content, "msg_6");
+  assert.equal(result.conversationHistory[23]!.content, "msg_29");
+});
+
+test("assembleRunContext: single oversized segment (> 16k chars) still throws", () => {
+  const tooBig = test_fixture_conversation_segment("x".repeat(17_000));
+  assert.throws(
+    () => assembleRunContext({ ...test_fixture_input(), conversationHistory: [tooBig] }, test_fixture_run_ctx()),
+    /invalid conversation-history segment/,
+  );
 });
