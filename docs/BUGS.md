@@ -87,6 +87,39 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## OPEN 2026-08-06 — The `__rust_foreign_exception` abort class is back, now on a webview page reload
+
+The abort family BUG-2026-07-30 declared "closed by construction" on 2026-07-31 has recurred twice
+in 14 hours on a dev build, with a **different trigger**. That fix removed long-held IPC replies by
+turning `companion_ask` / `research_locate` / `research_chat` into `_start`/`_poll` pairs. It did not
+address a webview that tears its in-flight scheme tasks down for any *other* reason — and a Vite HMR
+full-page reload does exactly that.
+
+- Evidence: `~/Library/Logs/DiagnosticReports/bridge-desktop-2026-08-06-085919.ips` and
+  `bridge-desktop-2026-08-05-193843.ips`. Both are SIGABRT with the identical frame chain to the
+  July reports — `__rust_foreign_exception` -> `__rust_panic_cleanup` -> `catch_unwind::cleanup` ->
+  `tao::...::stop_app_on_panic` -> `tao::...::observer::control_flow_end_handler`, inside
+  `__CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__`. An ObjC exception crosses the FFI
+  boundary in tao's run-loop observer, where Rust can only abort.
+- Trigger observed: the 08:59 abort is the last line of `tauri dev` output, immediately after
+  `hmr invalidate /src/app/components/shared/StandardColumnMenu.tsx Could not Fast Refresh
+  ("clampMenuPosition" export is incompatible)` — i.e. Fast Refresh gave up and did a **full page
+  reload**. The app had been up 7.5 hours idle before that, so time-in-process is not the variable.
+  The 2026-08-05 19:38 report is the same signature from an earlier session.
+- Not attributable to the code edited at that moment: `StandardColumnMenu.tsx` is a web-only React
+  component with no Tauri command, no IPC and no native surface. It supplied the *reload*, not the
+  exception.
+- Why it likely still matters in production: HMR is dev-only, but a page reload is not — the app
+  reloads its webview on recovery paths, and any teardown of an in-flight custom-scheme task reaches
+  the same code. The July mitigation bounded *how long* a reply is held; this path needs the
+  completion of an already-stopped scheme task to be non-fatal.
+- Not yet established: whether it reproduces on demand from a forced reload, and whether the
+  avatar/annotate NSPanels (all three were up in both crashes) are required. Nobody has bisected it.
+- Found while verifying an unrelated dark-mode fix, not by testing this. Unattached to a TASK —
+  needs one with its own outcome test before anyone claims the class is closed a second time.
+
+---
+
 ## OPEN 2026-07-27 — Web typecheck fails on stale `@bridge/api` types: `trpc.chat` missing (TASK-026)
 Discovered while realigning the shell UX (AP-081). On freshly-pulled `main`, `pnpm --filter @bridge/web
 typecheck` reports **29 errors**, all in `platform/apps/web/src/app/chat/{ChatView.tsx,useChat.ts}`:
