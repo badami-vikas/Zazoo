@@ -137,7 +137,7 @@ export function BoardView({
                 }
               >
                 <Plus className="size-3.5" />
-                Add row
+                Add element
               </Button>
             )}
           </div>
