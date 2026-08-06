@@ -6,6 +6,7 @@
  * database, same as every other port in this module.
  */
 import type { Audience, CapabilityEvidence, CapabilityOrigin, CapabilityState, CapabilityType, ComponentKind, RiskBand } from "./types.js";
+import type { TrustGrantView } from "./approvals.js";
 
 export interface CapabilityManifestRow {
   id: string;
@@ -55,6 +56,11 @@ export interface CapabilityStore {
   /** Insert-or-update the ONE current-state row for a manifest (unique manifest_id). */
   upsertState(row: Omit<CapabilityStateRow, "id" | "updatedAt">): Promise<CapabilityStateRow>;
   getState(manifestId: string): Promise<CapabilityStateRow | null>;
+  /** Load all trust grants for an organization — passed to `resolveActivationApproval`
+   * so capability.activate and module.install honour live `trust_grants` rows instead
+   * of hardcoding []. Returns active AND revoked rows; approvals.ts filters revoked via
+   * `!g.revokedAt`. */
+  listTrustGrants(organizationId: string): Promise<TrustGrantView[]>;
 }
 
 /** In-memory `CapabilityStore` — dev/test default (mirrors InMemoryLedger's shape). */
@@ -106,5 +112,9 @@ export class InMemoryCapabilityStore implements CapabilityStore {
 
   async getState(manifestId: string): Promise<CapabilityStateRow | null> {
     return this.states.get(manifestId) ?? null;
+  }
+
+  async listTrustGrants(_organizationId: string): Promise<TrustGrantView[]> {
+    return [];
   }
 }
