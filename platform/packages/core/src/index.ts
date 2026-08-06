@@ -400,6 +400,9 @@ export {
 // itself.
 export {
   assembleRunContext,
+  compactConversationHistory,
+  COMPACT_TRIGGER_SEGMENTS,
+  COMPACT_KEEP_SEGMENTS,
   projectToPrompt,
   projectToSystemPrompt,
   renderPersonaSystemPreamble,

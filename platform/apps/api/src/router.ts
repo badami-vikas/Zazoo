@@ -211,6 +211,7 @@ import {
   classifyTaskChangeBand,
   calibratedTaskChangeDecision,
   assembleRunContext,
+  compactConversationHistory,
   projectToSystemPrompt,
   ChatCloudGrantError,
   ChatStoreConflictError,
@@ -4411,30 +4412,13 @@ async function assembleChatCompletion(
     .filter((turn) => turn.role === "user" || turn.role === "assistant" || turn.role === "skill")
     .filter((turn) => turn.state === "completed" || turn.state === "awaiting_decision")
     .slice(-historyLimit);
-  const exchanges: ChatTurn[][] = [];
-  for (const turn of stableTurns) {
-    if (turn.role === "user" || exchanges.length === 0) exchanges.push([]);
-    exchanges.at(-1)!.push(turn);
-  }
-  const selectedExchanges: ChatTurn[][] = [];
-  let selectedCharacters = 0;
-  for (const exchange of [...exchanges].reverse()) {
-    const exchangeCharacters = exchange.reduce(
-      (total, turn) => total + turn.content.length,
-      0,
-    );
-    if (selectedCharacters + exchangeCharacters > 64_000) break;
-    selectedCharacters += exchangeCharacters;
-    selectedExchanges.unshift(exchange);
-  }
-  const history = selectedExchanges
-    .flat()
-    .map((turn) => ({
-      role: turn.role as "user" | "assistant" | "skill",
-      content: turn.content,
-      dataScope: thread.dataScope,
-      taintLabel: turn.taintLabel,
-    }));
+  const rawHistory = stableTurns.map((turn) => ({
+    role: turn.role as "user" | "assistant" | "skill",
+    content: turn.content,
+    dataScope: thread.dataScope,
+    taintLabel: turn.taintLabel,
+  }));
+  const history = await compactConversationHistory(rawHistory, provider);
 
   const isCloud = provider.plane === "cloud";
   const profileRow = isCloud

@@ -35,13 +35,13 @@
  *    resolves from this run links back via `refLedgerId` exactly as pipeline.ts already
  *    does, this module does not reimplement that.
  */
-import type { RunCtx } from "./ports.js";
+import type { RunCtx, ModelProvider, ModelCompletionRequest } from "./ports.js";
 import type { ContextItem } from "./context-provider.js";
 import type { Audience, CapabilityType } from "./capability/types.js";
 import type { ApprovalRequirement, TrustGrantView } from "./capability/approvals.js";
 import type { RunContext as EphemeralRunContext, TrustOrigin } from "./types.js";
 import { spotlightUntrusted, SPOTLIGHT_CLOSE, SPOTLIGHT_OPEN } from "./guard/content-guard.js";
-import type { TaintLabel } from "./taint.js";
+import { joinTaintLabels, UNKNOWN_LABEL, type TaintLabel } from "./taint.js";
 
 /** Who/what the model run is acting as — mirrors `Actor`'s shape (types.ts) but kept
  * local rather than importing `Actor` directly: a persona additionally carries the
@@ -175,13 +175,20 @@ const MAX_CONVERSATION_SEGMENTS = 24;
 const MAX_CONVERSATION_SEGMENT_CHARS = 16_000;
 const MAX_CONVERSATION_HISTORY_CHARS = 64_000;
 
+/** Compact when history exceeds this many segments — call `compactConversationHistory`
+ * BEFORE passing to `assembleRunContext` to keep `boundedConversationHistory` from throwing. */
+export const COMPACT_TRIGGER_SEGMENTS = 20;
+/** Always keep this many recent segments verbatim after compaction. */
+export const COMPACT_KEEP_SEGMENTS = 16;
+
+/** Safety net — throws on any segment that violates the size/shape contract.
+ * Overflow (too many segments or too many total chars) must be handled BEFORE
+ * this is called via `compactConversationHistory`. */
 function boundedConversationHistory(
   history: readonly ModelConversationSegment[] | undefined,
 ): ModelConversationSegment[] {
   if (!history) return [];
 
-  // Validate each segment's shape — a single oversized segment is a caller bug, not
-  // a long-conversation case and must still throw.
   for (const seg of history) {
     if (
       !["user", "assistant", "skill"].includes(seg.role) ||
@@ -193,26 +200,77 @@ function boundedConversationHistory(
     }
   }
 
-  // Compact: drop oldest segments until within both limits. Each segment carries its
-  // own taintLabel, so dropping old context does not weaken taint on kept segments —
-  // the pipeline re-evaluates taint at proposal time from the current context only.
-  let working = history.slice() as ModelConversationSegment[];
-  while (working.length > MAX_CONVERSATION_SEGMENTS) {
-    working = working.slice(1);
+  if (history.length > MAX_CONVERSATION_SEGMENTS) {
+    throw new Error(
+      `run context: conversation history exceeds ${MAX_CONVERSATION_SEGMENTS} segments — call compactConversationHistory before assembleRunContext`,
+    );
   }
-  let total = working.reduce((sum, seg) => sum + seg.content.length, 0);
-  while (total > MAX_CONVERSATION_HISTORY_CHARS && working.length > 1) {
-    total -= working[0]!.content.length;
-    working = working.slice(1);
+  const total = history.reduce((sum, seg) => sum + seg.content.length, 0);
+  if (total > MAX_CONVERSATION_HISTORY_CHARS) {
+    throw new Error(
+      `run context: conversation history exceeds ${MAX_CONVERSATION_HISTORY_CHARS} chars — call compactConversationHistory before assembleRunContext`,
+    );
   }
 
-  return working.map((segment) => ({
+  return history.map((segment) => ({
     ...segment,
     taintLabel: {
       ...segment.taintLabel,
       originChain: segment.taintLabel.originChain.map((origin) => ({ ...origin })),
     },
   }));
+}
+
+/**
+ * Compacts a conversation history that has grown beyond `COMPACT_TRIGGER_SEGMENTS` by
+ * summarising the oldest segments with a model call rather than silently dropping them.
+ *
+ * Returns the history unchanged when it is within limits. When compaction is needed:
+ * - Summarises `history[0 .. length - COMPACT_KEEP_SEGMENTS]` with one "cheap" model call.
+ * - Prepends a single synthetic assistant segment carrying the summary and the most
+ *   restrictive taint derived from the summarised segments (via `joinTaintLabels`).
+ * - Returns `[summarySegment, ...history.slice(-COMPACT_KEEP_SEGMENTS)]`.
+ *
+ * Call this in the chat handler BEFORE `assembleRunContext` so `boundedConversationHistory`
+ * never throws on a long but legitimate conversation.
+ */
+export async function compactConversationHistory(
+  history: readonly ModelConversationSegment[],
+  model: Pick<ModelProvider, "complete">,
+): Promise<ModelConversationSegment[]> {
+  if (history.length <= COMPACT_TRIGGER_SEGMENTS) {
+    return history.slice() as ModelConversationSegment[];
+  }
+
+  const toSummarize = history.slice(0, history.length - COMPACT_KEEP_SEGMENTS);
+  const toKeep = history.slice(history.length - COMPACT_KEEP_SEGMENTS);
+
+  const conversationText = toSummarize
+    .map((seg) => `[${seg.role.toUpperCase()}]: ${seg.content}`)
+    .join("\n\n---\n\n");
+
+  const request: ModelCompletionRequest = {
+    tier: "cheap",
+    system:
+      "You are a conversation summarizer. Produce a concise factual summary of the provided conversation turns, preserving key decisions, facts, and context. Aim for 150-300 words.",
+    prompt: `Summarize these earlier conversation turns:\n\n${conversationText}`,
+    maxTokens: 512,
+  };
+
+  const completion = await model.complete(request);
+
+  const summaryTaint = joinTaintLabels(
+    ...(toSummarize.map((s) => s.taintLabel).filter(Boolean) as TaintLabel[]),
+  ) ?? UNKNOWN_LABEL;
+
+  const summarySegment: ModelConversationSegment = {
+    role: "assistant",
+    content: `[Conversation summary — earlier turns]\n${completion.text}`,
+    dataScope: toSummarize.some((s) => s.dataScope === "private") ? "private" : "public",
+    taintLabel: summaryTaint,
+  };
+
+  return [summarySegment, ...(toKeep as ModelConversationSegment[])];
 }
 
 /**

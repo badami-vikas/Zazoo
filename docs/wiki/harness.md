@@ -66,7 +66,7 @@ never sees** · never A/B a model change without holding the harness constant.
    in the Engine; unblocks 2 AQV axes, promotion gate, replay driver, self-improve thesis. → TASK-045
 2. **Wire one real sandbox.** Gates Commons community origins. → TASK-046
 3. **Make Trust Model inputs real** — `trust_grants` wired ✓ (2026-08-07); budgets/kill-switch still in-memory → TASK-044.
-4. **Governed compaction** ✓ — implemented 2026-08-07: drops oldest segments instead of throwing.
+4. **Governed compaction** ✓ — implemented 2026-08-07: `compactConversationHistory` summarises oldest segments via a model call (tier "cheap") instead of dropping them; `boundedConversationHistory` reverted to a hard-throw safety net. 12 tests green.
 5. **Fix canon-vs-code** — scheduler resolved AP-106 ✓; Planner still unbuilt (build or remove — open decision); governance doc carve-out claim still wrong (doc fix only, low risk).
 
 ## ONE OPEN DECISION
