@@ -5,7 +5,7 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 
 | ID | Status | Priority | Task | Dependencies |
 |---|---|---|---|---|
-| TASK-006 | blocked | P1 | DealPilot ETA core prototype | a MANUAL production deploy (deployed source pinned at `163562a`, merging main does not publish), then the TASK-030 PT-5 cold-start evidence. TASK-001 is `done` and was a stale blocker. |
+| TASK-006 | blocked | P1 | DealPilot ETA core prototype | the TASK-030 PT-5 cold-start evidence. TASK-001 is `done` and was a stale blocker. (Deploys to the hosted pilot became automatic on push to `main` 2026-08-07 under AP-115/ADR-195 — the prior MANUAL-deploy dependency this row named no longer applies.) |
 | TASK-020 | ready | P4 | Browser companion and Avatar visual expansion | TASK-003, TASK-015 |
 | TASK-018 | blocked | P3 | Cross-platform release blockers | remediation of the seven HIGH production-dependency advisories, plus the TASK-030 PT-6 OS-matrix and real-device checks. TASK-005 is `done` and was a stale blocker. |
 | TASK-019 | blocked | P4 | Approved long-term optimization rollout | user acceptance of the proposed phase mapping (AP-007 still PROPOSED) and reconciliation of the AP-008 ledger/status inconsistency. TASK-005 and TASK-015 are both `done` and were stale blockers — the real gate is an approval, not engineering. |
