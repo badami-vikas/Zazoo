@@ -37,6 +37,37 @@ jobs:
       # this runs the whole suite exactly once, with the floors enforced.
       - run: pnpm turbo run typecheck test:coverage build --force
 
+  supabase-migrate:
+    name: Supabase migrate (apply pending migrations to the hosted project)
+    # Only real pushes to main touch the hosted database — never a PR branch.
+    # Gated on `platform` passing first: a red typecheck/test/build run must
+    # not get its schema change applied to production.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: platform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: platform/.nvmrc
+          cache: pnpm
+          cache-dependency-path: platform/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # drizzle-kit migrate reads MIGRATION_DATABASE_URL (owner/session-pooler
+      # credential) — see platform/apps/api/.env.example. Never the least-
+      # privilege bridge_app DATABASE_URL the API container runs with.
+      - name: Apply pending migrations
+        working-directory: platform/packages/db
+        env:
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: pnpm migrate
+
   security-audit:
     name: security audit (no HIGH+ vulnerable deps)
     runs-on: ubuntu-latest
