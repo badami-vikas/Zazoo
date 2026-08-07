@@ -69,6 +69,21 @@ never sees** · never A/B a model change without holding the harness constant.
 4. **Governed compaction** ✓ — implemented 2026-08-07: `compactConversationHistory` summarises oldest segments via a model call (tier "cheap") instead of dropping them; `boundedConversationHistory` reverted to a hard-throw safety net. 12 tests green.
 5. **Fix canon-vs-code** — scheduler resolved AP-106 ✓; Planner still unbuilt (build or remove — open decision); governance doc carve-out claim still wrong (doc fix only, low risk).
 
+## LOCAL MODEL EVAL — Hermes3:3b (2026-08-07)
+5-case Bridge eval run locally via `OllamaProvider` (hermes3:3b, 2 GB):
+
+| Case | Result | Latency |
+|------|--------|---------|
+| WhatsApp parse → JSON | ✗ FAIL (missing comma + wrong intent) | 10 s |
+| Memory classification | ✓ PASS | 5 s |
+| Conversation summarisation | ✓ PASS | 15 s |
+| Action item extraction | ✓ PASS | 18 s |
+| Relationship signal detection | ✗ FAIL (missing `{` wrapper + enum mismatch) | 7 s |
+
+**3/5 pass · p50 10 s.** Failure mode: JSON formatting (3B model drops braces/commas under token pressure). Latency is too slow for interactive chat but acceptable for async background tasks.
+
+**Decision:** Hermes3 is viable as a **local async processor** (memory triage, summarisation, document classification) but must NOT be the interactive chat model. Wire as the `"cheap"` tier in `OllamaProvider`; keep Anthropic cloud for `"default"` and `"reasoning"`. The 8B would improve accuracy but worsen latency further on Mac — not yet worth the trade-off until we have GPU infra. Re-evaluate after sandbox wiring (TASK-046) since sandboxed Skill execution does not need interactive latency.
+
 ## ONE OPEN DECISION
 **Does an Agent get a tool loop?** C1-R1 + C6-R1 + F1-R3 are one question. Today every kernel model
 call is one-shot; `AnthropicProvider` uses tool-calling only as a structured-output constraint. Canon
