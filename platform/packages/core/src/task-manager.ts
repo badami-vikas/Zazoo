@@ -1,3 +1,5 @@
+import { analyzeTaskImpactFit } from "./task-planning.js";
+
 export type TaskRecordStatus =
   | "candidate"
   | "committed"
@@ -185,6 +187,18 @@ export function draftTaskCreate(
     updatedAt: now,
   };
   if (queue.length === 0) return { task };
+  // TM3: the proposal carries a real reconciliation/placement/resequence
+  // analysis. It used to carry `requiresResequenceReview: true` and nothing
+  // else, which asked a reviewer to review something the system had not
+  // actually worked out. `proposedStatus` stays — the approval path reads it.
+  const analysis = analyzeTaskImpactFit({
+    taskId: task.id,
+    title: task.title,
+    ...(task.outcomes.length > 0 ? { outcomes: task.outcomes } : {}),
+    exitTest: task.exitTest,
+    parentTaskId: task.parentTaskId,
+    queue,
+  });
   return {
     task,
     impactFitProposal: {
@@ -194,11 +208,22 @@ export function draftTaskCreate(
       taskId: task.id,
       actorId: "internal-strategist",
       payload: {
-        proposedParentTaskId: input.parentTaskId ?? null,
+        // Stays the REQUESTED parent, which is what `task.path` was computed
+        // from. A suggested parent lives in `placement` (labeled, with its
+        // reasoning) — putting it here would let a future consumer apply a
+        // re-parent the requester never asked for, and would contradict the
+        // path on the very Task this proposal describes.
+        proposedParentTaskId: task.parentTaskId ?? null,
         proposedPath: task.path,
         proposedStatus: desiredStatus,
         currentQueueHead: queue.find((candidate) => candidate.status === "in_progress")?.id ?? queue[0]?.id,
-        requiresResequenceReview: true,
+        // Honest now: only true when the proposed order actually differs.
+        requiresResequenceReview: analysis.resequence.changed,
+        duplicates: analysis.duplicates,
+        duplicateVerdict: analysis.duplicateVerdict,
+        placement: analysis.placement,
+        resequence: analysis.resequence,
+        queueFindings: analysis.queueFindings,
       },
       status: "pending_review",
       createdAt: now,

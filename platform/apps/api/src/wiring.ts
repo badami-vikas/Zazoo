@@ -112,7 +112,11 @@ import {
   uuidv7,
   hashTaintValue,
   labelAtSource,
+  analyzeTaskImpactFit,
+  findDuplicateTasks,
+  proposeQueueSequence,
 } from "@bridge/core";
+import type { TaskRecord } from "@bridge/core";
 import { guardedFetch } from "@bridge/net-guard";
 import {
   classifyCultureSource,
@@ -3098,6 +3102,82 @@ const TASK_MANAGER_CREATE_TASK_OUTPUT_SCHEMA = {
   },
 } as const;
 
+/**
+ * TM3 planning Skills. These are PURE: the caller supplies the authorized
+ * queue as input rather than the Skill reaching into a store, which keeps the
+ * Skill inside its `pure_data` execution class and keeps authority scoping in
+ * the caller where the pipeline can see it.
+ *
+ * Returns null for any Skill this dispatcher does not own, so the caller falls
+ * through to its existing behaviour.
+ */
+function runTaskPlanningSkill(
+  skillId: string,
+  inputs: unknown,
+): Record<string, unknown> | null {
+  const planningSkills = new Set([
+    "task-manager.impact-fit-analysis",
+    "task-manager.task-reconciliation",
+    "task-manager.queue-sequencing",
+  ]);
+  if (!planningSkills.has(skillId)) return null;
+
+  const values = (inputs ?? {}) as Record<string, unknown>;
+  const queue = values["queue"];
+  if (!Array.isArray(queue)) {
+    // A planning Skill with no queue context cannot answer honestly, and a
+    // fabricated "nothing found" would read exactly like a real clean result.
+    throw new Error(`${skillId} requires an authorized 'queue' array in its inputs`);
+  }
+  const tasks = queue as readonly TaskRecord[];
+  const title = typeof values["title"] === "string" ? values["title"] : "";
+  const outcomes = Array.isArray(values["outcomes"])
+    ? (values["outcomes"] as readonly { title: string; measure: string; target: string }[])
+    : undefined;
+  const exitTest = typeof values["exitTest"] === "string" ? values["exitTest"] : undefined;
+  const parentTaskId = typeof values["parentTaskId"] === "string" ? values["parentTaskId"] : undefined;
+  const taskId = typeof values["taskId"] === "string" ? values["taskId"] : undefined;
+  const wipLimit = typeof values["wipLimit"] === "number" ? values["wipLimit"] : undefined;
+
+  if (skillId === "task-manager.queue-sequencing") {
+    return {
+      kind: "queue_sequence",
+      ...proposeQueueSequence({ queue: tasks, ...(wipLimit !== undefined ? { wipLimit } : {}) }),
+      status: "proposed",
+    };
+  }
+  if (skillId === "task-manager.task-reconciliation") {
+    const duplicates = findDuplicateTasks({
+      title,
+      ...(outcomes ? { outcomes } : {}),
+      exitTest,
+      excludeTaskId: taskId,
+      queue: tasks,
+    });
+    return {
+      kind: "task_reconciliation",
+      duplicates,
+      // Attaching or merging stays a Human decision — the plan's not-covered
+      // list names auto-merge of suspected duplicates explicitly.
+      verdict: duplicates.length > 0 ? "review_duplicates" : "no_duplicates_found",
+      status: "proposed",
+    };
+  }
+  return {
+    kind: "task_impact_fit",
+    ...analyzeTaskImpactFit({
+      taskId: taskId ?? "",
+      title,
+      ...(outcomes ? { outcomes } : {}),
+      exitTest,
+      parentTaskId,
+      queue: tasks,
+      ...(wipLimit !== undefined ? { wipLimit } : {}),
+    }),
+    status: "proposed",
+  };
+}
+
 export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.entries(TASK_MANAGER_SKILL_OWNERS)
   .map(([skillId, owner]) => ({
     organizationId: PILOT_ORGANIZATION,
@@ -4270,6 +4350,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
           };
           return { proposedOutput, diff: { to: proposedOutput } };
         }
+        const planning = runTaskPlanningSkill(manifest.skillId, inputs);
+        if (planning) return { proposedOutput: planning, diff: { to: planning } };
         return { proposedOutput: inputs, diff: { to: inputs } };
       },
     });
