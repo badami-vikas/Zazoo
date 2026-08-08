@@ -54,6 +54,18 @@ export const TASK_MANAGER_SCAN_AUTOMATION_KEY = "task-manager.proactive-scan-cad
  * what a rotting Task needs is a judgement, so they report and stop. */
 export const TASK_MANAGER_STANDUP_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000fd";
 export const TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000fe";
+/** ADR-202 — the Governance guard and gate Automations. All four were declared
+ * from TM0 with no runtime id: two evaluate the queue's standing invariants,
+ * two apply the deterministic approval band (ADR-073 lineage — the kernel
+ * decides, the Agent explains). */
+export const TASK_MANAGER_WIP_BREACH_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000ff";
+export const TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000100";
+export const TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000101";
+export const TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000102";
+export const TASK_MANAGER_WIP_BREACH_AUTOMATION_KEY = "task-manager.wip-breach-detector";
+export const TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_KEY = "task-manager.unverified-done-challenger";
+export const TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_KEY = "task-manager.reschedule-approval-gate";
+export const TASK_MANAGER_ROUTING_GATE_AUTOMATION_KEY = "task-manager.routing-approval-gate";
 export const TASK_MANAGER_STANDUP_AUTOMATION_KEY = "task-manager.standup-brief";
 export const TASK_MANAGER_STALE_REVIEW_AUTOMATION_KEY = "task-manager.stale-task-review";
 /** The user-triggered planning Automation. Unlike the other four this one is
@@ -87,6 +99,18 @@ export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAut
   if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_STALE_REVIEW_AUTOMATION_KEY) {
     return TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID;
   }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_WIP_BREACH_AUTOMATION_KEY) {
+    return TASK_MANAGER_WIP_BREACH_AUTOMATION_ID;
+  }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_KEY) {
+    return TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID;
+  }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_KEY) {
+    return TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_ID;
+  }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_ROUTING_GATE_AUTOMATION_KEY) {
+    return TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID;
+  }
   return undefined;
 }
 
@@ -99,6 +123,10 @@ export function isModuleRuntimeAutomationId(automationId: string): boolean {
     TASK_MANAGER_PLANNING_AUTOMATION_ID,
     TASK_MANAGER_STANDUP_AUTOMATION_ID,
     TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID,
+    TASK_MANAGER_WIP_BREACH_AUTOMATION_ID,
+    TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID,
+    TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_ID,
+    TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID,
   ].includes(automationId);
 }
 
@@ -496,6 +524,15 @@ const taskManagerSkills = [
   ["progress-synthesis", "Chief of Staff"],
   ["habit-scaffolding", "Chief of Staff"],
   ["completed-bay-sweep", "Governance Agent"],
+  // ADR-202 — two Governance capabilities that existed as core code with no
+  // Skill id. `queue-guard` evaluates the queue's standing invariants
+  // (`evaluateTaskGuards`, reachable only as read-only query data until now);
+  // `change-gate` classifies one proposed reschedule or routing change into
+  // an approval band and applies the calibrated decision. Separate Skills
+  // because they answer separate questions — the state of the queue versus
+  // whether one specific change may proceed without a Human.
+  ["queue-guard", "Governance Agent"],
+  ["change-gate", "Governance Agent"],
 ] as const;
 
 const taskManagerAgents = [
@@ -857,7 +894,10 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       // unbound because Chief of Staff had no runtime Agent identity.
       // 1.3.0: ADR-201 gives Chief of Staff that identity, and `standup-brief`
       // and `stale-task-review` gain runtime ids and a procedure.
-      version: "1.3.0",
+      // 1.4.0: ADR-202 adds two Governance Skills (`queue-guard`,
+      // `change-gate`) that existed as core code with no Skill id, and binds
+      // the four Governance guard/gate Automations to them.
+      version: "1.4.0",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:

@@ -126,6 +126,8 @@ import {
   detectTaskProjectionDrift,
   emitTasksMarkdown,
   planCompletedBaySweep,
+  evaluateTaskGuards,
+  DEFAULT_WIP_LIMIT,
   routeTaskByRequiredSkill,
   scaffoldHabits,
   scanForOpportunities,
@@ -208,6 +210,7 @@ import {
   ensureChiefOfStaffGovernance,
   INTERNAL_STRATEGIST_ALLOWED_SKILLS,
   CHIEF_OF_STAFF_ALLOWED_SKILLS,
+  GOVERNANCE_ALLOWED_SKILLS,
   ensureGovernanceAgentGovernance,
   ensureCapabilityBuilderGovernance,
   ensureRelationshipUserGovernance,
@@ -3052,6 +3055,15 @@ const TASK_MANAGER_SKILL_OWNERS: Readonly<Record<string, string>> = {
   "task-manager.progress-synthesis": "chief-of-staff",
   "task-manager.habit-scaffolding": "chief-of-staff",
   "task-manager.completed-bay-sweep": "governance",
+  // ADR-202 — two Governance capabilities that existed as core code with no
+  // Skill id, so the guard/gate Automations that needed them could not run.
+  // `queue-guard` evaluates the queue's standing invariants; `change-gate`
+  // classifies a proposed reschedule or routing change into an approval band.
+  // Separate Skills because they are separate questions: one is about the
+  // state of the queue, the other about whether one specific change may
+  // proceed without a Human.
+  "task-manager.queue-guard": "governance",
+  "task-manager.change-gate": "governance",
 };
 
 /** A deterministic parent-Task suggestion carried into Human review (ADR-183).
@@ -3288,6 +3300,67 @@ function runTaskExecutionSkill(
     // the Skill echoing them, which is what this workstream exists to remove —
     // the Skill INDEPENDENTLY RE-VERIFIES a caller-supplied plan and refuses a
     // malformed one. `source` states which shape it answered from.
+    // ADR-202 — the queue's standing invariants, as an attributable Skill.
+    // `evaluateTaskGuards` has existed since TM0 but was reachable only as
+    // read-only data on the `projection` query, so `wip-breach-detector` and
+    // `unverified-done-challenger` had nothing to run.
+    case "task-manager.queue-guard": {
+      const staleAfterDays = values["staleAfterDays"];
+      return {
+        kind: "queue_guard",
+        evaluatedAt: now,
+        // The Run's clock, passed explicitly: `evaluateTaskGuards` SKIPS the
+        // staleness check rather than reading wall-clock time, so a finding
+        // is always reproducible from the Run that produced it.
+        findings: evaluateTaskGuards(requireQueue(), count("completedCap", 10), {
+          now,
+          wipLimit: count("wipLimit", DEFAULT_WIP_LIMIT),
+          ...(typeof staleAfterDays === "number" ? { staleAfterDays } : {}),
+        }),
+        status: "proposed",
+      };
+    }
+
+    // ADR-202 — the deterministic approval gate (ADR-073 lineage: the KERNEL
+    // decides, the Agent explains). This Skill computes the band and the
+    // calibrated decision; it never applies the change, and the counts it
+    // calibrates on are authorized inputs read from real decision history by
+    // the caller, never numbers a client chose for itself.
+    case "task-manager.change-gate": {
+      const kind = text("changeKind");
+      if (kind !== "route" && kind !== "reschedule") {
+        throw new Error(`${skillId} requires 'changeKind' to be "route" or "reschedule"`);
+      }
+      const deltaDays = values["deltaDays"];
+      const candidateCount = values["candidateCount"];
+      const crossesModule = values["crossesModule"];
+      const band = classifyTaskChangeBand({
+        kind,
+        ...(typeof deltaDays === "number" ? { deltaDays } : {}),
+        ...(typeof candidateCount === "number" ? { candidateCount } : {}),
+        ...(typeof crossesModule === "boolean" ? { crossesModule } : {}),
+      });
+      const approvals = count("approvals", 0);
+      const vetoes = count("vetoes", 0);
+      const decision = calibratedTaskChangeDecision({
+        band,
+        approvals,
+        vetoes,
+        // An Agent-proposed change ALWAYS needs a Human, whatever the history
+        // says — calibration widens what a Human may do unattended, never
+        // what an Agent may.
+        actorType: text("actorType") === "agent" ? "agent" : "human",
+      });
+      return {
+        kind: "task_change_gate",
+        changeKind: kind,
+        band,
+        decision,
+        calibration: { approvals, vetoes, basis: "Vetted human approve/veto history for this change kind, counted from the decision ledger." },
+        status: "proposed",
+      };
+    }
+
     case "task-manager.completed-bay-sweep": {
       const queue = values["queue"];
       if (Array.isArray(queue)) {
@@ -3610,6 +3683,13 @@ async function runTaskAuthoringSkill(
   };
 }
 
+/** Task Manager Skills that only ever read. They report or classify and write
+ * nothing, so they declare `record:read` alone (ADR-202). */
+const TASK_MANAGER_READ_ONLY_SKILLS: readonly string[] = [
+  "task-manager.queue-guard",
+  "task-manager.change-gate",
+];
+
 export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.entries(TASK_MANAGER_SKILL_OWNERS)
   .map(([skillId, owner]) => ({
     organizationId: PILOT_ORGANIZATION,
@@ -3625,7 +3705,14 @@ export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.ent
       : {}),
     permissions: skillId === "task-manager.completed-bay-sweep"
       ? ["record:read", "record:archive"]
-      : ["record:read", "record:write"],
+      // ADR-202 — the guard and the gate only ever READ. Declaring
+      // `record:write` for them would have been authority they never use,
+      // and Governance's own scope (no `record:write`) rejected the Skill on
+      // first run, which is the boundary working: least privilege is not a
+      // style preference here, it is what made the mismatch visible.
+      : TASK_MANAGER_READ_ONLY_SKILLS.includes(skillId)
+        ? ["record:read"]
+        : ["record:read", "record:write"],
     plane: "local",
     dataScopes: ["all"],
     riskBand: "advisory",
@@ -3835,7 +3922,8 @@ function seedGovernance(
   // capability.approve/action.decide surfaces, never through this scope.
   agents.assumed.set(GOVERNANCE_AGENT, "role-governance");
   agents.scope.set(GOVERNANCE_AGENT, ["signal:write", "record:read", "record:archive"]);
-  agents.skills.set(GOVERNANCE_AGENT, ["task-manager.completed-bay-sweep"]);
+  // Shared with the persistent seed, so the two backends cannot drift.
+  agents.skills.set(GOVERNANCE_AGENT, [...GOVERNANCE_ALLOWED_SKILLS]);
   roles.roleGrants.set("role-governance", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "record", resourceId: null, action: "read", effect: "allow" },

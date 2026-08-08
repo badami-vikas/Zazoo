@@ -25,6 +25,9 @@ import {
   TASK_MANAGER_STANDUP_AUTOMATION_ID,
   TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID,
   CHIEF_OF_STAFF_AGENT_RUNTIME_ID,
+  GOVERNANCE_AGENT_RUNTIME_ID,
+  TASK_MANAGER_WIP_BREACH_AUTOMATION_ID,
+  TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID,
 } from "../src/built-in-modules.js";
 
 /** Proposals expire, so every call supplies a bound inside the allowed 24h. */
@@ -534,5 +537,132 @@ test("the stale-task review surfaces untouched live work and nothing else", asyn
   assert.equal(
     staleRuns.find((entry) => entry.runId === result.runId)?.agentId,
     CHIEF_OF_STAFF_AGENT_RUNTIME_ID,
+  );
+});
+
+// ---------------------------------------------------------------------
+// ADR-202 — the Governance guard and gate Automations. `evaluateTaskGuards`
+// and `classifyTaskChangeBand` have existed since TM0 as core code with no
+// Skill id, so all four of these Automations had nothing to run.
+// ---------------------------------------------------------------------
+
+test("the WIP breach detector reports only its own finding kind", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+
+  const first = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Ship the intake form",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "A new user submits it end to end",
+  });
+  const second = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Wire the confirmation email",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "The email lands in a real inbox",
+  });
+  for (const task of [first, second]) {
+    await api.taskManager.transition({
+      organizationId: PILOT_ORGANIZATION,
+      taskId: task.task.id,
+      status: "in_progress",
+    });
+  }
+  // A goal whose review is due: a `goal_review_due` finding that the WIP
+  // detector must NOT report, even though ONE evaluator produces both. This is
+  // the state the API can actually create — `transition` refuses `done`
+  // without verification evidence, so an `unverified_done` row can only arrive
+  // through projection reconcile, which is exactly why that guard exists.
+  const goal = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Cut onboarding time in half",
+    isGoal: true,
+    reviewCadence: "weekly",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+  });
+
+  const result = await api.taskManager.runQueueGuard({
+    organizationId: PILOT_ORGANIZATION,
+    guard: "wip-breach-detector",
+    idempotencyKey: "wip-breach-1",
+  });
+  assert.equal(result.breached, true, "two in-progress Tasks for one owner is a breach");
+  assert.ok(result.findings.every((finding) => (finding as { kind: string }).kind === "wip_breach"));
+
+  const runs = await wiring.automationRunRecorder.list(
+    PILOT_ORGANIZATION,
+    [TASK_MANAGER_WIP_BREACH_AUTOMATION_ID],
+    { limit: 10 },
+  );
+  assert.equal(
+    runs.find((entry) => entry.runId === result.runId)?.agentId,
+    GOVERNANCE_AGENT_RUNTIME_ID,
+    "the guard is Governance's Run, not the caller's",
+  );
+
+  assert.ok(
+    !result.findings.some((finding) => (finding as { kind: string }).kind === "goal_review_due"),
+    "one evaluator, but each Automation reports only the problem it is named for",
+  );
+
+  // The challenger is its own Automation over the same evaluator, and on a
+  // queue with no unverified `done` row it returns an honest empty result
+  // rather than the WIP findings it happens to have computed.
+  const challenge = await api.taskManager.runQueueGuard({
+    organizationId: PILOT_ORGANIZATION,
+    guard: "unverified-done-challenger",
+    idempotencyKey: "unverified-done-1",
+  });
+  assert.equal(challenge.breached, false);
+  assert.deepEqual(challenge.findings, []);
+  // A guard reports; it never transitions a Task.
+  const untouched = await api.taskManager.get({ organizationId: PILOT_ORGANIZATION, taskId: goal.task.id });
+  assert.equal(untouched?.status, goal.task.status, "the guard changed nothing");
+});
+
+test("the approval gate calibrates on real decision history, not on numbers the caller supplies", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+
+  const gate = await api.taskManager.runChangeGate({
+    organizationId: PILOT_ORGANIZATION,
+    kind: "reschedule",
+    deltaDays: 1,
+    candidateCount: 1,
+    idempotencyKey: "reschedule-gate-1",
+  });
+  // A minor change with NO track record still needs a Human: calibration
+  // widens what may happen unattended only after real vetted approvals.
+  assert.equal(gate.band, "minor");
+  assert.equal(gate.decision, "approval_required");
+  assert.deepEqual(
+    { approvals: gate.calibration.approvals, vetoes: gate.calibration.vetoes },
+    { approvals: 0, vetoes: 0 },
+    "an empty ledger means an empty track record — the caller cannot claim one",
+  );
+
+  // A routing question with several plausible candidates is ambiguous, and
+  // ambiguity always stops for a Human whatever the history says.
+  const routing = await api.taskManager.runChangeGate({
+    organizationId: PILOT_ORGANIZATION,
+    kind: "route",
+    candidateCount: 3,
+    idempotencyKey: "routing-gate-1",
+  });
+  assert.equal(routing.band, "ambiguous");
+  assert.equal(routing.decision, "approval_required");
+
+  const runs = await wiring.automationRunRecorder.list(
+    PILOT_ORGANIZATION,
+    [TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID],
+    { limit: 10 },
+  );
+  assert.ok(
+    runs.some((entry) => entry.runId === routing.runId),
+    "the routing gate is its own Automation, not a re-run of the reschedule gate",
   );
 });

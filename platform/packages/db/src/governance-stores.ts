@@ -749,6 +749,20 @@ export async function ensureChiefOfStaffGovernance(
   });
 }
 
+/**
+ * Governance's Skill allow-list — one definition, both durability backends,
+ * for the same anti-drift reason as the two lists above.
+ *
+ * ADR-202 adds the two Skills the guard and gate Automations invoke. Both were
+ * core code with no Skill id, which is why `wip-breach-detector`,
+ * `unverified-done-challenger` and the two approval gates had nothing to run.
+ */
+export const GOVERNANCE_ALLOWED_SKILLS: readonly string[] = [
+  "task-manager.completed-bay-sweep",
+  "task-manager.queue-guard",
+  "task-manager.change-gate",
+];
+
 export async function ensureGovernanceAgentGovernance(
   db: Database,
   config: FoundationalAgentGovernanceConfig,
@@ -765,7 +779,7 @@ export async function ensureGovernanceAgentGovernance(
       { resourceType: "record", action: "read", capabilityToken: "record:read" },
       { resourceType: "record", action: "archive", capabilityToken: "record:archive" },
     ],
-    allowedSkills: ["task-manager.completed-bay-sweep"],
+    allowedSkills: GOVERNANCE_ALLOWED_SKILLS,
     dataScope: "all",
   });
 }

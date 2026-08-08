@@ -340,6 +340,10 @@ import {
   TASK_MANAGER_PLANNING_AUTOMATION_ID,
   TASK_MANAGER_STANDUP_AUTOMATION_ID,
   TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID,
+  TASK_MANAGER_WIP_BREACH_AUTOMATION_ID,
+  TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID,
+  TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_ID,
+  TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeAutomationId,
   resolveModuleAgentRuntimeId,
@@ -4236,6 +4240,48 @@ const taskRestructureInput = z.discriminatedUnion("kind", [
 
 const TASK_MANAGER_PROJECTION_FILE = "tasks.md";
 
+/** How far back the approval gate reads its own track record. Bounded because
+ * `listHistory` is paginated and an unbounded scan of the ledger to answer one
+ * gate question would grow without limit. */
+const TASK_CHANGE_HISTORY_LIMIT = 200;
+
+/**
+ * Count the vetted Human approve/veto decisions on THIS change kind (ADR-202).
+ *
+ * The calibration input has to be real history. `taskManager.approvalBand`,
+ * the read-only query that predates the gate, takes `approvals`/`vetoes` as
+ * client inputs — so anything calling it could hand itself a calibrated
+ * verdict, and a gate that trusts the caller's account of its own track record
+ * is not a gate.
+ *
+ * Only the gate's own prior proposals count. A decision on some other kind of
+ * proposal says nothing about whether this Human's reschedules have been
+ * sound, which is the only thing calibration is entitled to conclude.
+ */
+async function countTaskChangeDecisions(
+  wiring: Wiring,
+  organizationId: string,
+  kind: "route" | "reschedule",
+): Promise<{ approvals: number; vetoes: number }> {
+  const history = await wiring.ledger.listHistory(organizationId, {
+    limit: TASK_CHANGE_HISTORY_LIMIT,
+    offset: 0,
+  });
+  let approvals = 0;
+  let vetoes = 0;
+  for (const entry of history.items) {
+    // `skill` is the capability-attribution key, so matching on it is what
+    // makes "this gate's own history" a fact rather than a guess about which
+    // rows happened to carry a `changeKind`.
+    if (entry.skill !== "task-manager.change-gate") continue;
+    const inputs = entry.inputs as { changeKind?: unknown } | null | undefined;
+    if (!inputs || inputs.changeKind !== kind) continue;
+    if (entry.userDecision === "approve") approvals += 1;
+    else if (entry.userDecision === "veto") vetoes += 1;
+  }
+  return { approvals, vetoes };
+}
+
 /**
  * One entry of a human's edited planning plan (ADR-200).
  *
@@ -7376,6 +7422,159 @@ export const appRouter = t.router({
         brief: isStaleReview
           ? { kind: "stale_task_review" as const, stalled, count: stalled.length, basis: brief?.["basis"] ?? null }
           : brief,
+      };
+    }),
+    /**
+     * The two Governance guard Automations (ADR-202).
+     *
+     * `evaluateTaskGuards` has existed since TM0 but was reachable only as
+     * read-only data hanging off the `projection` query, so neither
+     * `wip-breach-detector` nor `unverified-done-challenger` had anything to
+     * run. They now evaluate the queue as attributable Governance Runs.
+     *
+     * Each Automation reports ONLY its own finding kind. One guard evaluator
+     * with several callers is not the same as one Automation that dumps every
+     * finding under whichever name you invoked it by — a WIP breach and an
+     * unverified `done` are different problems with different remedies, and
+     * merging them would make either one easy to miss.
+     */
+    runQueueGuard: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      guard: z.enum(["wip-breach-detector", "unverified-done-challenger"]),
+      wipLimit: z.number().int().min(1).max(20).optional(),
+      idempotencyKey: z.string().trim().min(8).max(200),
+    }).strict()).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      await requireInstalledTaskManager(ctx.wiring, input.organizationId);
+
+      const isWip = input.guard === "wip-breach-detector";
+      const automationId = isWip
+        ? TASK_MANAGER_WIP_BREACH_AUTOMATION_ID
+        : TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID;
+      const queue = await ctx.wiring.taskManager.list(input.organizationId);
+      await ensureTaskManagerAutomation(ctx.wiring, input.organizationId, {
+        automationId,
+        name: isWip ? "Task Manager WIP breach detector" : "Task Manager unverified done challenger",
+        agentId: GOVERNANCE_AGENT,
+        skill: "task-manager.queue-guard",
+        action: "read",
+      }, ctx.run);
+
+      const runId = idempotentUuid(
+        `${input.organizationId}:queue_guard_run:${input.guard}:${input.idempotencyKey}`,
+      );
+      const run = await ctx.wiring.automationExecutor.runById({
+        organizationId: input.organizationId,
+        automationId,
+        onBehalfOf: { type: "user", id: ctx.identity.id },
+        params: { queue, ...(input.wipLimit !== undefined ? { wipLimit: input.wipLimit } : {}) },
+        seed: input.idempotencyKey,
+        runId,
+      }, withHumanInputTaint(
+        ctx.run,
+        `task-manager:${input.guard}:${ctx.identity.id}:${runId}`,
+        { taskCount: queue.length },
+      ));
+      const governed = run.proposals[0];
+      if (!governed || governed.status === "rejected") {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `${input.guard} Automation did not evaluate the queue (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
+        });
+      }
+      const output = (governed.output?.proposedOutput ?? {}) as Record<string, unknown>;
+      const all = Array.isArray(output["findings"]) ? output["findings"] as { kind?: unknown }[] : [];
+      const wanted = isWip ? "wip_breach" : "unverified_done";
+      const findings = all.filter((finding) => finding.kind === wanted);
+      return {
+        runId,
+        proposal: governed,
+        guard: input.guard,
+        findings,
+        // A guard reports; it never transitions a Task. An unverified `done`
+        // carries `proposedStatus: "pending"` as the guard's SUGGESTION, and
+        // reopening it stays a Human's governed act through `transition`.
+        breached: findings.length > 0,
+      };
+    }),
+    /**
+     * The deterministic approval gate, shared by `reschedule-approval-gate`
+     * and `routing-approval-gate` (ADR-107: "reschedule + routing governance
+     * share one mechanism"; ADR-073: the KERNEL decides, the Agent explains).
+     *
+     * The calibration counts come from REAL vetted decision history, not from
+     * the caller. `taskManager.approvalBand` — the read-only query that
+     * predates this — takes `approvals`/`vetoes` as client inputs, which
+     * means anything calling it could hand itself a calibrated verdict. A gate
+     * that trusts the caller's account of its own track record is not a gate.
+     */
+    runChangeGate: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      kind: z.enum(["route", "reschedule"]),
+      deltaDays: z.number().int().min(-3650).max(3650).optional(),
+      candidateCount: z.number().int().min(0).max(100).optional(),
+      crossesModule: z.boolean().optional(),
+      idempotencyKey: z.string().trim().min(8).max(200),
+    }).strict()).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      await requireInstalledTaskManager(ctx.wiring, input.organizationId);
+
+      const automationId = input.kind === "reschedule"
+        ? TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_ID
+        : TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID;
+      await ensureTaskManagerAutomation(ctx.wiring, input.organizationId, {
+        automationId,
+        name: input.kind === "reschedule"
+          ? "Task Manager reschedule approval gate"
+          : "Task Manager routing approval gate",
+        agentId: GOVERNANCE_AGENT,
+        skill: "task-manager.change-gate",
+        action: "read",
+      }, ctx.run);
+
+      const history = await countTaskChangeDecisions(ctx.wiring, input.organizationId, input.kind);
+      const runId = idempotentUuid(
+        `${input.organizationId}:change_gate_run:${input.kind}:${input.idempotencyKey}`,
+      );
+      const run = await ctx.wiring.automationExecutor.runById({
+        organizationId: input.organizationId,
+        automationId,
+        onBehalfOf: { type: "user", id: ctx.identity.id },
+        params: {
+          changeKind: input.kind,
+          ...(input.deltaDays !== undefined ? { deltaDays: input.deltaDays } : {}),
+          ...(input.candidateCount !== undefined ? { candidateCount: input.candidateCount } : {}),
+          ...(input.crossesModule !== undefined ? { crossesModule: input.crossesModule } : {}),
+          approvals: history.approvals,
+          vetoes: history.vetoes,
+          // The identity that ASKED. An Agent-proposed change always needs a
+          // Human whatever the history says — calibration widens what a Human
+          // may do unattended, never what an Agent may.
+          actorType: ctx.identity.type === "user" ? "human" : "agent",
+        },
+        seed: input.idempotencyKey,
+        runId,
+      }, withHumanInputTaint(
+        ctx.run,
+        `task-manager:${input.kind}-approval-gate:${ctx.identity.id}:${runId}`,
+        { kind: input.kind },
+      ));
+      const governed = run.proposals[0];
+      if (!governed || governed.status === "rejected") {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `${input.kind} approval gate did not decide (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
+        });
+      }
+      const output = (governed.output?.proposedOutput ?? {}) as Record<string, unknown>;
+      return {
+        runId,
+        proposal: governed,
+        band: output["band"],
+        decision: output["decision"],
+        calibration: { ...history, source: "decision ledger" as const },
       };
     }),
     runCompletedBaySweep: authenticatedProcedure.input(z.object({

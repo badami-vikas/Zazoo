@@ -53,6 +53,7 @@ export {
   ensureCapabilityApprovalPrincipalGovernance,
   INTERNAL_STRATEGIST_ALLOWED_SKILLS,
   CHIEF_OF_STAFF_ALLOWED_SKILLS,
+  GOVERNANCE_ALLOWED_SKILLS,
   type InternalStrategistGovernanceConfig,
   type RelationshipUserGovernanceConfig,
   type FoundationalAgentGovernanceConfig,
