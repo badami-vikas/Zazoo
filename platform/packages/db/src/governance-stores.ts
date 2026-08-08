@@ -681,6 +681,14 @@ export const INTERNAL_STRATEGIST_ALLOWED_SKILLS: readonly string[] = [
   "task-manager.task-decomposition",
   "task-manager.exit-test-authoring",
   "task-manager.proactive-opportunity-scan",
+  // ADR-203 — the four Automations Internal Strategist owns. `queue-guard` is
+  // Governance's Skill by default owner, but `goal-review-cadence` is Internal
+  // Strategist's Automation (ADR-107's split: whether a goal is due for review
+  // is a planning question, not a control one), and one Skill resolving for
+  // two eligible Agents is the shape ADR-104 was built for.
+  "task-manager.impact-fit-analysis",
+  "task-manager.task-tree-restructure",
+  "task-manager.queue-guard",
 ];
 
 export async function ensureInternalStrategistGovernance(

@@ -62,6 +62,20 @@ export const TASK_MANAGER_WIP_BREACH_AUTOMATION_ID = "b0000000-0000-4000-a000-00
 export const TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000100";
 export const TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000101";
 export const TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000102";
+/** ADR-203 — the four Internal Strategist Automations. Three of them already
+ * raised a governed proposal that halted for review, so the gap was never
+ * governance: it was ATTRIBUTION. The proposal's actor was the Human who
+ * happened to trigger it and its skill was the kernel passthrough, so the
+ * analysis Internal Strategist supposedly performed had no Agent Run behind
+ * it and no Skill invocation to point at. */
+export const TASK_MANAGER_GOAL_REVIEW_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000103";
+export const TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000104";
+export const TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000105";
+export const TASK_MANAGER_REOPEN_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000106";
+export const TASK_MANAGER_GOAL_REVIEW_AUTOMATION_KEY = "task-manager.goal-review-cadence";
+export const TASK_MANAGER_IMPACT_FIT_AUTOMATION_KEY = "task-manager.task-created-impact-analysis";
+export const TASK_MANAGER_RESTRUCTURE_AUTOMATION_KEY = "task-manager.task-tree-restructure-proposal";
+export const TASK_MANAGER_REOPEN_AUTOMATION_KEY = "task-manager.target-change-reopen-prompt";
 export const TASK_MANAGER_WIP_BREACH_AUTOMATION_KEY = "task-manager.wip-breach-detector";
 export const TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_KEY = "task-manager.unverified-done-challenger";
 export const TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_KEY = "task-manager.reschedule-approval-gate";
@@ -111,6 +125,18 @@ export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAut
   if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_ROUTING_GATE_AUTOMATION_KEY) {
     return TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID;
   }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_GOAL_REVIEW_AUTOMATION_KEY) {
+    return TASK_MANAGER_GOAL_REVIEW_AUTOMATION_ID;
+  }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_IMPACT_FIT_AUTOMATION_KEY) {
+    return TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID;
+  }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_RESTRUCTURE_AUTOMATION_KEY) {
+    return TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID;
+  }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_REOPEN_AUTOMATION_KEY) {
+    return TASK_MANAGER_REOPEN_AUTOMATION_ID;
+  }
   return undefined;
 }
 
@@ -127,6 +153,10 @@ export function isModuleRuntimeAutomationId(automationId: string): boolean {
     TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID,
     TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_ID,
     TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID,
+    TASK_MANAGER_GOAL_REVIEW_AUTOMATION_ID,
+    TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID,
+    TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID,
+    TASK_MANAGER_REOPEN_AUTOMATION_ID,
   ].includes(automationId);
 }
 
@@ -897,7 +927,9 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       // 1.4.0: ADR-202 adds two Governance Skills (`queue-guard`,
       // `change-gate`) that existed as core code with no Skill id, and binds
       // the four Governance guard/gate Automations to them.
-      version: "1.4.0",
+      // 1.5.0: ADR-203 binds the four Internal Strategist Automations. Three
+      // already halted for review — the gap was attribution, not governance.
+      version: "1.5.0",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:

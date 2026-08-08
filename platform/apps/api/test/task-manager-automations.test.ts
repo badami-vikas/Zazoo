@@ -28,6 +28,10 @@ import {
   GOVERNANCE_AGENT_RUNTIME_ID,
   TASK_MANAGER_WIP_BREACH_AUTOMATION_ID,
   TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID,
+  TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID,
+  TASK_MANAGER_GOAL_REVIEW_AUTOMATION_ID,
+  TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID,
+  INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
 } from "../src/built-in-modules.js";
 
 /** Proposals expire, so every call supplies a bound inside the allowed 24h. */
@@ -665,4 +669,129 @@ test("the approval gate calibrates on real decision history, not on numbers the 
     runs.some((entry) => entry.runId === routing.runId),
     "the routing gate is its own Automation, not a re-run of the reschedule gate",
   );
+});
+
+// ---------------------------------------------------------------------
+// ADR-203 — the four Internal Strategist Automations. Three of them already
+// raised a governed proposal that halted for review, so the gap was never
+// governance: it was ATTRIBUTION. The actor was the Human who happened to
+// trigger it and the skill was the kernel passthrough, so the analysis
+// Internal Strategist supposedly performed had no Run and no Skill behind it.
+// ---------------------------------------------------------------------
+
+test("creating a Task into a populated queue is Internal Strategist's Run, not the caller's", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+
+  await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Ship the intake form",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "A new user submits it end to end",
+  });
+  const second = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Wire the confirmation email",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "The email lands in a real inbox",
+  });
+
+  assert.ok(second.impactFitProposal, "a populated queue still raises the impact-fit proposal");
+  const runs = await wiring.automationRunRecorder.list(
+    PILOT_ORGANIZATION,
+    [TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID],
+    { limit: 10 },
+  );
+  assert.ok(runs.length > 0, "the analysis now leaves an attributable Agent Run");
+  assert.ok(runs.every((entry) => entry.agentId === INTERNAL_STRATEGIST_AGENT_RUNTIME_ID));
+
+  // The Skill actually ran: the ledger row carries its id, not the kernel
+  // passthrough that used to stand in for it.
+  const history = await wiring.ledger.listHistory(PILOT_ORGANIZATION, { limit: 100, offset: 0 });
+  assert.ok(
+    history.items.some((entry) => entry.skill === "task-manager.impact-fit-analysis"),
+    "impact-fit-analysis is invoked as a real Skill",
+  );
+});
+
+test("the goal review cadence runs as Internal Strategist and reports only goals that are due", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+
+  const goal = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Cut onboarding time in half",
+    isGoal: true,
+    reviewCadence: "weekly",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+  });
+  await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "An ordinary Task with no cadence",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "It is done",
+  });
+
+  const result = await api.taskManager.runQueueGuard({
+    organizationId: PILOT_ORGANIZATION,
+    guard: "goal-review-cadence",
+    idempotencyKey: "goal-review-1",
+  });
+  const findings = result.findings as { kind: string; taskId: string }[];
+  assert.ok(findings.every((finding) => finding.kind === "goal_review_due"));
+  assert.ok(findings.some((finding) => finding.taskId === goal.task.id));
+  assert.equal(findings.length, 1, "a Task with no review cadence is not due for review");
+
+  // Whether a goal is due for review is a PLANNING question, so this one runs
+  // as Internal Strategist even though it shares Governance's evaluator
+  // (ADR-107's split; one Skill resolving for two eligible Agents is the
+  // shape ADR-104 was built for).
+  const runs = await wiring.automationRunRecorder.list(
+    PILOT_ORGANIZATION,
+    [TASK_MANAGER_GOAL_REVIEW_AUTOMATION_ID],
+    { limit: 10 },
+  );
+  assert.equal(
+    runs.find((entry) => entry.runId === result.runId)?.agentId,
+    INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
+  );
+});
+
+test("a tree restructure proposal is Internal Strategist's Run running the real Skill", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+
+  const parent = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Ship the pilot",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "A real user completes the flow unaided",
+  });
+  const child = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Draft the copy",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    parentTaskId: parent.task.id,
+    exitTest: "The copy is in the repo",
+  });
+
+  const proposed = await api.taskManager.proposeRestructure({
+    organizationId: PILOT_ORGANIZATION,
+    operation: { kind: "promote", taskId: child.task.id },
+  });
+  assert.equal(proposed.status, "pending_review", "restructuring still stops for a Human");
+
+  const runs = await wiring.automationRunRecorder.list(
+    PILOT_ORGANIZATION,
+    [TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID],
+    { limit: 10 },
+  );
+  assert.ok(runs.length > 0, "the restructure now leaves an attributable Agent Run");
+  assert.ok(runs.every((entry) => entry.agentId === INTERNAL_STRATEGIST_AGENT_RUNTIME_ID));
 });

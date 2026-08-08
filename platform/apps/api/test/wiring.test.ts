@@ -375,10 +375,11 @@ test("persistent governance provisioning grants culture-research authority to Le
     ]);
     assert.equal(await agents.dataScope(INTERNAL_STRATEGIST_AGENT), "all");
     // Pinned exactly: this is an Agent's authority, so a widening has to be
-    // written down here before it can ship. The six TM3 entries are the
-    // Skills `taskManager.runPlanningPlaybook` and `runOpportunityScan`
-    // actually invoke — Internal Strategist OWNS more `task-manager.*` Skills
-    // than this, and the unused ones are deliberately not granted.
+    // written down here before it can ship. Every entry is a Skill some
+    // procedure actually invokes — Internal Strategist OWNS more
+    // `task-manager.*` Skills than this, and the unused ones are deliberately
+    // not granted. The last three arrived with ADR-203, when the four
+    // Automations this Agent owns gained runtime bindings.
     assert.deepEqual(await agents.allowedSkills(INTERNAL_STRATEGIST_AGENT), [
       "stageStrategicRecommendation",
       "jobpilot.synthesizeCultureProfile",
@@ -390,6 +391,9 @@ test("persistent governance provisioning grants culture-research authority to Le
       "task-manager.task-decomposition",
       "task-manager.exit-test-authoring",
       "task-manager.proactive-opportunity-scan",
+      "task-manager.impact-fit-analysis",
+      "task-manager.task-tree-restructure",
+      "task-manager.queue-guard",
     ]);
     // Capability scope is UNCHANGED by those grants — the new Skills need
     // record:read/record:write, which this Agent already held.

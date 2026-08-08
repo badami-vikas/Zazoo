@@ -344,6 +344,10 @@ import {
   TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID,
   TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_ID,
   TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID,
+  TASK_MANAGER_GOAL_REVIEW_AUTOMATION_ID,
+  TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID,
+  TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID,
+  TASK_MANAGER_REOPEN_AUTOMATION_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeAutomationId,
   resolveModuleAgentRuntimeId,
@@ -4240,6 +4244,66 @@ const taskRestructureInput = z.discriminatedUnion("kind", [
 
 const TASK_MANAGER_PROJECTION_FILE = "tasks.md";
 
+/**
+ * Run one Task Manager Automation as its owning Agent and return the governed
+ * proposal (ADR-203).
+ *
+ * The three Event-fired Automations this replaces already raised a governed
+ * proposal that halted for Human review, so the gap was never governance — it
+ * was ATTRIBUTION. Each proposal's actor was the Human who happened to trigger
+ * it and its skill was `KERNEL_PASSTHROUGH_SKILL`, so the analysis Internal
+ * Strategist supposedly performed had no Agent Run behind it and no Skill
+ * invocation to point at. Routing them through the executor makes the Agent
+ * the actor, runs the real Skill, and records the Run — and, because an Agent
+ * actor is subject to the allow-list and capability scope a Human bypasses,
+ * it is strictly MORE governed than what it replaces, not a convenience.
+ */
+async function runTaskManagerAgentAutomation(
+  // Structurally typed to exactly the three fields it uses rather than the
+  // whole `ApiContext`: tRPC narrows the context per procedure, and requiring
+  // the full shape would only force call sites to widen it back.
+  ctx: { wiring: Wiring; run: RunCtx; identity: Actor },
+  args: {
+    organizationId: string;
+    automationId: string;
+    name: string;
+    agentId: string;
+    skill: string;
+    action: Action;
+    params: Record<string, unknown>;
+    runId: string;
+    /** Shared with the queue-side row so one Human decision resolves both —
+     * the pairing `projection_reconcile` and `archive_sweep` established. */
+    proposalId?: string;
+    taintKey: string;
+  },
+): Promise<{ runId: string; proposal: Proposal }> {
+  await ensureTaskManagerAutomation(ctx.wiring, args.organizationId, {
+    automationId: args.automationId,
+    name: args.name,
+    agentId: args.agentId,
+    skill: args.skill,
+    action: args.action,
+  }, ctx.run);
+  const run = await ctx.wiring.automationExecutor.runById({
+    organizationId: args.organizationId,
+    automationId: args.automationId,
+    onBehalfOf: { type: "user", id: ctx.identity.id },
+    params: args.params,
+    seed: args.runId,
+    runId: args.runId,
+    ...(args.proposalId ? { proposalId: args.proposalId } : {}),
+  }, withHumanInputTaint(ctx.run, args.taintKey, { automationId: args.automationId }));
+  const governed = run.proposals[0];
+  if (!governed || governed.status === "rejected") {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: `${args.name} did not run (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
+    });
+  }
+  return { runId: args.runId, proposal: governed };
+}
+
 /** How far back the approval gate reads its own track record. Bounded because
  * `listHistory` is paginated and an unbounded scan of the ledger to answer one
  * gate question would grow without limit. */
@@ -6519,17 +6583,31 @@ export const appRouter = t.router({
         ...(input.scheduledFor ? { scheduledFor: input.scheduledFor } : {}),
       };
       const populated = (await ctx.wiring.taskManager.list(input.organizationId)).length > 0;
-      const governed = populated
-        ? await ctx.wiring.pipeline.propose({
+      // ADR-203 — the impact analysis is now Internal Strategist's own Run
+      // running the real `impact-fit-analysis` Skill, not a kernel-passthrough
+      // proposal wearing the Human's name. The queue-side `impact_fit` row and
+      // this pipeline proposal share one id, so one decision resolves both.
+      const impactRun = populated
+        ? await runTaskManagerAgentAutomation(ctx, {
             organizationId: input.organizationId,
-            actor: ctx.identity,
+            automationId: TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID,
+            name: "Task Manager task-created impact analysis",
+            agentId: INTERNAL_STRATEGIST_AGENT,
+            skill: "task-manager.impact-fit-analysis",
             action: "write",
-            resourceType: "record",
-            resourceId: taskId,
-            inputs: { kind: "task_created_impact_analysis", task: taskInput },
-            skill: KERNEL_PASSTHROUGH_SKILL,
-          }, ctx.run, { requireHumanReview: true })
+            params: {
+              queue: await ctx.wiring.taskManager.list(input.organizationId),
+              taskId,
+              title: taskInput.title,
+              ...(taskInput.exitTest ? { exitTest: taskInput.exitTest } : {}),
+              ...(taskInput.parentTaskId ? { parentTaskId: taskInput.parentTaskId } : {}),
+            },
+            runId: idempotentUuid(`${input.organizationId}:impact_fit_run:${taskId}`),
+            proposalId: idempotentUuid(`${input.organizationId}:impact_fit:${taskId}`),
+            taintKey: `task-manager:impact-fit:${ctx.identity.id}:${taskId}`,
+          })
         : null;
+      const governed = impactRun?.proposal ?? null;
       if (governed && governed.status !== "pending_review") {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -6590,15 +6668,30 @@ export const appRouter = t.router({
         { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
       );
       if (result.reopenProposal) {
-        const governed = await ctx.wiring.pipeline.propose({
+        // ADR-203 — Internal Strategist's own Run. A moved target is exactly
+        // an impact-fit question ("does this Task still fit what we now want"),
+        // so the Skill's analysis becomes the REASONING attached to the reopen
+        // prompt rather than a prompt with nothing behind it. The Run's
+        // proposal shares the reopen proposal's id, so one decision resolves
+        // both records.
+        const { proposal: governed } = await runTaskManagerAgentAutomation(ctx, {
           organizationId: input.organizationId,
-          actor: ctx.identity,
+          automationId: TASK_MANAGER_REOPEN_AUTOMATION_ID,
+          name: "Task Manager target-change reopen prompt",
+          agentId: INTERNAL_STRATEGIST_AGENT,
+          skill: "task-manager.impact-fit-analysis",
           action: "write",
-          resourceType: "record",
-          resourceId: input.taskId,
-          inputs: { kind: "target_change_reopen", proposal: result.reopenProposal },
-          skill: KERNEL_PASSTHROUGH_SKILL,
-        }, ctx.run, { proposalId: result.reopenProposal.id, requireHumanReview: true });
+          params: {
+            queue: await ctx.wiring.taskManager.list(input.organizationId),
+            taskId: input.taskId,
+            title: result.task.title,
+            ...(result.task.exitTest ? { exitTest: result.task.exitTest } : {}),
+            ...(result.task.parentTaskId ? { parentTaskId: result.task.parentTaskId } : {}),
+          },
+          runId: idempotentUuid(`${input.organizationId}:reopen_run:${result.reopenProposal.id}`),
+          proposalId: result.reopenProposal.id,
+          taintKey: `task-manager:target-change-reopen:${ctx.identity.id}:${input.taskId}`,
+        });
         if (governed.status !== "pending_review") {
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Task reopen did not halt for Human review" });
         }
@@ -6626,15 +6719,24 @@ export const appRouter = t.router({
             },
           }
         : input.operation;
-      const governed = await ctx.wiring.pipeline.propose({
+      // ADR-203 — Internal Strategist's own Run running the real
+      // `task-tree-restructure` Skill. The operation is what the Human asked
+      // for; what the Skill adds is the recomputed subtree the reviewer is
+      // actually approving.
+      const { proposal: governed } = await runTaskManagerAgentAutomation(ctx, {
         organizationId: input.organizationId,
-        actor: ctx.identity,
+        automationId: TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID,
+        name: "Task Manager tree restructure proposal",
+        agentId: INTERNAL_STRATEGIST_AGENT,
+        skill: "task-manager.task-tree-restructure",
         action: "write",
-        resourceType: "record",
-        resourceId: input.operation.taskId,
-        inputs: { kind: "task_tree_restructure", operation },
-        skill: KERNEL_PASSTHROUGH_SKILL,
-      }, ctx.run, { requireHumanReview: true });
+        params: {
+          queue: await ctx.wiring.taskManager.list(input.organizationId),
+          operation,
+        },
+        runId: idempotentUuid(`${input.organizationId}:restructure_run:${input.operation.taskId}:${ctx.run.clock.nowISO()}`),
+        taintKey: `task-manager:tree-restructure:${ctx.identity.id}:${input.operation.taskId}`,
+      });
       if (governed.status !== "pending_review") {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -7440,7 +7542,11 @@ export const appRouter = t.router({
      */
     runQueueGuard: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),
-      guard: z.enum(["wip-breach-detector", "unverified-done-challenger"]),
+      // `goal-review-cadence` is Internal Strategist's, not Governance's
+      // (ADR-107's split: whether a goal is due for review is a planning
+      // question, not a control question), so it runs as that Agent over the
+      // same evaluator.
+      guard: z.enum(["wip-breach-detector", "unverified-done-challenger", "goal-review-cadence"]),
       wipLimit: z.number().int().min(1).max(20).optional(),
       idempotencyKey: z.string().trim().min(8).max(200),
     }).strict()).mutation(async ({ input, ctx }) => {
@@ -7448,15 +7554,32 @@ export const appRouter = t.router({
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
       await requireInstalledTaskManager(ctx.wiring, input.organizationId);
 
-      const isWip = input.guard === "wip-breach-detector";
-      const automationId = isWip
-        ? TASK_MANAGER_WIP_BREACH_AUTOMATION_ID
-        : TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID;
+      const guardBinding = {
+        "wip-breach-detector": {
+          automationId: TASK_MANAGER_WIP_BREACH_AUTOMATION_ID,
+          name: "Task Manager WIP breach detector",
+          agentId: GOVERNANCE_AGENT,
+          finding: "wip_breach",
+        },
+        "unverified-done-challenger": {
+          automationId: TASK_MANAGER_UNVERIFIED_DONE_AUTOMATION_ID,
+          name: "Task Manager unverified done challenger",
+          agentId: GOVERNANCE_AGENT,
+          finding: "unverified_done",
+        },
+        "goal-review-cadence": {
+          automationId: TASK_MANAGER_GOAL_REVIEW_AUTOMATION_ID,
+          name: "Task Manager goal review cadence",
+          agentId: INTERNAL_STRATEGIST_AGENT,
+          finding: "goal_review_due",
+        },
+      }[input.guard];
+      const automationId = guardBinding.automationId;
       const queue = await ctx.wiring.taskManager.list(input.organizationId);
       await ensureTaskManagerAutomation(ctx.wiring, input.organizationId, {
         automationId,
-        name: isWip ? "Task Manager WIP breach detector" : "Task Manager unverified done challenger",
-        agentId: GOVERNANCE_AGENT,
+        name: guardBinding.name,
+        agentId: guardBinding.agentId,
         skill: "task-manager.queue-guard",
         action: "read",
       }, ctx.run);
@@ -7485,8 +7608,7 @@ export const appRouter = t.router({
       }
       const output = (governed.output?.proposedOutput ?? {}) as Record<string, unknown>;
       const all = Array.isArray(output["findings"]) ? output["findings"] as { kind?: unknown }[] : [];
-      const wanted = isWip ? "wip_breach" : "unverified_done";
-      const findings = all.filter((finding) => finding.kind === wanted);
+      const findings = all.filter((finding) => finding.kind === guardBinding.finding);
       return {
         runId,
         proposal: governed,
