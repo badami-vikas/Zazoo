@@ -55,8 +55,8 @@ function appendOutcome(task: TaskRecord, outcome: TaskOutcome, now: string): Tas
 /** Caps mirror the drafting caps in `task-playbooks.ts`/`task-execution.ts`.
  * Re-applied here because the payload is editable before approval, and an
  * edited payload is a human's text, not a validated Skill output. */
-const MAX_MATERIALIZED_TASKS = 9;
-const MAX_MATERIALIZED_OUTCOMES = 5;
+export const MAX_MATERIALIZED_TASKS = 9;
+export const MAX_MATERIALIZED_OUTCOMES = 5;
 const MAX_TITLE_CHARS = 160;
 const MAX_TEXT_CHARS = 2_000;
 
@@ -101,6 +101,67 @@ function record(value: unknown): Record<string, unknown> | null {
 function items(payload: Readonly<Record<string, unknown>>, key: string): readonly unknown[] {
   const value = payload[key];
   return Array.isArray(value) ? value : [];
+}
+
+// ---------------------------------------------------------------------
+// Entry parsers. One per planning kind, shared by `applyApprovedPlanningProposal`
+// (which needs the parsed value) and `mergeEditedPlanningPayload` (which only
+// needs to know whether anything survives). Sharing them is the point: an edit
+// that this module would silently drop must be rejected at the API boundary
+// with a reason, not accepted and then quietly written as nothing.
+// ---------------------------------------------------------------------
+
+type ChildDraft = { title: string; exitTest: string | undefined };
+
+function parseChildDraft(entry: unknown): ChildDraft | null {
+  const child = record(entry);
+  if (!child) return null;
+  const title = text(child["title"], MAX_TITLE_CHARS);
+  if (!title) return null;
+  // The exit test is optional HERE even though the drafting Skill requires
+  // one, because a human may have edited the payload and a child without one
+  // is still a legitimate candidate — it simply cannot enter in_progress
+  // until someone writes it (assertTaskTransition).
+  return { title, exitTest: text(child["exitTest"], MAX_TEXT_CHARS) ?? undefined };
+}
+
+function parseCandidateDraft(entry: unknown): ChildDraft | null {
+  const candidate = record(entry);
+  if (!candidate) return null;
+  const title = text(candidate["title"], MAX_TITLE_CHARS);
+  return title ? { title, exitTest: undefined } : null;
+}
+
+function parseFinding(entry: unknown): { title: string; sourceId: string } | null {
+  const opportunity = record(entry);
+  if (!opportunity) return null;
+  const title = text(opportunity["proposedTitle"], MAX_TITLE_CHARS);
+  const sourceId = text(opportunity["taskId"], MAX_TITLE_CHARS);
+  return title && sourceId ? { title, sourceId } : null;
+}
+
+function parseExitTestDraft(entry: unknown): string | null {
+  const candidate = record(entry);
+  return candidate ? text(candidate["exitTest"], MAX_TEXT_CHARS) : null;
+}
+
+function parseOutcomeDraft(
+  entry: unknown,
+): { title: string; measure: string; target: string; indicatorKind: TaskIndicatorKind } | null {
+  const draft = record(entry);
+  if (!draft) return null;
+  const title = text(draft["title"], MAX_TITLE_CHARS);
+  const measure = text(draft["measure"], MAX_TEXT_CHARS);
+  const target = text(draft["target"], MAX_TEXT_CHARS);
+  // The Playbook exists to produce measurable outcomes; one without a measure
+  // and a target is exactly what it is meant to prevent.
+  if (!title || !measure || !target) return null;
+  return {
+    title,
+    measure,
+    target,
+    indicatorKind: draft["indicatorKind"] === "leading" ? "leading" : "lagging",
+  };
 }
 
 /**
@@ -161,6 +222,86 @@ function candidateTask(args: {
 }
 
 /**
+ * The ONE payload key a human edit may replace, per planning kind.
+ *
+ * `premortem_scenario` is deliberately absent: it has no materializable
+ * content, so there is nothing an edit could change about what approval does.
+ * `kind` itself is never in this map — an edit that could rewrite the kind
+ * would change what approval DOES, turning a reviewed pre-mortem into an
+ * unreviewed decomposition.
+ */
+const EDITABLE_CONTENT_KEY: Readonly<Record<string, string>> = {
+  task_decomposition: "children",
+  candidate_task_generation: "candidates",
+  exit_test_authoring: "candidates",
+  opportunity_scan: "opportunities",
+  goal_outcome_framing: "outcomes",
+};
+
+function materializableCount(kind: string, entries: readonly unknown[]): number {
+  const parse = {
+    task_decomposition: parseChildDraft,
+    candidate_task_generation: parseCandidateDraft,
+    opportunity_scan: parseFinding,
+    goal_outcome_framing: parseOutcomeDraft,
+    exit_test_authoring: parseExitTestDraft,
+  }[kind];
+  return parse ? entries.filter((entry) => parse(entry) !== null).length : 0;
+}
+
+/**
+ * Build the payload an EDITED planning decision materializes from.
+ *
+ * ADR-199 left a reviewer able to approve or veto a planning draft but not to
+ * change it, which forced a whole-plan veto over one bad child title. This is
+ * the third decision: approve what the Agent drafted, veto it, or approve a
+ * corrected version.
+ *
+ * It is an allow-list MERGE, not a payload replacement. Only the one content
+ * key this kind materializes from is taken from the human; `kind`, the run id,
+ * the model receipt and the Playbook's own questions are carried over from the
+ * staged draft verbatim. A human editing a plan is changing what gets built,
+ * not rewriting the record of what the Agent proposed.
+ *
+ * Throws (the caller maps this to a 400) rather than silently narrowing, in
+ * the two cases where accepting would be dishonest.
+ */
+export function mergeEditedPlanningPayload(
+  staged: Readonly<Record<string, unknown>>,
+  editedEntries: readonly unknown[],
+): Readonly<Record<string, unknown>> {
+  const kind = staged["kind"];
+  if (kind === "premortem_scenario") {
+    throw new Error(
+      "task-manager: a pre-mortem has nothing an edit could change — approving one writes nothing to the queue by design, so approve or veto it",
+    );
+  }
+  const key = typeof kind === "string" ? EDITABLE_CONTENT_KEY[kind] : undefined;
+  if (!key || typeof kind !== "string") {
+    throw new Error(`task-manager: planning proposal has unknown kind ${String(kind)}`);
+  }
+  if (materializableCount(kind, editedEntries) === 0) {
+    // An approved edit that writes nothing is a veto wearing an approval's
+    // clothes: the ledger would record consent to a plan, and the queue would
+    // show no plan. Make the reviewer say which one they mean.
+    throw new Error(
+      "task-manager: the edited plan has no entry this Playbook can materialize — veto the proposal instead of approving an edit that writes nothing",
+    );
+  }
+  return {
+    ...staged,
+    [key]: editedEntries,
+    // What the Agent originally drafted, kept ON the proposal row. The
+    // pipeline ledger holds the pre-edit proposal too, but the queue-side row
+    // is where a reviewer actually looks, and an edit that erased the model's
+    // draft from it would destroy the provenance the whole Playbook exists to
+    // produce. A proposal leaves `pending_review` on its first decision, so
+    // this is written at most once.
+    agentDraft: { [key]: staged[key] ?? [] },
+  };
+}
+
+/**
  * Apply an approved planning proposal to the queue.
  *
  * Throws when the Task the Playbook ran against is gone — approving a plan for
@@ -204,29 +345,16 @@ export function applyApprovedPlanningProposal(
   switch (kind) {
     case "task_decomposition": {
       const drafts = items(input.payload, "children")
-        .map((entry) => {
-          const child = record(entry);
-          const title = child ? text(child["title"], MAX_TITLE_CHARS) : null;
-          if (!title) return null;
-          // The exit test is optional HERE even though the drafting Skill
-          // requires one, because a human may have edited the payload and a
-          // child without one is still a legitimate candidate — it simply
-          // cannot enter in_progress until someone writes it (assertTaskTransition).
-          return { title, exitTest: child ? text(child["exitTest"], MAX_TEXT_CHARS) ?? undefined : undefined };
-        })
-        .filter((draft): draft is { title: string; exitTest: string | undefined } => draft !== null);
+        .map(parseChildDraft)
+        .filter((draft): draft is ChildDraft => draft !== null);
       addChildren(subject, drafts);
       break;
     }
 
     case "candidate_task_generation": {
       const drafts = items(input.payload, "candidates")
-        .map((entry) => {
-          const candidate = record(entry);
-          const title = candidate ? text(candidate["title"], MAX_TITLE_CHARS) : null;
-          return title ? { title, exitTest: undefined } : null;
-        })
-        .filter((draft): draft is { title: string; exitTest: undefined } => draft !== null);
+        .map(parseCandidateDraft)
+        .filter((draft): draft is ChildDraft => draft !== null);
       addChildren(subject, drafts);
       break;
     }
@@ -236,13 +364,7 @@ export function applyApprovedPlanningProposal(
       // lands under THAT Task rather than all of them piling under whichever
       // Task happened to be the proposal's subject.
       const findings = items(input.payload, "opportunities")
-        .map((entry) => {
-          const opportunity = record(entry);
-          if (!opportunity) return null;
-          const title = text(opportunity["proposedTitle"], MAX_TITLE_CHARS);
-          const sourceId = text(opportunity["taskId"], MAX_TITLE_CHARS);
-          return title && sourceId ? { title, sourceId } : null;
-        })
+        .map(parseFinding)
         .filter((finding): finding is { title: string; sourceId: string } => finding !== null)
         .slice(0, MAX_MATERIALIZED_TASKS);
       for (const finding of findings) {
@@ -259,16 +381,9 @@ export function applyApprovedPlanningProposal(
       let task = subject;
       const drafts = items(input.payload, "outcomes").slice(0, MAX_MATERIALIZED_OUTCOMES);
       for (const entry of drafts) {
-        const draft = record(entry);
+        const draft = parseOutcomeDraft(entry);
         if (!draft) continue;
-        const title = text(draft["title"], MAX_TITLE_CHARS);
-        const measure = text(draft["measure"], MAX_TEXT_CHARS);
-        const target = text(draft["target"], MAX_TEXT_CHARS);
-        // The Playbook exists to produce measurable outcomes; one without a
-        // measure and a target is exactly what it is meant to prevent.
-        if (!title || !measure || !target) continue;
-        const indicatorKind: TaskIndicatorKind = draft["indicatorKind"] === "leading" ? "leading" : "lagging";
-        const outcome: TaskOutcome = { id: input.nextId(), title, measure, target, indicatorKind };
+        const outcome: TaskOutcome = { id: input.nextId(), ...draft };
         task = appendOutcome(task, outcome, input.now);
       }
       if (task !== subject) {
@@ -282,8 +397,7 @@ export function applyApprovedPlanningProposal(
       // Ordered cheapest-to-run first by the Skill, and a reviewer who wants a
       // different one reorders or edits the payload before approving — so the
       // first entry is the approved choice, not a guess made here.
-      const first = record(items(input.payload, "candidates")[0]);
-      const exitTest = first ? text(first["exitTest"], MAX_TEXT_CHARS) : null;
+      const exitTest = parseExitTestDraft(items(input.payload, "candidates")[0]);
       if (exitTest && exitTest !== subject.exitTest) {
         const updated: TaskRecord = {
           ...subject,

@@ -344,3 +344,101 @@ test("approving an exit-test draft writes it onto the Task it was authored for",
   const updated = after.find((t) => t.id === task.task.id)!;
   assert.equal(updated.exitTest, "Five pilot users finish unaided; two or more stall");
 });
+
+// ---------------------------------------------------------------------
+// ADR-200 — the third decision. Before this a reviewer could approve the
+// Agent's plan or veto it, so one bad child title cost the whole draft.
+// ---------------------------------------------------------------------
+
+test("a reviewer can correct a planning draft before approving it", async () => {
+  const wiring = await buildWiring({
+    allowEphemeralLocalPlane: true,
+    modelProviders: [planningModel(JSON.stringify({
+      children: [
+        { title: "Vague thing the model invented", exitTest: "unclear", rationale: "" },
+        { title: "Wire the confirmation email", exitTest: "The email lands in a real inbox", rationale: "" },
+      ],
+    }))],
+  });
+  const api = caller(wiring);
+
+  const goal = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Cut onboarding time in half",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+  });
+  const planned = await api.taskManager.runPlanningPlaybook({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: goal.task.id,
+    skill: "task-decomposition",
+    idempotencyKey: "edit-decomposition-1",
+    expiresAt: expiry(),
+  });
+
+  const before = await api.taskManager.list({ organizationId: PILOT_ORGANIZATION });
+  const decided = await api.taskManager.decideProposal({
+    organizationId: PILOT_ORGANIZATION,
+    proposalId: planned.candidateProposal!.id,
+    decision: "edit",
+    editedPlanningItems: [
+      { title: "Draft the intake form", exitTest: "A new user submits it end to end" },
+      { title: "Wire the confirmation email", exitTest: "The email lands in a real inbox" },
+      { title: "Measure time-to-first-value", exitTest: "The number appears on the dashboard" },
+    ],
+  });
+  assert.equal(decided.proposal.status, "approved");
+
+  const after = await api.taskManager.list({ organizationId: PILOT_ORGANIZATION });
+  const created = after.filter((task) => !before.some((prior) => prior.id === task.id));
+  assert.equal(created.length, 3, "the Human's list is what got built, including the one they added");
+  assert.ok(
+    !created.some((task) => task.title.includes("Vague thing")),
+    "the child the reviewer removed was never created",
+  );
+  assert.ok(created.every((task) => task.status === "candidate"));
+  assert.ok(created.every((task) => task.parentTaskId === goal.task.id));
+  // Provenance survives the edit: the row still shows what the Agent drafted.
+  const agentDraft = decided.proposal.payload["agentDraft"] as { children?: { title: string }[] };
+  assert.equal(agentDraft?.children?.[0]?.title, "Vague thing the model invented");
+});
+
+test("an edit that would write nothing is refused instead of recorded as consent", async () => {
+  const wiring = await buildWiring({
+    allowEphemeralLocalPlane: true,
+    modelProviders: [planningModel(JSON.stringify({
+      children: [{ title: "Something", exitTest: "x", rationale: "" }],
+    }))],
+  });
+  const api = caller(wiring);
+  const goal = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Cut onboarding time in half",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+  });
+  const planned = await api.taskManager.runPlanningPlaybook({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: goal.task.id,
+    skill: "task-decomposition",
+    idempotencyKey: "edit-empty-1",
+    expiresAt: expiry(),
+  });
+
+  await assert.rejects(
+    () => api.taskManager.decideProposal({
+      organizationId: PILOT_ORGANIZATION,
+      proposalId: planned.candidateProposal!.id,
+      decision: "edit",
+      // A decomposition materializes from titles; entries with none write
+      // nothing, and an approval that writes nothing is really a veto.
+      editedPlanningItems: [{ measure: "not a child" }],
+    }),
+    /materialize/,
+  );
+  const proposal = await api.taskManager.proposal({
+    organizationId: PILOT_ORGANIZATION,
+    proposalId: planned.candidateProposal!.id,
+  });
+  assert.equal(proposal?.status, "pending_review", "a refused edit leaves the proposal undecided");
+});

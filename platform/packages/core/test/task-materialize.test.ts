@@ -14,7 +14,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyApprovedPlanningProposal, type TaskRecord } from "../src/index.js";
+import { applyApprovedPlanningProposal, mergeEditedPlanningPayload, type TaskRecord } from "../src/index.js";
 
 const NOW = "2026-08-09T00:00:00.000Z";
 
@@ -241,4 +241,78 @@ test("an edited payload is re-validated: caps hold and unusable entries are drop
     },
   });
   assert.equal(result.createdTaskIds.length, 9, "the drafting cap is re-applied to edited payloads");
+});
+
+// ---------------------------------------------------------------------
+// ADR-200 — a reviewer may now correct a plan instead of vetoing the whole
+// thing over one bad title. These assertions are about what an edit may NOT
+// change, which is the only reason the merge exists as a function rather than
+// an object spread at the call site.
+// ---------------------------------------------------------------------
+
+test("an edit replaces only its kind's own content key and preserves the rest verbatim", () => {
+  const staged = {
+    kind: "task_decomposition",
+    children: [{ title: "Agent draft", exitTest: "a" }],
+    runId: "run-1",
+    modelReceipt: { model: "local-model", tier: "reasoning" },
+    questions: ["What would have to be true?"],
+  };
+  const merged = mergeEditedPlanningPayload(staged, [{ title: "Human rewrite", exitTest: "b" }]);
+  assert.deepEqual(merged["children"], [{ title: "Human rewrite", exitTest: "b" }]);
+  assert.equal(merged["kind"], "task_decomposition");
+  assert.equal(merged["runId"], "run-1", "the audit link survives an edit");
+  assert.deepEqual(merged["modelReceipt"], { model: "local-model", tier: "reasoning" });
+  assert.deepEqual(merged["questions"], ["What would have to be true?"]);
+  assert.deepEqual(
+    merged["agentDraft"],
+    { children: [{ title: "Agent draft", exitTest: "a" }] },
+    "what the Agent proposed stays on the row next to what the Human approved",
+  );
+});
+
+test("an edit cannot change what approval does", () => {
+  // `kind` decides which branch of the materializer runs. Letting an edit
+  // carry a new one would turn a reviewed pre-mortem into an unreviewed
+  // decomposition, so the merge always keys off the STAGED kind.
+  const merged = mergeEditedPlanningPayload(
+    { kind: "goal_outcome_framing", outcomes: [] },
+    [{ kind: "task_decomposition", title: "o", measure: "m", target: "t" }],
+  );
+  assert.equal(merged["kind"], "goal_outcome_framing");
+  assert.equal(merged["children"], undefined, "an edit cannot introduce another kind's content key");
+});
+
+test("an edit that materializes nothing is refused rather than approved as a silent no-op", () => {
+  assert.throws(
+    () => mergeEditedPlanningPayload({ kind: "task_decomposition", children: [] }, [{ notATitle: 1 }]),
+    /materialize/,
+    "approving an edit that writes nothing would record consent to a plan the queue never gets",
+  );
+});
+
+test("a pre-mortem refuses an edit, because approving one writes nothing by design", () => {
+  assert.throws(
+    () => mergeEditedPlanningPayload({ kind: "premortem_scenario", risks: [] }, [{ title: "x" }]),
+    /pre-mortem/,
+  );
+});
+
+test("an edited plan materializes from the human's entries, not the Agent's", () => {
+  const parent = task("1", { path: "1" });
+  const merged = mergeEditedPlanningPayload(
+    { kind: "task_decomposition", children: [{ title: "Agent child", exitTest: "a" }] },
+    [{ title: "Human child", exitTest: "b" }],
+  );
+  const result = applyApprovedPlanningProposal({
+    ...base,
+    tasks: [parent],
+    taskId: "1",
+    nextId: ids(),
+    payload: merged,
+  });
+  assert.equal(result.createdTaskIds.length, 1);
+  const created = result.tasks.find((candidate) => candidate.id === result.createdTaskIds[0]);
+  assert.equal(created?.title, "Human child");
+  assert.equal(created?.status, "candidate", "an edited plan is still only a candidate");
 });

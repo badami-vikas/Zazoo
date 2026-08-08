@@ -206,6 +206,8 @@ import {
   emitTasksMarkdown,
   detectTaskProjectionDrift,
   applyApprovedTaskProjectionReconciliation,
+  mergeEditedPlanningPayload,
+  MAX_MATERIALIZED_TASKS,
   evaluateTaskGuards,
   planCompletedBaySweep,
   routeTaskByRequiredSkill,
@@ -4230,6 +4232,28 @@ const taskRestructureInput = z.discriminatedUnion("kind", [
 
 const TASK_MANAGER_PROJECTION_FILE = "tasks.md";
 
+/**
+ * One entry of a human's edited planning plan (ADR-200).
+ *
+ * The union of every field any planning kind materializes from, and `.strict()`
+ * so an edit cannot introduce a key of its own. That matters most for `kind`,
+ * which is what decides WHICH branch of the materializer runs: it is absent
+ * here and read from the staged draft, so a reviewer can correct a plan but
+ * never convert a reviewed pre-mortem into an unreviewed decomposition.
+ * `mergeEditedPlanningPayload` then re-validates the whole set against the
+ * kind, and the materializer validates every entry again on the way to the
+ * queue — this schema is the outer bound, not the only check.
+ */
+const EDITED_PLANNING_ITEM = z.object({
+  title: z.string().trim().min(1).max(160).optional(),
+  exitTest: z.string().trim().min(1).max(2_000).optional(),
+  measure: z.string().trim().min(1).max(2_000).optional(),
+  target: z.string().trim().min(1).max(2_000).optional(),
+  indicatorKind: z.enum(["leading", "lagging"]).optional(),
+  proposedTitle: z.string().trim().min(1).max(160).optional(),
+  taskId: z.string().uuid().optional(),
+}).strict();
+
 function sha256Content(value: string | Uint8Array): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
@@ -6584,11 +6608,29 @@ export const appRouter = t.router({
         },
       );
     }),
+    /**
+     * Read one Task-side proposal.
+     *
+     * Added with the edit decision (ADR-200) because editing requires seeing
+     * what you are editing: `decideProposal` could always be called, but
+     * nothing could fetch the drafted payload to show a reviewer first. The
+     * pipeline proposal and this row share an id (ADR-199), so a client that
+     * has the ledger entry can read the queue-side draft with the same id.
+     */
+    proposal: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      proposalId: z.string().uuid(),
+    })).query(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      return ctx.wiring.taskManager.getProposal(input.organizationId, input.proposalId);
+    }),
     decideProposal: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),
       proposalId: z.string().uuid(),
       decision: z.enum(["approve", "edit", "veto"]),
       editedExternalContent: z.string().max(MAX_MODULE_FILE_BYTES).optional(),
+      editedPlanningItems: z.array(EDITED_PLANNING_ITEM).min(1).max(MAX_MATERIALIZED_TASKS).optional(),
     })).mutation(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
@@ -6602,8 +6644,16 @@ export const appRouter = t.router({
       ) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Task proposal expired" });
       }
-      if (input.decision === "edit" && taskProposal.kind !== "projection_reconcile") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Only projection reconciliation supports an edited decision" });
+      // ADR-200: `candidate` joins `projection_reconcile` as editable. Every
+      // other kind stays approve-or-veto because its payload is a computed
+      // PLAN over specific rows and versions (`archive_sweep`'s id/version
+      // list, a restructure's operation) — an edited one is a different plan
+      // that was never checked for staleness, not a corrected draft.
+      if (input.decision === "edit" && !["projection_reconcile", "candidate"].includes(taskProposal.kind)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `A ${taskProposal.kind} proposal can be approved or vetoed, not edited`,
+        });
       }
       const decidePipeline = async (
         editedPayload?: Readonly<Record<string, unknown>>,
@@ -6819,8 +6869,30 @@ export const appRouter = t.router({
         };
       }
 
-      const decided = await applyDecision(await decidePipeline());
-      if (taskProposal.kind === "archive_sweep") {
+      // A planning draft the reviewer corrected before approving (ADR-200).
+      // The merge is an allow-list over the ONE content key this kind
+      // materializes from — see `mergeEditedPlanningPayload` for why `kind`,
+      // the run id and the model receipt are never taken from the human.
+      let editedPlanningPayload: Readonly<Record<string, unknown>> | undefined;
+      if (input.decision === "edit" && taskProposal.kind === "candidate") {
+        if (!input.editedPlanningItems) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "editedPlanningItems is required to edit a planning proposal" });
+        }
+        try {
+          editedPlanningPayload = mergeEditedPlanningPayload(taskProposal.payload, input.editedPlanningItems);
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: error instanceof Error ? error.message : "Edited plan is not materializable",
+          });
+        }
+      }
+      const decided = await applyDecision(await decidePipeline(editedPlanningPayload));
+      // Both kinds' Runs are already recorded `completed` by the executor when
+      // the proposal halted for review; finishing again overwrites that output
+      // with what the Human actually decided, so the Run record shows the
+      // outcome rather than only that a draft was produced.
+      if (taskProposal.kind === "archive_sweep" || taskProposal.kind === "candidate") {
         const runId = taskProposal.payload["runId"];
         if (typeof runId === "string") {
           await ctx.wiring.automationRunRecorder.finish({
