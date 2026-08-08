@@ -66,6 +66,32 @@ export interface ModuleAgentBinding {
   runRoute?: string;
 }
 
+/**
+ * A versioned methodology a Module ships (TM6, ADR-206).
+ *
+ * Declared HERE and not as a `CapabilityManifest` entry, on ADR-180's own
+ * rule: a capability is the thing that is GOVERNED — it holds permissions and
+ * a trust lifecycle — which is why `view` stopped being one. A Playbook holds
+ * no permissions; the Skills it names hold them all, and granting a Playbook
+ * permissions would create a second place authority could widen unnoticed.
+ *
+ * It still has to be DECLARED, because it is shipped, signed, versioned
+ * content that shapes what a model is asked to do. A Module whose manifest
+ * omits it hands a fresh Organization methodologies its own manifest never
+ * mentioned, so nothing installed could be audited against what arrived.
+ */
+export interface ModulePlaybookBinding {
+  id: string;
+  /** The technique, named as a technique — never a book brand. */
+  methodology: string;
+  version: string;
+  /** What running this Playbook is FOR. */
+  intent: string;
+  /** The Skill capability ids this Playbook may run. A Skill invoked under a
+   * Playbook that does not list it is refused, never silently retargeted. */
+  skillCapabilityIds: string[];
+}
+
 export interface ModuleAutomationBinding {
   id: string;
   name: string;
@@ -135,6 +161,9 @@ export interface ModuleSurfaceManifest {
   pages: ModulePageBinding[];
   agents: ModuleAgentBinding[];
   automations: ModuleAutomationBinding[];
+  /** Versioned methodologies this Module ships. Optional: most Modules have
+   * none, and an empty array would claim otherwise. */
+  playbooks?: ModulePlaybookBinding[];
   /** Source-backed capability gaps that may be satisfied from Commons. */
   commonsNeeds?: ModuleCapabilityNeed[];
 }

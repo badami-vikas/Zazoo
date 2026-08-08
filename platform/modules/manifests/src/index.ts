@@ -2,6 +2,7 @@
  * Signed source definitions for built-in Modules. Module Detail reads the same
  * manifests the module store installs; no frontend inventory is hardcoded.
  */
+import { TASK_PLAYBOOKS } from "@bridge/core";
 import type { CapabilityManifest, CommonsProvenance, ModuleManifest, RiskBand } from "@bridge/core";
 
 export type BuiltInModule = {
@@ -949,7 +950,9 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       // resolver that owns runtime ids. The ternary chain it replaces named
       // four Automations and had been stale since ADR-201, so nine manifest
       // entries were claiming no runtime Automation stood behind them.
-      version: "1.7.0",
+      // 1.8.0: ADR-206 (TM6) declares the five Playbooks the Module ships and
+      // gives its Commons entry real discovery tags.
+      version: "1.8.0",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:
@@ -969,6 +972,24 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
           databaseId: "task-manager.tasks",
           capabilityId: "task-manager.tasks",
         }],
+        // TM6 (ADR-206) — the Playbooks the Module ships, declared so a fresh
+        // Commons install can be audited against what it actually received.
+        // Derived from `TASK_PLAYBOOKS` rather than restated, for the same
+        // reason `TASK_MANAGER_PLAYBOOKS` is (ADR-197): a hand-listed roster
+        // drifts from its content the moment either side changes.
+        //
+        // NOT capability entries. ADR-180's rule is that a capability is the
+        // thing that is GOVERNED — permissions and a trust lifecycle — which
+        // is why `view` stopped being one. A Playbook holds no permissions;
+        // the Skills it names hold them all, and giving a Playbook permissions
+        // would create a second place authority could widen unnoticed.
+        playbooks: TASK_PLAYBOOKS.map((playbook) => ({
+          id: playbook.id,
+          methodology: playbook.methodology,
+          version: playbook.version,
+          intent: playbook.intent,
+          skillCapabilityIds: playbook.skills.map((skillId) => `task-manager.skill.${skillId}`),
+        })),
         agents: taskManagerAgents.map((agent) => ({
           ...agent,
           capabilityId: `task-manager.agent.${agent.id}`,
@@ -1210,7 +1231,24 @@ export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
     ...pkg,
     commons: {
       provenance: provenance(builtInSourceRef(pkg.manifest.name)),
-      tags: ["built-in", pkg.manifest.kind],
+      // TM6 (ADR-206) — Task Manager earns discovery tags of its own. A
+      // Commons entry tagged only `built-in` + its kind is present but
+      // unfindable, and Commons exists so someone with a NEED can find the
+      // capability that meets it. Every tag names a capability this Module
+      // actually ships; none names personal data, which never enters Commons.
+      tags: pkg.manifest.name === "task-manager"
+        ? [
+            "built-in",
+            pkg.manifest.kind,
+            "task-management",
+            "execution-queue",
+            "planning",
+            "governed-automation",
+            "need:single-execution-queue",
+            "need:agent-task-routing",
+            "need:planning-playbooks",
+          ]
+        : ["built-in", pkg.manifest.kind],
     },
   })),
   {

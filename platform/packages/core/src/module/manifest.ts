@@ -11,6 +11,7 @@
 import type {
   ModuleAgentBinding,
   ModuleAutomationBinding,
+  ModulePlaybookBinding,
   ModuleCapabilityNeed,
   ModulePageBinding,
   ModuleSurfaceManifest,
@@ -326,6 +327,36 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     return binding;
   });
 
+  // TM6 (ADR-206) — versioned methodologies the Module ships. Each names the
+  // Skill capabilities it may run, and those must be Skills the Module
+  // actually declares: a Playbook pointing at a Skill that is not here would
+  // let a fresh install run a methodology whose Skills never arrived.
+  const playbooksRaw = raw.playbooks ?? [];
+  if (!Array.isArray(playbooksRaw)) fail("module.module.playbooks must be an array");
+  const playbooks: ModulePlaybookBinding[] = playbooksRaw.map((playbook, index) => {
+    if (!isPlainObject(playbook)) fail(`module.module.playbooks[${index}] must be an object`);
+    const skillCapabilityIds = parseStringArray(
+      playbook.skillCapabilityIds ?? playbook.skill_capability_ids,
+      `module.module.playbooks[${index}].skill_capability_ids`,
+    );
+    if (skillCapabilityIds.length === 0) {
+      // A Playbook that may run nothing is a description, not a methodology.
+      fail(`module.module.playbooks[${index}].skill_capability_ids must contain at least one Skill`);
+    }
+    for (const capabilityId of skillCapabilityIds) {
+      if (capabilityById.get(capabilityId)?.capabilityType !== "skill") {
+        fail(`module.module.playbooks[${index}].skill_capability_ids must reference declared Skill capabilities`);
+      }
+    }
+    return {
+      id: requiredString(playbook.id, `module.module.playbooks[${index}].id`),
+      methodology: requiredString(playbook.methodology, `module.module.playbooks[${index}].methodology`),
+      version: assertSemver(playbook.version, `module.module.playbooks[${index}].version`),
+      intent: requiredString(playbook.intent, `module.module.playbooks[${index}].intent`),
+      skillCapabilityIds,
+    };
+  });
+
   const commonsNeedsRaw = raw.commonsNeeds ?? raw.commons_needs ?? [];
   if (!Array.isArray(commonsNeedsRaw)) fail("module.module.commons_needs must be an array");
   const commonsNeeds: ModuleCapabilityNeed[] = commonsNeedsRaw.map((need, index) => {
@@ -357,6 +388,7 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     pages,
     agents,
     automations,
+    ...(playbooks.length > 0 ? { playbooks } : {}),
     commonsNeeds,
   };
 }
