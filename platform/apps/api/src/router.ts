@@ -85,6 +85,7 @@ import {
   type SynthesizeCultureProfileOutput,
   PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE,
   PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE,
+  ledgerSignalId,
   resolveLocalPlanningModel,
   type Wiring,
 } from "./wiring.js";
@@ -249,7 +250,6 @@ import {
   SourceDiscoveryGateError,
   applyThesisSourceDiscovery,
   dealPilotModuleManifest,
-  dealDecisionSignal,
   proposeThesisSourceDiscovery,
   scoreThesisFit,
   type ThesisSourceDiscoveryProposal,
@@ -266,8 +266,9 @@ import {
   seedSuggestionsFromArchetypes,
   supportBandRank,
   listSuggestions as listLearningSuggestions,
+  listSignalModuleIds,
+  mineLedgerSignals,
   preferencesToMemorySnippets,
-  recordSignal as recordLearningSignal,
   rejectSuggestion as rejectLearningSuggestion,
   retrieveLearnedPreferences,
 } from "@bridge/core";
@@ -13679,71 +13680,52 @@ export const appRouter = t.router({
         return { enabled: ctx.wiring.learningObservationEnabled };
       }),
 
-    recordDealDecision: procedure
+    /** Batched mine-and-digest (AI Harness K1, ADR-212) — mines the governed
+     * ledger for human decisions FIRST (the generic learning input that
+     * replaced the deleted `recordDealDecision` per-module mapping), then
+     * proposes suggestions. Never writes a preference. `moduleId` narrows the
+     * digest to one Module; omitted, it fans out across every Module with
+     * signals — a generic surface names no Module. */
+    digest: procedure
       .input(
         z.object({
           organizationId: z.string().min(1),
-          dealRecordId: z.string().min(1),
-          action: z.enum(["pursue", "review", "dismiss"]),
-          profile: z
-            .object({
-              industry: z.string().optional(),
-              geo: z.string().optional(),
-              sde: z.number().optional(),
-              revenue: z.number().optional(),
-            })
-            .strict()
-            .default({}),
-          sourceId: z.string().min(1).optional(),
-          reason: z.string().max(2000).optional(),
+          moduleId: z.string().min(1).optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
         assertLearningFlightEnabled(ctx);
         assertPilotOrganization(input.organizationId);
         const ownerUserId = ctx.identity.id;
-        const signal = dealDecisionSignal({
-          id: ctx.run.ids.next(),
+        const minedResult = await mineLedgerSignals(ctx.wiring.memoryStore, ctx.wiring.ledger, {
           organizationId: input.organizationId,
           ownerUserId,
-          dealRecordId: input.dealRecordId,
-          action: input.action,
-          // exactOptionalPropertyTypes: drop keys zod parsed as `undefined`.
-          profile: {
-            ...(input.profile.industry !== undefined ? { industry: input.profile.industry } : {}),
-            ...(input.profile.geo !== undefined ? { geo: input.profile.geo } : {}),
-            ...(input.profile.sde !== undefined ? { sde: input.profile.sde } : {}),
-            ...(input.profile.revenue !== undefined ? { revenue: input.profile.revenue } : {}),
-          },
-          ...(input.sourceId ? { sourceId: input.sourceId } : {}),
-          ...(input.reason ? { reason: input.reason } : {}),
-          observedAt: ctx.run.clock.nowISO(),
+          signalIdFor: ledgerSignalId,
         });
-        const entry = await recordLearningSignal(ctx.wiring.memoryStore, signal);
-        return { signalMemoryId: entry.id, attributes: signal.attributes };
-      }),
-
-    /** Batched digest — proposes suggestions, never writes a preference. */
-    digest: procedure
-      .input(
-        z.object({
-          organizationId: z.string().min(1),
-          moduleId: z.string().min(1).default("dealpilot"),
-        }),
-      )
-      .mutation(async ({ input, ctx }) => {
-        assertLearningFlightEnabled(ctx);
-        assertPilotOrganization(input.organizationId);
-        const created = await digestLearningSignals(ctx.wiring.memoryStore, {
-          organizationId: input.organizationId,
-          ownerUserId: ctx.identity.id,
-          moduleId: input.moduleId,
-          nextId: () => ctx.run.ids.next(),
-          // The persistent adapter's subject_record_id column is uuid-typed;
-          // same convention as the red-flag lineage keys.
-          lineageIdFor: deterministicUuid,
-        });
-        return { suggestions: created };
+        const moduleIds = input.moduleId
+          ? [input.moduleId]
+          : [...new Set([
+              ...minedResult.moduleIds,
+              ...(await listSignalModuleIds(ctx.wiring.memoryStore, { organizationId: input.organizationId, userId: ownerUserId })),
+            ])];
+        const created: Awaited<ReturnType<typeof digestLearningSignals>> = [];
+        for (const moduleId of moduleIds) {
+          created.push(
+            ...(await digestLearningSignals(ctx.wiring.memoryStore, {
+              organizationId: input.organizationId,
+              ownerUserId,
+              moduleId,
+              nextId: () => ctx.run.ids.next(),
+              // The persistent adapter's subject_record_id column is uuid-typed;
+              // same convention as the red-flag lineage keys.
+              lineageIdFor: deterministicUuid,
+            })),
+          );
+        }
+        return {
+          suggestions: created,
+          mined: { signalCount: minedResult.mined.length, moduleIds },
+        };
       }),
 
     suggestions: t.router({
@@ -13751,7 +13733,9 @@ export const appRouter = t.router({
         .input(
           z.object({
             organizationId: z.string().min(1),
-            moduleId: z.string().min(1).default("dealpilot"),
+            // K1: no per-module default — a generic surface omits this and
+            // sees every Module's suggestions.
+            moduleId: z.string().min(1).optional(),
             status: z.enum(["proposed", "accepted", "rejected"]).optional(),
           }),
         )
@@ -13811,7 +13795,9 @@ export const appRouter = t.router({
         .input(
           z.object({
             organizationId: z.string().min(1),
-            moduleId: z.string().min(1).default("dealpilot"),
+            // K1: no per-module default — omitted means every Module's
+            // learned preferences (the same all-modules shape chat retrieves).
+            moduleId: z.string().min(1).optional(),
           }),
         )
         .query(async ({ input, ctx }) => {
@@ -13838,7 +13824,10 @@ export const appRouter = t.router({
         .input(
           z.object({
             organizationId: z.string().min(1),
-            moduleId: z.string().min(1).default("dealpilot"),
+            // K1: REQUIRED — an archetype generalizes a named Module's
+            // preferences; the old silent "dealpilot" default was the
+            // per-module mapping in disguise.
+            moduleId: z.string().min(1),
           }),
         )
         .query(async ({ input, ctx }) => {
@@ -13856,7 +13845,7 @@ export const appRouter = t.router({
         .input(
           z.object({
             organizationId: z.string().min(1),
-            moduleId: z.string().min(1).default("dealpilot"),
+            moduleId: z.string().min(1),
             /** Candidate names the Human approved for publishing. Empty is
              * NOT "publish everything" — contribution is per-archetype
              * explicit. */
@@ -13904,7 +13893,7 @@ export const appRouter = t.router({
         .input(
           z.object({
             organizationId: z.string().min(1),
-            moduleId: z.string().min(1).default("dealpilot"),
+            moduleId: z.string().min(1),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -13951,19 +13940,30 @@ export const appRouter = t.router({
         .input(
           z.object({
             organizationId: z.string().min(1),
-            moduleId: z.string().min(1).default("dealpilot"),
+            // K1: no per-module default — omitted fans out across every
+            // Module with recorded signals.
+            moduleId: z.string().min(1).optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
           assertLearningFlightEnabled(ctx);
           assertPilotOrganization(input.organizationId);
-          const suggestions = await detectAutomationDraftCandidates(ctx.wiring.memoryStore, {
-            organizationId: input.organizationId,
-            ownerUserId: ctx.identity.id,
-            moduleId: input.moduleId,
-            nextId: () => ctx.run.ids.next(),
-            lineageIdFor: deterministicUuid,
-          });
+          const scope = { organizationId: input.organizationId, userId: ctx.identity.id };
+          const moduleIds = input.moduleId
+            ? [input.moduleId]
+            : await listSignalModuleIds(ctx.wiring.memoryStore, scope);
+          const suggestions: Awaited<ReturnType<typeof detectAutomationDraftCandidates>> = [];
+          for (const moduleId of moduleIds) {
+            suggestions.push(
+              ...(await detectAutomationDraftCandidates(ctx.wiring.memoryStore, {
+                organizationId: input.organizationId,
+                ownerUserId: ctx.identity.id,
+                moduleId,
+                nextId: () => ctx.run.ids.next(),
+                lineageIdFor: deterministicUuid,
+              })),
+            );
+          }
           return { suggestions };
         }),
 
@@ -13971,7 +13971,8 @@ export const appRouter = t.router({
         .input(
           z.object({
             organizationId: z.string().min(1),
-            moduleId: z.string().min(1).default("dealpilot"),
+            // K1: no per-module default — omitted lists every Module's.
+            moduleId: z.string().min(1).optional(),
             status: z.enum(["proposed", "accepted", "rejected"]).optional(),
           }),
         )

@@ -51,13 +51,24 @@ async function makeCaller(wiring: Wiring, identity: { type: "user" | "team"; id:
 
 const ORG = PILOT_ORGANIZATION;
 
-async function recordDismissals(caller: Awaited<ReturnType<typeof makeCaller>>, count: number, industry = "restaurants") {
+/** Seed generic observed signals directly on the store. K1 deleted the
+ * per-module recording procedure — in production, signals come from the
+ * ledger miner (exercised end-to-end below) and later from K2's
+ * consent-gated emitters; tests whose subject is the DOWNSTREAM machinery
+ * seed the store the same way the miner does. */
+let seedSequence = 0;
+async function seedSignals(wiring: Wiring, count: number, industry = "restaurants") {
   for (let i = 0; i < count; i += 1) {
-    await caller.learning.recordDealDecision({
+    seedSequence += 1;
+    await recordSignal(wiring.memoryStore, {
+      id: deterministicUuid(`test_fixture_signal_${industry}_${seedSequence}`),
       organizationId: ORG,
-      dealRecordId: `deal-${industry}-${i}`,
+      ownerUserId: PILOT_USER,
+      moduleId: "dealpilot",
+      recordKind: "deal",
+      recordId: `deal-${industry}-${i}`,
       action: "dismiss",
-      profile: { industry, sde: 300_000 },
+      attributes: { industry },
     });
   }
 }
@@ -67,10 +78,6 @@ test("flight OFF: status reports disabled and every other procedure fails closed
   try {
     const caller = await makeCaller(wiring);
     assert.deepEqual(await caller.learning.status({ organizationId: ORG }), { enabled: false });
-    await assert.rejects(
-      () => caller.learning.recordDealDecision({ organizationId: ORG, dealRecordId: "deal-1", action: "dismiss", profile: {} }),
-      (error: unknown) => error instanceof TRPCError && error.code === "PRECONDITION_FAILED",
-    );
     await assert.rejects(
       () => caller.learning.digest({ organizationId: ORG }),
       (error: unknown) => error instanceof TRPCError && error.code === "PRECONDITION_FAILED",
@@ -88,25 +95,17 @@ test("flight OFF: status reports disabled and every other procedure fails closed
   }
 });
 
-test("flight ON: record → digest → accept mints one preference; reject suppresses; conflicts typed", async () => {
+test("flight ON: signals → digest → accept mints one preference; reject suppresses; conflicts typed", async () => {
   const wiring = await buildWiring({ learningObservationEnabled: true });
   try {
     const caller = await makeCaller(wiring);
     assert.deepEqual(await caller.learning.status({ organizationId: ORG }), { enabled: true });
 
-    // Record: attributes come back generalized (industry lowercased, SDE banded).
-    const recorded = await caller.learning.recordDealDecision({
-      organizationId: ORG,
-      dealRecordId: "deal-restaurants-seed",
-      action: "dismiss",
-      profile: { industry: "Restaurants", sde: 300_000 },
-      reason: "not interested in food service",
-    });
-    assert.equal(recorded.attributes["industry"], "restaurants");
-    assert.equal(recorded.attributes["sde_band"], "sde_250k_500k");
-    await recordDismissals(caller, 2);
+    await seedSignals(wiring, 3);
 
-    // Digest proposes (3+ same-industry dismissals) and writes NO preference.
+    // Digest proposes (3+ same-industry signals) and writes NO preference.
+    // No moduleId given: the fan-out discovers "dealpilot" from the signals
+    // themselves, never from a default.
     const digested = await caller.learning.digest({ organizationId: ORG });
     assert.ok(digested.suggestions.length >= 1);
     const suggestion = digested.suggestions.find((s) => s.pattern.attributeKey === "industry");
@@ -132,12 +131,12 @@ test("flight ON: record → digest → accept mints one preference; reject suppr
 
     // A second repeated pattern: reject it, then confirm more signals never
     // re-propose it and no preference was written for it.
-    await recordDismissals(caller, 3, "logging");
+    await seedSignals(wiring, 3, "logging");
     const second = await caller.learning.digest({ organizationId: ORG });
     const loggingSuggestion = second.suggestions.find((s) => s.pattern.attributeValue === "logging");
     assert.ok(loggingSuggestion, "expected a logging-pattern suggestion");
     await caller.learning.suggestions.reject({ organizationId: ORG, suggestionMemoryId: loggingSuggestion.memoryId });
-    await recordDismissals(caller, 3, "logging");
+    await seedSignals(wiring, 3, "logging");
     const third = await caller.learning.digest({ organizationId: ORG });
     assert.equal(third.suggestions.filter((s) => s.pattern.attributeValue === "logging").length, 0);
     assert.equal((await caller.learning.preferences.list({ organizationId: ORG })).preferences.length, 1);
@@ -184,7 +183,7 @@ test("flight ON: the digest Automation is registered to the Learning Agent and r
     // End to end: repeated dismissals → Automation run → proposed suggestion,
     // and STILL no preference (suggested-then-accepted survives the Automation path).
     const caller = await makeCaller(wiring);
-    await recordDismissals(caller, 3, "trucking");
+    await seedSignals(wiring, 3, "trucking");
     // Same labeled RunCtx shape the server's scheduled trigger uses — the
     // taint sink gate fails closed on an UNKNOWN label by design.
     const result = await wiring.automationExecutor.runById(
@@ -220,7 +219,7 @@ test("flight ON: another member cannot see or act on the owner's private learnin
   const wiring = await buildWiring({ learningObservationEnabled: true });
   try {
     const owner = await makeCaller(wiring);
-    await recordDismissals(owner, 3);
+    await seedSignals(wiring, 3);
     const [suggestion] = (await owner.learning.digest({ organizationId: ORG })).suggestions;
     assert.ok(suggestion);
 
@@ -289,7 +288,7 @@ test("flight ON: an accepted preference statement reaches the chat system prompt
   const wiring = await buildWiring({ learningObservationEnabled: true, modelProviders: [local] });
   try {
     const caller = await makeCaller(wiring);
-    await recordDismissals(caller, 3);
+    await seedSignals(wiring, 3);
     const digested = await caller.learning.digest({ organizationId: ORG });
     const suggestion = digested.suggestions.find((s) => s.pattern.attributeKey === "industry");
     assert.ok(suggestion, "expected an industry-pattern suggestion");
@@ -354,4 +353,81 @@ test("flight OFF: existing preference rows influence nothing — the chat prompt
   } finally {
     await wiring.close();
   }
+});
+
+test("K1 exit test: a governed action with NO module learning code becomes a signal; the miner is private and idempotent", async () => {
+  const wiring = await buildWiring({ learningObservationEnabled: true });
+  try {
+    const caller = await makeCaller(wiring);
+    // The flight seeding already bound the Learning Agent's digest Goal/Task
+    // — reuse it as the governed action under test. The point being proven:
+    // three agent proposals, three Human approvals, ZERO learning-specific
+    // plumbing between the pipeline and the suggestion below.
+    const digestGoal = (await wiring.goalTasks.listGoals(ORG)).find(
+      (goal) => goal.type === "platform.learning_observation",
+    );
+    assert.ok(digestGoal, "flight seeding must have created the digest Goal");
+    const digestTask = (await wiring.goalTasks.listTasksByGoal(ORG, digestGoal.id))[0];
+    assert.ok(digestTask, "flight seeding must have created the digest Task");
+    for (let i = 0; i < 3; i += 1) {
+      const proposal = await wiring.pipeline.propose(
+        {
+          organizationId: ORG,
+          actor: { type: "agent", id: LEARNING_AGENT },
+          onBehalfOf: { type: "user", id: PILOT_USER },
+          action: "write",
+          resourceType: "signal",
+          skill: OBSERVATION_DIGEST_SKILL_ID,
+          trustOrigin: "user_content",
+          goalTaskRef: { goalId: digestGoal.id, taskId: digestTask.id },
+          inputs: { organizationId: ORG, note: `test_fixture_private_note_${i}_XYZZY` },
+        },
+        makeRun(),
+      );
+      assert.equal(proposal.status, "pending_review", "an agent proposal must halt for the Human");
+      await caller.action.decide({ proposalId: proposal.id, decision: "approve" });
+    }
+
+    const digested = await caller.learning.digest({ organizationId: ORG });
+    const suggestion = digested.suggestions.find(
+      (s) => s.pattern.attributeKey === "skill" && s.pattern.attributeValue === OBSERVATION_DIGEST_SKILL_ID,
+    );
+    assert.ok(suggestion, "three approvals of the same skill must propose a pattern");
+    assert.equal(suggestion.pattern.action, "approve");
+    assert.ok(suggestion.pattern.count >= 3);
+    // Module attribution came from the capability family of the skill id.
+    assert.equal(suggestion.moduleId, "learning");
+
+    // Privacy: the mined signals carry the attribution envelope only — the
+    // proposal's private inputs never reach a signal row.
+    const signals = await wiring.memoryStore.retrieve(
+      { type: "episodic", sourceRefType: "feedback" },
+      { organizationId: ORG, userId: PILOT_USER },
+    );
+    assert.ok(signals.length >= 3, "the approvals must exist as inspectable signal Memories");
+    for (const row of signals) {
+      assert.ok(!row.content.includes("XYZZY"), "a mined signal must never carry proposal payload content");
+    }
+
+    // Idempotency: a second pass mines nothing new, and the suggestion
+    // lineage suppresses a re-proposal.
+    const second = await caller.learning.digest({ organizationId: ORG });
+    assert.equal(second.mined.signalCount, 0);
+    assert.equal(second.suggestions.length, 0);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("K1: the deleted per-module recording surface is gone — the router exposes no recordDealDecision", () => {
+  // The mapping is deleted FOREVER (ADR-210 K1). A re-added procedure would
+  // reintroduce per-module learning plumbing; this test names that regression.
+  const procedurePaths = Object.keys(
+    (appRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures,
+  );
+  assert.ok(procedurePaths.some((path) => path.startsWith("learning.")), "sanity: learning procedures exist");
+  assert.ok(
+    !procedurePaths.includes("learning.recordDealDecision"),
+    "recordDealDecision must not return",
+  );
 });

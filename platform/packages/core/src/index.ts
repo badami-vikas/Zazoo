@@ -63,6 +63,7 @@ export {
 export * from "./memory/stores.js";
 export * from "./memory/memory-store.js";
 export * from "./learning/observation.js";
+export * from "./learning/ledger-miner.js";
 export * from "./learning/retrieval.js";
 export * from "./learning/archetype.js";
 export * from "./learning/promotion.js";

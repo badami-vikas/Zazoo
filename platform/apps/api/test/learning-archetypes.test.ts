@@ -22,12 +22,14 @@ import {
   SystemClock,
   UuidGen,
   findOrganizationDataPaths,
+  recordSignal,
   type CapabilityArchetype,
   type CommonsArchetypeEntry,
   type CommonsRegistry,
   type RunCtx,
 } from "@bridge/core";
 import { appRouter } from "../src/router.js";
+import { deterministicUuid } from "../src/deterministic-uuid.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
 
 function makeRun(seed: number): RunCtx {
@@ -102,13 +104,19 @@ function swapRegistry(wiring: Wiring, registry: CommonsRegistry): void {
 
 const ORG = PILOT_ORGANIZATION;
 
-async function acceptOneDismissPattern(caller: ReturnType<typeof makeCaller>) {
+async function acceptOneDismissPattern(wiring: Wiring, caller: ReturnType<typeof makeCaller>) {
+  // K1: signals are seeded at the store, the way the ledger miner writes them
+  // — the per-module recording procedure is deleted.
   for (let i = 0; i < 4; i += 1) {
-    await caller.learning.recordDealDecision({
+    await recordSignal(wiring.memoryStore, {
+      id: deterministicUuid(`test_fixture_arch_signal_${i}`),
       organizationId: ORG,
-      dealRecordId: `deal-arch-${i}`,
+      ownerUserId: PILOT_USER,
+      moduleId: "dealpilot",
+      recordKind: "deal",
+      recordId: `deal-arch-${i}`,
       action: "dismiss",
-      profile: { industry: "Restaurants", sde: 300_000 },
+      attributes: { industry: "restaurants", sde_band: "sde_250k_500k" },
     });
   }
   const digested = await caller.learning.digest({ organizationId: ORG });
@@ -122,9 +130,9 @@ test("either flight off fails closed for every archetype procedure", async () =>
   try {
     const caller = makeCaller(learningOnly);
     for (const call of [
-      () => caller.learning.archetypes.preview({ organizationId: ORG }),
-      () => caller.learning.archetypes.contribute({ organizationId: ORG, names: ["x"] }),
-      () => caller.learning.archetypes.seed({ organizationId: ORG }),
+      () => caller.learning.archetypes.preview({ organizationId: ORG, moduleId: "dealpilot" }),
+      () => caller.learning.archetypes.contribute({ organizationId: ORG, moduleId: "dealpilot", names: ["x"] }),
+      () => caller.learning.archetypes.seed({ organizationId: ORG, moduleId: "dealpilot" }),
     ]) {
       await assert.rejects(call, (error: unknown) => error instanceof TRPCError && error.code === "PRECONDITION_FAILED");
     }
@@ -135,7 +143,7 @@ test("either flight off fails closed for every archetype procedure", async () =>
   try {
     const caller = makeCaller(archetypesOnly);
     await assert.rejects(
-      () => caller.learning.archetypes.preview({ organizationId: ORG }),
+      () => caller.learning.archetypes.preview({ organizationId: ORG, moduleId: "dealpilot" }),
       (error: unknown) => error instanceof TRPCError && error.code === "PRECONDITION_FAILED",
     );
   } finally {
@@ -151,9 +159,9 @@ test("contribute publishes generalized-only payloads; a fresh organization seeds
   try {
     swapRegistry(organizationA, registry);
     const caller = makeCaller(organizationA, 42);
-    await acceptOneDismissPattern(caller);
+    await acceptOneDismissPattern(organizationA, caller);
 
-    const preview = await caller.learning.archetypes.preview({ organizationId: ORG });
+    const preview = await caller.learning.archetypes.preview({ organizationId: ORG, moduleId: "dealpilot" });
     assert.ok(preview.candidates.length >= 1);
     const industry = preview.candidates.find((c) => c.attributeKey === "industry");
     assert.ok(industry);
@@ -163,6 +171,7 @@ test("contribute publishes generalized-only payloads; a fresh organization seeds
 
     const contributed = await caller.learning.archetypes.contribute({
       organizationId: ORG,
+      moduleId: "dealpilot",
       names: [industry.name],
     });
     assert.equal(contributed.published.length, 1);
@@ -183,7 +192,7 @@ test("contribute publishes generalized-only payloads; a fresh organization seeds
   try {
     swapRegistry(organizationB, registry);
     const caller = makeCaller(organizationB, 43);
-    const seeded = await caller.learning.archetypes.seed({ organizationId: ORG });
+    const seeded = await caller.learning.archetypes.seed({ organizationId: ORG, moduleId: "dealpilot" });
     assert.equal(seeded.seeded.length, 1);
     assert.match(seeded.seeded[0]!.suggestedText, /Organizations like yours/);
 
@@ -193,7 +202,7 @@ test("contribute publishes generalized-only payloads; a fresh organization seeds
 
     // Re-seed is idempotent (same lineage), and accepting mints exactly one
     // preference worded without a fabricated observation count.
-    assert.equal((await caller.learning.archetypes.seed({ organizationId: ORG })).seeded.length, 0);
+    assert.equal((await caller.learning.archetypes.seed({ organizationId: ORG, moduleId: "dealpilot" })).seeded.length, 0);
     await caller.learning.suggestions.accept({
       organizationId: ORG,
       suggestionMemoryId: seeded.seeded[0]!.memoryId,
@@ -218,7 +227,7 @@ test("a Commons deployment without archetype support fails closed with a typed e
     swapRegistry(wiring, bare);
     const caller = makeCaller(wiring);
     await assert.rejects(
-      () => caller.learning.archetypes.seed({ organizationId: ORG }),
+      () => caller.learning.archetypes.seed({ organizationId: ORG, moduleId: "dealpilot" }),
       (error: unknown) =>
         error instanceof TRPCError &&
         error.code === "PRECONDITION_FAILED" &&

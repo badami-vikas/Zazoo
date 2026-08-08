@@ -7,7 +7,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SeededRng, SystemClock, UuidGen, type MemoryWrite } from "@bridge/core";
+import { SeededRng, SystemClock, UuidGen, recordSignal, type MemoryWrite } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { indexMemoryEmbeddings } from "../src/retrieval-fusion.js";
 import {
@@ -96,11 +96,17 @@ test("mined cases come from prose rows only, the live pipeline scores them, and 
       authenticated: true,
       verifying: false,
     });
-    await caller.learning.recordDealDecision({
+    // K1: seed the learning-machinery noise row at the store, the way the
+    // ledger miner writes signals — the recording procedure is deleted.
+    await recordSignal(wiring.memoryStore, {
+      id: "b0000000-0000-4000-a000-00000000e0e1",
       organizationId: ORG,
-      dealRecordId: "deal-eval-noise",
+      ownerUserId: PILOT_USER,
+      moduleId: "dealpilot",
+      recordKind: "deal",
+      recordId: "deal-eval-noise",
       action: "dismiss",
-      profile: { industry: "restaurants" },
+      attributes: { industry: "restaurants" },
     });
 
     const cases = await buildUsageEvalCases(evalDeps(wiring));

@@ -751,17 +751,18 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K1 — Capture: generic ledger→signal miner
 - ID: TASK-045
-- Status: ready
+- Status: done
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: Every governed in-app action becomes learning input through one generic miner over the append-only ledger, and the per-module (DealPilot-shaped) signal mapping is deleted forever — no Module ever writes bespoke learning plumbing again.
 - Prototype test: a governed action performed in a Module with NO module-specific learning code produces a learning signal visible in the learning surface; the DealPilot-specific mapping no longer exists in the tree; removing the miner turns the signal test RED.
 - Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K1; the append-only ledger already records all in-app activity as a byproduct of the governed pipeline — this task mines it, replacing the TASK-032 per-module mapping.
-- Evidence: TASK-032's flight-gated learning loop (merged 2026-08-03) is the baseline being generalized.
+- Evidence: TASK-032's flight-gated learning loop (merged 2026-08-03) is the baseline being generalized. DONE 2026-08-09 (ADR-212, AP-133): `learning/ledger-miner.ts` in core (6/6, three invariants mutation-checked RED — payload-inexpressible envelope, auto-exclusion, deterministic idempotency); `dealDecisionSignal`/`sdeBand`/`recordDealDecision` deleted with a never-returns regression test; eight `default("dealpilot")` procedure defaults removed (lists go all-modules, digest/promotions fan out, archetypes require the Module); scheduled Skill mines then digests per discovered Module; api learning suites 21/21 incl. the exit e2e; **live over HTTP**: 3 automation triggers → 3 pending_review → 3 approvals → digest mined 3 signals → suggestion listed with evidence ids → second digest 0/0; turbo 72/72.
 - Requests: user directive 2026-08-09 ("start on AI harness")
-- Approval: AP-131 APPLIED
+- Approval: AP-131 APPLIED; AP-133 APPLIED (the slice itself)
 - Dependencies: TASK-044
 - Unblocks: K9 rung 3 (TASK-053) needs only this task's ledger episodes.
+- Honest residual: the ledger's decision row inherits the proposer's actor, so mined decisions attribute to the mining owner — correct while the pilot is single-tenant, a named gap for multi-user ledger work.
 
 ## K2 — Capture: local stores emit learning signals
 - ID: TASK-046

@@ -4,11 +4,13 @@
  *
  * Generic, Module-agnostic machinery — the light-egg rule from the Deal Copilot
  * requirements (outputs/2026-08-01-deal-copilot-agentic-freelancer-requirements.md
- * §3) applies: this file knows NOTHING about deals, jobs, or any domain. A
- * Module supplies `ObservedSignal`s (a pure attribute mapping, e.g.
- * @bridge/dealpilot `dealDecisionSignal`); this loop turns repeated signals
- * into SUGGESTED preference Memories that only an explicit Human acceptance
- * converts into a learned preference.
+ * §3) applies: this file knows NOTHING about deals, jobs, or any domain.
+ * `ObservedSignal`s arrive from the generic ledger miner (ledger-miner.ts —
+ * every governed action's human decision, AI Harness K1; the per-module
+ * `dealDecisionSignal` mapping this line once cited is deleted) and, later,
+ * from K2's consent-gated local-store emitters; this loop turns repeated
+ * signals into SUGGESTED preference Memories that only an explicit Human
+ * acceptance converts into a learned preference.
  *
  * Invariants carried from the Learning Agent canon (docs/wiki/learning-agent.md):
  *  - suggested-then-accepted: `digestSignals` NEVER writes a preference row —
@@ -248,11 +250,14 @@ export async function digestSignals(store: MemoryStore, options: DigestOptions):
   return created;
 }
 
-/** List suggestion lineage heads for a Module, optionally filtered by status. */
+/** List suggestion lineage heads, optionally filtered by status. Omitting
+ * `moduleId` lists across ALL installed Modules — the shape a generic surface
+ * needs (AI Harness K1: generic surfaces no longer carry a per-module
+ * default). */
 export async function listSuggestions(
   store: MemoryStore,
   scope: MemoryAuthScope,
-  moduleId: string,
+  moduleId?: string,
   status?: SuggestionStatus,
 ): Promise<LearningSuggestion[]> {
   const rows = await store.retrieve(
@@ -260,7 +265,7 @@ export async function listSuggestions(
       type: "semantic",
       contentPathEquals: [
         { path: "anchor.kind", equals: SUGGESTION_KIND },
-        { path: "anchor.moduleId", equals: moduleId },
+        ...(moduleId ? [{ path: "anchor.moduleId", equals: moduleId }] : []),
         ...(status ? [{ path: "anchor.status", equals: status }] : []),
       ],
     },
@@ -270,16 +275,42 @@ export async function listSuggestions(
   for (const row of rows) {
     const content = parseContent(row);
     if (!content) continue;
-    const anchor = content["anchor"] as { status?: unknown } | undefined;
+    const anchor = content["anchor"] as { status?: unknown; moduleId?: unknown } | undefined;
     suggestions.push({
       memoryId: row.id,
-      moduleId,
+      moduleId: moduleId ?? (typeof anchor?.moduleId === "string" ? anchor.moduleId : "unknown"),
       status: (typeof anchor?.status === "string" ? anchor.status : "proposed") as SuggestionStatus,
       pattern: content["pattern"] as unknown as DetectedPattern,
       suggestedText: typeof content["suggestedText"] === "string" ? (content["suggestedText"] as string) : "",
     });
   }
   return suggestions;
+}
+
+/** Distinct moduleIds carrying recorded signals in the recent window — the
+ * digest/promotion fan-out set for callers that name no Module. Bounded like
+ * the digest's own signalWindow. */
+export async function listSignalModuleIds(
+  store: MemoryStore,
+  scope: MemoryAuthScope,
+  window = 200,
+): Promise<string[]> {
+  const rows = await store.retrieve(
+    {
+      type: "episodic",
+      sourceRefType: "feedback",
+      contentPathEquals: [{ path: "anchor.kind", equals: SIGNAL_KIND }],
+      limit: window,
+    },
+    scope,
+  );
+  const moduleIds = new Set<string>();
+  for (const row of rows) {
+    const content = parseContent(row);
+    const anchor = content?.["anchor"] as { moduleId?: unknown } | undefined;
+    if (typeof anchor?.moduleId === "string" && anchor.moduleId.length > 0) moduleIds.add(anchor.moduleId);
+  }
+  return [...moduleIds];
 }
 
 async function transitionSuggestion(

@@ -167,10 +167,13 @@ export async function detectAutomationDraftCandidates(
   return created;
 }
 
+/** Omitting `moduleId` lists promotion suggestions across ALL installed
+ * Modules — the shape a generic surface needs (AI Harness K1: generic
+ * surfaces no longer carry a per-module default). */
 export async function listPromotionSuggestions(
   store: MemoryStore,
   scope: MemoryAuthScope,
-  moduleId: string,
+  moduleId?: string,
   status?: PromotionStatus,
 ): Promise<PromotionSuggestion[]> {
   const rows = await store.retrieve(
@@ -178,7 +181,7 @@ export async function listPromotionSuggestions(
       type: "semantic",
       contentPathEquals: [
         { path: "anchor.kind", equals: PROMOTION_SUGGESTION_KIND },
-        { path: "anchor.moduleId", equals: moduleId },
+        ...(moduleId ? [{ path: "anchor.moduleId", equals: moduleId }] : []),
         ...(status ? [{ path: "anchor.status", equals: status }] : []),
       ],
     },
@@ -188,10 +191,10 @@ export async function listPromotionSuggestions(
   for (const row of rows) {
     const content = parseContent(row);
     if (!content) continue;
-    const anchor = content["anchor"] as { status?: unknown } | undefined;
+    const anchor = content["anchor"] as { status?: unknown; moduleId?: unknown } | undefined;
     suggestions.push({
       memoryId: row.id,
-      moduleId,
+      moduleId: moduleId ?? (typeof anchor?.moduleId === "string" ? anchor.moduleId : "unknown"),
       status: (typeof anchor?.status === "string" ? anchor.status : "proposed") as PromotionStatus,
       pattern: content["pattern"] as unknown as DetectedPattern,
       suggestedText: typeof content["suggestedText"] === "string" ? (content["suggestedText"] as string) : "",

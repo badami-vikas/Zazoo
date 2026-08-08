@@ -18,10 +18,12 @@ import {
   SeededRng,
   SystemClock,
   UuidGen,
+  recordSignal,
   type InMemoryAutomationRegistry,
   type RunCtx,
 } from "@bridge/core";
 import { appRouter } from "../src/router.js";
+import { deterministicUuid } from "../src/deterministic-uuid.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
 
 function makeRun(): RunCtx {
@@ -42,13 +44,26 @@ function makeCaller(wiring: Wiring) {
 
 const ORG = PILOT_ORGANIZATION;
 
-async function recordDismissals(caller: ReturnType<typeof makeCaller>, count: number, offset = 0) {
+/** K1: signals are seeded at the store, the way the ledger miner writes them
+ * — the per-module recording procedure is deleted. */
+let promoSeedSequence = 0;
+async function seedSignals(
+  wiring: Wiring,
+  count: number,
+  attributes: Record<string, string> = { industry: "restaurants" },
+  action = "dismiss",
+) {
   for (let i = 0; i < count; i += 1) {
-    await caller.learning.recordDealDecision({
+    promoSeedSequence += 1;
+    await recordSignal(wiring.memoryStore, {
+      id: deterministicUuid(`test_fixture_promo_signal_${promoSeedSequence}`),
       organizationId: ORG,
-      dealRecordId: `deal-promo-${offset + i}`,
-      action: "dismiss",
-      profile: { industry: "restaurants" },
+      ownerUserId: PILOT_USER,
+      moduleId: "dealpilot",
+      recordKind: "deal",
+      recordId: `deal-promo-${promoSeedSequence}`,
+      action,
+      attributes,
     });
   }
 }
@@ -76,12 +91,12 @@ test("threshold → propose → accept saves an executor-proof draft; reject sup
     const caller = makeCaller(wiring);
 
     // Below the promotion threshold: preference digest territory, no drafts.
-    await recordDismissals(caller, PROMOTION_MIN_REPETITIONS - 1);
+    await seedSignals(wiring, PROMOTION_MIN_REPETITIONS - 1);
     const below = await caller.learning.promotions.propose({ organizationId: ORG });
     assert.equal(below.suggestions.length, 0);
 
     // Crossing the threshold proposes exactly one (industry pattern).
-    await recordDismissals(caller, 1, PROMOTION_MIN_REPETITIONS - 1);
+    await seedSignals(wiring, 1);
     const proposed = await caller.learning.promotions.propose({ organizationId: ORG });
     const suggestion = proposed.suggestions.find((s) => s.pattern.attributeKey === "industry");
     assert.ok(suggestion, "expected an industry promotion proposal");
@@ -116,26 +131,12 @@ test("threshold → propose → accept saves an executor-proof draft; reject sup
     assert.equal(listed.suggestions.length, 1);
 
     // A second pattern: reject it, then more repetitions never re-propose.
-    for (let i = 0; i < PROMOTION_MIN_REPETITIONS; i += 1) {
-      await caller.learning.recordDealDecision({
-        organizationId: ORG,
-        dealRecordId: `deal-geo-${i}`,
-        action: "pursue",
-        profile: { geo: "Texas" },
-      });
-    }
+    await seedSignals(wiring, PROMOTION_MIN_REPETITIONS, { geo: "texas" }, "pursue");
     const second = await caller.learning.promotions.propose({ organizationId: ORG });
     const geoSuggestion = second.suggestions.find((s) => s.pattern.attributeKey === "geo");
     assert.ok(geoSuggestion);
     await caller.learning.promotions.reject({ organizationId: ORG, suggestionMemoryId: geoSuggestion.memoryId });
-    for (let i = 0; i < 4; i += 1) {
-      await caller.learning.recordDealDecision({
-        organizationId: ORG,
-        dealRecordId: `deal-geo-more-${i}`,
-        action: "pursue",
-        profile: { geo: "Texas" },
-      });
-    }
+    await seedSignals(wiring, 4, { geo: "texas" }, "pursue");
     const after = await caller.learning.promotions.propose({ organizationId: ORG });
     assert.ok(!after.suggestions.some((s) => s.pattern.attributeKey === "geo"), "rejected pattern must stay suppressed");
   } finally {
@@ -147,7 +148,7 @@ test("draft lifecycle: list → empty-steps activation refused → update with a
   const wiring = await buildWiring({ learningObservationEnabled: true });
   try {
     const caller = makeCaller(wiring);
-    await recordDismissals(caller, PROMOTION_MIN_REPETITIONS);
+    await seedSignals(wiring, PROMOTION_MIN_REPETITIONS);
     const proposed = await caller.learning.promotions.propose({ organizationId: ORG });
     const suggestion = proposed.suggestions.find((s) => s.pattern.attributeKey === "industry");
     assert.ok(suggestion);

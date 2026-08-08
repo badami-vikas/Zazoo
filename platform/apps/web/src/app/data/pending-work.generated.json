@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T20:37:32.349Z",
+  "generatedAt": "2026-08-08T21:20:30.874Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1476,7 +1476,7 @@
     {
       "id": "TASK-045",
       "title": "TASK-045 — K1 — Capture: generic ledger→signal miner",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Every governed in-app action becomes learning input through one generic miner over the append-only ledger, and the per-module (DealPilot-shaped) signal mapping is deleted forever — no Module ever writes bespoke learning plumbing again.",
@@ -1486,16 +1486,22 @@
         "the append-only ledger already records all in-app activity as a byproduct of the governed pipeline — this task mines it, replacing the TASK-032 per-module mapping."
       ],
       "evidence": [
-        "TASK-032's flight-gated learning loop (merged 2026-08-03) is the baseline being generalized."
+        "TASK-032's flight-gated learning loop (merged 2026-08-03) is the baseline being generalized. DONE 2026-08-09 (ADR-212, AP-133): `learning/ledger-miner.ts` in core (6/6, three invariants mutation-checked RED — payload-inexpressible envelope, auto-exclusion, deterministic idempotency)",
+        "`dealDecisionSignal`/`sdeBand`/`recordDealDecision` deleted with a never-returns regression test",
+        "eight `default(\"dealpilot\")` procedure defaults removed (lists go all-modules, digest/promotions fan out, archetypes require the Module)",
+        "scheduled Skill mines then digests per discovered Module",
+        "api learning suites 21/21 incl. the exit e2e",
+        "**live over HTTP**: 3 automation triggers → 3 pending_review → 3 approvals → digest mined 3 signals → suggestion listed with evidence ids → second digest 0/0",
+        "turbo 72/72."
       ],
       "requests": [
         "user directive 2026-08-09 (\"start on AI harness\")"
       ],
-      "approval": "AP-131 APPLIED",
+      "approval": "AP-131 APPLIED; AP-133 APPLIED (the slice itself)",
       "dependencies": [
         "TASK-044"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 753,
@@ -1526,7 +1532,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 767,
+      "sourceLine": 768,
       "rank": 46
     },
     {
@@ -1554,7 +1560,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 780,
+      "sourceLine": 781,
       "rank": 47
     },
     {
@@ -1584,7 +1590,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 793,
+      "sourceLine": 794,
       "rank": 48
     },
     {
@@ -1612,7 +1618,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 806,
+      "sourceLine": 807,
       "rank": 49
     },
     {
@@ -1641,7 +1647,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 819,
+      "sourceLine": 820,
       "rank": 50
     },
     {
@@ -1670,7 +1676,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 832,
+      "sourceLine": 833,
       "rank": 51
     },
     {
@@ -1698,7 +1704,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 845,
+      "sourceLine": 846,
       "rank": 52
     },
     {
@@ -1727,7 +1733,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 858,
+      "sourceLine": 859,
       "rank": 53
     },
     {
@@ -1756,7 +1762,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 871,
+      "sourceLine": 872,
       "rank": 54
     }
   ]

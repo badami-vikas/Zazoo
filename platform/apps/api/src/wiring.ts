@@ -36,6 +36,8 @@ import {
   RecordingVarianceAdjuster,
   UniversalActionPipeline,
   digestSignals,
+  mineLedgerSignals,
+  listSignalModuleIds,
   KERNEL_PASSTHROUGH_SKILL,
   stageCapture,
   InMemoryCapabilityStore,
@@ -834,8 +836,17 @@ export const OBSERVATION_DIGEST_SKILL_MANIFEST = {
   childRunPolicy: "forbidden",
 } as const;
 
+/** Deterministic signal id for one mined ledger decision — the miner's
+ * idempotency seam (@bridge/core learning/ledger-miner). One derivation,
+ * shared by the scheduled Skill and the `learning.digest` procedure, so the
+ * two entry points can never double-mine the same decision. */
+export function ledgerSignalId(ledgerDecisionId: string): string {
+  return deterministicUuid(`learning:signal:ledger:${ledgerDecisionId}`);
+}
+
 function createObservationDigestSkill(deps: {
   memoryStore: MemoryStore;
+  ledger: LedgerStore;
   pilotUserId: string;
   enabled: () => boolean;
 }): Skill {
@@ -849,17 +860,43 @@ function createObservationDigestSkill(deps: {
       }
       const params = (typeof inputs === "object" && inputs !== null ? inputs : {}) as Record<string, unknown>;
       const organizationId = typeof params.organizationId === "string" ? params.organizationId : PILOT_ORGANIZATION;
-      const moduleId = typeof params.moduleId === "string" ? params.moduleId : "dealpilot";
-      const created = await digestSignals(deps.memoryStore, {
+      const scope = { organizationId, userId: deps.pilotUserId };
+      // AI Harness K1 (ADR-212): mine the governed ledger FIRST — every human
+      // decision on a proposal becomes generic learning input, so a Module
+      // gets coverage by existing. Then digest per Module. The fan-out is the
+      // union of the miner's eligible modules and every module with recorded
+      // signals (a K2 source or a legacy row must not be orphaned just
+      // because this window's ledger rows name other modules). No default
+      // module: "dealpilot" as a fallback here was the per-module mapping in
+      // its quietest form.
+      const minedResult = await mineLedgerSignals(deps.memoryStore, deps.ledger, {
         organizationId,
         ownerUserId: deps.pilotUserId,
-        moduleId,
-        nextId: () => ctx.ids.next(),
-        lineageIdFor: deterministicUuid,
+        signalIdFor: ledgerSignalId,
       });
+      const explicitModuleId = typeof params.moduleId === "string" ? [params.moduleId] : [];
+      const moduleIds = [...new Set([
+        ...explicitModuleId,
+        ...minedResult.moduleIds,
+        ...(await listSignalModuleIds(deps.memoryStore, scope)),
+      ])];
+      const created: Awaited<ReturnType<typeof digestSignals>> = [];
+      for (const moduleId of moduleIds) {
+        created.push(
+          ...(await digestSignals(deps.memoryStore, {
+            organizationId,
+            ownerUserId: deps.pilotUserId,
+            moduleId,
+            nextId: () => ctx.ids.next(),
+            lineageIdFor: deterministicUuid,
+          })),
+        );
+      }
       const proposedOutput = {
         kind: "learning_observation_digest",
-        moduleId,
+        minedSignalCount: minedResult.mined.length,
+        alreadyMinedCount: minedResult.alreadyMined,
+        moduleIds,
         proposedSuggestionCount: created.length,
         suggestionMemoryIds: created.map((s) => s.memoryId),
       };
@@ -5736,6 +5773,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     skillRegistry.register(
       createObservationDigestSkill({
         memoryStore,
+        ledger,
         pilotUserId,
         enabled: () => learningObservationEnabled,
       }),

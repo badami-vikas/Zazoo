@@ -1,8 +1,6 @@
 export { dealPilotManifest } from "./manifest.js";
 export type { ThesisProfile, DealProfile, ThesisFitBand, ThesisFitResult } from "./types.js";
 export { scoreThesisFit } from "./scoring.js";
-export type { DealDecisionAction, DealDecisionInput, DealDecisionSignal } from "./learning.js";
-export { dealDecisionSignal, sdeBand } from "./learning.js";
 export type { DealPipelineResult } from "./pipeline.js";
 export { processDealCandidate } from "./pipeline.js";
 export { dealsTableSpec, dealsThesisBoardView, dealsStageBoardView } from "./table.js";
