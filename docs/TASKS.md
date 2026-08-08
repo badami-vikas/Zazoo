@@ -57,7 +57,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Outcome: A small, consistent shell where installed Modules are actionable, deprecated surfaces are absent, table controls are predictable, and both side panels behave alike.
 - Prototype test: On desktop and 375px, open two installed Modules from the left nav; inspect their Agent-owned Skills, Automations, Integrations, Files, and standard table toolbar/context menu; resize/collapse/extend both panels; confirm no visible Tools, Knowledge, Workflows, Projects, or inert interactive rows.
 - Scope: docs/raw/ui-architecture-rules-2026-07.md §2–§5; docs/raw/vocabulary-code-migration-plan-2026-07-14.md VOCAB2/VOCAB6; docs/raw/relationship-module-plan-2026-07.md RM0; docs/raw/brd-dealpilot-2026-07.md; docs/raw/brd-jobpilot-2026-07.md
-- Evidence: BUGS 2026-07-14 deprecated Tools/dead Modules; BUGS standalone Skills; BUGS asymmetric panels; BUGS Knowledge/Relationship IA; BUGS Intelligence toolbar/Workflows; BUGS hardcoded Modules; BUGS server error vocabulary; BUGS pinned legacy surfaces
+- Evidence: BUGS 2026-07-14 deprecated Tools/dead Modules; BUGS standalone Skills; BUGS asymmetric panels; BUGS Knowledge/Relationship IA; BUGS Intelligence toolbar/Workflows; BUGS hardcoded Modules; BUGS server error vocabulary; BUGS pinned legacy surfaces; outputs/2026-07-16-view-surface-inventory.md
 - Requests: R-019; R-020; R-021; R-023; user shell/module/table directives 2026-07-14–15
 - Approval: AP-020 and AP-021 applied
 - Dependencies: none
@@ -75,15 +75,15 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Dependencies: none
 
 ## TASK-003 — Movable cross-screen Avatar desktop prototype
-- Status: ready
+- Status: in_progress
 - Priority: P0
 - Horizon: Prototype
 - Outcome: The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.
 - Prototype test: Drag the Avatar, change Spaces, enter/exit fullscreen, attach/detach an extended display, and move between displays; position persists/reconciles and close/minimize/zoom remain accessible in the supplied-reference layout.
 - Scope: docs/raw/desktop-companion-agent-roadmap-2026-07.md AV0; docs/raw/egg-commons-feature-roadmap-2026-07.md AV0
-- Evidence: BUGS 2026-07-14 companion mobility; BUGS 2026-07-14 desktop chrome
+- Evidence: BUGS 2026-07-14 companion mobility; BUGS 2026-07-14 desktop chrome; 2026-07-17 Zazoo renderer is now mounted in the browser shell AvatarOverlay and the shipped `/zazoo.html` lab remains available; automated web tests/typecheck/build pass; live localhost browser verification is pending because local-server approval was unavailable.
 - Requests: R-001; R-002; R-016; desktop overlay/chrome directive 2026-07-14
-- Approval: AP-020 applied
+- Approval: AP-020 applied; APPLIED — explicit user directive 2026-07-17
 - Dependencies: none
 
 ## TASK-004 — Commons install and trust prototype

@@ -7,3 +7,5 @@ Canonical order, shared by Claude and the platform through `docs/TASKS.md`:
 Each task retains a status. Task Manager places in-progress work first, pending work in this order, and completed/dropped work last. Completed tasks remain visible for audit.
 
 `BUGS.md` remains append-only reproduction/evidence, not a queue. `PROGRESS.md` is pointer/rules only; its history is archived in `docs/raw/progress-archive-2026-07.md`. `TASKS.md` is the one execution source; generator reads it directly and emits UI data.
+
+The web package runs that generator before `dev` and `build`, so there is no second task list to maintain. A running bundle still needs its normal dev refresh/rebuild after a markdown edit; the generated file is a build artifact, not an independent source.

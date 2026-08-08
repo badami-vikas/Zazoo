@@ -46,6 +46,7 @@ export function PendingWorkPage({ taskView = false }: { taskView?: boolean }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; itemId: string; cellId: string } | null>(null);
   const [resizing, setResizing] = useState<{ id: string; startX: number; startWidth: number } | null>(null);
+  const [selectedItem, setSelectedItem] = useState<PendingWorkItem | null>(null);
 
   const allItems = useMemo(() => applyPendingWorkEdits(PENDING_WORK_SOURCE, edits, true), [edits]);
   const schedules = taskState.schedules ?? {};
@@ -78,7 +79,7 @@ export function PendingWorkPage({ taskView = false }: { taskView?: boolean }) {
   const columns: Array<{ id: string; label: string; width: number }> = taskView
     ? [
       { id: 'rank', label: 'Rank', width: 72 }, { id: 'task', label: 'Task', width: 360 },
-      { id: 'status', label: 'Status', width: 105 }, { id: 'priority', label: 'Priority', width: 82 },
+      { id: 'status', label: 'Status', width: 105 }, { id: 'progress', label: 'Progress', width: 95 }, { id: 'priority', label: 'Priority', width: 82 },
       { id: 'horizon', label: 'Horizon', width: 130 }, { id: 'source', label: 'Source', width: 120 }, { id: 'record', label: 'Record', width: 180 },
       { id: 'scheduled', label: 'Scheduled', width: 145 }, { id: 'actions', label: 'Actions', width: 112 },
     ]
@@ -88,6 +89,7 @@ export function PendingWorkPage({ taskView = false }: { taskView?: boolean }) {
       { id: 'actions', label: 'Actions', width: 140 },
     ];
   const visibleColumns = columns.filter((column) => !columnPrefs[column.id]?.hidden);
+  const progressFor = (item: PendingWorkItem) => item.canonicalStatus === 'done' ? 100 : item.canonicalStatus === 'in_progress' ? 50 : 0;
 
   const activeCount = allItems.filter((item) => !item.archived).length;
   const archivedCount = allItems.length - activeCount;
@@ -212,7 +214,7 @@ export function PendingWorkPage({ taskView = false }: { taskView?: boolean }) {
               const rank = allItems.findIndex((candidate) => candidate.id === item.id) + 1;
               const source = SOURCE_META[item.sourceType];
               return (
-                <tr key={item.id} draggable={!editingId} onDragStart={() => { setDraggingId(item.id); }} onDragEnd={() => setDraggingId(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggingId && draggingId !== item.id) persist(movePendingWorkItem(edits, allItems, draggingId, item.id)); setDraggingId(null); }} className={`border-b group ${draggingId === item.id ? 'opacity-40' : ''} ${item.archived ? 'opacity-55' : 'hover:bg-slate-50/70'}`} style={{ borderColor: 'var(--color-border)' }}>
+                <tr key={item.id} draggable={!editingId} onClick={() => setSelectedItem(item)} onDragStart={() => { setDraggingId(item.id); }} onDragEnd={() => setDraggingId(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggingId && draggingId !== item.id) persist(movePendingWorkItem(edits, allItems, draggingId, item.id)); setDraggingId(null); }} className={`border-b group cursor-pointer ${draggingId === item.id ? 'opacity-40' : ''} ${item.archived ? 'opacity-55' : 'hover:bg-slate-50/70'}`} style={{ borderColor: 'var(--color-border)' }}>
                   {visibleColumns.some((column) => column.id === 'rank') && <td onContextMenu={(event) => openContextMenu(event, item.id, 'rank')} className="px-4 py-3"><div className="flex items-center gap-2 text-muted-foreground"><GripVertical className="w-4 h-4 cursor-grab" /><span className="tabular-nums font-medium">{rank}</span></div></td>}
                   {visibleColumns.some((column) => column.id === 'task') && <td onContextMenu={(event) => openContextMenu(event, item.id, 'task')} onDoubleClick={() => beginEdit(item)} className="px-3 py-3">
                     {editingId === item.id ? (
@@ -224,6 +226,7 @@ export function PendingWorkPage({ taskView = false }: { taskView?: boolean }) {
                     ) : <div className={`font-medium leading-5 break-words text-[var(--color-navy)] ${item.archived ? 'line-through' : ''}`}>{item.title}{item.edited && <span className="ml-2 text-[10px] font-normal uppercase text-muted-foreground">edited</span>}</div>}
                   </td>}
                   {visibleColumns.some((column) => column.id === 'status') && <td onContextMenu={(event) => openContextMenu(event, item.id, 'status')} className="px-3 py-3"><span className="text-xs font-medium capitalize text-[var(--color-navy-mid)]">{(item.canonicalStatus === 'done' ? 'completed' : item.canonicalStatus ?? item.status).replace('_', ' ')}</span></td>}
+                  {visibleColumns.some((column) => column.id === 'progress') && <td onContextMenu={(event) => openContextMenu(event, item.id, 'progress')} className="px-3 py-3"><div className="flex items-center gap-2"><div className="h-1.5 w-14 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-[var(--color-steel)]" style={{ width: `${progressFor(item)}%` }} /></div><span className="text-xs text-muted-foreground">{progressFor(item)}%</span></div></td>}
                   {visibleColumns.some((column) => column.id === 'priority') && <td onContextMenu={(event) => openContextMenu(event, item.id, 'priority')} className="px-3 py-3"><span className="text-xs font-semibold text-[var(--color-steel)]">{item.priority ?? '—'}</span></td>}
                   {visibleColumns.some((column) => column.id === 'horizon') && <td onContextMenu={(event) => openContextMenu(event, item.id, 'horizon')} className="px-3 py-3"><span className="text-xs text-muted-foreground">{item.horizon ?? '—'}</span></td>}
                   {visibleColumns.some((column) => column.id === 'source') && <td onContextMenu={(event) => openContextMenu(event, item.id, 'source')} className="px-3 py-3"><span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-semibold ${source.className}`}>{source.label}</span></td>}
@@ -243,6 +246,27 @@ export function PendingWorkPage({ taskView = false }: { taskView?: boolean }) {
         </table>
         {visibleItems.length === 0 && <div className="h-52 flex flex-col items-center justify-center text-muted-foreground"><Archive className="w-8 h-8 mb-2 opacity-50" /><p className="font-medium">No matching pending work</p><button onClick={() => { setSearch(''); setSourceFilter('all'); }} className="text-sm mt-1 text-[var(--color-steel)]">Clear filters</button></div>}
       </div>
+
+      {selectedItem && (
+        <div className="fixed inset-0 z-50 bg-black/20 flex items-center justify-center p-4" onClick={() => setSelectedItem(null)}>
+          <section className="w-full max-w-2xl max-h-[85vh] overflow-auto rounded-xl border bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 border-b px-5 py-4" style={{ borderColor: 'var(--color-border)' }}>
+              <div><div className="text-xs uppercase tracking-wider text-muted-foreground">{selectedItem.id}</div><h2 className="text-lg font-semibold text-[var(--color-navy)]">{selectedItem.title}</h2></div>
+              <button onClick={() => setSelectedItem(null)} className="p-1.5 rounded-md hover:bg-slate-100" title="Close task detail"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="grid gap-4 p-5 sm:grid-cols-2 text-sm">
+              <div><div className="text-xs uppercase text-muted-foreground">Status</div><div className="font-medium capitalize">{(selectedItem.canonicalStatus === 'done' ? 'completed' : selectedItem.canonicalStatus ?? selectedItem.status).replace('_', ' ')}</div></div>
+              <div><div className="text-xs uppercase text-muted-foreground">Progress</div><div className="font-medium">{progressFor(selectedItem)}%</div></div>
+              <div className="sm:col-span-2"><div className="text-xs uppercase text-muted-foreground">Outcome</div><p>{selectedItem.outcome ?? '—'}</p></div>
+              <div className="sm:col-span-2"><div className="text-xs uppercase text-muted-foreground">Prototype test</div><p>{selectedItem.prototypeTest ?? '—'}</p></div>
+              {(['scope', 'evidence', 'requests', 'dependencies'] as const).map((key) => <div key={key}><div className="text-xs uppercase text-muted-foreground">{key}</div><ul className="list-disc pl-4">{(selectedItem[key] ?? []).length ? (selectedItem[key] ?? []).map((value) => <li key={value}>{value}</li>) : <li>—</li>}</ul></div>)}
+              <div><div className="text-xs uppercase text-muted-foreground">Priority / horizon</div><p>{selectedItem.priority ?? '—'} · {selectedItem.horizon ?? '—'}</p></div>
+              <div><div className="text-xs uppercase text-muted-foreground">Approval</div><p>{selectedItem.approval ?? '—'}</p></div>
+              <div className="sm:col-span-2"><div className="text-xs uppercase text-muted-foreground">Source record</div><p>{selectedItem.sourceFile}:{selectedItem.sourceLine}</p></div>
+            </div>
+          </section>
+        </div>
+      )}
 
       {lastArchived && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[var(--color-navy)] text-white rounded-xl shadow-xl px-4 py-3 flex items-center gap-4 text-sm">

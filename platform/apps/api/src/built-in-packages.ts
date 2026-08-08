@@ -138,7 +138,7 @@ export const BUILT_IN_PACKAGES: readonly {
     },
   },
   {
-    route: "/calendar",
+    route: "/task-manager",
     computedRisk: "external",
     manifest: {
       name: "calendar",

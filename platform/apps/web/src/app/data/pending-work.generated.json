@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T06:50:16.941Z",
+  "generatedAt": "2026-07-18T08:59:46.125Z",
   "items": [
     {
       "id": "TASK-001",
@@ -24,7 +24,8 @@
         "BUGS Intelligence toolbar/Workflows",
         "BUGS hardcoded Modules",
         "BUGS server error vocabulary",
-        "BUGS pinned legacy surfaces"
+        "BUGS pinned legacy surfaces",
+        "outputs/2026-07-16-view-surface-inventory.md"
       ],
       "requests": [
         "R-019",
@@ -44,7 +45,7 @@
     {
       "id": "TASK-003",
       "title": "TASK-003 — Movable cross-screen Avatar desktop prototype",
-      "status": "pending",
+      "status": "in-progress",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.",
@@ -55,7 +56,10 @@
       ],
       "evidence": [
         "BUGS 2026-07-14 companion mobility",
-        "BUGS 2026-07-14 desktop chrome"
+        "BUGS 2026-07-14 desktop chrome",
+        "2026-07-17 Zazoo renderer is now mounted in the browser shell AvatarOverlay and the shipped `/zazoo.html` lab remains available",
+        "automated web tests/typecheck/build pass",
+        "live localhost browser verification is pending because local-server approval was unavailable."
       ],
       "requests": [
         "R-001",
@@ -63,9 +67,9 @@
         "R-016",
         "desktop overlay/chrome directive 2026-07-14"
       ],
-      "approval": "AP-020 applied",
+      "approval": "AP-020 applied; APPLIED — explicit user directive 2026-07-17",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 77,

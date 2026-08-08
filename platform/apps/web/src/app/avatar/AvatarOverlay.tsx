@@ -9,9 +9,11 @@
  * shape is just the vessel it's rendered in, not the point. No image assets;
  * every animal is a small geometric SVG built from Bridge palette tokens.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { ZazooAvatar } from "./zazoo/ZazooAvatar";
+import { ZazooDirector, type ZazooEmotion } from "./zazoo/director";
 import {
   CAPTURE_EVENT,
   STATUS_LABEL,
@@ -271,10 +273,10 @@ export function AvatarIcon({ animal, size = 24 }: { animal: SpiritAnimal; size?:
 export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage = "creature" }: AvatarOverlayProps) {
   const status = useAvatarStatus();
   const reducedMotion = usePrefersReducedMotion();
+  const director = useMemo(() => new ZazooDirector(), []);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [hovering, setHovering] = useState(false);
-  const [blinking, setBlinking] = useState(false);
   const [lastCapture, setLastCapture] = useState<{ at: string; detail?: Record<string, unknown> } | null>(null);
   const blinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -286,10 +288,7 @@ export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage =
     function onCapture(e: Event) {
       const detail = (e as CustomEvent).detail as Record<string, unknown> | undefined;
       setLastCapture({ at: new Date().toISOString(), ...(detail ? { detail } : {}) });
-      if (reducedMotion) return; // Respect prefers-reduced-motion: no blink animation, tell still recorded.
-      setBlinking(true);
-      if (blinkTimeout.current) clearTimeout(blinkTimeout.current);
-      blinkTimeout.current = setTimeout(() => setBlinking(false), 200);
+      if (!reducedMotion) director.triggerBlink();
     }
     window.addEventListener(CAPTURE_EVENT, onCapture);
     return () => {
@@ -297,7 +296,20 @@ export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage =
       if (blinkTimeout.current) clearTimeout(blinkTimeout.current);
       if (wakeTimeout.current) clearTimeout(wakeTimeout.current);
     };
-  }, [reducedMotion]);
+  }, [director, reducedMotion]);
+
+  useEffect(() => {
+    const emotionByStatus: Record<AvatarStatus, ZazooEmotion> = {
+      idle: "calm",
+      listening: "listening",
+      reading_context: "curious",
+      drafting: "thinking",
+      awaiting_approval: "unsure",
+      blocked_by_policy: "concerned",
+      error: "concerned",
+    };
+    director.perform({ emotion: emotionByStatus[status], attention: "user", energy: status === "idle" ? 0.35 : 0.65 });
+  }, [director, status]);
 
   const [pendingCount, setPendingCount] = useState<number | null>(null);
   const [pendingError, setPendingError] = useState(false);
@@ -429,9 +441,9 @@ export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage =
             className="flex items-center justify-center"
             style={growthStage === "mature" ? { width: "2.875rem", height: "2.875rem", transform: "scale(1.1)" } : { width: "2.75rem", height: "2.75rem" }}
             role="img"
-            aria-label={`Avatar state: ${label}`}
+            aria-label={`${name}, ${label}`}
           >
-            <Creature animal={animal} status={status} blinking={blinking} reducedMotion={reducedMotion} />
+            <ZazooAvatar director={director} width={48} />
           </div>
         )}
       </button>

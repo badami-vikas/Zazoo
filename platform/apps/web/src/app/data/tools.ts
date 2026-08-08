@@ -126,7 +126,7 @@ export const tools: Tool[] = [
     capabilities: ['12-day work planning window', 'Rank and reschedule tasks', 'Notion-style column and row controls', 'Source-linked pending work'],
     watches: ['Google Calendar (external_records)', 'CalendarEvent contract'],
     lastUsed: 'Live',
-    route: '/calendar',
+    route: '/task-manager',
     native: true,
     source_repo: 'in-house (date-fns render) · @bridge/integrations-google (sync)',
   },

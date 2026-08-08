@@ -16,5 +16,5 @@ export const MODULE_ROUTES: Record<string, { to: string; label: string; desc: st
   "deal-pilot": { to: "/dealpilot", label: "DealPilot", desc: "Sourcing waterfall + thesis-fit scoring" },
   "job-pilot": { to: "/jobpilot", label: "JobPilot", desc: "Job search tracker + application pipeline" },
   helpdesk: { to: "/helpdesk", label: "Helpdesk", desc: "Support ticket inbox + routing" },
-  calendar: { to: "/calendar", label: "Task Manager", desc: "Rank and schedule pending work" },
+  calendar: { to: "/task-manager", label: "Task Manager", desc: "Rank and schedule pending work" },
 };

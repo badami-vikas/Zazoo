@@ -1557,3 +1557,8 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Replaced the 67-row union of roadmap checkboxes, bug headings, partial requests, and proposed approvals with 20 canonical tasks in `docs/TASKS.md`; every task now carries outcome, falsifiable prototype test, plan scope, evidence, requests, approval gate, dependencies, status, priority, and horizon.
 - Made TASK-001→TASK-005 the non-skippable shell→Onboarding→Avatar→Commons→combined-demo path. Reclassified PROGRESS as historical and BUGS/requests/APPROVALS as evidence/audit ledgers rather than competing queues.
 - Changed Task Manager generation to consume TASKS only and added a parser contract proving multiple references reconcile into one task. Durable outcome: `outputs/2026-07-15-task-system-reconciliation.md`.
+
+# 2026-07-17 — Zazoo avatar mounted in browser shell
+- Mounted the shipped Zazoo renderer from commit `009c1d3` in the persistent browser AvatarOverlay while retaining status, capture, navigation, and capture-blink behavior; added a renderer integration regression test.
+- TASK-003 moved from `ready` to `in_progress` under the user's explicit directive. Automated tests, typecheck, and production build pass; live localhost browser verification remains pending because local-server approval was unavailable.
+- Durable outcome: `outputs/2026-07-17-zazoo-avatar-live-prototype.md`.
