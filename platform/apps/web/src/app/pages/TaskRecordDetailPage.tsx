@@ -1,11 +1,35 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, GitBranch, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CheckCircle2, GitBranch, Link2, ShieldCheck, UserCog } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
+import { PlanningProposalReview } from "../components/shared/PlanningProposalReview";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
 type Task = Awaited<ReturnType<typeof trpc.taskManager.get.query>>;
 type Proposal = Awaited<ReturnType<typeof trpc.taskManager.proposeRestructure.mutate>>;
+type PlanningRun = Awaited<ReturnType<typeof trpc.taskManager.runPlanningPlaybook.mutate>>;
+type Assignment = Awaited<ReturnType<typeof trpc.taskManager.assign.mutate>>;
+type Dependency = Awaited<ReturnType<typeof trpc.taskManager.dependencies.query>>["dependencies"][number];
+
+const PLAYBOOK_SKILLS = [
+  "task-decomposition",
+  "goal-outcome-framing",
+  "candidate-task-generation",
+  "exit-test-authoring",
+  "premortem-scenario",
+] as const;
+
+/** Proposals expire; the API requires a bound and refuses a decision past it. */
+function expiry(): string {
+  return new Date(Date.now() + 60 * 60_000).toISOString();
+}
+
+/** Idempotency keys are the server's replay protection, so they have to be
+ * stable per intent rather than per click — the same Playbook run on the same
+ * Task resolves to the same Run instead of a second one. */
+function idempotencyKey(...parts: string[]): string {
+  return parts.join(":").slice(0, 200);
+}
 
 export function TaskRecordDetailPage() {
   const { taskId = "" } = useParams();
@@ -16,10 +40,21 @@ export function TaskRecordDetailPage() {
   const [newTarget, setNewTarget] = useState("");
   const [parentTaskId, setParentTaskId] = useState("");
   const [ancestorTitle, setAncestorTitle] = useState("");
+  const [planning, setPlanning] = useState<PlanningRun | null>(null);
+  const [assignment, setAssignment] = useState<Assignment | null>(null);
+  const [dependencies, setDependencies] = useState<Dependency[]>([]);
+  const [blockerTaskId, setBlockerTaskId] = useState("");
+  const [blockerReason, setBlockerReason] = useState("");
+  const [busy, setBusy] = useState(false);
 
   async function load() {
     try {
-      setTask(await trpc.taskManager.get.query({ organizationId: PILOT_ORGANIZATION, taskId }));
+      const [record, graph] = await Promise.all([
+        trpc.taskManager.get.query({ organizationId: PILOT_ORGANIZATION, taskId }),
+        trpc.taskManager.dependencies.query({ organizationId: PILOT_ORGANIZATION }),
+      ]);
+      setTask(record);
+      setDependencies(graph.dependencies.filter((edge) => edge.taskId === taskId));
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -97,6 +132,99 @@ export function TaskRecordDetailPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
+  }
+
+  /** Every governed call on this Page runs through here so a refusal reaches
+   * the reviewer as a sentence instead of an unhandled rejection. A cycle,
+   * a stale version and an expired proposal are all answers, not crashes. */
+  async function governed(action: () => Promise<void>) {
+    setBusy(true);
+    try {
+      await action();
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function runPlaybook(skill: (typeof PLAYBOOK_SKILLS)[number]) {
+    return governed(async () => {
+      setPlanning(await trpc.taskManager.runPlanningPlaybook.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        taskId,
+        skill,
+        idempotencyKey: idempotencyKey("playbook", taskId, skill),
+        expiresAt: expiry(),
+      }));
+    });
+  }
+
+  function decidePlanning(
+    decision: "approve" | "edit" | "veto",
+    editedPlanningItems?: Array<Record<string, unknown>>,
+  ) {
+    return governed(async () => {
+      if (!planning?.candidateProposal) return;
+      await trpc.taskManager.decideProposal.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        proposalId: planning.candidateProposal.id,
+        decision,
+        ...(editedPlanningItems ? { editedPlanningItems } : {}),
+      });
+      setPlanning(null);
+      await load();
+    });
+  }
+
+  function assign() {
+    return governed(async () => {
+      setAssignment(await trpc.taskManager.assign.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        taskId,
+        idempotencyKey: idempotencyKey("assign", taskId),
+        expiresAt: expiry(),
+      }));
+      await load();
+    });
+  }
+
+  function decideAssignment(decision: "approve" | "veto") {
+    return governed(async () => {
+      if (!assignment?.routeProposal) return;
+      await trpc.taskManager.decideProposal.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        proposalId: assignment.routeProposal.id,
+        decision,
+      });
+      setAssignment(null);
+      await load();
+    });
+  }
+
+  function addDependency() {
+    return governed(async () => {
+      await trpc.taskManager.addDependency.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        taskId,
+        dependsOnTaskId: blockerTaskId.trim(),
+        ...(blockerReason.trim() ? { reason: blockerReason.trim() } : {}),
+      });
+      setBlockerTaskId("");
+      setBlockerReason("");
+      await load();
+    });
+  }
+
+  function removeDependency(dependencyId: string) {
+    return governed(async () => {
+      await trpc.taskManager.removeDependency.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        dependencyId,
+      });
+      await load();
+    });
   }
 
   if (error && !task) return <p role="alert" className="p-6 text-sm text-red-600">{error}</p>;
@@ -184,6 +312,119 @@ export function TaskRecordDetailPage() {
               </div>
             </div>
           )}
+        </section>
+
+        <section className="rounded-lg border p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <ShieldCheck className="size-4 text-[var(--color-steel)]" />
+            <h2 className="text-sm font-semibold">Planning Playbooks</h2>
+          </div>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Internal Strategist drafts; nothing reaches the queue until you decide. You may correct a draft
+            before approving it.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {PLAYBOOK_SKILLS.map((skill) => (
+              <button
+                key={skill}
+                type="button"
+                disabled={busy}
+                onClick={() => void runPlaybook(skill)}
+                className="rounded-md border px-3 py-2 text-sm disabled:opacity-40"
+              >
+                {skill.split("-").join(" ")}
+              </button>
+            ))}
+          </div>
+          {planning && (
+            <div className="mt-4">
+              <PlanningProposalReview
+                payload={planning.candidateProposal?.payload}
+                busy={busy}
+                onDecide={decidePlanning}
+              />
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-lg border p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <UserCog className="size-4 text-[var(--color-steel)]" />
+            <h2 className="text-sm font-semibold">Agent assignment</h2>
+          </div>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Chief of Staff resolves whichever Agent owns this Task&apos;s required Skill. There is no default:
+            an ambiguous or unmatched Task stays Human work.
+          </p>
+          <button
+            type="button"
+            disabled={busy || !task.requiredSkillId}
+            title={task.requiredSkillId ? undefined : "This Task names no required Skill, so there is nothing to route on."}
+            onClick={() => void assign()}
+            className="rounded-md border px-3 py-2 text-sm disabled:opacity-40"
+          >
+            Route to an eligible Agent
+          </button>
+          {assignment && assignment.routing.kind !== "assigned" && (
+            <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-900">
+              Human assignment required: {assignment.routing.reason}. Nothing was staged to approve —
+              no Agent was found eligible, so there is no assignment to accept.
+            </p>
+          )}
+          {assignment?.routeProposal && assignment.routeProposal.status === "pending_review" && (
+            <div className="mt-3 rounded-md bg-amber-50 p-3 text-sm">
+              <p className="font-medium">
+                Assign to Agent {(assignment.routing as { agentId: string }).agentId}?
+              </p>
+              <p className="mt-1 text-xs text-amber-900">
+                Governance banded this {String(assignment.gate?.band)} and returned
+                {" "}{String(assignment.gate?.decision).split("_").join(" ")} on{" "}
+                {assignment.gate?.calibration.approvals} prior approval(s) and{" "}
+                {assignment.gate?.calibration.vetoes} veto(es). Assigning grants authority to run this Task;
+                it does not start it.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button type="button" disabled={busy} onClick={() => void decideAssignment("approve")} className="rounded-md bg-[var(--color-navy)] px-3 py-1.5 text-white disabled:opacity-40">Approve assignment</button>
+                <button type="button" disabled={busy} onClick={() => void decideAssignment("veto")} className="rounded-md border px-3 py-1.5 disabled:opacity-40">Veto</button>
+              </div>
+            </div>
+          )}
+          {assignment?.assigned && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              {String((assignment.assigned as { note?: unknown }).note ?? "Assigned.")}
+            </p>
+          )}
+        </section>
+
+        <section className="rounded-lg border p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Link2 className="size-4 text-[var(--color-steel)]" />
+            <h2 className="text-sm font-semibold">Depends on</h2>
+          </div>
+          <p className="mb-3 text-xs text-muted-foreground">
+            One edge kind: &quot;blocked by&quot; is this same edge read from the other end. A blocker that is
+            done or abandoned stops blocking, and a cycle is refused.
+          </p>
+          {dependencies.length === 0 ? (
+            <p className="text-sm text-muted-foreground">This Task waits on nothing.</p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {dependencies.map((edge) => (
+                <li key={edge.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2">
+                  <span className="min-w-0 break-all">
+                    {edge.dependsOnTaskId}
+                    {edge.reason && <span className="text-muted-foreground"> — {edge.reason}</span>}
+                  </span>
+                  <button type="button" disabled={busy} onClick={() => void removeDependency(edge.id)} className="rounded-md border px-2 py-1 text-xs disabled:opacity-40">Remove</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <input value={blockerTaskId} onChange={(event) => setBlockerTaskId(event.target.value)} placeholder="Blocking Task Record ID" className="min-w-0 rounded-md border px-3 py-2 text-sm" />
+            <input value={blockerReason} onChange={(event) => setBlockerReason(event.target.value)} placeholder="Why (optional)" className="min-w-0 rounded-md border px-3 py-2 text-sm" />
+            <button type="button" disabled={busy || !blockerTaskId.trim()} onClick={() => void addDependency()} className="rounded-md border px-3 py-2 text-sm disabled:opacity-40">Add blocker</button>
+          </div>
         </section>
 
         <section className="rounded-lg border p-4">

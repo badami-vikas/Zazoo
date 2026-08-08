@@ -229,8 +229,13 @@ function candidateTask(args: {
  * `kind` itself is never in this map — an edit that could rewrite the kind
  * would change what approval DOES, turning a reviewed pre-mortem into an
  * unreviewed decomposition.
+ *
+ * Exported for the review surface (ADR-208), which has to read the SAME key
+ * to show a reviewer what they are editing. A surface with its own copy would
+ * silently show an empty list the moment a kind is added here — the reviewer
+ * would see "this plan proposes nothing" about a plan that proposes plenty.
  */
-const EDITABLE_CONTENT_KEY: Readonly<Record<string, string>> = {
+export const EDITABLE_CONTENT_KEY: Readonly<Record<string, string>> = {
   task_decomposition: "children",
   candidate_task_generation: "candidates",
   exit_test_authoring: "candidates",
