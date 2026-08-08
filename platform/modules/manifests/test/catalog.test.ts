@@ -185,9 +185,9 @@ test("the Task Manager Commons entry is discoverable and carries no personal dat
   }
   // Nothing in the entry may be a UUID: every id is a stable kebab-case
   // manifest id, and a UUID here would be a runtime row leaking into a
-  // published package.
+  // published Module.
   assert.ok(
     !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(serialized),
-    "a UUID in a Commons entry is a runtime row that escaped into a published package",
+    "a UUID in a Commons entry is a runtime row that escaped into a published Module",
   );
 });

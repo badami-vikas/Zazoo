@@ -2477,3 +2477,36 @@ What each answer means:
   so the close is never observed fails with "timed out after 10s waiting for the server to observe the
   socket close"; restoring it passes. `--test-concurrency=4` was left in place.
 - Evidence: with `--test-concurrency=4`, `jobpilot-culture-research.test.ts` tests "cancelCultureSourceFetch aborts a real in-flight fetch..." and "agentOrchestration.childRun.cancel ... actually aborts the real in-flight socket" failed once ("the server should observe the aborted connection actually close", false !== true) during a run that shared the CPU with the full db suite (683s real vs 1537s user). Rerun alone on an idle machine: 57/57 clean. Interpretation: timing-sensitive real-socket assertions flake under heavy load, not a concurrency-safety defect. If CI shows the same signature, widen the socket-close wait in those two tests rather than re-pinning the whole suite to --test-concurrency=1 (that pin cost ~6 min/run and contradicted AP-019's own resolution).
+
+## OPEN 2026-08-08 — `check:vocabulary` is red on main, and the only remaining family is the WhatsApp Module's retired "Tool" primitive (TASK-036)
+- Task: TASK-036
+- Status: OPEN. CI runs `pnpm verify`, which runs `check:vocabulary`, so main has been red since the WhatsApp Module landed. Three of the four failing families were fixed on 2026-08-08 under AP-127; the fourth needs a decision this session deliberately did not make for another Module's owner.
+- Evidence: `node platform/scripts/check-retired-vocabulary.mjs` reports 90 `tool` findings across
+  `modules/whatsapp/src/tools.ts` (21), `modules/whatsapp/test/tools.test.ts` (18),
+  `modules/manifests/src/index.ts` (23), `apps/web/src/app/pages/WhatsAppPage.tsx` (12),
+  `modules/whatsapp/test/manifest.test.ts` (8), `modules/manifests/test/catalog.test.ts` (2),
+  `apps/web/src/app/routes.tsx` (2), `apps/web/src/app/onboarding/questions.ts` (2),
+  `modules/whatsapp/src/index.ts` (1), `apps/web/src/app/pages/whatsapp/ScheduledActionsPanel.tsx` (1).
+- Already fixed (AP-127, 2026-08-08): the `brain` and `package` findings were this session's own prose and were
+  rewritten; the `element` finding was `document.documentElement` in `grid-theme.ts` — the DOM's own name for the
+  root node, a foreign contract Bridge does not own — and is now a reviewed allowlist entry.
+- Why the `tool` family cannot be allowlisted: the allowlist's own contract says "Exempt only where the term is a
+  foreign contract Bridge does not own (a model's tool-calling JSON, a third-party API field, a spec keyword).
+  Never exempt Bridge's own vocabulary: rename that instead." `WhatsAppTool`, `WhatsAppToolMode`, `toolId`,
+  `requireTool` and the `whatsapp.tool.*` capability ids are Bridge's own product vocabulary, and
+  `docs/raw/vocabulary-code-migration-plan-2026-07-14.md` lists "Tool as a product primitive" as retired.
+- **The decision that is actually blocking, stated so the next session does not re-derive it.** The migration plan
+  says `tool product APIs -> skill/integration/module APIs according to actual behavior`, and the two readings
+  disagree. The MANIFEST already models each one as a Skill capability (`capability("whatsapp.tool.contact-extractor",
+  ..., "skill", ...)`). The BEHAVIOUR does not: each entry in `WHATSAPP_TOOLS` is a named UI surface with `modes`
+  (Contact Extractor, Tags and Internal Notes, Analytics and Audit Log, Automation Rules, Scheduled Actions),
+  rendered by the "Tools" Page and invoked by a human click — and `docs/glossary.md` says of a Skill that "a Human
+  or Automation never invokes it directly". By behaviour these are Module **Pages** whose `modes` are Views; by
+  manifest they are Skills. Renaming to `skill` would encode the contradiction the glossary rules out; renaming to
+  `page` contradicts the capability type they already ship under.
+- Why this session did not decide it: it is a Tier C canon call about another Module's product vocabulary, it needs
+  its own ADR, and it changes persisted `whatsapp.tool.*` capability ids across ~90 sites (a WhatsApp manifest
+  version bump, the same shape the Task Manager's `1.1.0`→`1.8.0` bumps used). Guessing the noun would have shipped
+  a rename the Module's owner has to undo.
+- Repro: `cd platform && node scripts/check-retired-vocabulary.mjs` (exit 1). Everything else in `pnpm verify` is
+  green as of 2026-08-08: `turbo run typecheck test:coverage build` is 72/72 and `check:agent-context` exits 0.

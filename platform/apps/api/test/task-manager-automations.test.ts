@@ -922,11 +922,11 @@ test("the unblock notifier reports the wait that ended, and changes no status", 
 });
 
 // ---------------------------------------------------------------------
-// ADR-205 (TM5) — Second Brain is Graph view at full scope (ADR-110), and a
+// ADR-205 (TM5) — the full-scope Graph view (ADR-110) is Second Brain, and a
 // "full" graph that silently omits the execution queue is not full.
 // ---------------------------------------------------------------------
 
-test("Second Brain shows Tasks, their tree, and what they wait on", async () => {
+test("the full-scope graph shows Tasks, their tree, and what they wait on", async () => {
   const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
   const api = caller(wiring);
 
@@ -969,7 +969,7 @@ test("Second Brain shows Tasks, their tree, and what they wait on", async () => 
 
   // The two edge kinds are different questions: the tree says where work
   // SITS, the dependency says what it WAITS ON. Collapsing them would leave
-  // Second Brain unable to answer either.
+  // the full-scope graph unable to answer either.
   const parentEdge = graph.edges.find((edge) => edge.relationType === "task_parent");
   assert.equal(parentEdge?.sourceId, `task:${child.task.id}`);
   assert.equal(parentEdge?.targetId, `task:${parent.task.id}`);
