@@ -369,6 +369,12 @@ export class ZazooDirector {
 
   setEmotion(e: ZazooEmotion) { this.perform({ emotion: e }); }
   setAction(a: ZazooAction) { this.perform({ action: a }); }
+  /** Capture tell: close both eyes once without changing the companion's mood. */
+  triggerBlink(now = performance.now() / 1000) {
+    this.blinkT = 0;
+    this.nextBlink = 4.2;
+    this.last = this.last < 0 ? now : this.last;
+  }
   setPetting(on: boolean) { this.petting = on; }
   setTalking(on: boolean) { this.talking = on; }
   setCursor(c: { x: number; y: number } | null) { this.cursor = c; }
