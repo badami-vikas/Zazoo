@@ -724,6 +724,9 @@ export async function ensureInternalStrategistGovernance(
  */
 export const CHIEF_OF_STAFF_ALLOWED_SKILLS: readonly string[] = [
   "task-manager.progress-synthesis",
+  // ADR-204 — "what is blocking what, and what just became startable" is a
+  // coordination question, so the dependency graph is Chief of Staff's.
+  "task-manager.dependency-analysis",
 ];
 
 /**

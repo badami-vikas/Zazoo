@@ -166,23 +166,33 @@ export interface ProposeQueueSequenceInput {
   queue: readonly TaskRecord[];
   /** Work-in-progress limit; the plan's default posture is WIP-1 per actor. */
   wipLimit?: number;
+  /** Task ids with at least one UNSATISFIED dependency edge
+   * (`dependencyBlockedTaskIds`). Optional: a caller with no dependency store
+   * to read passes nothing and gets the status-only ordering that predates
+   * ADR-204, rather than a silently wrong claim of dependency awareness. */
+  dependencyBlockedTaskIds?: ReadonlySet<string>;
 }
 
 /**
- * Priority- and status-aware ordering of the OPEN queue.
+ * Dependency-, priority- and status-aware ordering of the OPEN queue.
  *
- * Dependency awareness is deliberately absent: the plan specifies `depends_on`
- * / `blocked_by` Relations, and no such edge exists in the schema today, so a
- * "dependency-aware" claim here would be fiction. The `blocked` status IS
- * honored (blocked work sinks below ready work), and the honest gap is
- * recorded rather than papered over.
+ * Dependency awareness arrived with ADR-204. Before it, this function honoured
+ * only the `blocked` STATUS and said so — a status records that someone
+ * believed a Task was blocked, but not by what, so nothing could ever tell
+ * them it had stopped being true. An unsatisfied edge now sinks a Task
+ * whatever its own status says, and the edge clearing floats it again without
+ * anyone remembering to change the status by hand.
  */
 export function proposeQueueSequence(input: ProposeQueueSequenceInput): QueueSequenceProposal {
   const open = input.queue.filter((task) => taskIsOpen(task.status));
   const current = [...open].sort((a, b) => compareTaskPaths(a.path, b.path));
+  const dependencyBlocked = input.dependencyBlockedTaskIds ?? new Set<string>();
 
   const rankOf = (task: TaskRecord): number => {
     if (task.status === "in_progress") return 0; // the hot head stays the head
+    // An unsatisfied dependency outranks the Task's own status: work whose
+    // blocker is still open is not ready, whatever anyone marked it.
+    if (dependencyBlocked.has(task.id)) return 3;
     if (task.status === "blocked") return 3; // ready work outranks blocked work
     return 1;
   };
@@ -247,6 +257,9 @@ export interface AnalyzeTaskImpactFitInput {
   parentTaskId?: string | undefined;
   queue: readonly TaskRecord[];
   wipLimit?: number;
+  /** Passed straight through to `proposeQueueSequence` (ADR-204): a Task whose
+   * blocker is still open is not ready, whatever its own status says. */
+  dependencyBlockedTaskIds?: ReadonlySet<string>;
 }
 
 /**
@@ -297,6 +310,7 @@ export function analyzeTaskImpactFit(input: AnalyzeTaskImpactFitInput): TaskImpa
   const resequence = proposeQueueSequence({
     queue: input.queue,
     ...(input.wipLimit !== undefined ? { wipLimit: input.wipLimit } : {}),
+    ...(input.dependencyBlockedTaskIds ? { dependencyBlockedTaskIds: input.dependencyBlockedTaskIds } : {}),
   });
 
   const openCount = input.queue.filter((task) => taskIsOpen(task.status)).length;

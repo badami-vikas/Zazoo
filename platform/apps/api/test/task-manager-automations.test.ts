@@ -32,6 +32,7 @@ import {
   TASK_MANAGER_GOAL_REVIEW_AUTOMATION_ID,
   TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID,
   INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
+  TASK_MANAGER_DEPENDENCY_AUTOMATION_ID,
 } from "../src/built-in-modules.js";
 
 /** Proposals expire, so every call supplies a bound inside the allowed 24h. */
@@ -794,4 +795,128 @@ test("a tree restructure proposal is Internal Strategist's Run running the real 
   );
   assert.ok(runs.length > 0, "the restructure now leaves an attributable Agent Run");
   assert.ok(runs.every((entry) => entry.agentId === INTERNAL_STRATEGIST_AGENT_RUNTIME_ID));
+});
+
+// ---------------------------------------------------------------------
+// ADR-204 — Task dependency Relations, and the last Chief of Staff
+// Automation. `dependency-unblock-notifier` was blocked on the SCHEMA rather
+// than on ownership: until now there were no edges whose clearing anyone
+// could notice.
+// ---------------------------------------------------------------------
+
+test("a dependency cycle is refused with a conflict, not accepted and left unsatisfiable", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+  const first = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Ship the intake form",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "A new user submits it end to end",
+  });
+  const second = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Wire the confirmation email",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "The email lands in a real inbox",
+  });
+
+  await api.taskManager.addDependency({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: first.task.id,
+    dependsOnTaskId: second.task.id,
+    reason: "The form cannot ship before the email it triggers exists",
+  });
+  // The reverse edge would make both wait forever. A cycle is not a bad plan,
+  // it is an unsatisfiable one, so it is refused rather than recorded.
+  await assert.rejects(
+    () => api.taskManager.addDependency({
+      organizationId: PILOT_ORGANIZATION,
+      taskId: second.task.id,
+      dependsOnTaskId: first.task.id,
+    }),
+    /cycle/,
+  );
+
+  const view = await api.taskManager.dependencies({ organizationId: PILOT_ORGANIZATION });
+  assert.equal(view.dependencies.length, 1, "the refused edge was not written");
+  assert.equal(view.blocked.length, 1);
+  assert.equal(view.blocked[0]?.taskId, first.task.id);
+  assert.equal(view.blocked[0]?.blockedBy[0]?.taskId, second.task.id);
+});
+
+test("the unblock notifier reports the wait that ended, and changes no status", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+  const waiting = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Ship the intake form",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "A new user submits it end to end",
+  });
+  const blocker = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Wire the confirmation email",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "The email lands in a real inbox",
+  });
+  await api.taskManager.addDependency({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: waiting.task.id,
+    dependsOnTaskId: blocker.task.id,
+  });
+
+  const stillBlocked = await api.taskManager.runDependencyUnblockNotifier({
+    organizationId: PILOT_ORGANIZATION,
+    idempotencyKey: "dependency-unblock-1",
+  });
+  assert.deepEqual(stillBlocked.unblocked, [], "nothing has cleared yet");
+  assert.equal((stillBlocked.blocked as { taskId: string }[])[0]?.taskId, waiting.task.id);
+
+  // Close the blocker the only way the store allows: through the governed
+  // transition path, with verification evidence.
+  await api.taskManager.transition({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: blocker.task.id,
+    status: "in_progress",
+  });
+  await api.taskManager.verify({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: blocker.task.id,
+    evidenceRefs: ["Sent to a real inbox and read it"],
+  });
+  await api.taskManager.transition({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: blocker.task.id,
+    status: "done",
+  });
+
+  const cleared = await api.taskManager.runDependencyUnblockNotifier({
+    organizationId: PILOT_ORGANIZATION,
+    idempotencyKey: "dependency-unblock-2",
+  });
+  const unblocked = cleared.unblocked as { taskId: string; clearedBy: { taskId: string }[] }[];
+  assert.equal(unblocked.length, 1);
+  assert.equal(unblocked[0]?.taskId, waiting.task.id);
+  assert.equal(unblocked[0]?.clearedBy[0]?.taskId, blocker.task.id, "the notice names what cleared");
+
+  // It NOTIFIES. A blocker landing does not make the dependent Task started,
+  // and flipping its status would decide for the Human that the work is now
+  // theirs to pick up.
+  const after = await api.taskManager.get({ organizationId: PILOT_ORGANIZATION, taskId: waiting.task.id });
+  assert.equal(after?.status, waiting.task.status, "the notifier changed nothing");
+
+  const runs = await wiring.automationRunRecorder.list(
+    PILOT_ORGANIZATION,
+    [TASK_MANAGER_DEPENDENCY_AUTOMATION_ID],
+    { limit: 10 },
+  );
+  assert.equal(
+    runs.find((entry) => entry.runId === cleared.runId)?.agentId,
+    CHIEF_OF_STAFF_AGENT_RUNTIME_ID,
+    "blocking is a coordination question, so this is Chief of Staff's Run",
+  );
 });

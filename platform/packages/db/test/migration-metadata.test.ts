@@ -16,7 +16,7 @@ const dbRoot = resolve(here, "../..");
 const migrationsFolder = resolve(dbRoot, "migrations");
 const drizzleKitBin = resolve(dbRoot, "node_modules/drizzle-kit/bin.cjs");
 
-test("Drizzle metadata is rebased through 0038 and generate is a deterministic no-op", () => {
+test("Drizzle metadata is rebased through 0039 and generate is a deterministic no-op", () => {
   const probe = mkdtempSync(resolve(dbRoot, ".drizzle-noop-"));
   const probeMigrations = join(probe, "migrations");
   try {
@@ -28,10 +28,10 @@ test("Drizzle metadata is rebased through 0038 and generate is a deterministic n
     };
     const last = journal.entries.at(-1);
     assert.deepEqual(last, {
-      idx: 38,
+      idx: 39,
       version: "7",
-      when: 1785867456920,
-      tag: "0038_capability_type_database",
+      when: 1786195045031,
+      tag: "0039_task021_task_dependencies",
       breakpoints: true,
     });
     assert.ok(
@@ -70,6 +70,10 @@ test("Drizzle metadata is rebased through 0038 and generate is a deterministic n
       readdirSync(join(probeMigrations, "meta")).includes("0037_snapshot.json"),
       "AQV ledger-attribution snapshot must remain tracked",
     );
+    assert.ok(
+      readdirSync(join(probeMigrations, "meta")).includes("0039_snapshot.json"),
+      "Task-dependency snapshot must be tracked (ADR-204)",
+    );
 
     const generated = spawnSync(
       process.execPath,
@@ -97,12 +101,13 @@ test("Drizzle metadata is rebased through 0038 and generate is a deterministic n
     assert.match(output, /No schema changes, nothing to migrate/);
     assert.equal(readFileSync(journalPath, "utf8"), journalBefore);
     assert.ok(
-      // The NEXT index after the current head (0038). If `generate` allocates
+      // The NEXT index after the current head (0039). If `generate` allocates
       // this, schema.ts and the committed migrations have drifted apart.
       // 0038 is a pure DATA migration (capability_type 'view' -> 'database'),
       // so it has no snapshot and cannot make generate produce one — the
-      // schema shape is byte-identical either side of it.
-      !readdirSync(probeMigrations).some((name) => /^0039_.*\.sql$/.test(name)),
+      // schema shape is byte-identical either side of it. 0039 DOES have one:
+      // it adds `task_dependencies`, a real shape change.
+      !readdirSync(probeMigrations).some((name) => /^0040_.*\.sql$/.test(name)),
       "no-op generation must not allocate another migration",
     );
   } finally {

@@ -3,6 +3,7 @@ import {
   applyApprovedTaskProjectionReconciliation,
   applyApprovedPlanningProposal,
   applyTaskRestructure,
+  assertNoDependencyCycle,
   canonicalizeJson,
   draftTaskCreate,
   emitTasksMarkdown,
@@ -14,6 +15,7 @@ import {
   type RestructureOperation,
   type TaskChangeProposal,
   type TaskCreateDraft,
+  type TaskDependency,
   type TaskManagerIdClock,
   type TaskManagerStore,
   type TaskOutcome,
@@ -22,7 +24,7 @@ import {
   type TaskVerification,
 } from "@bridge/core";
 import type { Database } from "./client.js";
-import { events, taskChangeProposals, tasks } from "./schema.js";
+import { events, taskChangeProposals, taskDependencies, tasks } from "./schema.js";
 import { withOrganizationContext, withOrganizationOnly } from "./organization-context.js";
 
 function parseArray<T>(value: unknown, column: string): T[] {
@@ -150,6 +152,81 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
       const rows = await tx.select().from(tasks)
         .where(eq(tasks.organizationId, organizationId));
       return rows.map(unpack).sort(comparePaths);
+    });
+  }
+
+  // ADR-204 — dependency Relations. Read whole rather than per Task: the
+  // sequencer, the blockage report and the unblock notifier all need the
+  // graph, and fetching it edge by edge would have each ask a different
+  // question of the same data.
+  async listDependencies(organizationId: string): Promise<TaskDependency[]> {
+    return this.scoped(organizationId, async (tx) => {
+      const rows = await tx.select().from(taskDependencies)
+        .where(eq(taskDependencies.organizationId, organizationId));
+      return rows.map((row) => ({
+        id: row.id,
+        organizationId: row.organizationId,
+        taskId: row.taskId,
+        dependsOnTaskId: row.dependsOnTaskId,
+        ...(row.reason ? { reason: row.reason } : {}),
+        createdAt: row.createdAt.toISOString(),
+      }));
+    });
+  }
+
+  async addDependency(
+    input: { organizationId: string; taskId: string; dependsOnTaskId: string; reason?: string },
+    seam: TaskManagerIdClock,
+  ): Promise<TaskDependency> {
+    return this.scoped(input.organizationId, async (tx) => {
+      const rows = await tx.select().from(taskDependencies)
+        .where(eq(taskDependencies.organizationId, input.organizationId))
+        // Locked for the cycle check: the graph this validates against has to
+        // be the graph being written to, or two concurrent edges could each
+        // look acyclic alone and close a loop together.
+        .for("update");
+      const existing: TaskDependency[] = rows.map((row) => ({
+        id: row.id,
+        organizationId: row.organizationId,
+        taskId: row.taskId,
+        dependsOnTaskId: row.dependsOnTaskId,
+        ...(row.reason ? { reason: row.reason } : {}),
+        createdAt: row.createdAt.toISOString(),
+      }));
+      const duplicate = existing.find(
+        (edge) => edge.taskId === input.taskId && edge.dependsOnTaskId === input.dependsOnTaskId,
+      );
+      if (duplicate) return duplicate;
+      // The SAME core function the in-memory store calls, so the two
+      // durability backends cannot disagree about what a cycle is.
+      assertNoDependencyCycle(existing, input);
+      const [row] = await tx.insert(taskDependencies).values({
+        id: seam.nextId(),
+        organizationId: input.organizationId,
+        taskId: input.taskId,
+        dependsOnTaskId: input.dependsOnTaskId,
+        reason: input.reason ?? null,
+        createdAt: new Date(seam.nowISO()),
+      }).returning();
+      if (!row) throw new Error("task-manager: dependency insert returned no row");
+      return {
+        id: row.id,
+        organizationId: row.organizationId,
+        taskId: row.taskId,
+        dependsOnTaskId: row.dependsOnTaskId,
+        ...(row.reason ? { reason: row.reason } : {}),
+        createdAt: row.createdAt.toISOString(),
+      };
+    });
+  }
+
+  async removeDependency(organizationId: string, dependencyId: string): Promise<boolean> {
+    return this.scoped(organizationId, async (tx) => {
+      const removed = await tx.delete(taskDependencies).where(and(
+        eq(taskDependencies.organizationId, organizationId),
+        eq(taskDependencies.id, dependencyId),
+      )).returning();
+      return removed.length > 0;
     });
   }
 

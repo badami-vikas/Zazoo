@@ -72,6 +72,11 @@ export const TASK_MANAGER_GOAL_REVIEW_AUTOMATION_ID = "b0000000-0000-4000-a000-0
 export const TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000104";
 export const TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000105";
 export const TASK_MANAGER_REOPEN_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000106";
+/** ADR-204 — the last Chief of Staff Automation. Declared since TM0 and
+ * blocked on the schema rather than on ownership: there were no dependency
+ * edges to notice clearing. */
+export const TASK_MANAGER_DEPENDENCY_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000107";
+export const TASK_MANAGER_DEPENDENCY_AUTOMATION_KEY = "task-manager.dependency-unblock-notifier";
 export const TASK_MANAGER_GOAL_REVIEW_AUTOMATION_KEY = "task-manager.goal-review-cadence";
 export const TASK_MANAGER_IMPACT_FIT_AUTOMATION_KEY = "task-manager.task-created-impact-analysis";
 export const TASK_MANAGER_RESTRUCTURE_AUTOMATION_KEY = "task-manager.task-tree-restructure-proposal";
@@ -137,6 +142,9 @@ export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAut
   if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_REOPEN_AUTOMATION_KEY) {
     return TASK_MANAGER_REOPEN_AUTOMATION_ID;
   }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_DEPENDENCY_AUTOMATION_KEY) {
+    return TASK_MANAGER_DEPENDENCY_AUTOMATION_ID;
+  }
   return undefined;
 }
 
@@ -157,6 +165,7 @@ export function isModuleRuntimeAutomationId(automationId: string): boolean {
     TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID,
     TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID,
     TASK_MANAGER_REOPEN_AUTOMATION_ID,
+    TASK_MANAGER_DEPENDENCY_AUTOMATION_ID,
   ].includes(automationId);
 }
 
@@ -563,6 +572,11 @@ const taskManagerSkills = [
   // whether one specific change may proceed without a Human.
   ["queue-guard", "Governance Agent"],
   ["change-gate", "Governance Agent"],
+  // ADR-204 — the dependency graph. Chief of Staff's, because "what is
+  // blocking what, and what just became startable" is a coordination
+  // question; Internal Strategist keeps placement and Governance keeps
+  // control. It reads the queue and the edges and writes nothing.
+  ["dependency-analysis", "Chief of Staff"],
 ] as const;
 
 const taskManagerAgents = [
@@ -929,7 +943,9 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       // the four Governance guard/gate Automations to them.
       // 1.5.0: ADR-203 binds the four Internal Strategist Automations. Three
       // already halted for review — the gap was attribution, not governance.
-      version: "1.5.0",
+      // 1.6.0: ADR-204 adds Task dependency Relations (migration 0039), the
+      // `dependency-analysis` Skill, and binds `dependency-unblock-notifier`.
+      version: "1.6.0",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:

@@ -1,6 +1,7 @@
 import { TASK_PLAYBOOKS } from "./task-playbooks.js";
 import { analyzeTaskImpactFit } from "./task-planning.js";
 import { applyApprovedPlanningProposal } from "./task-materialize.js";
+import { assertNoDependencyCycle, type TaskDependency } from "./task-dependencies.js";
 
 export type TaskRecordStatus =
   | "candidate"
@@ -841,6 +842,19 @@ export interface TaskManagerIdClock {
 
 export interface TaskManagerStore {
   list(organizationId: string): Promise<TaskRecord[]>;
+  /** Every dependency edge in the Organization (ADR-204). Read whole rather
+   * than per Task: the sequencer, the blockage report and the unblock notifier
+   * all need the graph, and fetching it edge by edge would make each of them
+   * ask a different question of the same data. */
+  listDependencies(organizationId: string): Promise<TaskDependency[]>;
+  /** Create one `depends_on` edge. Throws `TaskDependencyCycleError` when the
+   * edge would close a cycle — a cycle is not a bad plan, it is an
+   * unsatisfiable one, and write time is the only place to still say so. */
+  addDependency(
+    input: { organizationId: string; taskId: string; dependsOnTaskId: string; reason?: string },
+    seam: TaskManagerIdClock,
+  ): Promise<TaskDependency>;
+  removeDependency(organizationId: string, dependencyId: string): Promise<boolean>;
   get(organizationId: string, taskId: string): Promise<TaskRecord | null>;
   create(input: Omit<CreateTaskRecordInput, "id"> & { id?: string }, seam: TaskManagerIdClock): Promise<TaskCreateDraft>;
   transition(
@@ -903,6 +917,43 @@ export interface TaskManagerStore {
 export class InMemoryTaskManagerStore implements TaskManagerStore {
   readonly tasks = new Map<string, TaskRecord>();
   readonly proposals = new Map<string, TaskChangeProposal>();
+  readonly dependencies = new Map<string, TaskDependency>();
+
+  async listDependencies(organizationId: string): Promise<TaskDependency[]> {
+    return [...this.dependencies.values()].filter((edge) => edge.organizationId === organizationId);
+  }
+
+  async addDependency(
+    input: { organizationId: string; taskId: string; dependsOnTaskId: string; reason?: string },
+    seam: TaskManagerIdClock,
+  ): Promise<TaskDependency> {
+    const existing = await this.listDependencies(input.organizationId);
+    // The same pair twice is not a stronger dependency, and two rows for it
+    // would double-report every blockage. Idempotent, matching the unique
+    // constraint the Drizzle store relies on.
+    const duplicate = existing.find(
+      (edge) => edge.taskId === input.taskId && edge.dependsOnTaskId === input.dependsOnTaskId,
+    );
+    if (duplicate) return duplicate;
+    assertNoDependencyCycle(existing, input);
+    const edge: TaskDependency = {
+      id: seam.nextId(),
+      organizationId: input.organizationId,
+      taskId: input.taskId,
+      dependsOnTaskId: input.dependsOnTaskId,
+      ...(input.reason ? { reason: input.reason } : {}),
+      createdAt: seam.nowISO(),
+    };
+    this.dependencies.set(edge.id, edge);
+    return edge;
+  }
+
+  async removeDependency(organizationId: string, dependencyId: string): Promise<boolean> {
+    const edge = this.dependencies.get(dependencyId);
+    if (!edge || edge.organizationId !== organizationId) return false;
+    this.dependencies.delete(dependencyId);
+    return true;
+  }
 
   async list(organizationId: string): Promise<TaskRecord[]> {
     return [...this.tasks.values()]

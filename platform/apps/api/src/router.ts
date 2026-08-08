@@ -208,6 +208,9 @@ import {
   detectTaskProjectionDrift,
   applyApprovedTaskProjectionReconciliation,
   mergeEditedPlanningPayload,
+  blockedTasks,
+  dependencyBlockedTaskIds,
+  TaskDependencyCycleError,
   MAX_MATERIALIZED_TASKS,
   evaluateTaskGuards,
   DEFAULT_STALE_AFTER_DAYS,
@@ -348,6 +351,7 @@ import {
   TASK_MANAGER_IMPACT_FIT_AUTOMATION_ID,
   TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID,
   TASK_MANAGER_REOPEN_AUTOMATION_ID,
+  TASK_MANAGER_DEPENDENCY_AUTOMATION_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeAutomationId,
   resolveModuleAgentRuntimeId,
@@ -6597,6 +6601,8 @@ export const appRouter = t.router({
             action: "write",
             params: {
               queue: await ctx.wiring.taskManager.list(input.organizationId),
+              // ADR-204 — the edges make the resequence proposal dependency-aware.
+              dependencies: await ctx.wiring.taskManager.listDependencies(input.organizationId),
               taskId,
               title: taskInput.title,
               ...(taskInput.exitTest ? { exitTest: taskInput.exitTest } : {}),
@@ -6683,6 +6689,7 @@ export const appRouter = t.router({
           action: "write",
           params: {
             queue: await ctx.wiring.taskManager.list(input.organizationId),
+            dependencies: await ctx.wiring.taskManager.listDependencies(input.organizationId),
             taskId: input.taskId,
             title: result.task.title,
             ...(result.task.exitTest ? { exitTest: result.task.exitTest } : {}),
@@ -7697,6 +7704,107 @@ export const appRouter = t.router({
         band: output["band"],
         decision: output["decision"],
         calibration: { ...history, source: "decision ledger" as const },
+      };
+    }),
+    /**
+     * Task dependency Relations (ADR-204) — the `depends_on` edges the plan
+     * has specified since TM0 and the schema never had. Every slice since
+     * ADR-196 recorded the same residual: `proposeQueueSequence` honoured the
+     * `blocked` STATUS, which says someone believed a Task was blocked but not
+     * by what, so nothing could ever tell them it had stopped being true.
+     */
+    dependencies: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+    })).query(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const [queue, edges] = await Promise.all([
+        ctx.wiring.taskManager.list(input.organizationId),
+        ctx.wiring.taskManager.listDependencies(input.organizationId),
+      ]);
+      return { dependencies: edges, blocked: blockedTasks(queue, edges) };
+    }),
+    addDependency: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      taskId: z.string().uuid(),
+      dependsOnTaskId: z.string().uuid(),
+      reason: z.string().trim().min(1).max(2_000).optional(),
+    }).strict()).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      // Both ends must be real Tasks in THIS Organization. The composite FKs
+      // enforce it in Postgres; checking here turns a constraint violation
+      // into an answer the caller can act on.
+      const [task, blocker] = await Promise.all([
+        ctx.wiring.taskManager.get(input.organizationId, input.taskId),
+        ctx.wiring.taskManager.get(input.organizationId, input.dependsOnTaskId),
+      ]);
+      if (!task || !blocker) throw new TRPCError({ code: "NOT_FOUND", message: "Both Tasks must exist in this Organization" });
+      try {
+        return await ctx.wiring.taskManager.addDependency({
+          organizationId: input.organizationId,
+          taskId: input.taskId,
+          dependsOnTaskId: input.dependsOnTaskId,
+          ...(input.reason ? { reason: input.reason } : {}),
+        }, { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() });
+      } catch (error) {
+        // A cycle is not a bad plan, it is an UNSATISFIABLE one: every Task in
+        // it waits forever and no amount of finishing work clears it. 409, not
+        // 500 — the request was well-formed and the answer is "no".
+        if (error instanceof TaskDependencyCycleError) {
+          throw new TRPCError({ code: "CONFLICT", message: error.message });
+        }
+        throw error;
+      }
+    }),
+    removeDependency: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      dependencyId: z.string().uuid(),
+    }).strict()).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const removed = await ctx.wiring.taskManager.removeDependency(input.organizationId, input.dependencyId);
+      if (!removed) throw new TRPCError({ code: "NOT_FOUND", message: "Dependency not found" });
+      return { removed };
+    }),
+    /**
+     * `dependency-unblock-notifier` (ADR-204) — the last Chief of Staff
+     * Automation, and the one that was blocked on the SCHEMA rather than on
+     * ownership: until now there were no edges whose clearing anyone could
+     * notice.
+     *
+     * It notifies and stops. A blocker landing does not make the dependent
+     * Task started, and flipping its status would decide for the Human that
+     * the work is now theirs to pick up.
+     */
+    runDependencyUnblockNotifier: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      idempotencyKey: z.string().trim().min(8).max(200),
+    }).strict()).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      await requireInstalledTaskManager(ctx.wiring, input.organizationId);
+      const [queue, dependencies] = await Promise.all([
+        ctx.wiring.taskManager.list(input.organizationId),
+        ctx.wiring.taskManager.listDependencies(input.organizationId),
+      ]);
+      const { runId, proposal } = await runTaskManagerAgentAutomation(ctx, {
+        organizationId: input.organizationId,
+        automationId: TASK_MANAGER_DEPENDENCY_AUTOMATION_ID,
+        name: "Task Manager dependency unblock notifier",
+        agentId: CHIEF_OF_STAFF_AGENT,
+        skill: "task-manager.dependency-analysis",
+        action: "read",
+        params: { queue, dependencies },
+        runId: idempotentUuid(`${input.organizationId}:dependency_unblock_run:${input.idempotencyKey}`),
+        taintKey: `task-manager:dependency-unblock:${ctx.identity.id}:${input.idempotencyKey}`,
+      });
+      const output = (proposal.output?.proposedOutput ?? {}) as Record<string, unknown>;
+      return {
+        runId,
+        proposal,
+        unblocked: Array.isArray(output["unblocked"]) ? output["unblocked"] : [],
+        blocked: Array.isArray(output["blocked"]) ? output["blocked"] : [],
       };
     }),
     runCompletedBaySweep: authenticatedProcedure.input(z.object({

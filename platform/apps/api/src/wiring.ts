@@ -128,6 +128,10 @@ import {
   planCompletedBaySweep,
   evaluateTaskGuards,
   DEFAULT_WIP_LIMIT,
+  blockedTasks,
+  unblockedTasks,
+  dependencyBlockedTaskIds,
+  type TaskDependency,
   routeTaskByRequiredSkill,
   scaffoldHabits,
   scanForOpportunities,
@@ -3064,6 +3068,8 @@ const TASK_MANAGER_SKILL_OWNERS: Readonly<Record<string, string>> = {
   // proceed without a Human.
   "task-manager.queue-guard": "governance",
   "task-manager.change-gate": "governance",
+  // ADR-204 — the dependency graph, Chief of Staff's coordination question.
+  "task-manager.dependency-analysis": "chief-of-staff",
 };
 
 /** A deterministic parent-Task suggestion carried into Human review (ADR-183).
@@ -3186,11 +3192,24 @@ function runTaskPlanningSkill(
   const parentTaskId = typeof values["parentTaskId"] === "string" ? values["parentTaskId"] : undefined;
   const taskId = typeof values["taskId"] === "string" ? values["taskId"] : undefined;
   const wipLimit = typeof values["wipLimit"] === "number" ? values["wipLimit"] : undefined;
+  // ADR-204 — dependency edges, when the caller has them. OPTIONAL on purpose:
+  // a caller with no dependency store to read gets the status-only ordering
+  // that predates ADR-204 rather than a silently wrong claim of dependency
+  // awareness. It is not `requireQueue`-style mandatory because an
+  // Organization with no edges at all is a legitimate, common state, whereas a
+  // missing queue is always a mistake.
+  const dependencyBlocked = Array.isArray(values["dependencies"])
+    ? dependencyBlockedTaskIds(tasks, values["dependencies"] as readonly TaskDependency[])
+    : undefined;
 
   if (skillId === "task-manager.queue-sequencing") {
     return {
       kind: "queue_sequence",
-      ...proposeQueueSequence({ queue: tasks, ...(wipLimit !== undefined ? { wipLimit } : {}) }),
+      ...proposeQueueSequence({
+        queue: tasks,
+        ...(wipLimit !== undefined ? { wipLimit } : {}),
+        ...(dependencyBlocked ? { dependencyBlockedTaskIds: dependencyBlocked } : {}),
+      }),
       status: "proposed",
     };
   }
@@ -3221,6 +3240,7 @@ function runTaskPlanningSkill(
       parentTaskId,
       queue: tasks,
       ...(wipLimit !== undefined ? { wipLimit } : {}),
+      ...(dependencyBlocked ? { dependencyBlockedTaskIds: dependencyBlocked } : {}),
     }),
     status: "proposed",
   };
@@ -3300,6 +3320,29 @@ function runTaskExecutionSkill(
     // the Skill echoing them, which is what this workstream exists to remove —
     // the Skill INDEPENDENTLY RE-VERIFIES a caller-supplied plan and refuses a
     // malformed one. `source` states which shape it answered from.
+    // ADR-204 — the dependency graph. Reports what is blocked and by what,
+    // and what has just become startable; writes nothing, because deciding a
+    // Task is now ready to start is a Human's call, not a consequence of a
+    // blocker landing.
+    case "task-manager.dependency-analysis": {
+      const queue = requireQueue();
+      const dependencies = values["dependencies"];
+      if (!Array.isArray(dependencies)) {
+        // A missing edge list would make a fully-blocked queue and an
+        // unauthorized call produce the same answer: "nothing is blocked".
+        throw new Error(`${skillId} requires an authorized 'dependencies' array in its inputs`);
+      }
+      const edges = dependencies as readonly TaskDependency[];
+      return {
+        kind: "dependency_analysis",
+        evaluatedAt: now,
+        blocked: blockedTasks(queue, edges),
+        unblocked: unblockedTasks(queue, edges),
+        basis: "Task rows and their `depends_on` edges. A blocker that is done, abandoned or deleted no longer blocks; nothing here changes a status.",
+        status: "proposed",
+      };
+    }
+
     // ADR-202 — the queue's standing invariants, as an attributable Skill.
     // `evaluateTaskGuards` has existed since TM0 but was reachable only as
     // read-only data on the `projection` query, so `wip-breach-detector` and
@@ -3688,6 +3731,7 @@ async function runTaskAuthoringSkill(
 const TASK_MANAGER_READ_ONLY_SKILLS: readonly string[] = [
   "task-manager.queue-guard",
   "task-manager.change-gate",
+  "task-manager.dependency-analysis",
 ];
 
 export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.entries(TASK_MANAGER_SKILL_OWNERS)

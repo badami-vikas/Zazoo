@@ -1777,6 +1777,38 @@ export const dealpilotTheses = pgTable(
 /** deal_source | deal_thesis | source_thesis edges. `from_id`/`to_id` are the
  * Record ids in the tables the `kind` implies (no cross-table FK — the target
  * table varies by kind); org-scoped uniqueness mirrors the domain relation key. */
+/**
+ * Task dependency Relations (ADR-204) — the `depends_on` edges the Task Manager
+ * plan has specified since TM0 and the schema never had.
+ *
+ * ONE edge kind, not two. `blocked_by` is the same edge read from the other
+ * end, so storing both directions would let them disagree; the row is always
+ * "`task_id` depends on `depends_on_task_id`" and the reverse is a query.
+ *
+ * The `(organization_id, id)` composite FKs are what keep an edge from ever
+ * pointing across tenants — the same shape `tasks.parent_task_id` relies on.
+ */
+export const taskDependencies = pgTable(
+  "task_dependencies",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    /** The Task that is waiting. */
+    taskId: uuid("task_id").notNull(),
+    /** The Task it is waiting on. */
+    dependsOnTaskId: uuid("depends_on_task_id").notNull(),
+    reason: text("reason"),
+    createdAt: now(),
+  },
+  (t) => [
+    index("task_dependencies_task_idx").on(t.organizationId, t.taskId),
+    index("task_dependencies_blocker_idx").on(t.organizationId, t.dependsOnTaskId),
+    // The same pair twice is not a stronger dependency, and two rows for it
+    // would double-report every blockage.
+    unique("task_dependencies_org_task_blocker_uq").on(t.organizationId, t.taskId, t.dependsOnTaskId),
+  ],
+);
+
 export const dealpilotRelations = pgTable(
   "dealpilot_relations",
   {

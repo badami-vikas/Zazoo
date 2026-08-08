@@ -34,10 +34,12 @@ test("built-in Task Manager publishes create-task as a new immutable version", a
   // `standup-brief`/`stale-task-review` gain runtime Automation ids.
   // 1.4.0: ADR-202 adds the `queue-guard` and `change-gate` Skills and binds
   // the four Governance guard/gate Automations.
-  // 1.5.0: ADR-203 binds the four Internal Strategist Automations. Pinned
-  // deliberately so a manifest change cannot land without someone choosing
-  // the version it ships under.
-  assert.equal(builtIn.manifest.version, "1.5.0");
+  // 1.5.0: ADR-203 binds the four Internal Strategist Automations.
+  // 1.6.0: ADR-204 adds Task dependency Relations (migration 0039), the
+  // `dependency-analysis` Skill, and binds `dependency-unblock-notifier`.
+  // Pinned deliberately so a manifest change cannot land without someone
+  // choosing the version it ships under.
+  assert.equal(builtIn.manifest.version, "1.6.0");
   const createTaskCapability = "task-manager.skill.create-task";
   const previousManifest = parseModuleManifest({
     module: {
@@ -76,7 +78,7 @@ test("built-in Task Manager publishes create-task as a new immutable version", a
 
   assert.equal((await store.get(previous.id))?.state, "legacy");
   const upgraded = await store.getAvailable(PILOT_ORGANIZATION, "task-manager");
-  assert.equal(upgraded?.moduleVersion, "1.5.0");
+  assert.equal(upgraded?.moduleVersion, "1.6.0");
   assert.ok(
     upgraded?.manifest.capabilities.some(
       (capability) => capability.id === createTaskCapability,

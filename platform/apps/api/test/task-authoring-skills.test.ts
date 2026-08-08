@@ -194,10 +194,15 @@ test("no registered task-manager Skill echoes its inputs", async () => {
     parentTaskId: null,
     parentRationale: null,
     parentCandidates: [],
+    // ADR-204 — `dependency-analysis` THROWS without an edge list rather than
+    // reporting an empty graph, for the same reason every queue-reading Skill
+    // throws without a queue: a missing input and a genuinely clean answer
+    // must not look identical.
+    dependencies: [],
   };
 
   const registered = TASK_MANAGER_SKILL_MANIFESTS.map((manifest) => manifest.skillId);
-  assert.ok(registered.length >= 18, "the whole Task Manager catalog is under test");
+  assert.ok(registered.length >= 21, "the whole Task Manager catalog is under test");
 
   for (const skillId of registered) {
     const skill = wiring.skillRegistry.get(skillId);
