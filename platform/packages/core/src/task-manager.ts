@@ -1,6 +1,6 @@
 import { TASK_PLAYBOOKS } from "./task-playbooks.js";
 import { analyzeTaskImpactFit } from "./task-planning.js";
-import { applyApprovedPlanningProposal } from "./task-materialize.js";
+import { applyApprovedPlanningProposal, applyApprovedRoutingProposal } from "./task-materialize.js";
 import { assertNoDependencyCycle, type TaskDependency } from "./task-dependencies.js";
 
 export type TaskRecordStatus =
@@ -894,8 +894,11 @@ export interface TaskManagerStore {
       id: string;
       organizationId: string;
       /** `candidate` carries an approved planning Playbook or scan draft —
-       * materialized by `applyApprovedPlanningProposal` (ADR-199). */
-      kind: "projection_reconcile" | "archive_sweep" | "candidate";
+       * materialized by `applyApprovedPlanningProposal` (ADR-199).
+       * `route` carries an eligible-Agent assignment the ADR-202 gate would
+       * not let apply unattended — materialized by
+       * `applyApprovedRoutingProposal` (ADR-207). */
+      kind: "projection_reconcile" | "archive_sweep" | "candidate" | "route";
       taskId: string;
       actorId: string;
       payload: Readonly<Record<string, unknown>>;
@@ -1072,8 +1075,11 @@ export class InMemoryTaskManagerStore implements TaskManagerStore {
       id: string;
       organizationId: string;
       /** `candidate` carries an approved planning Playbook or scan draft —
-       * materialized by `applyApprovedPlanningProposal` (ADR-199). */
-      kind: "projection_reconcile" | "archive_sweep" | "candidate";
+       * materialized by `applyApprovedPlanningProposal` (ADR-199).
+       * `route` carries an eligible-Agent assignment the ADR-202 gate would
+       * not let apply unattended — materialized by
+       * `applyApprovedRoutingProposal` (ADR-207). */
+      kind: "projection_reconcile" | "archive_sweep" | "candidate" | "route";
       taskId: string;
       actorId: string;
       payload: Readonly<Record<string, unknown>>;
@@ -1208,6 +1214,23 @@ export class InMemoryTaskManagerStore implements TaskManagerStore {
         createdTaskIds: materialized.createdTaskIds,
         updatedTaskIds: materialized.updatedTaskIds,
         note: materialized.note,
+        decision,
+      };
+    } else if (decision !== "veto" && proposal.kind === "route") {
+      // ADR-207. Shared with the Drizzle store through the same one core
+      // function, for the same reason the planning materializer is.
+      const routed = applyApprovedRoutingProposal({
+        tasks,
+        payload: effectivePayload,
+        taskId: proposal.taskId,
+        now: seam.nowISO(),
+      });
+      tasks = [...routed.tasks];
+      for (const task of tasks) this.tasks.set(task.id, task);
+      result = {
+        assignedTaskId: routed.assignedTaskId,
+        agentId: routed.agentId,
+        note: routed.note,
         decision,
       };
     }

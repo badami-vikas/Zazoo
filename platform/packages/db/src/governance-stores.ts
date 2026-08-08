@@ -717,16 +717,23 @@ export async function ensureInternalStrategistGovernance(
  * backends, for the same reason as `INTERNAL_STRATEGIST_ALLOWED_SKILLS` above.
  *
  * These are exactly the Skills a CoS-owned procedure invokes today.
- * `task-manager.agent-task-routing` and `task-manager.habit-scaffolding` are
- * ALSO Chief of Staff-owned in the manifest and are deliberately absent:
- * nothing calls them through a CoS Run yet, and granting authority with no
- * reachable behaviour behind it widens the Agent for nothing.
+ * `task-manager.habit-scaffolding` is ALSO Chief of Staff-owned in the
+ * manifest and is deliberately absent: nothing calls it through a CoS Run yet,
+ * and granting authority with no reachable behaviour behind it widens the
+ * Agent for nothing. (`agent-task-routing` was in that same sentence until
+ * ADR-207 gave it a caller.)
  */
 export const CHIEF_OF_STAFF_ALLOWED_SKILLS: readonly string[] = [
   "task-manager.progress-synthesis",
   // ADR-204 — "what is blocking what, and what just became startable" is a
   // coordination question, so the dependency graph is Chief of Staff's.
   "task-manager.dependency-analysis",
+  // ADR-207 — the grant the comment above withheld, now that
+  // `agent-task-routing-on-assign` actually invokes it through a CoS Run.
+  // Adding it earlier would have been authority with no reachable behaviour
+  // behind it; adding it now is what makes ADR-107's ownership of routing
+  // something Chief of Staff can exercise rather than only be named for.
+  "task-manager.agent-task-routing",
 ];
 
 /**

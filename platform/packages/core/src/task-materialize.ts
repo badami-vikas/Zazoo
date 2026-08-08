@@ -442,3 +442,97 @@ export function applyApprovedPlanningProposal(
     note,
   };
 }
+
+// =====================================================================
+// What an APPROVED routing proposal does to the queue (ADR-207).
+//
+// `agent-task-routing-on-assign` was the last Automation declared with no
+// runtime binding, and the reason it stayed unbound through eight slices is
+// recorded honestly in TASK-021: it needed a decision SURFACE, not a wiring.
+// `routeTaskByRequiredSkill` had existed since TM0 and `taskManager.route`
+// exposed it — as a query. It answered "who is eligible" and then nothing
+// could act on the answer, because no write path set `assignedAgentId` after
+// creation. A routing recommendation nobody can accept is not routing.
+//
+// Same shape and the same reason as `applyApprovedPlanningProposal`: pure,
+// and called by BOTH stores so the two durability backends cannot assign
+// differently.
+// =====================================================================
+
+export interface ApprovedRoutingResult {
+  tasks: readonly TaskRecord[];
+  assignedTaskId: string;
+  agentId: string;
+  note: string;
+}
+
+/**
+ * Assign a Task to the Agent an approved routing proposal named.
+ *
+ * The staleness check is the load-bearing part. A routing decision is computed
+ * against one specific version of one Task — its `requiredSkillId` is what
+ * made that Agent eligible at all. If the Task changed between the routing Run
+ * and the approval, the Human approved an answer to a question that is no
+ * longer being asked, so this refuses rather than assigning against the new
+ * shape. That is the same rule `archive_sweep` and `projection_reconcile`
+ * apply to their own row versions.
+ *
+ * It assigns and stops. `assignedAgentId` records WHO may pick the work up;
+ * it does not move the Task to `in_progress`, because an Agent having
+ * authority to run something is not the same as the work having started.
+ */
+export function applyApprovedRoutingProposal(input: {
+  tasks: readonly TaskRecord[];
+  payload: Readonly<Record<string, unknown>>;
+  taskId: string;
+  now: string;
+}): ApprovedRoutingResult {
+  const agentId = input.payload["agentId"];
+  if (typeof agentId !== "string" || agentId.length === 0) {
+    throw new Error("task-manager: routing proposal names no Agent to assign");
+  }
+  const subject = input.tasks.find((task) => task.id === input.taskId);
+  if (!subject) {
+    throw new Error(`task-manager: routing proposal targets unknown Task ${input.taskId}`);
+  }
+  const expectedVersion = input.payload["expectedVersion"];
+  if (typeof expectedVersion !== "number") {
+    throw new Error("task-manager: routing proposal records no Task version to check against");
+  }
+  if (subject.version !== expectedVersion) {
+    throw new Error(
+      `task-manager: routing proposal is stale for Task ${subject.id} (approved against version ${expectedVersion}, now ${subject.version})`,
+    );
+  }
+  // The Skill this Agent was found eligible FOR. If the Task's required Skill
+  // has changed, eligibility was decided on a different question — and unlike
+  // the version check this one is worth naming separately, because it is the
+  // failure a reviewer is most likely to cause themselves by editing the Task
+  // while its routing sat in the review inbox.
+  const requiredSkillId = input.payload["requiredSkillId"];
+  if (typeof requiredSkillId === "string" && subject.requiredSkillId !== requiredSkillId) {
+    throw new Error(
+      `task-manager: routing proposal was computed for required Skill ${requiredSkillId}, which Task ${subject.id} no longer requires`,
+    );
+  }
+  if (subject.assignedAgentId === agentId) {
+    return {
+      tasks: input.tasks,
+      assignedTaskId: subject.id,
+      agentId,
+      note: `Task ${subject.path} was already assigned to this Agent. Nothing changed.`,
+    };
+  }
+  const assigned: TaskRecord = {
+    ...subject,
+    assignedAgentId: agentId,
+    version: subject.version + 1,
+    updatedAt: input.now,
+  };
+  return {
+    tasks: input.tasks.map((task) => (task.id === assigned.id ? assigned : task)),
+    assignedTaskId: assigned.id,
+    agentId,
+    note: `Task ${assigned.path} assigned to Agent ${agentId}. Assignment grants authority to run it; it does not start it.`,
+  };
+}

@@ -348,6 +348,24 @@ export const INTERNAL_STRATEGIST_AGENT = INTERNAL_STRATEGIST_AGENT_RUNTIME_ID;
 export const GOVERNANCE_AGENT = GOVERNANCE_AGENT_RUNTIME_ID;
 export const CHIEF_OF_STAFF_AGENT = CHIEF_OF_STAFF_AGENT_RUNTIME_ID;
 export const CAPABILITY_BUILDER_AGENT = "b0000000-0000-4000-a000-0000000000d5";
+/**
+ * The closed set of Agents a Task may be routed to (ADR-207).
+ *
+ * These are exactly the five the Task Manager manifest declares. Resolved
+ * server-side, never supplied by the caller: on a path that ends in a write,
+ * a caller-chosen candidate list turns "which Agent is eligible" into "which
+ * Agent did the caller offer", and naming one Agent would manufacture the
+ * unambiguous result ADR-107 forbids anyone from defaulting to. Eligibility
+ * is still decided per Agent by `routeTaskByRequiredSkill` against the
+ * required Skill's manifest — membership here only makes an Agent considered.
+ */
+export const TASK_ROUTING_CANDIDATE_AGENTS: readonly string[] = [
+  CHIEF_OF_STAFF_AGENT,
+  INTERNAL_STRATEGIST_AGENT,
+  LEARNING_AGENT,
+  GOVERNANCE_AGENT,
+  CAPABILITY_BUILDER_AGENT,
+];
 // TASK-007 persistent-mode governance seed ids (ensureInternalStrategistGovernance)
 // — mirror LEARNING_ROLE/LEARNING_SIGNAL_PERMISSION's id-space convention for
 // the coordinator's parallel ensureLearningAgentGovernance.
@@ -3732,6 +3750,11 @@ const TASK_MANAGER_READ_ONLY_SKILLS: readonly string[] = [
   "task-manager.queue-guard",
   "task-manager.change-gate",
   "task-manager.dependency-analysis",
+  // ADR-207 — routing RESOLVES an eligible Agent and writes nothing. The
+  // assignment is a separate approved decision applied by the store as the
+  // Human's act, so declaring `record:write` here would be authority for a
+  // write this Skill never performs.
+  "task-manager.agent-task-routing",
 ];
 
 export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.entries(TASK_MANAGER_SKILL_OWNERS)

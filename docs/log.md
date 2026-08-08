@@ -1,5 +1,23 @@
 # Change Log
 
+- **2026-08-08 — TM4 slice 12: the routing DECISION surface, and the last unbound Automation (TASK-021, ADR-207/AP-128)**:
+  `agent-task-routing-on-assign` was the last Automation this Module declared with no runtime binding, and it
+  stayed last through eight slices that bound thirteen others. Every one of them recorded the right reason:
+  it needed a decision SURFACE, not a wiring. `routeTaskByRequiredSkill` has existed since TM0 and
+  `taskManager.route` exposed it — as a **query**. It answered "who is eligible for this Task" and nothing
+  could act on the answer, because no write path ever set `assignedAgentId` after a Task was created.
+  **Built:** `route` becomes a stageable proposal kind; pure `applyApprovedRoutingProposal` is called by BOTH
+  stores; `taskManager.assign` runs routing as a **Chief of Staff** Agent Run (ADR-107 owns routing) and the
+  band/calibration as a **Governance** one (ADR-202 owns the gate) — two Runs, because collapsing them would
+  put the permission question inside the Agent that benefits from the answer. The candidate set is resolved
+  server-side: on a path that writes, a caller-supplied list turns "which Agent is eligible" into "which Agent
+  did the caller offer". `human_assignment_required` stages nothing to approve. Cross-Module routing can never
+  be minor. The calibrated `auto_apply` branch is honoured rather than merely computed, through the same two
+  steps a clicked approval takes. An approved routing assigns and does not start the Task.
+  **Verified:** core `task-materialize` 19/19 with three invariants mutation-checked individually; api
+  `task-manager-automations` 22/22 with Chief of Staff attribution and the staging refusal mutation-checked;
+  turbo `typecheck test:coverage build` **72/72**. Manifest `1.8.0`→`1.9.0`, pin updated deliberately. No migration.
+
 - **2026-08-03 — Test-suite optimization: 17-min runs cut, 10 cannot-fail files deleted, stale-dist CI lie fixed (TASK-036)**:
   Four-agent audit (`outputs/2026-08-03-test-suite-audit.md`) then same-day execution per user directive.
   **Speed:** api `--test-concurrency` 1→4 (the =1 pin came from `6590c71` with no rationale; the flake it

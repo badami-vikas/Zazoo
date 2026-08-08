@@ -77,6 +77,15 @@ export const TASK_MANAGER_REOPEN_AUTOMATION_ID = "b0000000-0000-4000-a000-000000
  * blocked on the schema rather than on ownership: there were no dependency
  * edges to notice clearing. */
 export const TASK_MANAGER_DEPENDENCY_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000107";
+/** ADR-207 — the LAST Automation this Module declared with no runtime id, and
+ * the one every slice since ADR-196 correctly refused to bind on its own.
+ * `routeTaskByRequiredSkill` has existed since TM0 and `taskManager.route`
+ * exposed it as a QUERY: it answered "who is eligible" and nothing could act
+ * on the answer, because no write path set `assignedAgentId` after creation.
+ * The missing piece was a decision surface, so this Automation arrives with
+ * one rather than being wired to a computation that decides nothing. */
+export const TASK_MANAGER_ROUTING_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000108";
+export const TASK_MANAGER_ROUTING_AUTOMATION_KEY = "task-manager.agent-task-routing-on-assign";
 export const TASK_MANAGER_DEPENDENCY_AUTOMATION_KEY = "task-manager.dependency-unblock-notifier";
 export const TASK_MANAGER_GOAL_REVIEW_AUTOMATION_KEY = "task-manager.goal-review-cadence";
 export const TASK_MANAGER_IMPACT_FIT_AUTOMATION_KEY = "task-manager.task-created-impact-analysis";
@@ -146,6 +155,9 @@ export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAut
   if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_DEPENDENCY_AUTOMATION_KEY) {
     return TASK_MANAGER_DEPENDENCY_AUTOMATION_ID;
   }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_ROUTING_AUTOMATION_KEY) {
+    return TASK_MANAGER_ROUTING_AUTOMATION_ID;
+  }
   return undefined;
 }
 
@@ -167,6 +179,7 @@ export function isModuleRuntimeAutomationId(automationId: string): boolean {
     TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID,
     TASK_MANAGER_REOPEN_AUTOMATION_ID,
     TASK_MANAGER_DEPENDENCY_AUTOMATION_ID,
+    TASK_MANAGER_ROUTING_AUTOMATION_ID,
   ].includes(automationId);
 }
 
@@ -952,7 +965,11 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       // entries were claiming no runtime Automation stood behind them.
       // 1.8.0: ADR-206 (TM6) declares the five Playbooks the Module ships and
       // gives its Commons entry real discovery tags.
-      version: "1.8.0",
+      // 1.9.0: ADR-207 binds `agent-task-routing-on-assign`, the last declared
+      // Automation with no runtime id — and the routing DECISION surface that
+      // is why it stayed unbound: `route` becomes a stageable proposal kind,
+      // so an eligible-Agent answer can now be accepted.
+      version: "1.9.0",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:

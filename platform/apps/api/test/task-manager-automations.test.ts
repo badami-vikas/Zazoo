@@ -33,6 +33,7 @@ import {
   TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID,
   INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
   TASK_MANAGER_DEPENDENCY_AUTOMATION_ID,
+  TASK_MANAGER_ROUTING_AUTOMATION_ID,
 } from "../src/built-in-modules.js";
 
 /** Proposals expire, so every call supplies a bound inside the allowed 24h. */
@@ -976,4 +977,147 @@ test("the full-scope graph shows Tasks, their tree, and what they wait on", asyn
   const dependencyEdge = graph.edges.find((edge) => edge.relationType === "task_depends_on");
   assert.equal(dependencyEdge?.sourceId, `task:${child.task.id}`);
   assert.equal(dependencyEdge?.targetId, `task:${blocker.task.id}`);
+});
+
+// ---------------------------------------------------------------------
+// ADR-207 — `agent-task-routing-on-assign`, the LAST declared Automation with
+// no runtime binding.
+//
+// It stayed unbound through eight slices that bound thirteen others, and the
+// residual said why every time: it needed a decision SURFACE, not a wiring.
+// `routeTaskByRequiredSkill` has existed since TM0 and `taskManager.route`
+// exposed it — as a query that answered "who is eligible" while nothing could
+// act on the answer. These assertions fail if routing goes back to computing
+// an answer nobody can accept.
+// ---------------------------------------------------------------------
+
+test("assigning a Task routes it as Chief of Staff and stages a decision the gate would not auto-apply", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+
+  const created = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Draft the onboarding sequence",
+    // Internal Strategist is the only Agent whose allow-list names this Skill,
+    // so exactly one candidate is eligible and routing can resolve at all.
+    requiredSkillId: "task-manager.impact-fit-analysis",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+  });
+
+  const result = await api.taskManager.assign({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: created.task.id,
+    idempotencyKey: "assign-routing-1",
+    expiresAt: expiry(),
+  });
+
+  assert.equal(result.routing.kind, "assigned");
+  assert.equal(
+    (result.routing as { agentId: string }).agentId,
+    INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
+    "the eligible Agent is resolved from the required Skill, never defaulted",
+  );
+
+  // The Run belongs to Chief of Staff. ADR-107 gives it ownership of routing,
+  // and an Automation whose Run is attributed to the human caller would make
+  // that ownership decorative — the ADR-203 finding, applied here.
+  const runs = await wiring.automationRunRecorder.list(
+    PILOT_ORGANIZATION,
+    [TASK_MANAGER_ROUTING_AUTOMATION_ID],
+    { limit: 10 },
+  );
+  assert.equal(
+    runs.find((entry) => entry.runId === result.runId)?.agentId,
+    CHIEF_OF_STAFF_AGENT_RUNTIME_ID,
+    "routing is Chief of Staff's Run, not the caller's",
+  );
+  assert.equal(result.proposal.status, "pending_review");
+
+  // The gate ran and refused to auto-apply: a workspace with no decision
+  // history has no track record, so calibration cannot widen anything.
+  assert.equal(result.gate?.band, "minor");
+  assert.equal(result.gate?.decision, "approval_required");
+  assert.deepEqual(
+    { approvals: result.gate?.calibration.approvals, vetoes: result.gate?.calibration.vetoes },
+    { approvals: 0, vetoes: 0 },
+  );
+
+  // Staged, not applied. The routing answer exists; the assignment does not.
+  assert.equal(result.routeProposal?.kind, "route");
+  assert.equal(result.routeProposal?.status, "pending_review");
+  assert.equal(result.assigned, null);
+  const beforeDecision = await api.taskManager.get({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: created.task.id,
+  });
+  assert.equal(
+    beforeDecision?.assignedAgentId,
+    undefined,
+    "a routing proposal awaiting review has assigned nobody",
+  );
+
+  const decided = await api.taskManager.decideProposal({
+    organizationId: PILOT_ORGANIZATION,
+    proposalId: result.routeProposal!.id,
+    decision: "approve",
+  });
+  assert.equal(
+    (decided.result as { agentId?: string } | undefined)?.agentId,
+    INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
+  );
+  const after = await api.taskManager.get({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: created.task.id,
+  });
+  assert.equal(after?.assignedAgentId, INTERNAL_STRATEGIST_AGENT_RUNTIME_ID);
+  assert.equal(after?.status, created.task.status, "approving a routing does not start the Task");
+});
+
+test("a Task no Agent is eligible for stages nothing to approve", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+
+  const created = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Negotiate the lease",
+    requiredSkillId: "nobody.owns-this-skill",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+  });
+
+  const result = await api.taskManager.assign({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: created.task.id,
+    idempotencyKey: "assign-routing-none-1",
+    expiresAt: expiry(),
+  });
+
+  assert.equal(result.routing.kind, "human_assignment_required");
+  // No proposal, and deliberately so: an approve button here would invite
+  // someone to approve an assignment nobody computed.
+  assert.equal(result.routeProposal, null);
+  assert.equal(result.gate, null);
+});
+
+test("a Task naming no required Skill is refused rather than routed to a default", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+
+  const created = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Call the landlord",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+  });
+
+  await assert.rejects(
+    () => api.taskManager.assign({
+      organizationId: PILOT_ORGANIZATION,
+      taskId: created.task.id,
+      idempotencyKey: "assign-routing-noskill-1",
+      expiresAt: expiry(),
+    }),
+    /names no required Skill/,
+  );
 });

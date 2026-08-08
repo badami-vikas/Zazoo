@@ -57,6 +57,7 @@ import {
   INTERNAL_STRATEGIST_AGENT,
   GOVERNANCE_AGENT,
   CHIEF_OF_STAFF_AGENT,
+  TASK_ROUTING_CANDIDATE_AGENTS,
   PILOT_ORGANIZATION,
   LEARNING_ROLE_MODEL_GOAL_TYPE,
   PRODUCE_RECOMMENDATION_TASK_TYPE,
@@ -353,6 +354,7 @@ import {
   TASK_MANAGER_RESTRUCTURE_AUTOMATION_ID,
   TASK_MANAGER_REOPEN_AUTOMATION_ID,
   TASK_MANAGER_DEPENDENCY_AUTOMATION_ID,
+  TASK_MANAGER_ROUTING_AUTOMATION_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeAutomationId,
   resolveModuleAgentRuntimeId,
@@ -4352,6 +4354,87 @@ async function countTaskChangeDecisions(
 }
 
 /**
+ * Run the Governance approval gate for one proposed change (ADR-202).
+ *
+ * Extracted from `taskManager.runChangeGate` when ADR-207 gave the gate a
+ * second caller. One implementation on purpose: a gate with two copies is two
+ * gates, and the moment they differ the looser one is the real policy.
+ */
+async function runTaskChangeGate(
+  ctx: { wiring: Wiring; run: RunCtx; identity: Actor },
+  args: {
+    organizationId: string;
+    kind: "route" | "reschedule";
+    deltaDays?: number;
+    candidateCount?: number;
+    crossesModule?: boolean;
+    idempotencyKey: string;
+  },
+): Promise<{
+  runId: string;
+  proposal: Proposal;
+  band: unknown;
+  decision: unknown;
+  calibration: { approvals: number; vetoes: number; source: "decision ledger" };
+}> {
+  const automationId = args.kind === "reschedule"
+    ? TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_ID
+    : TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID;
+  await ensureTaskManagerAutomation(ctx.wiring, args.organizationId, {
+    automationId,
+    name: args.kind === "reschedule"
+      ? "Task Manager reschedule approval gate"
+      : "Task Manager routing approval gate",
+    agentId: GOVERNANCE_AGENT,
+    skill: "task-manager.change-gate",
+    action: "read",
+  }, ctx.run);
+
+  const history = await countTaskChangeDecisions(ctx.wiring, args.organizationId, args.kind);
+  const runId = idempotentUuid(
+    `${args.organizationId}:change_gate_run:${args.kind}:${args.idempotencyKey}`,
+  );
+  const run = await ctx.wiring.automationExecutor.runById({
+    organizationId: args.organizationId,
+    automationId,
+    onBehalfOf: { type: "user", id: ctx.identity.id },
+    params: {
+      changeKind: args.kind,
+      ...(args.deltaDays !== undefined ? { deltaDays: args.deltaDays } : {}),
+      ...(args.candidateCount !== undefined ? { candidateCount: args.candidateCount } : {}),
+      ...(args.crossesModule !== undefined ? { crossesModule: args.crossesModule } : {}),
+      approvals: history.approvals,
+      vetoes: history.vetoes,
+      // The identity that ASKED. An Agent-proposed change always needs a
+      // Human whatever the history says — calibration widens what a Human
+      // may do unattended, never what an Agent may.
+      actorType: ctx.identity.type === "user" ? "human" : "agent",
+    },
+    seed: args.idempotencyKey,
+    runId,
+  }, withHumanInputTaint(
+    ctx.run,
+    `task-manager:${args.kind}-approval-gate:${ctx.identity.id}:${runId}`,
+    { kind: args.kind },
+  ));
+  const governed = run.proposals[0];
+  if (!governed || governed.status === "rejected") {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: `${args.kind} approval gate did not decide (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
+    });
+  }
+  const output = (governed.output?.proposedOutput ?? {}) as Record<string, unknown>;
+  return {
+    runId,
+    proposal: governed,
+    band: output["band"],
+    decision: output["decision"],
+    calibration: { ...history, source: "decision ledger" as const },
+  };
+}
+
+/**
  * One entry of a human's edited planning plan (ADR-200).
  *
  * The union of every field any planning kind materializes from, and `.strict()`
@@ -7650,62 +7733,14 @@ export const appRouter = t.router({
       assertPilotOrganization(input.organizationId);
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
       await requireInstalledTaskManager(ctx.wiring, input.organizationId);
-
-      const automationId = input.kind === "reschedule"
-        ? TASK_MANAGER_RESCHEDULE_GATE_AUTOMATION_ID
-        : TASK_MANAGER_ROUTING_GATE_AUTOMATION_ID;
-      await ensureTaskManagerAutomation(ctx.wiring, input.organizationId, {
-        automationId,
-        name: input.kind === "reschedule"
-          ? "Task Manager reschedule approval gate"
-          : "Task Manager routing approval gate",
-        agentId: GOVERNANCE_AGENT,
-        skill: "task-manager.change-gate",
-        action: "read",
-      }, ctx.run);
-
-      const history = await countTaskChangeDecisions(ctx.wiring, input.organizationId, input.kind);
-      const runId = idempotentUuid(
-        `${input.organizationId}:change_gate_run:${input.kind}:${input.idempotencyKey}`,
-      );
-      const run = await ctx.wiring.automationExecutor.runById({
+      return runTaskChangeGate(ctx, {
         organizationId: input.organizationId,
-        automationId,
-        onBehalfOf: { type: "user", id: ctx.identity.id },
-        params: {
-          changeKind: input.kind,
-          ...(input.deltaDays !== undefined ? { deltaDays: input.deltaDays } : {}),
-          ...(input.candidateCount !== undefined ? { candidateCount: input.candidateCount } : {}),
-          ...(input.crossesModule !== undefined ? { crossesModule: input.crossesModule } : {}),
-          approvals: history.approvals,
-          vetoes: history.vetoes,
-          // The identity that ASKED. An Agent-proposed change always needs a
-          // Human whatever the history says — calibration widens what a Human
-          // may do unattended, never what an Agent may.
-          actorType: ctx.identity.type === "user" ? "human" : "agent",
-        },
-        seed: input.idempotencyKey,
-        runId,
-      }, withHumanInputTaint(
-        ctx.run,
-        `task-manager:${input.kind}-approval-gate:${ctx.identity.id}:${runId}`,
-        { kind: input.kind },
-      ));
-      const governed = run.proposals[0];
-      if (!governed || governed.status === "rejected") {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: `${input.kind} approval gate did not decide (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
-        });
-      }
-      const output = (governed.output?.proposedOutput ?? {}) as Record<string, unknown>;
-      return {
-        runId,
-        proposal: governed,
-        band: output["band"],
-        decision: output["decision"],
-        calibration: { ...history, source: "decision ledger" as const },
-      };
+        kind: input.kind,
+        ...(input.deltaDays !== undefined ? { deltaDays: input.deltaDays } : {}),
+        ...(input.candidateCount !== undefined ? { candidateCount: input.candidateCount } : {}),
+        ...(input.crossesModule !== undefined ? { crossesModule: input.crossesModule } : {}),
+        idempotencyKey: input.idempotencyKey,
+      });
     }),
     /**
      * Task dependency Relations (ADR-204) — the `depends_on` edges the plan
@@ -7919,6 +7954,179 @@ export const appRouter = t.router({
         });
       }
       return { runId, proposal: staged, plan };
+    }),
+    /**
+     * `agent-task-routing-on-assign` (ADR-207) — the LAST declared Automation
+     * to get a runtime binding, and the reason it stayed unbound through eight
+     * slices that bound thirteen others.
+     *
+     * `routeTaskByRequiredSkill` has existed since TM0 and `taskManager.route`
+     * below exposes it. But `route` is a QUERY: it answers "who is eligible"
+     * and nothing could ever act on the answer, because no write path set
+     * `assignedAgentId` after a Task was created. Binding the Automation to
+     * that computation would have produced an attributable Run that decided
+     * nothing — the declared-not-built shape this workstream exists to end.
+     * So the missing piece was a DECISION surface, and this is it.
+     *
+     * Three deliberate properties:
+     *
+     *  - The candidate set is `TASK_ROUTING_CANDIDATE_AGENTS`, resolved here,
+     *    not passed in. `route`'s caller-supplied `candidateAgentIds` is
+     *    harmless for a what-if, but on a path that WRITES it would turn "who
+     *    is eligible" into "who did the caller offer" — a caller naming one
+     *    Agent would manufacture the unambiguous answer that ADR-107 forbids
+     *    anyone from defaulting to.
+     *  - Routing to another Module's Skill is `crossesModule`, so it can never
+     *    be minor and always stops for a Human however calibrated they are.
+     *  - `human_assignment_required` stages NOTHING. There is no proposal to
+     *    approve, because the honest output is "no Agent is eligible for this,
+     *    a person has to own it" — offering an approve button there would
+     *    invite someone to approve an assignment nobody computed.
+     */
+    assign: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      taskId: z.string().uuid(),
+      idempotencyKey: z.string().trim().min(8).max(200),
+      expiresAt: z.string().datetime(),
+    }).strict()).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      await requireInstalledTaskManager(ctx.wiring, input.organizationId);
+
+      const task = await ctx.wiring.taskManager.get(input.organizationId, input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      const requiredSkillId = task.requiredSkillId;
+      if (!requiredSkillId) {
+        // Not a failure of routing — routing has nothing to answer. A Task
+        // that names no required Skill is Human work by construction.
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This Task names no required Skill, so there is nothing to route on — it is Human work until one is set",
+        });
+      }
+
+      const skills = ctx.wiring.skillManifests.forSkill(input.organizationId, requiredSkillId);
+      const candidates = await Promise.all(TASK_ROUTING_CANDIDATE_AGENTS.map(async (id) => ({
+        id,
+        active: (await ctx.wiring.agents.organizationId(id)) === input.organizationId
+          && await ctx.wiring.agents.isActive(id),
+        allowedSkills: await ctx.wiring.agents.allowedSkills(id),
+        capabilityScope: await ctx.wiring.agents.capabilityScope(id),
+        plane: "local" as const,
+        dataScope: await ctx.wiring.agents.dataScope(id),
+      })));
+
+      // ONE id for the Chief of Staff Run's governed proposal and the
+      // queue-side `route` row, the pairing ADR-199 established.
+      const proposalId = idempotentUuid(
+        `${input.organizationId}:agent_task_routing:${input.taskId}:${input.idempotencyKey}`,
+      );
+      const runId = idempotentUuid(
+        `${input.organizationId}:agent_task_routing_run:${input.taskId}:${input.idempotencyKey}`,
+      );
+      const { proposal: governed } = await runTaskManagerAgentAutomation(ctx, {
+        organizationId: input.organizationId,
+        automationId: TASK_MANAGER_ROUTING_AUTOMATION_ID,
+        name: "Task Manager agent-task routing on assign",
+        agentId: CHIEF_OF_STAFF_AGENT,
+        skill: "task-manager.agent-task-routing",
+        action: "read",
+        params: {
+          requiredSkillId,
+          agents: candidates,
+          skills: skills.map((manifest) => ({
+            skillId: manifest.skillId,
+            permissions: manifest.permissions,
+            plane: manifest.plane,
+            dataScopes: manifest.dataScopes,
+          })),
+        },
+        runId,
+        proposalId,
+        taintKey: `task-manager:agent-task-routing:${ctx.identity.id}:${runId}`,
+      });
+
+      const output = (governed.output?.proposedOutput ?? {}) as Record<string, unknown>;
+      const routing = output["routing"] as
+        | { kind: "assigned"; agentId: string }
+        | { kind: "human_assignment_required"; reason: string; candidates: string[] }
+        | undefined;
+      if (!routing) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Routing Run produced no routing result" });
+      }
+      if (routing.kind !== "assigned") {
+        return {
+          runId,
+          proposal: governed,
+          routing,
+          gate: null,
+          routeProposal: null,
+          assigned: null,
+        };
+      }
+
+      // `routeTaskByRequiredSkill` returns `assigned` only when EXACTLY one
+      // Agent was eligible, so the candidate count the band is classified on
+      // is 1 by construction rather than by assertion.
+      const crossesModule = !requiredSkillId.startsWith("task-manager.");
+      const gate = await runTaskChangeGate(ctx, {
+        organizationId: input.organizationId,
+        kind: "route",
+        candidateCount: 1,
+        crossesModule,
+        idempotencyKey: `assign:${input.taskId}:${input.idempotencyKey}`,
+      });
+
+      const staged = await ctx.wiring.taskManager.stageProposal({
+        id: proposalId,
+        organizationId: input.organizationId,
+        kind: "route",
+        taskId: task.id,
+        actorId: CHIEF_OF_STAFF_AGENT,
+        payload: {
+          agentId: routing.agentId,
+          requiredSkillId,
+          // What the assignment was computed against. `applyApprovedRoutingProposal`
+          // refuses if the Task moved on while the proposal sat in review.
+          expectedVersion: task.version,
+          crossesModule,
+          band: gate.band ?? null,
+          gateDecision: gate.decision ?? null,
+          gateRunId: gate.runId,
+          runId,
+        },
+        idempotencyKey: `agent-task-routing:${input.idempotencyKey}`,
+        expiresAt: input.expiresAt,
+      }, { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() });
+
+      if (gate.decision !== "auto_apply") {
+        return { runId, proposal: governed, routing, gate, routeProposal: staged, assigned: null };
+      }
+
+      // The calibrated branch, honoured rather than merely computed. It runs
+      // the SAME two steps `taskManager.decideProposal` runs for a clicked
+      // approval — the pipeline decision then the queue write — because an
+      // auto-applied assignment that skipped either would be a write with no
+      // ledger row or a ledger row with no write. What calibration removes is
+      // the Human's second click, not the record of the decision, and the
+      // payload says so: `calibrated` marks it as standing consent this
+      // Human earned, not a decision they made in the moment.
+      await ctx.wiring.pipeline.decide(proposalId, "approve", ctx.identity, ctx.run);
+      const decisionEntry = await ctx.wiring.ledger.decisionFor(proposalId);
+      const decided = await ctx.wiring.taskManager.decideProposal(
+        input.organizationId,
+        proposalId,
+        "approve",
+        ctx.identity.id,
+        { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
+        {
+          ...staged.payload,
+          calibrated: true,
+          calibration: gate.calibration,
+          ...(decisionEntry ? { decisionLedgerId: decisionEntry.id } : {}),
+        },
+      );
+      return { runId, proposal: governed, routing, gate, routeProposal: decided.proposal, assigned: decided.result ?? null };
     }),
     route: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),

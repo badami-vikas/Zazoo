@@ -14,7 +14,12 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyApprovedPlanningProposal, mergeEditedPlanningPayload, type TaskRecord } from "../src/index.js";
+import {
+  applyApprovedPlanningProposal,
+  applyApprovedRoutingProposal,
+  mergeEditedPlanningPayload,
+  type TaskRecord,
+} from "../src/index.js";
 
 const NOW = "2026-08-09T00:00:00.000Z";
 
@@ -315,4 +320,92 @@ test("an edited plan materializes from the human's entries, not the Agent's", ()
   const created = result.tasks.find((candidate) => candidate.id === result.createdTaskIds[0]);
   assert.equal(created?.title, "Human child");
   assert.equal(created?.status, "candidate", "an edited plan is still only a candidate");
+});
+
+// ---------------------------------------------------------------------
+// ADR-207 — what an approved ROUTING proposal does to the queue.
+//
+// `routeTaskByRequiredSkill` answered "who is eligible" from TM0 onward and
+// nothing could act on the answer, because no write path set
+// `assignedAgentId` after creation. These assertions cover the write and,
+// more importantly, the two things it refuses.
+// ---------------------------------------------------------------------
+
+test("an approved routing proposal assigns the Agent without starting the work", () => {
+  const subject = task("1", { requiredSkillId: "task-manager.create-task", status: "pending" });
+  const result = applyApprovedRoutingProposal({
+    tasks: [subject],
+    taskId: "1",
+    now: NOW,
+    payload: {
+      agentId: "agent-strategist",
+      requiredSkillId: "task-manager.create-task",
+      expectedVersion: 1,
+    },
+  });
+  const assigned = result.tasks.find((candidate) => candidate.id === "1");
+  assert.equal(assigned?.assignedAgentId, "agent-strategist");
+  assert.equal(
+    assigned?.status,
+    "pending",
+    "assignment grants authority to run the Task; it does not start it",
+  );
+  assert.equal(assigned?.version, 2, "the assignment is a versioned change like any other");
+});
+
+test("a routing proposal decided against a Task that has since moved on is refused", () => {
+  // The Human approved an answer to a question that is no longer being asked.
+  const moved = task("1", { requiredSkillId: "task-manager.create-task", version: 4 });
+  assert.throws(
+    () => applyApprovedRoutingProposal({
+      tasks: [moved],
+      taskId: "1",
+      now: NOW,
+      payload: { agentId: "agent-strategist", requiredSkillId: "task-manager.create-task", expectedVersion: 1 },
+    }),
+    /stale for Task 1/,
+  );
+});
+
+test("a routing proposal is refused when the Task no longer requires the Skill it was routed on", () => {
+  // Eligibility was decided on a different question. Named separately from the
+  // version check because this is the failure a reviewer causes themselves by
+  // editing the Task while its routing sits in the review inbox.
+  const retargeted = task("1", { requiredSkillId: "task-manager.queue-guard" });
+  assert.throws(
+    () => applyApprovedRoutingProposal({
+      tasks: [retargeted],
+      taskId: "1",
+      now: NOW,
+      payload: { agentId: "agent-strategist", requiredSkillId: "task-manager.create-task", expectedVersion: 1 },
+    }),
+    /no longer requires/,
+  );
+});
+
+test("re-approving the same routing is a no-op rather than a second version bump", () => {
+  const already = task("1", {
+    requiredSkillId: "task-manager.create-task",
+    assignedAgentId: "agent-strategist",
+  });
+  const result = applyApprovedRoutingProposal({
+    tasks: [already],
+    taskId: "1",
+    now: NOW,
+    payload: { agentId: "agent-strategist", requiredSkillId: "task-manager.create-task", expectedVersion: 1 },
+  });
+  assert.equal(result.tasks.find((candidate) => candidate.id === "1")?.version, 1);
+  assert.match(result.note, /already assigned/);
+});
+
+test("a routing proposal naming no Agent is refused rather than clearing the assignment", () => {
+  assert.throws(
+    () => applyApprovedRoutingProposal({
+      tasks: [task("1", { requiredSkillId: "task-manager.create-task" })],
+      taskId: "1",
+      now: NOW,
+      payload: { requiredSkillId: "task-manager.create-task", expectedVersion: 1 },
+    }),
+    /names no Agent/,
+  );
 });

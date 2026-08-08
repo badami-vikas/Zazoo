@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import {
   applyApprovedTaskProjectionReconciliation,
   applyApprovedPlanningProposal,
+  applyApprovedRoutingProposal,
   applyTaskRestructure,
   assertNoDependencyCycle,
   canonicalizeJson,
@@ -427,8 +428,11 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
       id: string;
       organizationId: string;
       /** `candidate` carries an approved planning Playbook or scan draft —
-       * materialized by `applyApprovedPlanningProposal` (ADR-199). */
-      kind: "projection_reconcile" | "archive_sweep" | "candidate";
+       * materialized by `applyApprovedPlanningProposal` (ADR-199).
+       * `route` carries an eligible-Agent assignment the ADR-202 gate would
+       * not let apply unattended — materialized by
+       * `applyApprovedRoutingProposal` (ADR-207). */
+      kind: "projection_reconcile" | "archive_sweep" | "candidate" | "route";
       taskId: string;
       actorId: string;
       payload: Readonly<Record<string, unknown>>;
@@ -671,6 +675,40 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
             createdTaskIds: materialized.createdTaskIds,
             updatedTaskIds: materialized.updatedTaskIds,
             note: materialized.note,
+            decision,
+          };
+        } else if (row.kind === "route") {
+          // ADR-207 — the same one core function the in-memory store calls,
+          // for the same anti-drift reason. Its version check and the
+          // optimistic `eq(tasks.version, before.version)` below are two
+          // different guards: the first refuses a decision made against a
+          // Task that changed before the Human decided, the second refuses a
+          // write against a Task that changed while they were deciding.
+          const routed = applyApprovedRoutingProposal({
+            tasks: updated,
+            payload: effectivePayload,
+            taskId: row.taskId,
+            now: seam.nowISO(),
+          });
+          const before = updated.find((task) => task.id === routed.assignedTaskId)!;
+          const assigned = routed.tasks.find((task) => task.id === routed.assignedTaskId)!;
+          if (assigned.version !== before.version) {
+            const [saved] = await tx.update(tasks).set({
+              assignedAgentId: assigned.assignedAgentId ?? null,
+              version: assigned.version,
+              updatedAt: new Date(assigned.updatedAt),
+            }).where(and(
+              eq(tasks.organizationId, organizationId),
+              eq(tasks.id, assigned.id),
+              eq(tasks.version, before.version),
+            )).returning();
+            if (!saved) throw new Error(`task-manager: Task ${assigned.id} changed while a routing proposal was approved`);
+          }
+          updated = [...routed.tasks].sort(comparePaths);
+          result = {
+            assignedTaskId: routed.assignedTaskId,
+            agentId: routed.agentId,
+            note: routed.note,
             decision,
           };
         } else if (row.kind === "impact_fit" || row.kind === "reopen") {

@@ -40,9 +40,12 @@ test("built-in Task Manager publishes create-task as a new immutable version", a
   // 1.7.0: ADR-205 derives each Automation's `automationId` from the resolver
   // instead of a ternary chain that had been stale since ADR-201.
   // 1.8.0: ADR-206 (TM6) declares the five Playbooks the Module ships and
-  // gives its Commons entry real discovery tags. Pinned deliberately so a
-  // manifest change cannot land without someone choosing its version.
-  assert.equal(builtIn.manifest.version, "1.8.0");
+  // gives its Commons entry real discovery tags.
+  // 1.9.0: ADR-207 binds `agent-task-routing-on-assign`, the last declared
+  // Automation with no runtime id, and the `route` decision surface behind it.
+  // Pinned deliberately so a manifest change cannot land without someone
+  // choosing its version.
+  assert.equal(builtIn.manifest.version, "1.9.0");
   const createTaskCapability = "task-manager.skill.create-task";
   const previousManifest = parseModuleManifest({
     module: {
@@ -81,7 +84,7 @@ test("built-in Task Manager publishes create-task as a new immutable version", a
 
   assert.equal((await store.get(previous.id))?.state, "legacy");
   const upgraded = await store.getAvailable(PILOT_ORGANIZATION, "task-manager");
-  assert.equal(upgraded?.moduleVersion, "1.8.0");
+  assert.equal(upgraded?.moduleVersion, "1.9.0");
   assert.ok(
     upgraded?.manifest.capabilities.some(
       (capability) => capability.id === createTaskCapability,
