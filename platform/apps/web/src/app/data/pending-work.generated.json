@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T18:03:52.095Z",
+  "generatedAt": "2026-08-08T20:37:32.349Z",
   "items": [
     {
       "id": "TASK-026",
@@ -514,7 +514,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 262,
+      "sourceLine": 268,
       "rank": 14
     },
     {
@@ -545,7 +545,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 276,
+      "sourceLine": 282,
       "rank": 15
     },
     {
@@ -582,7 +582,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 290,
+      "sourceLine": 296,
       "rank": 16
     },
     {
@@ -613,7 +613,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 304,
+      "sourceLine": 310,
       "rank": 17
     },
     {
@@ -642,7 +642,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 320,
+      "sourceLine": 326,
       "rank": 18
     },
     {
@@ -677,7 +677,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 334,
+      "sourceLine": 340,
       "rank": 19
     },
     {
@@ -712,7 +712,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 348,
+      "sourceLine": 354,
       "rank": 20
     },
     {
@@ -743,7 +743,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 361,
+      "sourceLine": 367,
       "rank": 21
     },
     {
@@ -780,7 +780,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 374,
+      "sourceLine": 380,
       "rank": 22
     },
     {
@@ -806,7 +806,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 387,
+      "sourceLine": 393,
       "rank": 23
     },
     {
@@ -841,7 +841,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 400,
+      "sourceLine": 406,
       "rank": 24
     },
     {
@@ -872,7 +872,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 414,
+      "sourceLine": 420,
       "rank": 25
     },
     {
@@ -904,7 +904,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 427,
+      "sourceLine": 433,
       "rank": 26
     },
     {
@@ -931,7 +931,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 453,
+      "sourceLine": 459,
       "rank": 27
     },
     {
@@ -972,7 +972,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 468,
+      "sourceLine": 474,
       "rank": 28
     },
     {
@@ -1004,7 +1004,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 440,
+      "sourceLine": 446,
       "rank": 29
     },
     {
@@ -1050,7 +1050,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 482,
+      "sourceLine": 488,
       "rank": 30
     },
     {
@@ -1087,7 +1087,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 495,
+      "sourceLine": 501,
       "rank": 31
     },
     {
@@ -1118,7 +1118,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 512,
+      "sourceLine": 518,
       "rank": 32
     },
     {
@@ -1144,7 +1144,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 534,
+      "sourceLine": 540,
       "rank": 33
     },
     {
@@ -1174,7 +1174,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 561,
+      "sourceLine": 567,
       "rank": 34
     },
     {
@@ -1204,7 +1204,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 574,
+      "sourceLine": 580,
       "rank": 35
     },
     {
@@ -1231,7 +1231,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 587,
+      "sourceLine": 593,
       "rank": 36
     },
     {
@@ -1258,7 +1258,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 604,
+      "sourceLine": 610,
       "rank": 37
     },
     {
@@ -1283,7 +1283,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 548,
+      "sourceLine": 554,
       "rank": 38
     },
     {
@@ -1317,7 +1317,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 625,
+      "sourceLine": 631,
       "rank": 39
     },
     {
@@ -1351,7 +1351,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 640,
+      "sourceLine": 646,
       "rank": 40
     },
     {
@@ -1378,7 +1378,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 654,
+      "sourceLine": 660,
       "rank": 41
     },
     {
@@ -1409,7 +1409,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 699,
+      "sourceLine": 705,
       "rank": 42
     },
     {
@@ -1435,8 +1435,329 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 713,
+      "sourceLine": 719,
       "rank": 43
+    },
+    {
+      "id": "TASK-044",
+      "title": "TASK-044 — K0 — AI Harness spine: flights live for the pilot, one context door",
+      "status": "completed",
+      "priority": "P1",
+      "horizon": "Core Modules",
+      "outcome": "The three built-but-never-run-live learning flights (`BRIDGE_LEARNING_OBSERVATION`, `BRIDGE_RETRIEVAL_FUSION`, `BRIDGE_COMMONS_ARCHETYPES`) are ON for both pilot surfaces (hosted Render deploy and desktop sidecar), and `chiefOfStaff.converse` no longer assembles model context ad hoc — `assembleRunContext`/`projectToSystemPrompt` is the only context door, so K4's \"retrieval fusion feeds every run\" has exactly one seam to feed.",
+      "prototypeTest": "(a) `render.yaml` and the desktop sidecar env both set the three flags, and `learning.status` reports `{ enabled: true }` on a live pilot boot; (b) every model call reachable from `chiefOfStaff.converse` composes its system prompt through `assembleRunContext` — a test fails if any converse path builds a system string without it, and removing the assembly from any one path turns that test RED.",
+      "scope": [
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K0",
+        "`render.yaml` envVars",
+        "`platform/apps/desktop/src-tauri/src/api_sidecar.rs` sidecar env",
+        "`platform/apps/api/src/router.ts` chiefOfStaff.converse (@communications path, @agent path via `invokeAgent`, intent classification)",
+        "`platform/packages/core/src/run-context.ts`."
+      ],
+      "evidence": [
+        "run-context.ts's own header names converse as the ad-hoc assembly it formalizes",
+        "the LA5 indexer already self-gates on `!publicCloudOnly`, so the hosted flip is honest. DONE 2026-08-09 (ADR-211, AP-132): flags in `render.yaml` + `api_sidecar.rs`, each with a mutation-checked failing-on-removal test (Rust sidecar 15/15)",
+        "`invokeAgent`/`classifyIntent` take `{ provider, runCtx }`, old prompt builders deleted, core 616/616 with the door mutation-checked (hand-rolled system → 4 RED)",
+        "**the first live flags-on boot crashed** — the digest Automation's dotted-key id vs the uuid-typed durable `automations` column (22P02), fixed to `b0000000-…-0201` with a seen-RED regression test (api learning 8/8) before it could take down the hosted pilot on next push",
+        "live Local-Plane boot then served `learning.status`/`learning.retrieval.status` `{\"enabled\":true}` and an @communications converse turn through the assembled context",
+        "active-task index renders dependency IDs only (4953→3208 bytes, budget unraised)",
+        "full turbo gate 72/72."
+      ],
+      "requests": [
+        "user directive 2026-08-09 (\"start on AI harness\")"
+      ],
+      "approval": "AP-131 APPLIED; AP-132 APPLIED (the slice itself)",
+      "dependencies": [],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 739,
+      "rank": 44
+    },
+    {
+      "id": "TASK-045",
+      "title": "TASK-045 — K1 — Capture: generic ledger→signal miner",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Core Modules",
+      "outcome": "Every governed in-app action becomes learning input through one generic miner over the append-only ledger, and the per-module (DealPilot-shaped) signal mapping is deleted forever — no Module ever writes bespoke learning plumbing again.",
+      "prototypeTest": "a governed action performed in a Module with NO module-specific learning code produces a learning signal visible in the learning surface; the DealPilot-specific mapping no longer exists in the tree; removing the miner turns the signal test RED.",
+      "scope": [
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K1",
+        "the append-only ledger already records all in-app activity as a byproduct of the governed pipeline — this task mines it, replacing the TASK-032 per-module mapping."
+      ],
+      "evidence": [
+        "TASK-032's flight-gated learning loop (merged 2026-08-03) is the baseline being generalized."
+      ],
+      "requests": [
+        "user directive 2026-08-09 (\"start on AI harness\")"
+      ],
+      "approval": "AP-131 APPLIED",
+      "dependencies": [
+        "TASK-044"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 753,
+      "rank": 45
+    },
+    {
+      "id": "TASK-046",
+      "title": "TASK-046 — K2 — Capture: local stores emit learning signals",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "Chat threads and the WhatsApp local store emit learning signals under per-source consent toggles that default OFF — data Bridge already holds locally gains a new USE only through a new consent surface.",
+      "prototypeTest": "with a source's toggle off, no signal is emitted from it (asserted, not assumed); flipping the toggle on emits signals from that source only; the toggle rows are inspectable and the emitted signals are deletable Memory.",
+      "scope": [
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K2",
+        "chat store + WhatsApp store (TASK-029/030 surfaces)."
+      ],
+      "evidence": [
+        "invariants section of the harness plan (consent toggle default off, inspectable/deletable Memory)."
+      ],
+      "requests": [
+        "user directive 2026-08-09 (\"start on AI harness\")"
+      ],
+      "approval": "AP-131 APPLIED",
+      "dependencies": [
+        "TASK-044"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 767,
+      "rank": 46
+    },
+    {
+      "id": "TASK-047",
+      "title": "TASK-047 — K3 — Knowledge substrate: entities, claims, consolidation",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Core Modules",
+      "outcome": "The graph that appends AND optimizes: typed Entities beyond people (deals, projects, orgs, topics — typed by Module vocabulary), Claims with per-claim evidence refs + sensitivity tiers + supersedence lineage, and a consolidation loop (dedupe via `@bridge/dedupe` with the ADR-177 calibrated refusal band, contradiction surfacing as suggestions — never silent overwrite, episodic→semantic distillation with provenance, decay/archive). Extends GraphStore with new `entities`/`claims` tables alongside — no big-bang migration; the relationship graph becomes one region of the whole.",
+      "prototypeTest": "a duplicate entity pair inside the refusal band is REFUSED (surfaced as a suggestion), never auto-merged; a contradicting claim invalidates its predecessor by lineage rather than deleting it; a red-tier claim class (health, protected characteristic, psychological conclusion) constructed as a fixture never reaches a proposal; all writes traverse the governed pipeline (a direct-write attempt fails closed).",
+      "scope": [
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K3 + its KG technology decision (Postgres substrate, Graphiti's bi-temporal/invalidation ideas behind our own port, Kùzu only as a pre-agreed derived-index escape hatch)."
+      ],
+      "evidence": [
+        "ADR-177 (calibrated refusal band, auto-bind unreachable from a model)",
+        "ADR-176 invariant 15 (sensitivity tiers)."
+      ],
+      "requests": [
+        "user directive 2026-08-09 (\"start on AI harness\")"
+      ],
+      "approval": "AP-131 APPLIED",
+      "dependencies": [
+        "TASK-044"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 780,
+      "rank": 47
+    },
+    {
+      "id": "TASK-048",
+      "title": "TASK-048 — K4 — Continuous context: fusion feeds every run",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "Retrieval fusion fills the memory slot of EVERY agent run under an enforced context budget (ADR-177 Layer B), not just chat, and the semantic embedder (local Ollama) becomes the Local-Plane default with the hashing embedder as deterministic fallback.",
+      "prototypeTest": "a non-chat agent run's assembled context contains fused retrieval output and respects a budget cap (over-budget input is truncated by policy, asserted); with Ollama present the semantic embedder is selected, without it the lexical fallback engages and indexer + query share one embedding space (existing invariant, re-asserted at the new default).",
+      "scope": [
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K4",
+        "LA5 fusion (built, chat-only, flighted) generalized through the TASK-044 single context door."
+      ],
+      "evidence": [
+        "LA5 (TASK-032) fusion machinery",
+        "`run-context.ts`."
+      ],
+      "requests": [
+        "user directive 2026-08-09 (\"start on AI harness\")"
+      ],
+      "approval": "AP-131 APPLIED",
+      "dependencies": [
+        "TASK-044, TASK-047 (skeleton only)",
+        "unblocks TASK-043 E5"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 793,
+      "rank": 48
+    },
+    {
+      "id": "TASK-049",
+      "title": "TASK-049 — K5 — Capture: email + calendar signals, metadata-first",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "The Google integration emits learning signals metadata-first (sender/subject/time; calendar events + attendees) under a per-account toggle; content summarization is later and separately gated. This rung is what makes commitments and the brief genuinely good.",
+      "prototypeTest": "with the account toggle off, nothing is emitted; on, metadata signals appear as inspectable/deletable Memory and NO body content is present in any emitted signal (asserted over a fixture with a distinctive body string).",
+      "scope": [
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K5",
+        "existing Google integration surfaces."
+      ],
+      "evidence": [
+        "harness-plan capture invariants."
+      ],
+      "requests": [
+        "user directive 2026-08-09 (\"start on AI harness\")"
+      ],
+      "approval": "AP-131 APPLIED",
+      "dependencies": [
+        "TASK-044"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 806,
+      "rank": 49
+    },
+    {
+      "id": "TASK-050",
+      "title": "TASK-050 — K6 — Recommendation rhythm: morning brief + commitments",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "A morning brief (overdue/due/upcoming commitments, pending suggestions, recent activity) plus commitment detection mined from real prose, materializing into the K3 substrate on acceptance, plus approvals nudges and next-action suggestions — all suggested-then-accepted and annoyance-capped. The visible daily payoff that makes the loop legible.",
+      "prototypeTest": "a commitment stated in real prose is detected, surfaced as a suggestion, and materializes into the graph only on acceptance; the brief renders the three commitment buckets from real data; the annoyance cap measurably limits suggestion volume (over-cap suggestions deferred, asserted).",
+      "scope": [
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K6",
+        "absorbs the EG3 design (`docs/raw/egg-commons-feature-roadmap-2026-07.md`). The 2026-08-08 session record's \"TASK-040\" pointer for this work was stale — TASK-040 is LA3 Phase 2",
+        "THIS row is the brief's canonical home."
+      ],
+      "evidence": [
+        "EG3 design (complete, previously paused behind this workstream's sequencing)."
+      ],
+      "requests": [
+        "user directive 2026-08-09 (\"start on AI harness\")"
+      ],
+      "approval": "AP-131 APPLIED",
+      "dependencies": [
+        "TASK-047, TASK-049 (a chat/ledger-only brief may ship first)"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 819,
+      "rank": 50
+    },
+    {
+      "id": "TASK-051",
+      "title": "TASK-051 — K7 — Capture: app-focus sensor",
+      "status": "blocked",
+      "priority": "P3",
+      "horizon": "Hardening",
+      "outcome": "The first ambient sensor: a real frontmost-app/window-title provider in the `@bridge/sensors` SensorHub (today: fake provider, unwired), the hub wired into the API, the Avatar blink-tell firing on capture, and a pause/kill switch.",
+      "prototypeTest": "focusing a different app creates an inspectable Memory naming it, the Avatar blinks, and the kill switch verifiably stops capture (no Memory rows while paused, asserted live).",
+      "scope": [
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K7",
+        "`@bridge/sensors` SensorHub + CaptureLedger substrate."
+      ],
+      "evidence": [
+        "ADR-184 — TCC grants are not durable on the unbundled dev binary."
+      ],
+      "requests": [
+        "user directive 2026-08-09 (\"start on AI harness\")"
+      ],
+      "approval": "AP-131 APPLIED",
+      "dependencies": [
+        "TASK-044",
+        "blocked on a signed `.app` bundle (ADR-184)"
+      ],
+      "canonicalStatus": "blocked",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 832,
+      "rank": 51
+    },
+    {
+      "id": "TASK-052",
+      "title": "TASK-052 — K8 — Capture: browser extension, domain/title first",
+      "status": "pending",
+      "priority": "P3",
+      "horizon": "Hardening",
+      "outcome": "A browser extension captures domain/title-level activity (page content later, separately gated) with an allowlist/denylist, and private windows are structurally excluded from capture.",
+      "prototypeTest": "a visit to an allowlisted domain creates an inspectable Memory with domain+title only; a denylisted domain creates nothing; a private-window visit creates nothing by construction (the capture path is absent, not filtered).",
+      "scope": [
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K8",
+        "the unified-learning spec's extension salvage is design source material where applicable (reuse intake applies)."
+      ],
+      "evidence": [
+        "harness-plan capture invariants."
+      ],
+      "requests": [
+        "user directive 2026-08-09 (\"start on AI harness\")"
+      ],
+      "approval": "AP-131 APPLIED",
+      "dependencies": [
+        "TASK-044"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 845,
+      "rank": 52
+    },
+    {
+      "id": "TASK-053",
+      "title": "TASK-053 — K9 — Builder ladder: rung 3 steps, rung 4 structures",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "Rung 3 — the Capability Builder drafts automation STEPS from a promotion pattern + its ledger episodes, constrained to the existing skill registry + canonical step schema (constrained generation, not codegen; existing activation gates apply). Rung 4 — structure synthesis: the Builder proposes Databases/Views/Pages/blueprints from K3's entities and claims via the validated input-pack regeneration methodology (ADR-175/176/177; TASK-042 defines the per-class packs). Rung 5 (code-bearing skills via BA0 sandbox) is explicitly later, gated on rung 4 proving out.",
+      "prototypeTest": "rung 3 — given a real promotion pattern, the Builder proposes steps that reference only registered skills and validate against the step schema, and an out-of-registry step is refused; rung 4 — the north-star test: given only observation data from ETA-style work, the Builder proposes a Deals/Sources/Theses-shaped module without being told about DealPilot.",
+      "scope": [
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K9. Safe by construction: the View/Page schema cannot hold code (ADR-194)."
+      ],
+      "evidence": [
+        "ADR-175/176/177 regeneration methodology",
+        "TASK-042 pack definitions."
+      ],
+      "requests": [
+        "user directive 2026-08-09 (\"start on AI harness\")"
+      ],
+      "approval": "AP-131 APPLIED",
+      "dependencies": [
+        "TASK-045 (rung 3)",
+        "TASK-047, TASK-042 (rung 4)"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 858,
+      "rank": 53
+    },
+    {
+      "id": "TASK-054",
+      "title": "TASK-054 — K11 — EG4 sensor tier: input, screen, ambient voice",
+      "status": "blocked",
+      "priority": "P3",
+      "horizon": "Hardening",
+      "outcome": "Three senses on T0–T2 local tiers: (a) continuous input capture as semantic events (\"clicked Send in Mail\" — click + AX-tree target + typing), never a raw keylog, behind the full fail-closed input boundary (OS secure-input, field-role gate where unknown = sensitive, app/domain denylist, never-persist-raw, pattern redaction); (b) continuous screen (xcap; post-meeting action drafts); (c) system audio → ambient voice (cidre/wasapi/libpulse; EG5). Raw processed on-device; only distilled Memory persists; raw never leaves the Local Plane.",
+      "prototypeTest": "a password-field keystroke fixture yields at most \"typed in an unknown field\" (never characters); a denylisted app yields nothing including clicks; raw stream bytes are absent from disk after distillation (asserted over the capture directory); every distilled event is inspectable, deletable Memory with the Avatar blink fired.",
+      "scope": [
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K11 + \"The input-capture boundary (K11a)\". Rides ~80% on EG4's planned machinery (capture-core crates, permission model, AX-tree walker, capture→Memory+blink contract)."
+      ],
+      "evidence": [
+        "EG4/EG5 roadmap slices",
+        "harness-plan input-capture boundary."
+      ],
+      "requests": [
+        "user directive 2026-08-09 (\"start on AI harness\")"
+      ],
+      "approval": "AP-131 APPLIED. The keystroke content-vs-events decision (harness-plan open decision 1) is a further user gate before build.",
+      "dependencies": [
+        "TASK-043 (K10 gate), TASK-051",
+        "plus the open keystroke content-vs-events user decision"
+      ],
+      "canonicalStatus": "blocked",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 871,
+      "rank": 54
     }
   ]
 }

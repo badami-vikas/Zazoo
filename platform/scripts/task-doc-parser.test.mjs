@@ -151,5 +151,29 @@ IDs for cross-reference: \`TASK-003, TASK-001, TASK-002\`
   assert.match(index, /\| TASK-003 \| in_progress \| P1 \| Current optimization \| none \|/);
   assert.match(index, /\| TASK-002 \| blocked \| P1 \| Blocked integration \| TASK-001 \|/);
   assert.ok(index.indexOf('TASK-003') < index.indexOf('TASK-002'));
+});
+
+test('active task index renders dependency IDs only — canonical prose stays in TASKS.md', () => {
+  // The index is non-canonical navigation under an always-loaded byte budget
+  // (check-agent-context). The canonical Dependencies line may carry prose
+  // (stale-blocker notes, unblock conditions); the INDEX renders just the
+  // TASK-nnn ids, deduplicated, or an honest pointer when the gate is not a
+  // task at all — never a paragraph.
+  const index = renderActiveTaskIndex(`
+## Prose-gated work
+- ID: TASK-010
+- Status: blocked
+- Priority: P2
+- Dependencies: the TASK-011 PT-5 cold-start evidence; TASK-012 is \`done\` and was a stale blocker; TASK-011 also gates the deploy
+
+## Non-task gate
+- ID: TASK-013
+- Status: blocked
+- Priority: P2
+- Dependencies: user acceptance of the proposed phase mapping (AP-007 still PROPOSED)
+`);
+
+  assert.match(index, /\| TASK-010 \| blocked \| P2 \| Prose-gated work \| TASK-011, TASK-012 \|/);
+  assert.match(index, /\| TASK-013 \| blocked \| P2 \| Non-task gate \| non-task gate \(see TASKS.md\) \|/);
   assert.match(index, /Non-canonical navigation only/);
 });

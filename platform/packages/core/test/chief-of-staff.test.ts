@@ -6,9 +6,27 @@ import {
   assertChainDepth,
   ChainDepthExceededError,
   MAX_CHAIN_DEPTH,
+  FixedClock,
+  UuidGen,
   type RoutableCapability,
   type ModelProvider,
+  type RunCtx,
 } from "../src/index.js";
+
+/** Deterministic RunCtx double (run-context.test.ts's pattern) — the seams a
+ * model-backed classification needs to assemble its run context (AI Harness
+ * K0: the provider cannot be supplied without them). */
+function test_fixture_run_ctx(): RunCtx {
+  return {
+    clock: new FixedClock("2026-08-09T12:00:00.000Z"),
+    rng: {
+      next(): number {
+        throw new Error("test_fixture_run_ctx: rng should never be called by context assembly");
+      },
+    },
+    ids: new UuidGen(new FixedClock("2026-08-09T12:00:00.000Z"), { next: () => 0.5 }),
+  };
+}
 
 const REGISTRY: RoutableCapability[] = [
   { id: "jobpilot.search", description: "search job applications tracker", keywords: ["job", "application", "apply"] },
@@ -46,14 +64,16 @@ test("classifyIntent never returns more than one route (star topology, no peer h
   assert.equal(Object.keys(decision).includes("routes"), false);
 });
 
-function testModel(reply: string): ModelProvider {
-  return {
+function testModel(reply: string): { provider: ModelProvider & { lastSystem: string | undefined }; runCtx: RunCtx } {
+  const provider: ModelProvider & { lastSystem: string | undefined } = {
     id: "test-model",
     plane: "cloud",
     tiers: ["cheap"],
     models: { cheap: "test-model-v1" },
     routingHealth: () => "unknown",
+    lastSystem: undefined,
     async complete(req) {
+      provider.lastSystem = req.system;
       return {
         text: reply,
         model: "test-model-v1",
@@ -68,15 +88,30 @@ function testModel(reply: string): ModelProvider {
       };
     },
   };
+  return { provider, runCtx: test_fixture_run_ctx() };
 }
 
 test("model path: valid registered id from provider routes correctly", async () => {
-  const decision = await classifyIntent({ message: "any message", registry: REGISTRY, model: testModel("calendar.schedule") });
+  const model = testModel("calendar.schedule");
+  const decision = await classifyIntent({ message: "any message", registry: REGISTRY, model });
   assert.equal(decision.kind, "route");
   assert.equal(decision.route, "calendar.schedule");
   assert.equal(decision.source, "model");
   assert.equal(decision.modelReceipt?.tier, "cheap");
   assert.equal(decision.modelReceipt?.usage.inputTokens, 12);
+});
+
+test("AI Harness K0: the classifier's system prompt is a projection of an assembled run context", async () => {
+  // The registry renders inside the output contract (the closed answer set IS
+  // the run's contract), and the kernel-invariants layer — which the retired
+  // hand-rolled classifier prompt never carried — is now non-omittable here.
+  const model = testModel("CLARIFY");
+  await classifyIntent({ message: "any message", registry: REGISTRY, model });
+  const system = model.provider.lastSystem ?? "";
+  assert.match(system, /Kernel invariants \(non-negotiable\)/);
+  assert.match(system, /## Output contract/);
+  for (const cap of REGISTRY) assert.ok(system.includes(`- ${cap.id}: ${cap.description}`), `registry option ${cap.id} must be disclosed`);
+  assert.match(system, /EXACTLY ONE bare capability id/);
 });
 
 test("model path: CLARIFY token from provider produces a clarify decision", async () => {
@@ -104,7 +139,12 @@ test("model path: a throwing provider fails closed instead of producing an unrec
     },
   };
   await assert.rejects(
-    () => classifyIntent({ message: "help me apply to this job posting", registry: REGISTRY, model: throwingModel }),
+    () =>
+      classifyIntent({
+        message: "help me apply to this job posting",
+        registry: REGISTRY,
+        model: { provider: throwingModel, runCtx: test_fixture_run_ctx() },
+      }),
     /network error/,
   );
 });

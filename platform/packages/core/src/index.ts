@@ -378,20 +378,24 @@ export {
 } from "./chief-of-staff.js";
 
 // The three non-Chief-of-Staff foundational agents (ADR-033, corrected to
-// three by ADR-046) — @mention dispatch + system-prompt construction. Chief
+// three by ADR-046) — @mention dispatch + persona construction. Chief
 // of Staff itself stays modeled by chief-of-staff.ts (it IS the router, not
 // a routable target). Communications is no longer an agent — it's a skill
-// (COMMUNICATIONS_SKILL + parseSkillMention + buildCommunicationsSystemPrompt).
+// (COMMUNICATIONS_SKILL + parseSkillMention + buildCommunicationsPersona).
+// System prompts are no longer built here at all: every model run's prompt
+// is projectToSystemPrompt over an assembled ModelRunContext (AI Harness K0),
+// which is why the old buildAgentSystemPrompt/buildCommunicationsSystemPrompt
+// exports are gone rather than deprecated.
 export {
   FOUNDATIONAL_AGENTS,
   parseMention,
   findFoundationalAgent,
   buildAgentPersona,
-  buildAgentSystemPrompt,
+  DIRECT_REPLY_OUTPUT_CONTRACT,
   invokeAgent,
   COMMUNICATIONS_SKILL,
   parseSkillMention,
-  buildCommunicationsSystemPrompt,
+  buildCommunicationsPersona,
   CAPABILITY_BUILDER_DESIGN_CONSTRAINTS,
   checkDesignConstraintViolations,
   type FoundationalAgentId,

@@ -28,6 +28,18 @@ services:
         value: disabled
       - key: BRIDGE_RENDER_WEB_HOST
         value: bridge-pilot-web.onrender.com
+      # AI Harness K0 (ADR-210/AP-131, TASK-044): the three learning flights
+      # run live for the pilot. Residency guards still apply per surface on
+      # this public-cloud deployment: the embedding indexer self-gates on
+      # !publicCloudOnly, and chat fusion/preferences gate per-turn on the
+      # provider plane — the flags enable the learning.* surfaces honestly
+      # rather than bypassing any Local-Plane boundary.
+      - key: BRIDGE_LEARNING_OBSERVATION
+        value: "1"
+      - key: BRIDGE_RETRIEVAL_FUSION
+        value: "1"
+      - key: BRIDGE_COMMONS_ARCHETYPES
+        value: "1"
       # Rate limits were governed in production by the hardcoded fallbacks in
       # server.ts rateLimitConfig() because none of these were ever set. Pinned
       # here at the same values so the limits are explicit and reviewable rather

@@ -1,6 +1,6 @@
 # Unified Learning Capability — Design Spec
 
-**Date:** 2026-08-03 · **Status:** drafted, awaiting approval
+**Date:** 2026-08-03 · **Status:** drafted, awaiting approval · **Folded into the AI Harness plan 2026-08-09 (AP-131/ADR-210):** `docs/raw/ai-harness-plan-2026-08-09.md` is the ordering authority; this spec remains a design source, its items enter execution only via a K-phase TASK row, and approving its designs is still a separate gate.
 **Scope:** Collapse seven parallel research/capture surfaces into one Learning Agent capability. Restores the deleted `Tools/recon` connectors and Chrome extension, folds the `@bridge/research` Run engine, `skill.webResearch`, and `@bridge/sourcing` into a single loop behind existing ports, and fixes the delegation contract so a `neverExecutes` agent can still get work done.
 
 ## Why this exists

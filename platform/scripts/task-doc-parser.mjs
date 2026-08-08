@@ -93,6 +93,17 @@ function markdownCell(value) {
   return String(value ?? 'none').replaceAll('|', '\\|').replace(/\s+/g, ' ').trim();
 }
 
+/** The index's Dependencies cell: TASK-nnn ids only, deduplicated, in first-
+ * mention order. The canonical line in docs/TASKS.md may carry prose (stale-
+ * blocker notes, unblock conditions) — that prose stays canon; the always-
+ * loaded index (check-agent-context's activeTasksBytes budget) renders just
+ * the ids, or an honest pointer when the gate is not a task at all. */
+function dependencyIdsCell(dependencies) {
+  if (!dependencies || dependencies.length === 0) return 'none';
+  const ids = [...new Set(dependencies.join(' ').match(/TASK-\d+/g) ?? [])];
+  return ids.length > 0 ? ids.join(', ') : 'non-task gate (see TASKS.md)';
+}
+
 export function renderActiveTaskIndex(document) {
   const tasks = parseCanonicalTasks(document).filter((task) => ACTIVE_STATUSES.has(task.status));
   const rows = tasks.length > 0
@@ -101,7 +112,7 @@ export function renderActiveTaskIndex(document) {
         task.status,
         task.priority ?? 'none',
         task.title,
-        task.dependencies?.join(', ') || 'none',
+        dependencyIdsCell(task.dependencies),
       ].map(markdownCell))
     : [['none', 'none', 'none', 'No active tasks', 'none']];
 

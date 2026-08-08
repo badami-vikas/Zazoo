@@ -810,7 +810,14 @@ export const RED_FLAG_LEARNING_SKILL_MANIFEST = {
 export const LEARNING_OBSERVATION_GOAL_TYPE = "platform.learning_observation";
 export const OBSERVATION_DIGEST_TASK_TYPE = "observation_digest";
 export const OBSERVATION_DIGEST_SKILL_ID = "learning.observationDigest";
-export const LEARNING_DIGEST_AUTOMATION_ID = "platform.learning.observation-digest";
+/** Fixed runtime UUID (the `b0000000-…` scheme every other runtime Automation
+ * uses; 0x0201 opens a platform-learning range after Task Manager's 0x01xx).
+ * This was the dotted key "platform.learning.observation-digest" until AI
+ * Harness K0 performed the first live boot with the flight on: the durable
+ * automations table's id column is uuid-typed, pglite refused the seed with
+ * 22P02, and the API process died at boot. In-memory mode accepts any string,
+ * which is why two months of green tests never noticed. */
+export const LEARNING_DIGEST_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000201";
 
 export const OBSERVATION_DIGEST_SKILL_MANIFEST = {
   organizationId: PILOT_ORGANIZATION,

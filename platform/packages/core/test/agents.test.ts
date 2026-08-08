@@ -6,9 +6,45 @@ import {
   parseMention,
   parseSkillMention,
   COMMUNICATIONS_SKILL,
-  buildCommunicationsSystemPrompt,
+  buildCommunicationsPersona,
+  assembleRunContext,
+  projectToSystemPrompt,
   checkDesignConstraintViolations,
+  FixedClock,
+  UuidGen,
+  type RunCtx,
 } from "../src/index.js";
+
+/** Deterministic RunCtx double (run-context.test.ts's pattern) — assembly
+ * touches clock/ids only, never randomness. */
+function test_fixture_run_ctx(): RunCtx {
+  return {
+    clock: new FixedClock("2026-08-09T12:00:00.000Z"),
+    rng: {
+      next(): number {
+        throw new Error("test_fixture_run_ctx: rng should never be called by context assembly");
+      },
+    },
+    ids: new UuidGen(new FixedClock("2026-08-09T12:00:00.000Z"), { next: () => 0.5 }),
+  };
+}
+
+/** Project the Communications persona exactly the way the converse procedure
+ * does — through the one context door. The tests below assert on THIS string
+ * because it is the only prompt a Communications turn can be given. */
+function communicationsSystem(tone?: string): string {
+  return projectToSystemPrompt(
+    assembleRunContext(
+      {
+        persona: buildCommunicationsPersona({ type: "user", id: "test_fixture_user" }, tone),
+        request: "draft a summary",
+        governance: { approvalRequirement: "explicit_human", trustGrants: [] },
+        outputContract: { description: "Answer plainly." },
+      },
+      test_fixture_run_ctx(),
+    ),
+  );
+}
 
 test("ADR-046/AGS0: Communications is not in the roster; Internal Strategist is", () => {
   // The type system already proves "communications" can't appear here —
@@ -42,16 +78,34 @@ test("parseSkillMention resolves @communications and @comms", () => {
   assert.equal(parseSkillMention("hello there").skill, null);
 });
 
-test("buildCommunicationsSystemPrompt carries no agent-identity execution guardrail", () => {
-  const prompt = buildCommunicationsSystemPrompt();
+test("the Communications system prompt carries no agent-identity execution guardrail", () => {
+  const prompt = communicationsSystem();
   assert.match(prompt, /Communications skill/);
   assert.match(prompt, /no independent authority/);
   assert.doesNotMatch(prompt, /never execute actions directly/);
 });
 
-test("buildCommunicationsSystemPrompt applies an explicit writing tone additively", () => {
-  const prompt = buildCommunicationsSystemPrompt("concise and direct");
+test("the Communications system prompt applies an explicit writing tone additively", () => {
+  const prompt = communicationsSystem("concise and direct");
   assert.match(prompt, /concise and direct/);
+  assert.doesNotMatch(communicationsSystem(), /Match this tone/);
+});
+
+test("AI Harness K0: a Communications turn is a projection of an assembled run context — kernel invariants included", () => {
+  // The retired hand-rolled prompt had NO kernel-invariants layer; the one
+  // door makes the layer non-omittable for this path too. If someone
+  // reintroduces a bespoke string builder, this is the assertion that names
+  // the regression.
+  const prompt = communicationsSystem();
+  assert.match(prompt, /Kernel invariants \(non-negotiable\)/);
+  assert.match(prompt, /## Output contract/);
+});
+
+test("buildCommunicationsPersona: the ACTOR is the caller — the skill has no identity of its own (ADR-046)", () => {
+  const persona = buildCommunicationsPersona({ type: "agent", id: "chief_of_staff" });
+  assert.equal(persona.actorType, "agent");
+  assert.equal(persona.actorId, "chief_of_staff");
+  assert.equal(persona.id, "communications");
 });
 
 test("checkDesignConstraintViolations flags dummy-data language", () => {

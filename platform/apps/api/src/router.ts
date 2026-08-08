@@ -145,7 +145,8 @@ import {
   parseMention,
   parseSkillMention,
   invokeAgent,
-  buildCommunicationsSystemPrompt,
+  buildCommunicationsPersona,
+  DIRECT_REPLY_OUTPUT_CONTRACT,
   canonicalizeManifest,
   canonicalizeJson,
   findOrganizationDataPaths,
@@ -17985,14 +17986,27 @@ export const appRouter = t.router({
               input.cloudModelEgress,
             )
           : undefined;
-        const system = buildCommunicationsSystemPrompt(
-          configuredModel?.plane === "cloud" ? undefined : cosPersona.tone,
+        // AI Harness K0 (ADR-211): the Communications turn assembles a real
+        // ModelRunContext — the system prompt is a projection, never a
+        // hand-rolled string, so the kernel invariants and the K4 memory
+        // slot exist here exactly as they do for every other model run.
+        const communicationsContext = assembleRunContext(
+          {
+            persona: buildCommunicationsPersona(
+              { type: ctx.identity.type, id: ctx.identity.id },
+              configuredModel?.plane === "cloud" ? undefined : cosPersona.tone,
+            ),
+            request: skillMention.rest || input.message,
+            governance: { approvalRequirement: "explicit_human", trustGrants: [] },
+            outputContract: { description: DIRECT_REPLY_OUTPUT_CONTRACT },
+          },
+          ctx.run,
         );
         const text = governedModel
           ? (
               await governedModel.provider.complete({
-                system,
-                prompt: skillMention.rest || input.message,
+                system: projectToSystemPrompt(communicationsContext),
+                prompt: communicationsContext.request,
                 maxTokens: 512,
                 tier: "default",
                 cache: { strategy: "stable_system_prefix", ttl: "5m" },
@@ -18048,7 +18062,12 @@ export const appRouter = t.router({
         const result = await invokeAgent({
           agentId,
           message: rest || input.message,
-          ...(governedModel ? { model: governedModel.provider } : {}),
+          // The RunCtx rides with the provider (AI Harness K0): invokeAgent
+          // assembles its ModelRunContext through the one context door, and
+          // cannot be handed a model without the seams to do so.
+          ...(governedModel
+            ? { model: { provider: governedModel.provider, runCtx: ctx.run } }
+            : {}),
           ...(cosPersona.tone && configuredModel?.plane !== "cloud"
             ? { tone: cosPersona.tone }
             : {}),
@@ -18132,7 +18151,9 @@ export const appRouter = t.router({
         ? await classifyIntent({
             message: input.message,
             registry: CHIEF_OF_STAFF_REGISTRY,
-            ...(governedModel ? { model: governedModel.provider } : {}),
+            ...(governedModel
+              ? { model: { provider: governedModel.provider, runCtx: ctx.run } }
+              : {}),
           })
         : {
             kind: "direct_reply" as const,

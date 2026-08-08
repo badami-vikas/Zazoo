@@ -5,22 +5,32 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 
 | ID | Status | Priority | Task | Dependencies |
 |---|---|---|---|---|
-| TASK-006 | blocked | P1 | DealPilot ETA core prototype | the TASK-030 PT-5 cold-start evidence. TASK-001 is `done` and was a stale blocker. (Deploys to the hosted pilot became automatic on push to `main` 2026-08-07 under AP-115/ADR-195 — the prior MANUAL-deploy dependency this row named no longer applies.) |
+| TASK-006 | blocked | P1 | DealPilot ETA core prototype | TASK-030, TASK-001 |
 | TASK-020 | ready | P4 | Browser companion and Avatar visual expansion | TASK-003, TASK-015 |
-| TASK-018 | blocked | P3 | Cross-platform release blockers | remediation of the seven HIGH production-dependency advisories, plus the TASK-030 PT-6 OS-matrix and real-device checks. TASK-005 is `done` and was a stale blocker. |
-| TASK-019 | blocked | P4 | Approved long-term optimization rollout | user acceptance of the proposed phase mapping (AP-007 still PROPOSED) and reconciliation of the AP-008 ledger/status inconsistency. TASK-005 and TASK-015 are both `done` and were stale blockers — the real gate is an approval, not engineering. |
-| TASK-028 | in_progress | P2 | Autonomous background browser research agent | TASK-023 (done), TASK-007 (done), TASK-026 (done), TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it) |
+| TASK-018 | blocked | P3 | Cross-platform release blockers | TASK-030, TASK-005 |
+| TASK-019 | blocked | P4 | Approved long-term optimization rollout | TASK-005, TASK-015 |
+| TASK-028 | in_progress | P2 | Autonomous background browser research agent | TASK-023, TASK-007, TASK-026, TASK-027 |
 | TASK-029 | in_progress | P2 | WhatsApp Module with governed contact extraction | none |
-| TASK-030 | in_progress | P2 | WhatsApp write-enabled messaging with a local searchable store | TASK-029 (in_progress — its exit test is unwalked, TASK-030 assumes the linked session and allowlist it built, and inherits its two filed defects as fixes in Track A) |
-| TASK-031 | in_progress | P2 | Platform bloat cleanup and table-renderer standardization | none (must not disturb in-progress TASK-027/TASK-028 surfaces, router/wiring splits rebase-heavy — coordinate with active branches) |
-| TASK-032 | in_progress | P2 | Deal Copilot learning observation loop (generic Egg baseline v1) | none (builds on landed MemoryStore/TASK-002 substrate), unblocks retrieval (LA5) and promotion machinery follow-ups. |
-| TASK-033 | in_progress | P2 | Universal Commons capability archetypes (roadmap-v2 Phase 4) | TASK-032 (accepted preferences are the generalization source, suggestion lineage machinery is the seed target). |
+| TASK-030 | in_progress | P2 | WhatsApp write-enabled messaging with a local searchable store | TASK-029, TASK-030 |
+| TASK-031 | in_progress | P2 | Platform bloat cleanup and table-renderer standardization | TASK-027, TASK-028 |
+| TASK-032 | in_progress | P2 | Deal Copilot learning observation loop (generic Egg baseline v1) | TASK-002 |
+| TASK-033 | in_progress | P2 | Universal Commons capability archetypes (roadmap-v2 Phase 4) | TASK-032 |
 | TASK-034 | ready | P2 | Production configuration correctness | none |
 | TASK-035 | ready | P2 | Governed surfaces reachable and manageable from the UI | none |
 | TASK-036 | ready | P1 | Green CI and an honest event backbone | none |
-| TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses) |
+| TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | TASK-007 |
 | TASK-038 | ready | P1 | Secrets-at-rest and multi-tenancy security block | none |
-| TASK-040 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends) |
-| TASK-041 | ready | P2 | Pending Tests — live verification backlog | none — every item is independently runnable by whoever holds the machine, device, credential, or deploy rights it names |
-| TASK-042 | ready | P2 | Input-pack regeneration tests for Skills, Modules, and Integrations | none (methodology and draft constitution exist, TASK-033 archetype work is adjacent, not blocking) |
-| TASK-043 | ready | P2 | Constitution enforcement mechanisms (ADR-176 adopt-list) | E5 depends on the semantic embedder (learning-agent LA5 open item). E1-E4 have none. |
+| TASK-040 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 |
+| TASK-041 | ready | P2 | Pending Tests — live verification backlog | non-task gate (see TASKS.md) |
+| TASK-042 | ready | P2 | Input-pack regeneration tests for Skills, Modules, and Integrations | TASK-033 |
+| TASK-043 | ready | P2 | Constitution enforcement mechanisms (ADR-176 adopt-list) | non-task gate (see TASKS.md) |
+| TASK-045 | ready | P1 | K1 — Capture: generic ledger→signal miner | TASK-044 |
+| TASK-046 | ready | P2 | K2 — Capture: local stores emit learning signals | TASK-044 |
+| TASK-047 | ready | P1 | K3 — Knowledge substrate: entities, claims, consolidation | TASK-044 |
+| TASK-048 | ready | P2 | K4 — Continuous context: fusion feeds every run | TASK-044, TASK-047, TASK-043 |
+| TASK-049 | ready | P2 | K5 — Capture: email + calendar signals, metadata-first | TASK-044 |
+| TASK-050 | ready | P2 | K6 — Recommendation rhythm: morning brief + commitments | TASK-047, TASK-049 |
+| TASK-051 | blocked | P3 | K7 — Capture: app-focus sensor | TASK-044 |
+| TASK-052 | ready | P3 | K8 — Capture: browser extension, domain/title first | TASK-044 |
+| TASK-053 | ready | P2 | K9 — Builder ladder: rung 3 steps, rung 4 structures | TASK-045, TASK-047, TASK-042 |
+| TASK-054 | blocked | P3 | K11 — EG4 sensor tier: input, screen, ambient voice | TASK-043, TASK-051 |

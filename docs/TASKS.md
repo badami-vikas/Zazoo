@@ -10,7 +10,7 @@ IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK
 
 IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048. TASK-026 became the current P0 on 2026-07-26 under AP-078 after the user reported the primary Chat Panel remained placeholder-like and approved its implementation plan. TASK-027 (clicky-parity screen-aware companion ask prototype) appended at queue end 2026-07-29 per user directive R-041; TASK-028 (autonomous background browser research agent) appended immediately after per the same day's follow-up directive R-042. TASK-031 (platform bloat cleanup + table-renderer standardization) appended 2026-08-02 per user directive as the next task after the in-progress TASK-027/028 (AP-092). RENUMBERED from this session's original TASK-029, which collided with the WhatsApp Module's TASK-029/TASK-030 already claimed on the parallel `claude/whatsapp-*` branches; the session's AP-090/091/092 were likewise renumbered to AP-092/093/094 around the WhatsApp branches' AP-090/091. TASK-029 (WhatsApp Module with governed contact extraction) appended 2026-08-01 per the user's module directive and approved design (AP-090). TASK-030 (WhatsApp write-enabled messaging with a local searchable store) appended 2026-08-02 per AP-091; it is a NEW task rather than growth of TASK-029 because it does not share TASK-029's exit test and exceeds the ~30% same-surface allowance several times over. TASK-032 (Deal Copilot learning observation loop, generic Egg baseline v1) appended 2026-08-03 per user directive; RENUMBERED at merge time from that session's local TASK-029, which collided with the WhatsApp Module's TASK-029 already claimed on main. TASK-033 (Universal Commons capability archetypes, roadmap-v2 Phase 4) appended 2026-08-04 per the user's directive to audit the Egg/Commons plans for gaps and implement them next. TASK-034 through TASK-037 appended 2026-08-03 per user directive after the unfinished-work audit (`outputs/2026-08-03-unfinished-work-audit.md`), under AP-095; RENUMBERED at merge time from that session’s TASK-032..036, which collided with the Deal Copilot learning task’s TASK-032 already claimed on main. TASK-036 is the designated absorber for test/CI blockers found by other tasks. TASK-038 (secrets-at-rest and multi-tenancy security block) is that same batch’s original TASK-033, RENUMBERED again on 2026-08-04 because main had meanwhile claimed TASK-033 for Universal Commons capability archetypes; renumbering the later-arriving side follows the precedent set by the TASK-029 and TASK-032 collisions above.
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048. TASK-026 became the current P0 on 2026-07-26 under AP-078 after the user reported the primary Chat Panel remained placeholder-like and approved its implementation plan. TASK-027 (clicky-parity screen-aware companion ask prototype) appended at queue end 2026-07-29 per user directive R-041; TASK-028 (autonomous background browser research agent) appended immediately after per the same day's follow-up directive R-042. TASK-031 (platform bloat cleanup + table-renderer standardization) appended 2026-08-02 per user directive as the next task after the in-progress TASK-027/028 (AP-092). RENUMBERED from this session's original TASK-029, which collided with the WhatsApp Module's TASK-029/TASK-030 already claimed on the parallel `claude/whatsapp-*` branches; the session's AP-090/091/092 were likewise renumbered to AP-092/093/094 around the WhatsApp branches' AP-090/091. TASK-029 (WhatsApp Module with governed contact extraction) appended 2026-08-01 per the user's module directive and approved design (AP-090). TASK-030 (WhatsApp write-enabled messaging with a local searchable store) appended 2026-08-02 per AP-091; it is a NEW task rather than growth of TASK-029 because it does not share TASK-029's exit test and exceeds the ~30% same-surface allowance several times over. TASK-032 (Deal Copilot learning observation loop, generic Egg baseline v1) appended 2026-08-03 per user directive; RENUMBERED at merge time from that session's local TASK-029, which collided with the WhatsApp Module's TASK-029 already claimed on main. TASK-033 (Universal Commons capability archetypes, roadmap-v2 Phase 4) appended 2026-08-04 per the user's directive to audit the Egg/Commons plans for gaps and implement them next. TASK-034 through TASK-037 appended 2026-08-03 per user directive after the unfinished-work audit (`outputs/2026-08-03-unfinished-work-audit.md`), under AP-095; RENUMBERED at merge time from that session’s TASK-032..036, which collided with the Deal Copilot learning task’s TASK-032 already claimed on main. TASK-036 is the designated absorber for test/CI blockers found by other tasks. TASK-038 (secrets-at-rest and multi-tenancy security block) is that same batch’s original TASK-033, RENUMBERED again on 2026-08-04 because main had meanwhile claimed TASK-033 for Universal Commons capability archetypes; renumbering the later-arriving side follows the precedent set by the TASK-029 and TASK-032 collisions above. TASK-044 through TASK-054 (AI Harness phases K0–K9 and K11; K10 is the pre-existing TASK-043) appended 2026-08-09 per user directive "start on AI harness" under AP-131, canonizing `docs/raw/ai-harness-plan-2026-08-09.md`; the K-ladder is the sequenced next workstream after the TASK-021 reopened scope closed at ADR-209.
 
 ## Operating standard
 
@@ -733,3 +733,149 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-08-04 ("Incorporate the 6 ideas, if validated to be better").
 - Approval: AP-103 APPLIED
 - Dependencies: E5 depends on the semantic embedder (learning-agent LA5 open item). E1-E4 have none.
+- Harness mapping (2026-08-09, AP-131): this task IS phase K10 of `docs/raw/ai-harness-plan-2026-08-09.md`. Nothing in K11 (TASK-054) turns on until this lands.
+
+## K0 — AI Harness spine: flights live for the pilot, one context door
+- ID: TASK-044
+- Status: done
+- Priority: P1
+- Horizon: Core Modules
+- Outcome: The three built-but-never-run-live learning flights (`BRIDGE_LEARNING_OBSERVATION`, `BRIDGE_RETRIEVAL_FUSION`, `BRIDGE_COMMONS_ARCHETYPES`) are ON for both pilot surfaces (hosted Render deploy and desktop sidecar), and `chiefOfStaff.converse` no longer assembles model context ad hoc — `assembleRunContext`/`projectToSystemPrompt` is the only context door, so K4's "retrieval fusion feeds every run" has exactly one seam to feed.
+- Prototype test: (a) `render.yaml` and the desktop sidecar env both set the three flags, and `learning.status` reports `{ enabled: true }` on a live pilot boot; (b) every model call reachable from `chiefOfStaff.converse` composes its system prompt through `assembleRunContext` — a test fails if any converse path builds a system string without it, and removing the assembly from any one path turns that test RED.
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K0; `render.yaml` envVars; `platform/apps/desktop/src-tauri/src/api_sidecar.rs` sidecar env; `platform/apps/api/src/router.ts` chiefOfStaff.converse (@communications path, @agent path via `invokeAgent`, intent classification); `platform/packages/core/src/run-context.ts`.
+- Evidence: run-context.ts's own header names converse as the ad-hoc assembly it formalizes; the LA5 indexer already self-gates on `!publicCloudOnly`, so the hosted flip is honest. DONE 2026-08-09 (ADR-211, AP-132): flags in `render.yaml` + `api_sidecar.rs`, each with a mutation-checked failing-on-removal test (Rust sidecar 15/15); `invokeAgent`/`classifyIntent` take `{ provider, runCtx }`, old prompt builders deleted, core 616/616 with the door mutation-checked (hand-rolled system → 4 RED); **the first live flags-on boot crashed** — the digest Automation's dotted-key id vs the uuid-typed durable `automations` column (22P02), fixed to `b0000000-…-0201` with a seen-RED regression test (api learning 8/8) before it could take down the hosted pilot on next push; live Local-Plane boot then served `learning.status`/`learning.retrieval.status` `{"enabled":true}` and an @communications converse turn through the assembled context; active-task index renders dependency IDs only (4953→3208 bytes, budget unraised); full turbo gate 72/72.
+- Requests: user directive 2026-08-09 ("start on AI harness")
+- Approval: AP-131 APPLIED; AP-132 APPLIED (the slice itself)
+- Dependencies: none
+- Honest residual: the model-backed converse paths are proven by unit captures of the projected system prompt (no local model in this environment); the hosted pilot's flags take effect on its next deploy, and its first flags-on boot should be watched (TASK-041-class live check).
+
+## K1 — Capture: generic ledger→signal miner
+- ID: TASK-045
+- Status: ready
+- Priority: P1
+- Horizon: Core Modules
+- Outcome: Every governed in-app action becomes learning input through one generic miner over the append-only ledger, and the per-module (DealPilot-shaped) signal mapping is deleted forever — no Module ever writes bespoke learning plumbing again.
+- Prototype test: a governed action performed in a Module with NO module-specific learning code produces a learning signal visible in the learning surface; the DealPilot-specific mapping no longer exists in the tree; removing the miner turns the signal test RED.
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K1; the append-only ledger already records all in-app activity as a byproduct of the governed pipeline — this task mines it, replacing the TASK-032 per-module mapping.
+- Evidence: TASK-032's flight-gated learning loop (merged 2026-08-03) is the baseline being generalized.
+- Requests: user directive 2026-08-09 ("start on AI harness")
+- Approval: AP-131 APPLIED
+- Dependencies: TASK-044
+- Unblocks: K9 rung 3 (TASK-053) needs only this task's ledger episodes.
+
+## K2 — Capture: local stores emit learning signals
+- ID: TASK-046
+- Status: ready
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: Chat threads and the WhatsApp local store emit learning signals under per-source consent toggles that default OFF — data Bridge already holds locally gains a new USE only through a new consent surface.
+- Prototype test: with a source's toggle off, no signal is emitted from it (asserted, not assumed); flipping the toggle on emits signals from that source only; the toggle rows are inspectable and the emitted signals are deletable Memory.
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K2; chat store + WhatsApp store (TASK-029/030 surfaces).
+- Evidence: invariants section of the harness plan (consent toggle default off, inspectable/deletable Memory).
+- Requests: user directive 2026-08-09 ("start on AI harness")
+- Approval: AP-131 APPLIED
+- Dependencies: TASK-044
+
+## K3 — Knowledge substrate: entities, claims, consolidation
+- ID: TASK-047
+- Status: ready
+- Priority: P1
+- Horizon: Core Modules
+- Outcome: The graph that appends AND optimizes: typed Entities beyond people (deals, projects, orgs, topics — typed by Module vocabulary), Claims with per-claim evidence refs + sensitivity tiers + supersedence lineage, and a consolidation loop (dedupe via `@bridge/dedupe` with the ADR-177 calibrated refusal band, contradiction surfacing as suggestions — never silent overwrite, episodic→semantic distillation with provenance, decay/archive). Extends GraphStore with new `entities`/`claims` tables alongside — no big-bang migration; the relationship graph becomes one region of the whole.
+- Prototype test: a duplicate entity pair inside the refusal band is REFUSED (surfaced as a suggestion), never auto-merged; a contradicting claim invalidates its predecessor by lineage rather than deleting it; a red-tier claim class (health, protected characteristic, psychological conclusion) constructed as a fixture never reaches a proposal; all writes traverse the governed pipeline (a direct-write attempt fails closed).
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K3 + its KG technology decision (Postgres substrate, Graphiti's bi-temporal/invalidation ideas behind our own port, Kùzu only as a pre-agreed derived-index escape hatch).
+- Evidence: ADR-177 (calibrated refusal band, auto-bind unreachable from a model); ADR-176 invariant 15 (sensitivity tiers).
+- Requests: user directive 2026-08-09 ("start on AI harness")
+- Approval: AP-131 APPLIED
+- Dependencies: TASK-044
+
+## K4 — Continuous context: fusion feeds every run
+- ID: TASK-048
+- Status: ready
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: Retrieval fusion fills the memory slot of EVERY agent run under an enforced context budget (ADR-177 Layer B), not just chat, and the semantic embedder (local Ollama) becomes the Local-Plane default with the hashing embedder as deterministic fallback.
+- Prototype test: a non-chat agent run's assembled context contains fused retrieval output and respects a budget cap (over-budget input is truncated by policy, asserted); with Ollama present the semantic embedder is selected, without it the lexical fallback engages and indexer + query share one embedding space (existing invariant, re-asserted at the new default).
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K4; LA5 fusion (built, chat-only, flighted) generalized through the TASK-044 single context door.
+- Evidence: LA5 (TASK-032) fusion machinery; `run-context.ts`.
+- Requests: user directive 2026-08-09 ("start on AI harness")
+- Approval: AP-131 APPLIED
+- Dependencies: TASK-044, TASK-047 (skeleton only); unblocks TASK-043 E5
+
+## K5 — Capture: email + calendar signals, metadata-first
+- ID: TASK-049
+- Status: ready
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: The Google integration emits learning signals metadata-first (sender/subject/time; calendar events + attendees) under a per-account toggle; content summarization is later and separately gated. This rung is what makes commitments and the brief genuinely good.
+- Prototype test: with the account toggle off, nothing is emitted; on, metadata signals appear as inspectable/deletable Memory and NO body content is present in any emitted signal (asserted over a fixture with a distinctive body string).
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K5; existing Google integration surfaces.
+- Evidence: harness-plan capture invariants.
+- Requests: user directive 2026-08-09 ("start on AI harness")
+- Approval: AP-131 APPLIED
+- Dependencies: TASK-044
+
+## K6 — Recommendation rhythm: morning brief + commitments
+- ID: TASK-050
+- Status: ready
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: A morning brief (overdue/due/upcoming commitments, pending suggestions, recent activity) plus commitment detection mined from real prose, materializing into the K3 substrate on acceptance, plus approvals nudges and next-action suggestions — all suggested-then-accepted and annoyance-capped. The visible daily payoff that makes the loop legible.
+- Prototype test: a commitment stated in real prose is detected, surfaced as a suggestion, and materializes into the graph only on acceptance; the brief renders the three commitment buckets from real data; the annoyance cap measurably limits suggestion volume (over-cap suggestions deferred, asserted).
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K6; absorbs the EG3 design (`docs/raw/egg-commons-feature-roadmap-2026-07.md`). The 2026-08-08 session record's "TASK-040" pointer for this work was stale — TASK-040 is LA3 Phase 2; THIS row is the brief's canonical home.
+- Evidence: EG3 design (complete, previously paused behind this workstream's sequencing).
+- Requests: user directive 2026-08-09 ("start on AI harness")
+- Approval: AP-131 APPLIED
+- Dependencies: TASK-047, TASK-049 (a chat/ledger-only brief may ship first)
+
+## K7 — Capture: app-focus sensor
+- ID: TASK-051
+- Status: blocked
+- Priority: P3
+- Horizon: Hardening
+- Outcome: The first ambient sensor: a real frontmost-app/window-title provider in the `@bridge/sensors` SensorHub (today: fake provider, unwired), the hub wired into the API, the Avatar blink-tell firing on capture, and a pause/kill switch.
+- Prototype test: focusing a different app creates an inspectable Memory naming it, the Avatar blinks, and the kill switch verifiably stops capture (no Memory rows while paused, asserted live).
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K7; `@bridge/sensors` SensorHub + CaptureLedger substrate.
+- Evidence: ADR-184 — TCC grants are not durable on the unbundled dev binary.
+- Requests: user directive 2026-08-09 ("start on AI harness")
+- Approval: AP-131 APPLIED
+- Dependencies: TASK-044; blocked on a signed `.app` bundle (ADR-184)
+
+## K8 — Capture: browser extension, domain/title first
+- ID: TASK-052
+- Status: ready
+- Priority: P3
+- Horizon: Hardening
+- Outcome: A browser extension captures domain/title-level activity (page content later, separately gated) with an allowlist/denylist, and private windows are structurally excluded from capture.
+- Prototype test: a visit to an allowlisted domain creates an inspectable Memory with domain+title only; a denylisted domain creates nothing; a private-window visit creates nothing by construction (the capture path is absent, not filtered).
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K8; the unified-learning spec's extension salvage is design source material where applicable (reuse intake applies).
+- Evidence: harness-plan capture invariants.
+- Requests: user directive 2026-08-09 ("start on AI harness")
+- Approval: AP-131 APPLIED
+- Dependencies: TASK-044
+
+## K9 — Builder ladder: rung 3 steps, rung 4 structures
+- ID: TASK-053
+- Status: ready
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: Rung 3 — the Capability Builder drafts automation STEPS from a promotion pattern + its ledger episodes, constrained to the existing skill registry + canonical step schema (constrained generation, not codegen; existing activation gates apply). Rung 4 — structure synthesis: the Builder proposes Databases/Views/Pages/blueprints from K3's entities and claims via the validated input-pack regeneration methodology (ADR-175/176/177; TASK-042 defines the per-class packs). Rung 5 (code-bearing skills via BA0 sandbox) is explicitly later, gated on rung 4 proving out.
+- Prototype test: rung 3 — given a real promotion pattern, the Builder proposes steps that reference only registered skills and validate against the step schema, and an out-of-registry step is refused; rung 4 — the north-star test: given only observation data from ETA-style work, the Builder proposes a Deals/Sources/Theses-shaped module without being told about DealPilot.
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K9. Safe by construction: the View/Page schema cannot hold code (ADR-194).
+- Evidence: ADR-175/176/177 regeneration methodology; TASK-042 pack definitions.
+- Requests: user directive 2026-08-09 ("start on AI harness")
+- Approval: AP-131 APPLIED
+- Dependencies: TASK-045 (rung 3); TASK-047, TASK-042 (rung 4)
+
+## K11 — EG4 sensor tier: input, screen, ambient voice
+- ID: TASK-054
+- Status: blocked
+- Priority: P3
+- Horizon: Hardening
+- Outcome: Three senses on T0–T2 local tiers: (a) continuous input capture as semantic events ("clicked Send in Mail" — click + AX-tree target + typing), never a raw keylog, behind the full fail-closed input boundary (OS secure-input, field-role gate where unknown = sensitive, app/domain denylist, never-persist-raw, pattern redaction); (b) continuous screen (xcap; post-meeting action drafts); (c) system audio → ambient voice (cidre/wasapi/libpulse; EG5). Raw processed on-device; only distilled Memory persists; raw never leaves the Local Plane.
+- Prototype test: a password-field keystroke fixture yields at most "typed in an unknown field" (never characters); a denylisted app yields nothing including clicks; raw stream bytes are absent from disk after distillation (asserted over the capture directory); every distilled event is inspectable, deletable Memory with the Avatar blink fired.
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K11 + "The input-capture boundary (K11a)". Rides ~80% on EG4's planned machinery (capture-core crates, permission model, AX-tree walker, capture→Memory+blink contract).
+- Evidence: EG4/EG5 roadmap slices; harness-plan input-capture boundary.
+- Requests: user directive 2026-08-09 ("start on AI harness")
+- Approval: AP-131 APPLIED. The keystroke content-vs-events decision (harness-plan open decision 1) is a further user gate before build.
+- Dependencies: TASK-043 (K10 gate), TASK-051; plus the open keystroke content-vs-events user decision

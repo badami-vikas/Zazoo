@@ -40,7 +40,9 @@ import {
   type ModelCallReceipt,
   type ModelCompletionRequest,
   type ModelProvider,
+  type RunCtx,
 } from "./ports.js";
+import { assembleRunContext, projectToSystemPrompt, type RunPersona } from "./run-context.js";
 
 /** A downstream capability Chief of Staff can route a single turn to. Kept as
  * a closed, caller-supplied registry (mirrors compileBlueprint's registered-
@@ -116,9 +118,13 @@ export interface RoutingDecision {
 export interface ClassifyIntentArgs {
   message: string;
   registry: readonly RoutableCapability[];
-  /** Optional ModelProvider (ports.ts seam). Omit for the deterministic
-   * keyword-only path — in-memory/offline mode MUST classify without one. */
-  model?: ModelProvider;
+  /** Model-backed classification (ports.ts seam). The RunCtx travels WITH the
+   * provider, structurally: the classifier's system prompt is projected from a
+   * `ModelRunContext` assembled through `assembleRunContext` (ADR-027 — the one
+   * context door, AI Harness K0), and assembly needs the determinism seams.
+   * Omit the pair entirely for the deterministic keyword-only path —
+   * in-memory/offline mode MUST classify without one. */
+  model?: { provider: ModelProvider; runCtx: RunCtx };
 }
 
 const CLARIFY_REASON_NO_MATCH = "no registered capability's keywords matched the message confidently enough";
@@ -188,14 +194,43 @@ function parseModelResponse(text: string, registry: readonly RoutableCapability[
   };
 }
 
-function classificationPrompt(message: string, registry: readonly RoutableCapability[]): { system: string; prompt: string } {
+/** The router persona for a classification turn — deliberately purpose-scoped
+ * ("a routing classifier"), not the full Chief-of-Staff runtime identity: a
+ * classification run routes, it does not coordinate, and its prompt should
+ * carry exactly the authority the run exercises. */
+const ROUTING_CLASSIFIER_PERSONA: RunPersona = {
+  id: "chief_of_staff",
+  name: "Chief of Staff",
+  role: "Mission: route one user message to the single best registered capability, or ask to clarify.",
+  actorType: "agent",
+  actorId: "chief_of_staff",
+};
+
+function classificationPrompt(
+  message: string,
+  registry: readonly RoutableCapability[],
+  runCtx: RunCtx,
+): { system: string; prompt: string } {
+  // The closed answer set IS the output contract of a classification run —
+  // the model's entire obligation is to answer with one of these ids or
+  // CLARIFY — so the registry renders inside the contract, and the whole
+  // prompt is a projection of an assembled ModelRunContext (ADR-027; AI
+  // Harness K0: assembleRunContext is the only context door).
   const options = registry.map((cap) => `- ${cap.id}: ${cap.description}`).join("\n");
-  return {
-    system:
-      "You are Chief of Staff, a routing classifier. Given a user message, respond with EXACTLY ONE bare capability id from the list below that best matches the user's intent, or the literal word CLARIFY if none confidently apply. Respond with nothing else — no punctuation, no explanation.\n\n" +
-      options,
-    prompt: message,
-  };
+  const context = assembleRunContext(
+    {
+      persona: ROUTING_CLASSIFIER_PERSONA,
+      request: message,
+      governance: { approvalRequirement: "explicit_human", trustGrants: [] },
+      outputContract: {
+        description:
+          "Respond with EXACTLY ONE bare capability id from the list below that best matches the user's intent, or the literal word CLARIFY if none confidently apply. Respond with nothing else — no punctuation, no explanation.\n" +
+          options,
+      },
+    },
+    runCtx,
+  );
+  return { system: projectToSystemPrompt(context), prompt: context.request };
 }
 
 /**
@@ -214,7 +249,7 @@ export async function classifyIntent(args: ClassifyIntentArgs): Promise<RoutingD
   if (!args.model) {
     return classifyByKeyword(args.message, args.registry);
   }
-  const { system, prompt } = classificationPrompt(args.message, args.registry);
+  const { system, prompt } = classificationPrompt(args.message, args.registry, args.model.runCtx);
   const request: ModelCompletionRequest = {
     system,
     prompt,
@@ -222,10 +257,10 @@ export async function classifyIntent(args: ClassifyIntentArgs): Promise<RoutingD
     tier: "cheap",
     cache: { strategy: "stable_system_prefix", ttl: "5m" },
   };
-  const result = await args.model.complete(request);
+  const result = await args.model.provider.complete(request);
   assertModelOutputTaint(request, result);
   return {
     ...parseModelResponse(result.text, args.registry),
-    modelReceipt: createModelCallReceipt(args.model, result, "cheap"),
+    modelReceipt: createModelCallReceipt(args.model.provider, result, "cheap"),
   };
 }

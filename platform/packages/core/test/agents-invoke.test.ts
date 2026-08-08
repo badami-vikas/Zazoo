@@ -4,15 +4,18 @@ import assert from "node:assert/strict";
 import {
   invokeAgent,
   buildAgentPersona,
-  buildAgentSystemPrompt,
+  DIRECT_REPLY_OUTPUT_CONTRACT,
   KERNEL_INVARIANTS,
+  FixedClock,
+  UuidGen,
   type AgentInvocationResult,
   type ModelProvider,
+  type RunCtx,
 } from "../src/index.js";
 
 /** A minimal in-test ModelProvider adapter — returns fixed text, records the
  * system prompt it was called with. No network, deterministic. */
-function testModel(reply: string): ModelProvider & { lastSystem: string | undefined; lastTier: string | undefined } {
+function testProvider(reply: string): ModelProvider & { lastSystem: string | undefined; lastTier: string | undefined } {
   const m: ModelProvider & { lastSystem: string | undefined; lastTier: string | undefined } = {
     id: "test-model",
     plane: "local",
@@ -39,6 +42,28 @@ function testModel(reply: string): ModelProvider & { lastSystem: string | undefi
     },
   };
   return m;
+}
+
+/** Deterministic RunCtx double (run-context.test.ts's pattern). */
+function test_fixture_run_ctx(): RunCtx {
+  return {
+    clock: new FixedClock("2026-08-09T12:00:00.000Z"),
+    rng: {
+      next(): number {
+        throw new Error("test_fixture_run_ctx: rng should never be called by context assembly");
+      },
+    },
+    ids: new UuidGen(new FixedClock("2026-08-09T12:00:00.000Z"), { next: () => 0.5 }),
+  };
+}
+
+/** AI Harness K0: a provider can only be handed to invokeAgent WITH the
+ * determinism seams — the pair is the shape the one context door demands. */
+function testModel(reply: string): {
+  provider: ModelProvider & { lastSystem: string | undefined; lastTier: string | undefined };
+  runCtx: RunCtx;
+} {
+  return { provider: testProvider(reply), runCtx: test_fixture_run_ctx() };
 }
 
 test("AGENTS-1: invokeAgent(learning) yields information — a neverExecutes agent never drafts", async () => {
@@ -93,11 +118,42 @@ test("AGENTS-1: invokeAgent result is one of exactly two kinds (structural — n
 test("AGENTS-1: the assembled system prompt carries the non-omittable kernel-invariants layer (layer 1)", async () => {
   const model = testModel("ok");
   await invokeAgent({ agentId: "governance", message: "x", model });
-  assert.ok(model.lastSystem, "model should have been called with a system prompt");
-  assert.match(model.lastSystem ?? "", /Kernel invariants \(non-negotiable\)/);
-  assert.equal(model.lastTier, "reasoning");
+  assert.ok(model.provider.lastSystem, "model should have been called with a system prompt");
+  assert.match(model.provider.lastSystem ?? "", /Kernel invariants \(non-negotiable\)/);
+  assert.equal(model.provider.lastTier, "reasoning");
   // Every KERNEL_INVARIANT line is present — layer 1 is prepended in full.
-  for (const inv of KERNEL_INVARIANTS) assert.ok((model.lastSystem ?? "").includes(inv));
+  for (const inv of KERNEL_INVARIANTS) assert.ok((model.provider.lastSystem ?? "").includes(inv));
+});
+
+test("AI Harness K0: the system prompt is a PROJECTION of an assembled run context, not a hand-rolled string", async () => {
+  // The proof the one door was used: sections only projectToSystemPrompt
+  // renders. The retired buildAgentSystemPrompt appended the closing
+  // instruction as a loose line — through the door it arrives as the
+  // "## Output contract" section, so its presence AS A SECTION is the tell.
+  const model = testModel("ok");
+  await invokeAgent({ agentId: "learning", message: "x", model });
+  const system = model.provider.lastSystem ?? "";
+  assert.match(system, /## Output contract/);
+  assert.ok(system.includes(DIRECT_REPLY_OUTPUT_CONTRACT));
+  assert.match(system, /## Governance/);
+  assert.match(system, /Approval mode: explicit_human/);
+});
+
+test("AI Harness K0/K4: the memory slot exists on a directly-addressed agent turn and renders when filled", async () => {
+  const model = testModel("ok");
+  await invokeAgent({
+    agentId: "learning",
+    message: "x",
+    model,
+    memory: [{ source: "memory:test_fixture_1", text: "prefers short weekly summaries", score: 0.9 }],
+  });
+  const system = model.provider.lastSystem ?? "";
+  assert.match(system, /## Retrieved memory/);
+  assert.match(system, /prefers short weekly summaries/);
+  // And absent memory renders NO section — empty slots are omitted, not faked.
+  const bare = testModel("ok");
+  await invokeAgent({ agentId: "learning", message: "x", model: bare });
+  assert.doesNotMatch(bare.provider.lastSystem ?? "", /## Retrieved memory/);
 });
 
 test("AGENTS-1: buildAgentPersona carries responsibilities + identity guardrails; Builder adds design constraints", () => {
@@ -111,7 +167,12 @@ test("AGENTS-1: buildAgentPersona carries responsibilities + identity guardrails
   assert.ok(builder.guardrails?.some((g) => /Kernel boundary/i.test(g)), "Builder persona should carry the standing design constraints");
 });
 
-test("AGENTS-1: tone threads into the agent identity layer only when supplied", () => {
-  assert.doesNotMatch(buildAgentSystemPrompt("learning"), /Match this tone/);
-  assert.match(buildAgentSystemPrompt("learning", "wise and calm"), /Match this tone in how you write.*wise and calm/);
+test("AGENTS-1: tone threads into the agent identity layer only when supplied", async () => {
+  const bare = testModel("ok");
+  await invokeAgent({ agentId: "learning", message: "x", model: bare });
+  assert.doesNotMatch(bare.provider.lastSystem ?? "", /Match this tone/);
+
+  const toned = testModel("ok");
+  await invokeAgent({ agentId: "learning", message: "x", model: toned, tone: "wise and calm" });
+  assert.match(toned.provider.lastSystem ?? "", /Match this tone in how you write.*wise and calm/);
 });

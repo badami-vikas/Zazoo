@@ -146,6 +146,20 @@ test("flight ON: record → digest → accept mints one preference; reject suppr
   }
 });
 
+test("K0 regression: the digest Automation id is a real UUID — the automations table's id column is uuid-typed", () => {
+  // The FIRST live boot with BRIDGE_LEARNING_OBSERVATION=1 on the durable
+  // Local Plane (AI Harness K0, 2026-08-09) crashed on exactly this: the id
+  // was the dotted key "platform.learning.observation-digest", pglite refused
+  // it with 22P02, and the API process died — which would have bricked every
+  // desktop boot once the sidecar turned the flight on. The suite never saw
+  // it because in-memory mode accepts any string as an id.
+  assert.match(
+    LEARNING_DIGEST_AUTOMATION_ID,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    "LEARNING_DIGEST_AUTOMATION_ID must be a UUID or the durable automations table refuses the seed at boot",
+  );
+});
+
 test("flight OFF: the digest Automation does not exist — nothing to trigger", async () => {
   const wiring = await buildWiring();
   try {

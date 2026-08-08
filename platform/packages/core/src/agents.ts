@@ -38,8 +38,13 @@
  */
 export type FoundationalAgentId = "learning" | "internal_strategist" | "governance" | "capability_builder";
 
-import type { ModelProvider } from "./ports.js";
-import { renderPersonaSystemPreamble, type RunPersona } from "./run-context.js";
+import type { ModelProvider, RunCtx } from "./ports.js";
+import {
+  assembleRunContext,
+  projectToSystemPrompt,
+  type RetrievedMemorySnippet,
+  type RunPersona,
+} from "./run-context.js";
 
 export interface FoundationalAgent {
   id: FoundationalAgentId;
@@ -142,7 +147,6 @@ export function findFoundationalAgent(id: FoundationalAgentId): FoundationalAgen
   return agent;
 }
 
-/** Builds the ModelProvider system prompt for a directly-addressed agent turn. */
 /**
  * Standing design constraints Capability Builder must reason about in every
  * draft — the parts of CLAUDE.md / docs/wiki that a generated capability can
@@ -203,16 +207,11 @@ export function buildAgentPersona(id: FoundationalAgentId, tone?: string): RunPe
   };
 }
 
-/** Builds the ModelProvider system prompt for a directly-addressed agent turn,
- * via the ADR-027 layering seam: `renderPersonaSystemPreamble` (kernel
- * invariants + agent identity/responsibilities/guardrails/tone) plus a closing
- * "answer plainly" line. Reimplemented on the shared renderer (2026-07-14,
- * AGENTS-1) so there is ONE identity-assembly path. */
-export function buildAgentSystemPrompt(id: FoundationalAgentId, writingTone?: string): string {
-  const lines = renderPersonaSystemPreamble(buildAgentPersona(id, writingTone));
-  lines.push("Answer the user's message plainly, in character with this mission — no filler, no restating the question.");
-  return lines.join("\n");
-}
+/** The closing instruction every directly-addressed turn carries — rendered
+ * as the run context's output contract, never appended as a loose line, so it
+ * survives only by passing through `projectToSystemPrompt` (the one door). */
+export const DIRECT_REPLY_OUTPUT_CONTRACT =
+  "Answer the user's message plainly, in character with this mission — no filler, no restating the question.";
 
 /**
  * The result of invoking a foundational agent — a DISCRIMINATED UNION with
@@ -235,14 +234,22 @@ export interface InvokeAgentArgs {
   /** The user's message to the agent (already stripped of the leading @mention
    * by the caller). */
   message: string;
-  /** Optional ModelProvider (ports.ts seam). Omit for offline/in-memory mode —
-   * the agent still returns a well-formed result (an honest "recorded, can't
-   * reason yet offline" note), same ZERO-providers graceful default as the rest
-   * of the kernel. */
-  model?: ModelProvider;
+  /** Model-backed invocation (ports.ts seam). The RunCtx travels WITH the
+   * provider, structurally: a model run's system prompt is projected from a
+   * `ModelRunContext` assembled through `assembleRunContext` (ADR-027 — the
+   * one context door, AI Harness K0), and assembly needs the determinism
+   * seams — so this function cannot be handed a model without them. Omit the
+   * pair entirely for offline/in-memory mode — the agent still returns a
+   * well-formed result (an honest "recorded, can't reason yet offline" note),
+   * same ZERO-providers graceful default as the rest of the kernel. */
+  model?: { provider: ModelProvider; runCtx: RunCtx };
   /** Optional explicitly requested writing tone. */
   tone?: string;
   maxTokens?: number;
+  /** Retrieval snippets for the run context's memory slot — the seam AI
+   * Harness K4 feeds fusion through. Defaults empty; absent means this turn
+   * runs with no retrieved memory, not that the slot does not exist. */
+  memory?: RetrievedMemorySnippet[];
 }
 
 /**
@@ -259,19 +266,31 @@ export interface InvokeAgentArgs {
  */
 export async function invokeAgent(args: InvokeAgentArgs): Promise<AgentInvocationResult> {
   const agent = findFoundationalAgent(args.agentId);
-  const system = buildAgentSystemPrompt(args.agentId, args.tone);
   const source: "model" | "offline" = args.model ? "model" : "offline";
-  const text = args.model
-    ? (
-        await args.model.complete({
-          system,
-          prompt: args.message || agent.mission,
-          maxTokens: args.maxTokens ?? 512,
-          tier: "reasoning",
-          cache: { strategy: "stable_system_prefix", ttl: "5m" },
-        })
-      ).text
-    : `${agent.mission} (offline mode — no model configured, so I can't reason about this yet, but I've recorded the request.)`;
+  let text: string;
+  if (args.model) {
+    const context = assembleRunContext(
+      {
+        persona: buildAgentPersona(args.agentId, args.tone),
+        request: args.message || agent.mission,
+        governance: { approvalRequirement: "explicit_human", trustGrants: [] },
+        ...(args.memory ? { memory: args.memory } : {}),
+        outputContract: { description: DIRECT_REPLY_OUTPUT_CONTRACT },
+      },
+      args.model.runCtx,
+    );
+    text = (
+      await args.model.provider.complete({
+        system: projectToSystemPrompt(context),
+        prompt: context.request,
+        maxTokens: args.maxTokens ?? 512,
+        tier: "reasoning",
+        cache: { strategy: "stable_system_prefix", ttl: "5m" },
+      })
+    ).text;
+  } else {
+    text = `${agent.mission} (offline mode — no model configured, so I can't reason about this yet, but I've recorded the request.)`;
+  }
 
   if (agent.requiresApproval) {
     const constraintViolations = args.agentId === "capability_builder" ? checkDesignConstraintViolations(text) : [];
@@ -361,23 +380,31 @@ export function parseSkillMention(message: string): { skill: "communications" | 
   return { skill: null, rest: message };
 }
 
-/** Builds the ModelProvider system prompt for a direct Communications-skill
- * invocation. Mirrors `buildAgentSystemPrompt`'s shape but carries no
- * agent-identity framing (no "you never execute actions" guardrail line,
- * because the skill was never capable of executing anything in the first
- * place — there is no authority to disclaim). */
-export function buildCommunicationsSystemPrompt(writingTone?: string): string {
-  const lines = [
-    `You are Bridge's Communications skill. Mission: ${COMMUNICATIONS_SKILL.mission}`,
-    "Responsibilities:",
-    ...COMMUNICATIONS_SKILL.responsibilities.map((r) => `- ${r}`),
-    "You have no independent authority — you are a stateless drafting/tone transform invoked by another agent or directly by the user; whatever you produce is a draft only.",
-  ];
-  if (writingTone) {
-    lines.push(`Match this explicitly requested writing tone without saying so: ${writingTone}`);
-  }
-  lines.push("Answer the user's message plainly, in character with this mission — no filler, no restating the question.");
-  return lines.join("\n");
+/** The Communications persona for a direct skill invocation — the input
+ * `assembleRunContext` takes, replacing the retired hand-rolled
+ * `buildCommunicationsSystemPrompt` (AI Harness K0: every model run's prompt
+ * is a projection of an assembled `ModelRunContext`, one door). The skill has
+ * no identity of its own (ADR-046), so the ACTOR is whoever invoked it — the
+ * human at the chat box, or an agent using it as a drafting transform — and
+ * that caller remains the actor of record for governance. The no-authority
+ * line rides as a guardrail; there is no "never executes" line because the
+ * skill was never capable of executing anything — no authority to disclaim. */
+export function buildCommunicationsPersona(
+  actor: { type: "user" | "team" | "agent"; id: string },
+  writingTone?: string,
+): RunPersona {
+  return {
+    id: "communications",
+    name: "Bridge's Communications skill",
+    role: `Mission: ${COMMUNICATIONS_SKILL.mission}`,
+    actorType: actor.type,
+    actorId: actor.id,
+    responsibilities: COMMUNICATIONS_SKILL.responsibilities,
+    guardrails: [
+      "You have no independent authority — you are a stateless drafting/tone transform invoked by another agent or directly by the user; whatever you produce is a draft only.",
+    ],
+    ...(writingTone ? { tone: writingTone } : {}),
+  };
 }
 
 /**

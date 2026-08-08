@@ -164,6 +164,13 @@ fn api_command(
             crate::model_supervisor::runtime_dir_for_local_plane(local_dir).join("endpoint.json"),
         )
         .env("BRIDGE_LOCAL_RESIDENCY", "desktop-local")
+        // AI Harness K0 (ADR-210/AP-131, TASK-044): the three learning flights
+        // run live for the pilot. Desktop is the full Local-Plane loop —
+        // observation digest, retrieval fusion + embedding indexer, Commons
+        // archetypes. Hosted pilot gets the same flags via render.yaml.
+        .env("BRIDGE_LEARNING_OBSERVATION", "1")
+        .env("BRIDGE_RETRIEVAL_FUSION", "1")
+        .env("BRIDGE_COMMONS_ARCHETYPES", "1")
         .env("BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "os-keyring")
         .env("BRIDGE_SIDECAR_TOKEN", token)
         .env("BRIDGE_OAUTH_DESKTOP", "1")
@@ -729,6 +736,38 @@ mod tests {
                 .and_then(|value| value.as_deref()),
             Some(OsStr::new(&listener.as_raw_fd().to_string()))
         );
+    }
+
+    #[test]
+    fn sidecar_command_turns_the_learning_flights_on() {
+        // AI Harness K0 (ADR-210, TASK-044): the desktop pilot runs the full
+        // Local-Plane learning loop. A flag silently dropped here would turn
+        // the harness off for every desktop user with no error anywhere —
+        // the API fails closed per procedure, so nothing would ever look broken.
+        let command = api_command(
+            Path::new("node"),
+            &PathBuf::from("server.js"),
+            &PathBuf::from("/test/bridge/local-plane"),
+            "test-sidecar-token",
+            None,
+            None,
+        );
+        let envs = command
+            .get_envs()
+            .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        for flight in [
+            "BRIDGE_LEARNING_OBSERVATION",
+            "BRIDGE_RETRIEVAL_FUSION",
+            "BRIDGE_COMMONS_ARCHETYPES",
+        ] {
+            assert_eq!(
+                envs.get(OsStr::new(flight)).and_then(|value| value.as_deref()),
+                Some(OsStr::new("1")),
+                "{flight} must be ON for the desktop pilot (AI Harness K0)"
+            );
+        }
     }
 
     #[test]
