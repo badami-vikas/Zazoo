@@ -1165,3 +1165,208 @@ test("commons.installPropose reconciles the signed normalized Task Manager root 
     await rm(localDir, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// TM6's exit criterion, PERFORMED (ADR-209).
+//
+// ADR-206 audited what WOULD be published — the serialized Commons entry, for
+// personal data. It never installed anything. TM6's criterion is stronger: "a
+// fresh Organization installs from Commons and reaches TM1's prototype test
+// with no personal data crossing to Commons (audited)". An audit of the
+// package is not an install of it, and every gap this workstream found was
+// something declared that had never been run.
+//
+// Honest scope: "fresh Organization" here is a fresh WORKSPACE — no Tasks, no
+// prior installation — inside the pilot Organization id, because
+// `assertPilotOrganization` rejects every other id (the interim single-tenant
+// safety fix; full multi-tenancy is out of scope, wiring.ts). The install
+// path, the promotion, the queue work and the egress audit are all real.
+// ---------------------------------------------------------------------------
+
+test("a fresh Organization installs Task Manager from Commons and reaches TM1's prototype test", async () => {
+  const builtIn = COMMONS_BUILT_IN_MODULES.find(
+    (candidate) => candidate.manifest.name === "task-manager",
+  );
+  assert.ok(builtIn, "Task Manager must be publishable to Commons at all");
+
+  const wiring = await buildWiring();
+  const registry = new InMemoryTestCommonsRegistry();
+  // Published at a version this Organization has never held. That is not a
+  // convenience: `installPropose` resolves an EXISTING row for a name+version
+  // the Organization already has, so proposing the seeded version returns the
+  // seeded row and the install refuses it. Installing a version you do not
+  // already have is also what a Commons install is in practice.
+  const publishedVersion = "1.9.1";
+  registry.seed(makeEntry(
+    { ...builtIn.manifest, version: publishedVersion },
+    [...builtIn.commons.tags],
+  ));
+  (wiring as { commonsRegistry: CommonsRegistry }).commonsRegistry = registry;
+
+  try {
+    const caller = await makeCaller(wiring);
+
+    // Construct the precondition TM6 actually names. `buildWiring` seeds every
+    // built-in Module into the pilot Organization unconditionally, so out of
+    // the box Task Manager is already `available` and a Commons install of it
+    // is refused ("must be private before install"). Retiring the seeded row
+    // is what makes this an Organization that does NOT have Task Manager —
+    // which is the only state in which "installs from Commons" means anything.
+    for (const seeded of await wiring.moduleStore.listVersions(PILOT_ORGANIZATION, "task-manager")) {
+      if (seeded.state === "available") await wiring.moduleStore.setState(seeded.id, "legacy");
+    }
+    assert.equal(
+      await wiring.moduleStore.getAvailable(PILOT_ORGANIZATION, "task-manager"),
+      null,
+      "the Organization starts without Task Manager",
+    );
+
+    // Findable by NEED, not by knowing its name in advance. ADR-206 gave the
+    // entry `need:` tags precisely so this lookup is possible; an entry nobody
+    // can find is shelfware however well it is packaged.
+    const discovered = await caller.commons.list({ tag: "need:single-execution-queue" });
+    assert.ok(
+      discovered.items.some((item) => item.name === "task-manager"),
+      "the Commons entry is discoverable by the need it meets",
+    );
+
+    // No `needId`: Task Manager is an `organization_definition`, a ROOT
+    // Module, and the install path refuses to attach one beneath another
+    // Module's Agent. The `need:` tags are for DISCOVERY (above) — finding the
+    // capability that meets a need is a different act from hanging it under
+    // someone else's Agent, and this test found the difference by hitting it.
+    const proposed = await caller.commons.installPropose({
+      organizationId: PILOT_ORGANIZATION,
+      name: builtIn.manifest.name,
+    });
+    const attempted = await caller.modules.install({
+      organizationId: PILOT_ORGANIZATION,
+      installationId: proposed.installation.id,
+      todayKey: "2026-08-09",
+    });
+    // Installing this Module is a HUMAN decision, not a background effect: it
+    // carries governed Automations, Agents and Skills, so it exceeds the
+    // auto-activation budget and halts for review. Asserting that is the point
+    // — an install that slipped through unattended would be the governance
+    // failure, not a convenience.
+    assert.equal(attempted.installed, false, "a root Module install stops for a Human");
+    assert.ok(attempted.proposal);
+    assert.equal(attempted.proposal.status, "pending_review");
+
+    const approved = await caller.action.decide({
+      proposalId: attempted.proposal.id,
+      decision: "approve",
+    });
+    assert.equal(approved.status, "applied");
+    assert.ok("moduleInstallation" in approved);
+    assert.equal(approved.moduleInstallation.status, "installed", "approval performed the install");
+
+    // The five Playbooks ADR-206 declared arrived with the package. A manifest
+    // that omitted them would hand this Organization methodologies its own
+    // manifest never mentioned — nothing installed could be audited against
+    // what actually arrived.
+    const detail = await caller.modules.get({ installationId: proposed.installation.id });
+    assert.ok(["available", "promoted"].includes(detail.installation.state));
+    assert.equal(
+      detail.installation.moduleVersion,
+      publishedVersion,
+      "the Module now in use came from the registry, not from the built-in seed",
+    );
+    assert.equal(
+      detail.installation.manifest.module?.playbooks?.length,
+      5,
+      "the declared Playbooks are part of what was installed",
+    );
+
+    // --- TM1's prototype test, on the freshly installed Module ---
+    const goal = await caller.taskManager.create({
+      organizationId: PILOT_ORGANIZATION,
+      title: "Cut onboarding time in half",
+      isGoal: true,
+      outcomes: [{
+        id: "0d1b6f5e-6f0e-4f7a-9c2a-9a0f3f5b1c11",
+        title: "Time to first Signal",
+        measure: "minutes",
+        target: "10",
+        indicatorKind: "leading",
+      }],
+      reviewCadence: "weekly",
+      ownerType: "human",
+      ownerId: PILOT_USER,
+    });
+    assert.equal(goal.task.isGoal, true);
+    assert.equal(goal.task.path, "1", "the first Task in a fresh queue is the root");
+
+    const child = await caller.taskManager.create({
+      organizationId: PILOT_ORGANIZATION,
+      title: "Rewrite the welcome flow",
+      parentTaskId: goal.task.id,
+      exitTest: "A new user reaches their first Signal without help",
+      ownerType: "human",
+      ownerId: PILOT_USER,
+    });
+    const grandchild = await caller.taskManager.create({
+      organizationId: PILOT_ORGANIZATION,
+      title: "Shorten the permission step",
+      parentTaskId: child.task.id,
+      exitTest: "The permission screen is one decision, not four",
+      ownerType: "human",
+      ownerId: PILOT_USER,
+    });
+    // Three levels, dot-path addressed — TM1's own shape.
+    assert.deepEqual(
+      [goal.task.path, child.task.path, grandchild.task.path],
+      ["1", "1.1", "1.1.1"],
+    );
+
+    // Evidence before done, which is the check that makes the ledger worth
+    // reading at all.
+    await caller.taskManager.verify({
+      organizationId: PILOT_ORGANIZATION,
+      taskId: grandchild.task.id,
+      evidenceRefs: ["file://permission-step-before-after.png"],
+    });
+    await caller.taskManager.transition({
+      organizationId: PILOT_ORGANIZATION,
+      taskId: grandchild.task.id,
+      status: "done",
+    });
+    const completed = await caller.taskManager.get({
+      organizationId: PILOT_ORGANIZATION,
+      taskId: grandchild.task.id,
+    });
+    assert.equal(completed?.status, "done");
+    assert.equal(completed?.verification?.result, "passed");
+
+    // --- The egress audit, over what Commons actually holds afterwards ---
+    //
+    // Not the entry as authored (ADR-206 already checks that) but the registry
+    // AFTER a real install and a real Organization's worth of Task work. This is
+    // what catches an install path that phones home: a Task title, an
+    // Organization id or a user id appearing in Commons would all show up here.
+    const afterInstall = JSON.stringify(await registry.get("task-manager"));
+    // Not vacuous: an empty or missing entry would pass every check below
+    // while proving nothing. This is the mistake ADR-201 caught in an earlier
+    // slice — an assertion that cannot fail because its subject is empty.
+    assert.ok(
+      afterInstall.length > 2_000 && afterInstall.includes("task-manager"),
+      "the audit must run against a real, populated Commons entry",
+    );
+    for (const forbidden of [
+      PILOT_ORGANIZATION,
+      PILOT_USER,
+      "Cut onboarding time in half",
+      "Rewrite the welcome flow",
+      "Shorten the permission step",
+      "permission-step-before-after",
+      "@",
+    ]) {
+      assert.ok(
+        !afterInstall.includes(forbidden),
+        `Commons holds "${forbidden}" after the install — personal or Organization data crossed`,
+      );
+    }
+  } finally {
+    await wiring.close();
+  }
+});

@@ -206,6 +206,10 @@ import {
   type TaskOutcome,
   uuidv7,
   emitTasksMarkdown,
+  emitAgentLedgerTemplate,
+  AGENT_LEDGER_TEMPLATE_FILE,
+  TASK_PROJECTION_COMPLETED_CAP,
+  TASK_RECORD_STATUSES,
   detectTaskProjectionDrift,
   applyApprovedTaskProjectionReconciliation,
   mergeEditedPlanningPayload,
@@ -6946,8 +6950,11 @@ export const appRouter = t.router({
         if (input.decision === "edit" && taskProposal.status === "pending_review") {
           const externalContent = input.editedExternalContent;
           if (!externalContent) throw new TRPCError({ code: "BAD_REQUEST", message: "editedExternalContent is required" });
-          const tasks = await ctx.wiring.taskManager.list(input.organizationId);
-          const currentProjection = emitTasksMarkdown(tasks);
+          const [tasks, editEdges] = await Promise.all([
+            ctx.wiring.taskManager.list(input.organizationId),
+            ctx.wiring.taskManager.listDependencies(input.organizationId),
+          ]);
+          const currentProjection = emitTasksMarkdown(tasks, 10, editEdges);
           const drift = detectTaskProjectionDrift(currentProjection, externalContent, tasks);
           if (!drift.drifted || drift.reason) {
             throw new TRPCError({ code: "CONFLICT", message: drift.reason ?? "Edited projection has no changes" });
@@ -6982,7 +6989,10 @@ export const appRouter = t.router({
             }
             projection = existingProjection as { content: string; contentHash: string };
           } else {
-            const currentTasks = await ctx.wiring.taskManager.list(input.organizationId);
+            const [currentTasks, appliedEdges] = await Promise.all([
+              ctx.wiring.taskManager.list(input.organizationId),
+              ctx.wiring.taskManager.listDependencies(input.organizationId),
+            ]);
             const externalContent = effectivePayload["externalContent"];
             if (typeof externalContent !== "string") {
               throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Projection proposal has no external content" });
@@ -6993,6 +7003,8 @@ export const appRouter = t.router({
                 externalContent,
                 ctx.run.clock.nowISO(),
               ),
+              10,
+              appliedEdges,
             );
           }
           const fileEffect = await withOrganizationFileOperationLock(
@@ -7158,8 +7170,11 @@ export const appRouter = t.router({
     })).query(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-      const tasks = await ctx.wiring.taskManager.list(input.organizationId);
-      const projection = emitTasksMarkdown(tasks);
+      const [tasks, edges] = await Promise.all([
+        ctx.wiring.taskManager.list(input.organizationId),
+        ctx.wiring.taskManager.listDependencies(input.organizationId),
+      ]);
+      const projection = emitTasksMarkdown(tasks, 10, edges);
       return {
         projection,
         ...(input.externalContent ? { drift: detectTaskProjectionDrift(projection, input.externalContent, tasks) } : {}),
@@ -7173,7 +7188,11 @@ export const appRouter = t.router({
       assertPilotOrganization(input.organizationId);
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
       const installation = await requireInstalledTaskManager(ctx.wiring, input.organizationId);
-      const projection = emitTasksMarkdown(await ctx.wiring.taskManager.list(input.organizationId));
+      const [projectedTasks, projectedEdges] = await Promise.all([
+        ctx.wiring.taskManager.list(input.organizationId),
+        ctx.wiring.taskManager.listDependencies(input.organizationId),
+      ]);
+      const projection = emitTasksMarkdown(projectedTasks, 10, projectedEdges);
       const organizationName = await requireOrganizationNameForFiles(
         ctx.wiring,
         input.organizationId,
@@ -7197,7 +7216,72 @@ export const appRouter = t.router({
         moduleName: installation.moduleName,
         ...written.item,
       });
-      return { projection, file: written.item, fileHash: written.contentHash, fileId: indexed.id };
+
+      // The per-repo agent-ledger template (TM6 deliverable, ADR-209), written
+      // beside the projection in the same operation.
+      //
+      // It ships WITH the projection rather than separately because the two are
+      // one artifact: `tasks.md` says what the work is, and this says how to
+      // work it. TM6's exit test is another repository's coding agent working a
+      // full Task from this folder, and that agent arrives knowing nothing about
+      // proposals, drift, or evidence — a projection alone teaches it that this
+      // is a file it may simply rewrite.
+      //
+      // Rendered from the same constants that enforce the rules, so it cannot
+      // describe a contract the server would then refuse. Its own hash is not
+      // checked against a caller expectation: it is generated, never edited,
+      // and a stale copy is simply replaced.
+      const template = emitAgentLedgerTemplate({
+        moduleDisplayName: installation.manifest.module!.displayName,
+        organizationName,
+        projectionFileName: TASK_MANAGER_PROJECTION_FILE,
+        completedCap: TASK_PROJECTION_COMPLETED_CAP,
+        statuses: TASK_RECORD_STATUSES,
+      });
+      const writtenTemplate = await withOrganizationFileOperationLock(
+        input.organizationId,
+        async () => {
+          // Read the current hash INSIDE the lock and pass it as the
+          // expectation. There is no unconditional-overwrite mode, and there
+          // should not be: the template is regenerated rather than edited, but
+          // a concurrent writer is still a conflict worth refusing rather than
+          // clobbering. `null` means "must be absent", which is only true the
+          // first time.
+          const existing = await readModuleFileContent(
+            organizationName,
+            installation.manifest.module!.displayName,
+            AGENT_LEDGER_TEMPLATE_FILE,
+            ctx.wiring.moduleFilesBridgeRoot,
+          );
+          return replaceModuleFileContent(
+            organizationName,
+            installation.manifest.module!.displayName,
+            AGENT_LEDGER_TEMPLATE_FILE,
+            existing?.contentHash ?? null,
+            Buffer.from(template, "utf8"),
+            ctx.wiring.moduleFilesBridgeRoot,
+          );
+        },
+      );
+      const indexedTemplate = await ctx.wiring.graphStore.indexModuleFile({
+        organizationId: input.organizationId,
+        ownerUserId: ctx.identity.id,
+        moduleId: installation.id,
+        moduleName: installation.moduleName,
+        ...writtenTemplate.item,
+      });
+
+      return {
+        projection,
+        file: written.item,
+        fileHash: written.contentHash,
+        fileId: indexed.id,
+        agentTemplate: {
+          file: writtenTemplate.item,
+          fileHash: writtenTemplate.contentHash,
+          fileId: indexedTemplate.id,
+        },
+      };
     }),
     proposeProjectionReconcile: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),
@@ -7241,8 +7325,11 @@ export const appRouter = t.router({
       if (Buffer.from(file.content).toString("utf8") !== input.externalContent) {
         throw new TRPCError({ code: "CONFLICT", message: "Submitted projection is not the current tasks.md File" });
       }
-      const tasks = await ctx.wiring.taskManager.list(input.organizationId);
-      const projection = emitTasksMarkdown(tasks);
+      const [tasks, reconcileEdges] = await Promise.all([
+        ctx.wiring.taskManager.list(input.organizationId),
+        ctx.wiring.taskManager.listDependencies(input.organizationId),
+      ]);
+      const projection = emitTasksMarkdown(tasks, 10, reconcileEdges);
       const drift = detectTaskProjectionDrift(projection, input.externalContent, tasks);
       if (!drift.drifted || drift.reason) {
         throw new TRPCError({ code: "CONFLICT", message: drift.reason ?? "tasks.md has no drift" });

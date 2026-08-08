@@ -1,5 +1,28 @@
 # Change Log
 
+- **2026-08-09 — Slices 13 & 14: the three decisions become human-reachable, and TM6 finishes (TASK-021, ADR-208/AP-129, ADR-209/AP-130)**:
+  **Slice 13.** The planning edit (ADR-200), the dependency edge (ADR-204) and the routing assignment
+  (ADR-207) all existed only over the API — which for a decision surface is not a partial state, it is
+  the decision not existing for the person whose queue it is. The Task Record Page now carries all three.
+  Rules live in a pure `task-proposal-review.ts` (the Node runner strips types but does not transform
+  JSX, so logic in `.tsx` cannot be asserted); `EDITABLE_CONTENT_KEY` is IMPORTED from the materializer
+  so the surface cannot drift from what approval writes. **A live check found what the unit tests could
+  not**: the module read an invented `questions` key while the scaffold payload uses `prompts`, and the
+  test asserted the same invented key, so it passed — a reviewer would have been told the methodology
+  found nothing when no model had been configured to answer it. Verified live against a running API: an
+  approved routing wrote `assignedAgentId` and left the status untouched, a dependency edge was created,
+  and a cycle was refused with its reason rendered as a sentence.
+  **Slice 14.** The projection's `- Dependencies:` field was **hardcoded to `none`** from TM0 — true
+  while the schema had no edges, and a lie to the ledger's only reader from the moment ADR-204 shipped
+  them. It now names live blockers and distinguishes **`not read`** from `none`. New `AGENTS.md`
+  per-repo template beside `tasks.md` (TM6's named deliverable), every fact derived from the constant
+  that enforces it. TM6's exit criterion is **performed**, not audited: a real Commons install → Human
+  decision → promote → TM1's prototype test → a no-personal-data audit over what Commons holds AFTER
+  the install. Performing it found three real behaviours (root Module refuses a `needId`;
+  `installPropose` reuses a held version's row; installing this Module stops for a Human).
+  **Verified:** turbo `typecheck test:coverage build` **72/72**; `check:agent-context` 0; vocabulary
+  clean for both change sets. One pre-existing db test corrected rather than loosened. No migration.
+
 - **2026-08-08 — TM4 slice 12: the routing DECISION surface, and the last unbound Automation (TASK-021, ADR-207/AP-128)**:
   `agent-task-routing-on-assign` was the last Automation this Module declared with no runtime binding, and it
   stayed last through eight slices that bound thirteen others. Every one of them recorded the right reason:

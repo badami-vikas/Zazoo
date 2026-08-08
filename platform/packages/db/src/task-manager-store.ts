@@ -565,7 +565,24 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
           if (taskProjectionContentHash(externalContent) !== externalContentHash) {
             throw new Error("task-manager: projection proposal content hash changed");
           }
-          const currentProjection = emitTasksMarkdown(current);
+          // Same view the proposal was drafted against (ADR-209): the edges
+          // are projected content now, so a hash computed without them would
+          // compare two different documents and report the difference as drift.
+          //
+          // Read through `tx`, NOT through `this.listDependencies` — that
+          // method opens its own scoped transaction, so calling it here would
+          // read outside the one holding the row locks this decision depends on.
+          const projectedEdges: TaskDependency[] = (await tx.select().from(taskDependencies)
+            .where(eq(taskDependencies.organizationId, organizationId)))
+            .map((edge) => ({
+              id: edge.id,
+              organizationId: edge.organizationId,
+              taskId: edge.taskId,
+              dependsOnTaskId: edge.dependsOnTaskId,
+              ...(edge.reason ? { reason: edge.reason } : {}),
+              createdAt: edge.createdAt.toISOString(),
+            }));
+          const currentProjection = emitTasksMarkdown(current, 10, projectedEdges);
           if (currentProjection.contentHash !== beforeProjectionHash) {
             throw new Error("task-manager: projection proposal is stale against the current Database");
           }
@@ -592,7 +609,7 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
             if (!saved) throw new Error(`task-manager: Task ${task.id} changed during projection reconcile`);
           }
           result = {
-            projection: emitTasksMarkdown(updated),
+            projection: emitTasksMarkdown(updated, 10, projectedEdges),
             beforeProjectionHash,
             externalContentHash,
             decision,

@@ -164,6 +164,32 @@ test("Task Manager API durably reconciles a real projection File and runs comple
       moduleFilesRoot("Pilot Organization", "TaskManager", filesRoot),
       "tasks.md",
     );
+
+    // TM6's per-repo agent-ledger template (ADR-209), written beside the
+    // projection in the same operation. `tasks.md` says what the work IS; an
+    // external coding agent arriving with no Bridge context also needs to know
+    // that this is a projection it may edit but not overwrite, and that `done`
+    // requires evidence. A projection alone teaches it neither.
+    assert.ok(emitted.agentTemplate, "the projection ships with its agent template");
+    const templatePath = join(
+      moduleFilesRoot("Pilot Organization", "TaskManager", filesRoot),
+      "AGENTS.md",
+    );
+    const templateContent = await readFile(templatePath, "utf8");
+    assert.match(templateContent, /Database is authoritative/i);
+    assert.match(templateContent, /aged out of the projection/);
+    assert.match(templateContent, /`not read` means the edges were not loaded/);
+    // Regenerating is idempotent, not a conflict: the template is generated
+    // and never edited, so a second emit replaces it in place.
+    const reEmitted = await api.taskManager.emitProjectionFile({
+      organizationId: PILOT_ORGANIZATION,
+      expectedFileHash: emitted.fileHash,
+    });
+    assert.equal(
+      reEmitted.agentTemplate.fileHash,
+      emitted.agentTemplate.fileHash,
+      "the template is deterministic across emissions",
+    );
     const externalContent = emitted.projection.content.replace(
       "Projection certification",
       "Projection certification reconciled",

@@ -3470,7 +3470,17 @@ function runTaskExecutionSkill(
       const queue = values["queue"];
       if (Array.isArray(queue)) {
         const tasks = queue as readonly TaskRecord[];
-        const projection = emitTasksMarkdown(tasks, count("completedCap", 10));
+        // `dependencies` is an authorized input like `queue` is. Optional
+        // rather than required (ADR-209): a caller that has not loaded the
+        // edges gets "not read" in the projection, which is the honest answer
+        // — unlike the hardcoded "none" this line produced until now, which
+        // told the ledger's only reader that nothing was ever in the way.
+        const projectedEdges = values["dependencies"];
+        const projection = emitTasksMarkdown(
+          tasks,
+          count("completedCap", 10),
+          Array.isArray(projectedEdges) ? (projectedEdges as readonly TaskDependency[]) : undefined,
+        );
         const externalContent = text("externalContent");
         // Emit-only when no external file was supplied; drift detection is the
         // second half of the same contract and only answerable with one.

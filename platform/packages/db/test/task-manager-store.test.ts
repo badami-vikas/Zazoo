@@ -113,7 +113,16 @@ test("durable projection reconciliation is UUID/idempotent and rejects stale ver
       isGoal: true,
       reviewCadence: "weekly",
     }, seam());
-    const before = emitTasksMarkdown(await db.store.list(db.organizationId));
+    // The dependency edges are projected CONTENT (ADR-209), so the before-hash
+    // has to be computed over the same view the store recomputes at decision
+    // time. Emitting without them here would compare two different documents
+    // and report the difference as staleness — which is exactly what this
+    // assertion caught when the edges first entered the projection.
+    const before = emitTasksMarkdown(
+      await db.store.list(db.organizationId),
+      10,
+      await db.store.listDependencies(db.organizationId),
+    );
     const externalContent = before.content.replace("Original title", "Reconciled title");
     const drift = detectTaskProjectionDrift(before, externalContent, await db.store.list(db.organizationId));
     const proposalId = crypto.randomUUID();
@@ -151,7 +160,10 @@ test("durable projection reconciliation is UUID/idempotent and rejects stale ver
       seam(),
     );
     assert.equal(applied.tasks[0]?.title, "Reconciled title");
-    assert.equal((applied.result?.["projection"] as { contentHash: string }).contentHash, emitTasksMarkdown(applied.tasks).contentHash);
+    assert.equal(
+      (applied.result?.["projection"] as { contentHash: string }).contentHash,
+      emitTasksMarkdown(applied.tasks, 10, await db.store.listDependencies(db.organizationId)).contentHash,
+    );
     assert.match(String(applied.result?.["eventId"]), /^[0-9a-f-]{36}$/);
     assert.equal(
       (await db.db.select().from(schema.events)).some(

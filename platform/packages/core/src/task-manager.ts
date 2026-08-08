@@ -1,7 +1,7 @@
 import { TASK_PLAYBOOKS } from "./task-playbooks.js";
 import { analyzeTaskImpactFit } from "./task-planning.js";
 import { applyApprovedPlanningProposal, applyApprovedRoutingProposal } from "./task-materialize.js";
-import { assertNoDependencyCycle, type TaskDependency } from "./task-dependencies.js";
+import { assertNoDependencyCycle, dependencySatisfied, type TaskDependency } from "./task-dependencies.js";
 
 export type TaskRecordStatus =
   | "candidate"
@@ -14,7 +14,10 @@ export type TaskRecordStatus =
   | "abandoned"
   | "archived";
 
-const TASK_RECORD_STATUSES: readonly TaskRecordStatus[] = [
+/** Exported for the agent-ledger template (ADR-209), which lists the
+ * statuses an external agent may encounter. Derived rather than restated so
+ * the template cannot describe a status set the kernel does not have. */
+export const TASK_RECORD_STATUSES: readonly TaskRecordStatus[] = [
   "candidate",
   "committed",
   "pending",
@@ -510,8 +513,58 @@ function projectionField(value: string | undefined): string {
   return value?.trim() || "none";
 }
 
-export function emitTasksMarkdown(tasks: readonly TaskRecord[], completedCap = 10): TaskProjection {
+/**
+ * What the `Dependencies:` line says, and why it is not simply the edge list.
+ *
+ * This line was HARDCODED to "none" from TM0 until ADR-209. That was true when
+ * the schema had no edges; once ADR-204 shipped them it became a lie told to
+ * the one reader this whole projection exists for — an external coding agent
+ * orienting on the ledger would start a Task while its blocker sat unfinished,
+ * with the file telling it nothing was in the way.
+ *
+ * `undefined` renders "not read", never "none". A caller that did not load the
+ * edges has not established that a Task waits on nothing, and reporting the
+ * absence of a query as the absence of a dependency is the same class of lie
+ * in a quieter voice (ADR-204's rule, applied to the projection).
+ *
+ * Only LIVE blockers are listed: a blocker that is done or abandoned has
+ * stopped blocking, so an agent deciding what it may start does not need it.
+ * The cleared count is still reported, because "nothing is in the way now"
+ * and "nothing was ever in the way" are different facts about a Task.
+ */
+function projectedDependencies(
+  task: TaskRecord,
+  byId: ReadonlyMap<string, TaskRecord>,
+  dependencies: readonly TaskDependency[] | undefined,
+): string {
+  if (!dependencies) return "not read";
+  const edges = dependencies.filter((dependency) => dependency.taskId === task.id);
+  if (edges.length === 0) return "none";
+  const live = edges
+    .filter((dependency) => !dependencySatisfied(dependency, byId))
+    .map((dependency) => byId.get(dependency.dependsOnTaskId))
+    .filter((blocker): blocker is TaskRecord => blocker !== undefined);
+  const cleared = edges.length - live.length;
+  if (live.length === 0) return `none (${cleared} cleared)`;
+  const waiting = live.map((blocker) => `${blocker.path} (${blocker.title})`).join("; ");
+  return cleared > 0 ? `waiting on ${waiting}; ${cleared} cleared` : `waiting on ${waiting}`;
+}
+
+/** How many completed Tasks the projection retains. Named because the
+ * agent-ledger template has to tell its reader that older completed work has
+ * aged OUT rather than been deleted (ADR-209). */
+export const TASK_PROJECTION_COMPLETED_CAP = 10;
+
+export function emitTasksMarkdown(
+  tasks: readonly TaskRecord[],
+  completedCap = TASK_PROJECTION_COMPLETED_CAP,
+  /** The dependency edges for this Organization. Optional so the signature
+   * stays compatible, but omitting it now renders "not read" rather than
+   * silently claiming a Task waits on nothing. */
+  dependencies?: readonly TaskDependency[],
+): TaskProjection {
   const active = tasks.filter((task) => !["done", "archived", "abandoned"].includes(task.status));
+  const byId = new Map(tasks.map((task) => [task.id, task]));
   const completed = tasks
     .filter((task) => task.status === "done")
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -526,7 +579,7 @@ export function emitTasksMarkdown(tasks: readonly TaskRecord[], completedCap = 1
     `- Outcomes: ${task.outcomes.map((outcome) => `${outcome.title} => ${outcome.target}`).join("; ") || "none"}`,
     `- Exit test: ${projectionField(task.exitTest)}`,
     `- Evidence: ${task.evidenceRefs.join("; ") || "none"}`,
-    `- Dependencies: none`,
+    `- Dependencies: ${projectedDependencies(task, byId, dependencies)}`,
     "",
   ].join("\n");
   const body = [
@@ -1160,7 +1213,12 @@ export class InMemoryTaskManagerStore implements TaskManagerStore {
       if (taskProjectionContentHash(externalContent) !== externalContentHash) {
         throw new Error("task-manager: projection proposal content hash changed");
       }
-      const currentProjection = emitTasksMarkdown(tasks);
+      // The edges are part of the projected content (ADR-209), so the
+      // staleness hash has to be computed over the same view the proposal was
+      // drafted against — an emit without them would compare two different
+      // documents and call the difference drift.
+      const projectedEdges = await this.listDependencies(organizationId);
+      const currentProjection = emitTasksMarkdown(tasks, 10, projectedEdges);
       if (currentProjection.contentHash !== beforeProjectionHash) {
         throw new Error("task-manager: projection proposal is stale against the current Database");
       }
@@ -1172,7 +1230,7 @@ export class InMemoryTaskManagerStore implements TaskManagerStore {
       }
       tasks = applyApprovedTaskProjectionReconciliation(tasks, externalContent, seam.nowISO());
       for (const task of tasks) this.tasks.set(task.id, task);
-      const projection = emitTasksMarkdown(tasks);
+      const projection = emitTasksMarkdown(tasks, 10, projectedEdges);
       result = { projection, decision };
     } else if (decision !== "veto" && proposal.kind === "archive_sweep") {
       const taskIds = effectivePayload["taskIds"];

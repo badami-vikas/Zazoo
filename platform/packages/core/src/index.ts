@@ -77,6 +77,7 @@ export * from "./task-playbooks.js";
 export * from "./task-execution.js";
 export * from "./task-materialize.js";
 export * from "./task-dependencies.js";
+export * from "./task-agent-ledger-template.js";
 export * from "./skill-manifest.js";
 export * from "./child-agent-run.js";
 export * from "./research-run.js";
