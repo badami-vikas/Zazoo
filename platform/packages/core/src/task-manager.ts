@@ -1,5 +1,6 @@
 import { TASK_PLAYBOOKS } from "./task-playbooks.js";
 import { analyzeTaskImpactFit } from "./task-planning.js";
+import { applyApprovedPlanningProposal } from "./task-materialize.js";
 
 export type TaskRecordStatus =
   | "candidate"
@@ -827,7 +828,9 @@ export interface TaskManagerStore {
     input: {
       id: string;
       organizationId: string;
-      kind: "projection_reconcile" | "archive_sweep";
+      /** `candidate` carries an approved planning Playbook or scan draft —
+       * materialized by `applyApprovedPlanningProposal` (ADR-199). */
+      kind: "projection_reconcile" | "archive_sweep" | "candidate";
       taskId: string;
       actorId: string;
       payload: Readonly<Record<string, unknown>>;
@@ -966,7 +969,9 @@ export class InMemoryTaskManagerStore implements TaskManagerStore {
     input: {
       id: string;
       organizationId: string;
-      kind: "projection_reconcile" | "archive_sweep";
+      /** `candidate` carries an approved planning Playbook or scan draft —
+       * materialized by `applyApprovedPlanningProposal` (ADR-199). */
+      kind: "projection_reconcile" | "archive_sweep" | "candidate";
       taskId: string;
       actorId: string;
       payload: Readonly<Record<string, unknown>>;
@@ -1080,6 +1085,29 @@ export class InMemoryTaskManagerStore implements TaskManagerStore {
         return updated;
       });
       result = { archivedTaskIds: archived, decision };
+    } else if (decision !== "veto" && proposal.kind === "candidate") {
+      // The third step of draft-then-approve (ADR-199). Shared with the
+      // Drizzle store through one core function so the two backends cannot
+      // materialize an approved plan differently.
+      const materialized = applyApprovedPlanningProposal({
+        tasks,
+        payload: effectivePayload,
+        taskId: proposal.taskId,
+        organizationId,
+        // The APPROVER owns generated Tasks, never the Agent that drafted
+        // them — an Agent cannot end up owning queue work it proposed.
+        ownerId: deciderId,
+        now: seam.nowISO(),
+        nextId: () => seam.nextId(),
+      });
+      tasks = [...materialized.tasks];
+      for (const task of tasks) this.tasks.set(task.id, task);
+      result = {
+        createdTaskIds: materialized.createdTaskIds,
+        updatedTaskIds: materialized.updatedTaskIds,
+        note: materialized.note,
+        decision,
+      };
     }
     const resolved = {
       ...proposal,

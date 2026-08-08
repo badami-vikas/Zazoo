@@ -83,6 +83,7 @@ import {
   type SynthesizeCultureProfileOutput,
   PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE,
   PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE,
+  resolveLocalPlanningModel,
   type Wiring,
 } from "./wiring.js";
 import { resolveAuthorizedAgentRoleTemplate } from "./agent-role-templates.js";
@@ -7010,6 +7011,7 @@ export const appRouter = t.router({
       playbookId: z.string().trim().min(1).max(80).optional(),
       horizon: z.string().trim().min(1).max(160).optional(),
       idempotencyKey: z.string().trim().min(8).max(200),
+      expiresAt: z.string().datetime(),
     }).strict()).mutation(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
@@ -7058,6 +7060,30 @@ export const appRouter = t.router({
       const runId = idempotentUuid(
         `${input.organizationId}:planning_playbook_run:${input.skill}:${input.idempotencyKey}`,
       );
+      // The model call is governed HERE rather than inside the Skill: this is
+      // the only layer with the request context `authorizeModelCompletion`
+      // and the receipt append need. Local plane only, matching the Skills'
+      // own `plane: "local"` manifests — `resolveLocalPlanningModel` fails
+      // closed to `undefined`, and the Skill then returns its Playbook
+      // scaffold rather than drafting.
+      const planningModel = resolveLocalPlanningModel(ctx.wiring.models);
+      const governedModel = planningModel
+        ? createGovernedModelProvider(
+            ctx,
+            input.organizationId,
+            planningModel,
+            `task-manager:${input.skill}`,
+          )
+        : undefined;
+
+      // ONE id for both records: the pipeline proposal (ledger) and the
+      // Task-Manager-side `candidate` row that approval materializes. That
+      // shared id is what lets `taskManager.decideProposal` resolve the
+      // pipeline decision and the queue write as a single human decision —
+      // the same pairing `projection_reconcile` and `archive_sweep` use.
+      const proposalId = idempotentUuid(
+        `${input.organizationId}:planning_playbook:${input.skill}:${input.idempotencyKey}`,
+      );
       const run = await ctx.wiring.automationExecutor.runById({
         organizationId: input.organizationId,
         automationId: TASK_MANAGER_PLANNING_AUTOMATION_ID,
@@ -7065,19 +7091,46 @@ export const appRouter = t.router({
         params,
         seed: input.idempotencyKey,
         runId,
-      }, withHumanInputTaint(
-        ctx.run,
-        `task-manager:planning-playbook:${ctx.identity.id}:${runId}`,
-        params,
-      ));
+        proposalId,
+      }, {
+        ...withHumanInputTaint(
+          ctx.run,
+          `task-manager:planning-playbook:${ctx.identity.id}:${runId}`,
+          params,
+        ),
+        ...(governedModel ? { modelProvider: governedModel.provider } : {}),
+      });
       const governed = run.proposals[0];
-      if (!governed || governed.status !== "pending_review") {
+      if (!governed || governed.id !== proposalId || governed.status !== "pending_review") {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: `Planning Automation did not halt for review (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
         });
       }
-      return { runId, skill: skillId, taskId: task.id, proposal: governed };
+
+      // Stage the Task-Manager-side proposal that approval materializes
+      // (ADR-199). The pipeline proposal above is the governed review record;
+      // this is the row `taskManager.decideProposal` turns into Tasks.
+      const draft = (governed.output?.proposedOutput ?? {}) as Record<string, unknown>;
+      const staged = await ctx.wiring.taskManager.stageProposal({
+        id: proposalId,
+        organizationId: input.organizationId,
+        kind: "candidate",
+        taskId: task.id,
+        actorId: INTERNAL_STRATEGIST_AGENT,
+        payload: { ...draft, runId },
+        idempotencyKey: `${input.skill}:${input.idempotencyKey}`,
+        expiresAt: input.expiresAt,
+      }, { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() });
+
+      return {
+        runId,
+        skill: skillId,
+        taskId: task.id,
+        proposal: governed,
+        candidateProposal: staged,
+        modelReceiptLedgerId: governedModel?.receiptLedgerId() ?? null,
+      };
     }),
     /**
      * `proactive-scan-cadence`, given a runtime binding at last. Declared in
@@ -7091,6 +7144,7 @@ export const appRouter = t.router({
     runOpportunityScan: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),
       idempotencyKey: z.string().trim().min(8).max(200),
+      expiresAt: z.string().datetime(),
     }).strict()).mutation(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
@@ -7109,6 +7163,9 @@ export const appRouter = t.router({
       const runId = idempotentUuid(
         `${input.organizationId}:opportunity_scan_run:${input.idempotencyKey}`,
       );
+      const proposalId = idempotentUuid(
+        `${input.organizationId}:opportunity_scan:${input.idempotencyKey}`,
+      );
       const run = await ctx.wiring.automationExecutor.runById({
         organizationId: input.organizationId,
         automationId: TASK_MANAGER_SCAN_AUTOMATION_ID,
@@ -7116,19 +7173,45 @@ export const appRouter = t.router({
         params,
         seed: input.idempotencyKey,
         runId,
+        proposalId,
       }, withHumanInputTaint(
         ctx.run,
         `task-manager:opportunity-scan:${ctx.identity.id}:${runId}`,
         { taskCount: queue.length },
       ));
       const governed = run.proposals[0];
-      if (!governed || governed.status !== "pending_review") {
+      if (!governed || governed.id !== proposalId || governed.status !== "pending_review") {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: `Opportunity scan Automation did not halt for review (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
         });
       }
-      return { runId, proposal: governed };
+
+      // The scan's findings become candidate Tasks only on approval
+      // (ADR-199), and each lands under the Task its finding named.
+      const draft = (governed.output?.proposedOutput ?? {}) as Record<string, unknown>;
+      const opportunities = Array.isArray(draft["opportunities"]) ? draft["opportunities"] : [];
+      if (opportunities.length === 0) {
+        // An honest empty scan raises no proposal at all. Staging one would
+        // put "approve this nothing" in the review inbox.
+        return { runId, proposal: governed, candidateProposal: null };
+      }
+      // Anchored on the first finding's own Task: `applyApprovedPlanningProposal`
+      // re-homes each candidate under the row its finding named, so this only
+      // has to be a real Task the proposal can be attached to.
+      const subjectId = (opportunities[0] as { taskId?: unknown }).taskId;
+      const staged = await ctx.wiring.taskManager.stageProposal({
+        id: proposalId,
+        organizationId: input.organizationId,
+        kind: "candidate",
+        taskId: typeof subjectId === "string" ? subjectId : queue[0]!.id,
+        actorId: INTERNAL_STRATEGIST_AGENT,
+        payload: { ...draft, runId },
+        idempotencyKey: input.idempotencyKey,
+        expiresAt: input.expiresAt,
+      }, { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() });
+
+      return { runId, proposal: governed, candidateProposal: staged };
     }),
     runCompletedBaySweep: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),

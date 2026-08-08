@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import {
   applyApprovedTaskProjectionReconciliation,
+  applyApprovedPlanningProposal,
   applyTaskRestructure,
   canonicalizeJson,
   draftTaskCreate,
@@ -348,7 +349,9 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
     input: {
       id: string;
       organizationId: string;
-      kind: "projection_reconcile" | "archive_sweep";
+      /** `candidate` carries an approved planning Playbook or scan draft —
+       * materialized by `applyApprovedPlanningProposal` (ADR-199). */
+      kind: "projection_reconcile" | "archive_sweep" | "candidate";
       taskId: string;
       actorId: string;
       payload: Readonly<Record<string, unknown>>;
@@ -543,6 +546,56 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
             archivedTaskIds.push(taskId);
           }
           result = { archivedTaskIds, decision };
+        } else if (row.kind === "candidate") {
+          // The third step of draft-then-approve (ADR-199), computed by the
+          // SAME core function the in-memory store calls so the two
+          // durability backends cannot materialize an approved plan
+          // differently. The rows are already locked `for update` above, so
+          // the read this plans against is the one being written.
+          const materialized = applyApprovedPlanningProposal({
+            tasks: updated,
+            payload: effectivePayload,
+            taskId: row.taskId,
+            organizationId,
+            // The APPROVER owns generated Tasks, never the drafting Agent.
+            ownerId: deciderId,
+            now: seam.nowISO(),
+            nextId: () => seam.nextId(),
+          });
+          const beforeById = new Map(updated.map((task) => [task.id, task]));
+          for (const task of materialized.tasks) {
+            const before = beforeById.get(task.id);
+            if (!before) {
+              await tx.insert(tasks).values({
+                ...values(task),
+                anchorTaskId: resolvedAnchorId(task, [...materialized.tasks]),
+              });
+              continue;
+            }
+            if (before.version === task.version) continue;
+            const [saved] = await tx.update(tasks).set({
+              ...values(task),
+              anchorTaskId: resolvedAnchorId(task, [...materialized.tasks]),
+              parentTaskId: task.parentTaskId ?? null,
+              assignedAgentId: task.assignedAgentId ?? null,
+              requiredSkillId: task.requiredSkillId ?? null,
+              reviewCadence: task.reviewCadence ?? null,
+              exitTest: task.exitTest ?? null,
+              verification: task.verification ?? null,
+            }).where(and(
+              eq(tasks.organizationId, organizationId),
+              eq(tasks.id, task.id),
+              eq(tasks.version, before.version),
+            )).returning();
+            if (!saved) throw new Error(`task-manager: Task ${task.id} changed while a planning proposal was approved`);
+          }
+          updated = [...materialized.tasks].sort(comparePaths);
+          result = {
+            createdTaskIds: materialized.createdTaskIds,
+            updatedTaskIds: materialized.updatedTaskIds,
+            note: materialized.note,
+            decision,
+          };
         } else if (row.kind === "impact_fit" || row.kind === "reopen") {
           const proposedStatus = (effectivePayload as { proposedStatus?: TaskRecordStatus }).proposedStatus;
           const target = updated.find((task) => task.id === row.taskId);

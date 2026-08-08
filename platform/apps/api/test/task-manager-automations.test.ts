@@ -16,13 +16,18 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
+import { SeededRng, SystemClock, UuidGen, type ModelProvider, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
 import {
   TASK_MANAGER_PLANNING_AUTOMATION_ID,
   TASK_MANAGER_SCAN_AUTOMATION_ID,
 } from "../src/built-in-modules.js";
+
+/** Proposals expire, so every call supplies a bound inside the allowed 24h. */
+function expiry(): string {
+  return new Date(Date.now() + 60 * 60_000).toISOString();
+}
 
 function run(): RunCtx {
   const clock = new SystemClock();
@@ -63,6 +68,7 @@ test("the planning Playbook Automation runs an attributable Agent Run that halts
     taskId: goal.task.id,
     skill: "task-decomposition",
     idempotencyKey: "planning-decomposition-1",
+    expiresAt: expiry(),
   });
 
   assert.equal(result.skill, "task-manager.task-decomposition");
@@ -113,6 +119,7 @@ test("every planning Skill is reachable through the Automation, each with its ow
       taskId: task.task.id,
       skill,
       idempotencyKey: `planning-all-${skill}`,
+      expiresAt: expiry(),
     });
     const output = result.proposal.output?.proposedOutput as Record<string, unknown>;
     assert.equal(output["kind"], kind, `${skill} produced the wrong output kind`);
@@ -138,6 +145,7 @@ test("a planning Playbook the Skill does not support is refused, not silently sw
       skill: "task-decomposition",
       playbookId: "pre-mortem",
       idempotencyKey: "planning-wrong-playbook",
+      expiresAt: expiry(),
     }),
   );
 });
@@ -165,6 +173,7 @@ test("the proactive scan Automation runs and proposes candidates traceable to re
   const result = await api.taskManager.runOpportunityScan({
     organizationId: PILOT_ORGANIZATION,
     idempotencyKey: "opportunity-scan-1",
+    expiresAt: expiry(),
   });
   assert.equal(result.proposal.status, "pending_review");
 
@@ -178,4 +187,160 @@ test("the proactive scan Automation runs and proposes candidates traceable to re
   // Signals into a queue-only scan.
   assert.match(output["scope"] as string, /Task queue only/);
   assert.equal(TASK_MANAGER_SCAN_AUTOMATION_ID.length, 36);
+});
+
+/** A local-plane model double. `plane: "local"` and an id that is not "echo"
+ * are both load-bearing: the planning binding is local-default and skips the
+ * echo test provider, so a cloud or echo double would resolve to nothing and
+ * the Skill would scaffold instead of drafting. */
+function planningModel(reply: string): ModelProvider {
+  return {
+    id: "test-local-planner",
+    plane: "local",
+    tiers: ["reasoning"],
+    models: { reasoning: "test-planner-v1" },
+    routingHealth: () => "healthy",
+    async complete(req) {
+      return {
+        text: reply,
+        model: "test-planner-v1",
+        tier: req.tier,
+        usage: {
+          inputTokens: 80,
+          outputTokens: 40,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          source: "provider",
+        },
+      };
+    },
+  };
+}
+
+/**
+ * The third step of draft-then-approve. ADR-198 recorded that approval
+ * materialized nothing; this is the assertion that it no longer does.
+ */
+test("approving a decomposition actually creates the child Tasks", async () => {
+  const wiring = await buildWiring({
+    allowEphemeralLocalPlane: true,
+    modelProviders: [planningModel(JSON.stringify({
+      children: [
+        { title: "Draft the intake form", exitTest: "A new user submits it end to end", rationale: "" },
+        { title: "Wire the confirmation email", exitTest: "The email lands in a real inbox", rationale: "" },
+      ],
+    }))],
+  });
+  const api = caller(wiring);
+
+  const goal = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Cut onboarding time in half",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+  });
+
+  const planned = await api.taskManager.runPlanningPlaybook({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: goal.task.id,
+    skill: "task-decomposition",
+    idempotencyKey: "materialize-decomposition-1",
+    expiresAt: expiry(),
+  });
+
+  const draft = planned.proposal.output?.proposedOutput as Record<string, unknown>;
+  // The governed local model was actually used — not the scaffold path.
+  assert.equal(draft["source"], "model");
+  assert.equal((draft["children"] as unknown[]).length, 2);
+  // Routing the call through the governed provider is what puts a receipt in
+  // the ledger; before this it returned one for nobody to record.
+  assert.ok(planned.modelReceiptLedgerId, "a model receipt must reach the ledger");
+  assert.ok(planned.candidateProposal, "a candidate proposal must be staged for approval");
+  assert.equal(planned.candidateProposal?.status, "pending_review");
+
+  const before = await api.taskManager.list({ organizationId: PILOT_ORGANIZATION });
+  const decided = await api.taskManager.decideProposal({
+    organizationId: PILOT_ORGANIZATION,
+    proposalId: planned.candidateProposal!.id,
+    decision: "approve",
+  });
+  assert.equal(decided.proposal.status, "approved");
+
+  const after = await api.taskManager.list({ organizationId: PILOT_ORGANIZATION });
+  const created = after.filter((task) => !before.some((prior) => prior.id === task.id));
+  assert.equal(created.length, 2, "approval created the child Tasks");
+  assert.deepEqual(created.map((c) => c.title).sort(), [
+    "Draft the intake form",
+    "Wire the confirmation email",
+  ]);
+  // Approved means "worth having in the tree", not "start these".
+  assert.ok(created.every((c) => c.status === "candidate"));
+  assert.ok(created.every((c) => c.parentTaskId === goal.task.id));
+  assert.ok(created.every((c) => c.path.startsWith(`${goal.task.path}.`)));
+  assert.equal(created[0]?.exitTest, "A new user submits it end to end");
+});
+
+test("vetoing a planning proposal writes nothing", async () => {
+  const wiring = await buildWiring({
+    allowEphemeralLocalPlane: true,
+    modelProviders: [planningModel(JSON.stringify({
+      children: [{ title: "Never created", exitTest: "n/a", rationale: "" }],
+    }))],
+  });
+  const api = caller(wiring);
+  const goal = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Ship the pilot",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+  });
+  const planned = await api.taskManager.runPlanningPlaybook({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: goal.task.id,
+    skill: "task-decomposition",
+    idempotencyKey: "materialize-veto-1",
+    expiresAt: expiry(),
+  });
+  const before = await api.taskManager.list({ organizationId: PILOT_ORGANIZATION });
+  await api.taskManager.decideProposal({
+    organizationId: PILOT_ORGANIZATION,
+    proposalId: planned.candidateProposal!.id,
+    decision: "veto",
+  });
+  const after = await api.taskManager.list({ organizationId: PILOT_ORGANIZATION });
+  assert.equal(after.length, before.length, "a veto creates nothing");
+  assert.equal(after.some((task) => task.title === "Never created"), false);
+});
+
+test("approving an exit-test draft writes it onto the Task it was authored for", async () => {
+  const wiring = await buildWiring({
+    allowEphemeralLocalPlane: true,
+    modelProviders: [planningModel(JSON.stringify({
+      candidates: [
+        { exitTest: "Five pilot users finish unaided; two or more stall", evidence: "session recordings", reason: "" },
+      ],
+    }))],
+  });
+  const api = caller(wiring);
+  const task = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Simplify the signup flow",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+  });
+  const planned = await api.taskManager.runPlanningPlaybook({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: task.task.id,
+    skill: "exit-test-authoring",
+    idempotencyKey: "materialize-exit-test-1",
+    expiresAt: expiry(),
+  });
+  await api.taskManager.decideProposal({
+    organizationId: PILOT_ORGANIZATION,
+    proposalId: planned.candidateProposal!.id,
+    decision: "approve",
+  });
+  const after = await api.taskManager.list({ organizationId: PILOT_ORGANIZATION });
+  const updated = after.find((t) => t.id === task.task.id)!;
+  assert.equal(updated.exitTest, "Five pilot users finish unaided; two or more stall");
 });

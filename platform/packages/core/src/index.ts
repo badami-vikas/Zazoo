@@ -75,6 +75,7 @@ export * from "./chat-task-planning.js";
 export * from "./task-planning.js";
 export * from "./task-playbooks.js";
 export * from "./task-execution.js";
+export * from "./task-materialize.js";
 export * from "./skill-manifest.js";
 export * from "./child-agent-run.js";
 export * from "./research-run.js";

@@ -3479,7 +3479,7 @@ const TASK_AUTHORING_SKILLS: ReadonlySet<string> = new Set([
  * local model. Returns undefined when nothing local is available — the Skill
  * then says so instead of drafting.
  */
-function resolveLocalPlanningModel(models: ModelRouter | undefined): ModelProvider | undefined {
+export function resolveLocalPlanningModel(models: ModelRouter | undefined): ModelProvider | undefined {
   if (!models) return undefined;
   const configured = [...models.providers().values()].filter(
     (provider) => provider.id !== "echo" && provider.routingHealth() !== "unavailable",
@@ -4781,7 +4781,12 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         const authored = await runTaskAuthoringSkill(
           manifest.skillId,
           inputs,
-          resolveLocalPlanningModel(planningModelRouter),
+          // A governed provider supplied by the invoking procedure wins: it
+          // carries the authorization check and appends a model receipt to
+          // the ledger, neither of which this closure can do (it has no
+          // request context). The local fallback keeps registry-level calls
+          // and tests working, and never reaches the Cloud Plane.
+          ctx.modelProvider ?? resolveLocalPlanningModel(planningModelRouter),
         );
         if (authored) return { proposedOutput: authored, diff: { to: authored } };
         // Every registered `task-manager.*` Skill id now has a dispatcher. An

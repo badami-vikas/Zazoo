@@ -37,6 +37,17 @@ export interface RunCtx {
   taintLabel?: TaintLabel;
   /** Legacy compatibility projection. */
   taint?: TrustOrigin;
+  /**
+   * The model this run is authorized to use, already wrapped in whatever
+   * governance the caller owes it (authorization check + ledger receipt).
+   *
+   * Set by a caller that HAS the request context needed to govern a model
+   * call — a tRPC procedure — so a Skill invoked deep inside an Automation
+   * Run can make one without reaching for an ungoverned provider itself. A
+   * Skill that finds this absent must fall back to its own honest offline
+   * behaviour rather than resolving a raw provider as a substitute.
+   */
+  modelProvider?: ModelProvider;
 }
 
 export interface RoleQuery {
