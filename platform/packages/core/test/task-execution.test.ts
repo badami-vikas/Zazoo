@@ -112,6 +112,29 @@ test("progress synthesis separates what landed from what has gone quiet", () => 
   assert.match(brief.basis, /not from the Event stream/);
 });
 
+test("what is SUPPOSED to sit still is never reported as stalled (ADR-201)", () => {
+  // `stalled` shares one definition with the `stale_task` guard
+  // (`isStalenessEligible`), narrower than `taskIsOpen` on purpose: a
+  // `candidate` is an option nobody committed to and a `parked` Task is a
+  // decision to not do it now. Listing them would train the reader to skip
+  // the one section the brief exists to surface.
+  const brief = synthesizeProgress({
+    tasks: [
+      task("1", { status: "candidate", updatedAt: "2026-01-01T00:00:00.000Z" }),
+      task("2", { status: "parked", updatedAt: "2026-01-01T00:00:00.000Z" }),
+      task("3", { status: "blocked", updatedAt: "2026-01-01T00:00:00.000Z" }),
+      task("4", { status: "pending", updatedAt: "2026-01-01T00:00:00.000Z" }),
+    ],
+    since: "2026-08-06T00:00:00.000Z",
+    until: NOW,
+  });
+  assert.deepEqual(
+    brief.stalled.map((entry) => entry.taskId),
+    ["3", "4"],
+    "blocked work going quiet IS the thing that rots; a candidate and a parked Task are not",
+  );
+});
+
 test("progress synthesis rejects an inverted or unparseable window", () => {
   assert.throws(
     () => synthesizeProgress({ tasks: [], since: NOW, until: "2026-08-01T00:00:00.000Z" }),

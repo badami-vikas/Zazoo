@@ -704,6 +704,51 @@ export async function ensureInternalStrategistGovernance(
   });
 }
 
+/**
+ * Chief of Staff's Skill allow-list — one definition, both durability
+ * backends, for the same reason as `INTERNAL_STRATEGIST_ALLOWED_SKILLS` above.
+ *
+ * These are exactly the Skills a CoS-owned procedure invokes today.
+ * `task-manager.agent-task-routing` and `task-manager.habit-scaffolding` are
+ * ALSO Chief of Staff-owned in the manifest and are deliberately absent:
+ * nothing calls them through a CoS Run yet, and granting authority with no
+ * reachable behaviour behind it widens the Agent for nothing.
+ */
+export const CHIEF_OF_STAFF_ALLOWED_SKILLS: readonly string[] = [
+  "task-manager.progress-synthesis",
+];
+
+/**
+ * Chief of Staff (ADR-201) — the coordinating Agent, now with a governed
+ * runtime identity so the Automations ADR-107 put under it can actually run.
+ *
+ * Its capability scope is the same narrow shape as Internal Strategist's, and
+ * deliberately WITHOUT `record:archive`: Chief of Staff coordinates and
+ * reports, Governance archives. Everything it produces is a proposal that
+ * halts for Human review; the agent-floor DENY on protected resources applies
+ * to it exactly as to every other Agent.
+ */
+export async function ensureChiefOfStaffGovernance(
+  db: Database,
+  config: FoundationalAgentGovernanceConfig,
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    name: "Chief of Staff",
+    description: "May draft inspectable coordination Signals — progress briefs, staleness reviews, routing proposals; never decides or executes them.",
+    goal: "Coordinate and report on the execution queue without deciding what happens to any Task.",
+    resourceType: "signal",
+    action: "write",
+    capabilityToken: "signal:write",
+    additionalGrants: [
+      { resourceType: "record", action: "read", capabilityToken: "record:read" },
+      { resourceType: "record", action: "write", capabilityToken: "record:write" },
+    ],
+    allowedSkills: CHIEF_OF_STAFF_ALLOWED_SKILLS,
+    dataScope: "all",
+  });
+}
+
 export async function ensureGovernanceAgentGovernance(
   db: Database,
   config: FoundationalAgentGovernanceConfig,

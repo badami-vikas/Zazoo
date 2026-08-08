@@ -25,6 +25,7 @@
 // =====================================================================
 
 import { compareTaskPaths, taskIsOpen } from "./task-planning.js";
+import { isStalenessEligible } from "./task-manager.js";
 import type { TaskRecord } from "./task-manager.js";
 
 // ---------------------------------------------------------------------
@@ -174,8 +175,13 @@ export function synthesizeProgress(input: SynthesizeProgressInput): ProgressSynt
   const landed = input.tasks.filter((task) => task.status === "done" && inWindow(task)).map(entry).sort(byPath);
   const started = input.tasks.filter((task) => task.status === "in_progress" && inWindow(task)).map(entry).sort(byPath);
   const blocked = input.tasks.filter((task) => task.status === "blocked" && inWindow(task)).map(entry).sort(byPath);
+  // ONE definition of "this Task is supposed to be moving", shared with the
+  // `stale_task` guard (ADR-201). Narrower than `taskIsOpen`: a `candidate` is
+  // an option nobody committed to and a `parked` Task is a decision to not do
+  // it now — both are SUPPOSED to sit untouched, and listing them as stalled
+  // would train the reader to skip the section that matters.
   const stalled = input.tasks
-    .filter((task) => taskIsOpen(task.status) && !inWindow(task))
+    .filter((task) => isStalenessEligible(task.status) && !inWindow(task))
     .map(entry)
     .sort(byPath);
   const open = input.tasks.filter((task) => taskIsOpen(task.status)).length;

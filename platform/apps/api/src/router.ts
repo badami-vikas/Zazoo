@@ -56,6 +56,7 @@ import {
   OUTREACH_AGENT,
   INTERNAL_STRATEGIST_AGENT,
   GOVERNANCE_AGENT,
+  CHIEF_OF_STAFF_AGENT,
   PILOT_ORGANIZATION,
   LEARNING_ROLE_MODEL_GOAL_TYPE,
   PRODUCE_RECOMMENDATION_TASK_TYPE,
@@ -209,6 +210,7 @@ import {
   mergeEditedPlanningPayload,
   MAX_MATERIALIZED_TASKS,
   evaluateTaskGuards,
+  DEFAULT_STALE_AFTER_DAYS,
   planCompletedBaySweep,
   routeTaskByRequiredSkill,
   classifyTaskChangeBand,
@@ -336,6 +338,8 @@ import {
   TASK_MANAGER_SWEEP_AUTOMATION_ID,
   TASK_MANAGER_SCAN_AUTOMATION_ID,
   TASK_MANAGER_PLANNING_AUTOMATION_ID,
+  TASK_MANAGER_STANDUP_AUTOMATION_ID,
+  TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeAutomationId,
   resolveModuleAgentRuntimeId,
@@ -7284,6 +7288,95 @@ export const appRouter = t.router({
       }, { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() });
 
       return { runId, proposal: governed, candidateProposal: staged };
+    }),
+    /**
+     * The two Chief of Staff cadence briefs (ADR-201).
+     *
+     * Both were declared Automations from TM0 with no runtime id, blocked on
+     * the same thing: Chief of Staff had no governed Agent identity, so an
+     * Automation it owned had no actor to run as.
+     *
+     * They REPORT and stop. Neither raises a Task-Manager proposal, because
+     * neither proposes a change — a brief's product is what the reader now
+     * knows, the same reason an approved pre-mortem writes nothing (ADR-199).
+     * They read the queue, so the step's action is `read`: forcing a Human to
+     * approve being told about their own Tasks would be governance theatre,
+     * and the Run itself is the attributable record.
+     *
+     * One Skill behind both, on purpose. `progress-synthesis` already answers
+     * "what moved and what did not" over a window, and its `stalled` list IS
+     * the staleness question asked over a longer one. A nineteenth Skill for
+     * the same computation would have been a roster entry, not a capability.
+     */
+    runQueueBrief: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      brief: z.enum(["standup-brief", "stale-task-review"]),
+      /** The window each brief looks back over. Defaults differ because the
+       * questions differ: a standup asks "since yesterday", a staleness
+       * review asks "what has nobody touched in two weeks". */
+      windowDays: z.number().int().min(1).max(90).optional(),
+      idempotencyKey: z.string().trim().min(8).max(200),
+    }).strict()).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      await requireInstalledTaskManager(ctx.wiring, input.organizationId);
+
+      const isStaleReview = input.brief === "stale-task-review";
+      const windowDays = input.windowDays ?? (isStaleReview ? DEFAULT_STALE_AFTER_DAYS : 1);
+      const automationId = isStaleReview
+        ? TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID
+        : TASK_MANAGER_STANDUP_AUTOMATION_ID;
+
+      const queue = await ctx.wiring.taskManager.list(input.organizationId);
+      await ensureTaskManagerAutomation(ctx.wiring, input.organizationId, {
+        automationId,
+        name: isStaleReview ? "Task Manager stale task review" : "Task Manager standup brief",
+        agentId: CHIEF_OF_STAFF_AGENT,
+        skill: "task-manager.progress-synthesis",
+        action: "read",
+      }, ctx.run);
+
+      const until = ctx.run.clock.nowISO();
+      const since = new Date(Date.parse(until) - windowDays * 24 * 60 * 60 * 1000).toISOString();
+      // `queue` is the dispatcher's authorized-input key for every
+      // Task Manager Skill that reads the queue (a Skill invoked without it
+      // THROWS rather than reporting an empty brief — ADR-198).
+      const params = { queue, since, until };
+      const runId = idempotentUuid(
+        `${input.organizationId}:queue_brief_run:${input.brief}:${input.idempotencyKey}`,
+      );
+      const run = await ctx.wiring.automationExecutor.runById({
+        organizationId: input.organizationId,
+        automationId,
+        onBehalfOf: { type: "user", id: ctx.identity.id },
+        params,
+        seed: input.idempotencyKey,
+        runId,
+      }, withHumanInputTaint(
+        ctx.run,
+        `task-manager:${input.brief}:${ctx.identity.id}:${runId}`,
+        { taskCount: queue.length, windowDays },
+      ));
+      const governed = run.proposals[0];
+      if (!governed || governed.status === "rejected") {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `${input.brief} Automation did not produce a brief (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
+        });
+      }
+      const brief = (governed.output?.proposedOutput ?? null) as Record<string, unknown> | null;
+      // A staleness review reports ONLY the stalled section: the rest of the
+      // synthesis is a standup's answer to a different question, and shipping
+      // it here would bury the one list this Automation exists to surface.
+      const stalled = Array.isArray(brief?.["stalled"]) ? brief["stalled"] as unknown[] : [];
+      return {
+        runId,
+        proposal: governed,
+        window: { since, until, windowDays },
+        brief: isStaleReview
+          ? { kind: "stale_task_review" as const, stalled, count: stalled.length, basis: brief?.["basis"] ?? null }
+          : brief,
+      };
     }),
     runCompletedBaySweep: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),

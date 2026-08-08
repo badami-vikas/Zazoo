@@ -22,6 +22,9 @@ import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src
 import {
   TASK_MANAGER_PLANNING_AUTOMATION_ID,
   TASK_MANAGER_SCAN_AUTOMATION_ID,
+  TASK_MANAGER_STANDUP_AUTOMATION_ID,
+  TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID,
+  CHIEF_OF_STAFF_AGENT_RUNTIME_ID,
 } from "../src/built-in-modules.js";
 
 /** Proposals expire, so every call supplies a bound inside the allowed 24h. */
@@ -441,4 +444,95 @@ test("an edit that would write nothing is refused instead of recorded as consent
     proposalId: planned.candidateProposal!.id,
   });
   assert.equal(proposal?.status, "pending_review", "a refused edit leaves the proposal undecided");
+});
+
+// ---------------------------------------------------------------------
+// ADR-201 — the two Chief of Staff cadence Automations. Both were declared
+// from TM0 with no runtime id, blocked on the same thing: CoS had no governed
+// Agent identity, so an Automation it owned had no actor to run as.
+// ---------------------------------------------------------------------
+
+test("the standup brief runs as an attributable Chief of Staff Agent Run", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+
+  const landed = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Ship the intake form",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "A new user submits it end to end",
+  });
+  await api.taskManager.transition({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: landed.task.id,
+    status: "in_progress",
+  });
+
+  const result = await api.taskManager.runQueueBrief({
+    organizationId: PILOT_ORGANIZATION,
+    brief: "standup-brief",
+    idempotencyKey: "standup-brief-1",
+  });
+
+  // The Run is Chief of Staff's, not Internal Strategist's — the whole point
+  // of ADR-107's split, and the reason this Automation could not run before.
+  const runs = await wiring.automationRunRecorder.list(
+    PILOT_ORGANIZATION,
+    [TASK_MANAGER_STANDUP_AUTOMATION_ID],
+    { limit: 10 },
+  );
+  const recorded = runs.find((entry) => entry.runId === result.runId);
+  assert.ok(recorded, "the brief must leave an attributable Run");
+  assert.equal(recorded?.agentId, CHIEF_OF_STAFF_AGENT_RUNTIME_ID);
+
+  const brief = result.brief as Record<string, unknown>;
+  assert.equal(brief["kind"], "progress_synthesis", "a real Skill ran, not an echo");
+  const started = brief["started"] as { taskId: string }[];
+  assert.ok(started.some((entry) => entry.taskId === landed.task.id));
+  // A brief reports; it does not propose. Nothing is staged for approval.
+  assert.equal(result.proposal.status !== "rejected", true);
+});
+
+test("the stale-task review surfaces untouched live work and nothing else", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+
+  const rotting = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Wire the confirmation email",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "The email lands in a real inbox",
+  });
+  const result = await api.taskManager.runQueueBrief({
+    organizationId: PILOT_ORGANIZATION,
+    brief: "stale-task-review",
+    // A one-day window with rows created just now: nothing is stale yet.
+    windowDays: 1,
+    idempotencyKey: "stale-review-fresh",
+  });
+  const fresh = result.brief as { kind: string; stalled: { taskId: string }[]; count: number };
+  assert.equal(fresh.count, 0, "work touched inside the window is not stale");
+  assert.ok(!fresh.stalled.some((entry) => entry.taskId === rotting.task.id));
+
+  // A staleness review reports ONLY the stalled section. The rest of the
+  // synthesis answers a standup's question, and shipping it here would bury
+  // the one list this Automation exists to surface. (Which rows COUNT as
+  // stalled is asserted in core, where a row's `updatedAt` can be set —
+  // through the API every row is created now.)
+  assert.equal(fresh.kind, "stale_task_review");
+  assert.equal((fresh as Record<string, unknown>)["landed"], undefined);
+
+  // The stale review is its own Automation, not a re-run of the standup.
+  const staleRuns = await wiring.automationRunRecorder.list(
+    PILOT_ORGANIZATION,
+    [TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID],
+    { limit: 10 },
+  );
+  assert.ok(staleRuns.some((entry) => entry.runId === result.runId));
+  assert.equal(
+    staleRuns.find((entry) => entry.runId === result.runId)?.agentId,
+    CHIEF_OF_STAFF_AGENT_RUNTIME_ID,
+  );
 });

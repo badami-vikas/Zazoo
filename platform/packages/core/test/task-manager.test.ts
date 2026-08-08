@@ -192,3 +192,45 @@ test("guards surface WIP, unverified done, completed overflow, and goal cadence 
   assert.ok(findings.some((finding) => finding.kind === "completed_bay_overflow"));
   assert.ok(findings.some((finding) => finding.kind === "goal_review_due"));
 });
+
+// ADR-201 — the staleness guard. `stale-task-review` is the Automation that
+// surfaces these, and it could not exist before Chief of Staff had a runtime
+// identity to run as.
+test("staleness flags live work nobody has touched, and never work that is supposed to sit still", () => {
+  const [root, child, leaf] = createTree();
+  const old = "2026-01-01T00:00:00.000Z";
+  const now = "2026-08-08T00:00:00.000Z";
+  const findings = evaluateTaskGuards([
+    { ...root!, status: "pending", updatedAt: old },
+    // A `candidate` is an option nobody committed to and a `parked` Task is a
+    // decision to not do it now: both are SUPPOSED to sit untouched, and
+    // flagging them would train the reviewer to skip the guard.
+    { ...child!, status: "candidate", updatedAt: old },
+    { ...leaf!, status: "parked", updatedAt: old },
+  ], 10, { now });
+  const stale = findings.filter((finding) => finding.kind === "stale_task");
+  assert.equal(stale.length, 1, "only the pending Task is stale");
+  assert.equal(stale[0]?.kind === "stale_task" && stale[0].taskId, root!.id);
+  assert.ok(
+    stale[0]?.kind === "stale_task" && stale[0].daysSinceUpdate > 200,
+    "the finding says HOW stale, so a reviewer does not re-derive it",
+  );
+});
+
+test("staleness is skipped rather than guessed when the caller passes no clock", () => {
+  const [root] = createTree();
+  // This function is pure and its callers pass the Run's clock. Falling back
+  // to wall-clock time would report findings nobody can reproduce.
+  const findings = evaluateTaskGuards([{ ...root!, status: "pending", updatedAt: "2026-01-01T00:00:00.000Z" }], 10);
+  assert.ok(!findings.some((finding) => finding.kind === "stale_task"));
+});
+
+test("the WIP limit is a parameter, not a constant baked into the guard", () => {
+  const [root, child] = createTree();
+  const tasks = [
+    { ...root!, status: "in_progress" as const },
+    { ...child!, status: "in_progress" as const, ownerId: root!.ownerId },
+  ];
+  assert.ok(evaluateTaskGuards(tasks, 10).some((finding) => finding.kind === "wip_breach"));
+  assert.ok(!evaluateTaskGuards(tasks, 10, { wipLimit: 2 }).some((finding) => finding.kind === "wip_breach"));
+});

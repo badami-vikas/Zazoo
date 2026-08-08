@@ -22,6 +22,21 @@ export const DEALPILOT_SOURCE_AUTOMATION_KEY = "deal-pilot.source-intake";
 export const LEARNING_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d2";
 export const INTERNAL_STRATEGIST_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d3";
 export const GOVERNANCE_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d4";
+/**
+ * Chief of Staff's governed runtime identity (ADR-201).
+ *
+ * It had none until now, on a TASK-007-era reading of the glossary line "its
+ * routing role is a product composition, not an architectural requirement" —
+ * taken to mean CoS never acts as a pipeline actor. That reading was made when
+ * nothing required CoS to act. ADR-107 then deliberately gave it ownership of
+ * routing and dispatch, and this Module's manifest declares four Automations
+ * under it. An Automation starts an Agent Run, and only an attributable Agent
+ * may invoke a Skill — so an owner with no runtime identity owns nothing that
+ * can run. The glossary sentence is about how chat routing is composed, not
+ * about whether Chief of Staff can be an actor; the glossary's own first
+ * clause calls it a "default coordinating Agent".
+ */
+export const CHIEF_OF_STAFF_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d6";
 export const TASK_MANAGER_DRIFT_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f7";
 export const TASK_MANAGER_SWEEP_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f8";
 export const TASK_MANAGER_DRIFT_AUTOMATION_KEY = "task-manager.ledger-drift-detector";
@@ -32,14 +47,15 @@ export const TASK_MANAGER_SWEEP_AUTOMATION_KEY = "task-manager.completed-bay-swe
 export const TASK_MANAGER_SCAN_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000fa";
 export const TASK_MANAGER_PLANNING_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000fc";
 export const TASK_MANAGER_SCAN_AUTOMATION_KEY = "task-manager.proactive-scan-cadence";
-/** `standup-brief` deliberately has NO runtime binding here. It is Chief of
- * Staff-owned (ADR-107 split routing/dispatch from planning on purpose), and
- * Chief of Staff has no governed runtime Agent identity — `resolveModuleAgentRuntimeId`
- * resolves only `internal-strategist` and `governance-agent`. Reassigning the
- * Automation to Internal Strategist would make it run at the cost of the
- * ownership rule it was written to respect, so it stays declared-only until a
- * CoS runtime Agent with a capability scope exists. Its Skill
- * (`task-manager.progress-synthesis`) is built and callable regardless. */
+/** ADR-201 — the two Chief of Staff cadence Automations, runnable now that CoS
+ * has a runtime Agent identity. Both were declared from TM0 with no runtime id.
+ * `standup-brief` reads the queue and synthesizes progress; `stale-task-review`
+ * surfaces live work nobody has touched. Neither proposes a status change:
+ * what a rotting Task needs is a judgement, so they report and stop. */
+export const TASK_MANAGER_STANDUP_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000fd";
+export const TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000fe";
+export const TASK_MANAGER_STANDUP_AUTOMATION_KEY = "task-manager.standup-brief";
+export const TASK_MANAGER_STALE_REVIEW_AUTOMATION_KEY = "task-manager.stale-task-review";
 /** The user-triggered planning Automation. Unlike the other four this one is
  * NOT on a cadence and not fired by a Task Event: the authoring Skills answer
  * a question a Human asked ("decompose this", "write me an exit test"), so its
@@ -65,6 +81,12 @@ export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAut
   if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_PLANNING_AUTOMATION_KEY) {
     return TASK_MANAGER_PLANNING_AUTOMATION_ID;
   }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_STANDUP_AUTOMATION_KEY) {
+    return TASK_MANAGER_STANDUP_AUTOMATION_ID;
+  }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_STALE_REVIEW_AUTOMATION_KEY) {
+    return TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID;
+  }
   return undefined;
 }
 
@@ -75,6 +97,8 @@ export function isModuleRuntimeAutomationId(automationId: string): boolean {
     TASK_MANAGER_SWEEP_AUTOMATION_ID,
     TASK_MANAGER_SCAN_AUTOMATION_ID,
     TASK_MANAGER_PLANNING_AUTOMATION_ID,
+    TASK_MANAGER_STANDUP_AUTOMATION_ID,
+    TASK_MANAGER_STALE_REVIEW_AUTOMATION_ID,
   ].includes(automationId);
 }
 
@@ -90,6 +114,9 @@ export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId:
   }
   if (moduleName === "task-manager" && manifestAgentId === "governance-agent") {
     return GOVERNANCE_AGENT_RUNTIME_ID;
+  }
+  if (moduleName === "task-manager" && manifestAgentId === "chief-of-staff") {
+    return CHIEF_OF_STAFF_AGENT_RUNTIME_ID;
   }
   return undefined;
 }
@@ -823,10 +850,14 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     manifest: {
       name: "task-manager",
       // 1.1.0: display name aligned to the owner-declared Module set.
-      // 1.2.0: TM3/TM4 runtime bindings — `proactive-scan-cadence`,
-      // `standup-brief` and the new `planning-playbook` gain real runtime
-      // Automation ids and procedures (they were declared with neither).
-      version: "1.2.0",
+      // 1.2.0: TM3/TM4 runtime bindings — `proactive-scan-cadence` and the new
+      // `planning-playbook` gain real runtime Automation ids and procedures
+      // (they were declared with neither). This line previously also named
+      // `standup-brief`, which was wrong: ADR-198 deliberately left it
+      // unbound because Chief of Staff had no runtime Agent identity.
+      // 1.3.0: ADR-201 gives Chief of Staff that identity, and `standup-brief`
+      // and `stale-task-review` gain runtime ids and a procedure.
+      version: "1.3.0",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:

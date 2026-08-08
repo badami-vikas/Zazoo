@@ -205,7 +205,9 @@ import {
   ensureCapabilityApprovalPrincipalGovernance,
   InMemoryCanonicalIdentityStore,
   ensureInternalStrategistGovernance,
+  ensureChiefOfStaffGovernance,
   INTERNAL_STRATEGIST_ALLOWED_SKILLS,
+  CHIEF_OF_STAFF_ALLOWED_SKILLS,
   ensureGovernanceAgentGovernance,
   ensureCapabilityBuilderGovernance,
   ensureRelationshipUserGovernance,
@@ -274,6 +276,7 @@ import {
   CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCING_AGENT_ID,
   GOVERNANCE_AGENT_RUNTIME_ID,
+  CHIEF_OF_STAFF_AGENT_RUNTIME_ID,
   INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
   LEARNING_AGENT_RUNTIME_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
@@ -325,7 +328,18 @@ export const INTERNAL_STRATEGIST_AGENT = INTERNAL_STRATEGIST_AGENT_RUNTIME_ID;
 // Staff deliberately has NO physical identity here — per docs/glossary.md
 // "Its routing role is a product composition, not an architectural
 // requirement" — it never itself invokes a governed Skill as an actor.
+//
+// SUPERSEDED for the Task Manager by ADR-201. That reading was made when
+// nothing needed Chief of Staff to act; ADR-107 then gave it ownership of
+// routing/dispatch and the Module's manifest declares four Automations under
+// it. An Automation starts an Agent Run and only an attributable Agent may
+// invoke a Skill, so an owner with no runtime identity owns nothing that can
+// run. Giving CoS a physical identity does not make its ROUTING role
+// architectural — that glossary sentence is about how chat routing is
+// composed — and the glossary's own first clause already calls it a "default
+// coordinating Agent".
 export const GOVERNANCE_AGENT = GOVERNANCE_AGENT_RUNTIME_ID;
+export const CHIEF_OF_STAFF_AGENT = CHIEF_OF_STAFF_AGENT_RUNTIME_ID;
 export const CAPABILITY_BUILDER_AGENT = "b0000000-0000-4000-a000-0000000000d5";
 // TASK-007 persistent-mode governance seed ids (ensureInternalStrategistGovernance)
 // — mirror LEARNING_ROLE/LEARNING_SIGNAL_PERMISSION's id-space convention for
@@ -334,6 +348,10 @@ export const INTERNAL_STRATEGIST_ROLE = "b0000000-0000-4000-a000-0000000000f3";
 const INTERNAL_STRATEGIST_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c4";
 export const GOVERNANCE_ROLE = "b0000000-0000-4000-a000-0000000000f4";
 const GOVERNANCE_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c5";
+// ADR-201 — Chief of Staff's persistent-mode seed ids, same id-space
+// convention as the four Agents above it.
+export const CHIEF_OF_STAFF_ROLE = "b0000000-0000-4000-a000-0000000000fb";
+const CHIEF_OF_STAFF_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c9";
 export const CAPABILITY_BUILDER_ROLE = "b0000000-0000-4000-a000-0000000000f5";
 const CAPABILITY_BUILDER_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c6";
 // Exported: apps/api/test/blueprint.test.ts (ADR-023/ADR-024) needs a real
@@ -3739,6 +3757,7 @@ function seedGovernance(
     LEARNING_AGENT,
     INTERNAL_STRATEGIST_AGENT,
     GOVERNANCE_AGENT,
+    CHIEF_OF_STAFF_AGENT,
     CAPABILITY_BUILDER_AGENT,
     EGRESS_AGENT,
     INTAKE_AGENT,
@@ -3821,6 +3840,21 @@ function seedGovernance(
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "record", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "record", resourceId: null, action: "archive", effect: "allow" },
+  ]);
+
+  // Chief of Staff (ADR-201) — the coordinating Agent, now with a real
+  // governed identity so the Automations ADR-107 put under it can run. Scope
+  // matches Internal Strategist's shape and deliberately omits
+  // `record:archive`: Chief of Staff coordinates and reports; Governance
+  // archives. Shared allow-list with the persistent seed for the same
+  // anti-drift reason as Internal Strategist's above.
+  agents.assumed.set(CHIEF_OF_STAFF_AGENT, "role-chief-of-staff");
+  agents.scope.set(CHIEF_OF_STAFF_AGENT, ["signal:write", "record:read", "record:write"]);
+  agents.skills.set(CHIEF_OF_STAFF_AGENT, [...CHIEF_OF_STAFF_ALLOWED_SKILLS]);
+  roles.roleGrants.set("role-chief-of-staff", [
+    { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "record", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "record", resourceId: null, action: "write", effect: "allow" },
   ]);
 
   // Capability Builder (AGS3, TASK-007) — drafts only; every output still
@@ -3978,6 +4012,7 @@ export interface ModePorts {
    * instead — these hooks are no-ops (absent) there.
    */
   ensureInternalStrategistGovernance?: () => Promise<void>;
+  ensureChiefOfStaffGovernance?: () => Promise<void>;
   ensureGovernanceAgentGovernance?: () => Promise<void>;
   ensureCapabilityBuilderGovernance?: () => Promise<void>;
   ensureRelationshipUserGovernance?: () => Promise<void>;
@@ -4135,6 +4170,14 @@ export function buildPersistentPorts(env: {
         agentId: GOVERNANCE_AGENT,
         roleId: GOVERNANCE_ROLE,
         permissionId: GOVERNANCE_SIGNAL_PERMISSION,
+      }),
+    ensureChiefOfStaffGovernance: () =>
+      ensureChiefOfStaffGovernance(db, {
+        organizationId: PILOT_ORGANIZATION,
+        userId: pilotUserId,
+        agentId: CHIEF_OF_STAFF_AGENT,
+        roleId: CHIEF_OF_STAFF_ROLE,
+        permissionId: CHIEF_OF_STAFF_SIGNAL_PERMISSION,
       }),
     ensureCapabilityBuilderGovernance: () =>
       ensureCapabilityBuilderGovernance(db, {
@@ -4373,6 +4416,14 @@ export async function buildInMemoryPorts(env: {
               agentId: GOVERNANCE_AGENT,
               roleId: GOVERNANCE_ROLE,
               permissionId: GOVERNANCE_SIGNAL_PERMISSION,
+            }),
+          ensureChiefOfStaffGovernance: () =>
+            ensureChiefOfStaffGovernance(localDb, {
+              organizationId: PILOT_ORGANIZATION,
+              userId: pilotUserId,
+              agentId: CHIEF_OF_STAFF_AGENT,
+              roleId: CHIEF_OF_STAFF_ROLE,
+              permissionId: CHIEF_OF_STAFF_SIGNAL_PERMISSION,
             }),
           ensureCapabilityBuilderGovernance: () =>
             ensureCapabilityBuilderGovernance(localDb, {
@@ -5397,6 +5448,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   await modePorts.ensureOutreachGovernance?.();
   await modePorts.ensureInternalStrategistGovernance?.();
   await modePorts.ensureGovernanceAgentGovernance?.();
+  await modePorts.ensureChiefOfStaffGovernance?.();
   await modePorts.ensureCapabilityBuilderGovernance?.();
   await modePorts.ensureRelationshipUserGovernance?.();
   await modePorts.ensureEgressGovernance?.();

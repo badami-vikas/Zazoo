@@ -692,9 +692,50 @@ export type TaskGuardFinding =
   | { kind: "unverified_done"; taskId: string; proposedStatus: "pending" }
   | { kind: "wip_breach"; ownerId: string; taskIds: string[] }
   | { kind: "completed_bay_overflow"; taskIds: string[] }
-  | { kind: "goal_review_due"; taskId: string };
+  | { kind: "goal_review_due"; taskId: string }
+  /** Live work nobody has touched in `staleAfterDays`. `daysSinceUpdate` is
+   * carried so a reviewer sees HOW stale without re-deriving it, and the
+   * finding never proposes a status: what a rotting Task needs (finish it,
+   * re-scope it, park it, drop it) is a judgement, not a default. */
+  | { kind: "stale_task"; taskId: string; daysSinceUpdate: number };
 
-export function evaluateTaskGuards(tasks: readonly TaskRecord[], completedCap = 10): TaskGuardFinding[] {
+/** Defaults, both overridable by the caller so a policy change is a parameter
+ * rather than an edit here. One in-progress Task per owner is the plan's WIP
+ * rule ("hot head"); two weeks untouched is the staleness bar. */
+export const DEFAULT_WIP_LIMIT = 1;
+export const DEFAULT_STALE_AFTER_DAYS = 14;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Statuses a staleness check may flag.
+ *
+ * Deliberately narrower than `taskIsOpen`. `candidate` is an option nobody
+ * committed to and `parked` is a decision to not do it now — both are
+ * SUPPOSED to sit untouched, so flagging them would train the reviewer to
+ * ignore the guard. `blocked` IS included: blocked work going quiet is
+ * exactly the thing that rots unnoticed.
+ */
+const STALENESS_ELIGIBLE: readonly TaskRecordStatus[] = ["committed", "pending", "in_progress", "blocked"];
+
+/** Exported so `synthesizeProgress`'s `stalled` list and this guard cannot
+ * disagree about which Tasks are supposed to be moving. */
+export function isStalenessEligible(status: TaskRecordStatus): boolean {
+  return STALENESS_ELIGIBLE.includes(status);
+}
+
+export function evaluateTaskGuards(
+  tasks: readonly TaskRecord[],
+  completedCap = 10,
+  options: { now?: string; wipLimit?: number; staleAfterDays?: number } = {},
+): TaskGuardFinding[] {
+  const wipLimit = options.wipLimit ?? DEFAULT_WIP_LIMIT;
+  const staleAfterDays = options.staleAfterDays ?? DEFAULT_STALE_AFTER_DAYS;
+  // Staleness needs a clock. Without one the check is SKIPPED rather than
+  // silently falling back to wall-clock time: this function is pure and its
+  // callers pass the Run's clock, and a guard that quietly reads a different
+  // clock than the rest of the Run would report findings nobody can reproduce.
+  const nowMs = options.now ? Date.parse(options.now) : Number.NaN;
   const findings: TaskGuardFinding[] = [];
   for (const task of tasks) {
     if (task.status === "done" && !task.verification) {
@@ -704,13 +745,23 @@ export function evaluateTaskGuards(tasks: readonly TaskRecord[], completedCap = 
     if (task.isGoal && task.reviewCadence && !task.lastReviewedAt) {
       findings.push({ kind: "goal_review_due", taskId: task.id });
     }
+
+    if (Number.isFinite(nowMs) && isStalenessEligible(task.status)) {
+      const updatedMs = Date.parse(task.updatedAt);
+      if (Number.isFinite(updatedMs)) {
+        const daysSinceUpdate = Math.floor((nowMs - updatedMs) / DAY_MS);
+        if (daysSinceUpdate >= staleAfterDays) {
+          findings.push({ kind: "stale_task", taskId: task.id, daysSinceUpdate });
+        }
+      }
+    }
   }
   const byOwner = new Map<string, string[]>();
   for (const task of tasks.filter((candidate) => candidate.status === "in_progress")) {
     byOwner.set(task.ownerId, [...(byOwner.get(task.ownerId) ?? []), task.id]);
   }
   for (const [ownerId, taskIds] of byOwner) {
-    if (taskIds.length > 1) findings.push({ kind: "wip_breach", ownerId, taskIds });
+    if (taskIds.length > wipLimit) findings.push({ kind: "wip_breach", ownerId, taskIds });
   }
   const completed = tasks
     .filter((task) => task.status === "done")
