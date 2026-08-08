@@ -657,6 +657,32 @@ async function ensureSignalDraftAgentGovernance(
   });
 }
 
+/**
+ * Internal Strategist's Skill allow-list — the ONE definition both durability
+ * backends use. `seedGovernance` (in-memory, apps/api/wiring.ts) imports this
+ * rather than restating it: they are two backends for one Agent, and a drift
+ * between them would let a Skill run in one mode and be denied in the other,
+ * a split that only ever surfaces in production.
+ *
+ * TM3 additions are exactly the Skills a real procedure invokes —
+ * `taskManager.runPlanningPlaybook` calls the five Playbook Skills and
+ * `taskManager.runOpportunityScan` calls the scan. Internal Strategist OWNS
+ * more `task-manager.*` Skills than these; granting ones nothing calls would
+ * widen the Agent's authority with no reachable behaviour behind it.
+ */
+export const INTERNAL_STRATEGIST_ALLOWED_SKILLS: readonly string[] = [
+  "stageStrategicRecommendation",
+  "jobpilot.synthesizeCultureProfile",
+  "task-manager.ledger-projection",
+  "task-manager.create-task",
+  "task-manager.goal-outcome-framing",
+  "task-manager.candidate-task-generation",
+  "task-manager.premortem-scenario",
+  "task-manager.task-decomposition",
+  "task-manager.exit-test-authoring",
+  "task-manager.proactive-opportunity-scan",
+];
+
 export async function ensureInternalStrategistGovernance(
   db: Database,
   config: InternalStrategistGovernanceConfig,
@@ -673,12 +699,7 @@ export async function ensureInternalStrategistGovernance(
       { resourceType: "record", action: "read", capabilityToken: "record:read" },
       { resourceType: "record", action: "write", capabilityToken: "record:write" },
     ],
-    allowedSkills: [
-      "stageStrategicRecommendation",
-      "jobpilot.synthesizeCultureProfile",
-      "task-manager.ledger-projection",
-      "task-manager.create-task",
-    ],
+    allowedSkills: INTERNAL_STRATEGIST_ALLOWED_SKILLS,
     dataScope: "all",
   });
 }

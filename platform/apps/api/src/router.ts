@@ -331,6 +331,8 @@ import {
   DEALPILOT_SOURCE_AUTOMATION_ID,
   TASK_MANAGER_DRIFT_AUTOMATION_ID,
   TASK_MANAGER_SWEEP_AUTOMATION_ID,
+  TASK_MANAGER_SCAN_AUTOMATION_ID,
+  TASK_MANAGER_PLANNING_AUTOMATION_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeAutomationId,
   resolveModuleAgentRuntimeId,
@@ -6978,6 +6980,155 @@ export const appRouter = t.router({
         });
       }
       return { proposal: staged, runId, drift };
+    }),
+    /**
+     * TM3 planning Playbooks, run as a governed Automation.
+     *
+     * Human-triggered on purpose. The other Task Manager Automations fire on a
+     * cadence or a Task Event; these Skills answer a question somebody asked
+     * ("decompose this", "write me an exit test"), so the trigger is a person.
+     * It is an Automation anyway so the invocation gets an attributable
+     * Internal Strategist Run and a proposal that halts for review — before
+     * this, the planning Skills were reachable only through the registry and
+     * nothing had ever actually run one.
+     *
+     * No `TaskChangeProposal` is staged: `projection_reconcile` and
+     * `archive_sweep` stage one because approval APPLIES a concrete mutation,
+     * and there is nothing to apply here. The pipeline proposal carrying the
+     * draft IS the review artifact.
+     */
+    runPlanningPlaybook: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      taskId: z.string().uuid(),
+      skill: z.enum([
+        "goal-outcome-framing",
+        "candidate-task-generation",
+        "premortem-scenario",
+        "task-decomposition",
+        "exit-test-authoring",
+      ]),
+      playbookId: z.string().trim().min(1).max(80).optional(),
+      horizon: z.string().trim().min(1).max(160).optional(),
+      idempotencyKey: z.string().trim().min(8).max(200),
+    }).strict()).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      await requireInstalledTaskManager(ctx.wiring, input.organizationId);
+
+      const task = await ctx.wiring.taskManager.get(input.organizationId, input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      const queue = await ctx.wiring.taskManager.list(input.organizationId);
+      const children = queue.filter((candidate) => candidate.parentTaskId === task.id);
+
+      const skillId = `task-manager.${input.skill}`;
+      await ensureTaskManagerAutomation(ctx.wiring, input.organizationId, {
+        automationId: TASK_MANAGER_PLANNING_AUTOMATION_ID,
+        name: "Task Manager planning Playbook",
+        agentId: INTERNAL_STRATEGIST_AGENT,
+        skill: skillId,
+        action: "write",
+      }, ctx.run);
+
+      // Only the fields the chosen Skill can actually use. The Task's own path
+      // is the PARENT path for decomposition — children land beneath it — and
+      // the existing child paths are what keep generated dot-paths from
+      // colliding with live rows.
+      const params: Record<string, unknown> = {
+        title: task.title,
+        outcomes: task.outcomes.map((outcome) => ({
+          title: outcome.title,
+          measure: outcome.measure,
+          target: outcome.target,
+        })),
+        ...(task.exitTest ? { exitTest: task.exitTest } : {}),
+        ...(input.playbookId ? { playbookId: input.playbookId } : {}),
+        ...(input.horizon ? { horizon: input.horizon } : {}),
+        ...(input.skill === "task-decomposition"
+          ? {
+              parentPath: task.path,
+              existingChildPaths: children.map((child) => child.path),
+              existingChildTitles: children.map((child) => child.title),
+            }
+          : {}),
+        ...(input.skill === "candidate-task-generation"
+          ? { existingChildTitles: children.map((child) => child.title) }
+          : {}),
+      };
+
+      const runId = idempotentUuid(
+        `${input.organizationId}:planning_playbook_run:${input.skill}:${input.idempotencyKey}`,
+      );
+      const run = await ctx.wiring.automationExecutor.runById({
+        organizationId: input.organizationId,
+        automationId: TASK_MANAGER_PLANNING_AUTOMATION_ID,
+        onBehalfOf: { type: "user", id: ctx.identity.id },
+        params,
+        seed: input.idempotencyKey,
+        runId,
+      }, withHumanInputTaint(
+        ctx.run,
+        `task-manager:planning-playbook:${ctx.identity.id}:${runId}`,
+        params,
+      ));
+      const governed = run.proposals[0];
+      if (!governed || governed.status !== "pending_review") {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Planning Automation did not halt for review (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
+        });
+      }
+      return { runId, skill: skillId, taskId: task.id, proposal: governed };
+    }),
+    /**
+     * `proactive-scan-cadence`, given a runtime binding at last. Declared in
+     * the Module manifest since TM0 with no Automation id and no procedure
+     * behind it — the same declared-not-built gap the planning Skills had.
+     *
+     * Proposes candidate Tasks and writes none: `scanForOpportunities` reads
+     * the queue and every finding names the row it came from, so approval is
+     * where a candidate would ever become real.
+     */
+    runOpportunityScan: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      idempotencyKey: z.string().trim().min(8).max(200),
+    }).strict()).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      await requireInstalledTaskManager(ctx.wiring, input.organizationId);
+
+      const queue = await ctx.wiring.taskManager.list(input.organizationId);
+      await ensureTaskManagerAutomation(ctx.wiring, input.organizationId, {
+        automationId: TASK_MANAGER_SCAN_AUTOMATION_ID,
+        name: "Task Manager proactive opportunity scan",
+        agentId: INTERNAL_STRATEGIST_AGENT,
+        skill: "task-manager.proactive-opportunity-scan",
+        action: "write",
+      }, ctx.run);
+
+      const params = { queue };
+      const runId = idempotentUuid(
+        `${input.organizationId}:opportunity_scan_run:${input.idempotencyKey}`,
+      );
+      const run = await ctx.wiring.automationExecutor.runById({
+        organizationId: input.organizationId,
+        automationId: TASK_MANAGER_SCAN_AUTOMATION_ID,
+        onBehalfOf: { type: "user", id: ctx.identity.id },
+        params,
+        seed: input.idempotencyKey,
+        runId,
+      }, withHumanInputTaint(
+        ctx.run,
+        `task-manager:opportunity-scan:${ctx.identity.id}:${runId}`,
+        { taskCount: queue.length },
+      ));
+      const governed = run.proposals[0];
+      if (!governed || governed.status !== "pending_review") {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Opportunity scan Automation did not halt for review (${governed?.status ?? "missing"}: ${governed?.rejectionReason ?? "no reason"})`,
+        });
+      }
+      return { runId, proposal: governed };
     }),
     runCompletedBaySweep: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),

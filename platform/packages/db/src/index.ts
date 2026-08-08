@@ -50,6 +50,7 @@ export {
   ensureIntakeAgentGovernance,
   ensureDealPilotPrincipalGovernance,
   ensureCapabilityApprovalPrincipalGovernance,
+  INTERNAL_STRATEGIST_ALLOWED_SKILLS,
   type InternalStrategistGovernanceConfig,
   type RelationshipUserGovernanceConfig,
   type FoundationalAgentGovernanceConfig,

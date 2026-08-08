@@ -1,16 +1,16 @@
 // =====================================================================
-// Task Manager methodology Playbooks, and the four model-backed planning
-// Skills that consume them.
+// Task Manager methodology Playbooks, and the model-backed planning Skills
+// that consume them.
 //
 // The TM3 slice promised two things that were never built. `TASK_MANAGER_
 // PLAYBOOKS` was an id/version/owner list with no content and no consumer —
-// five names for five methodologies nobody had written down. And four Skill
+// five names for five methodologies nobody had written down. And the Skill
 // ids (`goal-outcome-framing`, `candidate-task-generation`,
-// `premortem-scenario`, `task-decomposition`) were registered as
-// `SkillManifest`s whose `run()` echoed its inputs. The two gaps are one gap:
-// the plan calls these Skills "methodology-parameterized", so there was
-// nothing to parameterize them WITH. This module closes both — the Playbooks
-// carry real content, and these Skills are their only consumer.
+// `premortem-scenario`, `task-decomposition`, and later `exit-test-authoring`)
+// were registered as `SkillManifest`s whose `run()` echoed its inputs. The two
+// gaps are one gap: the plan calls these Skills "methodology-parameterized",
+// so there was nothing to parameterize them WITH. This module closes both —
+// the Playbooks carry real content, and these Skills are their only consumer.
 //
 // Model-backed on purpose, unlike `task-planning.ts`. Reconciliation and
 // sequencing run on EVERY Task create and must show the reviewer the exact
@@ -54,7 +54,8 @@ export type TaskPlanningSkillId =
   | "goal-outcome-framing"
   | "candidate-task-generation"
   | "premortem-scenario"
-  | "task-decomposition";
+  | "task-decomposition"
+  | "exit-test-authoring";
 
 export interface TaskPlaybook {
   id: string;
@@ -134,7 +135,11 @@ export const TASK_PLAYBOOKS: readonly TaskPlaybook[] = [
     methodology: "Sharpen a stated aim until it is checkable, dated, and reviewable",
     intent:
       "Take a loosely-worded aim and make it something a reviewer could mark true or false on a specific date.",
-    skills: ["goal-outcome-framing"],
+    // Also carries `exit-test-authoring` rather than earning a sixth Playbook:
+    // the library is capped at 5 in v1 (plan §risks — additions require
+    // observed demand), and "make this checkable, and say what evidence you
+    // would show" is already this methodology's own question.
+    skills: ["goal-outcome-framing", "exit-test-authoring"],
     prompts: [
       "Restate this so a stranger could tell whether it happened.",
       "By when? A date, not 'soon'.",
@@ -174,6 +179,7 @@ const DEFAULT_PLAYBOOK_BY_SKILL: Readonly<Record<TaskPlanningSkillId, string>> =
   "candidate-task-generation": "backward-planning",
   "premortem-scenario": "pre-mortem",
   "task-decomposition": "backward-planning",
+  "exit-test-authoring": "measurable-review",
 };
 
 /**
@@ -268,6 +274,16 @@ export interface DraftChildTask {
   rationale: string;
 }
 
+export interface DraftExitTest {
+  /** The test itself: what you would do to show this did NOT work. */
+  exitTest: string;
+  /** What the tester would have to produce — the thing `evidence-verification`
+   * will later look for. */
+  evidence: string;
+  /** Why this disproves the outcome faster than the alternatives. */
+  reason: string;
+}
+
 export interface GoalOutcomeFraming extends PlanningSkillEnvelope {
   kind: "goal_outcome_framing";
   outcomes: readonly DraftTaskOutcome[];
@@ -292,6 +308,11 @@ export interface TaskDecomposition extends PlanningSkillEnvelope {
   kind: "task_decomposition";
   parentPath: string;
   children: readonly DraftChildTask[];
+}
+
+export interface ExitTestAuthoring extends PlanningSkillEnvelope {
+  kind: "exit_test_authoring";
+  candidates: readonly DraftExitTest[];
 }
 
 // ---------------------------------------------------------------------
@@ -882,4 +903,112 @@ export async function decomposeTask(input: DecomposeTaskInput): Promise<TaskDeco
     level,
   }));
   return { kind: "task_decomposition", ...modelEnvelope(playbook, result.receipt), parentPath, children };
+}
+
+// ---------------------------------------------------------------------
+// exit-test-authoring
+//
+// The plan calls this "the single most load-bearing skill", and requires it to
+// stay a SEPARATE Skill from `evidence-verification` "so authoring and
+// checking never share one prompt context" (§3.2). That separation is honored
+// literally: the author is here and model-backed, the checker is in
+// `task-execution.ts` and deterministic, and neither imports the other.
+//
+// It earns no sixth Playbook. The library is capped at 5 in v1 with additions
+// gated on observed demand (plan §risks), and `measurable-review` already asks
+// "restate this so a stranger could tell whether it happened" and "what
+// evidence would you show" — which is the job.
+// ---------------------------------------------------------------------
+
+const MAX_DRAFT_EXIT_TESTS = 3;
+
+export interface AuthorExitTestInput {
+  title: string;
+  outcomes?: readonly { title: string; measure: string; target: string }[] | undefined;
+  /** An exit test the Task already carries, so the Skill proposes a sharper
+   * one rather than restating what is there. */
+  currentExitTest?: string | undefined;
+  playbookId?: string | undefined;
+  model?: ModelProvider | undefined;
+  signal?: AbortSignal | undefined;
+}
+
+const EXIT_TEST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["candidates"],
+  properties: {
+    candidates: {
+      type: "array",
+      maxItems: MAX_DRAFT_EXIT_TESTS,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["exitTest", "evidence", "reason"],
+        properties: {
+          exitTest: { type: "string", maxLength: MAX_DRAFT_TEXT_CHARS },
+          evidence: { type: "string", maxLength: MAX_DRAFT_TEXT_CHARS },
+          reason: { type: "string", maxLength: MAX_DRAFT_TEXT_CHARS },
+        },
+      },
+    },
+  },
+} as const;
+
+export async function authorExitTest(input: AuthorExitTestInput): Promise<ExitTestAuthoring> {
+  const playbook = resolveTaskPlaybook("exit-test-authoring", input.playbookId);
+  const scaffold = (note: string): ExitTestAuthoring => ({
+    kind: "exit_test_authoring",
+    ...scaffoldEnvelope(playbook, note),
+    candidates: [],
+  });
+  if (!input.model) return scaffold(NO_MODEL_NOTE);
+
+  const result = await completePlanningJson({
+    model: input.model,
+    system: systemPrompt(
+      playbook,
+      "propose the fastest honest ways to show this Task did NOT work, and say what evidence each one would produce.",
+      "Keys: candidates (each with exitTest, evidence, reason). Order them cheapest-to-run first.",
+    ),
+    prompt: [
+      `Task: ${input.title}`,
+      (input.outcomes ?? []).length > 0
+        ? `Its outcomes:\n${(input.outcomes ?? [])
+            .map((outcome) => `- ${outcome.title} (measure: ${outcome.measure}; target: ${outcome.target})`)
+            .join("\n")}`
+        : "It carries no outcomes yet.",
+      input.currentExitTest
+        ? `It already has this exit test — propose something sharper or cheaper, not a restatement:\n${input.currentExitTest}`
+        : "It has no exit test yet.",
+      "A good exit test is something you could run this week and that would come back NEGATIVE if the work is not succeeding.",
+    ].join("\n"),
+    schemaName: "exit_test_authoring",
+    schema: EXIT_TEST_SCHEMA,
+    maxTokens: 1_024,
+    signal: input.signal,
+  });
+  if (!result) return scaffold(UNUSABLE_OUTPUT_NOTE);
+
+  const raw = result.value["candidates"];
+  const candidates: DraftExitTest[] = [];
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const record = asRecord(entry);
+      if (!record) continue;
+      const exitTest = boundedText(record["exitTest"], MAX_DRAFT_TEXT_CHARS);
+      const evidence = boundedText(record["evidence"], MAX_DRAFT_TEXT_CHARS);
+      // An exit test with no named evidence is the failure this Skill exists
+      // to prevent — `evidence-verification` would have nothing to look for.
+      if (!exitTest || !evidence) continue;
+      candidates.push({
+        exitTest,
+        evidence,
+        reason: boundedText(record["reason"], MAX_DRAFT_TEXT_CHARS) ?? "",
+      });
+      if (candidates.length >= MAX_DRAFT_EXIT_TESTS) break;
+    }
+  }
+  if (candidates.length === 0) return scaffold(UNUSABLE_OUTPUT_NOTE);
+  return { kind: "exit_test_authoring", ...modelEnvelope(playbook, result.receipt), candidates };
 }

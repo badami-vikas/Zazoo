@@ -26,6 +26,26 @@ export const TASK_MANAGER_DRIFT_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000
 export const TASK_MANAGER_SWEEP_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f8";
 export const TASK_MANAGER_DRIFT_AUTOMATION_KEY = "task-manager.ledger-drift-detector";
 export const TASK_MANAGER_SWEEP_AUTOMATION_KEY = "task-manager.completed-bay-sweep";
+/** TM3/TM4 runtime bindings. These three Automations were DECLARED in this
+ * manifest from the start with no runtime id and no procedure behind them —
+ * the same "declared, not built" gap the planning Skills had. */
+export const TASK_MANAGER_SCAN_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000fa";
+export const TASK_MANAGER_PLANNING_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000fc";
+export const TASK_MANAGER_SCAN_AUTOMATION_KEY = "task-manager.proactive-scan-cadence";
+/** `standup-brief` deliberately has NO runtime binding here. It is Chief of
+ * Staff-owned (ADR-107 split routing/dispatch from planning on purpose), and
+ * Chief of Staff has no governed runtime Agent identity — `resolveModuleAgentRuntimeId`
+ * resolves only `internal-strategist` and `governance-agent`. Reassigning the
+ * Automation to Internal Strategist would make it run at the cost of the
+ * ownership rule it was written to respect, so it stays declared-only until a
+ * CoS runtime Agent with a capability scope exists. Its Skill
+ * (`task-manager.progress-synthesis`) is built and callable regardless. */
+/** The user-triggered planning Automation. Unlike the other four this one is
+ * NOT on a cadence and not fired by a Task Event: the authoring Skills answer
+ * a question a Human asked ("decompose this", "write me an exit test"), so its
+ * trigger is a person, and the Automation exists to give that invocation an
+ * attributable Agent Run and a proposal that halts for review. */
+export const TASK_MANAGER_PLANNING_AUTOMATION_KEY = "task-manager.planning-playbook";
 export const LEARNING_RECOMMENDATION_SKILL_ID = "stageLearningRecommendation";
 export const CITED_ROLE_MODEL_PRACTICE_VERSION = "1.0.1";
 
@@ -39,6 +59,12 @@ export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAut
   if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_SWEEP_AUTOMATION_KEY) {
     return TASK_MANAGER_SWEEP_AUTOMATION_ID;
   }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_SCAN_AUTOMATION_KEY) {
+    return TASK_MANAGER_SCAN_AUTOMATION_ID;
+  }
+  if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_PLANNING_AUTOMATION_KEY) {
+    return TASK_MANAGER_PLANNING_AUTOMATION_ID;
+  }
   return undefined;
 }
 
@@ -47,6 +73,8 @@ export function isModuleRuntimeAutomationId(automationId: string): boolean {
     DEALPILOT_SOURCE_AUTOMATION_ID,
     TASK_MANAGER_DRIFT_AUTOMATION_ID,
     TASK_MANAGER_SWEEP_AUTOMATION_ID,
+    TASK_MANAGER_SCAN_AUTOMATION_ID,
+    TASK_MANAGER_PLANNING_AUTOMATION_ID,
   ].includes(automationId);
 }
 
@@ -467,6 +495,11 @@ const taskManagerAutomations = [
   ["stale-task-review", "Chief of Staff"],
   ["goal-review-cadence", "Internal Strategist"],
   ["standup-brief", "Chief of Staff"],
+  // Human-triggered rather than scheduled or Event-fired: the planning
+  // Playbooks answer a question someone asked. It is an Automation so that
+  // invocation gets an attributable Agent Run and a proposal that halts for
+  // review, not because anything about it runs on its own.
+  ["planning-playbook", "Internal Strategist"],
 ] as const;
 
 const taskManagerCapabilities = [
@@ -790,7 +823,10 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     manifest: {
       name: "task-manager",
       // 1.1.0: display name aligned to the owner-declared Module set.
-      version: "1.1.0",
+      // 1.2.0: TM3/TM4 runtime bindings — `proactive-scan-cadence`,
+      // `standup-brief` and the new `planning-playbook` gain real runtime
+      // Automation ids and procedures (they were declared with neither).
+      version: "1.2.0",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:
@@ -825,13 +861,21 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
             name: id.replaceAll("-", " "),
             capabilityId: `task-manager.automation.${id}`,
             agentId: agent.id,
-            trigger: id.includes("cadence") || id.includes("brief") ? "Scheduled" : "Task Event",
+            trigger: id === "planning-playbook"
+              ? "Human request"
+              : id.includes("cadence") || id.includes("brief")
+                ? "Scheduled"
+                : "Task Event",
             procedure: `task-manager.${id}`,
             ...(id === "ledger-drift-detector"
               ? { automationId: TASK_MANAGER_DRIFT_AUTOMATION_KEY }
               : id === "completed-bay-sweep"
                 ? { automationId: TASK_MANAGER_SWEEP_AUTOMATION_KEY }
-                : {}),
+                : id === "proactive-scan-cadence"
+                  ? { automationId: TASK_MANAGER_SCAN_AUTOMATION_KEY }
+                  : id === "planning-playbook"
+                    ? { automationId: TASK_MANAGER_PLANNING_AUTOMATION_KEY }
+                    : {}),
           };
         }),
       },

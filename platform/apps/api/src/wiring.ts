@@ -115,12 +115,25 @@ import {
   analyzeTaskImpactFit,
   findDuplicateTasks,
   proposeQueueSequence,
+  authorExitTest,
   decomposeTask,
   frameGoalOutcomes,
   generateCandidateTasks,
   runPremortem,
+  applyTaskRestructure,
+  calibratedTaskChangeDecision,
+  classifyTaskChangeBand,
+  detectTaskProjectionDrift,
+  emitTasksMarkdown,
+  planCompletedBaySweep,
+  routeTaskByRequiredSkill,
+  scaffoldHabits,
+  scanForOpportunities,
+  synthesizeProgress,
+  taskProjectionContentHash,
+  verifyTaskEvidence,
 } from "@bridge/core";
-import type { TaskRecord } from "@bridge/core";
+import type { RestructureOperation, TaskRecord } from "@bridge/core";
 import { guardedFetch } from "@bridge/net-guard";
 import {
   classifyCultureSource,
@@ -192,6 +205,7 @@ import {
   ensureCapabilityApprovalPrincipalGovernance,
   InMemoryCanonicalIdentityStore,
   ensureInternalStrategistGovernance,
+  INTERNAL_STRATEGIST_ALLOWED_SKILLS,
   ensureGovernanceAgentGovernance,
   ensureCapabilityBuilderGovernance,
   ensureRelationshipUserGovernance,
@@ -3183,7 +3197,258 @@ function runTaskPlanningSkill(
 }
 
 /**
- * The four model-backed TM3 planning Skills.
+ * The remaining deterministic Task Manager Skills — the execution/review half
+ * of the catalog, plus the four whose logic already lived in `@bridge/core`
+ * and had simply never been bound to their Skill id.
+ *
+ * Same contract as `runTaskPlanningSkill`: pure, the caller supplies the
+ * authorized queue/records as INPUT rather than the Skill reaching into a
+ * store, and a Skill with no context to answer from THROWS instead of
+ * returning something that reads like a real clean result.
+ *
+ * Returns null for any Skill this dispatcher does not own.
+ */
+function runTaskExecutionSkill(
+  skillId: string,
+  inputs: unknown,
+  now: string,
+): Record<string, unknown> | null {
+  const values = (inputs ?? {}) as Record<string, unknown>;
+  const requireQueue = (): readonly TaskRecord[] => {
+    const queue = values["queue"];
+    if (!Array.isArray(queue)) {
+      throw new Error(`${skillId} requires an authorized 'queue' array in its inputs`);
+    }
+    return queue as readonly TaskRecord[];
+  };
+  const requireTask = (): TaskRecord => {
+    const task = values["task"];
+    if (typeof task !== "object" || task === null || Array.isArray(task)) {
+      throw new Error(`${skillId} requires the authorized 'task' record in its inputs`);
+    }
+    return task as TaskRecord;
+  };
+  const text = (key: string): string | undefined =>
+    typeof values[key] === "string" ? (values[key] as string) : undefined;
+  const count = (key: string, fallback: number): number =>
+    typeof values[key] === "number" && Number.isInteger(values[key]) ? (values[key] as number) : fallback;
+
+  switch (skillId) {
+    case "task-manager.evidence-verification":
+      return {
+        ...verifyTaskEvidence({
+          task: requireTask(),
+          additionalEvidenceRefs: Array.isArray(values["additionalEvidenceRefs"])
+            ? (values["additionalEvidenceRefs"] as unknown[]).filter((v): v is string => typeof v === "string")
+            : undefined,
+        }),
+        status: "proposed",
+      };
+
+    case "task-manager.progress-synthesis": {
+      // A window with no start is not a brief, it is the whole history — and
+      // silently defaulting it would make an empty week and a missing
+      // parameter produce the same output.
+      const since = text("since");
+      if (!since) throw new Error(`${skillId} requires a 'since' ISO-8601 window start in its inputs`);
+      return {
+        ...synthesizeProgress({ tasks: requireQueue(), since, until: text("until") ?? now }),
+        status: "proposed",
+      };
+    }
+
+    case "task-manager.habit-scaffolding":
+      return { ...scaffoldHabits({ task: requireTask() }), status: "proposed" };
+
+    case "task-manager.proactive-opportunity-scan":
+      return { ...scanForOpportunities(requireQueue()), status: "proposed" };
+
+    // These two Skills have TWO authorized shapes, because their existing
+    // certified Automations (`taskManager.runCompletedBaySweep`,
+    // `taskManager.runLedgerDriftDetector`) compute the plan in the procedure
+    // and hand the Skill the result. Rather than break those paths — or leave
+    // the Skill echoing them, which is what this workstream exists to remove —
+    // the Skill INDEPENDENTLY RE-VERIFIES a caller-supplied plan and refuses a
+    // malformed one. `source` states which shape it answered from.
+    case "task-manager.completed-bay-sweep": {
+      const queue = values["queue"];
+      if (Array.isArray(queue)) {
+        return {
+          kind: "completed_bay_sweep",
+          source: "computed_from_queue",
+          ...planCompletedBaySweep(
+            queue as readonly TaskRecord[],
+            now,
+            count("completedCap", 10),
+            count("maxAgeDays", 7),
+          ),
+          status: "proposed",
+        };
+      }
+      const taskIds = values["taskIds"];
+      const recordVersions = values["recordVersions"];
+      if (
+        !Array.isArray(taskIds) ||
+        !taskIds.every((id): id is string => typeof id === "string") ||
+        typeof recordVersions !== "object" ||
+        recordVersions === null ||
+        Array.isArray(recordVersions)
+      ) {
+        throw new Error(`${skillId} requires either a 'queue' array or a 'taskIds' + 'recordVersions' plan`);
+      }
+      const versions = recordVersions as Record<string, unknown>;
+      // Every Task about to be archived must carry the version the sweep was
+      // planned against — that CAS value is what makes the archive safe.
+      for (const id of taskIds) {
+        if (!Number.isInteger(versions[id])) {
+          throw new Error(`${skillId}: sweep plan is missing a record version for Task ${id}`);
+        }
+      }
+      return {
+        kind: "completed_bay_sweep",
+        source: "caller_supplied_plan",
+        eligibleTaskIds: taskIds,
+        expectedVersions: versions,
+        ...(values["policy"] !== undefined ? { policy: values["policy"] } : {}),
+        status: "proposed",
+      };
+    }
+
+    case "task-manager.ledger-projection": {
+      const queue = values["queue"];
+      if (Array.isArray(queue)) {
+        const tasks = queue as readonly TaskRecord[];
+        const projection = emitTasksMarkdown(tasks, count("completedCap", 10));
+        const externalContent = text("externalContent");
+        // Emit-only when no external file was supplied; drift detection is the
+        // second half of the same contract and only answerable with one.
+        const drift = externalContent === undefined
+          ? null
+          : detectTaskProjectionDrift(projection, externalContent, tasks);
+        return {
+          kind: "ledger_projection",
+          source: "computed_from_queue",
+          projection,
+          ...(drift ? { drift } : {}),
+          status: "proposed",
+        };
+      }
+      const externalContent = text("externalContent");
+      const externalContentHash = text("externalContentHash");
+      if (externalContent === undefined || externalContentHash === undefined) {
+        throw new Error(
+          `${skillId} requires either a 'queue' array or an 'externalContent' + 'externalContentHash' pair`,
+        );
+      }
+      // Re-derive the hash rather than trusting the one supplied: this is the
+      // same check the store re-runs at materialize, and doing it here means a
+      // drifted file is caught before a Human is ever asked to approve it.
+      const recomputed = taskProjectionContentHash(externalContent);
+      if (recomputed !== externalContentHash) {
+        throw new Error(`${skillId}: external projection content hash does not match its content`);
+      }
+      return {
+        kind: "ledger_projection",
+        source: "caller_supplied_plan",
+        externalContentHash: recomputed,
+        ...(values["beforeProjectionHash"] !== undefined
+          ? { beforeProjectionHash: values["beforeProjectionHash"] }
+          : {}),
+        ...(values["changes"] !== undefined ? { changes: values["changes"] } : {}),
+        ...(values["recordVersions"] !== undefined ? { recordVersions: values["recordVersions"] } : {}),
+        status: "proposed",
+      };
+    }
+
+    case "task-manager.task-tree-restructure": {
+      const operation = values["operation"];
+      if (typeof operation !== "object" || operation === null || Array.isArray(operation)) {
+        throw new Error(`${skillId} requires a 'operation' restructure request in its inputs`);
+      }
+      const queue = requireQueue();
+      // Computed against a COPY: `applyTaskRestructure` returns the whole
+      // restructured set, and this Skill only proposes it. The atomic subtree
+      // write happens on approval, in the store, never here.
+      const restructured = applyTaskRestructure(queue, operation as RestructureOperation, now);
+      const before = new Map(queue.map((task) => [task.id, task]));
+      const changed = restructured.filter((task) => {
+        const prior = before.get(task.id);
+        return !prior || prior.path !== task.path || prior.parentTaskId !== task.parentTaskId;
+      });
+      return {
+        kind: "task_tree_restructure",
+        operation,
+        changed: changed.map((task) => ({
+          taskId: task.id,
+          title: task.title,
+          fromPath: before.get(task.id)?.path ?? null,
+          toPath: task.path,
+          parentTaskId: task.parentTaskId ?? null,
+          expectedVersion: before.get(task.id)?.version ?? null,
+        })),
+        status: "proposed",
+      };
+    }
+
+    case "task-manager.agent-task-routing": {
+      const requiredSkillId = text("requiredSkillId");
+      if (!requiredSkillId) throw new Error(`${skillId} requires a 'requiredSkillId' in its inputs`);
+      const agents = values["agents"];
+      const skills = values["skills"];
+      if (!Array.isArray(agents) || !Array.isArray(skills)) {
+        throw new Error(`${skillId} requires authorized 'agents' and 'skills' arrays in its inputs`);
+      }
+      // Nested under `routing` rather than spread: the routing result has its
+      // own `kind` discriminator ("assigned" | "human_assignment_required")
+      // and flattening it would silently overwrite the Skill's output kind.
+      return {
+        kind: "agent_task_routing",
+        requiredSkillId,
+        // No default executor (ADR-107): an ambiguous or unmatched routing
+        // resolves to human_assignment_required, never to a guess.
+        routing: routeTaskByRequiredSkill(
+          requiredSkillId,
+          agents as Parameters<typeof routeTaskByRequiredSkill>[1],
+          skills as Parameters<typeof routeTaskByRequiredSkill>[2],
+        ),
+        status: "proposed",
+      };
+    }
+
+    case "task-manager.reschedule-confidence-calibration": {
+      const kind = text("changeKind");
+      if (kind !== "route" && kind !== "reschedule") {
+        throw new Error(`${skillId} requires 'changeKind' of "route" or "reschedule" in its inputs`);
+      }
+      const band = classifyTaskChangeBand({
+        kind,
+        ...(typeof values["deltaDays"] === "number" ? { deltaDays: values["deltaDays"] } : {}),
+        ...(typeof values["candidateCount"] === "number" ? { candidateCount: values["candidateCount"] } : {}),
+        ...(typeof values["crossesModule"] === "boolean" ? { crossesModule: values["crossesModule"] } : {}),
+      });
+      // This Skill computes a PARAMETER, never a decision to act — the
+      // auto-apply gate is a deterministic system/router check (plan §3.3,
+      // ADR-073 pattern). An agent actor can never reach `auto_apply`.
+      return {
+        kind: "reschedule_confidence_calibration",
+        band,
+        decision: calibratedTaskChangeDecision({
+          band,
+          approvals: count("approvals", 0),
+          vetoes: count("vetoes", 0),
+          actorType: values["actorType"] === "human" ? "human" : "agent",
+        }),
+        status: "proposed",
+      };
+    }
+
+    default:
+      return null;
+  }
+}
+
+/**
+ * The model-backed TM3 planning Skills.
  *
  * `plane: "local"` on their manifests is not decoration — it is why this
  * binding is `planeDefault: "local"`. The router FAILS a local-default binding
@@ -3203,6 +3468,7 @@ const TASK_AUTHORING_SKILLS: ReadonlySet<string> = new Set([
   "task-manager.candidate-task-generation",
   "task-manager.premortem-scenario",
   "task-manager.task-decomposition",
+  "task-manager.exit-test-authoring",
 ]);
 
 /**
@@ -3286,6 +3552,18 @@ async function runTaskAuthoringSkill(
         outcomes,
         exitTest: text("exitTest"),
         horizon: text("horizon"),
+        playbookId,
+        model,
+      })),
+      status: "proposed",
+    };
+  }
+  if (skillId === "task-manager.exit-test-authoring") {
+    return {
+      ...(await authorExitTest({
+        title,
+        outcomes,
+        currentExitTest: text("exitTest"),
         playbookId,
         model,
       })),
@@ -3516,12 +3794,9 @@ function seedGovernance(
   // can be selected for two eligible Agents assigned to same Task").
   agents.assumed.set(INTERNAL_STRATEGIST_AGENT, "role-internal-strategist");
   agents.scope.set(INTERNAL_STRATEGIST_AGENT, ["signal:write", "record:read", "record:write"]);
-  agents.skills.set(INTERNAL_STRATEGIST_AGENT, [
-    "stageStrategicRecommendation",
-    "jobpilot.synthesizeCultureProfile",
-    "task-manager.ledger-projection",
-    "task-manager.create-task",
-  ]);
+  // Shared with the persistent seed (`ensureInternalStrategistGovernance`)
+  // rather than restated, so the two durability backends cannot drift.
+  agents.skills.set(INTERNAL_STRATEGIST_AGENT, [...INTERNAL_STRATEGIST_ALLOWED_SKILLS]);
   roles.roleGrants.set("role-internal-strategist", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "record", resourceId: null, action: "read", effect: "allow" },
@@ -4501,13 +4776,19 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         }
         const planning = runTaskPlanningSkill(manifest.skillId, inputs);
         if (planning) return { proposedOutput: planning, diff: { to: planning } };
+        const executed = runTaskExecutionSkill(manifest.skillId, inputs, ctx.clock.nowISO());
+        if (executed) return { proposedOutput: executed, diff: { to: executed } };
         const authored = await runTaskAuthoringSkill(
           manifest.skillId,
           inputs,
           resolveLocalPlanningModel(planningModelRouter),
         );
         if (authored) return { proposedOutput: authored, diff: { to: authored } };
-        return { proposedOutput: inputs, diff: { to: inputs } };
+        // Every registered `task-manager.*` Skill id now has a dispatcher. An
+        // id that reaches here is a registration the catalog gained without
+        // an implementation — fail loudly rather than reintroducing the echo
+        // this whole workstream existed to remove.
+        throw new Error(`${manifest.skillId} is registered but has no implementation bound`);
       },
     });
   }

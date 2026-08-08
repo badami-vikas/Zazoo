@@ -374,11 +374,29 @@ test("persistent governance provisioning grants culture-research authority to Le
       "record:write",
     ]);
     assert.equal(await agents.dataScope(INTERNAL_STRATEGIST_AGENT), "all");
+    // Pinned exactly: this is an Agent's authority, so a widening has to be
+    // written down here before it can ship. The six TM3 entries are the
+    // Skills `taskManager.runPlanningPlaybook` and `runOpportunityScan`
+    // actually invoke — Internal Strategist OWNS more `task-manager.*` Skills
+    // than this, and the unused ones are deliberately not granted.
     assert.deepEqual(await agents.allowedSkills(INTERNAL_STRATEGIST_AGENT), [
       "stageStrategicRecommendation",
       "jobpilot.synthesizeCultureProfile",
       "task-manager.ledger-projection",
       "task-manager.create-task",
+      "task-manager.goal-outcome-framing",
+      "task-manager.candidate-task-generation",
+      "task-manager.premortem-scenario",
+      "task-manager.task-decomposition",
+      "task-manager.exit-test-authoring",
+      "task-manager.proactive-opportunity-scan",
+    ]);
+    // Capability scope is UNCHANGED by those grants — the new Skills need
+    // record:read/record:write, which this Agent already held.
+    assert.deepEqual(await agents.capabilityScope(INTERNAL_STRATEGIST_AGENT), [
+      "signal:write",
+      "record:read",
+      "record:write",
     ]);
   } finally {
     await close();

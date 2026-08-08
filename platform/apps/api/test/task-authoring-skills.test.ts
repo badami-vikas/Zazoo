@@ -15,7 +15,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
-import { buildWiring } from "../src/wiring.js";
+import { buildWiring, TASK_MANAGER_SKILL_MANIFESTS } from "../src/wiring.js";
 
 function runCtx(): RunCtx {
   const clock = new SystemClock();
@@ -136,4 +136,78 @@ test("a Playbook that does not support the requested Skill is refused", async ()
         .run({ title: "Anything", parentPath: "1", playbookId: "pre-mortem" }, runCtx()),
     /does not support task-decomposition/,
   );
+});
+
+/**
+ * The catalog-wide check: after this workstream NO registered
+ * `task-manager.*` Skill echoes its inputs. This is the assertion that keeps
+ * a future added-but-unimplemented Skill from silently looking like a working
+ * one — the failure mode that let TM3 ship declared-but-not-built.
+ */
+test("no registered task-manager Skill echoes its inputs", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const ctx = runCtx();
+  const canary = "must-not-appear";
+  const queue = [
+    {
+      id: "11111111-1111-4111-a111-111111111111",
+      organizationId: "org-1",
+      path: "1",
+      level: 0,
+      sortOrder: 1,
+      title: "Ship the pilot",
+      taskType: "task",
+      isGoal: false,
+      outcomes: [],
+      anchor: false,
+      status: "done",
+      priority: "P2",
+      ownerType: "human",
+      ownerId: "human-1",
+      exitTest: "A user completes the flow unaided",
+      evidenceRefs: ["file:run-1"],
+      visibility: "organization",
+      version: 1,
+      createdAt: "2026-08-08T00:00:00.000Z",
+      updatedAt: "2026-08-08T00:00:00.000Z",
+    },
+  ];
+  // Every input any Skill in the catalog might need, plus the canary. A Skill
+  // that echoes hands the canary straight back.
+  const inputs = {
+    echoCanary: canary,
+    queue,
+    task: queue[0],
+    title: "Ship the pilot",
+    exitTest: "A user completes the flow unaided",
+    parentPath: "1",
+    since: "2026-08-01T00:00:00.000Z",
+    changeKind: "reschedule",
+    actorType: "human",
+    requiredSkillId: "task-manager.create-task",
+    agents: [],
+    skills: [],
+    operation: { kind: "reorder", taskId: queue[0]!.id, sortOrder: 2 },
+    mode: "create",
+    taskId: queue[0]!.id,
+    outcome: "Shipped",
+    parentTaskId: null,
+    parentRationale: null,
+    parentCandidates: [],
+  };
+
+  const registered = TASK_MANAGER_SKILL_MANIFESTS.map((manifest) => manifest.skillId);
+  assert.ok(registered.length >= 18, "the whole Task Manager catalog is under test");
+
+  for (const skillId of registered) {
+    const skill = wiring.skillRegistry.get(skillId);
+    assert.ok(skill, `${skillId} must be registered`);
+    const output = await skill.run(inputs, ctx);
+    const result = output.proposedOutput as Record<string, unknown>;
+    assert.equal(result["echoCanary"], undefined, `${skillId} echoed its inputs`);
+    assert.ok(
+      typeof result["kind"] === "string" && (result["kind"] as string).length > 0,
+      `${skillId} returned no output kind`,
+    );
+  }
 });
