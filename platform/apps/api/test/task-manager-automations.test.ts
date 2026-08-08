@@ -920,3 +920,60 @@ test("the unblock notifier reports the wait that ended, and changes no status", 
     "blocking is a coordination question, so this is Chief of Staff's Run",
   );
 });
+
+// ---------------------------------------------------------------------
+// ADR-205 (TM5) — Second Brain is Graph view at full scope (ADR-110), and a
+// "full" graph that silently omits the execution queue is not full.
+// ---------------------------------------------------------------------
+
+test("Second Brain shows Tasks, their tree, and what they wait on", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+
+  const parent = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Ship the pilot",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "A real user completes the flow unaided",
+  });
+  const child = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Draft the copy",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    parentTaskId: parent.task.id,
+    exitTest: "The copy is in the repo",
+  });
+  const blocker = await api.taskManager.create({
+    organizationId: PILOT_ORGANIZATION,
+    title: "Agree the messaging",
+    ownerType: "human",
+    ownerId: PILOT_USER,
+    exitTest: "Both founders sign off",
+  });
+  await api.taskManager.addDependency({
+    organizationId: PILOT_ORGANIZATION,
+    taskId: child.task.id,
+    dependsOnTaskId: blocker.task.id,
+  });
+
+  const graph = await api.graph.full({ organizationId: PILOT_ORGANIZATION });
+  const taskNodes = graph.nodes.filter((node) => node.recordType === "task");
+  assert.ok(taskNodes.length >= 3, "the queue reaches the full-scope graph");
+  assert.ok(
+    taskNodes.every((node) => typeof node.recordPath === "string" && node.recordPath.startsWith("/task-manager/")),
+    "every Task node opens its own Record Detail",
+  );
+  assert.ok(graph.databases.some((database) => database.id === "task-manager.tasks"));
+
+  // The two edge kinds are different questions: the tree says where work
+  // SITS, the dependency says what it WAITS ON. Collapsing them would leave
+  // Second Brain unable to answer either.
+  const parentEdge = graph.edges.find((edge) => edge.relationType === "task_parent");
+  assert.equal(parentEdge?.sourceId, `task:${child.task.id}`);
+  assert.equal(parentEdge?.targetId, `task:${parent.task.id}`);
+  const dependencyEdge = graph.edges.find((edge) => edge.relationType === "task_depends_on");
+  assert.equal(dependencyEdge?.sourceId, `task:${child.task.id}`);
+  assert.equal(dependencyEdge?.targetId, `task:${blocker.task.id}`);
+});

@@ -945,7 +945,11 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       // already halted for review — the gap was attribution, not governance.
       // 1.6.0: ADR-204 adds Task dependency Relations (migration 0039), the
       // `dependency-analysis` Skill, and binds `dependency-unblock-notifier`.
-      version: "1.6.0",
+      // 1.7.0: ADR-205 derives each Automation's `automationId` from the one
+      // resolver that owns runtime ids. The ternary chain it replaces named
+      // four Automations and had been stale since ADR-201, so nine manifest
+      // entries were claiming no runtime Automation stood behind them.
+      version: "1.7.0",
       kind: "organization_definition",
       summary: "One governed execution queue over a recursive Task Database.",
       description:
@@ -986,15 +990,14 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
                 ? "Scheduled"
                 : "Task Event",
             procedure: `task-manager.${id}`,
-            ...(id === "ledger-drift-detector"
-              ? { automationId: TASK_MANAGER_DRIFT_AUTOMATION_KEY }
-              : id === "completed-bay-sweep"
-                ? { automationId: TASK_MANAGER_SWEEP_AUTOMATION_KEY }
-                : id === "proactive-scan-cadence"
-                  ? { automationId: TASK_MANAGER_SCAN_AUTOMATION_KEY }
-                  : id === "planning-playbook"
-                    ? { automationId: TASK_MANAGER_PLANNING_AUTOMATION_KEY }
-                    : {}),
+            // Derived from the ONE resolver that owns runtime ids rather than
+            // restated as a ternary chain. The chain it replaces listed four
+            // Automations and was already stale by ADR-201: every binding
+            // added since would have shipped a manifest entry claiming no
+            // runtime Automation existed behind it.
+            ...(resolveModuleAutomationRuntimeId("task-manager", `task-manager.${id}`)
+              ? { automationId: `task-manager.${id}` }
+              : {}),
           };
         }),
       },

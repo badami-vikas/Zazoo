@@ -210,6 +210,7 @@ import {
   mergeEditedPlanningPayload,
   blockedTasks,
   dependencyBlockedTaskIds,
+  taskIsOpen,
   TaskDependencyCycleError,
   MAX_MATERIALIZED_TASKS,
   evaluateTaskGuards,
@@ -15035,13 +15036,19 @@ export const appRouter = t.router({
           } while (offset < total);
           return items;
         };
-        const [graph, moduleInstallations] = await Promise.all([
+        const [graph, moduleInstallations, taskQueue, taskDependencyEdges] = await Promise.all([
           ctx.wiring.graphStore.listFullGraph(
             input.organizationId,
             ctx.identity.id,
             { limit: input.limit },
           ),
           loadModuleInstallations(),
+          // TM5 (ADR-205) — Tasks live in their own Database, not in the graph
+          // store's Records, so Second Brain never showed them. Second Brain
+          // IS Graph view at full scope (ADR-110), and "full" that silently
+          // omits the execution queue is not full.
+          ctx.wiring.taskManager.list(input.organizationId),
+          ctx.wiring.taskManager.listDependencies(input.organizationId),
         ]);
         const installations = moduleInstallations.filter(
           (installation) =>
@@ -15084,6 +15091,28 @@ export const appRouter = t.router({
             });
           }
         }
+        // Task nodes, capped by the SAME limit the rest of the graph honours:
+        // a queue is the one Database that reliably outgrows every other, and
+        // letting it alone ignore the cap would make a large queue crowd out
+        // everything Second Brain exists to relate it to. Closed work is
+        // dropped first — an archived Task is history, not context.
+        const graphTasks = [...taskQueue]
+          .sort((a, b) => Number(taskIsOpen(b.status)) - Number(taskIsOpen(a.status)))
+          .slice(0, input.limit);
+        for (const task of graphTasks) {
+          nodes.set(`task:${task.id}`, {
+            id: `task:${task.id}`,
+            recordId: task.id,
+            recordType: "task",
+            label: `${task.path} — ${task.title}`,
+            databaseId: "task-manager.tasks",
+            databaseLabel: "Tasks",
+            moduleId: "task-manager",
+            subtitle: task.isGoal ? `Goal · ${task.status}` : task.status,
+            recordPath: `/task-manager/${task.id}`,
+            provenance: `Task Manager queue · ${task.path}`,
+          });
+        }
         for (const [id, node] of nodes) {
           if (node.recordPath || !nodes.has(`module:${node.moduleId}`)) continue;
           nodes.set(id, { ...node, recordPath: `/module/${node.moduleId}` });
@@ -15098,6 +15127,39 @@ export const appRouter = t.router({
               : {}),
           }];
         }));
+        // Both Task edge kinds, and they are genuinely different questions:
+        // the tree says where work SITS, the dependency says what it WAITS ON.
+        // Collapsing them into one edge type would make Second Brain unable to
+        // answer either.
+        const includedTaskIds = new Set(graphTasks.map((task) => task.id));
+        for (const task of graphTasks) {
+          if (!task.parentTaskId || !includedTaskIds.has(task.parentTaskId)) continue;
+          const id = `task-parent:${task.id}`;
+          edges.set(id, {
+            id,
+            sourceId: `task:${task.id}`,
+            targetId: `task:${task.parentTaskId}`,
+            label: "subtask of",
+            relationType: "task_parent",
+            sourceModule: "task-manager",
+            evidence: `Task tree · ${task.path}`,
+            recordPath: `/task-manager/${task.id}`,
+          });
+        }
+        for (const dependency of taskDependencyEdges) {
+          if (!includedTaskIds.has(dependency.taskId) || !includedTaskIds.has(dependency.dependsOnTaskId)) continue;
+          const id = `task-depends-on:${dependency.id}`;
+          edges.set(id, {
+            id,
+            sourceId: `task:${dependency.taskId}`,
+            targetId: `task:${dependency.dependsOnTaskId}`,
+            label: "depends on",
+            relationType: "task_depends_on",
+            sourceModule: "task-manager",
+            evidence: dependency.reason ?? "Task dependency Relation",
+            recordPath: `/task-manager/${dependency.taskId}`,
+          });
+        }
         for (const node of nodes.values()) {
           if (node.recordType === "module") continue;
           const moduleNodeId = `module:${node.moduleId}`;
@@ -15122,11 +15184,18 @@ export const appRouter = t.router({
         if (composedNodes.some((node) => node.recordType === "agent")) {
           databases.set("agents", { id: "agents", label: "Agents", moduleId: "agents" });
         }
+        if (composedNodes.some((node) => node.recordType === "task")) {
+          databases.set("task-manager.tasks", {
+            id: "task-manager.tasks",
+            label: "Tasks",
+            moduleId: "task-manager",
+          });
+        }
         return {
           nodes: composedNodes,
           edges: [...edges.values()],
           databases: [...databases.values()],
-          hasMore: graph.hasMore,
+          hasMore: graph.hasMore || graphTasks.length < taskQueue.length,
         };
       }),
 

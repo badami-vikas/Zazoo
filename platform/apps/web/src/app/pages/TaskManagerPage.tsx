@@ -40,6 +40,21 @@ const TASK_SPEC: TableSpec = {
       relationParent: true,
       editable: true,
     },
+    {
+      // TM5 (ADR-205) — the non-parent relation that makes Graph view
+      // eligible on this Page at all. `computeEligibleKinds` requires a
+      // relation column that is NOT the parent, and until ADR-204 created
+      // `depends_on` the Task Database had only `parentTaskId`, so Graph was
+      // structurally impossible here rather than merely unbuilt.
+      id: "dependsOn",
+      label: "Depends on",
+      kind: "relation",
+      relationTarget: "task-manager.tasks",
+      // Read-only in the grid: an edge can close a cycle, and a cycle is
+      // refused server-side with a reason (ADR-204). Editing it inline would
+      // put that refusal behind a cell that silently reverts.
+      editable: false,
+    },
     { id: "scheduledFor", label: "Scheduled", kind: "date", editable: true },
     { id: "ownerId", label: "Owner", kind: "text", editable: false, hiddenInForm: true },
   ],
@@ -48,7 +63,7 @@ const TASK_SPEC: TableSpec = {
 type TaskRow = Awaited<ReturnType<typeof trpc.taskManager.list.query>>[number];
 type TaskProposal = NonNullable<Awaited<ReturnType<typeof trpc.taskManager.create.mutate>>["impactFitProposal"]>;
 
-function toDataRow(task: TaskRow): DataRow {
+function toDataRow(task: TaskRow, dependsOn: readonly string[] = []): DataRow {
   const outcome = task.outcomes[0];
   return {
     id: task.id,
@@ -62,6 +77,7 @@ function toDataRow(task: TaskRow): DataRow {
     outcomeTarget: outcome?.target ?? null,
     exitTest: task.exitTest ?? null,
     parentTaskId: task.parentTaskId ?? null,
+    dependsOn: dependsOn.length > 0 ? dependsOn.join(", ") : null,
     scheduledFor: task.scheduledFor ?? null,
     ownerId: task.ownerId,
   };
@@ -75,6 +91,7 @@ export function TaskManagerPage() {
   const [goalsOnly, setGoalsOnly] = useState(false);
   const [candidatesOnly, setCandidatesOnly] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<TaskProposal | null>(null);
+  const [dependenciesByTask, setDependenciesByTask] = useState<Record<string, string[]>>({});
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedView = normalizeViewKind(searchParams.get("view"));
   const initialKind = requestedView && computeEligibleKinds(TASK_SPEC).includes(requestedView) ? requestedView : "table";
@@ -90,7 +107,16 @@ export function TaskManagerPage() {
     setLoading(true);
     setError(null);
     try {
-      setTasks(await trpc.taskManager.list.query({ organizationId: PILOT_ORGANIZATION }));
+      const [rows, graph] = await Promise.all([
+        trpc.taskManager.list.query({ organizationId: PILOT_ORGANIZATION }),
+        trpc.taskManager.dependencies.query({ organizationId: PILOT_ORGANIZATION }),
+      ]);
+      setTasks(rows);
+      const byTask: Record<string, string[]> = {};
+      for (const edge of graph.dependencies) {
+        byTask[edge.taskId] = [...(byTask[edge.taskId] ?? []), edge.dependsOnTaskId];
+      }
+      setDependenciesByTask(byTask);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -106,7 +132,10 @@ export function TaskManagerPage() {
     () => tasks.filter((task) => (!goalsOnly || task.isGoal) && (!candidatesOnly || task.status === "candidate")),
     [candidatesOnly, goalsOnly, tasks],
   );
-  const rows = useMemo(() => visibleTasks.map(toDataRow), [visibleTasks]);
+  const rows = useMemo(
+    () => visibleTasks.map((task) => toDataRow(task, dependenciesByTask[task.id] ?? [])),
+    [visibleTasks, dependenciesByTask],
+  );
 
   function changeView(next: ViewConfig) {
     setView(next);
