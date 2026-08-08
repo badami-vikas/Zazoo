@@ -115,6 +115,10 @@ import {
   analyzeTaskImpactFit,
   findDuplicateTasks,
   proposeQueueSequence,
+  decomposeTask,
+  frameGoalOutcomes,
+  generateCandidateTasks,
+  runPremortem,
 } from "@bridge/core";
 import type { TaskRecord } from "@bridge/core";
 import { guardedFetch } from "@bridge/net-guard";
@@ -250,7 +254,7 @@ import {
   type SourceCredentialVault,
 } from "@bridge/dealpilot";
 import { DrizzleDealPilotStore, cloudRecordsDealPilotStore } from "./dealpilot-store.js";
-import type { QuarantinedCapture } from "@bridge/capability-kit";
+import type { ModelBinding, QuarantinedCapture } from "@bridge/capability-kit";
 import {
   BUILT_IN_MODULES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
@@ -3178,6 +3182,138 @@ function runTaskPlanningSkill(
   };
 }
 
+/**
+ * The four model-backed TM3 planning Skills.
+ *
+ * `plane: "local"` on their manifests is not decoration — it is why this
+ * binding is `planeDefault: "local"`. The router FAILS a local-default binding
+ * rather than falling through to a cloud provider (models/router.ts), so these
+ * Skills can never quietly ship a user's private queue to a cloud model to
+ * write their plan. When nothing local is registered the resolution throws,
+ * and that throw is what produces the honest Playbook scaffold below.
+ */
+const TASK_PLANNING_MODEL_BINDING: ModelBinding = {
+  use: "llm",
+  planeDefault: "local",
+  providers: { local: "ollama" },
+};
+
+const TASK_AUTHORING_SKILLS: ReadonlySet<string> = new Set([
+  "task-manager.goal-outcome-framing",
+  "task-manager.candidate-task-generation",
+  "task-manager.premortem-scenario",
+  "task-manager.task-decomposition",
+]);
+
+/**
+ * Resolved PER CALL, never snapshotted at boot: on desktop the managed local
+ * model only becomes healthy ~30s after wiring runs (see the managed-model
+ * comment in `buildWiring`), so a boot-time snapshot would leave every
+ * planning Skill permanently scaffolded on exactly the machines that have a
+ * local model. Returns undefined when nothing local is available — the Skill
+ * then says so instead of drafting.
+ */
+function resolveLocalPlanningModel(models: ModelRouter | undefined): ModelProvider | undefined {
+  if (!models) return undefined;
+  const configured = [...models.providers().values()].filter(
+    (provider) => provider.id !== "echo" && provider.routingHealth() !== "unavailable",
+  );
+  if (configured.length === 0) return undefined;
+  try {
+    return createModelRouter(configured).resolve(TASK_PLANNING_MODEL_BINDING, "reasoning");
+  } catch {
+    // No local-plane provider satisfies the binding. Not an error: it is the
+    // documented offline posture, and the Skill degrades honestly.
+    return undefined;
+  }
+}
+
+/**
+ * TM3 authoring Skills. Unlike `runTaskPlanningSkill` these are generative, so
+ * they take a model when one is configured locally and return the Playbook's
+ * own questions when one is not — see task-playbooks.ts for why an empty
+ * result would be dishonest here.
+ *
+ * Returns null for any Skill this dispatcher does not own.
+ */
+async function runTaskAuthoringSkill(
+  skillId: string,
+  inputs: unknown,
+  model: ModelProvider | undefined,
+): Promise<Record<string, unknown> | null> {
+  if (!TASK_AUTHORING_SKILLS.has(skillId)) return null;
+
+  const values = (inputs ?? {}) as Record<string, unknown>;
+  const text = (key: string): string | undefined =>
+    typeof values[key] === "string" ? (values[key] as string) : undefined;
+  const strings = (key: string): readonly string[] | undefined =>
+    Array.isArray(values[key]) ? (values[key] as unknown[]).filter((v): v is string => typeof v === "string") : undefined;
+  const outcomes = Array.isArray(values["outcomes"])
+    ? (values["outcomes"] as readonly { title: string; measure: string; target: string }[])
+    : undefined;
+  const playbookId = text("playbookId");
+  const title = text("title") ?? "";
+
+  if (skillId === "task-manager.goal-outcome-framing") {
+    return {
+      ...(await frameGoalOutcomes({
+        title,
+        exitTest: text("exitTest"),
+        existingOutcomes: outcomes,
+        playbookId,
+        model,
+      })),
+      status: "proposed",
+    };
+  }
+  if (skillId === "task-manager.candidate-task-generation") {
+    return {
+      ...(await generateCandidateTasks({
+        parentTitle: title,
+        parentOutcomes: outcomes,
+        parentExitTest: text("exitTest"),
+        existingChildTitles: strings("existingChildTitles"),
+        playbookId,
+        model,
+      })),
+      status: "proposed",
+    };
+  }
+  if (skillId === "task-manager.premortem-scenario") {
+    return {
+      ...(await runPremortem({
+        title,
+        outcomes,
+        exitTest: text("exitTest"),
+        horizon: text("horizon"),
+        playbookId,
+        model,
+      })),
+      status: "proposed",
+    };
+  }
+  const parentPath = text("parentPath");
+  if (!parentPath) {
+    // Children cannot be placed without knowing where the parent sits, and a
+    // model-invented dot-path could collide with a live Task or silently
+    // reorder the queue. Refuse rather than guess.
+    throw new Error(`${skillId} requires the parent Task's 'parentPath' in its inputs`);
+  }
+  return {
+    ...(await decomposeTask({
+      title,
+      parentPath,
+      outcomes,
+      exitTest: text("exitTest"),
+      existingChildPaths: strings("existingChildPaths"),
+      existingChildTitles: strings("existingChildTitles"),
+      playbookId,
+      model,
+    })),
+    status: "proposed",
+  };
+}
+
 export const TASK_MANAGER_SKILL_MANIFESTS: readonly SkillManifest[] = Object.entries(TASK_MANAGER_SKILL_OWNERS)
   .map(([skillId, owner]) => ({
     organizationId: PILOT_ORGANIZATION,
@@ -4330,9 +4466,22 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     .register(stageOutreachDraft)
     .register(createResearchCultureSourceSkill())
     .register(stagePreferenceAdjustmentProposal);
+  // Assigned once `createModelRouter` runs further down, and read only inside
+  // a Skill's `run()` — which happens per request, long after boot. Scoped to
+  // THIS wiring rather than module-global so two wirings (a test's and a
+  // server's) can never share a provider set.
+  let planningModelRouter: ModelRouter | undefined;
   for (const manifest of TASK_MANAGER_SKILL_MANIFESTS) {
     skillRegistry.register({
       name: manifest.skillId,
+      // The four authoring Skills call a model, so they are declared
+      // `authority_bearing` and go through the pipeline's `skill_execution`
+      // taint sink. The rest are left unset exactly as before — that is
+      // already the non-pure branch, and marking them `pure_data` here would
+      // REMOVE a check rather than describe one.
+      ...(TASK_AUTHORING_SKILLS.has(manifest.skillId)
+        ? { executionClass: "authority_bearing" as const }
+        : {}),
       async run(inputs, ctx) {
         if (manifest.skillId === "task-manager.create-task") {
           const values = inputs as Record<string, unknown>;
@@ -4352,6 +4501,12 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         }
         const planning = runTaskPlanningSkill(manifest.skillId, inputs);
         if (planning) return { proposedOutput: planning, diff: { to: planning } };
+        const authored = await runTaskAuthoringSkill(
+          manifest.skillId,
+          inputs,
+          resolveLocalPlanningModel(planningModelRouter),
+        );
+        if (authored) return { proposedOutput: authored, diff: { to: authored } };
         return { proposedOutput: inputs, diff: { to: inputs } };
       },
     });
@@ -4666,6 +4821,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // ModelProvider registry/router — resolves capability manifest modelBindings honoring
   // planeDefault (local-default bindings NEVER fall through to a cloud provider).
   const models = createModelRouter(modelProviders);
+  // Hand the router to the Task Manager authoring Skills registered above.
+  // They resolve a provider per call (never here), so a local model that only
+  // becomes healthy after boot still reaches them.
+  planningModelRouter = models;
   const managedLlamaProvider = modelProviders.find(
     (provider): provider is LlamaCppProvider =>
       provider.id === MANAGED_LLAMA_PROVIDER_ID &&

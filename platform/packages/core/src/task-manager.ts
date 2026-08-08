@@ -1,3 +1,4 @@
+import { TASK_PLAYBOOKS } from "./task-playbooks.js";
 import { analyzeTaskImpactFit } from "./task-planning.js";
 
 export type TaskRecordStatus =
@@ -765,13 +766,21 @@ export function planCompletedBaySweep(
   };
 }
 
-export const TASK_MANAGER_PLAYBOOKS = [
-  { id: "outcome-key-results", version: "1.0.0", ownerAgent: "internal-strategist" },
-  { id: "backward-planning", version: "1.0.0", ownerAgent: "internal-strategist" },
-  { id: "clarify-organize", version: "1.0.0", ownerAgent: "internal-strategist" },
-  { id: "measurable-review", version: "1.0.0", ownerAgent: "internal-strategist" },
-  { id: "pre-mortem", version: "1.0.0", ownerAgent: "internal-strategist" },
-] as const;
+/**
+ * The registered Playbook roster: id, version, owner. DERIVED from
+ * `TASK_PLAYBOOKS` rather than restated, so the roster and the methodology
+ * content behind it cannot drift — this list used to be the ONLY thing that
+ * existed, five names with nothing behind them.
+ */
+export const TASK_MANAGER_PLAYBOOKS: readonly {
+  id: string;
+  version: string;
+  ownerAgent: string;
+}[] = TASK_PLAYBOOKS.map((playbook) => ({
+  id: playbook.id,
+  version: playbook.version,
+  ownerAgent: playbook.ownerAgent,
+}));
 
 export interface TaskManagerIdClock {
   nextId(): string;
