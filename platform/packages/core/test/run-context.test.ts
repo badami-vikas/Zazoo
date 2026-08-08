@@ -3,11 +3,15 @@ import assert from "node:assert/strict";
 
 import {
   assembleRunContext,
+  compactConversationHistory,
+  COMPACT_TRIGGER_SEGMENTS,
+  COMPACT_KEEP_SEGMENTS,
   projectToPrompt,
   FixedClock,
   UuidGen,
   type AssembleRunContextInput,
   type ContextItem,
+  type ModelConversationSegment,
   type ModelRunContext,
   type RunCtx,
 } from "../src/index.js";
@@ -246,4 +250,74 @@ test("projectToPrompt: a fully-populated context renders every section in ADR-02
 test("projectToPrompt: is a pure deterministic template — same context always yields the same string", () => {
   const ctx = assembleRunContext(test_fixture_input(), test_fixture_run_ctx());
   assert.equal(projectToPrompt(ctx), projectToPrompt(ctx));
+});
+
+function test_fixture_conversation_segment(content: string): ModelConversationSegment {
+  return {
+    role: "user",
+    dataScope: "private",
+    content,
+    taintLabel: {
+      version: 1,
+      trust: "verified_system",
+      source: "operator",
+      sensitivity: "private",
+      instructionRisk: "none",
+      provenanceHash: "sha256:test",
+      originChain: [],
+      originsTruncated: false,
+    },
+  };
+}
+
+test("assembleRunContext: throws when history exceeds MAX_CONVERSATION_SEGMENTS (compaction must happen before)", () => {
+  const history = Array.from({ length: 25 }, (_, i) => test_fixture_conversation_segment(`msg_${i}`));
+  assert.throws(
+    () => assembleRunContext({ ...test_fixture_input(), conversationHistory: history }, test_fixture_run_ctx()),
+    /exceeds 24 segments/,
+  );
+});
+
+test("assembleRunContext: single oversized segment (> 16k chars) still throws", () => {
+  const tooBig = test_fixture_conversation_segment("x".repeat(17_000));
+  assert.throws(
+    () => assembleRunContext({ ...test_fixture_input(), conversationHistory: [tooBig] }, test_fixture_run_ctx()),
+    /invalid conversation-history segment/,
+  );
+});
+
+test("compactConversationHistory: returns history unchanged when within COMPACT_TRIGGER_SEGMENTS", async () => {
+  const history = Array.from({ length: COMPACT_TRIGGER_SEGMENTS }, (_, i) =>
+    test_fixture_conversation_segment(`msg_${i}`),
+  );
+  const result = await compactConversationHistory(history, {
+    complete: async () => { throw new Error("model should not be called"); },
+  });
+  assert.equal(result.length, COMPACT_TRIGGER_SEGMENTS);
+  assert.equal(result[0]!.content, "msg_0");
+});
+
+test("compactConversationHistory: summarises oldest segments and keeps COMPACT_KEEP_SEGMENTS verbatim", async () => {
+  const total = COMPACT_TRIGGER_SEGMENTS + 4; // e.g. 24
+  const history = Array.from({ length: total }, (_, i) =>
+    test_fixture_conversation_segment(`msg_${i}`),
+  );
+  let capturedPrompt = "";
+  const result = await compactConversationHistory(history, {
+    complete: async (req) => {
+      capturedPrompt = req.prompt;
+      return { text: "Summary of earlier turns.", model: "test-model", tier: "cheap", usage: { inputTokens: 10, outputTokens: 20, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, source: "estimated" as const } };
+    },
+  });
+
+  // Result: 1 summary segment + COMPACT_KEEP_SEGMENTS verbatim
+  assert.equal(result.length, COMPACT_KEEP_SEGMENTS + 1);
+  assert.ok(result[0]!.content.includes("Summary of earlier turns."));
+  assert.equal(result[0]!.role, "assistant");
+  // The COMPACT_KEEP_SEGMENTS most recent segments are preserved verbatim
+  assert.equal(result[1]!.content, `msg_${total - COMPACT_KEEP_SEGMENTS}`);
+  assert.equal(result[result.length - 1]!.content, `msg_${total - 1}`);
+  // Prompt contains the older segments
+  assert.ok(capturedPrompt.includes("msg_0"));
+  assert.ok(!capturedPrompt.includes(`msg_${total - 1}`));
 });

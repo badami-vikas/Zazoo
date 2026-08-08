@@ -13,9 +13,9 @@
  */
 import { and, eq, count } from "drizzle-orm";
 import { z } from "zod";
-import type { CapabilityManifestRow, CapabilityStateRow, CapabilityStore, ComponentKind } from "@bridge/core";
+import type { CapabilityManifestRow, CapabilityStateRow, CapabilityStore, ComponentKind, TrustGrantView } from "@bridge/core";
 import type { Database } from "./client.js";
-import { capabilityManifests, capabilityStates } from "./schema.js";
+import { capabilityManifests, capabilityStates, trustGrants } from "./schema.js";
 import {
   withDefaultOrganization,
   withOrganizationOnly,
@@ -227,6 +227,26 @@ export class DrizzleCapabilityStore implements CapabilityStore {
       .limit(1);
     const row = rows[0];
     return row ? unpackState(row) : null;
+    });
+  }
+
+  async listTrustGrants(organizationId: string): Promise<TrustGrantView[]> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const rows = await tx
+        .select({
+          capabilityClass: trustGrants.capabilityClass,
+          riskBand: trustGrants.riskBand,
+          autoActivate: trustGrants.autoActivate,
+          revokedAt: trustGrants.revokedAt,
+        })
+        .from(trustGrants)
+        .where(eq(trustGrants.organizationId, organizationId));
+      return rows.map((r) => ({
+        capabilityClass: r.capabilityClass,
+        riskBand: r.riskBand as TrustGrantView["riskBand"],
+        autoActivate: r.autoActivate,
+        revokedAt: r.revokedAt ? r.revokedAt.toISOString() : null,
+      }));
     });
   }
 }

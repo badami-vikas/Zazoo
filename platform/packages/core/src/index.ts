@@ -401,6 +401,9 @@ export {
 // itself.
 export {
   assembleRunContext,
+  compactConversationHistory,
+  COMPACT_TRIGGER_SEGMENTS,
+  COMPACT_KEEP_SEGMENTS,
   projectToPrompt,
   projectToSystemPrompt,
   renderPersonaSystemPreamble,
@@ -414,6 +417,7 @@ export {
   type RunTraceMetadata,
   type ModelRunContext,
   type AssembleRunContextInput,
+  type ModelConversationSegment,
 } from "./run-context.js";
 
 // Onboarding profile store (ADR-033/R-029/R-030) — narrow, onboarding-scoped

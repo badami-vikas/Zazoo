@@ -38,23 +38,15 @@ No **LLM-as-approver** (Codex + Cursor both shipped one in 2026; Cursor's own do
 *reduced* success, **+20% cost**) · **Automations never invoke Skills directly** (CrewAI delegation
 loops + Zapier activity cliffs = the counter-examples).
 
-## CANON vs CODE — 3 claims currently untrue
+## CANON vs CODE — remaining gaps (2026-08-07 audit)
 - Run "replayable" → seam exists (injected Clock/Rng/IdGen), **no replay driver**.
-- **Scheduled Automation** → **no scheduler anywhere** in `platform/`. `rituals.md:20` claims
-  Hatchet+BullMQ; neither dependency exists.
-- **Plan / Planner** → in glossary, **zero implementation**.
-Also: `governance-agent.md:5-6` claims Governance is the "sole exception to agent-floor approve-DENY".
-It isn't — `pipeline.decide` floor-denies ALL agents unconditionally. Carve-out is lifecycle-only,
-outside the ledger. `rituals.md:20` "explainability = `decision_traces`" — table has **zero
-readers/writers**; web's `data/governance.ts` declares the shape but ships **empty** arrays behind
-real loaders, so it's a missing feature not a dummy violation (`dummy.md:253` covers it); its
-"Governance mock data" header is stale. Full list → [primitives §I](../harness/primitives.md).
+- ~~**Scheduled Automation** → no scheduler anywhere.~~ **RESOLVED AP-106 (2026-08-05)**: `InProcessRitualExecutor` ships; Hatchet/Temporal deferred behind the same port. The old Hatchet+BullMQ claim in wiki text was stale.
+- **Plan / Planner** → in glossary, **zero implementation**. Build or remove — open decision.
+- `governance-agent.md:5-6` claims Governance is the "sole exception to agent-floor approve-DENY". It isn't — `pipeline.decide` floor-denies ALL agents unconditionally. Carve-out is lifecycle-only, outside the ledger.
+- `decision_traces` table has zero readers/writers; web `data/governance.ts` ships empty arrays — missing feature, covered in `dummy.md:253`. Full list → [primitives §I](../harness/primitives.md).
 
 ## EMPTY INPUTS (built machine, constant inputs)
-`trustGrants` hardcoded `[]` at 3 sites (`router.ts:12951,13423,4213`) — `trust_grants` table exists,
-never read ⇒ **Trusted Status inert**. Budgets + Kill Switch **in-memory both modes** (a kill switch
-that forgets it was pulled is worse than none). EvalStore, PolicyParams, CredentialBroker,
-SkillManifestRegistry — same. All flagged honestly in code, none durable.
+~~`trustGrants` hardcoded `[]` at 3 sites~~ — **WIRED 2026-08-07**: `capability.activate` and `module.install` now call `capabilityStore.listTrustGrants(organizationId)`. **Trusted Status is live.** Budgets + Kill Switch **still in-memory both modes** (a kill switch that forgets it was pulled is worse than none) — TASK-044. EvalStore, PolicyParams, CredentialBroker, SkillManifestRegistry — same. All flagged honestly in code, none durable.
 
 ## EVIDENCE THAT CHALLENGES US
 More structure ≠ better, and **we've never measured our own governance overhead**. Independent
@@ -71,11 +63,26 @@ never sees** · never A/B a model change without holding the harness constant.
 
 ## NEXT (tier 1)
 1. **Feed the eval harness** — persist EvalStore + write execution snapshots. Best value/work ratio
-   in the Engine; unblocks 2 AQV axes, promotion gate, replay driver, self-improve thesis.
-2. **Wire one real sandbox.** Gates Commons community origins.
-3. **Make Trust Model inputs real** — read `trust_grants`, persist budgets/kill-switch.
-4. **Governed compaction** instead of the throw.
-5. **Fix canon-vs-code** — build or delete scheduler / Planner; correct the governance doc.
+   in the Engine; unblocks 2 AQV axes, promotion gate, replay driver, self-improve thesis. → TASK-045
+2. **Wire one real sandbox.** Gates Commons community origins. → TASK-046
+3. **Make Trust Model inputs real** — `trust_grants` wired ✓ (2026-08-07); budgets/kill-switch still in-memory → TASK-044.
+4. **Governed compaction** ✓ — implemented 2026-08-07: `compactConversationHistory` summarises oldest segments via a model call (tier "cheap") instead of dropping them; `boundedConversationHistory` reverted to a hard-throw safety net. 12 tests green.
+5. **Fix canon-vs-code** — scheduler resolved AP-106 ✓; Planner still unbuilt (build or remove — open decision); governance doc carve-out claim still wrong (doc fix only, low risk).
+
+## LOCAL MODEL EVAL — Hermes3:3b (2026-08-07)
+5-case Bridge eval run locally via `OllamaProvider` (hermes3:3b, 2 GB):
+
+| Case | Result | Latency |
+|------|--------|---------|
+| WhatsApp parse → JSON | ✗ FAIL (missing comma + wrong intent) | 10 s |
+| Memory classification | ✓ PASS | 5 s |
+| Conversation summarisation | ✓ PASS | 15 s |
+| Action item extraction | ✓ PASS | 18 s |
+| Relationship signal detection | ✗ FAIL (missing `{` wrapper + enum mismatch) | 7 s |
+
+**3/5 pass · p50 10 s.** Failure mode: JSON formatting (3B model drops braces/commas under token pressure). Latency is too slow for interactive chat but acceptable for async background tasks.
+
+**Decision:** Hermes3 is viable as a **local async processor** (memory triage, summarisation, document classification) but must NOT be the interactive chat model. Wire as the `"cheap"` tier in `OllamaProvider`; keep Anthropic cloud for `"default"` and `"reasoning"`. The 8B would improve accuracy but worsen latency further on Mac — not yet worth the trade-off until we have GPU infra. Re-evaluate after sandbox wiring (TASK-046) since sandboxed Skill execution does not need interactive latency.
 
 ## ONE OPEN DECISION
 **Does an Agent get a tool loop?** C1-R1 + C6-R1 + F1-R3 are one question. Today every kernel model
@@ -89,7 +96,7 @@ undefended.
 **Relay.app SHUTTING DOWN** 2026-08-15/09-14 (validates Local Plane + signed Commons) · OpenAI
 **Agent Builder + Evals dead 2026-11-30** · AutoGen maintenance-mode; users migrated 0.2→0.4→MAF ·
 AG2 v1.0 "not a drop-in" = 2nd forced migration · **Mastra ~145 npm packages compromised** Jun 2026
-(DPRK Sapphire Sleet) — we ship Mastra · OpenClaw CVSS 8.8 + 40,214 exposed instances, 35.4%
+(DPRK Sapphire Sleet) — **Mastra is NOT in platform/** (confirmed by grep; the earlier claim was pre-emptive from comparative-research phase, never implemented — no exposure) · OpenClaw CVSS 8.8 + 40,214 exposed instances, 35.4%
 vulnerable · LangGraph `langgraph-api` is **Elastic License 2.0** not MIT.
 ⇒ Everything behind a port. Commons entries content-addressed, signed, exportable, unambiguously
 licensed (n8n's "fair-code" cost it years).
