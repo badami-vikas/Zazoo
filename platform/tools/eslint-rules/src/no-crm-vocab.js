@@ -56,6 +56,19 @@ const DEALPILOT_DOMAIN_IDENTIFIERS = new Set([
   "discoverDeals",
   "existingDeals",
   "updateDeal",
+  // Learning/observation bridge: the router's `learning.*` surface calls these
+  // DealPilot-scoped functions from the composition root.
+  "dealDecisionSignal",
+  "recordDealDecision",
+  "dealRecordId",
+  // Wiring: demo pilot data (tracked in docs/dummy.md) and a query helper used
+  // only to seed the pilot workspace — not generic Engine vocabulary.
+  "DealRecord",
+  "DemoDeal",
+  "DEMO_DEALS",
+  "dealByCompany",
+  // Loop/destructuring variable in the demo-seeding map over DealRecord rows.
+  "deal",
 ]);
 
 function isDealPilotApiIdentifier(filename, name) {
@@ -96,11 +109,16 @@ const KERNEL_PATH = /(^|\/)modules\/[^/]+\/.*|(^|\/)apps\/api\/.*/;
  * KERNEL scope.
  */
 const DEALPILOT_MODULE_PATH = /(^|\/)modules\/dealpilot\/.*/;
+// DealPilot-branded API files (e.g. dealpilot-store.ts) are DealPilot's own
+// persistence layer, not generic kernel code — same carve-out rationale as
+// modules/dealpilot/** above.
+const DEALPILOT_API_FILE_PATH = /(^|\/)apps\/api\/src\/[^/]*dealpilot[^/]*\.(ts|tsx)$/;
 
 function isKernelScope(filename) {
   if (!filename) return false;
   const normalized = filename.replace(/\\/g, "/");
   if (DEALPILOT_MODULE_PATH.test(normalized)) return false;
+  if (DEALPILOT_API_FILE_PATH.test(normalized)) return false;
   return KERNEL_PATH.test(normalized);
 }
 

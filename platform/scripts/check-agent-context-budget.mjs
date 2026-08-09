@@ -14,7 +14,7 @@ export const DEFAULT_CONTEXT_BUDGETS = Object.freeze({
   pathInstructionBytes: 1_024,
   pathInstructionsTotalBytes: 2_048,
   pathInstructionBodyLines: 12,
-  projectSkillCount: 44,
+  projectSkillCount: 45,
   projectSkillBytes: 524_288,
   alwaysLoadedBytes: 10_240,
   disabledSkillOverrides: 111,

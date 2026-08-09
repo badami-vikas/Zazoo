@@ -60,7 +60,7 @@ test('oversized canonical and path guidance fail with actionable violations', ()
 
 test('project skill growth beyond the approved bundle fails even when each skill is small', () => {
   const files = baseFiles();
-  for (let index = 0; index < 45; index += 1) {
+  for (let index = 0; index < 46; index += 1) {
     files.push({
       path: `.claude/skills/skill-${index}/SKILL.md`,
       content: `---\nname: skill-${index}\ndescription: test\n---\n`,
@@ -68,7 +68,7 @@ test('project skill growth beyond the approved bundle fails even when each skill
   }
 
   const result = analyzeAgentContext(files);
-  assert.ok(result.violations.includes('project skill count is 45, budget is 44'));
+  assert.ok(result.violations.includes('project skill count is 46, budget is 45'));
 });
 
 test('missing skill scoping and enabled plugins fail closed', () => {

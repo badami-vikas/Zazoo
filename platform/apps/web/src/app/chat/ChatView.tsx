@@ -545,7 +545,6 @@ export function ChatView({
     void chat.send(initialDraft.trim()).then((accepted) => {
       if (accepted) setDraft("");
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoSend, initialDraft, chat.loading]);
 
   useEffect(() => {
