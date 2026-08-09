@@ -154,7 +154,7 @@ export function ResearchRunsPage() {
   async function cancelChildRun(childRunId: string) {
     setActionNote(null);
     try {
-      await trpc.childRun.cancel.mutate({ organizationId: PILOT_ORGANIZATION, childRunId });
+      await trpc.agentOrchestration.childRun.cancel.mutate({ organizationId: PILOT_ORGANIZATION, childRunId });
       setActionNote("Child Run cancelled.");
       if (selectedId) await refreshSteps(selectedId);
     } catch (caught) {

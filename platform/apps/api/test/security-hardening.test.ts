@@ -138,6 +138,20 @@ test("onboarding.saveProfile: the honest paths (null / phone) are still accepted
 
     assert.equal(viaNull.profile.verificationMethod, null);
 
+    // M4 (b9f673b): declaring "phone" alone is no longer proof — without a
+    // server-side OTP proof the method is recorded but phoneVerified stays
+    // false. The prior assertion here was the self-asserted-trust hole.
+    const viaUnprovenPhone = await caller.onboarding.saveProfile({
+      organizationId: PILOT_ORGANIZATION,
+      avatarStyle: "otter",
+      verificationMethod: "phone",
+    });
+    assert.equal(viaUnprovenPhone.profile.verificationMethod, "phone");
+    assert.equal(viaUnprovenPhone.profile.phoneVerified, false);
+
+    // With a real (demo-mode) OTP proof consumed, the phone path verifies.
+    const otp = await caller.onboarding.verifyPhoneOtp({ phone: "+15555550123", code: "123456" });
+    assert.equal(otp.verified, true);
     const viaPhone = await caller.onboarding.saveProfile({
       organizationId: PILOT_ORGANIZATION,
       avatarStyle: "otter",

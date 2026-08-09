@@ -53,20 +53,23 @@ test("Render Blueprint stays free-only and carries no cloud Local Plane", () => 
   assert.match(blueprint, /previews:\s*\n\s*generation: "off"/);
 });
 
-test("the AI Harness pilot flights stay ON in the hosted blueprint", () => {
-  // Dropping a flag here silently turns the harness off for the hosted pilot
-  // with no error anywhere (each learning.* procedure just fails closed) —
-  // the same defect class the desktop sidecar's flights test guards against.
-  for (const flight of [
-    "BRIDGE_LEARNING_OBSERVATION",
-    "BRIDGE_RETRIEVAL_FUSION",
-    "BRIDGE_COMMONS_ARCHETYPES",
-    "BRIDGE_CLAIM_SUBSTRATE",
+test("the AI Harness pilot flights hold their DELIBERATE hosted state", () => {
+  // Drift in either direction is the defect: a dropped "1" silently turns the
+  // harness off for the hosted pilot with no error anywhere (each learning.*
+  // procedure just fails closed), and a quietly re-enabled "0" would turn a
+  // deliberately-disabled surface back on. Same defect class the desktop
+  // sidecar's flights test guards against. COMMONS_ARCHETYPES is "0" per
+  // TASK-034(d) (14d44d2): disabled in production until Commons is deployed.
+  for (const [flight, value] of [
+    ["BRIDGE_LEARNING_OBSERVATION", "1"],
+    ["BRIDGE_RETRIEVAL_FUSION", "1"],
+    ["BRIDGE_COMMONS_ARCHETYPES", "0"],
+    ["BRIDGE_CLAIM_SUBSTRATE", "1"],
   ]) {
     assert.match(
       blueprint,
-      new RegExp(`${flight}\\s*\\n\\s*value: "1"`),
-      `${flight} must be ON for the hosted pilot (AI Harness K0/K3)`,
+      new RegExp(`${flight}\\s*\\n\\s*value: "${value}"`),
+      `${flight} must be pinned to "${value}" for the hosted pilot (AI Harness K0/K3; TASK-034(d))`,
     );
   }
 });
