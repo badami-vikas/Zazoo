@@ -7,7 +7,8 @@
  * HERE, in a local Postgres, never in Supabase. A file path persists across
  * restarts; omit it for an ephemeral in-memory DB (still a real local plane).
  */
-import { mkdir, realpath } from "node:fs/promises";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { withLock } from "@ster5/global-mutex";
 import { PGlite } from "@electric-sql/pglite";
@@ -354,16 +355,73 @@ async function ensureMessageSearchIndexes(
   return { fullText: true, trigram: true };
 }
 
+// ── AES-256-GCM helpers for OAuth token encryption (M1, TASK-038) ─────────────
+// Format: "aes256gcm:v1:<iv_hex>:<authtag_hex>:<ciphertext_b64>"
+// Legacy plaintext values (no prefix) are decrypted as-is — backward compatible.
+
+function encryptField(key: Buffer, plaintext: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `aes256gcm:v1:${iv.toString("hex")}:${tag.toString("hex")}:${ct.toString("base64")}`;
+}
+
+function decryptField(key: Buffer, value: string): string {
+  if (!value.startsWith("aes256gcm:v1:")) return value;
+  // Format: "aes256gcm:v1:<ivHex>:<tagHex>:<ctB64>" — split gives exactly 5 parts
+  const [, , ivHex, tagHex, ctB64] = value.split(":") as [string, string, string, string, string];
+  const iv = Buffer.from(ivHex, "hex");
+  const tag = Buffer.from(tagHex, "hex");
+  const ct = Buffer.from(ctB64, "base64");
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  return decipher.update(ct).toString("utf8") + decipher.final("utf8");
+}
+
+async function loadOrGenerateTokenKey(keyPath: string): Promise<Buffer> {
+  try {
+    const raw = await readFile(keyPath);
+    if (raw.length === 32) return raw;
+  } catch {
+    // File not found → generate.
+  }
+  const key = randomBytes(32);
+  // ponytail: mode 0o600 — owner-read-only; upgrade to OS keychain when available
+  await writeFile(keyPath, key, { mode: 0o600 });
+  return key;
+}
+
+function tokensEqual(a: OAuthTokenRecord | null, b: OAuthTokenRecord | null): boolean {
+  if (a === null && b === null) return true;
+  if (!a || !b) return false;
+  return (
+    a.integrationId === b.integrationId &&
+    a.organizationId === b.organizationId &&
+    a.provider === b.provider &&
+    a.accessToken === b.accessToken &&
+    (a.refreshToken ?? null) === (b.refreshToken ?? null) &&
+    a.scope === b.scope &&
+    a.tokenType === b.tokenType &&
+    (a.expiryDate ?? null) === (b.expiryDate ?? null) &&
+    a.updatedAt === b.updatedAt
+  );
+}
+
 class PgliteSecretStore implements SecretStore {
   readonly #tails = new Map<string, Promise<void>>();
 
-  constructor(private readonly db: PGlite) {}
+  constructor(
+    private readonly db: PGlite,
+    private readonly key: Buffer | null = null,
+  ) {}
 
   async putToken(rec: OAuthTokenRecord): Promise<void> {
     await this.#exclusive(rec.integrationId, () => this.#putToken(rec));
   }
 
   async #putToken(rec: OAuthTokenRecord): Promise<void> {
+    const enc = (v: string) => (this.key ? encryptField(this.key, v) : v);
     await this.db.query(
       `INSERT INTO oauth_tokens
          (integration_id, organization_id, provider, access_token, refresh_token, scope, token_type, expiry_date, updated_at)
@@ -376,8 +434,8 @@ class PgliteSecretStore implements SecretStore {
         rec.integrationId,
         rec.organizationId,
         rec.provider,
-        rec.accessToken,
-        rec.refreshToken ?? null,
+        enc(rec.accessToken),
+        rec.refreshToken != null ? enc(rec.refreshToken) : null,
         rec.scope,
         rec.tokenType,
         rec.expiryDate ?? null,
@@ -406,12 +464,13 @@ class PgliteSecretStore implements SecretStore {
     }>(`SELECT * FROM oauth_tokens WHERE integration_id = $1`, [integrationId]);
     const r = res.rows[0];
     if (!r) return null;
+    const dec = (v: string) => (this.key ? decryptField(this.key, v) : v);
     return {
       integrationId: r.integration_id,
       organizationId: r.organization_id,
       provider: r.provider,
-      accessToken: r.access_token,
-      ...(r.refresh_token ? { refreshToken: r.refresh_token } : {}),
+      accessToken: dec(r.access_token),
+      ...(r.refresh_token ? { refreshToken: dec(r.refresh_token) } : {}),
       scope: r.scope,
       tokenType: r.token_type,
       ...(r.expiry_date != null ? { expiryDate: Number(r.expiry_date) } : {}),
@@ -502,6 +561,19 @@ class PgliteSecretStore implements SecretStore {
       (replacement && replacement.integrationId !== integrationId)
     ) {
       throw new Error("OAuth token compare-and-swap records must match the Integration");
+    }
+    // With encryption each write uses a fresh IV, so ciphertext columns differ even
+    // for equal plaintexts. The #exclusive lock already serializes per integrationId,
+    // so in-process comparison is equivalent to SQL-level CAS when encryption is on.
+    if (this.key) {
+      const current = await this.#getToken(integrationId);
+      if (!tokensEqual(current, expected)) return false;
+      if (!replacement) {
+        await this.db.query("DELETE FROM oauth_tokens WHERE integration_id = $1", [integrationId]);
+      } else {
+        await this.#putToken(replacement);
+      }
+      return true;
     }
     if (!expected) {
       if (!replacement) {
@@ -1240,6 +1312,9 @@ export async function createPgliteLocalPlane(
   const ownership = config.dataDir
     ? await acquirePgliteDirectoryOwnership(config.dataDir)
     : undefined;
+  const tokenKey = ownership
+    ? await loadOrGenerateTokenKey(`${ownership.dataDir}-token.key`)
+    : null;
   const ownsClient = config.client === undefined;
   // A client we construct always registers the Local Plane's extensions; a
   // caller-supplied one is their responsibility (see LOCAL_PLANE_PGLITE_EXTENSIONS).
@@ -1284,7 +1359,7 @@ export async function createPgliteLocalPlane(
   let closePromise: Promise<void> | undefined;
   return {
     client: db,
-    secrets: new PgliteSecretStore(db),
+    secrets: new PgliteSecretStore(db, tokenKey),
     bodies: new PgliteBodyStore(db),
     graph: new PgliteLocalGraphStore(db, capabilities),
     state: new PgliteLocalStateStore(db),

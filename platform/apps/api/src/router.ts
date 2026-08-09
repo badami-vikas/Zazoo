@@ -402,6 +402,16 @@ type OutreachDraftResult =
     };
 const outreachDraftsInFlight = new Map<string, Promise<OutreachDraftResult>>();
 
+// M4: server-side OTP proof — userId → expiry epoch ms. verifyPhoneOtp writes,
+// saveProfile consumes. Proof is single-use and expires in 10 min.
+const phoneOtpProofs = new Map<string, number>();
+function consumePhoneOtpProof(userId: string): boolean {
+  const exp = phoneOtpProofs.get(userId);
+  if (!exp || exp < Date.now()) return false;
+  phoneOtpProofs.delete(userId);
+  return true;
+}
+
 function stableProposalId(key: string): string {
   const hex = createHash("sha256").update(key).digest("hex").slice(0, 32).split("");
   hex[12] = "5";
@@ -14431,7 +14441,9 @@ export const appRouter = t.router({
           organizationId: input.organizationId,
           avatarStyle: input.avatarStyle,
           answers: { ...input.answers, avatar_style: input.avatarStyle },
-          phoneVerified: input.verificationMethod === "phone" ? true : (existing?.phoneVerified ?? false),
+          phoneVerified: (input.verificationMethod === "phone" && consumePhoneOtpProof(ctx.identity.id))
+            ? true
+            : (existing?.phoneVerified ?? false),
           verificationMethod: input.verificationMethod ?? existing?.verificationMethod ?? null,
           connectedSourceIds: input.connectedSourceIds,
           updatedAtISO: new Date().toISOString(),
@@ -14616,8 +14628,9 @@ export const appRouter = t.router({
     /** DUMMY — see router-level doc comment above. Any 6-digit code passes. */
     verifyPhoneOtp: procedure
       .input(z.object({ phone: z.string().min(3), code: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const verified = /^\d{6}$/.test(input.code.trim());
+        if (verified) phoneOtpProofs.set(ctx.identity.id, Date.now() + 600_000);
         return {
           verified,
           dummy: true as const,
@@ -15387,6 +15400,7 @@ export const appRouter = t.router({
     blueprint: t.router({
       get: procedure.input(blueprintGetInput).query(async ({ input, ctx }) => {
         assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const active = await ctx.wiring.organizationDefinitionStore.getActive(input.organizationId);
         return { definition: active };
       }),
@@ -15403,6 +15417,7 @@ export const appRouter = t.router({
        */
       getById: procedure.input(blueprintGetByIdInput).query(async ({ input, ctx }) => {
         assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const definition = await ctx.wiring.organizationDefinitionStore.get(input.definitionId);
         if (!definition || definition.organizationId !== input.organizationId) {
           throw new TRPCError({ code: "NOT_FOUND", message: "unknown organization_definition" });
