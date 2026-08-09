@@ -22,3 +22,4 @@ export {
   type PgliteLocalPlane,
   type PgliteLocalPlaneConfig,
 } from "./stores/pglite.js";
+export type { TokenVaultKey, TokenVaultKeys } from "./stores/oauth-token-crypto.js";

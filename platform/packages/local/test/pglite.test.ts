@@ -200,7 +200,8 @@ test("pglite local plane upgrades legacy tenant columns without losing data", as
       );
     `);
 
-    plane = await createPgliteLocalPlane({ client });
+    const secretVaultKeys = { current: { id: "test-key", key: new Uint8Array(32).fill(7) } };
+    plane = await createPgliteLocalPlane({ client, secretVaultKeys });
     assert.equal(
       (await plane.secrets.getToken("legacy-integration"))?.organizationId,
       "legacy-organization",
@@ -228,10 +229,66 @@ test("pglite local plane upgrades legacy tenant columns without losing data", as
     ]);
 
     await plane.close();
-    plane = await createPgliteLocalPlane({ client });
+    plane = await createPgliteLocalPlane({ client, secretVaultKeys });
     assert.equal(
       (await plane.secrets.getToken("legacy-integration"))?.accessToken,
       "legacy-access-token",
+    );
+  } finally {
+    await plane?.close();
+    await client.close();
+  }
+});
+
+test("pglite local plane encrypts oauth_tokens at rest (BUGS.md 2026-07-08)", async () => {
+  const client = new PGlite();
+  const secretVaultKeys = { current: { id: "test-key-1", key: new Uint8Array(32).fill(1) } };
+  let plane: Awaited<ReturnType<typeof createPgliteLocalPlane>> | undefined;
+  try {
+    plane = await createPgliteLocalPlane({ client, secretVaultKeys });
+    await plane.secrets.putToken({
+      integrationId: "integ-crypto",
+      organizationId: "ws-crypto",
+      provider: "google",
+      accessToken: "super-secret-access-token",
+      refreshToken: "super-secret-refresh-token",
+      scope: "scope",
+      tokenType: "Bearer",
+      updatedAt: "2026-08-09T00:00:00.000Z",
+    });
+
+    // The raw table must never contain the plaintext token substrings.
+    const raw = await client.query<{
+      access_token_encrypted: string;
+      refresh_token_encrypted: string;
+    }>(
+      `SELECT access_token_encrypted, refresh_token_encrypted FROM oauth_tokens WHERE integration_id = $1`,
+      ["integ-crypto"],
+    );
+    const row = raw.rows[0];
+    assert.ok(row);
+    assert.ok(!row.access_token_encrypted.includes("super-secret-access-token"));
+    assert.ok(!row.refresh_token_encrypted.includes("super-secret-refresh-token"));
+    const envelope = JSON.parse(row.access_token_encrypted);
+    assert.equal(envelope.algorithm, "aes-256-gcm");
+    assert.equal(envelope.keyId, "test-key-1");
+
+    // Round-trips correctly with the right key.
+    assert.equal(
+      (await plane.secrets.getToken("integ-crypto"))?.accessToken,
+      "super-secret-access-token",
+    );
+
+    // The wrong key must fail closed (authenticated decryption), not silently
+    // return garbage or fall back to plaintext.
+    await plane.close();
+    plane = await createPgliteLocalPlane({
+      client,
+      secretVaultKeys: { current: { id: "test-key-2", key: new Uint8Array(32).fill(2) } },
+    });
+    await assert.rejects(
+      () => plane!.secrets.getToken("integ-crypto"),
+      /No OAuth token vault key is configured/,
     );
   } finally {
     await plane?.close();

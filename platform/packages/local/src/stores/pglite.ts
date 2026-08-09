@@ -7,8 +7,7 @@
  * HERE, in a local Postgres, never in Supabase. A file path persists across
  * restarts; omit it for an ephemeral in-memory DB (still a real local plane).
  */
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { withLock } from "@ster5/global-mutex";
 import { PGlite } from "@electric-sql/pglite";
@@ -42,6 +41,15 @@ import {
   migrateLocalPeopleIdentityColumns,
   migrateOrganizationColumns,
 } from "./organization-schema-migrations.js";
+import { migrateOAuthTokenEncryption } from "./oauth-token-encryption-migration.js";
+import {
+  decodeTokenField,
+  decryptTokenField,
+  encodeTokenField,
+  encryptTokenField,
+  ephemeralTokenVaultKeys,
+  type TokenVaultKeys,
+} from "./oauth-token-crypto.js";
 
 /**
  * Extensions the Local Plane needs registered on its PGlite client.
@@ -78,8 +86,8 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
   integration_id text PRIMARY KEY,
   organization_id text NOT NULL,
   provider text NOT NULL,
-  access_token text NOT NULL,
-  refresh_token text,
+  access_token_encrypted text NOT NULL,
+  refresh_token_encrypted text,
   scope text NOT NULL DEFAULT '',
   token_type text NOT NULL DEFAULT 'Bearer',
   expiry_date bigint,
@@ -355,46 +363,20 @@ async function ensureMessageSearchIndexes(
   return { fullText: true, trigram: true };
 }
 
-// ── AES-256-GCM helpers for OAuth token encryption (M1, TASK-038) ─────────────
-// Format: "aes256gcm:v1:<iv_hex>:<authtag_hex>:<ciphertext_b64>"
-// Legacy plaintext values (no prefix) are decrypted as-is — backward compatible.
-
-function encryptField(key: Buffer, plaintext: string): string {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `aes256gcm:v1:${iv.toString("hex")}:${tag.toString("hex")}:${ct.toString("base64")}`;
-}
-
-function decryptField(key: Buffer, value: string): string {
-  if (!value.startsWith("aes256gcm:v1:")) return value;
-  // Format: "aes256gcm:v1:<ivHex>:<tagHex>:<ctB64>" — split gives exactly 5 parts
-  const [, , ivHex, tagHex, ctB64] = value.split(":") as [string, string, string, string, string];
-  const iv = Buffer.from(ivHex, "hex");
-  const tag = Buffer.from(tagHex, "hex");
-  const ct = Buffer.from(ctB64, "base64");
-  const decipher = createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(tag);
-  return decipher.update(ct).toString("utf8") + decipher.final("utf8");
-}
-
-async function loadOrGenerateTokenKey(keyPath: string): Promise<Buffer> {
-  try {
-    const raw = await readFile(keyPath);
-    if (raw.length === 32) return raw;
-  } catch {
-    // File not found → generate.
-  }
-  const key = randomBytes(32);
-  // ponytail: mode 0o600 — owner-read-only; upgrade to OS keychain when available
-  await writeFile(keyPath, key, { mode: 0o600 });
-  return key;
-}
-
-function tokensEqual(a: OAuthTokenRecord | null, b: OAuthTokenRecord | null): boolean {
-  if (a === null && b === null) return true;
-  if (!a || !b) return false;
+/**
+ * Compare two decrypted token records field-by-field. Ciphertext for the same
+ * plaintext differs on every encryption (fresh random IV per write), so
+ * compare-and-swap equality is checked here, against the decrypted record,
+ * rather than as a SQL `WHERE` column match against ciphertext — safe because
+ * every mutation on a given `integrationId` is already serialized through
+ * `#exclusive` inside a Local Plane owned by exactly one process at a time
+ * (see `acquirePgliteDirectoryOwnership`).
+ */
+function tokenRecordsEqual(
+  a: OAuthTokenRecord | null,
+  b: OAuthTokenRecord | null,
+): boolean {
+  if (a === null || b === null) return a === b;
   return (
     a.integrationId === b.integrationId &&
     a.organizationId === b.organizationId &&
@@ -413,7 +395,7 @@ class PgliteSecretStore implements SecretStore {
 
   constructor(
     private readonly db: PGlite,
-    private readonly key: Buffer | null = null,
+    private readonly keys: TokenVaultKeys,
   ) {}
 
   async putToken(rec: OAuthTokenRecord): Promise<void> {
@@ -421,21 +403,28 @@ class PgliteSecretStore implements SecretStore {
   }
 
   async #putToken(rec: OAuthTokenRecord): Promise<void> {
-    const enc = (v: string) => (this.key ? encryptField(this.key, v) : v);
+    const accessTokenEncrypted = encodeTokenField(
+      encryptTokenField(this.keys, `${rec.integrationId}:access_token`, rec.accessToken),
+    );
+    const refreshTokenEncrypted = rec.refreshToken
+      ? encodeTokenField(
+          encryptTokenField(this.keys, `${rec.integrationId}:refresh_token`, rec.refreshToken),
+        )
+      : null;
     await this.db.query(
       `INSERT INTO oauth_tokens
-         (integration_id, organization_id, provider, access_token, refresh_token, scope, token_type, expiry_date, updated_at)
+         (integration_id, organization_id, provider, access_token_encrypted, refresh_token_encrypted, scope, token_type, expiry_date, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT (integration_id) DO UPDATE SET
-         organization_id=$2, provider=$3, access_token=$4,
-         refresh_token=COALESCE($5, oauth_tokens.refresh_token),
+         organization_id=$2, provider=$3, access_token_encrypted=$4,
+         refresh_token_encrypted=COALESCE($5, oauth_tokens.refresh_token_encrypted),
          scope=$6, token_type=$7, expiry_date=$8, updated_at=$9`,
       [
         rec.integrationId,
         rec.organizationId,
         rec.provider,
-        enc(rec.accessToken),
-        rec.refreshToken != null ? enc(rec.refreshToken) : null,
+        accessTokenEncrypted,
+        refreshTokenEncrypted,
         rec.scope,
         rec.tokenType,
         rec.expiryDate ?? null,
@@ -455,8 +444,8 @@ class PgliteSecretStore implements SecretStore {
       integration_id: string;
       organization_id: string;
       provider: string;
-      access_token: string;
-      refresh_token: string | null;
+      access_token_encrypted: string;
+      refresh_token_encrypted: string | null;
       scope: string;
       token_type: string;
       expiry_date: string | number | null;
@@ -464,13 +453,24 @@ class PgliteSecretStore implements SecretStore {
     }>(`SELECT * FROM oauth_tokens WHERE integration_id = $1`, [integrationId]);
     const r = res.rows[0];
     if (!r) return null;
-    const dec = (v: string) => (this.key ? decryptField(this.key, v) : v);
+    const accessToken = decryptTokenField(
+      this.keys,
+      `${r.integration_id}:access_token`,
+      decodeTokenField(r.access_token_encrypted),
+    );
+    const refreshToken = r.refresh_token_encrypted
+      ? decryptTokenField(
+          this.keys,
+          `${r.integration_id}:refresh_token`,
+          decodeTokenField(r.refresh_token_encrypted),
+        )
+      : undefined;
     return {
       integrationId: r.integration_id,
       organizationId: r.organization_id,
       provider: r.provider,
-      accessToken: dec(r.access_token),
-      ...(r.refresh_token ? { refreshToken: dec(r.refresh_token) } : {}),
+      accessToken,
+      ...(refreshToken ? { refreshToken } : {}),
       scope: r.scope,
       tokenType: r.token_type,
       ...(r.expiry_date != null ? { expiryDate: Number(r.expiry_date) } : {}),
@@ -562,77 +562,18 @@ class PgliteSecretStore implements SecretStore {
     ) {
       throw new Error("OAuth token compare-and-swap records must match the Integration");
     }
-    // With encryption each write uses a fresh IV, so ciphertext columns differ even
-    // for equal plaintexts. The #exclusive lock already serializes per integrationId,
-    // so in-process comparison is equivalent to SQL-level CAS when encryption is on.
-    if (this.key) {
-      const current = await this.#getToken(integrationId);
-      if (!tokensEqual(current, expected)) return false;
-      if (!replacement) {
-        await this.db.query("DELETE FROM oauth_tokens WHERE integration_id = $1", [integrationId]);
-      } else {
-        await this.#putToken(replacement);
+    const current = await this.#getToken(integrationId);
+    if (!tokenRecordsEqual(current, expected)) return false;
+    if (!replacement) {
+      if (current) {
+        await this.db.query(`DELETE FROM oauth_tokens WHERE integration_id = $1`, [
+          integrationId,
+        ]);
       }
       return true;
     }
-    if (!expected) {
-      if (!replacement) {
-        return (await this.#getToken(integrationId)) === null;
-      }
-      const inserted = await this.db.query<{ integration_id: string }>(
-        `INSERT INTO oauth_tokens
-           (integration_id, organization_id, provider, access_token, refresh_token, scope, token_type, expiry_date, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         ON CONFLICT (integration_id) DO NOTHING
-         RETURNING integration_id`,
-        tokenValues(replacement),
-      );
-      return inserted.rows.length === 1;
-    }
-    const expectedValues = tokenValues(expected);
-    if (!replacement) {
-      const deleted = await this.db.query<{ integration_id: string }>(
-        `DELETE FROM oauth_tokens
-          WHERE integration_id = $1
-            AND organization_id = $2
-            AND provider = $3
-            AND access_token = $4
-            AND refresh_token IS NOT DISTINCT FROM $5
-            AND scope = $6
-            AND token_type = $7
-            AND expiry_date IS NOT DISTINCT FROM $8
-            AND updated_at = $9
-        RETURNING integration_id`,
-        expectedValues,
-      );
-      return deleted.rows.length === 1;
-    }
-    const updated = await this.db.query<{ integration_id: string }>(
-      `UPDATE oauth_tokens
-          SET organization_id = $2,
-              provider = $3,
-              access_token = $4,
-              refresh_token = $5,
-              scope = $6,
-              token_type = $7,
-              expiry_date = $8,
-              updated_at = $9
-        WHERE integration_id = $1
-          AND organization_id = $10
-          AND provider = $11
-          AND access_token = $12
-          AND refresh_token IS NOT DISTINCT FROM $13
-          AND scope = $14
-          AND token_type = $15
-          AND expiry_date IS NOT DISTINCT FROM $16
-          AND updated_at = $17
-      RETURNING integration_id`,
-      [
-        ...tokenValues(replacement),
-        ...expectedValues.slice(1),
-      ],
-    );
-    return updated.rows.length === 1;
+    await this.#putToken(replacement);
+    return true;
   }
 
   async #exclusive<T>(
@@ -656,30 +597,6 @@ class PgliteSecretStore implements SecretStore {
       }
     }
   }
-}
-
-function tokenValues(record: OAuthTokenRecord): [
-  string,
-  string,
-  string,
-  string,
-  string | null,
-  string,
-  string,
-  number | null,
-  string,
-] {
-  return [
-    record.integrationId,
-    record.organizationId,
-    record.provider,
-    record.accessToken,
-    record.refreshToken ?? null,
-    record.scope,
-    record.tokenType,
-    record.expiryDate ?? null,
-    record.updatedAt,
-  ];
 }
 
 class PgliteBodyStore implements BodyStore {
@@ -1226,6 +1143,15 @@ export interface PgliteLocalPlaneConfig {
   dataDir?: string;
   /** Existing client shared with another approved Local Plane adapter. */
   client?: PGlite;
+  /**
+   * OAuth-token encryption-at-rest key(s). Omit for an ephemeral, process-local
+   * key (fine for in-memory/test Local Planes — nothing survives restart
+   * anyway). A durable, disk-backed Local Plane holding real OAuth tokens
+   * MUST be given an explicit key by its caller (apps/api/src/wiring.ts
+   * enforces this whenever both a durable `BRIDGE_LOCAL_DIR` and real Google
+   * OAuth are configured) or every token becomes unrecoverable on restart.
+   */
+  secretVaultKeys?: TokenVaultKeys;
 }
 
 export interface PgliteDirectoryOwnership {
@@ -1312,9 +1238,6 @@ export async function createPgliteLocalPlane(
   const ownership = config.dataDir
     ? await acquirePgliteDirectoryOwnership(config.dataDir)
     : undefined;
-  const tokenKey = ownership
-    ? await loadOrGenerateTokenKey(`${ownership.dataDir}-token.key`)
-    : null;
   const ownsClient = config.client === undefined;
   // A client we construct always registers the Local Plane's extensions; a
   // caller-supplied one is their responsibility (see LOCAL_PLANE_PGLITE_EXTENSIONS).
@@ -1327,12 +1250,14 @@ export async function createPgliteLocalPlane(
     fullText: true,
     trigram: false,
   };
+  const secretVaultKeys = config.secretVaultKeys ?? ephemeralTokenVaultKeys();
   try {
     await migrateOrganizationColumns(db);
     // Additive columns must land BEFORE INIT_SQL's indexes, which reference
     // them on an already-installed table.
     await migrateLocalPeopleIdentityColumns(db);
     await migrateLocalMessageColumns(db);
+    await migrateOAuthTokenEncryption(db, secretVaultKeys);
     await db.exec(INIT_SQL);
     await migrateLegacyExternalRecords(db);
     // After INIT_SQL: needs local_messages to exist, and is conditional on an
@@ -1359,7 +1284,7 @@ export async function createPgliteLocalPlane(
   let closePromise: Promise<void> | undefined;
   return {
     client: db,
-    secrets: new PgliteSecretStore(db, tokenKey),
+    secrets: new PgliteSecretStore(db, secretVaultKeys),
     bodies: new PgliteBodyStore(db),
     graph: new PgliteLocalGraphStore(db, capabilities),
     state: new PgliteLocalStateStore(db),
