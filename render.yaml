@@ -38,8 +38,12 @@ services:
         value: "1"
       - key: BRIDGE_RETRIEVAL_FUSION
         value: "1"
+      # TASK-034(d): Commons service is undeployed; keep archetypes OFF until
+      # the Commons service has a render.yaml entry and COMMONS_URL is set.
+      # Procedures return PRECONDITION_FAILED when disabled, vs. a connection
+      # error when enabled but unreachable. Re-enable alongside TASK-033 work.
       - key: BRIDGE_COMMONS_ARCHETYPES
-        value: "1"
+        value: "0"
       # AI Harness K3 (ADR-215, TASK-047): claim substrate (entities +
       # claims + Second Brain projection). Same honesty note as above — the
       # flag enables the learning.claims.* surface; personal claims remain
