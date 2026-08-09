@@ -621,13 +621,21 @@ export async function buildServer() {
     if (memoryIndexRunning) return;
     memoryIndexRunning = true;
     try {
-      await indexMemoryEmbeddings({
+      const pass = await indexMemoryEmbeddings({
         memoryStore: wiring.memoryStore,
         vectorIndex: wiring.vectorIndex,
         organizationId: PILOT_ORGANIZATION,
         ownerUserId: wiring.pilotUserId,
         ...(wiring.semanticEmbedder ? { embedder: wiring.semanticEmbedder } : {}),
       });
+      // A silent downgrade is a dishonest surface: retrieval quality dropped
+      // from semantic to lexical overlap and nothing else would say so.
+      if (pass.degraded) {
+        app.log.warn(
+          { configured: wiring.semanticEmbedder?.id, active: pass.embeddingModel },
+          "semantic embedder unreachable — memory index ran in the lexical fallback space",
+        );
+      }
     } catch (err) {
       app.log.error({ err }, "memory embedding index failed");
     } finally {

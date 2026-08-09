@@ -119,6 +119,26 @@ async function seedRecencyShadowedCorpus(wiring: Wiring) {
   }
 }
 
+/** The space id a real embedding model would own (stands in for e.g.
+ * `ollama:nomic-embed-text`). */
+const SEMANTIC_SPACE_ID = "fake-semantic-test-v1";
+
+/** A stand-in for a real embedding model: its own space, its own dimension. */
+function workingSemanticEmbedder(id: string = SEMANTIC_SPACE_ID) {
+  return { id, embed: async (texts: string[]) => texts.map((text) => hashingEmbed(text, 64)) };
+}
+
+/** A configured embedder whose daemon is not reachable — the hosted shape
+ * (`OllamaProvider` registered, nothing listening on its port). */
+function brokenSemanticEmbedder(id = "broken-semantic-v1") {
+  return {
+    id,
+    embed: async (): Promise<number[][]> => {
+      throw new Error("model server down");
+    },
+  };
+}
+
 async function sendHvacQuestion(wiring: Wiring): Promise<void> {
   const caller = makeCaller(wiring);
   const { thread } = await caller.chat.thread.create({
@@ -319,22 +339,139 @@ test("a failing semantic embedder degrades the vector lane; the chat turn still 
   const wiring = await buildWiring({
     retrievalFusionEnabled: true,
     modelProviders: [local],
-    semanticEmbedder: {
-      id: "broken-semantic-v1",
-      embed: async () => {
-        throw new Error("model server down");
-      },
-    },
+    semanticEmbedder: brokenSemanticEmbedder(),
   });
   try {
     await seedRecencyShadowedCorpus(wiring);
     await sendHvacQuestion(wiring);
     assert.equal(local.calls.length, 1);
     const system = local.calls[0]!.system ?? "";
-    // Structured recency still fills the slot; the vector lane is empty, so
-    // the recency-shadowed old row cannot appear — honest degradation.
+    // Structured recency still fills the slot. No indexer pass ever ran here,
+    // so BOTH spaces are empty — the query falls back to the lexical space and
+    // finds nothing. The recency-shadowed old row cannot appear.
     assert.match(system, /quarterly paperwork/);
     assert.doesNotMatch(system, /texas hill country/);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("indexer: an unreachable semantic model falls back to the lexical space instead of failing the pass", async () => {
+  const wiring = await buildWiring();
+  try {
+    await seedRecencyShadowedCorpus(wiring);
+    const pass = await indexMemoryEmbeddings({
+      memoryStore: wiring.memoryStore,
+      vectorIndex: wiring.vectorIndex,
+      organizationId: PILOT_ORGANIZATION,
+      ownerUserId: PILOT_USER,
+      embedder: brokenSemanticEmbedder(),
+    });
+    // The pass SUCCEEDS in the fallback space rather than throwing — a
+    // deployment with no reachable embed daemon still gets a usable index.
+    assert.equal(pass.degraded, true);
+    assert.equal(pass.embeddingModel, HASHING_EMBEDDER_ID);
+    assert.equal(pass.indexed, 7);
+    const inLexical = await wiring.vectorIndex.existingIds(
+      MEMORY_VECTOR_ENTITY_TYPE,
+      HASHING_EMBEDDER_ID,
+      [OLD_RELEVANT_ID],
+    );
+    assert.deepEqual(inLexical, new Set([OLD_RELEVANT_ID]));
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("indexer: a degraded pass never reclaims the space a recovered model will need", async () => {
+  const wiring = await buildWiring();
+  try {
+    await seedRecencyShadowedCorpus(wiring);
+    const healthy = await indexMemoryEmbeddings({
+      memoryStore: wiring.memoryStore,
+      vectorIndex: wiring.vectorIndex,
+      organizationId: PILOT_ORGANIZATION,
+      ownerUserId: PILOT_USER,
+      embedder: workingSemanticEmbedder(),
+    });
+    assert.equal(healthy.degraded, false);
+    assert.equal(healthy.embeddingModel, SEMANTIC_SPACE_ID);
+
+    // A new row forces the next pass to actually call embed() — an outage is
+    // only observable when there is something to embed.
+    await wiring.memoryStore.write(
+      proseRow("aaaaaaaa-0000-4000-8000-000000001a06", "A newly written prose note", "2026-04-01T00:00:00.000Z"),
+    );
+    const degraded = await indexMemoryEmbeddings({
+      memoryStore: wiring.memoryStore,
+      vectorIndex: wiring.vectorIndex,
+      organizationId: PILOT_ORGANIZATION,
+      ownerUserId: PILOT_USER,
+      embedder: brokenSemanticEmbedder(SEMANTIC_SPACE_ID),
+    });
+    assert.equal(degraded.degraded, true);
+    // THE INVARIANT: a transient outage must not destroy an index that a
+    // recovery would make valid again. Reclamation is skipped while degraded.
+    assert.deepEqual(degraded.reclaimedModels, []);
+    const survivors = await wiring.vectorIndex.existingIds(
+      MEMORY_VECTOR_ENTITY_TYPE,
+      SEMANTIC_SPACE_ID,
+      [OLD_RELEVANT_ID],
+    );
+    assert.deepEqual(survivors, new Set([OLD_RELEVANT_ID]));
+    assert.deepEqual(
+      (await wiring.vectorIndex.listModels(MEMORY_VECTOR_ENTITY_TYPE)).sort(),
+      [HASHING_EMBEDDER_ID, SEMANTIC_SPACE_ID].sort(),
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("chat recall survives an unreachable semantic model: indexer and query agree on the lexical space", async () => {
+  const local = new FusionChatModel();
+  const wiring = await buildWiring({
+    retrievalFusionEnabled: true,
+    modelProviders: [local],
+    semanticEmbedder: brokenSemanticEmbedder(),
+  });
+  try {
+    await seedRecencyShadowedCorpus(wiring);
+    const pass = await indexMemoryEmbeddings({
+      memoryStore: wiring.memoryStore,
+      vectorIndex: wiring.vectorIndex,
+      organizationId: PILOT_ORGANIZATION,
+      ownerUserId: PILOT_USER,
+      embedder: wiring.semanticEmbedder!,
+    });
+    assert.equal(pass.embeddingModel, HASHING_EMBEDDER_ID);
+
+    // The deployment shape this protects: fusion flight ON, no reachable embed
+    // daemon. Both sides fall back by the same rule, so they meet in the same
+    // space and the vector lane still recalls what recency cannot.
+    await sendHvacQuestion(wiring);
+    assert.equal(local.calls.length, 1);
+    const system = local.calls[0]!.system ?? "";
+    assert.match(system, /texas hill country/);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("a failing LEXICAL embedder is a defect, not an outage — it surfaces instead of being masked", async () => {
+  const wiring = await buildWiring();
+  try {
+    await seedRecencyShadowedCorpus(wiring);
+    await assert.rejects(
+      indexMemoryEmbeddings({
+        memoryStore: wiring.memoryStore,
+        vectorIndex: wiring.vectorIndex,
+        organizationId: PILOT_ORGANIZATION,
+        ownerUserId: PILOT_USER,
+        embedder: brokenSemanticEmbedder(HASHING_EMBEDDER_ID),
+      }),
+      /pure computation cannot be down/,
+    );
   } finally {
     await wiring.close();
   }

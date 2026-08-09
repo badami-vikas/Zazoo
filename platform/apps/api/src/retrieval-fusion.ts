@@ -16,6 +16,12 @@
  * same `VectorIndex` port under its own embeddingModel id; the core eval
  * baseline (learning-retrieval.test.ts) is the gate that proves the lift.
  *
+ * Both entry points resolve the active embedder through
+ * `withReachableEmbedder`, so a configured-but-unreachable embedding model
+ * degrades the whole deployment to the lexical space rather than leaving the
+ * vector lane dead — and degrades it on BOTH sides, which is what keeps the
+ * indexer and the query in one space.
+ *
  * Authority + planes: vector hits are ids only — hydration goes through the
  * authority-scoped `memoryStore.get`, so a row the caller may not read never
  * surfaces. Graph lanes go through the graph store's own RLS/visibility
@@ -26,6 +32,7 @@
 import {
   fuseRetrieval,
   fusedToMemorySnippets,
+  HASHING_EMBEDDER_ID,
   hashingTextEmbedder,
   isLearningObservationEntry,
   labelFromLegacyTrustOrigin,
@@ -55,45 +62,104 @@ function isIndexableProseRow(entry: MemoryEntry): boolean {
   );
 }
 
+/**
+ * Run `use` with the configured embedder; if that embedder cannot answer, run
+ * it again with the deterministic lexical one and report the pass DEGRADED.
+ *
+ * Reachability is a RUNTIME fact, not a boot fact. A configured embedder is
+ * an adapter object holding a base URL — constructing one proves nothing about
+ * a daemon listening on the other end, and the daemon can appear or vanish
+ * long after boot. Deciding once at startup would freeze exactly the value
+ * that has to survive the daemon's whole lifetime (the frozen-value defect
+ * class of ADR-205/209/211), so the question is asked at each point of use,
+ * answered by the attempt itself — no separate probe, no extra round trip.
+ *
+ * The WHOLE embedder swaps, id included: `id` names the embedding space, and a
+ * vector must never be written or searched under a space id that did not
+ * produce it. Falling back per-call while keeping the configured id would put
+ * lexical vectors in the semantic space — the one thing this seam forbids.
+ *
+ * The lexical embedder failing is a different animal: it is pure in-process
+ * computation with nothing to be "down", so it surfaces rather than being
+ * masked by a retry of itself.
+ */
+async function withReachableEmbedder<T>(
+  preferred: TextEmbedder,
+  use: (embedder: TextEmbedder) => Promise<T>,
+): Promise<{ result: T; embedder: TextEmbedder; degraded: boolean }> {
+  try {
+    return { result: await use(preferred), embedder: preferred, degraded: false };
+  } catch (err) {
+    if (preferred.id === HASHING_EMBEDDER_ID) {
+      throw new Error(
+        `the lexical embedder (${HASHING_EMBEDDER_ID}) failed: pure computation cannot be down, so this is a defect rather than an outage`,
+        { cause: err },
+      );
+    }
+    const fallback = hashingTextEmbedder();
+    return { result: await use(fallback), embedder: fallback, degraded: true };
+  }
+}
+
+/** Embed and store every not-yet-indexed row in ONE embedding space. */
+async function indexIntoSpace(
+  vectorIndex: VectorIndex,
+  embedder: TextEmbedder,
+  indexable: MemoryEntry[],
+): Promise<number> {
+  const existing = await vectorIndex.existingIds(
+    MEMORY_VECTOR_ENTITY_TYPE,
+    embedder.id,
+    indexable.map((row) => row.id),
+  );
+  const missing = indexable.filter((row) => !existing.has(row.id));
+  if (missing.length === 0) return 0;
+  const embeddings = await embedder.embed(missing.map((row) => row.content.slice(0, MAX_SNIPPET_CHARS)));
+  if (embeddings.length !== missing.length) {
+    throw new Error(`embedder ${embedder.id} returned ${embeddings.length} vectors for ${missing.length} texts`);
+  }
+  await vectorIndex.upsert(
+    missing.map((row, index) => ({
+      entityType: MEMORY_VECTOR_ENTITY_TYPE,
+      entityId: row.id,
+      embeddingModel: embedder.id,
+      embedding: embeddings[index]!,
+    })),
+  );
+  return missing.length;
+}
+
 /** One indexer pass: embed every current prose Memory row not yet in the
  * vector index. Idempotent — already-indexed rows are skipped; a full
  * rebuild is `vectorIndex.clear(...)` followed by one pass. The active
  * embedder names the space: a SEMANTIC embedder (wiring's
- * `semanticEmbedder`, e.g. Ollama nomic-embed) when configured, else the
- * deterministic lexical fallback. Switching embedders switches spaces —
- * the indexer backfills the new space; stale spaces are reclaimed with
- * `vectorIndex.clear(oldId)`. */
+ * `semanticEmbedder`, e.g. Ollama nomic-embed) when configured AND reachable
+ * this pass, else the deterministic lexical fallback. Switching embedders
+ * switches spaces — the indexer backfills the new space; stale spaces are
+ * reclaimed with `vectorIndex.clear(oldId)`, though never on a degraded pass.
+ * `degraded` reports that the configured embedder could not answer and the
+ * pass completed in the fallback space instead; callers should surface it. */
 export async function indexMemoryEmbeddings(deps: {
   memoryStore: MemoryStore;
   vectorIndex: VectorIndex;
   organizationId: string;
   ownerUserId: string;
   embedder?: TextEmbedder;
-}): Promise<{ scanned: number; indexed: number; embeddingModel: string; reclaimedModels: string[] }> {
-  const embedder = deps.embedder ?? hashingTextEmbedder();
+}): Promise<{
+  scanned: number;
+  indexed: number;
+  embeddingModel: string;
+  reclaimedModels: string[];
+  degraded: boolean;
+}> {
+  const preferred = deps.embedder ?? hashingTextEmbedder();
   const scope = { organizationId: deps.organizationId, userId: deps.ownerUserId };
   const rows = await deps.memoryStore.retrieve({ limit: INDEXER_SCAN_LIMIT }, scope);
   const indexable = rows.filter(isIndexableProseRow);
-  const existing = await deps.vectorIndex.existingIds(
-    MEMORY_VECTOR_ENTITY_TYPE,
-    embedder.id,
-    indexable.map((row) => row.id),
+  const { result: indexed, embedder, degraded } = await withReachableEmbedder(
+    preferred,
+    (active) => indexIntoSpace(deps.vectorIndex, active, indexable),
   );
-  const missing = indexable.filter((row) => !existing.has(row.id));
-  if (missing.length > 0) {
-    const embeddings = await embedder.embed(missing.map((row) => row.content.slice(0, MAX_SNIPPET_CHARS)));
-    if (embeddings.length !== missing.length) {
-      throw new Error(`embedder ${embedder.id} returned ${embeddings.length} vectors for ${missing.length} texts`);
-    }
-    await deps.vectorIndex.upsert(
-      missing.map((row, index) => ({
-        entityType: MEMORY_VECTOR_ENTITY_TYPE,
-        entityId: row.id,
-        embeddingModel: embedder.id,
-        embedding: embeddings[index]!,
-      })),
-    );
-  }
   // Stale-space reclamation (ADR-172 follow-up): vectors in any space other
   // than the ACTIVE embedder's are orphaned derived data — nothing queries
   // them (search always filters on the active id) and the source rows can
@@ -101,13 +167,20 @@ export async function indexMemoryEmbeddings(deps: {
   // without a separate maintenance job. Runs AFTER the active space is
   // backfilled, so an embedder switch never has a moment with no usable
   // space.
+  //
+  // Skipped entirely on a DEGRADED pass: "the configured embedder did not
+  // answer this minute" is not evidence that its space is superseded, and a
+  // recovery would find the index it needs already deleted. An outage must
+  // cost re-embedding at worst, never the good index.
   const reclaimedModels: string[] = [];
-  for (const model of await deps.vectorIndex.listModels(MEMORY_VECTOR_ENTITY_TYPE)) {
-    if (model === embedder.id) continue;
-    await deps.vectorIndex.clear(MEMORY_VECTOR_ENTITY_TYPE, model);
-    reclaimedModels.push(model);
+  if (!degraded) {
+    for (const model of await deps.vectorIndex.listModels(MEMORY_VECTOR_ENTITY_TYPE)) {
+      if (model === embedder.id) continue;
+      await deps.vectorIndex.clear(MEMORY_VECTOR_ENTITY_TYPE, model);
+      reclaimedModels.push(model);
+    }
   }
-  return { scanned: indexable.length, indexed: missing.length, embeddingModel: embedder.id, reclaimedModels };
+  return { scanned: indexable.length, indexed, embeddingModel: embedder.id, reclaimedModels, degraded };
 }
 
 function memoryCandidate(entry: MemoryEntry): RetrievalCandidate {
@@ -168,20 +241,28 @@ export async function fusedChatMemory(deps: {
 
   // Lane 2 — vector similarity: ids from the index, HYDRATED through the
   // authority-scoped store read (refs only in the index — unreadable or
-  // machinery rows drop out here). A failed query embed (e.g. the semantic
-  // model's server is down) degrades to an empty lane — the chat turn never
-  // fails because a lane did.
+  // machinery rows drop out here).
+  //
+  // The query falls back by the SAME rule the indexer uses, which is what
+  // keeps the two sides in one space: when the configured model is
+  // unreachable the indexer writes the lexical space, so the query has to
+  // search the lexical space to find anything. Falling back only on one side
+  // would leave a permanently empty lane. If even that fails, the lane goes
+  // empty — the chat turn never fails because a lane did.
   let vectorHits: Awaited<ReturnType<VectorIndex["search"]>> = [];
   try {
-    const [queryEmbedding] = await embedder.embed([deps.query]);
-    if (queryEmbedding) {
-      vectorHits = await deps.vectorIndex.search({
-        entityType: MEMORY_VECTOR_ENTITY_TYPE,
-        embeddingModel: embedder.id,
-        embedding: queryEmbedding,
-        limit: LANE_LIMIT,
-      });
-    }
+    vectorHits = (
+      await withReachableEmbedder(embedder, async (active) => {
+        const [queryEmbedding] = await active.embed([deps.query]);
+        if (!queryEmbedding) return [];
+        return deps.vectorIndex.search({
+          entityType: MEMORY_VECTOR_ENTITY_TYPE,
+          embeddingModel: active.id,
+          embedding: queryEmbedding,
+          limit: LANE_LIMIT,
+        });
+      })
+    ).result;
   } catch {
     vectorHits = [];
   }

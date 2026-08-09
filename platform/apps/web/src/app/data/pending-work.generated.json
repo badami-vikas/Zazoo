@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-08T21:20:30.874Z",
+  "generatedAt": "2026-08-09T07:40:08.088Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1504,7 +1504,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 753,
+      "sourceLine": 754,
       "rank": 45
     },
     {
@@ -1532,7 +1532,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 768,
+      "sourceLine": 769,
       "rank": 46
     },
     {
@@ -1560,7 +1560,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 781,
+      "sourceLine": 782,
       "rank": 47
     },
     {
@@ -1590,7 +1590,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 794,
+      "sourceLine": 795,
       "rank": 48
     },
     {
@@ -1618,7 +1618,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 807,
+      "sourceLine": 808,
       "rank": 49
     },
     {
@@ -1647,7 +1647,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 820,
+      "sourceLine": 821,
       "rank": 50
     },
     {
@@ -1676,7 +1676,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 833,
+      "sourceLine": 834,
       "rank": 51
     },
     {
@@ -1704,7 +1704,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 846,
+      "sourceLine": 847,
       "rank": 52
     },
     {
@@ -1733,7 +1733,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 859,
+      "sourceLine": 860,
       "rank": 53
     },
     {
@@ -1762,7 +1762,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 872,
+      "sourceLine": 873,
       "rank": 54
     }
   ]

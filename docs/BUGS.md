@@ -2,6 +2,48 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **RESOLVED 2026-08-09 — A configured-but-unreachable semantic embedder threw on every memory-index pass and left the chat vector lane permanently empty (attach: TASK-032; fixed by ADR-213).**
+  `resolveSemanticEmbedder` (`apps/api/src/wiring.ts:5101`) returns an embedder whenever a provider with id
+  `ollama` and an `embed` method is registered, and persistent mode registers `new OllamaProvider()`
+  unconditionally (`wiring.ts:4335`). Constructing the adapter proves only that a base-URL string exists —
+  the default `http://localhost:11434` — not that a daemon is listening. On any persistent-mode boot without
+  Ollama installed, `wiring.semanticEmbedder` was therefore set to something that throws on every call.
+  Two distinct failures followed: `indexMemoryEmbeddings` called `embedder.embed` with no guard
+  (`retrieval-fusion.ts:84` pre-fix), so the 15-minute scheduled pass threw every time and no vector index was
+  ever built; and `fusedChatMemory` caught its query-embed failure into an empty lane, so chat fusion silently
+  ran on structured + graph recency only. Nothing logged the downgrade.
+  Latent until 2026-08-09: the LA5 flight shipped OFF, and K0 (ADR-211) turning `BRIDGE_RETRIEVAL_FUSION=1`
+  on is what made the path reachable — the same "a flight that has never run live is not built" lesson K0's
+  own dotted-key crash taught, found this time by reading rather than by a crash.
+  NOT the hosted pilot: Render sets `BRIDGE_LOCAL_RESIDENCY=public-cloud` → `isPublicCloudOnly()` true →
+  the indexer block in `server.ts:639` never starts there. The exposure is local/self-hosted persistent-mode
+  boots and the desktop pilot's direction of travel.
+  Resolution: ADR-213 — `withReachableEmbedder` resolves the active embedder at each point of use (never a
+  boot-frozen probe), swaps the whole embedder so space ids stay honest, degrades indexer and query by the
+  same rule so they meet in one space, skips stale-space reclamation while degraded so an outage cannot
+  delete the index a recovery needs, surfaces a failing lexical embedder as the defect it would be, and warns
+  on the downgrade. Four tests seen RED first (6/10 → 10/10).
+
+- **OPEN 2026-08-09 — `pnpm verify` fails at `check:vocabulary` on a clean `main` (90 WhatsApp findings), so CI's `platform` job is red and the `supabase-migrate` job it gates has not been running (attach: TASK-028).**
+  Evidence, reproduced locally at `500fbb8` with a stashed working tree: `pnpm check:vocabulary` exits 1 with
+  "check:vocabulary found new retired product/code vocabulary" over exactly 90 findings —
+  `modules/manifests/src/index.ts` (23), `modules/whatsapp/src/tools.ts` (21), `modules/whatsapp/test/tools.test.ts`
+  (18), `apps/web/src/app/pages/WhatsAppPage.tsx` (12), `modules/whatsapp/test/manifest.test.ts` (8), plus 8
+  across `routes.tsx`, `onboarding/questions.ts`, `ScheduledActionsPanel.tsx`, `modules/whatsapp/src/index.ts`
+  and `modules/manifests/test/catalog.test.ts`. `platform/scripts/retired-vocabulary-baseline.json` contains
+  ZERO `whatsapp` entries (`grep -c whatsapp` → 0), which is why every finding reports "changed from 0 to N":
+  the WhatsApp module's vocabulary was never baselined, migrated, or allowlisted.
+  This SUPERSEDES the count in the OPEN 2026-08-03 entry below (98 TASK-028 research occurrences): those are
+  gone, the WhatsApp set is what fails now, and the job has stayed red across the substitution.
+  Deployment consequence, read from `.github/workflows/ci.yml`: `supabase-migrate` declares
+  `needs: platform`, so a red `platform` job means the migrate job never runs and pending Drizzle migrations
+  are NOT applied to the hosted Supabase project — while `render.yaml` sets `autoDeploy: true` on both
+  services and Render's git trigger fires on push regardless of Actions' outcome (its own comment says so).
+  That is the divergence this pairing was designed to avoid: new API code deploys against an un-migrated
+  schema. Not independently confirmed against the GitHub Actions run history in this session — the `gh` CLI
+  is not installed on this machine — so the local reproduction plus the workflow's own `needs:` gate are the
+  evidence; the run history should be checked before anyone relies on a migration having landed.
+
 - **OPEN 2026-08-04 — Nine ADR numbers are assigned twice in `docs/raw/decisions-log.md`; ADR-160 is used three times and one of the two live ADR-160s has no wiki companion (attach: TASK-037).**
   `grep -oE "^#+ *ADR-[0-9]+" docs/raw/decisions-log.md | grep -oE "[0-9]+" | sort -n | uniq -d` reports nine
   duplicated numbers: `012, 026, 035, 086, 157, 158, 159, 160, 161`. The recent five are the load-bearing ones.

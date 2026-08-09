@@ -748,6 +748,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: AP-131 APPLIED; AP-132 APPLIED (the slice itself)
 - Dependencies: none
 - Honest residual: the model-backed converse paths are proven by unit captures of the projected system prompt (no local model in this environment); the hosted pilot's flags take effect on its next deploy, and its first flags-on boot should be watched (TASK-041-class live check).
+- Follow-up 2026-08-09 (ADR-213): turning `BRIDGE_RETRIEVAL_FUSION` on made a second latent defect reachable — `resolveSemanticEmbedder` treated a REGISTERED `OllamaProvider` as proof of a running daemon, so on any persistent-mode boot without Ollama the memory indexer threw every pass (no index ever built) and chat's vector lane sat silently empty. Fixed by resolving reachability at each point of use, degrading indexer and query into the lexical space together, and never reclaiming a space on a degraded pass. Hosted Render is unaffected (`public-cloud` residency gates the indexer off); the exposure was local/self-hosted boots. Four tests seen RED first. Same lesson as this task's own crash, one layer up: a flight that has never run live is not built.
 
 ## K1 — Capture: generic ledger→signal miner
 - ID: TASK-045
