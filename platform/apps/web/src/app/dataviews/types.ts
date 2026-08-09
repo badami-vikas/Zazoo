@@ -68,7 +68,6 @@ export interface DataViewProps {
   onInsert?: (draft: Partial<DataRow>) => void | Promise<void>;
   onUpdate?: (rowId: string, patch: Partial<DataRow>) => void | Promise<void>;
   canUpdateRow?: (row: DataRow) => boolean;
-  onDelete?: (rowId: string) => void | Promise<void>;
   onDuplicate?: (row: DataRow) => void | Promise<void>;
   onPin?: (rowId: string) => void | Promise<void>;
   onOpenRecord?: (row: DataRow | GraphNode) => void;

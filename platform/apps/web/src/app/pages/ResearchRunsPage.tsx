@@ -151,6 +151,17 @@ export function ResearchRunsPage() {
     }
   }
 
+  async function cancelChildRun(childRunId: string) {
+    setActionNote(null);
+    try {
+      await trpc.childRun.cancel.mutate({ organizationId: PILOT_ORGANIZATION, childRunId });
+      setActionNote("Child Run cancelled.");
+      if (selectedId) await refreshSteps(selectedId);
+    } catch (caught) {
+      setActionNote(caught instanceof Error ? caught.message : "Cancel failed");
+    }
+  }
+
   async function markInterrupted(run: RunRow) {
     setActionNote(null);
     try {
@@ -298,8 +309,19 @@ export function ResearchRunsPage() {
                             </span>
                           )}
                           {step.childRunId && (
-                            <span title={`child Agent Run ${step.childRunId}`}>
-                              run …{step.childRunId.slice(-8)}
+                            <span className="inline-flex items-center gap-1" title={`child Agent Run ${step.childRunId}`}>
+                              <span>run …{step.childRunId.slice(-8)}</span>
+                              {selected.status === "running" && (
+                                <button
+                                  type="button"
+                                  onClick={() => void cancelChildRun(step.childRunId!)}
+                                  className="rounded px-1 py-0.5 text-xs hover:opacity-80"
+                                  style={{ color: "#b3261e", border: "1px solid currentColor" }}
+                                  title="Cancel this child Agent Run"
+                                >
+                                  Cancel
+                                </button>
+                              )}
                             </span>
                           )}
                         </div>

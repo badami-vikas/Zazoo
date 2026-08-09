@@ -67,6 +67,7 @@ import { computeEligibleKinds, migrateViewConfig, viewConfigForKind } from "./el
 import { filterRowsByQuery } from "./rowSearch.js";
 import { Search } from "lucide-react";
 import type { DataRow, DataViewProps } from "./types.js";
+import { ControlPanel } from "./ControlPanel.js";
 
 export interface DataViewsProps
   extends Omit<DataViewProps, "spec" | "view" | "data" | "onViewChange"> {
@@ -233,6 +234,8 @@ export function DataViews({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <ControlPanel spec={spec} eligibleKinds={switcherKinds} />
         </div>
       </div>
 
