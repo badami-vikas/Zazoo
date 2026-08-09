@@ -2,6 +2,18 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **RESOLVED 2026-08-10 — A parallel branch's pushed merge (5d93778) deleted decisions-log ADR-197..214 and the K-ladder TASK rows (attach: TASK-036, whose CI fix that commit carried; repaired in the K3 commit).**
+  The cloud branch behind the TASK-036 vocabulary-allowlist fix resolved its ledger conflicts by keeping its
+  own `docs/TASKS.md` and `docs/raw/decisions-log.md`: upstream ADR-197..214 (TM slices + the entire AI
+  Harness K-ladder record) disappeared, TASK-050..054 rows were dropped, and TASK-044..049 were repurposed
+  for its companion tasks — contradicting its own commit message's "upstream takes precedence for numbering".
+  Detected at K3 push time (non-fast-forward reject → fetch → `git show origin/main:docs/TASKS.md` had 49
+  rows, no K-ladder; remote decisions-log ended at ADR-197 with 4729 lines vs upstream's 5057). Repaired in
+  the same rebase that landed K3: upstream restored, the branch's novel content grafted rather than discarded
+  (companion ADR → ADR-217; companion tasks → TASK-055..060; its AP-135 kept; the OAuth session's colliding
+  AP-135 → AP-137). Recurrence risk named in log 2026-08-10: concurrent sessions keep allocating colliding
+  ids; the renumber precedent copes, a durable id-reservation scheme does not exist.
+
 - **RESOLVED 2026-08-09 — A configured-but-unreachable semantic embedder threw on every memory-index pass and left the chat vector lane permanently empty (attach: TASK-032; fixed by ADR-213).**
   `resolveSemanticEmbedder` (`apps/api/src/wiring.ts:5101`) returns an embedder whenever a provider with id
   `ollama` and an `embed` method is registered, and persistent mode registers `new OllamaProvider()`
@@ -1000,9 +1012,14 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
 - **RESOLVED 2026-07-21 — SECURITY (prompt-injection root gap): runtime taint RT0–RT4.**
   TASK-015/AP-070/ADR-142 replace source-only metadata with a versioned multi-axis lattice and opaque RuntimeValue envelope. Labels join through current canonical runtime/persistence boundaries; unknown/malformed history fails closed; registered sources/sinks, ContentGuard isolation, immutable declassification, prompt-free sink traces, Approval warning/trace, migration `0029`, and real A→B restart replay are covered by targeted property/migration/RLS/red-team/UI tests. Instruction-bearing hostile retries create zero Events/Actions. Exact evidence: [`outputs/2026-07-21-task015-runtime-taint.md`](../outputs/2026-07-21-task015-runtime-taint.md).
 
-- **OPEN 2026-07-08 — SECURITY: OAuth access + refresh tokens stored PLAINTEXT in local pglite.**
-  `packages/local/src/stores/pglite.ts:81` — despite "SecretStore" naming, no encryption. Local account-takeover
-  primitive. FIX: encrypt at rest (KMS/OS keychain seam already implied by the Phase-6 AES-256 vault plan — pull forward).
+- **RESOLVED 2026-08-09 — SECURITY: OAuth access + refresh tokens stored PLAINTEXT in local pglite.**
+  ADR-215/AP-137 (TASK-006/TASK-038): `oauth_tokens` now stores both fields as AES-256-GCM envelopes
+  (`packages/local/src/stores/oauth-token-crypto.ts`), keyed by the same `BRIDGE_CREDENTIAL_VAULT_KEY_ID`/
+  `BRIDGE_CREDENTIAL_VAULT_KEY` pair already used for the DealPilot encrypted-file vault. A migration upgrades
+  any pre-existing plaintext install in place; `apps/api/src/wiring.ts` fails closed at boot if a durable
+  `BRIDGE_LOCAL_DIR` and real Google OAuth are both configured without the key. Verified: `@bridge/local` 41/41
+  (incl. a test proving the raw table never contains the plaintext substring and a wrong key fails closed),
+  `@bridge/integrations-google` 39/39, full `apps/api` 501/501. Evidence: `docs/log.md` 2026-08-09.
 
 - **OPEN 2026-07-08 — SECURITY: RLS is not actually enabled (every table `isRLSEnabled:false`).**
   Directly contradicts `packages/db/src/client.ts` doc + resilience wiki. Isolation today = app-level filters +

@@ -171,6 +171,9 @@ fn api_command(
         .env("BRIDGE_LEARNING_OBSERVATION", "1")
         .env("BRIDGE_RETRIEVAL_FUSION", "1")
         .env("BRIDGE_COMMONS_ARCHETYPES", "1")
+        // AI Harness K3 (ADR-215, TASK-047): claim substrate — entities +
+        // claims live on the desktop's durable Local Plane.
+        .env("BRIDGE_CLAIM_SUBSTRATE", "1")
         .env("BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "os-keyring")
         .env("BRIDGE_SIDECAR_TOKEN", token)
         .env("BRIDGE_OAUTH_DESKTOP", "1")
@@ -761,6 +764,7 @@ mod tests {
             "BRIDGE_LEARNING_OBSERVATION",
             "BRIDGE_RETRIEVAL_FUSION",
             "BRIDGE_COMMONS_ARCHETYPES",
+            "BRIDGE_CLAIM_SUBSTRATE",
         ] {
             assert_eq!(
                 envs.get(OsStr::new(flight)).and_then(|value| value.as_deref()),

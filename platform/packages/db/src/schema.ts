@@ -2039,3 +2039,84 @@ export const evalComparisons = pgTable(
   },
   (t) => [primaryKey({ columns: [t.organizationId, t.id], name: "eval_comparisons_pk" })],
 );
+
+// =====================================================================
+// K3 (TASK-047) — claim substrate: entities + claims. The store rung of
+// the AI Harness spine and the rows the Second Brain UI projects. Extends
+// GraphStore's world (the relationship graph becomes one region of the
+// whole); person/community/task entities REFERENCE their region rows via
+// ref_record_id rather than copying them. All writes traverse the governed
+// pipeline — decision_ref is NOT NULL on claims by design.
+// =====================================================================
+
+export const claimEntities = pgTable(
+  "claim_entities",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    /** Owner scoping mirrors memories: claims are personal knowledge. */
+    ownerUserId: uuid("owner_user_id").notNull(),
+    /** person | community | task | topic (closed v1 union in @bridge/core). */
+    kind: text("kind").notNull(),
+    /** Display name; uniqueness uses the caller-normalized form. */
+    name: text("name").notNull(),
+    /** The existing region row this entity is ABOUT (person/task id) — no FK,
+     * it can reference any node type across the graph. Null for topics. */
+    refRecordId: uuid("ref_record_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Soft-delete only (schema convention: never hard delete entities). */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("claim_entities_owner_kind_name_uq").on(
+      t.organizationId, t.ownerUserId, t.kind, t.name,
+    ),
+    index("claim_entities_owner_idx").on(t.organizationId, t.ownerUserId),
+  ],
+);
+
+export const claimRows = pgTable(
+  "claims",
+  {
+    id: uuidPkV7(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    ownerUserId: uuid("owner_user_id").notNull(),
+    entityId: uuid("entity_id").notNull().references(() => claimEntities.id),
+    /** The claimed attribute (e.g. "timezone"). */
+    field: text("field").notNull(),
+    value: text("value").notNull(),
+    /** Proposable classes only (@bridge/core closed union) — red classes
+     * (health, protected characteristics, psychological conclusions) are
+     * structurally unproposable upstream and never reach this column. */
+    claimClass: text("claim_class").notNull(),
+    /** Raise-only sensitivity tier (ADR-176 invariant 15). */
+    sensitivity: text("sensitivity").notNull(),
+    /** ClaimEvidenceRef[] — per-claim evidence refs with optional spans. */
+    evidence: jsonb("evidence").notNull().default([]),
+    taintLabel: jsonb("taint_label"),
+    /** Bi-temporal: when true in the WORLD... */
+    validFrom: timestamp("valid_from", { withTimezone: true }).notNull(),
+    validTo: timestamp("valid_to", { withTimezone: true }),
+    /** ...vs when learned/invalidated by Bridge. */
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+    /** Supersedence lineage — contradiction invalidates, never deletes. */
+    supersededBy: uuid("superseded_by"),
+    /** Governed proposal id that authorized this row. NOT NULL: no claim
+     * exists without a decision. */
+    decisionRef: uuid("decision_ref").notNull(),
+    createdBy: text("created_by").notNull(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("claims_entity_field_idx").on(
+      t.organizationId, t.ownerUserId, t.entityId, t.field,
+    ),
+    index("claims_owner_live_idx").on(t.organizationId, t.ownerUserId),
+    foreignKey({
+      columns: [t.supersededBy],
+      foreignColumns: [t.id],
+      name: "claims_superseded_by_fk",
+    }),
+  ],
+);

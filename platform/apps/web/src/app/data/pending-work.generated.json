@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T15:39:15.735Z",
+  "generatedAt": "2026-08-09T18:42:35.924Z",
   "items": [
     {
       "id": "TASK-026",
@@ -606,7 +606,7 @@
       "requests": [
         "DealPilot requirements 2026-07-14–15"
       ],
-      "approval": "AP-023, AP-029, AP-044, AP-045, AP-054, AP-060, AP-063, AP-074, and AP-075 applied",
+      "approval": "AP-023, AP-029, AP-044, AP-045, AP-054, AP-060, AP-063, AP-074, AP-075, and AP-137 (renumbered from AP-135, 2026-08-10) applied",
       "dependencies": [
         "the TASK-030 PT-5 cold-start evidence. TASK-001 is `done` and was a stale blocker. (Deploys to the hosted pilot became automatic on push to `main` 2026-08-07 under AP-115/ADR-195 — the prior MANUAL-deploy dependency this row named no longer applies.)"
       ],
@@ -642,7 +642,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 326,
+      "sourceLine": 328,
       "rank": 18
     },
     {
@@ -677,7 +677,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 340,
+      "sourceLine": 342,
       "rank": 19
     },
     {
@@ -712,7 +712,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 354,
+      "sourceLine": 356,
       "rank": 20
     },
     {
@@ -743,7 +743,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 367,
+      "sourceLine": 369,
       "rank": 21
     },
     {
@@ -780,7 +780,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 380,
+      "sourceLine": 382,
       "rank": 22
     },
     {
@@ -806,7 +806,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 393,
+      "sourceLine": 395,
       "rank": 23
     },
     {
@@ -841,7 +841,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 406,
+      "sourceLine": 408,
       "rank": 24
     },
     {
@@ -872,7 +872,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 420,
+      "sourceLine": 422,
       "rank": 25
     },
     {
@@ -904,7 +904,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 433,
+      "sourceLine": 435,
       "rank": 26
     },
     {
@@ -931,7 +931,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 459,
+      "sourceLine": 461,
       "rank": 27
     },
     {
@@ -972,7 +972,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 474,
+      "sourceLine": 476,
       "rank": 28
     },
     {
@@ -1004,7 +1004,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 446,
+      "sourceLine": 448,
       "rank": 29
     },
     {
@@ -1050,7 +1050,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 488,
+      "sourceLine": 490,
       "rank": 30
     },
     {
@@ -1087,7 +1087,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 501,
+      "sourceLine": 503,
       "rank": 31
     },
     {
@@ -1118,7 +1118,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 518,
+      "sourceLine": 520,
       "rank": 32
     },
     {
@@ -1144,7 +1144,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 540,
+      "sourceLine": 542,
       "rank": 33
     },
     {
@@ -1174,7 +1174,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 567,
+      "sourceLine": 570,
       "rank": 34
     },
     {
@@ -1204,7 +1204,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 580,
+      "sourceLine": 583,
       "rank": 35
     },
     {
@@ -1231,7 +1231,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 593,
+      "sourceLine": 596,
       "rank": 36
     },
     {
@@ -1258,7 +1258,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 610,
+      "sourceLine": 613,
       "rank": 37
     },
     {
@@ -1283,7 +1283,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 554,
+      "sourceLine": 556,
       "rank": 38
     },
     {
@@ -1317,7 +1317,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 631,
+      "sourceLine": 634,
       "rank": 39
     },
     {
@@ -1351,7 +1351,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 646,
+      "sourceLine": 649,
       "rank": 40
     },
     {
@@ -1378,7 +1378,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 660,
+      "sourceLine": 663,
       "rank": 41
     },
     {
@@ -1409,7 +1409,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 705,
+      "sourceLine": 708,
       "rank": 42
     },
     {
@@ -1435,7 +1435,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 719,
+      "sourceLine": 722,
       "rank": 43
     },
     {
@@ -1470,7 +1470,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 739,
+      "sourceLine": 742,
       "rank": 44
     },
     {
@@ -1504,7 +1504,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 754,
+      "sourceLine": 757,
       "rank": 45
     },
     {
@@ -1539,35 +1539,42 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 769,
+      "sourceLine": 772,
       "rank": 46
     },
     {
       "id": "TASK-047",
       "title": "TASK-047 — K3 — Knowledge substrate: entities, claims, consolidation",
-      "status": "pending",
+      "status": "open",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "The graph that appends AND optimizes: typed Entities beyond people (deals, projects, orgs, topics — typed by Module vocabulary), Claims with per-claim evidence refs + sensitivity tiers + supersedence lineage, and a consolidation loop (dedupe via `@bridge/dedupe` with the ADR-177 calibrated refusal band, contradiction surfacing as suggestions — never silent overwrite, episodic→semantic distillation with provenance, decay/archive). Extends GraphStore with new `entities`/`claims` tables alongside — no big-bang migration; the relationship graph becomes one region of the whole.",
       "prototypeTest": "a duplicate entity pair inside the refusal band is REFUSED (surfaced as a suggestion), never auto-merged; a contradicting claim invalidates its predecessor by lineage rather than deleting it; a red-tier claim class (health, protected characteristic, psychological conclusion) constructed as a fixture never reaches a proposal; all writes traverse the governed pipeline (a direct-write attempt fails closed).",
       "scope": [
-        "`docs/raw/ai-harness-plan-2026-08-09.md` K3 + its KG technology decision (Postgres substrate, Graphiti's bi-temporal/invalidation ideas behind our own port, Kùzu only as a pre-agreed derived-index escape hatch)."
+        "`docs/raw/ai-harness-plan-2026-08-09.md` K3 + its KG technology decision (Postgres substrate, Graphiti's bi-temporal/invalidation ideas behind our own port, Kùzu only as a pre-agreed derived-index escape hatch). MINIMAL CUT per AP-136 + `outputs/2026-08-09-k3-knowledge-substrate-revised-plan.md`: engine vocabulary is Entity + Claim (`check:vocabulary` retires `knowledge`",
+        "the plan name stays prose), v1 write path is user-stated → Human-accepted only."
       ],
       "evidence": [
-        "ADR-177 (calibrated refusal band, auto-bind unreachable from a model)",
-        "ADR-176 invariant 15 (sensitivity tiers)."
+        "ADR-216. Shipped: migration 0040 (`claim_entities` + `claims`, bi-temporal, `decision_ref` NOT NULL), `@bridge/core` `learning/claims.ts` (red classes structurally unproposable",
+        "raise-only sensitivity",
+        "lineage-keyed suggestions), `DrizzleClaimStore` (supersede-in-transaction",
+        "forget = only true delete), `learning.claims.*` (Human-only mutations",
+        "acceptance traverses the pipeline — `pipeline.decide(approve)` IS the recorded Human decision, mined by K1), fusion graph lane reads live claims, `graph.full` + Second Brain Claims panel render the same rows, fourth flight `BRIDGE_CLAIM_SUBSTRATE` double-entered with drop-tests on both surfaces. Verified: core 7/7 (3 mutations RED), db 4/4, api 8/8 (pipeline-reject → no row), turbo 72 green, vocabulary byte-identical to main (90), live durable-boot walk 10/10 + flight-off fail-closed live + real-browser walk of propose→accept→graph node."
       ],
       "requests": [
-        "user directive 2026-08-09 (\"start on AI harness\")"
+        "user directive 2026-08-09 (\"start on AI harness\")",
+        "user directives 2026-08-09 (\"Basically we need a second brain here, with the most minimalistic way\"",
+        "\"We need both second brain and knowledge graph to match with the AI Harness spine\"",
+        "\"Ok start ok K3, complete all of them k3a k3b and k3c\")"
       ],
-      "approval": "AP-131 APPLIED",
+      "approval": "AP-131 APPLIED; AP-136 APPLIED",
       "dependencies": [
         "TASK-044"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done (2026-08-09, minimal cut per AP-136/ADR-216; deferred loops are named follow-ups below)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 783,
+      "sourceLine": 786,
       "rank": 47
     },
     {
@@ -1597,7 +1604,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 796,
+      "sourceLine": 800,
       "rank": 48
     },
     {
@@ -1625,7 +1632,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 809,
+      "sourceLine": 813,
       "rank": 49
     },
     {
@@ -1654,7 +1661,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 822,
+      "sourceLine": 826,
       "rank": 50
     },
     {
@@ -1683,7 +1690,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 835,
+      "sourceLine": 839,
       "rank": 51
     },
     {
@@ -1711,7 +1718,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 848,
+      "sourceLine": 852,
       "rank": 52
     },
     {
@@ -1740,7 +1747,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 861,
+      "sourceLine": 865,
       "rank": 53
     },
     {
@@ -1769,8 +1776,185 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 874,
+      "sourceLine": 878,
       "rank": 54
+    },
+    {
+      "id": "TASK-055",
+      "title": "TASK-055 — Companion trigger and capture parity — Fn hold, double-click listen, on-request recording",
+      "status": "pending",
+      "priority": "P3",
+      "horizon": "Convergence",
+      "outcome": "The companion ask panel can be summoned by holding Fn (in addition to the existing ⌘⇧Space) and by double-clicking the Avatar to toggle listening mode; a user-requested screen recording capability exists with an explicit start/stop control, defined local storage location, and retention policy — all three preserving the existing consent, taint, and no-silent-sensing invariants from TASK-027.",
+      "prototypeTest": "(1) holding Fn from another app summons the ask panel and begins capturing audio for at least as long as Fn is held, released Fn stops capture, exactly as ⌘⇧Space does today; (2) double-clicking the Avatar toggles listening mode on, a second interaction (per the agreed stop condition) toggles it off, with no change to the existing hover-click ✨ or right-click menu paths; (3) an explicit \"record my screen\" request starts a visible, revocable recording with a clear on-screen indicator and an explicit stop control, the file lands under the Local Plane at a named path, is associated with the requesting Module/Record per the standard Files rules, and is governed by a stated retention/deletion policy — no recording starts without an explicit per-request consent tick, matching the existing screenshot consent copy pattern.",
+      "scope": [
+        "docs/raw/desktop-companion-agent-roadmap-2026-07.md (companion trigger surface)",
+        "outputs/2026-07-29-task-027-companion-clicky-parity.md (existing consent/taint baseline to preserve). NEW for this task: (a) Fn-hold trigger — macOS does not expose Fn through `tauri-plugin-global-shortcut`'s normal `Code`/`Modifiers` API, so this needs a low-level modifier-flags event tap (`NSEvent`/`CGEventTap`-equivalent) registered Rust-side, same mechanism Invoko itself relies on, not a shortcut-string swap",
+        "(b) double-click-to-listen — an `onDoubleClick` handler on the Avatar wired to the same start-listening path `CompanionAsk.tsx`/`companion_ask_start` uses today, with an explicit toggle-off condition to design (second click vs. silence timeout) since double-click has no natural \"hold\" analogue",
+        "(c) on-request screen recording — NEW capture surface, not a variant of the existing single-shot `capture_display_jpeg`",
+        "before implementation, an explicit design/approval decision is needed on: storage location and format, retention/auto-deletion window, the visible recording indicator, the stop control, whether recordings are ever eligible for cloud egress (default should be no, matching the screenshot consent model), and Files/Module association per the UI architecture rules. RESOLVED by AP-118: 24-hour rolling local retention with automatic deletion, Local-Plane-only with NO cloud egress ever (stricter than the screenshot consent model), an Avatar red-ring + menu-bar visible indicator, an explicit stop command, and a hard automatic safety time cap. (a), (b), and (c) are all unblocked",
+        "none are implemented yet."
+      ],
+      "evidence": [
+        "none yet (task creation only)"
+      ],
+      "requests": [
+        "R-043",
+        "R-044 (screen-recording design questions)"
+      ],
+      "approval": "AP-117 applied for task creation and queue position; AP-118 applied for the screen-recording design decision (retention/egress/indicator/stop-control)",
+      "dependencies": [
+        "TASK-027 (done) — reuses its consent/taint/blink-tell invariants and existing ask-panel/annotate surfaces",
+        "must not regress its V-verification results"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 899,
+      "rank": 55
+    },
+    {
+      "id": "TASK-056",
+      "title": "TASK-056 — Multi-app automation for the background agent",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "TASK-028's background research agent generalizes from browser-only to arbitrary installed macOS apps — planning steps, reading real app content via a governed Accessibility-API actuator, and acting only behind an approved Proposal — with every step an inspectable child Run and every read of external app content taint-tagged and quarantined from the planner's instruction channel exactly as TASK-028 already does for web pages.",
+      "prototypeTest": "from a real Organization, start a Run for an objective spanning at least two non-browser apps; it reads app content via Accessibility APIs (not screenshots-only), refuses to click/type without an approved Proposal, records per-action citations plus `untrusted_external` taint on content read from other apps, survives an app restart, and reports rather than obeys instructions embedded in app content aimed at the agent.",
+      "scope": [
+        "docs/raw/autonomous-browser-research-agent-plan-2026-07.md (BR0/BR3/BR4/BR5 pattern to generalize)",
+        "docs/raw/desktop-companion-agent-roadmap-2026-07.md. NEW: an Accessibility-API actuator layer beyond `research_webview.rs`'s contained browser surface",
+        "a per-app allowlist and permission model (which installed apps the actuator may read/act in, and under what grant) — this is a named separate design decision, not assumed, mirroring how TASK-028 itself sequenced AP-088 (click/type authority) ahead of AP-089 (engine choice)."
+      ],
+      "evidence": [
+        "none yet (task creation only)"
+      ],
+      "requests": [
+        "R-044"
+      ],
+      "approval": "AP-119 applied for task creation and queue position; the actuator's per-app allowlist/permission design is a SEPARATE blocking approval before build",
+      "dependencies": [
+        "TASK-028 (in_progress) — reuses its Proposal-gating, taint, and child-Run patterns",
+        "must not regress its live-validated V-results"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 912,
+      "rank": 56
+    },
+    {
+      "id": "TASK-057",
+      "title": "TASK-057 — Companion-triggered integrations",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "the companion ask panel can invoke any companion-eligible Agent-owned Skill — starting with the existing Google and WhatsApp Integrations — through the same Proposal→Decision→Run→Result flow TASK-026's full Chat panel already uses, routed via a companion-eligibility flag per Skill rather than a hardcoded list.",
+      "prototypeTest": "from the companion ask panel (not the full Chat panel), trigger one real Google or WhatsApp Skill; its Proposal renders inline in the overlay, approving it produces the identical terminal Run/Result the full Chat panel would show for the same Skill, and a Skill without the companion-eligibility flag set is not reachable from the panel.",
+      "scope": [
+        "extends TASK-026's governed dispatch surface into `platform/apps/web/src/app/avatar/CompanionAsk.tsx`",
+        "new companion-eligibility flag on the Skill manifest (not every Skill is appropriate to trigger from a screen-context ask — e.g. destructive or high-blast-radius Skills may be excluded by design, a decision for the eligibility flag's default, not this row)."
+      ],
+      "evidence": [
+        "none yet (task creation only)"
+      ],
+      "requests": [
+        "R-044"
+      ],
+      "approval": "AP-119 applied for task creation and queue position",
+      "dependencies": [
+        "TASK-026 (done)",
+        "TASK-027 (done)"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 925,
+      "rank": 57
+    },
+    {
+      "id": "TASK-058",
+      "title": "TASK-058 — Companion as Bridge's universal expression surface (convergence)",
+      "status": "pending",
+      "priority": "P3",
+      "horizon": "Convergence",
+      "outcome": "the companion ask panel's reachable command surface converges with the full Chat panel's, so that \"ask the companion\" and \"open Chat\" differ only in available screen-context (what the companion can see right now), not in reachable capability — recorded as principle now in ADR-217 (grafted from the parallel branch's ADR-197), with the locked `docs/wiki/vision.md` edit itself deferred to a separate future approval once TASK-056/057 land enough to converge against.",
+      "prototypeTest": "for a representative sample of governed actions reachable from the full Chat panel, the same Proposal is reachable and behaves identically when triggered from the companion overlay instead.",
+      "scope": [
+        "ADR-217 (grafted)",
+        "depends on TASK-056 and TASK-057 landing real companion-reachable actions to converge against — this task holds the exit test open rather than letting the stated principle live only in prose with no disprovable check."
+      ],
+      "evidence": [
+        "none yet (task creation only)"
+      ],
+      "requests": [
+        "R-044"
+      ],
+      "approval": "AP-119 applied for task creation, queue position, and the ADR-217 principle (grafted); editing `docs/wiki/vision.md` itself is NOT approved by this row and needs its own proposal when the convergence is real enough to canonize",
+      "dependencies": [
+        "TASK-056 (ready)",
+        "TASK-057 (ready)"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 938,
+      "rank": 58
+    },
+    {
+      "id": "TASK-059",
+      "title": "TASK-059 — Avatar text replacement",
+      "status": "pending",
+      "priority": "P3",
+      "horizon": "Convergence",
+      "outcome": "given a focused, editable text field and a companion ask, the Avatar can replace the selected/focused text with its answer — always via a shown preview the user explicitly accepts before the field is written, never a silent overwrite — using macOS Accessibility read+write.",
+      "prototypeTest": "select text in a real editable field, ask the companion to rewrite it; a preview renders alongside the original text; accepting writes back exactly the previewed text into the field; declining leaves the field byte-for-byte unchanged.",
+      "scope": [
+        "needs a new Accessibility read+write grant distinct from the existing screen-recording/mic grants",
+        "reuses `CompanionAsk.tsx`'s existing ask pipeline for generation, adds the preview-then-write step."
+      ],
+      "evidence": [
+        "none yet (task creation only)"
+      ],
+      "requests": [
+        "R-044"
+      ],
+      "approval": "AP-119 applied for task creation and queue position",
+      "dependencies": [
+        "TASK-027 (done)"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 951,
+      "rank": 59
+    },
+    {
+      "id": "TASK-060",
+      "title": "TASK-060 — opensrc-backed code research for Builder Agent and Learning Agent",
+      "status": "pending",
+      "priority": "P3",
+      "horizon": "Convergence",
+      "outcome": "Bridge's in-app Builder Agent (BA0/BA1) and Learning Agent can fetch real dependency source (npm/PyPI/crates.io/GitHub) through an opensrc-backed capability during their own reuse-intake or research work, egress-tiered and taint-labeled the same way TASK-023's `SearchProvider` is — not a bare shell-exec handed to either Agent.",
+      "prototypeTest": "a Builder Agent reuse-intake Run and a Learning Agent research Run each successfully resolve and read real package source through the capability; the fetch is recorded as taint-labeled evidence on the Run; neither Agent has any other path to direct shell/process execution introduced by this capability.",
+      "scope": [
+        "distinct from `.claude/skills/opensrc/` (this session), which is a Claude Code dev-tool skill for sessions building Bridge itself, not a Bridge product capability. This task is the product-facing version, gated behind the same provider-tiering discipline TASK-023/TASK-041 established."
+      ],
+      "evidence": [
+        "none yet (task creation only)"
+      ],
+      "requests": [
+        "R-044"
+      ],
+      "approval": "AP-119 applied for task creation and queue position",
+      "dependencies": [
+        "TASK-023 (done)"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 964,
+      "rank": 60
     }
   ]
 }

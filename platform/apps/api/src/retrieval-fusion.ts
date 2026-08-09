@@ -45,7 +45,7 @@ import {
   type TextEmbedder,
   type VectorIndex,
 } from "@bridge/core";
-import type { DrizzleGraphStore } from "@bridge/db";
+import type { DrizzleGraphStore, DrizzleClaimStore } from "@bridge/db";
 
 export const MEMORY_VECTOR_ENTITY_TYPE = "memory";
 
@@ -211,6 +211,10 @@ export async function fusedChatMemory(deps: {
   memoryStore: MemoryStore;
   vectorIndex: VectorIndex;
   graphStore: Pick<DrizzleGraphStore, "listPeople" | "listTimeline">;
+  /** K3 (TASK-047): accepted knowledge claims join the GRAPH lane — they ARE
+   * the graph region's distilled layer, and reusing the lane keeps the closed
+   * three-lane union honest. Absent (flight off / not wired) = no claims. */
+  claimStore?: Pick<DrizzleClaimStore, "listEntities" | "liveClaims">;
   organizationId: string;
   ownerUserId: string;
   query: string;
@@ -324,6 +328,32 @@ export async function fusedChatMemory(deps: {
     }
   } catch {
     graphCandidates.length = 0;
+  }
+  // K3: live claims as graph-lane candidates. What the user sees in the
+  // Second Brain is exactly what can reach the model here — one substrate,
+  // two projections. Same best-effort posture as the rest of the lane.
+  if (deps.claimStore) {
+    try {
+      const [entities, claims] = await Promise.all([
+        deps.claimStore.listEntities(deps.organizationId, deps.ownerUserId),
+        deps.claimStore.liveClaims(deps.organizationId, deps.ownerUserId),
+      ]);
+      const entityNames = new Map(entities.map((entity) => [entity.id, entity.name]));
+      for (const claim of claims.slice(0, LANE_LIMIT)) {
+        const candidateId = `claim:${claim.id}`;
+        graphCandidates.push({
+          id: candidateId,
+          text: `Accepted claim — ${entityNames.get(claim.entityId) ?? "Unknown entity"}: ${claim.field} is ${claim.value}.`,
+          source: candidateId,
+          layer: "personal",
+          plane: "local",
+          trustOrigin: "user_content",
+        });
+        if (claim.taintLabel) taintByCandidateId.set(candidateId, claim.taintLabel);
+      }
+    } catch {
+      // claims lane degrades to empty — the chat turn never fails because a lane did
+    }
   }
   const graph: RetrievalLaneResult = { lane: "graph", candidates: graphCandidates };
 

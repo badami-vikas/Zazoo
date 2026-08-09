@@ -190,6 +190,7 @@ import {
   DrizzlePolicyParamStore,
   DrizzleOrganizationDefinitionStore,
   DrizzleModuleStore,
+  DrizzleClaimStore,
   DrizzleMemoryStore,
   DrizzleVectorIndex,
   DrizzleLedgerStore,
@@ -219,6 +220,7 @@ import {
   GOVERNANCE_ALLOWED_SKILLS,
   ensureGovernanceAgentGovernance,
   ensureCapabilityBuilderGovernance,
+  ensureClaimUserGovernance,
   ensureRelationshipUserGovernance,
   type CanonicalIdentityStore,
 } from "@bridge/db";
@@ -226,6 +228,7 @@ import {
   acquirePgliteDirectoryOwnership,
   createPgliteLocalPlane,
   type LocalPlane,
+  type TokenVaultKeys,
 } from "@bridge/local";
 import {
   AnthropicProvider,
@@ -561,6 +564,15 @@ export interface Wiring {
   cultureFetchAbortControllers: Map<string, AbortController>;
   /** Inspectable, correctable, deletable learned preferences. */
   memoryStore: MemoryStore;
+  /** K3 (TASK-047) — entities + claims, the knowledge substrate's persisted
+   * store. Same db as `memoryStore`; only `learning.claims.*` procedures
+   * and the Second Brain projection read it, and only the governed
+   * claim-acceptance path writes it. */
+  claimStore: DrizzleClaimStore;
+  /** K3 flight. OFF by default; enabled via `BRIDGE_CLAIM_SUBSTRATE=1`
+   * (or a test override). Disabled means every `learning.claims.*`
+   * procedure fails closed and the Second Brain omits the knowledge region. */
+  claimSubstrateEnabled: boolean;
   /** LA5 vector lane storage (refs + vectors only, rebuildable) — same db as
    * `memoryStore` so vector hits always hydrate from the store they index. */
   vectorIndex: VectorIndex;
@@ -638,6 +650,9 @@ export interface BuildWiringOptions {
   /** Test/deployment override for the Commons-archetypes flight. Omitted
    * means the environment decides (`BRIDGE_COMMONS_ARCHETYPES`), default OFF. */
   commonsArchetypesEnabled?: boolean;
+  /** Test/deployment override for the K3 knowledge-substrate flight. Omitted
+   * means the environment decides (`BRIDGE_CLAIM_SUBSTRATE`), default OFF. */
+  claimSubstrateEnabled?: boolean;
   /** Explicit semantic embedder for the LA5 vector lane (tests/deployments).
    * Omitted means the wiring resolves one from the registered local
    * providers (Ollama when present); none found = lexical hashing fallback. */
@@ -4138,6 +4153,9 @@ function seedGovernance(
     { resourceType: "record", resourceId: null, action: "archive", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
+    // K3 (TASK-047): only the Human principal may write knowledge claims —
+    // no agent role carries this grant, mirroring ensureClaimUserGovernance.
+    { resourceType: "claim", resourceId: null, action: "write", effect: "allow" },
     // docs/BUGS.md "capability.approve/organization.blueprint.activate mutate
     // even when the governed decision is rejected" (2026-07-22) — both
     // handlers propose an action:"approve" request through the SAME governed
@@ -4197,6 +4215,8 @@ export interface ModePorts {
    * (ADR-023); in-memory in in-memory mode, mirroring capabilityStore's split. */
   moduleStore: ModuleStore;
   memoryStore: MemoryStore;
+  /** K3 (TASK-047) — same-db knowledge substrate store, both modes. */
+  claimStore: DrizzleClaimStore;
   /** LA5 vector lane — always over the SAME db as `memoryStore` (vector hits
    * are refs that must hydrate from the store they index). */
   vectorIndex: VectorIndex;
@@ -4237,6 +4257,7 @@ export interface ModePorts {
   ensureGovernanceAgentGovernance?: () => Promise<void>;
   ensureCapabilityBuilderGovernance?: () => Promise<void>;
   ensureRelationshipUserGovernance?: () => Promise<void>;
+  ensureClaimUserGovernance?: () => Promise<void>;
   /**
    * TASK-007 (AGS1) — persistent-mode only. Idempotently seeds the code-declared
    * `GOVERNED_SKILL_MANIFEST_CATALOG` into `skill_manifests`, then refreshes the
@@ -4330,6 +4351,7 @@ export function buildPersistentPorts(env: {
     // longer in-memory-only once DATABASE_URL is set.
     moduleStore: new DrizzleModuleStore(db, PILOT_ORGANIZATION),
     memoryStore: new DrizzleMemoryStore(db),
+    claimStore: new DrizzleClaimStore(db),
     vectorIndex: new DrizzleVectorIndex(db),
     // TASK-007 — real, restart-durable bindings (see the field's doc comment
     // on ModePorts for why these are no longer in-memory once DATABASE_URL is set).
@@ -4410,6 +4432,11 @@ export function buildPersistentPorts(env: {
       }),
     ensureRelationshipUserGovernance: () =>
       ensureRelationshipUserGovernance(db, {
+        organizationId: PILOT_ORGANIZATION,
+        userId: pilotUserId,
+      }),
+    ensureClaimUserGovernance: () =>
+      ensureClaimUserGovernance(db, {
         organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
       }),
@@ -4557,6 +4584,7 @@ export async function buildInMemoryPorts(env: {
       ? new DrizzleModuleStore(localDb, PILOT_ORGANIZATION)
       : new InMemoryModuleStore(),
     memoryStore: new DrizzleMemoryStore(localDb),
+    claimStore: new DrizzleClaimStore(localDb),
     vectorIndex: new DrizzleVectorIndex(localDb),
     // TASK-007 — dependency-free in-memory default (dev/test). The SAME
     // GOVERNED_SKILL_MANIFEST_CATALOG code-declared list `buildPersistentPorts`
@@ -4711,6 +4739,37 @@ export function encryptedCredentialVaultFromEnv(
       ? { previous: credentialVaultKeyFromBase64(previousId, previousKey) }
       : {}),
   });
+}
+
+/**
+ * OAuth-token encryption-at-rest key(s) (ADR-215/AP-135, closing BUGS.md's
+ * 2026-07-08 plaintext-oauth_tokens finding). Reuses the SAME
+ * `BRIDGE_CREDENTIAL_VAULT_KEY*` pair as the encrypted-file Source-credential
+ * vault above — one operational secret, not two. Returns null when
+ * unconfigured; the caller decides whether that is acceptable (it is for an
+ * in-memory/ephemeral Local Plane, never for a durable one holding real
+ * Google OAuth tokens).
+ */
+export function oauthTokenVaultKeysFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): TokenVaultKeys | null {
+  const currentId = env.BRIDGE_CREDENTIAL_VAULT_KEY_ID?.trim();
+  const currentKey = env.BRIDGE_CREDENTIAL_VAULT_KEY?.trim();
+  if (!currentId || !currentKey) return null;
+
+  const previousId = env.BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID?.trim();
+  const previousKey = env.BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY?.trim();
+  if (Boolean(previousId) !== Boolean(previousKey)) {
+    throw new Error(
+      "BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID and BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY must be configured together",
+    );
+  }
+  return {
+    current: credentialVaultKeyFromBase64(currentId, currentKey),
+    ...(previousId && previousKey
+      ? { previous: credentialVaultKeyFromBase64(previousId, previousKey) }
+      : {}),
+  };
 }
 
 function publicCloudCredentialVault(): SourceCredentialVault {
@@ -5105,6 +5164,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const commonsArchetypesEnabled =
     options.commonsArchetypesEnabled ??
     ["1", "true"].includes((process.env.BRIDGE_COMMONS_ARCHETYPES ?? "").trim().toLowerCase());
+  // K3 knowledge-substrate flight (TASK-047) — same resolution, default OFF.
+  const claimSubstrateEnabled =
+    options.claimSubstrateEnabled ??
+    ["1", "true"].includes((process.env.BRIDGE_CLAIM_SUBSTRATE ?? "").trim().toLowerCase());
   // LA5 semantic embedder — explicit override wins; otherwise the ONLY
   // provider trusted for real semantics today is Ollama (its embed hits a
   // genuine embedding model). The Echo double's pseudo-embed is a test
@@ -5138,12 +5201,29 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     ? await acquirePgliteDirectoryOwnership(localDir)
     : undefined;
   const effectiveLocalDir = localOwnership?.dataDir;
+  // ADR-215/AP-135: a durable Local Plane holding REAL Google OAuth tokens must
+  // encrypt them at rest (BUGS.md 2026-07-08). An in-memory/ephemeral Local
+  // Plane (no dataDir) gets an auto-generated ephemeral key from
+  // createPgliteLocalPlane itself — nothing there survives restart regardless,
+  // so there is nothing to fail closed on.
+  const googleOAuthConfigured = Boolean(
+    process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim(),
+  );
+  const oauthTokenVaultKeys = oauthTokenVaultKeysFromEnv();
+  if (effectiveLocalDir && googleOAuthConfigured && !oauthTokenVaultKeys) {
+    throw new Error(
+      "BRIDGE_CREDENTIAL_VAULT_KEY_ID and BRIDGE_CREDENTIAL_VAULT_KEY are required to persist Google OAuth tokens to a durable BRIDGE_LOCAL_DIR",
+    );
+  }
   let localDatabase: Awaited<ReturnType<typeof createLocalDb>>;
   let localPlane: LocalPlane;
   try {
     const created = await createLocalDb(effectiveLocalDir ? { dataDir: effectiveLocalDir } : {});
     try {
-      localPlane = await createPgliteLocalPlane({ client: created.client });
+      localPlane = await createPgliteLocalPlane({
+        client: created.client,
+        ...(oauthTokenVaultKeys ? { secretVaultKeys: oauthTokenVaultKeys } : {}),
+      });
       localDatabase = created;
     } catch (error) {
       try {
@@ -5272,6 +5352,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     organizationDefinitionStore,
     moduleStore,
     memoryStore,
+    claimStore,
     vectorIndex,
     goalTasks,
     taskManager,
@@ -5672,6 +5753,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   await modePorts.ensureChiefOfStaffGovernance?.();
   await modePorts.ensureCapabilityBuilderGovernance?.();
   await modePorts.ensureRelationshipUserGovernance?.();
+  await modePorts.ensureClaimUserGovernance?.();
   await modePorts.ensureEgressGovernance?.();
   await modePorts.ensureIntakeGovernance?.();
   await modePorts.ensureDealPilotPrincipalGovernance?.();
@@ -5972,6 +6054,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     vectorIndex,
     retrievalFusionEnabled,
     commonsArchetypesEnabled,
+    claimSubstrateEnabled,
     modelProviderKeys,
     ...(semanticEmbedder ? { semanticEmbedder } : {}),
     skillRegistry,
@@ -6014,6 +6097,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     cultureLatestRunPointerStore,
     cultureFetchAbortControllers,
     memoryStore,
+    claimStore,
     evalStore,
     aqvSource,
     policyParams,

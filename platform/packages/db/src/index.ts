@@ -45,6 +45,7 @@ export {
   ensureGovernanceAgentGovernance,
   ensureCapabilityBuilderGovernance,
   ensureRelationshipUserGovernance,
+  ensureClaimUserGovernance,
   ensureLearningAgentGovernance,
   ensureOutreachAgentGovernance,
   ensureEgressAgentGovernance,
@@ -209,3 +210,4 @@ export function createDrizzlePorts(
     organizationStore: new DrizzleOrganizationStore(db, options.organizationRenameCoordinator),
   };
 }
+export { DrizzleClaimStore } from "./claim-store.js";

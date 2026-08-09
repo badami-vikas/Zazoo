@@ -41,6 +41,9 @@ export type ResourceType =
   | "ledger"
   | "delegation"
   | "integration"
+  // K3 (TASK-047): a knowledge-substrate claim — materialized only through a
+  // governed proposal on this resource type (decisionRef on every row).
+  | "claim"
   // Special read targets (not table rows):
   | "network_graph:full"
   // Internet egress (the API gate): outbound send + inbound sourcing of internet data.

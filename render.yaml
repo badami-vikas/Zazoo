@@ -40,6 +40,13 @@ services:
         value: "1"
       - key: BRIDGE_COMMONS_ARCHETYPES
         value: "1"
+      # AI Harness K3 (ADR-215, TASK-047): claim substrate (entities +
+      # claims + Second Brain projection). Same honesty note as above — the
+      # flag enables the learning.claims.* surface; personal claims remain
+      # owner-scoped rows and the hosted DB only receives them for accounts
+      # that live on this plane.
+      - key: BRIDGE_CLAIM_SUBSTRATE
+        value: "1"
       # Rate limits were governed in production by the hardcoded fallbacks in
       # server.ts rateLimitConfig() because none of these were ever set. Pinned
       # here at the same values so the limits are explicit and reviewable rather

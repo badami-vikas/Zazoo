@@ -248,6 +248,10 @@ function displayResourceType(value: PendingProposal['request']['resourceType']):
     case 'external:fetch':
     case 'policy':
     case 'policy_param':
+    // K3 (TASK-047): knowledge-claim materializations surface in the pending
+    // inbox under the generic bucket — the Second Brain panel is their real
+    // decision surface.
+    case 'claim':
       return 'external';
   }
 }

@@ -52,3 +52,21 @@ test("Render Blueprint stays free-only and carries no cloud Local Plane", () => 
   assert.doesNotMatch(blueprint, /service_role|postgresql:\/\//);
   assert.match(blueprint, /previews:\s*\n\s*generation: "off"/);
 });
+
+test("the AI Harness pilot flights stay ON in the hosted blueprint", () => {
+  // Dropping a flag here silently turns the harness off for the hosted pilot
+  // with no error anywhere (each learning.* procedure just fails closed) —
+  // the same defect class the desktop sidecar's flights test guards against.
+  for (const flight of [
+    "BRIDGE_LEARNING_OBSERVATION",
+    "BRIDGE_RETRIEVAL_FUSION",
+    "BRIDGE_COMMONS_ARCHETYPES",
+    "BRIDGE_CLAIM_SUBSTRATE",
+  ]) {
+    assert.match(
+      blueprint,
+      new RegExp(`${flight}\\s*\\n\\s*value: "1"`),
+      `${flight} must be ON for the hosted pilot (AI Harness K0/K3)`,
+    );
+  }
+});

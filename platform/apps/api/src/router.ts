@@ -282,6 +282,16 @@ import {
   withCapturePaused,
   withSourceConsent,
   type CaptureConsentState,
+  acceptClaimSuggestion,
+  claimsToMemorySnippets,
+  CLAIM_ENTITY_KINDS,
+  listClaimSuggestions,
+  PROPOSABLE_CLAIM_CLASSES,
+  proposeClaimSuggestion,
+  readClaimSuggestion,
+  rejectClaimSuggestion,
+  TAINT_SENSITIVITY,
+  type ClaimProposal,
 } from "@bridge/core";
 import {
   jobsTableSpec,
@@ -4735,6 +4745,9 @@ async function assembleChatCompletion(
         memoryStore: ctx.wiring.memoryStore,
         vectorIndex: ctx.wiring.vectorIndex,
         graphStore: ctx.wiring.graphStore,
+        // K3: accepted claims join the graph lane, flight-gated separately so
+        // the substrate can be killed without touching fusion (and vice versa).
+        ...(ctx.wiring.claimSubstrateEnabled ? { claimStore: ctx.wiring.claimStore } : {}),
         organizationId: thread.organizationId,
         ownerUserId: thread.ownerUserId,
         query: message,
@@ -5858,6 +5871,24 @@ function assertLearningFlightEnabled(ctx: { wiring: Pick<Wiring, "learningObserv
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message: "learning observation flight is disabled (BRIDGE_LEARNING_OBSERVATION)",
+    });
+  }
+}
+
+function assertClaimFlightEnabled(ctx: { wiring: Pick<Wiring, "claimSubstrateEnabled"> }): void {
+  if (!ctx.wiring.claimSubstrateEnabled) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "claim substrate flight is disabled (BRIDGE_CLAIM_SUBSTRATE)",
+    });
+  }
+}
+
+function assertHumanIdentity(ctx: { identity: { type: string } }, what: string): void {
+  if (ctx.identity.type !== "user") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `${what} is a Human decision — only a user identity may do it`,
     });
   }
 }
@@ -13884,6 +13915,264 @@ export const appRouter = t.router({
         }),
     }),
 
+    /** K3 (TASK-047, ADR-215) — the knowledge substrate, minimal cut. One
+     * substrate, two projections: these procedures are the write path and the
+     * human read path over the same entities/claims rows the fusion graph
+     * lane retrieves. Claims are born as suggestions (Memory lineage, exactly
+     * like preferences) and become knowledge ONLY through Human acceptance,
+     * which traverses the governed pipeline before the store materializes
+     * anything. Red claim classes are structurally unproposable — the zod
+     * enum mirrors the core's closed union, which does not contain them. */
+    claims: t.router({
+      /** Always answerable, like `learning.status`, so clients honestly hide
+       * the surface instead of rendering dead controls. */
+      status: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          return { enabled: ctx.wiring.claimSubstrateEnabled };
+        }),
+
+      proposeClaim: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            entity: z.object({
+              kind: z.enum(CLAIM_ENTITY_KINDS),
+              name: z.string().min(1).max(200),
+              refRecordId: z.string().uuid().optional(),
+            }),
+            field: z.string().min(1).max(80),
+            value: z.string().min(1).max(400),
+            claimClass: z.enum(PROPOSABLE_CLAIM_CLASSES),
+            sensitivity: z.enum(TAINT_SENSITIVITY).default("private"),
+            evidence: z
+              .array(
+                z.object({
+                  kind: z.enum(["memory", "ledger"]),
+                  id: z.string().min(1),
+                  span: z.object({ start: z.number().int().min(0), end: z.number().int().min(0) }).optional(),
+                }),
+              )
+              .max(8)
+              .default([]),
+            validFrom: z.string().datetime().optional(),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertClaimFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          assertHumanIdentity(ctx, "Proposing a claim");
+          const claim: ClaimProposal = {
+            entity: {
+              kind: input.entity.kind,
+              name: input.entity.name,
+              refRecordId: input.entity.refRecordId ?? null,
+            },
+            field: input.field,
+            value: input.value,
+            claimClass: input.claimClass,
+            sensitivity: input.sensitivity,
+            evidence: input.evidence.map(({ kind, id, span }) => ({ kind, id, ...(span ? { span } : {}) })),
+            ...(input.validFrom ? { validFrom: input.validFrom } : {}),
+            taintLabel: labelAtSource("human_input", {
+              ref: `claim:${input.entity.kind}:${input.entity.name}:${input.field}`,
+              valueHash: hashTaintValue({ field: input.field, value: input.value }),
+              sensitivity: input.sensitivity,
+              instructionRisk: "data",
+            }),
+          };
+          const suggestion = await proposeClaimSuggestion(ctx.wiring.memoryStore, {
+            organizationId: input.organizationId,
+            ownerUserId: ctx.identity.id,
+            claim,
+            nextId: () => ctx.run.ids.next(),
+            // The persistent adapter's lineage column is uuid-typed — same
+            // mapping the preference digest uses (K0 regression class).
+            lineageIdFor: deterministicUuid,
+          });
+          return suggestion
+            ? { proposed: true as const, suggestion }
+            : { proposed: false as const, reason: "This exact claim already has a pending, accepted, or rejected proposal." };
+        }),
+
+      suggestions: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            status: z.enum(["proposed", "accepted", "rejected"]).optional(),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertClaimFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const scope = { organizationId: input.organizationId, userId: ctx.identity.id };
+          return {
+            suggestions: await listClaimSuggestions(
+              ctx.wiring.memoryStore,
+              scope,
+              input.status,
+            ),
+          };
+        }),
+
+      /** Human acceptance — the ONLY path that writes the claims table, and
+       * it traverses the governed pipeline first: reject there means no CAS
+       * transition and no row (the "direct-write fails closed" clause of the
+       * TASK-047 prototype test). Contradiction with a live same-(entity,
+       * field) claim supersedes by lineage inside the store transaction. */
+      acceptClaim: procedure
+        .input(z.object({ organizationId: z.string().min(1), suggestionMemoryId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertClaimFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          assertHumanIdentity(ctx, "Accepting a claim");
+          const scope = { organizationId: input.organizationId, userId: ctx.identity.id };
+          const row = await ctx.wiring.memoryStore.get(input.suggestionMemoryId, scope);
+          if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Claim suggestion not found" });
+          const parsed = readClaimSuggestion(row);
+          if (!parsed) throw new TRPCError({ code: "BAD_REQUEST", message: "Memory row is not a claim suggestion" });
+          if (parsed.status !== "proposed") {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Claim suggestion is already ${parsed.status}` });
+          }
+          let proposal = await ctx.wiring.pipeline.propose(
+            {
+              organizationId: input.organizationId,
+              actor: { type: ctx.identity.type, id: ctx.identity.id, plane: "local" },
+              action: "write",
+              resourceType: "claim",
+              resourceId: input.suggestionMemoryId,
+              inputs: {
+                kind: "claim_materialize",
+                suggestionMemoryId: input.suggestionMemoryId,
+                entityKind: parsed.claim.entity.kind,
+                entityName: parsed.claim.entity.name,
+                field: parsed.claim.field,
+                value: parsed.claim.value,
+                claimClass: parsed.claim.claimClass,
+                sensitivity: parsed.claim.sensitivity,
+              },
+              skill: "stageMutation",
+              dataScope: "private",
+              seed: input.suggestionMemoryId,
+            },
+            ctx.run,
+          );
+          // The Human clicking "accept" IS the review decision — record it as
+          // one, on the ledger, where the K1 miner will read it back as
+          // learning input (the spine feeding itself is the point).
+          if (proposal.status === "pending_review") {
+            proposal = await ctx.wiring.pipeline.decide(
+              proposal.id,
+              "approve",
+              { type: ctx.identity.type, id: ctx.identity.id, plane: "local" },
+              ctx.run,
+              undefined,
+              "Claim accepted by its owner",
+            );
+          }
+          if (proposal.status !== "applied") {
+            return { materialized: false as const, proposal: { id: proposal.id, status: proposal.status } };
+          }
+          const { claim } = await acceptClaimSuggestion(
+            ctx.wiring.memoryStore, scope, input.suggestionMemoryId, ctx.identity.id,
+            () => ctx.run.ids.next(),
+          );
+          const materialized = await ctx.wiring.claimStore.materializeClaim({
+            organizationId: input.organizationId,
+            ownerUserId: ctx.identity.id,
+            claim,
+            decisionRef: proposal.id,
+            createdBy: ctx.identity.id,
+          });
+          return {
+            materialized: true as const,
+            proposal: { id: proposal.id, status: proposal.status },
+            claim: materialized.claim,
+            supersededClaimId: materialized.supersededClaimId,
+          };
+        }),
+
+      rejectClaim: procedure
+        .input(z.object({ organizationId: z.string().min(1), suggestionMemoryId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertClaimFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          assertHumanIdentity(ctx, "Rejecting a claim");
+          const scope = { organizationId: input.organizationId, userId: ctx.identity.id };
+          const suggestion = await rejectClaimSuggestion(
+            ctx.wiring.memoryStore, scope, input.suggestionMemoryId, ctx.identity.id,
+            () => ctx.run.ids.next(),
+          );
+          return { suggestion };
+        }),
+
+      entities: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertClaimFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          return {
+            entities: await ctx.wiring.claimStore.listEntities(input.organizationId, ctx.identity.id),
+          };
+        }),
+
+      claims: procedure
+        .input(z.object({ organizationId: z.string().min(1), entityId: z.string().uuid().optional() }))
+        .query(async ({ input, ctx }) => {
+          assertClaimFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          return {
+            claims: await ctx.wiring.claimStore.liveClaims(
+              input.organizationId, ctx.identity.id,
+              input.entityId ? { entityId: input.entityId } : undefined,
+            ),
+          };
+        }),
+
+      /** Supersedence history for one (entity, field) — the Second Brain's
+       * "what did Bridge used to believe, and when did that change" view. */
+      claimHistory: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            entityId: z.string().uuid(),
+            field: z.string().min(1).max(80),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertClaimFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          return {
+            history: await ctx.wiring.claimStore.claimHistory(
+              input.organizationId, ctx.identity.id, input.entityId, input.field,
+            ),
+          };
+        }),
+
+      /** The user's forget path — the only true delete in the substrate. */
+      forgetClaim: procedure
+        .input(z.object({ organizationId: z.string().min(1), claimId: z.string().uuid() }))
+        .mutation(async ({ input, ctx }) => {
+          assertClaimFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          assertHumanIdentity(ctx, "Forgetting a claim");
+          const forgotten = await ctx.wiring.claimStore.deleteClaim(
+            input.organizationId, ctx.identity.id, input.claimId,
+          );
+          if (!forgotten) throw new TRPCError({ code: "NOT_FOUND", message: "Claim not found" });
+          return { forgotten: true as const };
+        }),
+    }),
+
     /** Batched mine-and-digest (AI Harness K1, ADR-212) — mines the governed
      * ledger for human decisions FIRST (the generic learning input that
      * replaced the deleted `recordDealDecision` per-module mapping), then
@@ -15619,6 +15908,73 @@ export const appRouter = t.router({
             provenance: `Task Manager queue · ${task.path}`,
           });
         }
+        // K3 (TASK-047) — the knowledge region: entities + live claims, the
+        // Second Brain projection of the SAME rows the fusion graph lane
+        // retrieves. Flight-gated and owner-scoped to the viewer; a "full"
+        // graph that hid accepted knowledge would break the one-substrate
+        // trust property ("what you see is what the model retrieves").
+        const claimEdges: Array<{ sourceId: string; targetId: string; label: string; relationType: string; evidence: string }> = [];
+        if (ctx.wiring.claimSubstrateEnabled) {
+          const [claimEntities, claimRows] = await Promise.all([
+            ctx.wiring.claimStore.listEntities(input.organizationId, ctx.identity.id),
+            ctx.wiring.claimStore.liveClaims(input.organizationId, ctx.identity.id),
+          ]);
+          const claimsByEntity = new Map<string, number>();
+          for (const claim of claimRows) {
+            claimsByEntity.set(claim.entityId, (claimsByEntity.get(claim.entityId) ?? 0) + 1);
+          }
+          for (const entity of claimEntities.slice(0, input.limit)) {
+            const nodeId = `claim-entity:${entity.id}`;
+            const liveCount = claimsByEntity.get(entity.id) ?? 0;
+            nodes.set(nodeId, {
+              id: nodeId,
+              recordId: entity.id,
+              recordType: "claim_entity",
+              label: entity.name,
+              databaseId: "claims.entities",
+              databaseLabel: "Claims",
+              moduleId: "learning",
+              subtitle: `${entity.kind} · ${liveCount} ${liveCount === 1 ? "claim" : "claims"}`,
+              provenance: "Claim substrate · governed, Human-accepted",
+            });
+            // The entity is ABOUT an existing region row — link the regions
+            // rather than copying them (the relationship graph becomes one
+            // region of the whole, ADR-210).
+            const regionNodeId = entity.refRecordId ? `${entity.kind}:${entity.refRecordId}` : null;
+            if (regionNodeId && nodes.has(regionNodeId)) {
+              claimEdges.push({
+                sourceId: nodeId,
+                targetId: regionNodeId,
+                label: "about",
+                relationType: "claim_about",
+                evidence: `Claim entity ${entity.name}`,
+              });
+            }
+          }
+          for (const claim of claimRows.slice(0, input.limit)) {
+            const entityNodeId = `claim-entity:${claim.entityId}`;
+            if (!nodes.has(entityNodeId)) continue;
+            const nodeId = `claim:${claim.id}`;
+            nodes.set(nodeId, {
+              id: nodeId,
+              recordId: claim.id,
+              recordType: "claim",
+              label: `${claim.field}: ${claim.value}`,
+              databaseId: "claims.rows",
+              databaseLabel: "Claims",
+              moduleId: "learning",
+              subtitle: `${claim.claimClass} · ${claim.sensitivity}`,
+              provenance: `Accepted ${new Date(claim.recordedAt).toISOString().slice(0, 10)} · ${claim.evidence.length} evidence ref${claim.evidence.length === 1 ? "" : "s"} · decision ${claim.decisionRef.slice(0, 8)}`,
+            });
+            claimEdges.push({
+              sourceId: nodeId,
+              targetId: entityNodeId,
+              label: "claim of",
+              relationType: "claim_of",
+              evidence: `Governed claim · decision ${claim.decisionRef.slice(0, 8)}`,
+            });
+          }
+        }
         for (const [id, node] of nodes) {
           if (node.recordPath || !nodes.has(`module:${node.moduleId}`)) continue;
           nodes.set(id, { ...node, recordPath: `/module/${node.moduleId}` });
@@ -15666,6 +16022,18 @@ export const appRouter = t.router({
             recordPath: `/task-manager/${dependency.taskId}`,
           });
         }
+        for (const claimEdge of claimEdges) {
+          const id = `${claimEdge.relationType}:${claimEdge.sourceId}:${claimEdge.targetId}`;
+          edges.set(id, {
+            id,
+            sourceId: claimEdge.sourceId,
+            targetId: claimEdge.targetId,
+            label: claimEdge.label,
+            relationType: claimEdge.relationType,
+            sourceModule: "learning",
+            evidence: claimEdge.evidence,
+          });
+        }
         for (const node of nodes.values()) {
           if (node.recordType === "module") continue;
           const moduleNodeId = `module:${node.moduleId}`;
@@ -15696,6 +16064,10 @@ export const appRouter = t.router({
             label: "Tasks",
             moduleId: "task-manager",
           });
+        }
+        if (composedNodes.some((node) => node.recordType === "claim_entity" || node.recordType === "claim")) {
+          databases.set("claims.entities", { id: "claims.entities", label: "Claims", moduleId: "learning" });
+          databases.set("claims.rows", { id: "claims.rows", label: "Claims", moduleId: "learning" });
         }
         return {
           nodes: composedNodes,

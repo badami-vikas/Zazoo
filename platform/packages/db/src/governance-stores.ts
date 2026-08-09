@@ -550,6 +550,55 @@ export async function ensureRelationshipUserGovernance(
   );
 }
 
+/** Idempotently grants only the Human principal the K3 knowledge-substrate
+ * write surface (TASK-047): claim materialization proposes on
+ * `claim`/`write`, and the ACCEPTING HUMAN is the actor — agents
+ * hold no grant here, so an agent-authored claim is unreachable at the
+ * authority layer on top of being unproposable at the type layer. */
+export async function ensureClaimUserGovernance(
+  db: Database,
+  config: PrincipalGovernanceConfig,
+): Promise<void> {
+  const grant = { resourceType: "claim", action: "write" } as const;
+  await withOrganizationContext(
+    db,
+    { organizationId: config.organizationId, userId: config.userId },
+    async (tx) => {
+      await tx
+        .insert(permissions)
+        .values({
+          id: stableGovernanceId(
+            `principal:${config.organizationId}:${config.userId}:${grant.resourceType}:${grant.action}`,
+          ),
+          organizationId: config.organizationId,
+          actorType: "user",
+          actorId: config.userId,
+          resourceType: grant.resourceType,
+          resourceId: null,
+          action: grant.action,
+          effect: "allow",
+          grantedBy: config.userId,
+        })
+        .onConflictDoNothing();
+      const direct = await new DrizzleRoleStore(tx).directGrants(
+        config.organizationId,
+        { type: "user", id: config.userId },
+      );
+      if (
+        !direct.some(
+          (actual) =>
+            actual.resourceType === grant.resourceType &&
+            actual.resourceId === null &&
+            actual.action === grant.action &&
+            actual.effect === "allow",
+        )
+      ) {
+        throw new Error("Persistent claim write grant provisioning failed");
+      }
+    },
+  );
+}
+
 /**
  * Idempotently provisions and verifies the persistent Learning Agent authority
  * used by onboarding.

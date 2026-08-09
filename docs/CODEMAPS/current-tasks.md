@@ -24,7 +24,6 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-041 | ready | P2 | Pending Tests — live verification backlog | non-task gate (see TASKS.md) |
 | TASK-042 | ready | P2 | Input-pack regeneration tests for Skills, Modules, and Integrations | TASK-033 |
 | TASK-043 | ready | P2 | Constitution enforcement mechanisms (ADR-176 adopt-list) | non-task gate (see TASKS.md) |
-| TASK-047 | ready | P1 | K3 — Knowledge substrate: entities, claims, consolidation | TASK-044 |
 | TASK-048 | ready | P2 | K4 — Continuous context: fusion feeds every run | TASK-044, TASK-047, TASK-043 |
 | TASK-049 | ready | P2 | K5 — Capture: email + calendar signals, metadata-first | TASK-044 |
 | TASK-050 | ready | P2 | K6 — Recommendation rhythm: morning brief + commitments | TASK-047, TASK-049 |
@@ -32,3 +31,9 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-052 | ready | P3 | K8 — Capture: browser extension, domain/title first | TASK-044 |
 | TASK-053 | ready | P2 | K9 — Builder ladder: rung 3 steps, rung 4 structures | TASK-045, TASK-047, TASK-042 |
 | TASK-054 | blocked | P3 | K11 — EG4 sensor tier: input, screen, ambient voice | TASK-043, TASK-051 |
+| TASK-055 | ready | P3 | Companion trigger and capture parity — Fn hold, double-click listen, on-request recording | TASK-027 |
+| TASK-056 | ready | P2 | Multi-app automation for the background agent | TASK-028 |
+| TASK-057 | ready | P2 | Companion-triggered integrations | TASK-026, TASK-027 |
+| TASK-058 | ready | P3 | Companion as Bridge's universal expression surface (convergence) | TASK-056, TASK-057 |
+| TASK-059 | ready | P3 | Avatar text replacement | TASK-027 |
+| TASK-060 | ready | P3 | opensrc-backed code research for Builder Agent and Learning Agent | TASK-023 |

@@ -69,6 +69,7 @@ export * from "./learning/source-emitters.js";
 export * from "./learning/retrieval.js";
 export * from "./learning/archetype.js";
 export * from "./learning/promotion.js";
+export * from "./learning/claims.js";
 export * from "./chat-store.js";
 export * from "./search-provider.js";
 export * from "./skills.js";

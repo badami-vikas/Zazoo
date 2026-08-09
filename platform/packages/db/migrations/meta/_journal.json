@@ -274,6 +274,13 @@
       "when": 1786195045031,
       "tag": "0039_task021_task_dependencies",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786298852413,
+      "tag": "0040_k3_claim_substrate",
+      "breakpoints": true
     }
   ]
 }
