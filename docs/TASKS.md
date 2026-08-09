@@ -767,16 +767,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K2 — Capture: local stores emit learning signals
 - ID: TASK-046
-- Status: ready
+- Status: done
 - Priority: P2
 - Horizon: Core Modules
 - Outcome: Chat threads and the WhatsApp local store emit learning signals under per-source consent toggles that default OFF — data Bridge already holds locally gains a new USE only through a new consent surface.
 - Prototype test: with a source's toggle off, no signal is emitted from it (asserted, not assumed); flipping the toggle on emits signals from that source only; the toggle rows are inspectable and the emitted signals are deletable Memory.
 - Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K2; chat store + WhatsApp store (TASK-029/030 surfaces).
-- Evidence: invariants section of the harness plan (consent toggle default off, inspectable/deletable Memory).
-- Requests: user directive 2026-08-09 ("start on AI harness")
-- Approval: AP-131 APPLIED
+- Evidence: invariants section of the harness plan (consent toggle default off, inspectable/deletable Memory). DONE 2026-08-09 (ADR-214, AP-134): core `learning/capture-consent.ts` (fail-closed parser, pause kill switch, per-source changedAt/changedBy) + `learning/source-emitters.ts` (envelope types that cannot express message text; inbound and cloud-plane map to null; attributes timeOfDay + surface/chatKind only), 9/9 with five mutations seen RED; emission in `chat.turn.send` (user turn only) and `whatsapp.ingestMessages` (outbound only) with deterministic ids, `learning.capture.status/setSource/setPaused` Human-only, api 7/7 with consent-bypass (4 RED) and body-leak (privacy RED) mutations; Settings `CaptureConsentCard`; turbo 72/72; live HTTP walk on the durable plane: default off → consent-OFF ingest emitted nothing → flip recorded → consent-ON produced send×3/chatKind suggestion with no message text → evidence signal deleted live → pause silenced with consent intact → chat consent produced converse×3/chat_panel.
+- Requests: user directive 2026-08-09 ("start on AI harness"; continuation "keep implementing and pushing to main", stop-point "After K2 stop")
+- Approval: AP-131 APPLIED; AP-134 APPLIED (the slice itself)
 - Dependencies: TASK-044
+- Honest residual: live chat turns' model step failed on this machine (no local model) — the user turn and its signal persisted before that step, which is what the walk asserts; the Settings card is typecheck/build-verified, not browser-walked; WhatsApp signals attribute to the ingesting identity (ADR-212's named single-tenant gap); timeOfDay buckets on the API process's local clock.
 
 ## K3 — Knowledge substrate: entities, claims, consolidation
 - ID: TASK-047

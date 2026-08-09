@@ -26,6 +26,7 @@
  *    rejected) is never re-proposed.
  */
 import type { RetrievedMemorySnippet } from "../run-context.js";
+import type { TaintLabel } from "../taint.js";
 import type {
   MemoryAuthScope,
   MemoryEntry,
@@ -50,6 +51,10 @@ export interface ObservedSignal {
   /** Optional verbatim user-stated reason (kept as data, never instructions). */
   reason?: string;
   observedAt?: string;
+  /** Taint label carried from the SOURCE interaction (K2 capture invariant:
+   * "taint-labeled at source"). Ledger-mined signals omit it — their rows
+   * derive labels from `trustOrigin` at retrieval like before. */
+  taintLabel?: TaintLabel;
 }
 
 /** A repeated pattern the digest detected: the same action over the same
@@ -122,6 +127,7 @@ export async function recordSignal(store: MemoryStore, signal: ObservedSignal): 
     createdBy: signal.ownerUserId,
     ownerUserId: signal.ownerUserId,
     ...(signal.observedAt ? { createdAt: signal.observedAt } : {}),
+    ...(signal.taintLabel ? { taintLabel: signal.taintLabel } : {}),
   });
 }
 

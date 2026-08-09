@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T07:40:08.088Z",
+  "generatedAt": "2026-08-09T15:39:15.735Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1510,7 +1510,7 @@
     {
       "id": "TASK-046",
       "title": "TASK-046 — K2 — Capture: local stores emit learning signals",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Core Modules",
       "outcome": "Chat threads and the WhatsApp local store emit learning signals under per-source consent toggles that default OFF — data Bridge already holds locally gains a new USE only through a new consent surface.",
@@ -1520,16 +1520,23 @@
         "chat store + WhatsApp store (TASK-029/030 surfaces)."
       ],
       "evidence": [
-        "invariants section of the harness plan (consent toggle default off, inspectable/deletable Memory)."
+        "invariants section of the harness plan (consent toggle default off, inspectable/deletable Memory). DONE 2026-08-09 (ADR-214, AP-134): core `learning/capture-consent.ts` (fail-closed parser, pause kill switch, per-source changedAt/changedBy) + `learning/source-emitters.ts` (envelope types that cannot express message text",
+        "inbound and cloud-plane map to null",
+        "attributes timeOfDay + surface/chatKind only), 9/9 with five mutations seen RED",
+        "emission in `chat.turn.send` (user turn only) and `whatsapp.ingestMessages` (outbound only) with deterministic ids, `learning.capture.status/setSource/setPaused` Human-only, api 7/7 with consent-bypass (4 RED) and body-leak (privacy RED) mutations",
+        "Settings `CaptureConsentCard`",
+        "turbo 72/72",
+        "live HTTP walk on the durable plane: default off → consent-OFF ingest emitted nothing → flip recorded → consent-ON produced send×3/chatKind suggestion with no message text → evidence signal deleted live → pause silenced with consent intact → chat consent produced converse×3/chat_panel."
       ],
       "requests": [
-        "user directive 2026-08-09 (\"start on AI harness\")"
+        "user directive 2026-08-09 (\"start on AI harness\"",
+        "continuation \"keep implementing and pushing to main\", stop-point \"After K2 stop\")"
       ],
-      "approval": "AP-131 APPLIED",
+      "approval": "AP-131 APPLIED; AP-134 APPLIED (the slice itself)",
       "dependencies": [
         "TASK-044"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 769,
@@ -1560,7 +1567,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 782,
+      "sourceLine": 783,
       "rank": 47
     },
     {
@@ -1590,7 +1597,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 795,
+      "sourceLine": 796,
       "rank": 48
     },
     {
@@ -1618,7 +1625,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 808,
+      "sourceLine": 809,
       "rank": 49
     },
     {
@@ -1647,7 +1654,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 821,
+      "sourceLine": 822,
       "rank": 50
     },
     {
@@ -1676,7 +1683,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 834,
+      "sourceLine": 835,
       "rank": 51
     },
     {
@@ -1704,7 +1711,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 847,
+      "sourceLine": 848,
       "rank": 52
     },
     {
@@ -1733,7 +1740,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 860,
+      "sourceLine": 861,
       "rank": 53
     },
     {
@@ -1762,7 +1769,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 873,
+      "sourceLine": 874,
       "rank": 54
     }
   ]

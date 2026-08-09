@@ -844,6 +844,18 @@ export function ledgerSignalId(ledgerDecisionId: string): string {
   return deterministicUuid(`learning:signal:ledger:${ledgerDecisionId}`);
 }
 
+/** Deterministic signal ids for the K2 capture emitters (@bridge/core
+ * learning/source-emitters) — same idempotency contract as `ledgerSignalId`:
+ * a replayed chat turn or a re-ingested WhatsApp window derives the same id
+ * and is skipped, so neither emission point needs a cursor to be safe. */
+export function chatCaptureSignalId(turnId: string): string {
+  return deterministicUuid(`learning:signal:chat:${turnId}`);
+}
+
+export function whatsAppCaptureSignalId(messageId: string): string {
+  return deterministicUuid(`learning:signal:whatsapp:${messageId}`);
+}
+
 function createObservationDigestSkill(deps: {
   memoryStore: MemoryStore;
   ledger: LedgerStore;

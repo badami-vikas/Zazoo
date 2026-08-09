@@ -86,6 +86,8 @@ import {
   PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE,
   PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE,
   ledgerSignalId,
+  chatCaptureSignalId,
+  whatsAppCaptureSignalId,
   resolveLocalPlanningModel,
   type Wiring,
 } from "./wiring.js";
@@ -271,6 +273,15 @@ import {
   preferencesToMemorySnippets,
   rejectSuggestion as rejectLearningSuggestion,
   retrieveLearnedPreferences,
+  CAPTURE_SOURCES,
+  captureAllowed,
+  chatTurnCaptureSignal,
+  readCaptureConsent,
+  recordSignal as recordCaptureSignal,
+  whatsAppMessageCaptureSignal,
+  withCapturePaused,
+  withSourceConsent,
+  type CaptureConsentState,
 } from "@bridge/core";
 import {
   jobsTableSpec,
@@ -413,6 +424,25 @@ const WHATSAPP_SOURCE = "whatsapp";
 
 /** Local state-store namespace holding the per-chat message sync cursors. */
 const WHATSAPP_SYNC_NAMESPACE = "whatsapp:message-sync";
+
+/** Local state-store namespace holding the K2 per-source capture-consent
+ * state (@bridge/core learning/capture-consent). Local Plane by residency:
+ * consent to use local data lives beside the data it governs, and the
+ * public-cloud shell never evaluates it (every `learning.*` procedure is
+ * local-only in deployment-boundary.ts). */
+const LEARNING_CAPTURE_CONSENT_NAMESPACE = "learning:capture-consent";
+
+/** Read the current capture-consent state, failing CLOSED: a missing or
+ * unreadable row is the default all-off state (the core parser's contract,
+ * mutation-checked there). */
+async function readCaptureConsentState(
+  wiring: Pick<Wiring, "localPlane">,
+  organizationId: string,
+): Promise<CaptureConsentState> {
+  return readCaptureConsent(
+    await wiring.localPlane.state.read(organizationId, LEARNING_CAPTURE_CONSENT_NAMESPACE),
+  );
+}
 
 /**
  * Append one row to the WhatsApp audit log, on the LOCAL plane.
@@ -6221,6 +6251,36 @@ export const appRouter = t.router({
             clientRequestId: input.clientRequestId,
             taintLabel,
           });
+          // AI Harness K2 (TASK-046): the owner's own turn becomes an
+          // envelope-only learning signal — flight on, LOCAL thread, and the
+          // chat source's consent explicitly ON (default off). The mapper's
+          // envelope type cannot express `content`, so the message text has
+          // no path into the signal row; the deterministic id makes a
+          // replayed clientRequestId a no-op. Same durability plane as the
+          // turn write above, so no catch: if the Memory store is down the
+          // request is already failing.
+          if (ctx.wiring.learningObservationEnabled && thread.plane === "local") {
+            const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
+            if (captureAllowed(consent, "chat")) {
+              const signalId = chatCaptureSignalId(userTurnId);
+              const owner = { organizationId: input.organizationId, userId: thread.ownerUserId };
+              if (!(await ctx.wiring.memoryStore.get(signalId, owner))) {
+                const signal = chatTurnCaptureSignal(
+                  {
+                    turnId: userTurnId,
+                    threadId: thread.id,
+                    plane: thread.plane,
+                    surface: input.surface?.kind ?? "chat_panel",
+                    sentAt: new Date().toISOString(),
+                    taintLabel,
+                  },
+                  owner,
+                  signalId,
+                );
+                if (signal) await recordCaptureSignal(ctx.wiring.memoryStore, signal);
+              }
+            }
+          }
           const assistantTurn = await ctx.wiring.chatStore.appendTurn(scope, {
             id: assistantTurnId,
             threadId: thread.id,
@@ -9925,6 +9985,51 @@ export const appRouter = t.router({
               ...Object.fromEntries(refusedByReason.map(([reason, count]) => [`refused_${reason}`, count])),
             },
           });
+        }
+
+        // AI Harness K2 (TASK-046): the owner's own OUTBOUND messages become
+        // envelope-only learning signals — flight on and the whatsapp
+        // source's consent explicitly ON (default off). Inbound is someone
+        // else's act and never emits (the mapper enforces it; the loop skips
+        // it early to avoid pointless id derivations). The mapper's envelope
+        // type cannot express `body`, so message text has no path into a
+        // signal row; deterministic ids make a re-ingested window a no-op.
+        // Bounded by construction: `fresh` is capped by the input's own
+        // 1,000-message ceiling.
+        if (ctx.wiring.learningObservationEnabled) {
+          const consent = await readCaptureConsentState(ctx.wiring, organizationId);
+          if (captureAllowed(consent, "whatsapp")) {
+            const owner = { organizationId, userId: ctx.identity.id };
+            for (const message of fresh) {
+              if (message.direction !== "outbound") continue;
+              const signalId = whatsAppCaptureSignalId(message.messageId);
+              if (await ctx.wiring.memoryStore.get(signalId, owner)) continue;
+              const signal = whatsAppMessageCaptureSignal(
+                {
+                  messageId: message.messageId,
+                  chatId: message.chatId,
+                  direction: message.direction,
+                  isGroup: input.isGroup ?? false,
+                  sentAt: message.sentAt,
+                  capturedAt: input.capturedAt,
+                  // Taint-labeled at source: the owner's own outbound act,
+                  // hashed over envelope facts only — never the body.
+                  taintLabel: labelAtSource("human_input", {
+                    ref: `whatsapp:${message.chatId}:${message.messageId}`,
+                    valueHash: hashTaintValue({
+                      messageId: message.messageId,
+                      direction: message.direction,
+                    }),
+                    sensitivity: "private",
+                    instructionRisk: "data",
+                  }),
+                },
+                owner,
+                signalId,
+              );
+              if (signal) await recordCaptureSignal(ctx.wiring.memoryStore, signal);
+            }
+          }
         }
 
         return {
@@ -13679,6 +13784,95 @@ export const appRouter = t.router({
         assertPilotOrganization(input.organizationId);
         return { enabled: ctx.wiring.learningObservationEnabled };
       }),
+
+    /** K2 (TASK-046) — per-source capture consent. Bridge already HOLDS chat
+     * threads and WhatsApp messages locally; emitting learning signals from
+     * them is a NEW use, so it gets its own consent surface: default off,
+     * per-source, with a kill switch that silences everything without
+     * rewriting anyone's choices. Consent is a HUMAN decision — an agent or
+     * team identity cannot flip these. */
+    capture: t.router({
+      /** Always answerable (flight off included), like `learning.status`,
+       * so clients can honestly hide the toggles instead of rendering dead
+       * controls. */
+      status: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const state = await readCaptureConsentState(ctx.wiring, input.organizationId);
+          return {
+            enabled: ctx.wiring.learningObservationEnabled,
+            paused: state.paused,
+            pausedChangedAt: state.pausedChangedAt,
+            pausedChangedBy: state.pausedChangedBy,
+            sources: state.sources,
+          };
+        }),
+
+      setSource: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            source: z.enum(CAPTURE_SOURCES),
+            enabled: z.boolean(),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertLearningFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          if (ctx.identity.type !== "user") {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Capture consent is a Human decision — only a user identity may change it",
+            });
+          }
+          const changedBy = ctx.identity.id;
+          const changedAt = new Date().toISOString();
+          const state = await ctx.wiring.localPlane.state.update<CaptureConsentState>(
+            input.organizationId,
+            LEARNING_CAPTURE_CONSENT_NAMESPACE,
+            null,
+            (current) => {
+              const next = withSourceConsent(
+                readCaptureConsent(current),
+                input.source,
+                input.enabled,
+                changedBy,
+                changedAt,
+              );
+              return { state: next, result: next };
+            },
+          );
+          return { paused: state.paused, sources: state.sources };
+        }),
+
+      setPaused: procedure
+        .input(z.object({ organizationId: z.string().min(1), paused: z.boolean() }))
+        .mutation(async ({ input, ctx }) => {
+          assertLearningFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          if (ctx.identity.type !== "user") {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "The capture kill switch is a Human decision — only a user identity may change it",
+            });
+          }
+          const changedBy = ctx.identity.id;
+          const changedAt = new Date().toISOString();
+          const state = await ctx.wiring.localPlane.state.update<CaptureConsentState>(
+            input.organizationId,
+            LEARNING_CAPTURE_CONSENT_NAMESPACE,
+            null,
+            (current) => {
+              const next = withCapturePaused(readCaptureConsent(current), input.paused, changedBy, changedAt);
+              return { state: next, result: next };
+            },
+          );
+          return { paused: state.paused, sources: state.sources };
+        }),
+    }),
 
     /** Batched mine-and-digest (AI Harness K1, ADR-212) — mines the governed
      * ledger for human decisions FIRST (the generic learning input that

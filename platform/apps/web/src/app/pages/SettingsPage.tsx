@@ -195,6 +195,7 @@ function LearningSection() {
           )}
         </div>
       </Card>
+      <CaptureConsentCard />
       <ObservedLearningCard />
       <AutomationDraftsCard />
       <RetrievalQualityCard />
@@ -269,6 +270,109 @@ type LearningPreferenceList = Awaited<ReturnType<typeof trpc.learning.preference
 type PromotionSuggestionList = Awaited<ReturnType<typeof trpc.learning.promotions.list.query>>;
 type PromotionDraftList = Awaited<ReturnType<typeof trpc.learning.promotions.drafts.list.query>>;
 type RetrievalEvalList = Awaited<ReturnType<typeof trpc.learning.retrieval.evals.query>>;
+
+type CaptureStatus = Awaited<ReturnType<typeof trpc.learning.capture.status.query>>;
+
+const CAPTURE_SOURCE_COPY: Record<
+  "chat" | "whatsapp",
+  { label: string; description: string }
+> = {
+  chat: {
+    label: "Chat threads",
+    description: "Your own sent turns become behavior signals (surface and time of day only — never the message text).",
+  },
+  whatsapp: {
+    label: "WhatsApp messages",
+    description: "Your own outbound messages become behavior signals (group/direct and time of day only — never the message body, never anyone else's messages).",
+  },
+};
+
+/**
+ * K2 (TASK-046) — per-source capture consent. Bridge already HOLDS this data
+ * locally; learning from it is a NEW use, so each source is an explicit
+ * opt-in that defaults OFF, with a kill switch that silences everything
+ * without rewriting the per-source choices. Hides itself while the learning
+ * flight is off — no dead controls. Every emitted signal is inspectable,
+ * deletable Memory (the Observed patterns card below is that surface).
+ */
+function CaptureConsentCard() {
+  const [status, setStatus] = useState<CaptureStatus | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  function refresh() {
+    trpc.learning.capture.status
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then(setStatus)
+      .catch(() => setStatus(null)); // unreachable API = render nothing dead
+  }
+  useEffect(refresh, []);
+
+  if (!status?.enabled) return null;
+
+  async function flipSource(source: "chat" | "whatsapp", enabled: boolean) {
+    await trpc.learning.capture.setSource.mutate({ organizationId: PILOT_ORGANIZATION, source, enabled });
+    setMessage(
+      enabled
+        ? `${CAPTURE_SOURCE_COPY[source].label} will now emit behavior signals. Turn it off here at any time.`
+        : `${CAPTURE_SOURCE_COPY[source].label} stopped emitting. Already-emitted signals stay deletable below.`,
+    );
+    refresh();
+  }
+
+  async function flipPause(paused: boolean) {
+    await trpc.learning.capture.setPaused.mutate({ organizationId: PILOT_ORGANIZATION, paused });
+    setMessage(paused ? "All capture paused. Your per-source choices are kept." : "Capture resumed with your previous choices.");
+    refresh();
+  }
+
+  return (
+    <Card>
+      <div className="p-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold text-sm text-[var(--color-navy)]">Learn from my activity</div>
+          <button
+            type="button"
+            onClick={() => void flipPause(!status.paused)}
+            className={`text-xs font-semibold px-3 py-2 rounded-lg border ${status.paused ? "text-red-600" : ""}`}
+          >
+            {status.paused ? "Paused — resume" : "Pause all"}
+          </button>
+        </div>
+        <p className="text-xs text-[var(--color-navy-mid)]">
+          Off by default. Each source is a separate consent; turning one on lets Bridge notice YOUR OWN rhythms in data
+          it already holds locally. Signals are envelope-only (never message text), private, Local Plane, and deletable.
+        </p>
+        {(["chat", "whatsapp"] as const).map((source) => {
+          const row = status.sources[source];
+          return (
+            <div key={source} className="rounded-lg border p-3 flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">{CAPTURE_SOURCE_COPY[source].label}</p>
+                <p className="text-xs text-[var(--color-warm-gray)]">{CAPTURE_SOURCE_COPY[source].description}</p>
+                {row.changedAt && (
+                  <p className="text-xs text-[var(--color-warm-gray)]">
+                    {row.enabled ? "Enabled" : "Disabled"} {new Date(row.changedAt).toLocaleString()} by {row.changedBy}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => void flipSource(source, !row.enabled)}
+                disabled={status.paused}
+                className={`text-xs font-semibold px-3 py-2 rounded-lg shrink-0 ${
+                  row.enabled ? "bg-[var(--color-steel)] text-white" : "border"
+                } ${status.paused ? "opacity-50" : ""}`}
+              >
+                {row.enabled ? "On" : "Off"}
+              </button>
+            </div>
+          );
+        })}
+        {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
+      </div>
+    </Card>
+  );
+}
 
 /**
  * TASK-032 — observed-learning review: the "your Egg noticed a pattern — keep

@@ -24,7 +24,6 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-041 | ready | P2 | Pending Tests — live verification backlog | non-task gate (see TASKS.md) |
 | TASK-042 | ready | P2 | Input-pack regeneration tests for Skills, Modules, and Integrations | TASK-033 |
 | TASK-043 | ready | P2 | Constitution enforcement mechanisms (ADR-176 adopt-list) | non-task gate (see TASKS.md) |
-| TASK-046 | ready | P2 | K2 — Capture: local stores emit learning signals | TASK-044 |
 | TASK-047 | ready | P1 | K3 — Knowledge substrate: entities, claims, consolidation | TASK-044 |
 | TASK-048 | ready | P2 | K4 — Continuous context: fusion feeds every run | TASK-044, TASK-047, TASK-043 |
 | TASK-049 | ready | P2 | K5 — Capture: email + calendar signals, metadata-first | TASK-044 |
