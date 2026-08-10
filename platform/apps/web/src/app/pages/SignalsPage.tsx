@@ -149,31 +149,16 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
       {!embedded && <Header tabs={[{ id: "Signals", icon: Radio }]} activeTab="Signals" onTabChange={() => {}} />}
 
-      <div
-        className="flex items-center justify-between border-b px-4 py-2"
-        style={{ borderColor: "var(--color-border)", backgroundColor: "white" }}
-      >
-        <h2 className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>All Signals</h2>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="rounded-md border px-2.5 py-1.5 text-xs font-medium"
-            style={{ borderColor: "var(--color-border)" }}
-            onClick={() => setInsightsOpen((open) => !open)}
-          >
-            {insightsOpen ? "Hide insights" : "Show insights"}
-          </button>
-          {/* ADR-180: the 3-dots menu held exactly ONE item — a link to Module
-              Detail — which the scroll-revealed Intelligence Section below the
-              table already offers as "Manage in Module Detail". A menu button
-              whose only entry is a duplicate is interactive-looking UI that
-              adds nothing, so the whole control is gone rather than left
-              opening an empty menu. */}
-        </div>
-      </div>
+      {/* No "All Signals" header bar: the tab strip above already says Signals,
+          so the row restated it and existed only to host a labelled "Hide
+          insights" button. The toggle now lives as a chevron inside the
+          insights section itself.
+          ADR-180 removed the 3-dots menu here — its single item duplicated the
+          Intelligence Section's "Manage in Module Detail". */}
       <CollapsibleInsights
         expanded={insightsOpen}
         metrics={metrics}
+        onToggle={() => setInsightsOpen((open) => !open)}
       />
       {refreshError && (
         <div role="alert" className="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

@@ -26,6 +26,7 @@
  * because their values are computed server-side.
  */
 import { useEffect, useMemo, useState } from "react";
+import { Share2, X } from "lucide-react";
 import { formatLocationInput, type ColumnSpec } from "@bridge/tables";
 import { Button } from "../../components/ui/button.js";
 import { Input } from "../../components/ui/input.js";
@@ -210,6 +211,9 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
   );
   const [draft, setDraft] = useState<Partial<DataRow>>(resetDraft);
   const [submitting, setSubmitting] = useState(false);
+  const [formMode, setFormMode] = useState<"build" | "preview">("preview");
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareFormOnly, setShareFormOnly] = useState(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
 
@@ -254,7 +258,7 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
     try {
       if (rowId) await onUpdate?.(rowId, draft);
       else await onInsert?.(draft);
-      setSubmitSuccess(rowId ? "Changes saved." : "Row added.");
+      setSubmitSuccess(rowId ? "Changes saved." : "Record added.");
       if (!rowId) setDraft(resetDraft);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "The row could not be saved.");
@@ -263,8 +267,92 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
     }
   }
 
+  const formTitle = `${spec.id.split(".").pop()?.replace(/[-_]/g, " ") ?? "Record"} intake form`;
+
   return (
+    <div className="flex h-full min-h-0 gap-4">
+      <div className="min-w-0 flex-1 overflow-auto">
+        {/* Build / Preview. Build lists the fields the spec produces and says
+            where they come from; it is NOT a drag-and-drop builder, because the
+            field set is derived from the Database's ColumnSpec and there is no
+            governed schema-mutation capability on this surface to change it
+            (AP-021 — explain rather than offer a control that cannot act). */}
+        <div className="mb-4 flex items-center gap-3">
+          <div
+            role="tablist"
+            aria-label="Form mode"
+            className="inline-flex items-center gap-1 rounded-lg border p-0.5"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            {(["build", "preview"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={formMode === mode}
+                onClick={() => setFormMode(mode)}
+                className="rounded-md px-3 py-1 text-[12.5px] font-medium capitalize"
+                style={
+                  formMode === mode
+                    ? { background: "var(--color-line-soft)", color: "var(--color-navy)" }
+                    : { color: "var(--color-warm-gray)" }
+                }
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+          <span className="text-[12.5px] capitalize" style={{ color: "var(--color-warm-gray)" }}>
+            {formTitle}
+          </span>
+          <button
+            type="button"
+            onClick={() => setShareOpen((open) => !open)}
+            aria-expanded={shareOpen}
+            className="ml-auto flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12.5px] font-medium"
+            style={{ borderColor: "var(--color-border)", color: "var(--color-navy-mid)" }}
+          >
+            <Share2 className="size-3.5" /> Share
+          </button>
+        </div>
+
+        {formMode === "build" ? (
+          <div className="max-w-lg rounded-md border p-5" style={{ borderColor: "var(--color-border)" }}>
+            <h3 className="text-sm font-semibold capitalize" style={{ color: "var(--color-navy)" }}>
+              {formTitle}
+            </h3>
+            <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+              These fields come from the Database's columns, so the form and the table can
+              never disagree about what a Record holds. Changing the field set means changing
+              the columns, which this surface has no governed capability to do.
+            </p>
+            <ul className="mt-4 divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+              {editableColumns.map((col) => (
+                <li key={col.id} className="flex items-center justify-between gap-4 px-3 py-2">
+                  <span className="text-[13px]" style={{ color: "var(--color-navy)" }}>
+                    {col.label}
+                    {col.required && <span aria-hidden="true" className="text-destructive"> *</span>}
+                  </span>
+                  <span className="text-[11px] uppercase tracking-[0.06em]" style={{ color: "var(--color-warm-gray)" }}>
+                    {col.kind}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
     <form onSubmit={handleSubmit} className="space-y-4 max-w-lg border rounded-md p-5">
+      <div className="border-b pb-3" style={{ borderColor: "var(--color-border)" }}>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.07em]" style={{ color: "var(--color-warm-gray)" }}>
+          Intake
+        </div>
+        <h3 className="mt-1 text-lg font-semibold capitalize" style={{ color: "var(--color-navy)" }}>
+          {formTitle}
+        </h3>
+        <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+          Fields marked <span className="text-destructive">*</span> are required.
+        </p>
+      </div>
       {editableColumns.map((col) => (
         <div key={col.id} className="space-y-1.5">
           <Label htmlFor={`form-field-${col.id}`} className="text-sm font-medium">
@@ -286,7 +374,7 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
         size="sm"
         disabled={submitting || (formRecord ? !onUpdate : !onInsert)}
       >
-        {submitting ? "Saving…" : formRecord ? "Save changes" : "Add row"}
+        {submitting ? "Saving…" : formRecord ? "Save changes" : "Add record"}
       </Button>
 
       {!formRecord && !onInsert && (
@@ -305,5 +393,115 @@ export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataVie
         </p>
       )}
     </form>
+        )}
+      </div>
+
+      {shareOpen && (
+        <aside
+          aria-label="Share form"
+          className="w-80 shrink-0 overflow-auto rounded-xl border p-4"
+          style={{ borderColor: "var(--color-border)", background: "var(--popover)" }}
+        >
+          <div className="flex items-center gap-2">
+            <Share2 className="size-4" />
+            <h3 className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>Share</h3>
+            <button
+              type="button"
+              onClick={() => setShareOpen(false)}
+              aria-label="Close share panel"
+              className="ml-auto rounded p-1 hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+
+          <label className="mt-4 flex items-start gap-3 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+            <Checkbox
+              checked={shareFormOnly}
+              onCheckedChange={(checked) => setShareFormOnly(checked === true)}
+            />
+            <span>
+              <span className="block text-[13px] font-medium" style={{ color: "var(--color-navy)" }}>
+                Share form only
+              </span>
+              <span className="block text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                Share the intake form — no Record data exposed.
+              </span>
+            </span>
+          </label>
+
+          {/* The form-specific options appear only once "Share form only" is on,
+              which is the whole point of the checkbox: sharing a View and
+              sharing a blank intake form have different consequences, and the
+              second set of choices is meaningless for the first. */}
+          {shareFormOnly && (
+            <div className="mt-4 space-y-4">
+              <section>
+                <h4 className="text-[10px] font-semibold uppercase tracking-[0.07em]" style={{ color: "var(--color-warm-gray)" }}>
+                  Form link
+                </h4>
+                {/* No link is shown, because none exists yet. Bridge has one
+                    sharing primitive today (helpdeskTickets.accessToken) and it
+                    is not wired to Views. Rendering a plausible-looking URL here
+                    would be a fabricated capability — AP-021 requires this to
+                    explain instead. */}
+                <p className="mt-1 rounded-lg border border-dashed px-3 py-2 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
+                  Unavailable: issuing a form link needs a governed share token for Views.
+                  Bridge only has one today, on Helpdesk tickets, and it is not wired here.
+                </p>
+              </section>
+
+              <fieldset disabled>
+                <legend className="text-[10px] font-semibold uppercase tracking-[0.07em]" style={{ color: "var(--color-warm-gray)" }}>
+                  Access
+                </legend>
+                <div className="mt-1 space-y-1 opacity-45">
+                  {[
+                    ["Private", "Only you"],
+                    ["Team", "Anyone in this Organization"],
+                    ["Anyone with link", "External respondents"],
+                  ].map(([label, hint]) => (
+                    <div
+                      key={label}
+                      title="Unavailable: access levels need the share token above"
+                      className="rounded-lg border px-3 py-2"
+                      style={{ borderColor: "var(--color-border)" }}
+                    >
+                      <div className="text-[13px]" style={{ color: "var(--color-navy)" }}>{label}</div>
+                      <div className="text-xs" style={{ color: "var(--color-warm-gray)" }}>{hint}</div>
+                    </div>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset disabled>
+                <legend className="text-[10px] font-semibold uppercase tracking-[0.07em]" style={{ color: "var(--color-warm-gray)" }}>
+                  On submission
+                </legend>
+                <div className="mt-1 space-y-2 opacity-45">
+                  {[
+                    ["Notify Record owner", "Send an Event when the form is submitted"],
+                    ["Confirmation to respondent", "Acknowledge receipt automatically"],
+                    ["Auto-create Record", "Add to the Database immediately on submit"],
+                  ].map(([label, hint]) => (
+                    <div
+                      key={label}
+                      title="Unavailable: on-submission behaviour needs an Automation bound to the shared form"
+                      className="flex items-start justify-between gap-3"
+                    >
+                      <span>
+                        <span className="block text-[13px]" style={{ color: "var(--color-navy)" }}>{label}</span>
+                        <span className="block text-xs" style={{ color: "var(--color-warm-gray)" }}>{hint}</span>
+                      </span>
+                      <Checkbox checked={false} />
+                    </div>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
+          )}
+        </aside>
+      )}
+    </div>
   );
 }

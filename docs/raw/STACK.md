@@ -42,21 +42,33 @@ core_stack:
 ## UI libraries (adopted — all permissive: MIT/BSD/Apache-2.0)
 ```yaml
 ui_libraries:
+  - library: "@tanstack/react-virtual"
+    bridge_surface: |
+      Row windowing for the `table` view kind, and the WhatsApp chat list.
+    license: MIT
+    status: |
+      ADOPTED (ADR-194, 2026-08-06). `TableView` is a DOM <table>; this supplies
+      row windowing above 100 rows via spacer rows, so a large result set costs
+      a bounded number of <tr> without giving up semantic table markup, sticky
+      header/footer, aria-sort, or CSS-styled cells. Windowing changes ONLY
+      whether rows are windowed — never the markup or the feature set — so the
+      two paths cannot drift the way ADR-160's renderer threshold did.
   - library: "@glideapps/glide-data-grid"
-    bridge_surface: Network — 30K people directory, virtualized, inline edit
+    bridge_surface: none — REMOVED
     license: permissive
     status: |
-      ADOPTED as the canvas renderer INSIDE the `table` view kind (ADR-160,
-      2026-08-02), not as a standalone surface. `TableView` renders the DOM
-      table at or below 400 visible rows and delegates to `GlideTableView`
-      above it; both read the same TableSpec/ViewConfig and the same cell
-      semantics from `dataviews/cell-format.tsx`. The canvas path deliberately
-      omits red-flag glyphs (no canvas equivalent for the governed popover,
-      AP-021). Was orphaned 2026-07-19..2026-08-02 by commit 928d66e with no
-      recorded decision — this line previously overstated it as the live grid.
-    peer_caveat: |
-      glide-data-grid@6 declares peer `marked@^4`; the repo carries `marked@18`.
-      Unresolved and now load-bearing.
+      REMOVED 2026-08-06 (ADR-194). Adopted by ADR-160 as a canvas renderer
+      inside the `table` view kind for virtualization; ADR-182 then spent a
+      full increment hand-painting the Avilo visual language onto canvas,
+      because canvas cannot use CSS. Several affordances could not be
+      reproduced at all — the aggregate footer and right-aligned numerics were
+      recorded as permanently open, and the rich cell glyphs degraded to flat
+      text. The virtualization it bought was never exercised: every page pages
+      at 25–50 rows, and ADR-192 found the canvas path had not rendered once in
+      production. DOM + `@tanstack/react-virtual` supplies both, so the trade
+      no longer had a second side. Removing it also cleared the `marked@^4`
+      peer conflict and the HIGH `brace-expansion` advisory it pulled in
+      through @linaria/react.
   - library: "@xyflow/react (reactflow)"
     bridge_surface: Automations — governed visual builder
     license: MIT
@@ -123,7 +135,12 @@ ai_runtime:
 ## License discipline (kept from the old plan)
 - **Avoid AGPL** for embedded code: Plane, AppFlowy, NocoDB (fine to *learn from*, not to embed in a SaaS).
 - **Avoid GPL:** Typesense — and unneeded: `pgvector` + `pg_trgm` cover semantic + fuzzy search.
-- **Avoid commercial-locked:** AG Grid Enterprise, FullCalendar Scheduler (`glide-data-grid` replaces AG Grid).
+- **Avoid commercial-locked:** AG Grid Enterprise, FullCalendar Scheduler. The
+  grid need is met by a DOM `<table>` plus `@tanstack/react-virtual` (ADR-194) —
+  a headless windowing primitive, so the markup and CSS stay ours. Styled grid
+  libraries (AG Grid, MUI DataGrid, react-data-grid) are avoided for the same
+  reason canvas was: they own the cell markup, so matching a specific visual
+  language means fighting their theme rather than writing our own.
 - **Verify:** Mastra (was Elastic License — may have relicensed; OSS Automation checking).
 
 ## Changed from / dropped vs the old plan

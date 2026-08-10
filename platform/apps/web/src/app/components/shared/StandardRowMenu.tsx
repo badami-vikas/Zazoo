@@ -2,14 +2,13 @@
  * StandardRowMenu — the per-row 3-dots actions menu, shared by BOTH table
  * renderers (ADR-192).
  *
- * WHY IT IS SPLIT THIS WAY: the items used to live inline inside the DOM
- * `TableView`, which meant the canvas renderer had no way to show them without
- * re-typing every label, `disabled` condition and AP-021 explanation — and a
- * second copy is exactly how the two renderers drift. `StandardRowMenuItems`
- * is the single item list; `StandardRowMenu` adds the DOM table's own trigger
- * button. `GlideTableView` renders the item list into a CONTROLLED
- * `<DropdownMenu>` anchored to a zero-size element positioned over the canvas
- * cell, because a canvas has no <td> to hang a real trigger on.
+ * WHY IT IS SPLIT THIS WAY: the items used to live inline inside `TableView`,
+ * which meant the (since-removed, ADR-194) canvas renderer had no way to show
+ * them without re-typing every label, `disabled` condition and AP-021
+ * explanation — and a second copy is exactly how two renderers drift. The
+ * split outlived the canvas: `StandardRowMenuItems` is the single item list,
+ * and `StandardRowMenu` adds the table's trigger button, so any future surface
+ * that needs these items gets them without copying the list.
  *
  * The permanently-disabled items keep their titles: canon requires
  * interactive-looking UI to perform OR EXPLAIN a governed action (AP-021), so

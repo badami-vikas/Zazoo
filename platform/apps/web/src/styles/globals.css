@@ -23,6 +23,15 @@
   --color-sage: #6B7C65;
   --color-amber-soft: #C4955A;
 
+  /* Table surfaces (ADR-194). The Avilo table geometry needs a divider lighter
+     than --color-border and a row-hover wash tinted toward steel rather than a
+     neutral grey. Both were previously computed inside the canvas grid theme
+     (mix(background, border, .55) and mix(background, steel, .07)); they are
+     real tokens now so the DOM table can use them and dark mode can override
+     them, instead of a color-mix() the older Tauri WKWebView may not parse. */
+  --color-line-soft: #EDEAE3;
+  --color-row-hover: #EEF0F0;
+
   /* Bridge Color System - Semantic Colors */
   --color-dormant: #C4955A;
   --color-warm: #4D7EA8;
@@ -127,6 +136,9 @@
   --color-border: #2A323C;
   --color-sage: #8BA085;
   --color-amber-soft: #D4A968;
+  /* Same two mixes against the dark background (ADR-194). */
+  --color-line-soft: #1E252D;
+  --color-row-hover: #161E27;
   --color-dormant: #D4A968;
   --color-warm: #6B9BC4;
   --color-trust: #8BA085;
@@ -352,4 +364,55 @@
     outline: 2px solid var(--color-steel);
     outline-offset: 2px;
   }
+}
+
+/* ── Table surface (ADR-194) ─────────────────────────────────────────────────
+   Hover state for the DOM table. These are real CSS rules rather than Tailwind
+   `hover:` utilities because the colours are Bridge custom properties that must
+   re-resolve on a dark-mode flip, and because a sticky cell needs its own
+   opaque background repainted on hover (otherwise the row wash stops at the
+   frozen actions column). */
+.bridge-table-row:hover {
+  background-color: var(--color-row-hover);
+}
+.bridge-table-row:hover .bridge-sticky-cell {
+  background-color: var(--color-row-hover);
+}
+.bridge-table-row:hover .bridge-row-actions {
+  opacity: 1;
+}
+.bridge-add-row:hover {
+  background-color: var(--color-line-soft);
+  color: var(--color-navy-mid);
+}
+.bridge-agg:hover {
+  background-color: var(--color-line-soft);
+}
+
+/* Quiet scrollbar: present while scrolling, invisible at rest, so a table that
+   fills its pane does not sit inside a permanent grey gutter. */
+.bridge-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.bridge-scroll::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 8px;
+}
+.bridge-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+}
+
+/* The shared row-menu Button is sized for a toolbar (34px). Inside a 40px table
+   row that would drive the row height on its own, so it is constrained to the
+   row's rhythm here rather than by forking StandardRowMenu — every other surface
+   that mounts the shared menu keeps the full-size control. */
+.bridge-row-actions button {
+  height: 24px;
+  width: 24px;
+  padding: 0;
+}
+.bridge-row-actions button svg {
+  height: 15px;
+  width: 15px;
 }

@@ -5,7 +5,7 @@
  * ROOT CAUSE THIS TEST EXISTS TO FIX: the UI standardization rules lived ONLY in
  * docs/raw/ui-architecture-rules-2026-07.md. A doc rule is advisory — nothing in
  * the build ever failed when a page hand-rolled its own toolbar, dropdown, or
- * table. So every new surface (ArtifactsPage, ChiefOfStaffPage, ResearchRunsPage,
+ * table. So every new surface (ChiefOfStaffPage, ResearchRunsPage,
  * …) quietly re-invented the shell, and "standardized" became a claim in a
  * document rather than a property of the code.
  *
@@ -82,12 +82,10 @@ const REINVENTIONS = [
  */
 const KNOWN_DIVERGENCES = [
   "ApprovalsPage.tsx: missing <ModuleSurfaceLayout> missing <DataViews>",
-  "ArtifactsPage.tsx: missing <ModuleSurfaceLayout> missing <DataViews>",
   "OrganizationPage.tsx: missing <ModuleSurfaceLayout>",
   "RelationshipSubmodulePage.tsx: missing <ModuleSurfaceLayout> missing <DataViews>",
   "ResearchRunsPage.tsx: missing <ModuleSurfaceLayout> missing <DataViews>",
   "SecondBrainPage.tsx: missing <ModuleSurfaceLayout>",
-  "ArtifactsPage.tsx: §5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
   "JobPilotPage.tsx: §5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
   "RelationshipHelpdeskPage.tsx: §5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
   "SettingsPage.tsx: §5 — tabular data renders through <DataViews>, never a raw <table>",

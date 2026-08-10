@@ -7,7 +7,6 @@ import {
   Eye,
   Layers,
   LockKeyhole,
-  Paperclip,
   Plus,
   RefreshCw,
   Target,
@@ -40,10 +39,13 @@ const PAGE_META = {
   theses: { label: "Theses", icon: Target, kind: "thesis" as const },
 };
 
-const ALL_TABS = [
-  ...( Object.keys(PAGE_META) as (keyof typeof PAGE_META)[] ).map((id) => ({ id, label: PAGE_META[id].label, icon: PAGE_META[id].icon })),
-  { id: "artifacts" as const, label: "Artifacts", icon: Paperclip },
-];
+// Files are a SECTION below the table (ui-architecture-rules §3), reached by
+// scrolling past the view — never a sibling toggle Page. A Page is derived from
+// a Database (§2); a folder of Files is not one. `ModuleFilesSection` renders
+// them as a real file explorer (ADR-195).
+const ALL_TABS = ( Object.keys(PAGE_META) as (keyof typeof PAGE_META)[] ).map(
+  (id) => ({ id, label: PAGE_META[id].label, icon: PAGE_META[id].icon }),
+);
 
 function parsePage(value: string | undefined): PageId {
   return value === "sources" || value === "theses" ? value : "deals";
@@ -596,7 +598,6 @@ export function DealPilotPage() {
   const tabs = ALL_TABS;
 
   function handleTabChange(id: string) {
-    if (id === "artifacts") { navigate("/dealpilot/artifacts"); return; }
     navigate(`/dealpilot/${id}`);
   }
 

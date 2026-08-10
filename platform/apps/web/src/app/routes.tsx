@@ -18,7 +18,6 @@ import { SecondBrainPage } from "./pages/SecondBrainPage";
 import { IntelligencePage } from "./pages/IntelligencePage";
 // TASK-028: background Research Run timeline/interrupt Page (plan §5).
 import { ResearchRunsPage } from "./pages/ResearchRunsPage";
-import { ArtifactsPage } from "./pages/ArtifactsPage";
 // TASK-001 / VOCAB6: manifest-driven Module Detail (§4b)
 import { ModuleDetailPage } from "./pages/ModuleDetailPage";
 // WhatsApp Module: the live session surface plus its Tool list.
@@ -142,7 +141,6 @@ export const router = createBrowserRouter([
       { path: `${childPath(relationshipModule.route)}/sources`, Component: RelationshipSourcesPage },
       { path: `${childPath(relationshipModule.route)}/:page`, Component: RelationshipPage },
 
-      { path: "dealpilot/artifacts", element: <InstalledModuleBoundary moduleName="deal-pilot"><ArtifactsPage /></InstalledModuleBoundary> },
       { path: "second-brain", Component: SecondBrainPage },
       { path: "research", Component: ResearchRunsPage },
       { path: "intelligence", Component: IntelligencePage },

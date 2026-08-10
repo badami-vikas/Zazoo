@@ -866,6 +866,53 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     },
   },
   {
+    // Internal: Helpdesk reads and writes the owner's own private Records and
+    // Events through NetworkManager's already-declared capability. It reaches
+    // nothing external, which is why it is not "external" like WhatsApp.
+    computedRisk: "operational",
+    manifest: {
+      name: "helpdesk",
+      // 0.1.0: first shipped manifest. The Helpdesk PAGE and its route already
+      // existed (`RelationshipHelpdeskPage`, `/module/relationship/helpdesk`)
+      // and the `relationship.submodule.helpdesk` capability was already
+      // declared — what was missing was a Module row, which is what the nav
+      // tree is built from, so the Page was reachable by URL but invisible in
+      // the left rail.
+      version: "0.1.0",
+      kind: "organization_definition",
+      summary: "Help items for the people and communities NetworkManager already tracks.",
+      description:
+        "A nested sub-module of NetworkManager. Help items are Records and their activity is Events, both on the same private contracts the parent Module uses — Helpdesk adds a surface over that data rather than a second store beside it.",
+      lineageManifestId: null,
+      dependencies: [],
+      // Reuses NetworkManager's existing sub-module capability rather than
+      // minting a parallel one: the data and the plane are identical, and a
+      // second capability over the same Records would be two grants to keep in
+      // sync for no added control.
+      capabilities: [],
+      contextProviders: [],
+      organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      module: {
+        displayName: "Helpdesk",
+        // Nesting is nav only (ADR-178), exactly as WhatsApp's is: governance,
+        // plane and capability resolution are unchanged by the parent.
+        parentModule: "relationship",
+        route: "/module/relationship/helpdesk",
+        pages: [
+          {
+            id: "helpdesk",
+            name: "Helpdesk",
+            route: "/module/relationship/helpdesk",
+            databaseId: "relationship.helpdesk",
+            capabilityId: "relationship.submodule.helpdesk",
+          },
+        ],
+        agents: [],
+        automations: [],
+      },
+    },
+  },
+  {
     // External: the Module renders a third-party site inside the desktop shell
     // and reads the owner's private contact graph out of it.
     computedRisk: "external",
@@ -1243,7 +1290,14 @@ export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
   // private contact graph out of a third-party session it also renders is not
   // a generalized capability anyone else could safely install.
   ...BUILT_IN_MODULES.filter(
-    (pkg) => pkg.manifest.name !== "relationship" && pkg.manifest.name !== "whatsapp",
+    (pkg) =>
+      pkg.manifest.name !== "relationship" &&
+      pkg.manifest.name !== "whatsapp" &&
+      // Helpdesk is excluded for the same reason its parent is: its Records and
+      // Events are the owner's private relationship data, not a generalized
+      // capability another Organization could install. Commons never carries
+      // personal data.
+      pkg.manifest.name !== "helpdesk",
   ).map((pkg) => ({
     ...pkg,
     commons: {

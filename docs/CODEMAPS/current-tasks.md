@@ -33,3 +33,4 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-058 | ready | P3 | Companion as Bridge's universal expression surface (convergence) | TASK-056, TASK-057 |
 | TASK-059 | ready | P3 | Avatar text replacement | TASK-027 |
 | TASK-060 | ready | P3 | opensrc-backed code research for Builder Agent and Learning Agent | TASK-023 |
+| TASK-061 | ready | P1 | UI standardization convergence — one toolbar, one shell, one dropdown | none |

@@ -3321,3 +3321,67 @@ User challenged why previously-shared UI rules kept disappearing and why "every 
 - `docs/TASKS.md` — TASK-061 (P1) for the convergence itself.
 
 **Not claimed as done** (recorded in §10): DataViews toolbar still non-conformant; New Element row unimplemented; cell right-click unwired; Form view has no share affordance, no per-field config, no click-outside autosave; Map eligibility untested against real location columns.
+## 2026-08-06 — Table renderer reversed: canvas out, DOM `<table>` + windowing in (ADR-194, AP-114)
+
+Owner reported the table was not the Avilo replica asked for and asked directly whether Glide was
+the cause, restating "my priority is UI over others". It was the cause: `glide-data-grid` paints to
+`<canvas>`, which cannot use CSS, so ADR-182 had been hand-painting the Avilo language onto canvas
+(per-character letter-spacing, a drawn sort chevron, drawn menu dots) while the aggregate footer and
+right-aligned numerics stayed permanently unreachable and the rich cell glyphs degraded to flat text.
+The virtualization that bought had never actually run — pages page at 25–50 rows, and ADR-192 had
+already recorded the canvas path never rendering in production.
+
+- **Removed** `@glideapps/glide-data-grid`, `GlideTableView.tsx`, `grid-theme.ts`. Takes the
+  `marked@^4` peer conflict and the HIGH `brace-expansion` advisory with it.
+- **`TableView`** is now one DOM `<table>`: sticky header + sticky aggregate footer, `aria-sort`,
+  rich `renderCell` glyphs reachable again (badge pills, meter bars, RAG dots), right-aligned
+  numerics, inline edit through the existing `onUpdate` path, Notion-style zero-row state.
+- **Windowing** via `@tanstack/react-virtual` (already a dependency) above 100 rows, using spacer
+  rows so the semantic table survives. The threshold switches ONLY windowing — never markup or
+  features — which is the drift defect ADR-160's *renderer* threshold caused.
+- **Palette rule from ADR-182 kept**: Bridge tokens via `var(--color-*)`, never Avilo's hexes, so
+  dark mode still works. Promoted `--color-line-soft` / `--color-row-hover` out of the deleted canvas
+  theme into real tokens with dark values.
+- **Geometry in pixels, not rem utilities**: `html{font-size:17px}` inflates every rem 6.25%, so
+  `h-10` was 42.5px and silently broke the windowing estimate. Verified live: 40px rows, 36px
+  header, 16px padding.
+- **Fixed two latent dark-mode defects** the canvas had been hiding: badge tones and the meter track
+  were hardcoded light-palette classes that never rendered while canvas flattened glyphs to text.
+
+Evidence: headless-Chrome run over a throwaway harness (since removed) — real wheel scroll at
+`scrollTop 5000` windows to row 114 with 45 of 240 rows in the DOM, header pinned at every scroll
+position, aggregates computed over all 240 rows not the visible slice, dark repaint correct, zero
+page errors. `turbo typecheck build` green; web suite 144/144 with 10 new aggregate tests seen
+failing against a mutated implementation first. `check:vocabulary` clean for every changed file
+(one reviewed allowlist entry for TanStack's `getScrollElement` + TS DOM `HTML*Element` types).
+
+Reported, not fixed: `StandardColumnMenuPanel` still paints `bg-white` — a dark-mode leak predating
+this change, left out to keep the rewrite scoped.
+
+## 2026-08-06 — Files Section becomes a real file explorer (ADR-195, AP-115)
+
+Owner asked for the file explorer UI to resemble a file explorer, with a screenshot of a folder-tile
+grid. **The screenshot is the native macOS Open panel** — raised by the hidden `<input type="file">`,
+not Bridge UI, and not restylable by us. Bridge's own Files Section was a flat `<ul>` rendering each
+nested File as its whole relative path on one line, with no folders, navigation, sort, or filter.
+
+- Breadcrumb navigation into derived folders; **Icons** (tile grid) and **Details** (sortable
+  Name / Size / Date modified) views; filter-as-you-type; selection; status bar with item count + root.
+- **Zero backend change**: `modules.files` already returns `size` and `modifiedAt`. The folder tree
+  is derived from path separators, in a pure `file-explorer-model.ts` split out of the component so
+  it can be tested (the node runner cannot load a `.tsx`).
+- Empty state stays TEXT — `ui-architecture-rules` §6a says "no folder icon grid" for a Files
+  Section with nothing in it. Upheld, not amended; the grid is the populated view only.
+- Recorded limit, not hidden: a folder with no File beneath it cannot appear, because the server
+  returns files only and `items` feeds the graph indexer. Directory entries are a separate change.
+
+Evidence: 11 new tests over the derivation — prefix collision (`test` vs `test2`), grandchild
+exclusion, folder size/timestamp aggregation, folders-before-files under every sort column,
+case-insensitive numeric name sort, non-mutation. Web suite 155/155, typecheck + build green.
+
+**Not in this change** — the same directive also asked for Helpdesk as a Relationship sub-module with
+custom/shareable helpdesks, and a card scanner on Add-New-person. Both are separate Tier C pieces and
+are staged, not started: Helpdesk needs new tables (no Helpdesk entity or many-to-many exists today —
+only `helpdesk_tickets`/`helpdesk_messages`) plus a `relationship` manifest version bump past the
+immutable 0.3.1; the card scanner needs a multimodal seam on `ModelProvider`, which is text-only
+(`prompt: string`) across every adapter today, plus an image source the desktop shell does not have.

@@ -1,79 +1,116 @@
 /**
- * TableView — the entry point for the `table` view kind, registered under kind
- * "table" in registry.ts. It is still the ONLY component the registry knows
- * about; what changed (ADR-192 / AP-102) is what it renders.
+ * TableView — the ONE renderer for the `table` view kind (ADR-194).
  *
- * ONE RENDERER NOW: `GLIDE_ROW_THRESHOLD` is 0, so every table — including the
- * empty one — is drawn by the canvas `GlideTableView`. The DOM renderer
- * (`DomTableView`, below) is deliberately LEFT IN PLACE but is now unreachable:
- * raising the threshold back above 0 is the single-line revert if the canvas
- * path turns out to regress something in live use. Do not treat the dead code
- * as an accident, and do not add features to it — it is a parachute, not a
- * second surface.
+ * WHAT CHANGED. ADR-160/192/193 progressively moved this surface onto a canvas
+ * grid (`glide-data-grid`) for virtualization, then spent ADR-182 hand-painting
+ * the Avilo visual language back onto that canvas one primitive at a time. That
+ * trade is now reversed: the table is a real DOM <table> again, styled directly,
+ * with row windowing supplied by `@tanstack/react-virtual` (already a dependency
+ * — see ChatsSurface.tsx) instead of by the renderer's choice of substrate.
  *
- * WHY THE FLIP IS SAFE NOW. ADR-160 kept DOM as the default because the canvas
- * path was missing the governed affordances only the DOM table carried. All of
- * them have since been reproduced on canvas without forking any component:
- *   - the red-flag control (open flags painted by `drawCell`, the real
- *     `<RedFlagControl>` mounted as a DOM overlay on hover/tap);
- *   - the column header menu (the SAME `StandardColumnMenuPanel`, opened from
- *     Glide's `onHeaderMenuClick`);
- *   - the per-row 3-dots menu (the SAME `StandardRowMenuItems`);
- *   - the Notion-style zero-row state (header + empty body + add row, never a
- *     message box replacing the table — AP-081);
- *   - a trailing "+ New row", present only when a governed insert path exists.
- * Both renderers read the same TableSpec, the same ViewConfig, the same engine
- * filters/sorts and the same cell semantics from `../cell-format.js`, so the
- * flip changes how a table is painted, never what its data means.
+ * WHY. Canvas cannot use CSS, so every visual affordance had to be re-drawn by
+ * hand and several could not be reproduced at all: the aggregate footer and
+ * right-aligned numerics were reported as permanently open in ADR-182, and the
+ * rich `renderCell` glyphs (badge pills, meter bars, RAG dots) degraded to flat
+ * text. Meanwhile the virtualization those losses bought was never exercised —
+ * every page in the shell pages at 25–50 rows, and ADR-192 recorded that the
+ * canvas renderer had not rendered once in production before the threshold was
+ * dropped to 0. DOM + windowing gives the visual fidelity AND the scale, so
+ * there is nothing left to trade.
  *
- * STILL DOM-ONLY, HONESTLY: a canvas grid is not a semantic <table>, so the
- * `aria-sort` headers and per-cell DOM structure below have no canvas
- * equivalent. Glide supplies its own ARIA grid roles and keyboard navigation;
- * screen-reader parity has NOT been verified in a live browser.
+ * WINDOWING IS NOT A SECOND RENDERER. ADR-160's mistake was a row-count
+ * threshold that switched *renderers*, so the feature set silently changed with
+ * the size of the result set. Here the threshold switches only whether the rows
+ * are windowed; the markup, the styling and every affordance are identical
+ * either way, so the two paths cannot drift.
  *
- * Mobile-width-safe: the shadcn Table component already wraps itself in a
- * `overflow-x-auto` container (components/ui/table.tsx), so at 375px the table
- * scrolls horizontally INSIDE its own box rather than blowing out the page.
- * The canvas grid scrolls horizontally inside its own container likewise.
+ * PALETTE. Colours come from Bridge tokens through inline `var(--color-*)`,
+ * never from Avilo's hexes — the standing ADR-182 decision, and what keeps dark
+ * mode working. Only geometry and typography are ported literally (40px rows,
+ * 16px/10px cell padding, 13px body, 10px uppercase headers at 0.07em).
  */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyFilters, applySorts } from "@bridge/tables";
-import { Plus } from "lucide-react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table.js";
+import type { ColumnSpec } from "@bridge/tables";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { Check, ChevronDown, Plus } from "lucide-react";
 import { Button } from "../../components/ui/button.js";
 import { StandardColumnMenu } from "../../components/shared/StandardColumnMenu.js";
 import { StandardRowMenu } from "../../components/shared/StandardRowMenu.js";
 import { RedFlagControl } from "../../components/shared/RedFlagControl.js";
 import { RedFlagProvider } from "../../components/shared/RedFlagProvider.js";
-import { isFlaggableValue, isSupportedRedFlagModule, moduleIdFromDatabaseId } from "../eligibility.js";
-import type { DataViewProps } from "../types.js";
-import { formatCell, renderCell } from "../cell-format.js";
-import { GlideTableView } from "./GlideTableView.js";
+import {
+  isFlaggableValue,
+  isSupportedRedFlagModule,
+  moduleIdFromDatabaseId,
+} from "../eligibility.js";
+import type { DataRow, DataViewProps } from "../types.js";
+import { formatCell, formatCurrency, renderCell, trimZero } from "../cell-format.js";
+import {
+  AGGREGATE_LABELS,
+  availableAggregates,
+  computeAggregate,
+  defaultAggregate,
+  type AggregateKind,
+} from "../aggregate.js";
 
 /**
- * Rows above which the canvas renderer takes over. ZERO — i.e. always (AP-102):
- * one table primitive, not two that drift. It is kept as a named constant
- * rather than deleted precisely so the flip is revertible in one line (set it
- * back to e.g. 400 to restore the DOM path for small tables).
+ * The grid's geometry, in PIXELS rather than Tailwind spacing utilities.
+ *
+ * `globals.css` sets `html { font-size: 17px }`, so every rem-based Tailwind
+ * unit in this app renders 6.25% larger than its name suggests — `h-10` is
+ * 42.5px, `px-4` is 17px. That is fine for prose-scaled chrome and wrong for a
+ * data grid, where the row height is a hard contract: the windowing estimate
+ * has to match the real height, and a 40px row is the rhythm every other
+ * measurement here (and the Avilo reference) is tuned to. So the numbers that
+ * must be exact are set as pixels and the utilities are used only where a
+ * proportional value is genuinely wanted.
  */
-export const GLIDE_ROW_THRESHOLD = 0;
+const ROW_HEIGHT = 40;
+const HEADER_HEIGHT = 36;
+/** Avilo's `px-4`, in real pixels. */
+const CELL_PAD_X = 16;
 
-export function TableView(props: DataViewProps) {
-  const { spec, view, data } = props;
-  // Count what will actually be painted, not the unfiltered input. At a
-  // threshold of 0 this only matters for the revert case, but `>=` (not `>`)
-  // is what makes a ZERO-row table take the canvas path too — the empty state
-  // is part of the surface being standardised, not an exception to it.
-  const visibleCount = applyFilters(data, view.rowFilters, view.filterMatch).length;
-  if (visibleCount >= GLIDE_ROW_THRESHOLD) return <GlideTableView {...props} />;
-  return <DomTableView {...props} />;
+/**
+ * Above this many rows the body is windowed.
+ *
+ * Deliberately well above any page's real page size, so the common case renders
+ * a plain, fully-semantic table with every row in the DOM (searchable by the
+ * browser's own find, and readable by a screen reader in one pass). Windowing is
+ * the exception for a genuinely large result set, not the default posture.
+ */
+const VIRTUALIZE_ABOVE = 100;
+
+/** How long a click waits to discover whether it is half of a double-click.
+ *
+ * Ported from Avilo. Without it the first click of a double-click opens the
+ * record, the row unmounts, and the second click lands on a surface that has
+ * already replaced the table — which reads as "double-click does nothing".
+ * `stopPropagation` on the dblclick handler cannot help: by then the open has
+ * already been requested. Uniform across every cell on purpose; exempting
+ * read-only cells makes the row open instantly in some columns and after a beat
+ * in others, which reads as lag rather than as a rule. */
+const DOUBLE_CLICK_GRACE_MS = 220;
+
+function isNumericColumn(col: ColumnSpec): boolean {
+  return col.kind === "number" || col.display === "currency" || col.display === "multiple";
 }
 
-function DomTableView({
+/** How a column's aggregate result is written back out, in the column's own unit. */
+function aggregateFormatter(col: ColumnSpec): ((value: number) => string) | undefined {
+  if (col.display === "currency") return formatCurrency;
+  if (col.display === "multiple") return (n) => `${trimZero(n)}×`;
+  if (col.display === "meter") return (n) => `${Math.round(n)}%`;
+  return undefined;
+}
+
+export function TableView({
   spec,
   view,
   data,
   onViewChange,
   onInsert,
+  onUpdate,
   onOpenRecord,
   onEditRecord,
   canUpdateRow,
@@ -82,112 +119,267 @@ function DomTableView({
   onRequestFilter,
   onHideColumn,
 }: DataViewProps) {
-  const filtered = applyFilters(data, view.rowFilters, view.filterMatch);
-  const sorted = applySorts(filtered, view.sorts);
+  const filtered = useMemo(
+    () => applyFilters(data, view.rowFilters, view.filterMatch),
+    [data, view.rowFilters, view.filterMatch],
+  );
+  const sorted = useMemo(() => applySorts(filtered, view.sorts), [filtered, view.sorts]);
+
+  const columns = spec.columns;
   const moduleId = moduleIdFromDatabaseId(spec.id);
-  // review round-5 item 6: a Module the server can't validate targets for
-  // (e.g. "signal" — no backing existence-check store yet) must never even
-  // render an interactive-looking flag glyph, since redFlag.create would
-  // fail-closed on EVERY attempt — an "interactive-looking" control that
-  // always errors is not a working governed Action (AP-021).
+  // A Module the server cannot validate targets for (e.g. "signal" — no backing
+  // existence-check store yet) must never render an interactive-looking flag
+  // glyph, since redFlag.create would fail-closed on every attempt (AP-021).
   const flaggable = isSupportedRedFlagModule(moduleId);
 
+  const [aggregates, setAggregates] = useState<Record<string, AggregateKind>>({});
+  const [editing, setEditing] = useState<{ key: string; col: string } | null>(null);
+  /**
+   * The in-place new-Element draft. Non-null means one blank row is appended to
+   * the body with an editor in every column.
+   *
+   * This used to be `onViewChange({ ...view, kind: "form" })` — clicking "add"
+   * swapped the whole surface for the Form View, so the table the user was
+   * reading vanished and their scroll position with it. Adding an Element is
+   * meant to happen where the Elements are; the Form View is still reachable as
+   * a View in its own right for anyone who wants the long form.
+   */
+  const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
+
+  // A pending row-open, held back long enough for a second click to cancel it.
+  const pendingOpen = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingOpen = useCallback(() => {
+    if (pendingOpen.current === null) return;
+    clearTimeout(pendingOpen.current);
+    pendingOpen.current = null;
+  }, []);
+  // Navigating away unmounts this mid-timer; without the cleanup the callback
+  // still fires and pushes a route the user has already left.
+  useEffect(() => cancelPendingOpen, [cancelPendingOpen]);
+
+  // A state ref, not `useRef`: the virtualizer reads its scroll element during
+  // render, and a `useRef` is still null on the first one. Nothing re-renders
+  // when a ref is later populated, so the virtualizer would keep the viewport
+  // height it measured against nothing — it rendered a fixed dozen rows and
+  // ignored scrolling entirely. Setting state on attach forces the re-render
+  // that lets it measure the real element.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+
+  /**
+   * Hand the draft to the caller's governed insert path and clear it.
+   *
+   * An all-empty draft is a cancel, not an insert: the row is dismissed rather
+   * than sent, so a stray click on "+ Add record" cannot post a blank Record
+   * through the pipeline.
+   */
+  const commitDraft = useCallback(async () => {
+    if (!draft || !onInsert) return;
+    const filled = Object.entries(draft).filter(
+      ([, value]) => value !== undefined && value !== null && String(value).trim() !== "",
+    );
+    if (filled.length === 0) {
+      setDraft(null);
+      return;
+    }
+    await onInsert(Object.fromEntries(filled));
+    setDraft(null);
+  }, [draft, onInsert]);
+  const windowed = sorted.length > VIRTUALIZE_ABOVE;
+  const virtualizer = useVirtualizer({
+    count: sorted.length,
+    getScrollElement: () => scrollEl,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 12,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+
+  // Spacer rows rather than absolute positioning: it keeps a real <table> with
+  // real <tr> children, so sticky thead/tfoot, colgroup widths and aria-sort all
+  // keep working. Absolute positioning would require faking every one of them.
+  const visible = windowed
+    ? virtualItems.map((item) => ({ row: sorted[item.index]!, index: item.index }))
+    : sorted.map((row, index) => ({ row, index }));
+  const padTop = windowed && virtualItems.length > 0 ? virtualItems[0]!.start : 0;
+  const padBottom =
+    windowed && virtualItems.length > 0
+      ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1]!.end
+      : 0;
+
+  const colSpan = columns.length + 1;
+  const canEditRow = (row: DataRow) => Boolean(onUpdate) && (!canUpdateRow || canUpdateRow(row));
+
   const table = (
-    <div className="border rounded-md">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            {spec.columns.map((col) => {
+    <div
+      ref={setScrollEl}
+      className="bridge-scroll h-full overflow-auto rounded-xl border"
+      style={{ borderColor: "var(--color-border)", background: "var(--color-background)" }}
+    >
+      {/* A min-width makes the container scroll rather than squeezing columns
+          until the row actions clip — these tables have more columns than a
+          laptop viewport. At 375px it scrolls inside its own box (AP-081). */}
+      <table className="w-full min-w-[860px] border-collapse text-[13px]">
+        <thead className="sticky top-0 z-20">
+          <tr style={{ background: "var(--color-line-soft)" }}>
+            {columns.map((col) => {
               const activeSort = view.sorts.find((sort) => sort.id === col.id);
+              const numeric = isNumericColumn(col);
               return (
-                <TableHead
+                <th
                   key={col.id}
+                  scope="col"
                   aria-sort={
-                    activeSort
-                      ? activeSort.dir === "asc"
-                        ? "ascending"
-                        : "descending"
-                      : "none"
+                    activeSort ? (activeSort.dir === "asc" ? "ascending" : "descending") : "none"
                   }
+                  style={{
+                    width: col.width,
+                    height: HEADER_HEIGHT,
+                    paddingLeft: CELL_PAD_X,
+                    paddingRight: CELL_PAD_X,
+                    color: "var(--color-warm-gray)",
+                    borderBottom: "1px solid var(--color-border)",
+                  }}
+                  className={`whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.07em] ${
+                    numeric ? "text-right" : "text-left"
+                  }`}
                 >
-                  <div className="flex items-center gap-1">
+                  <span
+                    className={`inline-flex items-center gap-1 ${numeric ? "flex-row-reverse" : ""}`}
+                  >
                     <StandardColumnMenu
                       label={col.label}
                       databaseBacked
                       onFilter={() => onRequestFilter?.(col.id)}
                       onSort={(direction) =>
-                        onViewChange({
-                          ...view,
-                          sorts: [{ id: col.id, dir: direction }],
-                        })
+                        onViewChange({ ...view, sorts: [{ id: col.id, dir: direction }] })
                       }
-                      onHide={
-                        onHideColumn ? () => onHideColumn(col.id) : undefined
-                      }
+                      onHide={onHideColumn ? () => onHideColumn(col.id) : undefined}
                     />
                     {activeSort && (
                       <>
-                        <span aria-hidden="true" className="text-xs">
-                          {activeSort.dir === "asc" ? "↑" : "↓"}
-                        </span>
+                        <ChevronDown
+                          size={11}
+                          aria-hidden="true"
+                          className={activeSort.dir === "asc" ? "rotate-180" : undefined}
+                          style={{ color: "var(--color-navy-mid)" }}
+                        />
                         <span className="sr-only">
                           Sorted {activeSort.dir === "asc" ? "ascending" : "descending"}
                         </span>
                       </>
                     )}
-                  </div>
-                </TableHead>
+                  </span>
+                </th>
               );
             })}
-            <TableHead className="w-10"><span className="sr-only">Row actions</span></TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {/* Notion-like empty state: the table (with all its column headers)
-              stays visible even with zero rows; the empty note + Add row live
-              inside the body rather than replacing the whole grid. */}
-          {sorted.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={spec.columns.length + 1}>
-                <div className="flex flex-col items-center gap-3 py-8 text-sm text-muted-foreground">
-                  <span>No {spec.id} records yet.</span>
-                  {onInsert && (
-                    <Button size="sm" variant="outline" onClick={() => onViewChange({ ...view, kind: "form" })}>
-                      <Plus className="size-3.5" /> Add row
-                    </Button>
-                  )}
-                </div>
-              </TableCell>
-            </TableRow>
+            <th
+              scope="col"
+              className="bridge-sticky-cell sticky right-0 z-10 w-px whitespace-nowrap text-right text-[10px] font-semibold uppercase tracking-[0.07em]"
+              style={{
+                height: HEADER_HEIGHT,
+                paddingLeft: CELL_PAD_X,
+                paddingRight: CELL_PAD_X,
+                color: "var(--color-warm-gray)",
+                background: "var(--color-line-soft)",
+                borderLeft: "1px solid var(--color-border)",
+                borderBottom: "1px solid var(--color-border)",
+              }}
+            >
+              <span className="sr-only">Row actions</span>
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {padTop > 0 && (
+            <tr aria-hidden="true">
+              <td colSpan={colSpan} style={{ height: padTop, padding: 0 }} />
+            </tr>
           )}
-          {sorted.map((row, i) => {
-            // review round-4 item 6: a red flag anchor's `recordId` must be
-            // a STABLE, persisted record id — never the sorted row's
-            // array index, which is meaningless once the table is
-            // re-sorted/re-filtered and would silently mis-anchor an
-            // existing flag onto a DIFFERENT row. A row without a real
-            // `id` field is simply not flaggable (React's own `key` still
-            // falls back to the index, same as before — that's a
-            // rendering-identity concern, unrelated to anchor identity).
-            const stableRecordId = typeof row["id"] === "string" || typeof row["id"] === "number" ? String(row["id"]) : null;
-            const rowCanUpdate = !canUpdateRow || canUpdateRow(row);
+
+          {visible.map(({ row, index }) => {
+            // A red-flag anchor's recordId must be a STABLE persisted id — never
+            // the sorted row's array index, which is meaningless once the table
+            // is re-sorted and would silently mis-anchor an existing flag onto a
+            // DIFFERENT row. A row with no real `id` is simply not flaggable.
+            const stableRecordId =
+              typeof row["id"] === "string" || typeof row["id"] === "number"
+                ? String(row["id"])
+                : null;
+            const key = stableRecordId ?? String(index);
+            const rowEditable = canEditRow(row);
+
             return (
-              <TableRow
-                key={stableRecordId ?? i}
-                onDoubleClick={() => onOpenRecord?.(row)}
-                className={onOpenRecord ? "cursor-pointer" : undefined}
+              <tr
+                key={key}
+                // h-10 is ROW_HEIGHT, declared rather than emerged. The row used
+                // to be sized by its tallest cell, which made it 52px — the
+                // shared row-menu Button is 34px, and vertical padding on top of
+                // that overshot the 40px rhythm every other measurement here is
+                // tuned to. It also silently broke windowing, whose `estimateSize`
+                // has to agree with the real height or the spacer rows mis-scroll.
+                className="bridge-table-row"
+                style={{ height: ROW_HEIGHT, borderBottom: "1px solid var(--color-line-soft)" }}
               >
-                {spec.columns.map((col) => {
+                {columns.map((col) => {
                   const value = row[col.id];
+                  const numeric = isNumericColumn(col);
+                  const isEditing = editing?.key === key && editing.col === col.id;
+                  const editable = rowEditable && col.editable !== false && !col.locked;
                   // Plain-text form is always what the red-flag anchor records,
-                  // regardless of any richer glyph rendered in the cell.
+                  // whatever richer glyph the cell happens to render.
                   const text = formatCell(value);
                   const rich = renderCell(col, value);
+
                   return (
-                    <TableCell key={col.id}>
-                      {flaggable && isFlaggableValue(value) && stableRecordId ? (
+                    <td
+                      key={col.id}
+                      className={`whitespace-nowrap align-middle ${
+                        numeric ? "text-right tabular-nums" : ""
+                      } ${onOpenRecord && !isEditing ? "cursor-pointer" : ""}`}
+                      style={{
+                        color: "var(--color-navy)",
+                        paddingLeft: CELL_PAD_X,
+                        paddingRight: CELL_PAD_X,
+                      }}
+                      onClick={
+                        onOpenRecord && !isEditing
+                          ? (event) => {
+                              if ((event.target as HTMLElement).closest("[data-stop]")) return;
+                              cancelPendingOpen();
+                              pendingOpen.current = setTimeout(() => {
+                                pendingOpen.current = null;
+                                onOpenRecord(row);
+                              }, DOUBLE_CLICK_GRACE_MS);
+                            }
+                          : undefined
+                      }
+                      onDoubleClick={(event) => {
+                        event.stopPropagation();
+                        // The first click of this pair already scheduled an open.
+                        cancelPendingOpen();
+                        if (editable) setEditing({ key, col: col.id });
+                      }}
+                    >
+                      {isEditing && stableRecordId ? (
+                        <InlineEditor
+                          initial={value === null || value === undefined ? "" : String(value)}
+                          align={numeric ? "right" : "left"}
+                          options={col.options}
+                          onCancel={() => setEditing(null)}
+                          onCommit={async (next) => {
+                            setEditing(null);
+                            await onUpdate?.(stableRecordId, { [col.id]: next });
+                          }}
+                        />
+                      ) : flaggable && isFlaggableValue(value) && stableRecordId ? (
                         <RedFlagControl
-                          anchor={{ kind: "cell", moduleId, databaseId: spec.id, recordId: stableRecordId, fieldId: col.id }}
+                          anchor={{
+                            kind: "cell",
+                            moduleId,
+                            databaseId: spec.id,
+                            recordId: stableRecordId,
+                            fieldId: col.id,
+                          }}
                           renderedValue={text}
                         >
                           {rich}
@@ -195,31 +387,414 @@ function DomTableView({
                       ) : (
                         rich
                       )}
-                    </TableCell>
+                    </td>
                   );
                 })}
-                <TableCell>
-                  <StandardRowMenu
-                    row={row}
-                    stableRecordId={stableRecordId}
-                    canUpdate={rowCanUpdate}
-                    onOpenRecord={onOpenRecord}
-                    onEditRecord={onEditRecord}
-                    onDuplicate={onDuplicate}
-                    onPin={onPin}
-                  />
-                </TableCell>
-              </TableRow>
+
+                <td
+                  data-stop
+                  className="bridge-sticky-cell sticky right-0 z-10 whitespace-nowrap text-right"
+                  style={{
+                    paddingLeft: CELL_PAD_X,
+                    paddingRight: CELL_PAD_X,
+                    background: "var(--color-background)",
+                    borderLeft: "1px solid var(--color-border)",
+                  }}
+                >
+                  <div className="bridge-row-actions flex items-center justify-end gap-1 opacity-60 transition-opacity">
+                    <StandardRowMenu
+                      row={row}
+                      stableRecordId={stableRecordId}
+                      canUpdate={rowEditable}
+                      onOpenRecord={onOpenRecord}
+                      onEditRecord={onEditRecord}
+                      onDuplicate={onDuplicate}
+                      onPin={onPin}
+                    />
+                  </div>
+                </td>
+              </tr>
             );
           })}
-        </TableBody>
-      </Table>
+
+          {padBottom > 0 && (
+            <tr aria-hidden="true">
+              <td colSpan={colSpan} style={{ height: padBottom, padding: 0 }} />
+            </tr>
+          )}
+
+          {/* Notion-like empty state: the table keeps its headers, footer and
+              add-row at zero rows. It is never replaced by a message box — the
+              empty note renders INSIDE the body (AP-081). */}
+          {sorted.length === 0 && (
+            <tr>
+              <td colSpan={colSpan}>
+                <div
+                  className="flex flex-col items-center gap-3 px-5 py-12 text-center"
+                  style={{ color: "var(--color-warm-gray)" }}
+                >
+                  <span className="text-[13px] font-medium">No {spec.id} records yet.</span>
+                  {onInsert && !draft && (
+                    <Button size="sm" variant="outline" onClick={() => setDraft({})}>
+                      <Plus className="size-3.5" /> Add record
+                    </Button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          )}
+
+          {/* The draft Element, in place. It sits inside <tbody> so it inherits
+              the same colgroup widths and sticky-column behaviour as a real
+              row — a floating overlay would have to re-derive both. */}
+          {onInsert && draft && (
+            <tr
+              className="bridge-table-row"
+              style={{ height: ROW_HEIGHT, borderBottom: "1px solid var(--color-line-soft)" }}
+            >
+              {columns.map((col, index) => (
+                <td key={col.id} style={{ paddingLeft: CELL_PAD_X, paddingRight: CELL_PAD_X }}>
+                  <DraftCell
+                    column={col}
+                    autoFocus={index === 0}
+                    value={draft[col.id]}
+                    onChange={(next) => setDraft((current) => ({ ...current, [col.id]: next }))}
+                    onCommit={() => void commitDraft()}
+                    onCancel={() => setDraft(null)}
+                  />
+                </td>
+              ))}
+              <td className="bridge-sticky-cell sticky right-0 z-10 whitespace-nowrap px-2 text-right">
+                <button
+                  type="button"
+                  onClick={() => void commitDraft()}
+                  className="rounded-md px-2 py-1 text-[12px] font-medium hover:bg-black/5 dark:hover:bg-white/10"
+                  style={{ color: "var(--color-navy)" }}
+                >
+                  Save
+                </button>
+              </td>
+            </tr>
+          )}
+
+          {onInsert && !draft && sorted.length > 0 && (
+            <tr style={{ borderTop: "1px solid var(--color-line-soft)" }}>
+              <td colSpan={colSpan} className="px-2 py-1.5">
+                <button
+                  type="button"
+                  onClick={() => setDraft({})}
+                  className="bridge-add-row w-full rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors"
+                  style={{ color: "var(--color-warm-gray)" }}
+                >
+                  + Add record
+                </button>
+              </td>
+            </tr>
+          )}
+        </tbody>
+
+        {sorted.length > 0 && (
+          <tfoot className="sticky bottom-0 z-20">
+            <tr style={{ background: "var(--color-line-soft)" }}>
+              {columns.map((col) => {
+                const numeric = isNumericColumn(col);
+                const kind = aggregates[col.id] ?? defaultAggregate(numeric);
+                return (
+                  <AggregateCell
+                    key={col.id}
+                    kind={kind}
+                    numeric={numeric}
+                    align={numeric ? "right" : "left"}
+                    values={sorted.map((row) => row[col.id])}
+                    format={aggregateFormatter(col)}
+                    onChange={(next) =>
+                      setAggregates((current) => ({ ...current, [col.id]: next }))
+                    }
+                  />
+                );
+              })}
+              <td
+                className="bridge-sticky-cell sticky right-0 z-10 px-4 py-2"
+                style={{
+                  background: "var(--color-line-soft)",
+                  borderLeft: "1px solid var(--color-border)",
+                  borderTop: "2px solid var(--color-border)",
+                }}
+              />
+            </tr>
+          </tfoot>
+        )}
+      </table>
     </div>
   );
 
-  // Only pay for the batched listForScope query when this Module can
-  // actually be flagged — an unsupported Module never renders a
-  // RedFlagControl at all, so a RedFlagProvider around it would be a
-  // wasted query.
-  return flaggable ? <RedFlagProvider scope={{ moduleId, databaseId: spec.id }}>{table}</RedFlagProvider> : table;
+  // Only pay for the batched listForScope query when this Module can actually be
+  // flagged — an unsupported Module never renders a RedFlagControl at all, so a
+  // RedFlagProvider around it would be a wasted query.
+  return flaggable ? (
+    <RedFlagProvider scope={{ moduleId, databaseId: spec.id }}>{table}</RedFlagProvider>
+  ) : (
+    table
+  );
+}
+
+/**
+ * A footer cell that computes one aggregate over its column, and lets the user
+ * change which. Restores the summary row ADR-182 had to report as permanently
+ * open on canvas — Glide has no footer, and `freezeTrailingRows` would have
+ * shifted the row indices the flag and menu layers depend on.
+ */
+function AggregateCell({
+  kind,
+  numeric,
+  align,
+  values,
+  format,
+  onChange,
+}: {
+  kind: AggregateKind;
+  numeric: boolean;
+  align: "left" | "right";
+  values: unknown[];
+  format?: (value: number) => string;
+  onChange: (kind: AggregateKind) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const result = useMemo(() => computeAggregate(values, kind), [values, kind]);
+  const options = availableAggregates(numeric);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const display =
+    result.value === null
+      ? "—"
+      : result.isCount
+        ? String(result.value)
+        : (format?.(result.value) ?? String(Math.round(result.value * 100) / 100));
+
+  return (
+    <td
+      className={`relative whitespace-nowrap ${align === "right" ? "text-right" : ""}`}
+      style={{
+        height: HEADER_HEIGHT,
+        paddingLeft: CELL_PAD_X,
+        paddingRight: CELL_PAD_X,
+        borderTop: "2px solid var(--color-border)",
+      }}
+    >
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={() => setOpen((v) => !v)}
+        className="bridge-agg inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[12px] transition-colors"
+      >
+        <span
+          className="text-[10px] uppercase tracking-[0.06em]"
+          style={{ color: "var(--color-warm-gray)" }}
+        >
+          {AGGREGATE_LABELS[kind]}
+        </span>
+        <span className="font-semibold tabular-nums" style={{ color: "var(--color-navy)" }}>
+          {display}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          onPointerDown={(event) => event.stopPropagation()}
+          className={`absolute bottom-full z-50 mb-1 min-w-[150px] rounded-xl border py-1 shadow-xl ${
+            align === "right" ? "right-2" : "left-2"
+          }`}
+          style={{
+            borderColor: "var(--color-border)",
+            background: "var(--color-background)",
+          }}
+        >
+          {options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onChange(option);
+                setOpen(false);
+              }}
+              className="flex w-full items-center justify-between gap-6 px-3 py-1.5 text-left text-[12.5px] hover:bg-black/5"
+              style={{ color: "var(--color-navy)" }}
+            >
+              {AGGREGATE_LABELS[option]}
+              {option === kind && (
+                <Check size={12} style={{ color: "var(--color-steel)" }} aria-hidden="true" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </td>
+  );
+}
+
+/** Inline cell editor. Present only where a governed update path exists —
+ * `onUpdate` routes through the caller's pipeline exactly as the Form view's
+ * insert does, so editing here is not a second, ungoverned write path. */
+function InlineEditor({
+  initial,
+  align,
+  options,
+  onCommit,
+  onCancel,
+}: {
+  initial: string;
+  align: "left" | "right";
+  options?: string[];
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const [value, setValue] = useState(initial);
+
+  useEffect(() => {
+    if (options) selectRef.current?.focus();
+    else {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [options]);
+
+  const style = {
+    borderColor: "var(--color-steel)",
+    background: "var(--color-background)",
+    color: "var(--color-navy)",
+  };
+
+  if (options) {
+    return (
+      <select
+        ref={selectRef}
+        value={value}
+        onChange={(event) => {
+          setValue(event.target.value);
+          onCommit(event.target.value);
+        }}
+        onBlur={onCancel}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onCancel();
+        }}
+        className="w-full rounded-md border px-2 py-1 text-[13px] outline-none"
+        style={style}
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => (value === initial ? onCancel() : onCommit(value))}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") onCommit(value);
+        if (event.key === "Escape") onCancel();
+      }}
+      className={`w-full min-w-[80px] rounded-md border px-2 py-1 text-[13px] outline-none ${
+        align === "right" ? "text-right" : ""
+      }`}
+      style={style}
+    />
+  );
+}
+
+/**
+ * One cell of the in-place new-Element draft row.
+ *
+ * Deliberately NOT `InlineEditor`: that component edits an existing value and
+ * treats blur-without-change as a cancel, which would tear the draft row down
+ * the moment the user tabbed between columns. A draft cell holds its value in
+ * the parent's draft object and only Escape dismisses.
+ */
+function DraftCell({
+  column,
+  value,
+  autoFocus,
+  onChange,
+  onCommit,
+  onCancel,
+}: {
+  column: ColumnSpec;
+  value: unknown;
+  autoFocus: boolean;
+  onChange: (next: unknown) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  const style = {
+    borderColor: "var(--color-steel)",
+    background: "var(--color-background)",
+    color: "var(--color-navy)",
+  };
+  const onKeyDown = (event: { key: string }) => {
+    if (event.key === "Enter") onCommit();
+    if (event.key === "Escape") onCancel();
+  };
+  const text = value === undefined || value === null ? "" : String(value);
+
+  if (column.options && column.options.length > 0) {
+    return (
+      <select
+        autoFocus={autoFocus}
+        value={text}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
+        className="w-full rounded-md border px-2 py-1 text-[13px] outline-none"
+        style={style}
+      >
+        <option value="">—</option>
+        {column.options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  const numeric = isNumericColumn(column);
+  return (
+    <input
+      autoFocus={autoFocus}
+      value={text}
+      placeholder={column.label}
+      inputMode={numeric ? "decimal" : undefined}
+      onChange={(event) =>
+        onChange(numeric && event.target.value !== "" ? Number(event.target.value) : event.target.value)
+      }
+      onKeyDown={onKeyDown}
+      className={`w-full min-w-[80px] rounded-md border px-2 py-1 text-[13px] outline-none ${
+        numeric ? "text-right" : ""
+      }`}
+      style={style}
+    />
+  );
 }

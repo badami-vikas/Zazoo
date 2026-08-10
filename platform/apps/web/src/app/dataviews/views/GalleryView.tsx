@@ -21,7 +21,7 @@ export function GalleryView({ spec, view, data, onViewChange, onInsert, onOpenRe
         <div>No {spec.id} records yet.</div>
         {onInsert && (
           <Button size="sm" variant="outline" onClick={() => onViewChange({ ...view, kind: "form" })}>
-            <Plus className="size-3.5" /> Add row
+            <Plus className="size-3.5" /> Add record
           </Button>
         )}
       </div>

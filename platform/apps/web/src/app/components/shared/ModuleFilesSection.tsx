@@ -1,10 +1,66 @@
-import { useEffect, useState, type ChangeEvent } from "react";
-import { FolderOpen, Upload } from "lucide-react";
+/**
+ * ModuleFilesSection — the Files Section, as an actual file explorer (ADR-195).
+ *
+ * WHAT THIS WAS. A flat `<ul>` of full relative paths (`sub/dir/name.txt`) with
+ * a size and a timestamp underneath each. Folders were not entities: a nested
+ * File appeared as its whole path in one line, there was no way to navigate,
+ * sort, search, or change how the list was drawn, and the only interaction in
+ * the whole section was Add local File.
+ *
+ * WHAT IT IS NOW. A Finder/Explorer-shaped view over the same inventory:
+ * breadcrumb navigation into real folders, an Icons view and a Details view
+ * with sortable Name / Size / Date-modified columns, filter-as-you-type, and
+ * selection. No backend change was needed — `modules.files` already returns
+ * `size` and `modifiedAt` per item; the folder tree is derived from the path
+ * separators the server already sends.
+ *
+ * THE EMPTY STATE STAYS TEXT, DELIBERATELY. `docs/raw/ui-architecture-rules-2026-07.md`
+ * §6a specifies for a Files Section with nothing in it: one line naming what
+ * WOULD appear here, and explicitly "no folder icon grid". So the icon grid is
+ * the POPULATED view only — an empty folder is a sentence, never a tile field.
+ *
+ * KNOWN LIMIT, NOT HIDDEN: `listModuleFiles` walks the tree and returns FILES
+ * only, so a folder containing no files anywhere beneath it does not exist in
+ * the inventory and cannot be shown. Every folder rendered here is inferred
+ * from the path of a File inside it. Making empty folders visible needs the
+ * server to return directory entries, which is a separate change — the graph
+ * indexer consumes `items` and must not start indexing directories as Files.
+ */
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import {
+  ChevronRight,
+  File as FileIcon,
+  FileCode,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  Folder,
+  FolderOpen,
+  LayoutGrid,
+  List as ListIcon,
+  Search,
+  Upload,
+} from "lucide-react";
 import { trpc, PILOT_ORGANIZATION } from "../../lib/trpc";
+import {
+  entriesForFolder,
+  formatBytes,
+  sortEntries,
+  type FileEntry,
+  type FileSortDir,
+  type FileSortKey,
+} from "./file-explorer-model.js";
 
 type FileInventory = Awaited<ReturnType<typeof trpc.modules.files.query>>;
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+/** Row geometry, in pixels for the same reason ADR-194 gives: `html` is set to
+ * 17px, so every rem-based Tailwind unit renders 6.25% larger than it reads. */
+const ROW_HEIGHT = 32;
+const CELL_PAD_X = 12;
+
+type ViewMode = "icons" | "details";
 
 function fileBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -22,6 +78,21 @@ function fileBase64(file: File): Promise<string> {
   });
 }
 
+const EXTENSION_ICONS: Array<[RegExp, typeof FileIcon]> = [
+  [/\.(png|jpe?g|gif|webp|svg|bmp|heic|avif)$/i, FileImage],
+  [/\.(csv|tsv|xlsx?|numbers)$/i, FileSpreadsheet],
+  [/\.(ts|tsx|js|jsx|json|rs|py|go|sh|html|css|ya?ml|toml)$/i, FileCode],
+  [/\.(txt|md|rtf|pdf|docx?|pages)$/i, FileText],
+];
+
+function iconFor(entry: FileEntry): typeof FileIcon {
+  if (entry.isDirectory) return Folder;
+  for (const [pattern, icon] of EXTENSION_ICONS) {
+    if (pattern.test(entry.name)) return icon;
+  }
+  return FileIcon;
+}
+
 export function ModuleFilesSection({
   moduleName,
   title = "Files",
@@ -35,33 +106,50 @@ export function ModuleFilesSection({
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
 
+  const [folder, setFolder] = useState("");
+  const [view, setView] = useState<ViewMode>("icons");
+  const [sortKey, setSortKey] = useState<FileSortKey>("name");
+  const [sortDir, setSortDir] = useState<FileSortDir>("asc");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
-    void trpc.modules.files.query({
-      organizationId: PILOT_ORGANIZATION,
-      moduleName,
-    }).then((next) => {
-      if (active) setInventory(next);
-    }).catch((cause) => {
-      if (active) setError(String(cause));
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
+    void trpc.modules.files
+      .query({ organizationId: PILOT_ORGANIZATION, moduleName })
+      .then((next) => {
+        if (active) setInventory(next);
+      })
+      .catch((cause) => {
+        if (active) setError(String(cause));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
   }, [moduleName, refresh]);
 
+  // A folder that no longer exists after a refresh would strand the view in a
+  // location with nothing in it and no way back except the breadcrumb.
+  useEffect(() => {
+    if (!inventory || folder === "") return;
+    const stillThere = inventory.items.some((item) => item.path.startsWith(`${folder}/`));
+    if (!stillThere) setFolder("");
+  }, [inventory, folder]);
+
   async function addFiles(event: ChangeEvent<HTMLInputElement>) {
-    const selected = [...(event.currentTarget.files ?? [])];
+    const chosen = [...(event.currentTarget.files ?? [])];
     event.currentTarget.value = "";
-    if (selected.length === 0) return;
+    if (chosen.length === 0) return;
     setUploading(true);
     setError(null);
     try {
-      for (const file of selected) {
+      for (const file of chosen) {
         if (file.size > MAX_FILE_BYTES) {
           throw new Error(`${file.name} exceeds the 10 MB local File limit.`);
         }
@@ -80,64 +168,354 @@ export function ModuleFilesSection({
     }
   }
 
+  const entries = useMemo(() => {
+    if (!inventory) return [];
+    const all = entriesForFolder(inventory.items, folder);
+    const needle = query.trim().toLowerCase();
+    const filtered = needle
+      ? all.filter((entry) => entry.name.toLowerCase().includes(needle))
+      : all;
+    return sortEntries(filtered, sortKey, sortDir);
+  }, [inventory, folder, query, sortKey, sortDir]);
+
+  const crumbs = folder === "" ? [] : folder.split("/");
+
+  function openEntry(entry: FileEntry) {
+    if (entry.isDirectory) {
+      setFolder(entry.path);
+      setSelected(null);
+      setQuery("");
+    }
+  }
+
+  function toggleSort(key: FileSortKey) {
+    if (sortKey === key) setSortDir((dir) => (dir === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      // Name reads best A→Z; size and date read best newest/largest first.
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  }
+
+  const hasFiles = Boolean(inventory && inventory.items.length > 0);
+
   return (
     <section className="space-y-3" aria-labelledby={`${moduleName}-files-title`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <FolderOpen className="size-4" style={{ color: "var(--color-steel)" }} />
-          <h2 id={`${moduleName}-files-title`} className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
+          <h2
+            id={`${moduleName}-files-title`}
+            className="text-sm font-semibold"
+            style={{ color: "var(--color-navy)" }}
+          >
             {title}
           </h2>
         </div>
         <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-[var(--color-surface)]">
           <Upload className="size-3.5" />
           {uploading ? "Copying locally…" : "Add local File"}
-          <input
-            type="file"
-            multiple
-            className="sr-only"
-            disabled={uploading}
-            onChange={addFiles}
-          />
+          <input type="file" multiple className="sr-only" disabled={uploading} onChange={addFiles} />
         </label>
       </div>
+
       {loading ? (
-        <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>Loading local File inventory…</p>
+        <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+          Loading local File inventory…
+        </p>
       ) : error ? (
         /Local Plane|public cloud/i.test(error) ? (
-          <div className="rounded-lg border border-dashed p-4 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
+          <div
+            className="rounded-lg border border-dashed p-4 text-xs"
+            style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
+          >
             <p>Local Files live on the Bridge desktop app and are not served by the public cloud.</p>
           </div>
         ) : (
-          <p role="alert" className="break-words text-xs text-red-600">{error}</p>
-        )
-      ) : inventory && inventory.items.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-          <p className="border-b p-3 text-xs break-all" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-            {inventory.root}
+          <p role="alert" className="break-words text-xs text-red-600">
+            {error}
           </p>
-          <ul className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-            {inventory.items.map((file) => (
-              <li key={file.path} className="p-3">
-                <p className="break-all text-sm font-medium" style={{ color: "var(--color-navy)" }}>{file.path}</p>
-                <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-                  {file.size.toLocaleString()} bytes · {new Date(file.modifiedAt).toLocaleString()}
-                </p>
-              </li>
-            ))}
-          </ul>
-          {inventory.truncated && (
-            <p className="border-t p-3 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-              Showing the first 200 local Files.
+        )
+      ) : hasFiles ? (
+        <div
+          className="overflow-hidden rounded-xl border"
+          style={{ borderColor: "var(--color-border)", background: "var(--color-background)" }}
+        >
+          {/* Toolbar: breadcrumb · filter · view switch */}
+          <div
+            className="flex flex-wrap items-center gap-2 border-b px-3 py-2"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-line-soft)" }}
+          >
+            <nav aria-label="Folder path" className="flex min-w-0 flex-1 items-center gap-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setFolder("");
+                  setSelected(null);
+                }}
+                className="rounded px-1.5 py-0.5 font-medium hover:bg-black/5"
+                style={{ color: folder === "" ? "var(--color-navy)" : "var(--color-navy-mid)" }}
+              >
+                {moduleName}
+              </button>
+              {crumbs.map((crumb, index) => {
+                const target = crumbs.slice(0, index + 1).join("/");
+                const isLast = index === crumbs.length - 1;
+                return (
+                  <span key={target} className="flex min-w-0 items-center">
+                    <ChevronRight
+                      className="size-3 shrink-0"
+                      style={{ color: "var(--color-warm-gray)" }}
+                      aria-hidden="true"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFolder(target);
+                        setSelected(null);
+                      }}
+                      aria-current={isLast ? "page" : undefined}
+                      className="truncate rounded px-1.5 py-0.5 hover:bg-black/5"
+                      style={{
+                        color: isLast ? "var(--color-navy)" : "var(--color-navy-mid)",
+                        fontWeight: isLast ? 600 : 400,
+                      }}
+                    >
+                      {crumb}
+                    </button>
+                  </span>
+                );
+              })}
+            </nav>
+
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2"
+                style={{ color: "var(--color-warm-gray)" }}
+                aria-hidden="true"
+              />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Filter"
+                aria-label="Filter Files in this folder"
+                className="h-7 w-32 rounded-md border pl-7 pr-2 text-xs outline-none"
+                style={{
+                  borderColor: "var(--color-border)",
+                  background: "var(--color-background)",
+                  color: "var(--color-navy)",
+                }}
+              />
+            </div>
+
+            <div
+              className="flex items-center gap-0.5 rounded-md border p-0.5"
+              style={{ borderColor: "var(--color-border)" }}
+              role="group"
+              aria-label="File view"
+            >
+              {([
+                ["icons", LayoutGrid, "Icons"],
+                ["details", ListIcon, "Details"],
+              ] as const).map(([mode, Icon, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setView(mode)}
+                  aria-pressed={view === mode}
+                  title={`${label} view`}
+                  className="rounded p-1"
+                  style={{
+                    background: view === mode ? "var(--color-row-hover)" : "transparent",
+                    color: view === mode ? "var(--color-navy)" : "var(--color-warm-gray)",
+                  }}
+                >
+                  <Icon className="size-3.5" />
+                  <span className="sr-only">{label} view</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {entries.length === 0 ? (
+            <p className="p-6 text-center text-xs" style={{ color: "var(--color-warm-gray)" }}>
+              {query.trim()
+                ? `No File in this folder matches “${query.trim()}”.`
+                : "This folder is empty."}
             </p>
+          ) : view === "details" ? (
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr style={{ background: "var(--color-background)" }}>
+                  {([
+                    ["name", "Name", "left"],
+                    ["size", "Size", "right"],
+                    ["modifiedAt", "Date modified", "right"],
+                  ] as const).map(([key, label, align]) => (
+                    <th
+                      key={key}
+                      scope="col"
+                      aria-sort={
+                        sortKey === key ? (sortDir === "asc" ? "ascending" : "descending") : "none"
+                      }
+                      style={{
+                        height: ROW_HEIGHT,
+                        paddingLeft: CELL_PAD_X,
+                        paddingRight: CELL_PAD_X,
+                        color: "var(--color-warm-gray)",
+                        borderBottom: "1px solid var(--color-border)",
+                        textAlign: align,
+                      }}
+                      className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.07em]"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(key)}
+                        className="inline-flex items-center gap-1 hover:opacity-70"
+                      >
+                        {label}
+                        {sortKey === key && (
+                          <span aria-hidden="true">{sortDir === "asc" ? "▲" : "▼"}</span>
+                        )}
+                      </button>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => {
+                  const Icon = iconFor(entry);
+                  const isSelected = selected === entry.path;
+                  return (
+                    <tr
+                      key={entry.path}
+                      onClick={() => setSelected(entry.path)}
+                      onDoubleClick={() => openEntry(entry)}
+                      aria-selected={isSelected}
+                      className="bridge-table-row cursor-default"
+                      style={{
+                        height: ROW_HEIGHT,
+                        background: isSelected ? "var(--color-row-hover)" : undefined,
+                        borderBottom: "1px solid var(--color-line-soft)",
+                      }}
+                    >
+                      <td
+                        style={{ paddingLeft: CELL_PAD_X, paddingRight: CELL_PAD_X }}
+                        className="max-w-0 align-middle"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Icon
+                            className="size-4 shrink-0"
+                            style={{
+                              color: entry.isDirectory
+                                ? "var(--color-steel)"
+                                : "var(--color-warm-gray)",
+                            }}
+                            aria-hidden="true"
+                          />
+                          <span className="truncate" style={{ color: "var(--color-navy)" }}>
+                            {entry.name}
+                          </span>
+                        </span>
+                      </td>
+                      <td
+                        style={{
+                          paddingLeft: CELL_PAD_X,
+                          paddingRight: CELL_PAD_X,
+                          color: "var(--color-warm-gray)",
+                        }}
+                        className="whitespace-nowrap text-right align-middle tabular-nums"
+                      >
+                        {formatBytes(entry.size)}
+                      </td>
+                      <td
+                        style={{
+                          paddingLeft: CELL_PAD_X,
+                          paddingRight: CELL_PAD_X,
+                          color: "var(--color-warm-gray)",
+                        }}
+                        className="whitespace-nowrap text-right align-middle tabular-nums"
+                      >
+                        {new Date(entry.modifiedAt).toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div
+              ref={gridRef}
+              className="grid gap-1 p-3"
+              style={{ gridTemplateColumns: "repeat(auto-fill, minmax(104px, 1fr))" }}
+            >
+              {entries.map((entry) => {
+                const Icon = iconFor(entry);
+                const isSelected = selected === entry.path;
+                return (
+                  <button
+                    key={entry.path}
+                    type="button"
+                    onClick={() => setSelected(entry.path)}
+                    onDoubleClick={() => openEntry(entry)}
+                    aria-pressed={isSelected}
+                    title={
+                      entry.isDirectory
+                        ? `${entry.name} — ${entry.childCount} File${entry.childCount === 1 ? "" : "s"}, ${formatBytes(entry.size)}`
+                        : `${entry.name} — ${formatBytes(entry.size)}, ${new Date(entry.modifiedAt).toLocaleString()}`
+                    }
+                    className="flex flex-col items-center gap-1.5 rounded-lg p-3"
+                    style={{ background: isSelected ? "var(--color-row-hover)" : "transparent" }}
+                  >
+                    <Icon
+                      className="size-10"
+                      strokeWidth={1.25}
+                      style={{
+                        color: entry.isDirectory ? "var(--color-steel)" : "var(--color-warm-gray)",
+                      }}
+                      aria-hidden="true"
+                    />
+                    <span
+                      className="line-clamp-2 w-full break-all text-center text-[11px] leading-tight"
+                      style={{ color: "var(--color-navy)" }}
+                    >
+                      {entry.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           )}
+
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-1.5 text-[11px]"
+            style={{
+              borderColor: "var(--color-border)",
+              background: "var(--color-line-soft)",
+              color: "var(--color-warm-gray)",
+            }}
+          >
+            <span>
+              {entries.length} item{entries.length === 1 ? "" : "s"}
+              {inventory?.truncated && " · showing the first 200 local Files"}
+            </span>
+            <span className="truncate" title={inventory?.root}>
+              {inventory?.root}
+            </span>
+          </div>
         </div>
       ) : (
-        <div className="rounded-lg border border-dashed p-4 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-          <p>No local Files yet.</p>
+        /* Canon (ui-architecture-rules §6a): the zero state names what would
+           appear here, in one line, and is NEVER a folder icon grid. */
+        <div
+          className="rounded-lg border border-dashed p-4 text-xs"
+          style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
+        >
+          <p>No local Files yet — Files you add to this Module appear here.</p>
           {inventory?.root && <p className="mt-1 break-all">{inventory.root}</p>}
         </div>
       )}
+
       <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
         The picker copies selected Files into this Module's Local Plane folder.
       </p>

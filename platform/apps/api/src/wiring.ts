@@ -404,11 +404,14 @@ export async function retireSupersededBuiltIns(
   moduleStore: ModuleStore,
   organizationId: string,
 ): Promise<void> {
-  for (const row of await moduleStore.listVersions(organizationId, "helpdesk")) {
-    if (row.state === "available") {
-      await moduleStore.setState(row.id, "legacy");
-    }
-  }
+  // "helpdesk" is no longer retired here. This loop existed to kill a legacy
+  // standalone Helpdesk Module, but Helpdesk now SHIPS as a NetworkManager
+  // sub-module under that same name — and because this runs before
+  // seedBuiltInModules on every boot, leaving it would mark the freshly seeded
+  // row "legacy" one restart later and the Module would vanish from the nav
+  // again. Superseding an older version is already handled by seeding itself:
+  // a new version replaces the available installation and keeps prior rows as
+  // legacy evidence.
   for (const row of await moduleStore.listVersions(organizationId, "calendar")) {
     if (row.state !== "legacy") {
       await moduleStore.setState(row.id, "legacy");

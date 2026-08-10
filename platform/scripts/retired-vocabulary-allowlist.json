@@ -183,6 +183,12 @@
       "pathPrefix": "modules/whatsapp/src/index.ts",
       "reason": "TIME-BOXED (rename after active WhatsApp branches land \u2014 TASK-037 follow-up). Re-exports everything from tools.ts; the `tool` family reaches this path only because the export barrel re-surfaces the identifiers already exempted at modules/whatsapp/src/tools.ts.",
       "reviewed": "AP-135 \u00b7 2026-08-09 \u00b7 TASK-036"
+    },
+    {
+      "family": "element",
+      "pathPrefix": "apps/web/src/app/dataviews/views/TableView.tsx",
+      "reason": "DOM and library API names, not the retired Bridge product noun. The occurrences are `HTMLDivElement`/`HTMLElement`/`HTMLInputElement`/`HTMLSelectElement` (TypeScript's built-in DOM lib types) and `getScrollElement` (the option key `@tanstack/react-virtual` requires on its options object, ADR-194). Renaming either would break the contract with TypeScript's DOM typings or with the virtualizer rather than migrate a Bridge identifier — the word is not ours to rename here.",
+      "reviewed": "AP-114 · 2026-08-06 · ADR-194"
     }
   ]
 }
