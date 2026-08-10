@@ -272,9 +272,9 @@ test("an empty View keeps its chrome and says nothing (§6b, user directive 2026
   assert.match(files, /EMPTY_BODY_MIN_HEIGHT/);
 });
 
-test("the macOS header row IS the titlebar — no strip, no repeated workspace name (§5g)", () => {
+test("the macOS header row IS the titlebar — no strip, no repeated Organization name (§5g)", () => {
   const chrome = read("src/app/components/shared/DesktopWindowChrome.tsx");
-  // The strip is what forced the workspace name to be duplicated above the shell.
+  // The strip is what forced the Organization name to be duplicated above the shell.
   assert.doesNotMatch(chrome, /DesktopTitlebar/);
   assert.match(chrome, /MAC_TRAFFIC_LIGHT_GUTTER/);
 

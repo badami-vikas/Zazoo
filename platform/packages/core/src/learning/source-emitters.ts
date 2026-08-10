@@ -45,6 +45,7 @@ export interface CaptureScope {
 
 export const CHAT_CAPTURE_MODULE_ID = "chat";
 export const WHATSAPP_CAPTURE_MODULE_ID = "whatsapp";
+export const GOOGLE_CAPTURE_MODULE_ID = "google";
 
 export type TimeOfDayBucket = "morning" | "afternoon" | "evening" | "night";
 
@@ -105,6 +106,93 @@ export interface WhatsAppMessageCaptureEnvelope {
   sentAt: string | null;
   capturedAt: string;
   taintLabel?: TaintLabel;
+}
+
+/**
+ * K5 (ADR-210 "Capture: email + calendar") — the Google mappers differ from
+ * the K2 pair in one deliberate way: the plan names the metadata itself as
+ * the signal content ("metadata-first: sender/subject/time, calendar events
+ * + attendees"), so `subject`/`counterparty`/`attendees` ARE attributes here
+ * even though they are higher-cardinality than K2's facets. The digest
+ * shrugs at one-off values (they never reach `minRepetitions`), while a
+ * repeated counterparty or time-of-day is exactly the rhythm K6's brief and
+ * commitment rungs consume. What stays structurally inexpressible is CONTENT:
+ * a thread's `snippet`/`bodyText` and an event's `description` have no field
+ * on these envelopes — content summarization is a later, separately-gated
+ * rung. Both mappers also differ from K2's "own acts only" rule on purpose:
+ * an approved intake row is not a behavior signal about the owner's act, it
+ * is an interaction-metadata signal about a record the owner explicitly
+ * approved into the graph — the human approval IS the emission warrant.
+ */
+
+/** The slice of an approved Gmail-thread intake capture may see. `snippet`
+ * and message bodies are structurally inexpressible. */
+export interface GmailThreadCaptureEnvelope {
+  threadId: string;
+  subject: string;
+  /** The matched counterparty's email; null when the thread had none. */
+  counterpartyEmail: string | null;
+  lastMessageAt: string;
+  taintLabel?: TaintLabel;
+}
+
+export function gmailThreadCaptureSignal(
+  envelope: GmailThreadCaptureEnvelope,
+  scope: CaptureScope,
+  signalId: string,
+): ObservedSignal | null {
+  return {
+    id: signalId,
+    organizationId: scope.organizationId,
+    ownerUserId: scope.userId,
+    moduleId: GOOGLE_CAPTURE_MODULE_ID,
+    recordKind: "thread",
+    recordId: envelope.threadId,
+    action: "email",
+    attributes: {
+      subject: envelope.subject,
+      timeOfDay: timeOfDayBucket(envelope.lastMessageAt),
+      ...(envelope.counterpartyEmail ? { counterparty: envelope.counterpartyEmail } : {}),
+    },
+    observedAt: envelope.lastMessageAt,
+    ...(envelope.taintLabel ? { taintLabel: envelope.taintLabel } : {}),
+  };
+}
+
+/** The slice of an approved Calendar-event intake capture may see. The
+ * event's `description` is structurally inexpressible. */
+export interface CalendarEventCaptureEnvelope {
+  eventId: string;
+  summary: string;
+  startsAt: string;
+  /** Invitee emails as staged in the approved payload (may include the owner). */
+  attendeeEmails: string[];
+  taintLabel?: TaintLabel;
+}
+
+export function calendarEventCaptureSignal(
+  envelope: CalendarEventCaptureEnvelope,
+  scope: CaptureScope,
+  signalId: string,
+): ObservedSignal | null {
+  return {
+    id: signalId,
+    organizationId: scope.organizationId,
+    ownerUserId: scope.userId,
+    moduleId: GOOGLE_CAPTURE_MODULE_ID,
+    recordKind: "event",
+    recordId: envelope.eventId,
+    action: "meet",
+    attributes: {
+      summary: envelope.summary,
+      timeOfDay: timeOfDayBucket(envelope.startsAt),
+      ...(envelope.attendeeEmails.length > 0
+        ? { attendees: envelope.attendeeEmails.join(", ") }
+        : {}),
+    },
+    observedAt: envelope.startsAt,
+    ...(envelope.taintLabel ? { taintLabel: envelope.taintLabel } : {}),
+  };
 }
 
 export function whatsAppMessageCaptureSignal(

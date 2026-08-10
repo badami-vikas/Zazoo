@@ -488,6 +488,10 @@ export class IntakeService {
             occurredAt: event.start,
             with: cp?.email ?? null,
             location: event.location ?? null,
+            // K5 (TASK-049): the invite list is interaction metadata the
+            // approved graph row (and the capture signal derived from it)
+            // legitimately carries. Emails only — never the description.
+            attendees: event.attendees.map((attendee) => attendee.email),
           },
           source: CALENDAR_SOURCE,
           sourceRecordId: event.eventId,

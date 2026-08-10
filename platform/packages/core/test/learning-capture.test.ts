@@ -1,10 +1,13 @@
 /**
- * K2 capture consent + source emitters (AI Harness K2) — the contract:
+ * K2+K5 capture consent + source emitters (AI Harness K2/K5) — the contract:
  * every source defaults OFF and the parse fails CLOSED; the kill switch
  * trumps per-source consent without rewriting it; consent to one source
  * says nothing about another; the chat mapper refuses cloud-plane turns;
  * the WhatsApp mapper refuses inbound messages; message text is
- * structurally inexpressible to both mappers.
+ * structurally inexpressible to both K2 mappers. K5 adds the "google"
+ * source and its two mappers: approved Gmail threads and Calendar events
+ * become metadata-only signals (sender/subject/time; summary/attendees/
+ * time) whose envelopes cannot express snippet, body, or description.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -18,10 +21,14 @@ import {
   withSourceConsent,
 } from "../src/learning/capture-consent.js";
 import {
+  calendarEventCaptureSignal,
   chatTurnCaptureSignal,
+  gmailThreadCaptureSignal,
   timeOfDayBucket,
   whatsAppMessageCaptureSignal,
+  type CalendarEventCaptureEnvelope,
   type ChatTurnCaptureEnvelope,
+  type GmailThreadCaptureEnvelope,
   type WhatsAppMessageCaptureEnvelope,
 } from "../src/learning/source-emitters.js";
 
@@ -210,6 +217,84 @@ test("message text is structurally inexpressible: neither envelope type admits a
       "no signal field can carry message text",
     );
     // The only free-text-capable field on ObservedSignal stays absent.
+    assert.equal(signal.reason, undefined);
+  }
+});
+
+// ── K5: the "google" source (TASK-049) ──────────────────────────────────────
+
+test("K5: 'google' is a consent source that defaults OFF like every other", () => {
+  assert.ok(isCaptureSource("google"));
+  const state = defaultCaptureConsent();
+  assert.equal(captureAllowed(state, "google"), false);
+  // Enabling google says nothing about the K2 sources, and vice versa.
+  const googleOn = withSourceConsent(state, "google", true, "user-1", AT);
+  assert.equal(captureAllowed(googleOn, "google"), true);
+  assert.equal(captureAllowed(googleOn, "chat"), false);
+  assert.equal(captureAllowed(googleOn, "whatsapp"), false);
+  assert.equal(captureAllowed(withCapturePaused(googleOn, true, "user-1", AT), "google"), false);
+});
+
+test("gmail mapper: an approved thread becomes a sender/subject/time metadata signal", () => {
+  const envelope: GmailThreadCaptureEnvelope = {
+    threadId: "thread-9",
+    subject: "Re: partnership terms",
+    counterpartyEmail: "founder@example.com",
+    lastMessageAt: AT,
+  };
+  const signal = gmailThreadCaptureSignal(envelope, SCOPE, "signal-g1");
+  assert.ok(signal);
+  assert.equal(signal.moduleId, "google");
+  assert.equal(signal.recordKind, "thread");
+  assert.equal(signal.recordId, "thread-9");
+  assert.equal(signal.action, "email");
+  assert.deepEqual(Object.keys(signal.attributes).sort(), ["counterparty", "subject", "timeOfDay"]);
+  assert.equal(signal.attributes["counterparty"], "founder@example.com");
+  assert.equal(signal.attributes["subject"], "Re: partnership terms");
+  assert.equal(signal.observedAt, AT);
+
+  // A thread with no counterparty still signals — the key is just absent.
+  const solo = gmailThreadCaptureSignal({ ...envelope, counterpartyEmail: null }, SCOPE, "signal-g2");
+  assert.deepEqual(Object.keys(solo!.attributes).sort(), ["subject", "timeOfDay"]);
+});
+
+test("calendar mapper: an approved event becomes a summary/attendees/time metadata signal", () => {
+  const envelope: CalendarEventCaptureEnvelope = {
+    eventId: "evt-9",
+    summary: "Quarterly review",
+    startsAt: AT,
+    attendeeEmails: ["founder@example.com", "self@example.com"],
+  };
+  const signal = calendarEventCaptureSignal(envelope, SCOPE, "signal-c1");
+  assert.ok(signal);
+  assert.equal(signal.moduleId, "google");
+  assert.equal(signal.recordKind, "event");
+  assert.equal(signal.recordId, "evt-9");
+  assert.equal(signal.action, "meet");
+  assert.deepEqual(Object.keys(signal.attributes).sort(), ["attendees", "summary", "timeOfDay"]);
+  assert.equal(signal.attributes["attendees"], "founder@example.com, self@example.com");
+  assert.equal(signal.observedAt, AT);
+
+  // No invitees → the attendees key is absent, never an empty string.
+  const empty = calendarEventCaptureSignal({ ...envelope, attendeeEmails: [] }, SCOPE, "signal-c2");
+  assert.deepEqual(Object.keys(empty!.attributes).sort(), ["summary", "timeOfDay"]);
+});
+
+test("google content is structurally inexpressible: no envelope admits snippet/body/description", () => {
+  const SECRET = "XYZZY-the-thread-body-or-event-description";
+  const gmail = gmailThreadCaptureSignal(
+    { threadId: "t", subject: "s", counterpartyEmail: "a@b.c", lastMessageAt: AT },
+    SCOPE,
+    "s-3",
+  );
+  const calendar = calendarEventCaptureSignal(
+    { eventId: "e", summary: "s", startsAt: AT, attendeeEmails: ["a@b.c"] },
+    SCOPE,
+    "s-4",
+  );
+  for (const signal of [gmail, calendar]) {
+    assert.ok(signal);
+    assert.ok(!JSON.stringify(signal).includes(SECRET));
     assert.equal(signal.reason, undefined);
   }
 });
