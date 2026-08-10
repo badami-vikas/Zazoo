@@ -61,6 +61,9 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
  * 17px, so every rem-based Tailwind unit renders 6.25% larger than it reads. */
 const ROW_HEIGHT = 32;
 const CELL_PAD_X = 12;
+/** Body height held at zero Files so the section keeps its shape (user
+ *  directive 2026-08-10: retain the visual aesthetics even when empty). */
+const EMPTY_BODY_MIN_HEIGHT = 96;
 
 type ViewMode = "icons" | "details";
 
@@ -193,8 +196,6 @@ export function ModuleFilesSection({ moduleName }: { moduleName: string }) {
       setSortDir(key === "name" ? "asc" : "desc");
     }
   }
-
-  const hasFiles = Boolean(inventory && inventory.items.length > 0);
 
   return (
     <section className="space-y-3" aria-labelledby={`${moduleName}-files-title`}>
@@ -366,19 +367,14 @@ export function ModuleFilesSection({ moduleName }: { moduleName: string }) {
             </div>
           </div>
 
-          {!hasFiles ? (
-            /* Canon (ui-architecture-rules §6a): the zero state names what
-               would appear here, in one line, and is NEVER a folder icon grid. */
-            <div className="p-4 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-              <p>No local Files yet — Files you add to this Module appear here.</p>
-              {inventory?.root && <p className="mt-1 break-all">{inventory.root}</p>}
-            </div>
-          ) : entries.length === 0 ? (
-            <p className="p-6 text-center text-xs" style={{ color: "var(--color-warm-gray)" }}>
-              {query.trim()
-                ? `No File in this folder matches “${query.trim()}”.`
-                : "This folder is empty."}
-            </p>
+          {/* EMPTY = AN EMPTY SECTION, NOT A MESSAGE (user directive
+              2026-08-10: "Same for artefacts. I want the visual aesthetics
+              retained even if empty"). This SUPERSEDES the older §6a rule
+              that specified a one-line note and "no folder icon grid" — the
+              toolbar, frame and footer now hold their shape at zero Files and
+              the body is simply blank. */}
+          {entries.length === 0 ? (
+            <div style={{ minHeight: EMPTY_BODY_MIN_HEIGHT }} />
           ) : view === "details" ? (
             <table className="w-full border-collapse text-[13px]">
               <thead>
@@ -523,30 +519,27 @@ export function ModuleFilesSection({ moduleName }: { moduleName: string }) {
             </div>
           )}
 
-          {hasFiles && (
-            <div
-              className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-1.5 text-[11px]"
-              style={{
-                borderColor: "var(--color-border)",
-                background: "var(--color-line-soft)",
-                color: "var(--color-warm-gray)",
-              }}
-            >
-              <span>
-                {entries.length} item{entries.length === 1 ? "" : "s"}
-                {inventory?.truncated && " · showing the first 200 local Files"}
-              </span>
-              <span className="truncate" title={inventory?.root}>
-                {inventory?.root}
-              </span>
-            </div>
-          )}
+          {/* Footer always renders — it is the section's bottom edge, and it
+              carries the Local Plane path, which is the residency disclosure
+              this surface owes the user whether or not any File exists yet. */}
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-1.5 text-[11px]"
+            style={{
+              borderColor: "var(--color-border)",
+              background: "var(--color-line-soft)",
+              color: "var(--color-warm-gray)",
+            }}
+          >
+            <span>
+              {entries.length} item{entries.length === 1 ? "" : "s"}
+              {inventory?.truncated && " · showing the first 200 local Files"}
+            </span>
+            <span className="truncate" title={inventory?.root}>
+              {inventory?.root}
+            </span>
+          </div>
         </div>
       )}
-
-      <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
-        The picker copies selected Files into this Module's Local Plane folder.
-      </p>
     </section>
   );
 }

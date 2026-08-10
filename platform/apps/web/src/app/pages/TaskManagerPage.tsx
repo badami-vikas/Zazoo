@@ -3,7 +3,8 @@ import { ListChecks, Target } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 import { normalizeViewKind, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { Header } from "../components/shared/Header";
-import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
+import { DashboardRow } from "../components/shared/DashboardRow";
+import { Button } from "../components/ui/button";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
@@ -204,22 +205,6 @@ export function TaskManagerPage() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-white">
       <Header tabs={[{ id: "queue", label: "Queue", icon: ListChecks }]} activeTab="queue" onTabChange={() => {}} />
-      <CollapsibleInsights
-        expanded
-        metrics={[
-          { id: "active", label: "Active", value: String(tasks.filter((task) => !["done", "archived", "abandoned"].includes(task.status)).length) },
-          { id: "in-progress", label: "In progress", value: String(tasks.filter((task) => task.status === "in_progress").length) },
-          { id: "goals", label: "Goal-flagged", value: String(tasks.filter((task) => task.isGoal).length) },
-        ]}
-      />
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2" style={{ borderColor: "var(--color-border)" }}>
-        <button type="button" aria-pressed={goalsOnly} onClick={() => setGoalsOnly((value) => !value)} className="rounded-md border px-3 py-1.5 text-xs">
-          <Target className="mr-1 inline size-3.5" /> Goals
-        </button>
-        <button type="button" aria-pressed={candidatesOnly} onClick={() => setCandidatesOnly((value) => !value)} className="rounded-md border px-3 py-1.5 text-xs">
-          Candidates
-        </button>
-      </div>
       {pendingProposal && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-amber-50 px-4 py-3 text-sm">
           <p>Internal Strategist impact-fit and resequence proposal is ready for review.</p>
@@ -255,6 +240,35 @@ export function TaskManagerPage() {
               {...(API_TRANSPORT_CONFIGURED ? { onInsert: insertTask, onUpdate: updateTask } : {})}
               onOpenRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
               onEditRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
+              insights={
+                <DashboardRow
+                  metrics={[
+                    { id: "active", label: "Active", value: String(tasks.filter((task) => !["done", "archived", "abandoned"].includes(task.status)).length) },
+                    { id: "in-progress", label: "In progress", value: String(tasks.filter((task) => task.status === "in_progress").length) },
+                    { id: "goals", label: "Goal-flagged", value: String(tasks.filter((task) => task.isGoal).length) },
+                  ]}
+                />
+              }
+              actions={
+                <>
+                  <Button
+                    size="sm"
+                    variant={goalsOnly ? "default" : "outline"}
+                    aria-pressed={goalsOnly}
+                    onClick={() => setGoalsOnly((value) => !value)}
+                  >
+                    <Target className="size-3.5" /> Goals
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={candidatesOnly ? "default" : "outline"}
+                    aria-pressed={candidatesOnly}
+                    onClick={() => setCandidatesOnly((value) => !value)}
+                  >
+                    Candidates
+                  </Button>
+                </>
+              }
             />
           )
         }

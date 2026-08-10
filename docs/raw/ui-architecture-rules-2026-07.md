@@ -197,6 +197,7 @@ Binding rules:
 
 - **Both panels are always collapsible and expandable**, and both reveal their control on hover: the resize/extend affordance is hidden at rest and fades in on hover or keyboard focus of the ~8px edge hit-zone (`ResizeHandle`, ADR-187). The collapse toggle itself stays visible in every state.
 - **Headers are always aligned.** One shared height constant (`h-14` / 56 px) governs the rail's organization row, every page header, and the chat-panel header. A surface that sets its own header height is a divergence.
+- **On macOS that header row IS the titlebar** (revised 2026-08-10, supersedes ADR-187's separate strip). The rail's organization row carries the Tauri drag region and pads past the traffic-light gutter, so traffic lights, workspace name, the centre toggle and the chat panel's Agent name all land on one line. There is no reserved band above the shell and the workspace name appears exactly once.
 - **The Zazoo companion is present on every launch of the Bridge app**, on every route, independent of onboarding state (user directive 2026-08-05, restated 2026-08-10). Presence is not gated on organization confirmation or on onboarding completion; only what the companion may *do* is gated (AP-021 — before setup it greets and drives onboarding rather than offering actions that cannot execute).
 
 ## 5a. Standard column + toggle context menus
@@ -256,7 +257,11 @@ Canonical local tree (Documents = the OS user Documents folder; desktop shell re
 - **Grouping is smart, not fixed-rule, and delegated (confirmed 2026-07-13)**: the >20 threshold triggers grouping, but the scheme is not hardcoded. The Chief of Staff proposes grouping by type, related Record, recency, or another evidenced Module fit. A File-count watcher invokes the Agent when a folder exceeds 20 ungrouped Files; application is governed and logged.
 - **Rename/move tracking + conflict resolution**: track external Finder/Explorer changes with path + content hash + inode/fileID where available and an OS watcher. Update the File Record's path pointer; never regenerate or overwrite a user-moved File. The path change from the legacy folder is a VOCAB4 migration with discovery and compatibility indexing, never an unannounced move.
 
-## 6a. Empty-state spec (added 2026-07-13, closes AP-002 gap for this canon)
+## 6a. Empty-state spec (SUPERSEDED for data surfaces 2026-08-10 — see 6b)
+
+Retained for non-data surfaces (Intelligence rows, capability inventories, nav
+disclosure). **For any surface that renders a standard View — table, board,
+calendar, graph, Files/Artefacts — §6b now governs and this section does not.**
 
 No dummy data (AP-002) means every section that can be empty needs an honest, specific empty state — never a placeholder row:
 
@@ -265,6 +270,32 @@ No dummy data (AP-002) means every section that can be empty needs an honest, sp
 - **Sub-module with no data yet**: the collapsible nav entry still renders (structure is real even if empty) but expanding it shows the same landing-section empty state, not a spinner or blank.
 - **List with zero rows**: same landing-section pattern, scoped to "in this list" ("No people in *VIPs* yet").
 - General rule: empty state text is generated from the page's own metadata (entity name + module name), not hand-authored copy per page — keeps it consistent as new toggle pages get added by the compiler.
+
+## 6b. Empty = the same surface, with nothing in it (user directive 2026-08-10)
+
+Verbatim: *"If table is empty show empty table, no text. Same for artefacts. I
+want the visual aesthetics retained even if empty."*
+
+A View at zero records keeps its chrome and its rhythm and says nothing:
+
+- **Table**: header row, blank filler body rows at the standard 40px pitch, the
+  add-row, and the aggregate footer all render. No message replaces the body.
+- **Artefacts / Files**: the toolbar, the breadcrumb and the residency footer
+  all render over an empty body block of the standard minimum height.
+- The add-row and the aggregate footer sit at the **end** of the view section.
+  The scroll box hugs its content (`max-h-full`, never `h-full`), so a short
+  table has no dead space between its last row and the section's bottom edge.
+- Nothing is disabled by emptiness alone. §3a still applies to controls that
+  genuinely cannot act.
+
+**Why this supersedes §6a here.** §6a's premise was that a blank region reads as
+broken and needs explaining. That premise held when the alternative was a
+genuinely blank rectangle. It does not hold once the surface keeps its full
+structure: a table with headers, grid pitch, add-row and footer already says
+"this is a table and it is empty", and the sentence underneath was the thing
+that read as unfinished. The AP-002 concern §6a exists to serve — never invent
+data — is untouched: filler rows are `aria-hidden`, carry no cells and are not
+Records.
 
 ## 7. OSS precedents consulted (code-level diligence 2026-07-13)
 

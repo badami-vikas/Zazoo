@@ -27,6 +27,8 @@ import { fileURLToPath } from "node:url";
 
 const APP = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "app");
 const PAGES = join(APP, "pages");
+/** Read a source file by its path relative to `src/`. */
+const read = (rel) => readFileSync(join(APP, "..", ...rel.replace(/^src\//, "").split("/")), "utf8");
 
 /**
  * Pages that legitimately do NOT render a Database through the standard shell.
@@ -247,4 +249,38 @@ test("clicking an open red flag removes it (§5d, user directive 2026-08-10)", (
     /e\.key === 'Enter' && e\.shiftKey/,
     "§5d requires a keyboard equivalent for every pointer gesture.",
   );
+});
+
+test("an empty View keeps its chrome and says nothing (§6b, user directive 2026-08-10)", () => {
+  const table = read("src/app/dataviews/views/TableView.tsx");
+
+  // The box hugs its content, so the add-row and aggregate footer land at the
+  // END of the section. `h-full` put them in the middle with dead space below.
+  assert.match(table, /bridge-scroll max-h-full/);
+  assert.doesNotMatch(table, /bridge-scroll h-full/);
+
+  // Zero rows draws blank filler rows, never a message.
+  assert.match(table, /EMPTY_FILLER_ROWS/);
+  assert.match(table, /aria-hidden="true"[\s\S]{0,160}EMPTY_FILLER_ROWS/);
+
+  // The add-row and footer are not gated on having data.
+  assert.match(table, /onInsert && !draft/);
+  assert.doesNotMatch(table, /sorted\.length > 0 && <tfoot/);
+
+  // Artefacts follows the same rule: an empty body block, no copy.
+  const files = read("src/app/components/shared/ModuleFilesSection.tsx");
+  assert.match(files, /EMPTY_BODY_MIN_HEIGHT/);
+});
+
+test("the macOS header row IS the titlebar — no strip, no repeated workspace name (§5g)", () => {
+  const chrome = read("src/app/components/shared/DesktopWindowChrome.tsx");
+  // The strip is what forced the workspace name to be duplicated above the shell.
+  assert.doesNotMatch(chrome, /DesktopTitlebar/);
+  assert.match(chrome, /MAC_TRAFFIC_LIGHT_GUTTER/);
+
+  const layout = read("src/app/Layout.tsx");
+  assert.doesNotMatch(layout, /<DesktopTitlebar/);
+  // The drag region and the gutter now live on the rail's own h-14 header row.
+  assert.match(layout, /data-tauri-drag-region=\{isMacDesktop/);
+  assert.match(layout, /paddingLeft: MAC_TRAFFIC_LIGHT_GUTTER/);
 });

@@ -69,6 +69,9 @@ import {
  */
 const ROW_HEIGHT = 40;
 const HEADER_HEIGHT = 36;
+/** Blank body rows drawn at zero records so an empty table still reads as a
+ *  table (grid rhythm, footer, add-row) rather than collapsing to a note. */
+const EMPTY_FILLER_ROWS = 3;
 /** Avilo's `px-4`, in real pixels. */
 const CELL_PAD_X = 16;
 
@@ -214,7 +217,14 @@ export function TableView({
   const table = (
     <div
       ref={setScrollEl}
-      className="bridge-scroll h-full overflow-auto rounded-xl border"
+      /* max-h-full, NOT h-full: the box is as tall as the table and no taller,
+         capped at the height the shell gave it. With h-full a short table left
+         dead space inside the border and the add-row + aggregate footer sat in
+         the MIDDLE of the view (user report 2026-08-10: "Add record and column
+         summary should appear at end of the view section, not middle"). The
+         cap keeps the sticky header/footer working once the table is tall
+         enough to scroll. */
+      className="bridge-scroll max-h-full overflow-auto rounded-xl border"
       style={{ borderColor: "var(--color-border)", background: "var(--color-background)" }}
     >
       {/* A min-width makes the container scroll rather than squeezing columns
@@ -455,26 +465,29 @@ export function TableView({
             </tr>
           )}
 
-          {/* Notion-like empty state: the table keeps its headers, footer and
-              add-row at zero rows. It is never replaced by a message box — the
-              empty note renders INSIDE the body (AP-081). */}
-          {sorted.length === 0 && (
-            <tr>
-              <td colSpan={colSpan}>
-                <div
-                  className="flex flex-col items-center gap-3 px-5 py-12 text-center"
-                  style={{ color: "var(--color-warm-gray)" }}
-                >
-                  <span className="text-[13px] font-medium">No {spec.id} records yet.</span>
-                  {onInsert && !draft && (
-                    <Button size="sm" variant="outline" onClick={() => setDraft({})}>
-                      <Plus className="size-3.5" /> Add record
-                    </Button>
-                  )}
-                </div>
-              </td>
-            </tr>
-          )}
+          {/* EMPTY = AN EMPTY TABLE, NOT A MESSAGE (user directive 2026-08-10:
+              "If table is empty show empty table, no text. I want the visual
+              aesthetics retained even if empty"). The headers, the column
+              rhythm, the footer and the add-row all stay; the body is simply
+              blank rows. The previous centred "No <id> records yet." note
+              collapsed the table into a text box, which is exactly the
+              aesthetic break being called out. */}
+          {sorted.length === 0 &&
+            Array.from({ length: EMPTY_FILLER_ROWS }, (_, index) => (
+              <tr
+                key={`empty-${index}`}
+                aria-hidden="true"
+                style={{
+                  height: ROW_HEIGHT,
+                  borderBottom:
+                    index === EMPTY_FILLER_ROWS - 1
+                      ? undefined
+                      : "1px solid var(--color-line-soft)",
+                }}
+              >
+                <td colSpan={colSpan} />
+              </tr>
+            ))}
 
           {/* The draft Element, in place. It sits inside <tbody> so it inherits
               the same colgroup widths and sticky-column behaviour as a real
@@ -509,7 +522,7 @@ export function TableView({
             </tr>
           )}
 
-          {onInsert && !draft && sorted.length > 0 && (
+          {onInsert && !draft && (
             <tr style={{ borderTop: "1px solid var(--color-line-soft)" }}>
               <td colSpan={colSpan} className="px-2 py-1.5">
                 <button
@@ -525,9 +538,13 @@ export function TableView({
           )}
         </tbody>
 
-        {sorted.length > 0 && (
-          <tfoot className="sticky bottom-0 z-20">
-            <tr style={{ background: "var(--color-line-soft)" }}>
+        {/* The aggregate footer renders at zero rows too — it is part of the
+            table's shape, and gating it on having data made an empty table
+            lose its bottom edge (user directive: keep the aesthetics when
+            empty). Each AggregateCell over an empty set renders its own
+            zero/blank result. */}
+        <tfoot className="sticky bottom-0 z-20">
+          <tr style={{ background: "var(--color-line-soft)" }}>
               {columns.map((col) => {
                 const numeric = isNumericColumn(col);
                 const kind = aggregates[col.id] ?? defaultAggregate(numeric);
@@ -545,17 +562,16 @@ export function TableView({
                   />
                 );
               })}
-              <td
-                className="bridge-sticky-cell sticky right-0 z-10 px-4 py-2"
-                style={{
-                  background: "var(--color-line-soft)",
-                  borderLeft: "1px solid var(--color-border)",
-                  borderTop: "2px solid var(--color-border)",
-                }}
-              />
-            </tr>
-          </tfoot>
-        )}
+            <td
+              className="bridge-sticky-cell sticky right-0 z-10 px-4 py-2"
+              style={{
+                background: "var(--color-line-soft)",
+                borderLeft: "1px solid var(--color-border)",
+                borderTop: "2px solid var(--color-border)",
+              }}
+            />
+          </tr>
+        </tfoot>
       </table>
 
       {/* §5f — the cell right-click menu. Rendered INSIDE the provider subtree

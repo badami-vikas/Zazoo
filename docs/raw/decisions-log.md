@@ -5139,3 +5139,68 @@ unbundled dev binary cannot hold (the ADR-184 addendum limitation).
 **Rejected.** A token-based budget (no tokenizer at the door; characters are deterministic, provider-independent, and the meter's honesty matters more than its unit). Proportional trimming of every snippet (spreads damage across all hits instead of keeping the best ones whole; rank order IS the value signal). Feeding `classifyIntent` retrieval (its output contract is a closed answer set — memory could only add routing noise). A widening budget override. Making Ollama's resolution conditional on a boot-time reachability probe (the frozen-value defect class, ADR-205/209/211/213 — reachability is asked at point of use). Registering Ollama as a local-mode COMPLETION provider (tried first, failed the converse suite: a down daemon hard-fails every turn — completions have no per-call fallback, embeddings do).
 
 **Consequences.** Every run through the door now pays the same retrieval enforcement — "fusion feeds every run" and "no run spends an unbounded prompt on retrieval" land as one property. TASK-043 E5 (paraphrase-robust rejection fingerprints) is unblocked: the semantic embedder it needs is now the Local-Plane default. The live proof of the default is the boot indexer pass itself: a local boot without an Ollama daemon logs the ADR-213 degrade warn NAMING the configured Ollama space — the default was resolved, attempted, and honestly downgraded. Also repaired in the same change-set, found by running the gates the parallel branch did not: `modules.test.ts`'s bootstrap-retirement test still asserted the OLD Helpdesk-retiring behavior that the stranded-branch recovery deliberately reversed, and the recovered branch's ADR-194/195 + AP-114/115 collided with upstream numbers — renumbered ADR-218/219 + AP-138/139 per the later-arriving-side precedent.
+
+## ADR-221 — One kit, one row, and an empty table that stays a table (2026-08-10; AP-141)
+
+**Context.** Four consecutive user turns reported the same class of defect: pages that
+were supposed to share a surface did not. Verbatim: *"Infact I thought you were reusing
+one UI kit everywhere, but you arent and thats why differnt pages appear different. If
+you were using one kit, any changes in kit should have been reflected across."* That
+diagnosis was correct. `DataViews` was the shell, but it had no slot for a page's
+insights row and no slot for a page's own actions — so TaskManager, Signals and JobPilot
+each mounted `CollapsibleInsights` *above* the shell and TaskManager built a second
+bordered row of its own. Divergence was not carelessness; it was the kit refusing the
+work.
+
+**Decision.**
+
+1. `DataViews` gains `insights` and `actions` slots and becomes the single §5 slot-order
+   enforcement point. `StandardToolbar` is not it — only `ApprovalsPage` ever mounted
+   that.
+2. The kit gets a surface of its own: `/uikit.html`. It renders the shared primitives at
+   1202/560/380px with no Module, no API and no desktop shell, so a kit change is
+   reviewable in seconds instead of only through a Module Page behind a Tauri sidecar.
+3. **§6b supersedes §6a for View surfaces.** An empty table keeps its chrome and says
+   nothing. §6a's premise — a blank region reads as broken and needs a sentence — stops
+   holding once the surface keeps headers, grid pitch, add-row and footer; at that point
+   the sentence is the thing that reads unfinished.
+4. **ADR-187's separate macOS titlebar strip is reversed.** A strip that reserves 32px
+   above the shell *guarantees* the duplication the user objected to: the workspace name
+   has to be repeated up there to fill an otherwise-empty band, and every header row
+   sits below the traffic lights rather than beside them. The rail's own `h-14` row is
+   now the titlebar. ADR-187's real invariant — reserve once, never per column — is
+   preserved by reserving nothing.
+
+**Rejected alternatives.**
+
+- *Give the table `h-full` plus a percentage-height spacer row* so the footer sinks to
+  the bottom. Measured: box 203px, table 238px — a percentage-height `<tr>` adds height
+  rather than absorbing slack. Reverted for `max-h-full` on the scroll box, which makes
+  the box hug its content instead.
+- *Fix the stale Chief-of-Staff avatar inside `AgentPanel`.* Rejected: `loadAvatarPrefs`
+  is called during render by three surfaces with no subscription anywhere, so the bug is
+  in the store. A listener set in `avatar-store` plus `useAvatarPrefs` fixes every
+  caller at once.
+- *Build a second Second-Brain surface inside Intelligence.* Rejected — that is exactly
+  the duplication this ADR exists to stop. `SecondBrainPage` takes an `embedded` flag
+  that drops its own toggle strip; one renderer, two entry points.
+- *Widen the macOS collapsed rail to 154px* (gutter + the full 76px icon column) or
+  *move the Organization switcher out of the header when collapsed*. Both rejected for
+  gutter+44: enough for the 32px avatar beside the traffic lights, no relocation, no
+  branch in the markup.
+
+**Consequences.**
+
+- §6a is now scoped, not deleted; a future View surface that hand-writes an empty-state
+  sentence is a regression against §6b, and the conformance test is where that gets
+  caught.
+- The macOS shell has zero reserved vertical space. Anything that reintroduces a strip
+  reintroduces the duplicate workspace name.
+- Second Brain has two entry points and therefore two places to keep coherent. The
+  `embedded` flag is the seam that keeps them one component.
+- Graph UX direction, from the cross-tool research (Obsidian, Logseq, Roam, Notion,
+  Tana, Capacities, Heptabase): global force-directed graphs degrade to noise past a few
+  hundred nodes, and the two survivable patterns are a *local* graph scoped to one focal
+  object with type-derived colour and labelled edges, or a hand-arranged persistent
+  canvas. Bridge has real typed Relations, so labelling edges is the cheapest large win
+  and the clearest differentiator from the file-link tools. Not built in this batch.

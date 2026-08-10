@@ -43,11 +43,12 @@
  * `overscroll-behavior`: scroll chaining out to the page scroller when the
  * table bottoms out is the WANTED behaviour, and `contain` would break it.
  */
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { RowFilter, TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
 import { StandardDropdown } from "../components/shared/StandardDropdown.js";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -67,9 +68,58 @@ import {
 } from "./registry.js";
 import { computeEligibleKinds, migrateViewConfig, viewConfigForKind } from "./eligibility.js";
 import { filterRowsByQuery } from "./rowSearch.js";
-import { ArrowUpDown, ChevronDown, ChevronUp, Eye, MoreVertical, Plus, Search } from "lucide-react";
+import { ArrowUpDown, ChevronDown, ChevronUp, Eye, Filter, List as ListIcon, MoreVertical, Plus, Search } from "lucide-react";
 import type { DataRow, DataViewProps } from "./types.js";
-import { ControlPanel } from "./ControlPanel.js";
+
+/**
+ * THE SANDWICH ROW never wraps to a second line (user directive 2026-08-10:
+ * "there's only one line of elements between toggle and dashboard, they
+ * never leak into 2 lines"). Width pressure is absorbed in three stages
+ * instead: the search box (the row's one flexible element) shrinks first —
+ * pure CSS, no JS needed — then these items give up their text label for an
+ * icon, THEN drop out of the row into the 3-dots menu, one at a time, in
+ * this priority order (first = first to go).
+ */
+const COLLAPSE_PRIORITY = ["filter-label", "view-label", "list-label", "filter"] as const;
+type CollapseKey = (typeof COLLAPSE_PRIORITY)[number];
+
+/**
+ * Measures the row after every layout and, whenever its content overflows
+ * its own box (`scrollWidth > clientWidth` — reliable only because the row
+ * is `flex-nowrap overflow-hidden`, so overflow never wraps, it only
+ * clips), collapses one more item from `COLLAPSE_PRIORITY`. A width GROWTH
+ * (ResizeObserver) resets to fully-expanded first, so items reappear as
+ * soon as there's room again rather than staying collapsed forever.
+ */
+function useToolbarOverflow(rowRef: RefObject<HTMLDivElement | null>): Set<CollapseKey> {
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [hiddenCount, setHiddenCount] = useState(0);
+
+  useEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setContainerWidth(entry.contentRect.width);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [rowRef]);
+
+  // A wider box may fit everything again — always re-try from expanded.
+  useLayoutEffect(() => {
+    setHiddenCount(0);
+  }, [containerWidth]);
+
+  useLayoutEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    if (el.scrollWidth > el.clientWidth && hiddenCount < COLLAPSE_PRIORITY.length) {
+      setHiddenCount((count) => count + 1);
+    }
+  }, [hiddenCount, containerWidth, rowRef]);
+
+  return useMemo(() => new Set(COLLAPSE_PRIORITY.slice(0, hiddenCount)), [hiddenCount]);
+}
 
 export interface DataViewsProps
   extends Omit<DataViewProps, "spec" | "view" | "data" | "onViewChange"> {
@@ -99,6 +149,17 @@ export interface DataViewsProps
    * as a page-local banner — behind an inline collapse toggle in that same
    * row, not a separate arrow row of its own. Expanded by default. */
   insights?: ReactNode;
+  /**
+   * §5's "Custom actions" slot: page-specific controls (scope toggles, a
+   * governed action button) that belong IN the sandwich row, between Filter
+   * and the 3-dots. This slot exists because its absence is what made pages
+   * diverge — with nowhere to put a Goals/Candidates toggle, TaskManager
+   * built a second bordered row of its own beneath the toolbar, and the
+   * "one line between toggle and dashboard" rule was broken by the kit, not
+   * by the page. Anything passed here must stay compact; long lists belong
+   * in the 3-dots menu.
+   */
+  actions?: ReactNode;
 }
 
 export function DataViews({
@@ -112,6 +173,7 @@ export function DataViews({
   fill = true,
   onAddView,
   insights,
+  actions,
   ...viewProps
 }: DataViewsProps) {
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
@@ -120,6 +182,8 @@ export function DataViews({
   const [filterColumn, setFilterColumn] = useState(spec.columns[0]?.id ?? "");
   const [search, setSearch] = useState("");
   const filterInput = useRef<HTMLInputElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const hidden = useToolbarOverflow(rowRef);
 
   // Free-text search across all columns, applied before the view's own column
   // filters/sorts. Shared by every Module table (empty query = no filtering).
@@ -201,14 +265,26 @@ export function DataViews({
 
   return (
     <div className={fill ? "flex h-full min-h-0 flex-col gap-3" : "flex flex-col gap-3"}>
-      <div className="flex flex-none flex-wrap items-center justify-between gap-2">
+      {/* THE SANDWICH ROW (user directive 2026-08-10) — one line, always. It sits
+          between the toggle strip above and the Insights band below, and it
+          NEVER wraps to a second line: `flex-nowrap` + `min-w-0` on every
+          child that can shrink. As the row runs out of width the response is
+          staged, not a wrap: the search box narrows first (`ToolbarSearch`),
+          then button labels drop to icon-only, and only once that's
+          exhausted does an element move into the 3-dots overflow menu — see
+          `useToolbarOverflow` below. This was specified in
+          ui-architecture-rules-2026-07.md long before this fix; the row had
+          drifted back to `flex-wrap` and a two-group split, which is exactly
+          the erosion this rewrite closes. */}
+      <div ref={rowRef} className="flex flex-none flex-nowrap items-center gap-2 overflow-hidden">
         {/* §5: List dropdown ALWAYS renders first, View dropdown second — this is
             the enforcement point, not StandardToolbar (which almost nothing
             mounts). "All" is the one real List every Database has today; saved
             Lists are TASK-062 (ViewConfig persistence isn't built yet), so Add
             List is shown — never hidden — disabled with that reason (§3a/AP-021:
-            explain, don't omit). */}
-        <div className="flex items-center gap-2">
+            explain, don't omit) but reachable by keyboard/screen reader too
+            (aria-disabled, not disabled — see StandardDropdown). */}
+        <div className="flex shrink-0 items-center gap-2">
           <StandardDropdown
             ariaLabel="Select list"
             options={[{ id: "all", label: "All" }]}
@@ -217,6 +293,8 @@ export function DataViews({
             addLabel="Add list"
             addDisabledReason="Saved Lists need persisted View configuration, which is not built yet (TASK-062)."
             emptyLabel="No lists yet"
+            triggerIcon={<ListIcon className="size-4 shrink-0" style={{ color: "var(--color-steel)" }} />}
+            showLabel={!hidden.has("list-label")}
           />
           {/* §5e: the View dropdown is a StandardDropdown like every other dropdown —
               selected first, searchable, pinned Add slot. Not a bespoke Select. */}
@@ -237,32 +315,97 @@ export function DataViews({
             {...(onAddView ? { onAdd: onAddView } : {})}
             addLabel="Add view"
             emptyLabel="No eligible views"
+            triggerIcon={(() => {
+              const ActiveIcon = VIEW_METADATA[activeView.kind].icon;
+              return <ActiveIcon className="size-4 shrink-0" style={{ color: "var(--color-steel)" }} />;
+            })()}
+            showLabel={!hidden.has("view-label")}
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder={searchPlaceholder}
-              aria-label={searchPlaceholder}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-8 w-40 pl-8"
-            />
-          </div>
+        {/* Search sits immediately next to the dropdowns (user directive), and
+            is the first thing to give up space — `min-w-0` lets it shrink
+            below its own content size instead of forcing the row to wrap. It
+            carries a visible rectangular border like every other control in
+            the row; without one it read as floating text, not a field. */}
+        <div className="relative min-w-[3rem] max-w-[16rem] flex-1 basis-32">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            ref={filterInput}
-            placeholder={`Filter ${spec.columns.find((column) => column.id === filterColumn)?.label ?? spec.id}…`}
-            value={filterDraft}
-            onChange={(e) => setFilterDraft(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && applyTextFilter()}
-            className="h-8 w-40"
+            type="search"
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-8 w-full rounded-lg border pl-8"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
           />
-          <Button size="sm" variant="outline" onClick={applyTextFilter}>
-            Filter
-          </Button>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {/* ONE Filter control, not two (user report 2026-08-10: "Why are
+              there 2 filters, retain only the button. Currently its not
+              clickable, why?"). There used to be a always-visible draft input
+              AND a button; the button only re-applied whatever was in that
+              input, so with the input empty it cleared nothing and looked
+              dead. Now the button IS the control: it opens the field picker +
+              value + Apply/Clear, so pressing it always does something. */}
+          {!hidden.has("filter") && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  size="sm"
+                  variant={activeView.rowFilters.length > 0 ? "default" : "outline"}
+                  aria-label="Filter"
+                >
+                  <Filter className="size-4" />
+                  {!hidden.has("filter-label") && "Filter"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 space-y-2">
+                <div className="text-xs font-medium text-muted-foreground">Filter</div>
+                {/* The column picker is a StandardDropdown like every other
+                    dropdown in the app — the kit used by the kit (§5e). */}
+                <StandardDropdown
+                  ariaLabel="Filter column"
+                  options={spec.columns.map((column) => ({ id: column.id, label: column.label }))}
+                  activeId={filterColumn}
+                  onSelect={setFilterColumn}
+                  addLabel="Add column"
+                  addDisabledReason="Adding a column is a schema mutation, and this surface has no governed schema-mutation capability."
+                  className="w-full"
+                />
+                <Input
+                  ref={filterInput}
+                  placeholder="Contains…"
+                  aria-label="Filter value"
+                  value={filterDraft}
+                  onChange={(e) => setFilterDraft(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && applyTextFilter()}
+                  className="h-8 w-full rounded-lg border"
+                  style={{ borderColor: "var(--color-border)" }}
+                />
+                <div className="flex items-center gap-2">
+                  <Button size="sm" className="flex-1" onClick={applyTextFilter}>
+                    Apply
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={filterDraft === "" && activeView.rowFilters.length === 0}
+                    onClick={() => {
+                      setFilterDraft("");
+                      onViewChange({ ...activeView!, rowFilters: [] });
+                    }}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+
+          {/* §5 slot order: Custom actions sit after Filter, before the 3-dots. */}
+          {actions}
 
           {/* The overflow menu, in the Avilo shape: the view-level commands
               collect behind one ⋮ instead of each claiming a toolbar button.
@@ -277,6 +420,36 @@ export function DataViews({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
+              {/* When the row has no space left, Filter drops out of the row
+                  and lives here instead — same input, same handler, just a
+                  different address (user directive 2026-08-10: "the elements
+                  should move inside 3 dots one by one"). Key/click events are
+                  stopped so Radix's menu type-ahead doesn't eat keystrokes. */}
+              {hidden.has("filter") && (
+                <div
+                  className="space-y-1.5 border-b p-2"
+                  onKeyDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <Filter className="size-3.5" /> Filter
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      ref={filterInput}
+                      placeholder={`Filter ${spec.columns.find((column) => column.id === filterColumn)?.label ?? spec.id}…`}
+                      value={filterDraft}
+                      onChange={(e) => setFilterDraft(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && applyTextFilter()}
+                      className="h-7 flex-1 text-xs"
+                    />
+                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={applyTextFilter}>
+                      Apply
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Disabled with a stated reason rather than hidden: AP-021 —
                   interactive-looking UI must perform OR explain. Adding a
                   column is a schema mutation and this surface has no governed
@@ -357,8 +530,6 @@ export function DataViews({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <ControlPanel spec={spec} eligibleKinds={switcherKinds} />
 
           {insights && (
             <Button

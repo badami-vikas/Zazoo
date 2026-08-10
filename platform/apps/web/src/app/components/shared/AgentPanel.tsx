@@ -10,7 +10,7 @@
  */
 import { PILOT_ORGANIZATION } from "../../lib/trpc";
 import { AvatarIcon } from "../../avatar/AvatarOverlay";
-import { loadAvatarPrefs } from "../../avatar/avatar-store";
+import { useAvatarPrefs } from "../../avatar/avatar-store";
 import { ChatView } from "../../chat/ChatView";
 import {
   usePanelControl,
@@ -45,7 +45,7 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
     }
   }
 
-  const avatarPrefs = loadAvatarPrefs(true);
+  const avatarPrefs = useAvatarPrefs(true);
   const avatarStyle = avatarPrefs.style;
   const agentName = avatarPrefs.avatarName || "Chief of Staff";
 

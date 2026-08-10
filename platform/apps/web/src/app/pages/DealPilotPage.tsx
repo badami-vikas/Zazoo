@@ -106,7 +106,6 @@ const DEAL_STAGE_OPTIONS = Object.keys(STAGE_LABELS);
 // Table-cell presentation hints per deal column (opt-in; @bridge/tables ColumnSpec.display).
 const DEAL_DISPLAY: Record<string, NonNullable<ColumnSpec["display"]>> = {
   stage: "badge",
-  rag: "rag",
   revenue: "currency",
   ebitda: "currency",
   askingPrice: "currency",
@@ -114,7 +113,10 @@ const DEAL_DISPLAY: Record<string, NonNullable<ColumnSpec["display"]>> = {
   evidenceScore: "meter",
 };
 // Deal fields kept off the redesigned Deals table (still on Record Detail / manifest).
-const DEAL_TABLE_OMIT = new Set(["sde", "evidenceHealth", "sources", "theses"]);
+// "rag" dropped everywhere 2026-08-10 (user directive: "Drop the RYG column
+// everywhere") — the standalone R/Y/G status column duplicated the Stage badge
+// without adding information, and was never wired to a governed capability.
+const DEAL_TABLE_OMIT = new Set(["sde", "evidenceHealth", "sources", "theses", "rag"]);
 
 /** Compact money label for the stat cards: 214_000_000 → "$214M". */
 function formatMoney(value: number): string {
@@ -174,7 +176,6 @@ const CREATE_FIELDS: Record<PageId, ReadonlySet<string>> = {
   deals: new Set([
     "company",
     "stage",
-    "rag",
     "fitScore",
     "thesisTag",
     "sourceChannel",
@@ -269,9 +270,6 @@ function decorateDealsColumns(columns: ColumnSpec[]): ColumnSpec[] {
         next.badgePalette = STAGE_TONES;
         next.badgeLabels = STAGE_LABELS;
         next.defaultValue = "sourced";
-      }
-      if (column.id === "rag") {
-        next.options = ["green", "yellow", "red"];
       }
       return next;
     });

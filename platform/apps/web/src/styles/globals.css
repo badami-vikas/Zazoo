@@ -10,8 +10,8 @@
   --font-size: 17px;
 
   /* Bridge Color System - Primary Palette */
-  --color-background: #FAF9F5;
-  --color-surface: #F0EEE8;
+  --color-background: #FAFBFC;
+  --color-surface: #FFFFFF;
   --color-navy: #1A2B3C;
   --color-navy-mid: #2E4057;
   --color-steel: #4D7EA8;
@@ -19,7 +19,7 @@
 
   /* Bridge Color System - Supporting Palette */
   --color-warm-gray: #B8B4A8;
-  --color-border: #E2DED5;
+  --color-border: #E3E6EA;
   --color-sage: #6B7C65;
   --color-amber-soft: #C4955A;
 
@@ -29,7 +29,7 @@
      (mix(background, border, .55) and mix(background, steel, .07)); they are
      real tokens now so the DOM table can use them and dark mode can override
      them, instead of a color-mix() the older Tauri WKWebView may not parse. */
-  --color-line-soft: #EDEAE3;
+  --color-line-soft: #F1F3F5;
   --color-row-hover: #EEF0F0;
 
   /* Bridge Color System - Semantic Colors */
@@ -39,25 +39,25 @@
   --color-neutral: #B8B4A8;
 
   /* Legacy / shadcn compatibility mappings */
-  --background: #FAF9F5;
+  --background: #FAFBFC;
   --foreground: #1A2B3C;
-  --card: #F0EEE8;
+  --card: #FFFFFF;
   --card-foreground: #1A2B3C;
-  --popover: #F0EEE8;
+  --popover: #FFFFFF;
   --popover-foreground: #1A2B3C;
   --primary: #4D7EA8;
-  --primary-foreground: #FAF9F5;
-  --secondary: #F0EEE8;
+  --primary-foreground: #FAFBFC;
+  --secondary: #FFFFFF;
   --secondary-foreground: #2E4057;
-  --muted: #F0EEE8;
+  --muted: #FFFFFF;
   --muted-foreground: #B8B4A8;
   --accent: #7FA5C5;
   --accent-foreground: #1A2B3C;
   --destructive: #d4183d;
-  --destructive-foreground: #FAF9F5;
-  --border: #E2DED5;
+  --destructive-foreground: #FAFBFC;
+  --border: #E3E6EA;
   --input: transparent;
-  --input-background: #F0EEE8;
+  --input-background: #FFFFFF;
   --switch-background: #B8B4A8;
   --ring: #4D7EA8;
 
@@ -105,13 +105,13 @@
   --shadow-shell-left: -1px 0 0 0 var(--color-border), -2px 0 8px rgba(0, 0, 0, 0.03);
 
   /* Sidebar (Bridge palette) */
-  --sidebar: #FAF9F5;
+  --sidebar: #FAFBFC;
   --sidebar-foreground: #1A2B3C;
   --sidebar-primary: #4D7EA8;
-  --sidebar-primary-foreground: #FAF9F5;
-  --sidebar-accent: #F0EEE8;
+  --sidebar-primary-foreground: #FAFBFC;
+  --sidebar-accent: #FFFFFF;
   --sidebar-accent-foreground: #2E4057;
-  --sidebar-border: #E2DED5;
+  --sidebar-border: #E3E6EA;
   --sidebar-ring: #4D7EA8;
 
   /* Charts (Bridge palette) */
@@ -192,14 +192,14 @@
 
 @theme inline {
   /* Bridge Color System - expose as Tailwind colors */
-  --color-bridge-background: #FAF9F5;
-  --color-bridge-surface: #F0EEE8;
+  --color-bridge-background: #FAFBFC;
+  --color-bridge-surface: #FFFFFF;
   --color-bridge-navy: #1A2B3C;
   --color-bridge-navy-mid: #2E4057;
   --color-bridge-steel: #4D7EA8;
   --color-bridge-steel-light: #7FA5C5;
   --color-bridge-warm-gray: #B8B4A8;
-  --color-bridge-border: #E2DED5;
+  --color-bridge-border: #E3E6EA;
   --color-bridge-sage: #6B7C65;
   --color-bridge-amber-soft: #C4955A;
   --color-bridge-dormant: #C4955A;

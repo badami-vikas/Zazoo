@@ -256,7 +256,13 @@ function ClaimsPanel({ onClaimsChanged }: { onClaimsChanged: () => void }) {
   );
 }
 
-export function SecondBrainPage() {
+/**
+ * `embedded` drops this surface's own toggle strip so it can be mounted as a
+ * tab of another surface. Intelligence mounts it as its FIRST tab (user
+ * directive 2026-08-10) — one graph renderer, two entry points, never a second
+ * copy of the view.
+ */
+export function SecondBrainPage({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
   const [limit, setLimit] = useState(100);
   const [graph, setGraph] = useState<FullGraph | null>(null);
@@ -340,11 +346,13 @@ export function SecondBrainPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white">
-      <Header
-        tabs={[{ id: "Second Brain", icon: Network }]}
-        activeTab="Second Brain"
-        onTabChange={() => {}}
-      />
+      {!embedded && (
+        <Header
+          tabs={[{ id: "Second Brain", icon: Network }]}
+          activeTab="Second Brain"
+          onTabChange={() => {}}
+        />
+      )}
       {actionStatus && (
         <div role="status" className="border-b px-4 py-2 text-xs" style={{ color: "var(--color-navy-mid)" }}>
           {actionStatus}

@@ -139,10 +139,14 @@ test("A Module with no declared Page lands on Home, never a dead /module/:id lin
   assert.doesNotMatch(layout, /`\/module\/\$\{mod\.moduleName\}`/);
 });
 
-test("no trace of Module Detail remains in routes or pages", () => {
+test("no trace of the Module Detail PAGE remains — the bare module path only redirects", () => {
   const routes = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(routes, /ModuleDetailPage/);
-  assert.doesNotMatch(routes, /path: "module\/:moduleId"/);
+  // The path still resolves, but only as a redirect — never a rendered
+  // surface. Deleting it outright stranded every "/module/<name>" back-link
+  // in the app on a router miss.
+  assert.match(routes, /path: "module\/:moduleId", Component: ModuleRootRedirect/);
+  assert.match(routes, /function ModuleRootRedirect[\s\S]{0,320}<Navigate/);
 });
 
 test("Commons discovery stays Module-scoped; Intelligence stays manifest-sourced (ADR-154)", () => {

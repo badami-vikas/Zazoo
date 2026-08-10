@@ -1,66 +1,30 @@
 /**
- * macOS inline-titlebar strip (ADR-187).
+ * macOS inline-titlebar geometry (ADR-187, revised 2026-08-10).
  *
- * Tauri's overlay title bar (`title_bar_style: Overlay` in tauri.conf.json —
- * already configured, no native change needed here) draws the real AppKit
- * traffic-light buttons ON TOP of our webview content, top-left. Earlier this
- * was handled with a dedicated `h-8` spacer stacked ABOVE the left rail's
- * organization row only — which pushed the rail's header 32px lower than the
- * main-content and chat-panel headers and produced the "two underlines"
- * artifact (the rail's own border-b landing 32px below the other headers'
- * border-b/shadow line).
+ * Tauri's overlay title bar (`title_bar_style: Overlay` in tauri.conf.json)
+ * draws the real AppKit traffic-light buttons ON TOP of our webview content,
+ * top-left. ADR-187 reserved that space with a dedicated 32px strip spanning
+ * the full window above the three shell columns.
  *
- * Fix: reserve the traffic-light gutter in ONE shared strip that spans the
- * FULL window width, mounted above all three shell columns (rail | main
- * content | chat panel) in Layout.tsx, instead of inside the rail alone.
- * Because every column's own header now starts at the same y (either 0, off
- * macOS desktop, or MAC_TITLEBAR_H, on it), the three h-14 header rows can
- * never drift apart again — there is nothing column-specific left to drift.
+ * That strip is now gone. User directive 2026-08-10: *"The header row is the
+ * one with traffic lights. I asked for workspace name (Test) not to repeat
+ * below traffic light. ALso the toggle should appear in same row as traffic
+ * light and so should Chief of Staff text."* A separate strip guarantees the
+ * opposite — it pushes every header row 32px BELOW the traffic lights, so the
+ * window name has to be duplicated up there to fill the empty band.
  *
- * This strip is also where the workspace/organization name renders "next to"
- * the traffic lights (user ask, 2026-08-05): a plain, non-interactive label
- * in the native-titlebar convention. The INTERACTIVE organization switcher
- * (avatar + name + dropdown) still lives in the rail's own header row below —
- * this label does not replace it, it mirrors it the way a native app mirrors
- * its document title next to the traffic lights.
+ * The replacement: the shell's own h-14 header row IS the titlebar. The rail's
+ * header carries `data-tauri-drag-region` and a left pad of
+ * MAC_TRAFFIC_LIGHT_GUTTER, so the traffic lights sit inside it, with the
+ * Organization switcher, the centre toggle and the chat panel's Chief of Staff
+ * all on that one line. ADR-187's actual invariant — one shared reservation,
+ * never a per-column one — is preserved: there is now zero reserved space, so
+ * the three headers still cannot drift apart.
  */
-export const MAC_TITLEBAR_H = 32; // px — h-8, unchanged from the prior spacer
 export const MAC_TRAFFIC_LIGHT_GUTTER = 78; // px — clears AppKit's traffic-light cluster
 
 export function useIsMacDesktop(): boolean {
   return (
     typeof window !== "undefined" && window.__BRIDGE_DESKTOP_PLATFORM__ === "macos"
-  );
-}
-
-interface DesktopTitlebarProps {
-  organizationName?: string | undefined;
-}
-
-/**
- * Full-width draggable titlebar strip. Renders nothing off macOS desktop —
- * web and non-mac desktop builds keep the default browser/OS chrome and need
- * no reserved space, so the shell headers already start at y=0 in lockstep.
- */
-export function DesktopTitlebar({ organizationName }: DesktopTitlebarProps) {
-  const isMacDesktop = useIsMacDesktop();
-  if (!isMacDesktop) return null;
-
-  return (
-    <div
-      data-tauri-drag-region
-      className="flex items-center shrink-0"
-      style={{ height: MAC_TITLEBAR_H, paddingLeft: MAC_TRAFFIC_LIGHT_GUTTER }}
-      aria-hidden="true"
-    >
-      {organizationName && (
-        <span
-          className="text-xs font-medium truncate select-none"
-          style={{ color: "var(--color-navy-mid)" }}
-        >
-          {organizationName}
-        </span>
-      )}
-    </div>
   );
 }

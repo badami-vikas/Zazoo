@@ -1294,7 +1294,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#FAF9F5] overflow-hidden">
+    <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: "var(--color-background)" }}>
       {/* Page Header */}
       <div className="h-14 flex items-center px-6 bg-white border-b border-[var(--color-border)] shrink-0 z-10 shadow-sm">
         <div className="flex items-center gap-3">

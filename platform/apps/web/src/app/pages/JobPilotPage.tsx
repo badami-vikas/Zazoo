@@ -6,7 +6,7 @@ import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
-import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
+import { DashboardRow } from "../components/shared/DashboardRow";
 import { RedFlagControl } from "../components/shared/RedFlagControl";
 import { RedFlagProvider } from "../components/shared/RedFlagProvider";
 import { DataViews } from "../dataviews/DataViews";
@@ -65,7 +65,6 @@ export function JobPilotPage() {
   const [definition, setDefinition] = useState<JobPilotDefinition | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewConfig>(() => defaultViewConfig(`${JOBPILOT_DATABASE_ID}:table`));
-  const [insightsOpen, setInsightsOpen] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -127,15 +126,6 @@ export function JobPilotPage() {
           labelled insights toggle that now sits inside the section.
           ADR-180 removed the 3-dots menu — its one item duplicated the
           Intelligence Section's "Manage in Module Detail". */}
-      <CollapsibleInsights
-        expanded={insightsOpen}
-        onToggle={() => setInsightsOpen((open) => !open)}
-        metrics={[
-          { id: "jobs", label: "Jobs", value: String(page.total) },
-          { id: "tracked", label: "Tracked", value: String(page.items.filter((item) => item.application).length) },
-          { id: "review", label: "Awaiting review", value: String(page.items.filter((item) => item.application?.stage === "awaiting_review").length) },
-        ]}
-      />
       <ModuleSurfaceLayout
         table={
           <section aria-label="Jobs Database" className="h-full">
@@ -147,6 +137,15 @@ export function JobPilotPage() {
               onViewChange={setView}
               onUpdate={moveStage}
               canUpdateRow={(row) => Boolean(row["id"])}
+              insights={
+                <DashboardRow
+                  metrics={[
+                    { id: "jobs", label: "Jobs", value: String(page.total) },
+                    { id: "tracked", label: "Tracked", value: String(page.items.filter((item) => item.application).length) },
+                    { id: "review", label: "Awaiting review", value: String(page.items.filter((item) => item.application?.stage === "awaiting_review").length) },
+                  ]}
+                />
+              }
             />
           </section>
         }

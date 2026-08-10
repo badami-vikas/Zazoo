@@ -16,14 +16,19 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { Bot, Cable, ExternalLink, Sparkles, Wrench, Zap } from "lucide-react";
+import { Bot, Cable, ExternalLink, Network, Sparkles, Wrench, Zap } from "lucide-react";
 import { Header } from "../components/shared/Header";
+import { SecondBrainPage } from "./SecondBrainPage";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
 type ModuleRow = Awaited<ReturnType<typeof trpc.modules.list.query>>["items"][number];
-type IntelligenceTab = "Agents" | "Automations" | "Skills" | "Integrations";
+type IntelligenceTab = "Second Brain" | "Agents" | "Automations" | "Skills" | "Integrations";
 
+/** Second Brain leads (user directive 2026-08-10): the cross-Module graph is
+ *  the orientation surface, and the capability inventories read as detail
+ *  under it rather than as the landing. */
 const TABS = [
+  { id: "Second Brain" as const, icon: Network },
   { id: "Agents" as const, icon: Bot },
   { id: "Automations" as const, icon: Zap },
   { id: "Skills" as const, icon: Wrench },
@@ -42,7 +47,7 @@ type Installed = {
 export function IntelligencePage() {
   const [rows, setRows] = useState<ModuleRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<IntelligenceTab>("Agents");
+  const [tab, setTab] = useState<IntelligenceTab>("Second Brain");
 
   useEffect(() => {
     let active = true;
@@ -138,7 +143,8 @@ export function IntelligencePage() {
     [installed],
   );
 
-  const counts: Record<IntelligenceTab, number> = {
+  const counts: Record<IntelligenceTab, number | null> = {
+    "Second Brain": null,
     Agents: agents.length,
     Automations: automations.length,
     Skills: skills.length,
@@ -151,12 +157,18 @@ export function IntelligencePage() {
         tabs={TABS.map((entry) => ({
           id: entry.id,
           icon: entry.icon,
-          label: rows === null ? entry.id : `${entry.id} (${counts[entry.id]})`,
+          label:
+            rows === null || counts[entry.id] === null
+              ? entry.id
+              : `${entry.id} (${counts[entry.id]})`,
         }))}
         activeTab={tab}
         onTabChange={(id) => setTab(id as IntelligenceTab)}
       />
 
+      {tab === "Second Brain" ? (
+        <SecondBrainPage embedded />
+      ) : (
       <div className="flex-1 overflow-auto p-4">
         <div className="mb-4 flex items-center gap-2">
           <Sparkles className="size-4" style={{ color: "var(--color-steel)" }} />
@@ -259,6 +271,7 @@ export function IntelligencePage() {
           </Rows>
         )}
       </div>
+      )}
     </div>
   );
 }

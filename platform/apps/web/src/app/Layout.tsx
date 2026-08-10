@@ -19,7 +19,7 @@ import {
   ResizeHandle,
   CollapseToggleButton,
 } from "./components/shared/PanelControl";
-import { DesktopTitlebar } from "./components/shared/DesktopWindowChrome";
+import { MAC_TRAFFIC_LIGHT_GUTTER, useIsMacDesktop } from "./components/shared/DesktopWindowChrome";
 import { useAuthSession } from "./auth/AuthSession";
 
 /**
@@ -84,6 +84,7 @@ function loadExpandedModules(): string[] {
 export default function Layout() {
   const auth = useAuthSession();
   const location = useLocation();
+  const isMacDesktop = useIsMacDesktop();
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
@@ -119,7 +120,12 @@ export default function Layout() {
   // TASK-001 §5b: left rail uses the shared usePanelControl hook. A drag below
   // the midpoint collapses it; larger widths are preserved as the extended
   // state instead of snapping back to the normal width.
-  const RAIL_COLLAPSED = 76;
+  //
+  // On macOS the rail's header row IS the window titlebar (see
+  // DesktopWindowChrome), so the collapsed rail has to be at least as wide as
+  // the traffic-light cluster plus the Organization avatar it sits beside —
+  // otherwise AppKit paints the traffic lights straight over the switcher.
+  const RAIL_COLLAPSED = isMacDesktop ? MAC_TRAFFIC_LIGHT_GUTTER + 44 : 76;
   const RAIL_EXPANDED = 220;
   const RAIL_EXTENDED = 360;
   const rail = usePanelControl({
@@ -415,13 +421,9 @@ export default function Layout() {
 
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden font-sans">
-      {/* macOS-only full-width titlebar strip (ADR-187) — reserves the
-          traffic-light gutter ONCE, above all three shell columns, instead of
-          inside the rail alone. That is what keeps the rail/main-content/chat
-          header rows landing at the same y (ask below) instead of drifting by
-          the gutter's height. Renders nothing off macOS desktop. */}
-      <DesktopTitlebar organizationName={organizationName} />
-
+      {/* No titlebar strip. On macOS the rail's own h-14 header row IS the
+          titlebar (see DesktopWindowChrome) — traffic lights, Organization
+          name, the centre toggle and Chief of Staff all land on one line. */}
       <div className="flex flex-1 min-h-0 w-full overflow-hidden">
       {/* Desktop/tablet sidebar — hidden below sm; uses shared PanelControl
           semantics (§5b, TASK-001): same snap/collapse/resize/ARIA contract as
@@ -464,10 +466,18 @@ export default function Layout() {
           isDragging={rail.isDragging}
         />
 
-        {/* Organization switcher — h-14 matches center Header and right panel headers. */}
+        {/* Organization switcher — h-14 matches center Header and right panel
+            headers. On macOS this row is ALSO the window titlebar: it carries
+            the drag region and pads past the traffic lights, so the workspace
+            name sits beside them rather than being repeated on a strip above
+            (user directive 2026-08-10). */}
         <div
-          className={`h-14 flex items-center border-b shrink-0 relative ${railExpanded ? "justify-start px-3" : "justify-center"}`}
-          style={{ borderColor: "var(--color-border)" }}
+          data-tauri-drag-region={isMacDesktop ? true : undefined}
+          className={`h-14 flex items-center border-b shrink-0 relative ${railExpanded || isMacDesktop ? "justify-start px-3" : "justify-center"}`}
+          style={{
+            borderColor: "var(--color-border)",
+            ...(isMacDesktop ? { paddingLeft: MAC_TRAFFIC_LIGHT_GUTTER } : {}),
+          }}
         >
           <button
             type="button"

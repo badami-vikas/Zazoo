@@ -97,10 +97,18 @@ function readPrefs(): AvatarPrefs | null {
   }
 }
 
+/** Notified on every successful prefs write so a chosen Avatar appears
+ *  everywhere at once. Without this, components that call `loadAvatarPrefs`
+ *  during render (the chat panel's Chief of Staff badge) keep the previous
+ *  figure until a reload — user report 2026-08-10: "the avatar logo next to
+ *  chief of staff isnt updated. It should be same as avatar." */
+const prefsListeners = new Set<() => void>();
+
 function writePrefs(prefs: AvatarPrefs): boolean {
   if (typeof window === "undefined") return false;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    prefsListeners.forEach((fn) => fn());
     return true;
   } catch {
     // Honest no-op: localStorage can throw (private mode, quota) — avatar
@@ -117,6 +125,20 @@ export function loadAvatarPrefs(hasExistingOrganization: boolean): AvatarPrefs {
   const stored = readPrefs();
   if (stored) return stored;
   return hasExistingOrganization ? EXISTING_USER_DEFAULT : DEFAULT_PREFS;
+}
+
+/** Reactive `loadAvatarPrefs` — re-reads whenever prefs are written. */
+export function useAvatarPrefs(hasExistingOrganization: boolean): AvatarPrefs {
+  const [prefs, setPrefs] = useState(() => loadAvatarPrefs(hasExistingOrganization));
+  useEffect(() => {
+    const sync = () => setPrefs(loadAvatarPrefs(hasExistingOrganization));
+    sync();
+    prefsListeners.add(sync);
+    return () => {
+      prefsListeners.delete(sync);
+    };
+  }, [hasExistingOrganization]);
+  return prefs;
 }
 
 export function saveAvatarPrefs(prefs: AvatarPrefs): void {

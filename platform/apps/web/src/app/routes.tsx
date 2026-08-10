@@ -1,5 +1,5 @@
-import { createBrowserRouter, Navigate } from "react-router";
-import { requireBuiltInModule } from "@bridge/module-manifests";
+import { createBrowserRouter, Navigate, useParams } from "react-router";
+import { moduleNavTarget, requireBuiltInModule } from "@bridge/module-manifests";
 import Layout from "./Layout";
 import { DealPilotPage } from "./pages/DealPilotPage";
 import { GoogleIntegrationPanel } from "./pages/GoogleIntegrationPanel";
@@ -68,6 +68,18 @@ function parentRoute(route: string): string {
   return `/${segments.slice(0, -1).join("/")}`;
 }
 
+/**
+ * `/module/:name` → that Module's own landing Page. Not a surface of its own:
+ * it renders nothing and immediately redirects, so Module Detail stays
+ * deleted while links to a Module root keep resolving. A Module that declares
+ * no Page has nowhere of its own to land, so it falls back to Home.
+ */
+function ModuleRootRedirect() {
+  const { moduleId } = useParams();
+  const target = moduleId ? moduleNavTarget(moduleId)?.landing : undefined;
+  return <Navigate to={target ?? "/home"} replace />;
+}
+
 const dealPilotModule = requireBuiltInModule("deal-pilot").manifest.module!;
 const jobPilotModule = requireBuiltInModule("job-pilot").manifest.module!;
 const relationshipModule = requireBuiltInModule("relationship").manifest.module!;
@@ -124,9 +136,14 @@ export const router = createBrowserRouter([
       { path: "module/whatsapp/tools", element: <WhatsAppPage page="tools" /> },
 
       // Module Detail was removed 2026-08-10 (user directive: "There is no
-      // module detail page. Delete it. Ensure no trace of it remains.") — no
-      // `/module/:moduleId` route exists any more; a Module with no declared
-      // Page lands on Home instead (Layout.tsx's moduleNavTarget fallback).
+      // module detail page. Delete it. Ensure no trace of it remains."). The
+      // PAGE is gone; the bare `/module/:name` PATH still resolves, as a pure
+      // redirect to that Module's landing Page. Deleting the path outright
+      // (the first cut of this change) stranded every existing link to a
+      // Module root — e.g. RelationshipHelpdeskPage's "/module/relationship"
+      // back-link — on a blank router miss. A redirect keeps those links
+      // working without reintroducing a detail surface.
+      { path: "module/:moduleId", Component: ModuleRootRedirect },
       { path: `${childPath(relationshipSignalsRoute)}/:signalId/event`, Component: SignalSourceEventPage },
       { path: `${childPath(relationshipSignalsRoute)}/:signalId`, Component: SignalDetailPage },
       { path: `${childPath(relationshipModule.route)}/people/:recordId`, element: <RelationshipRecordDetailPage kind="person" /> },

@@ -10,8 +10,7 @@ import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tabl
 import { collectAllPages } from "../lib/pagination";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
-import { type DashboardMetric } from "../components/shared/DashboardRow";
-import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
+import { DashboardRow, type DashboardMetric } from "../components/shared/DashboardRow";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
@@ -68,7 +67,6 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [view, setView] = useState<ViewConfig>(() => defaultViewConfig("signals:table"));
   const [selectedSignalId, setSelectedSignalId] = useState<string | null>(null);
-  const [insightsOpen, setInsightsOpen] = useState(true);
 
   async function refresh(): Promise<void> {
     try {
@@ -149,17 +147,6 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
       {!embedded && <Header tabs={[{ id: "Signals", icon: Radio }]} activeTab="Signals" onTabChange={() => {}} />}
 
-      {/* No "All Signals" header bar: the tab strip above already says Signals,
-          so the row restated it and existed only to host a labelled "Hide
-          insights" button. The toggle now lives as a chevron inside the
-          insights section itself.
-          ADR-180 removed the 3-dots menu here — its single item duplicated the
-          Intelligence Section's "Manage in Module Detail". */}
-      <CollapsibleInsights
-        expanded={insightsOpen}
-        metrics={metrics}
-        onToggle={() => setInsightsOpen((open) => !open)}
-      />
       {refreshError && (
         <div role="alert" className="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           The Signal was updated, but the latest list could not be loaded: {refreshError}
@@ -175,6 +162,7 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
               data={rows}
               onViewChange={setView}
               onOpenRecord={openRecord}
+              insights={<DashboardRow metrics={metrics} />}
             />
           </section>
         }
