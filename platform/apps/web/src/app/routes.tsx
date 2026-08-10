@@ -13,7 +13,6 @@ import { TaskManagerPage } from "./pages/TaskManagerPage";
 import { TaskRecordDetailPage } from "./pages/TaskRecordDetailPage";
 // Ported prototype surface (faithful visual port, 2026-07-07)
 import { HomePage } from "./pages/HomePage";
-import { SecondBrainPage } from "./pages/SecondBrainPage";
 // AP-086 / ADR-154: Intelligence is its own top-level cross-Module capability page.
 import { IntelligencePage } from "./pages/IntelligencePage";
 // TASK-028: background Research Run timeline/interrupt Page (plan §5).
@@ -156,7 +155,11 @@ export const router = createBrowserRouter([
       { path: `${childPath(relationshipModule.route)}/sources`, Component: RelationshipSourcesPage },
       { path: `${childPath(relationshipModule.route)}/:page`, Component: RelationshipPage },
 
-      { path: "second-brain", Component: SecondBrainPage },
+      // Second Brain is Intelligence's first tab, not a surface of its own
+      // (ADR-224). The path stays so existing links keep working, but it
+      // redirects — two routes rendering the same graph is how the rail and the
+      // tab strip drifted apart in the first place.
+      { path: "second-brain", element: <Navigate to="/intelligence" replace /> },
       { path: "research", Component: ResearchRunsPage },
       { path: "intelligence", Component: IntelligencePage },
       { path: "task-manager", Component: TaskManagerPage },

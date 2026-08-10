@@ -375,6 +375,7 @@ export function SecondBrainPage({ embedded = false }: { embedded?: boolean } = {
             view={view}
             data={rows}
             availableKinds={FULL_GRAPH_VIEWS}
+            insertDisabledReason="Second Brain is a cross-Module view of Records that already exist — create a Record on its owning Module's Page."
             onViewChange={setView}
             graphData={graph ?? undefined}
             graphLoading={graph === null}

@@ -5211,3 +5211,119 @@ work.
 **Rejected.** Emitting at sync time (would capture records the user later vetoes; approval-is-warrant instead — and the sync fetch itself is already a governed, user-approved crossing recorded by K1). Two separate consent sources for gmail/calendar (the plan says one per-ACCOUNT toggle; a later split is a code-level key change with no migration, since unknown keys read as OFF by the fail-closed parse). Applying K2's "own acts only" rule here (an approved intake row is not a behavior signal about the owner's act — it is interaction metadata about a record the owner explicitly approved into the graph; the rule stays load-bearing for behavior sources). Throwing from the emission path. Content summarization riding along (a later, separately-gated rung per the plan — bodies, snippets and descriptions stay structurally inexpressible until then).
 
 **Consequences.** K6's brief and commitment detection get real interaction metadata to consume, and TASK-050's dependency on TASK-049 clears. The scheduled digest fans `"google"` into its own per-module lane automatically (`listSignalModuleIds`) — no digest change. No schema, no migration: signals are the same inspectable/deletable episodic Memory rows as every capture source, and Settings renders the third toggle from the same card. Honest residuals: no live end-to-end with a REAL Google account on this machine (OAuth unconfigured — the live walk observed `google.syncGmail` fail closed with the no-fake-gateway message; the emission path is proven by the fixture-gateway tests over the real composition root); the `attendees` attribute may include the owner's own address (self-exclusion needs `selfEmails` at the emission seam — deferred to K6, where the brief will want the distinction anyway); `timeOfDay` uses the API's local clock (K2's named limit, unchanged); ADR-215's real Google Cloud OAuth client registration remains the standing blocker for live Google data on any machine.
+
+## ADR-223 — The graph encodes two things and explains both: type by colour, Relation by an edge label (2026-08-10; AP-143; follows ADR-221's research; RENUMBERED from ADR-222/AP-142 — origin/main landed K5 under those ids while this branch was open)
+
+**Context.** ADR-221 recorded the cross-tool finding and deliberately built nothing.
+The user then chose the two items it named as the cheapest large wins: *"Yes, label the
+relations. Color code nodes."*
+
+`GraphView` already drew a label and already filled nodes with a colour, so this is not
+new capability — it is the difference between an encoding and a decoration. What existed:
+`databaseColor()` hashed the `databaseId` into `hsl(hash % 360, 52%, 48%)`, and the edge
+label sat in a fixed 88px box at the midpoint, unrotated.
+
+**Decision.**
+
+1. **Colour is categorical, from a fixed ordered palette, with a mandatory legend.** A
+   360-way hash makes two Modules render indistinguishable hues routinely, and nothing
+   on screen said what any colour meant — so the encoding carried no information even
+   when it happened to be distinct. Twelve curated hues, assigned by stable sorted
+   position of the distinct types present, and a legend row. Every source in the
+   research flagged the missing legend as a top complaint; Capacities' type-derived
+   colour is the single most-cited reason its small graph is legible.
+2. **The Relation label is drawn on the edge**, rotated to it and normalised into
+   (-90°, 90°] so it never renders upside down, in a pill sized to its text.
+   Obsidian/Logseq/Roam cannot do this — their edges are untyped wikilinks — and their
+   users ask for it. Bridge has real typed Relations, so this is the differentiator and
+   it belongs on the canvas rather than behind a click.
+3. **Text fades with zoom, edges before nodes**, and a label wider than the gap between
+   its two node circles is withheld. Selection always keeps its label. Suppression is
+   stated on screen, not silent (§3a).
+
+**Rejected alternatives.**
+
+- *Keep the hash but widen the hue spread.* Rejected: it fixes collisions probabilistically
+  and still explains nothing. The legend is the actual fix, and a legend needs a finite
+  named palette to list.
+- *Hash into the 12-colour palette* (stable slot per type, no reassignment when scope
+  changes). Rejected: re-admits collisions. Ordered assignment can move a type's colour
+  when scope changes, which is the real cost of this choice — accepted, because a colour
+  that is stable AND ambiguous is worse than one that is unambiguous and named on screen.
+- *Colour edges by relation type as well.* Rejected: colour encodes one category or it
+  encodes none. Relation type is already carried by the label and by the existing
+  relation-type filter.
+- *Node size by degree* (a near-universal convention in the research). Not built — the
+  user asked for labels and colour, and radius currently encodes selection. Adding a
+  second meaning to radius needs its own decision.
+- *Draw every label regardless of fit.* Rejected after seeing it: on a short edge the pill
+  landed on top of both node labels — the same wall-of-text failure the fade rules exist
+  to prevent.
+
+**Consequences.**
+
+- `GRAPH_PALETTE` is now a canon surface: adding a Module type past twelve wraps the
+  palette, and the wrap is visible in the legend rather than silent.
+- Colour assignment depends on the resolved scope's node set, computed before the
+  `MAX_RENDERED_NODES` truncation so the cut cannot recolour survivors.
+- Two pure modules (`graph-palette.ts`, `graph-edge-label.ts`) hold everything testable;
+  `GraphView` keeps only rendering. `test/graph-visual.test.mjs` pins the contract.
+- Still not built, and still the honest recommendation from ADR-221: a LOCAL graph at
+  depth 1–2 scoped to one focal Record. Colour and labels make the full-scope canvas
+  legible; they do not make an unfiltered full-scope graph the right default.
+
+## ADR-224 — A standard control's EXISTENCE is never a page's decision; the gate now checks what renders, not what mounts (2026-08-10; AP-144)
+
+**Context.** ADR-221 added the `insights`/`actions` slots and a conformance gate, and §10 of the UI rules
+recorded why the rules kept getting lost. The user then reported, in the same session, that the rules were
+still not holding: *"I dont see the Add row option in few tabes and in some it is present. I want the UI
+elements same for all modules and only the data displayed should be different."* and *"I asked for second
+brain to appear inside intelligence but I still see it in left nav bar."* and *"I asked for a diagnosis on
+why I'm forced to repeat the issues."*
+
+All four Modules named (Task Manager, JobPilot, DealPilot, Relationship) **did** route through
+`ModuleSurfaceLayout` + `DataViews` and **did** pass the conformance gate. The user was still right. That is
+the finding: the gate proved pages MOUNT the shared shell and proved nothing about what the shell RENDERS
+once mounted.
+
+**Decision.**
+
+1. **A standard control's existence is never conditional on a page prop.** `TableView` gated the add-row on
+   `{onInsert && ...}`, so a page that did not wire a create path silently lost a control other Modules had.
+   The row now always renders; without a create path it is disabled and states why
+   (`insertDisabledReason`, with an honest default). Pages configure behaviour and copy — never presence.
+   This is §3a applied to the kit itself rather than only to page-authored controls.
+2. **The gates assert rendered behaviour.** `every page that cannot insert states WHY` and `the insights row
+   is ONE component everywhere` are the first two of that kind. Both failed on first run — the former on
+   OrganizationPage and SecondBrainPage, the latter on DealPilot — which is the evidence that structural
+   conformance was not covering this.
+3. **One entry point per surface.** Second Brain's rail entry and mobile-drawer entry are deleted;
+   `/second-brain` redirects to `/intelligence` so existing links survive without a second renderer. A move
+   is not finished until the old entry point is gone, and a test pins the count at one.
+4. **`StatCard` is folded into `DashboardRow`** as optional `icon`/`tone`. DealPilot was rendering a bespoke
+   card grid inside the kit's own insights slot — same slot, two components.
+
+**Rejected alternatives.**
+
+- *Add `onInsert` to JobPilot and Signals.* Rejected: it fixes the two Modules the user happened to open and
+  leaves the next one to rediscover. The defect is that the kit permitted the difference.
+- *Leave the rail entry as a shortcut to the Intelligence tab.* Rejected: two entry points is how the rail
+  and the tab strip disagreed in the first place, and the user asked for a move, not an alias.
+- *Keep `StatCard` and document it as DealPilot's variant.* Rejected — that is the divergence, written down.
+- *Forbid optional props on `DataViewProps` outright.* Too blunt. The rule that carries the weight is
+  narrower and enforceable: optional props may vary CONTENT (a metric's icon, a reason string), never the
+  presence of a standard control.
+
+**Consequences.**
+
+- Every `foo?:` added to `DataViewProps` from here is a divergence risk and needs the presence/content test
+  applied before it lands.
+- Pages must now name a reason when they cannot insert. Four did not and now do; the reasons are real
+  (Jobs arrive from an Integration; a Signal is an observed Event; Second Brain is a view of Records that
+  exist elsewhere; the Organization page is a plan preview).
+- §10 gains failures 6–9 — the second-order diagnosis of why the repeats continued after §10 itself was
+  written. The honest summary: the first round of corrective measures fixed the fact that rules could not
+  fail, and did not fix the fact that they were checking the wrong thing.
+- Still true and still unaddressed by any gate: a page can pass every test here and be wrong in ways only a
+  person looking at two Modules side by side will catch. The lab and the gates narrow that gap; they do not
+  close it.

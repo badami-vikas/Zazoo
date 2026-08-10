@@ -3,6 +3,8 @@ import { ExternalLink, Filter, Loader2, Minus, Plus, RotateCcw, ShieldCheck, Spa
 import { applyFilters, applySorts, type GraphScope } from "@bridge/tables";
 import { Button } from "../../components/ui/button.js";
 import type { DataRow, DataViewProps, GraphData, GraphEdge, GraphNode } from "../types.js";
+import { buildGraphLegend, type GraphLegendEntry } from "../graph-palette.js";
+import { edgeLabelPlacement, showEdgeLabels, showNodeLabels } from "../graph-edge-label.js";
 
 interface PositionedNode extends GraphNode {
   x: number;
@@ -115,13 +117,10 @@ function deriveGraphData({ spec, view, data }: Pick<DataViewProps, "spec" | "vie
   return { nodes, edges, databases };
 }
 
-function databaseColor(databaseId: string): string {
-  let hash = 0;
-  for (const char of databaseId) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  return `hsl(${Math.abs(hash) % 360} 52% 48%)`;
-}
-
-function positionNodes(nodes: GraphNode[]): PositionedNode[] {
+function positionNodes(
+  nodes: GraphNode[],
+  colorOf: (databaseId: string) => string,
+): PositionedNode[] {
   const byDatabase = new Map<string, GraphNode[]>();
   for (const node of nodes) {
     byDatabase.set(node.databaseId, [...(byDatabase.get(node.databaseId) ?? []), node]);
@@ -143,7 +142,7 @@ function positionNodes(nodes: GraphNode[]): PositionedNode[] {
         ...node,
         x: groupX + (groupNodes.length === 1 ? 0 : Math.cos(angle) * radius),
         y: groupY + (groupNodes.length === 1 ? 0 : Math.sin(angle) * radius),
-        color: databaseColor(databaseId),
+        color: colorOf(databaseId),
       });
     });
   });
@@ -215,11 +214,20 @@ export function GraphView({
   const renderNodes = resolvedData.nodes
     .filter((node) => relationType === "all" || connectedNodeIds.has(node.id))
     .slice(0, MAX_RENDERED_NODES);
-  const positioned = useMemo(() => positionNodes(renderNodes), [renderNodes]);
+  // Colour is assigned over the WHOLE resolved scope, not over the rendered
+  // slice: truncating at MAX_RENDERED_NODES must not silently recolour the
+  // types that survived the cut.
+  const { colorOf, legend } = useMemo(
+    () => buildGraphLegend(resolvedData.nodes),
+    [resolvedData.nodes],
+  );
+  const positioned = useMemo(() => positionNodes(renderNodes, colorOf), [renderNodes, colorOf]);
   const nodeById = useMemo(() => new Map(positioned.map((node) => [node.id, node])), [positioned]);
   const renderEdges = filteredEdges.filter(
     (edge) => nodeById.has(edge.sourceId) && nodeById.has(edge.targetId),
   );
+  const edgeLabelsVisible = showEdgeLabels(scale, renderEdges.length);
+  const nodeLabelsVisible = showNodeLabels(scale);
 
   function changeScope(nextScope: GraphScope) {
     const currentDatabaseIds = view.graphDatabaseIds ?? [];
@@ -302,6 +310,28 @@ export function GraphView({
         </label>
       </div>
 
+      {legend.length > 0 && (
+        <ul
+          className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b px-3 py-2 text-xs"
+          aria-label="Node colour legend"
+        >
+          {legend.map((entry: GraphLegendEntry) => (
+            <li key={entry.key} className="flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: entry.color }}
+              />
+              <span className="text-foreground">{entry.label}</span>
+              <span className="text-muted-foreground">{entry.count}</span>
+            </li>
+          ))}
+          {!edgeLabelsVisible && renderEdges.length > 0 && (
+            <li className="ml-auto text-muted-foreground">Zoom in to read Relation labels</li>
+          )}
+        </ul>
+      )}
+
       {scope === "multi_database" && (
         <div className="flex flex-wrap gap-3 border-b px-3 py-2 text-xs">
           {allData.databases.map((database) => (
@@ -354,8 +384,6 @@ export function GraphView({
                 const source = nodeById.get(edge.sourceId);
                 const target = nodeById.get(edge.targetId);
                 if (!source || !target) return null;
-                const midX = (source.x + target.x) / 2;
-                const midY = (source.y + target.y) / 2;
                 return (
                   <g
                     key={edge.id}
@@ -380,10 +408,34 @@ export function GraphView({
                       strokeWidth={selectedEdge?.id === edge.id ? 3 : 1.5}
                       markerEnd="url(#graph-arrow)"
                     />
-                    <rect x={midX - 44} y={midY - 10} width={88} height={20} rx={8} fill="#f8fafc" opacity={0.92} />
-                    <text x={midX} y={midY + 4} textAnchor="middle" fontSize={11} fill="#475569">
-                      {edge.label.slice(0, 24)}
-                    </text>
+                    {(edgeLabelsVisible || selectedEdge?.id === edge.id) && (() => {
+                      const place = edgeLabelPlacement(edge.label, source, target);
+                      // A selected edge always shows its label — the reader
+                      // pointed at it and the panel below names it anyway.
+                      if (!place.fits && selectedEdge?.id !== edge.id) return null;
+                      return (
+                        <g transform={`translate(${place.x} ${place.y}) rotate(${place.rotation})`}>
+                          <rect
+                            x={-place.pillWidth / 2}
+                            y={-10}
+                            width={place.pillWidth}
+                            height={20}
+                            rx={8}
+                            fill="#f8fafc"
+                            opacity={0.92}
+                          />
+                          <text
+                            y={4}
+                            textAnchor="middle"
+                            fontSize={11}
+                            fill={selectedEdge?.id === edge.id ? "#1d4ed8" : "#475569"}
+                            fontWeight={selectedEdge?.id === edge.id ? 600 : 400}
+                          >
+                            {place.text}
+                          </text>
+                        </g>
+                      );
+                    })()}
                   </g>
                 );
               })}
@@ -409,9 +461,11 @@ export function GraphView({
                     stroke={selectedNode?.id === node.id ? "#0f172a" : "white"}
                     strokeWidth={3}
                   />
-                  <text y={35} textAnchor="middle" fontSize={12} fontWeight={600} fill="#0f172a">
-                    {node.label.length > 24 ? `${node.label.slice(0, 22)}…` : node.label}
-                  </text>
+                  {(nodeLabelsVisible || selectedNode?.id === node.id) && (
+                    <text y={35} textAnchor="middle" fontSize={12} fontWeight={600} fill="#0f172a">
+                      {node.label.length > 24 ? `${node.label.slice(0, 22)}…` : node.label}
+                    </text>
+                  )}
                 </g>
               ))}
             </g>
@@ -447,6 +501,11 @@ export function GraphView({
 
       {selectedNode && (
         <div className="flex flex-wrap items-center gap-3 border-t bg-background px-3 py-2">
+          <span
+            aria-hidden="true"
+            className="inline-block size-3 shrink-0 rounded-full"
+            style={{ backgroundColor: colorOf(selectedNode.databaseId) }}
+          />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{selectedNode.label}</div>
             <div className="text-xs text-muted-foreground">
@@ -471,7 +530,12 @@ export function GraphView({
       {selectedEdge && (
         <div className="flex flex-wrap items-center gap-3 border-t bg-background px-3 py-2">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium">{selectedEdge.label}</div>
+            <div className="truncate text-sm font-medium">
+              {selectedEdge.label}
+              {selectedEdge.relationType && selectedEdge.relationType !== selectedEdge.label && (
+                <span className="ml-1.5 font-normal text-muted-foreground">({selectedEdge.relationType})</span>
+              )}
+            </div>
             <div className="text-xs text-muted-foreground">
               {selectedEdge.evidence ?? "Relation evidence is available from the owning Record."}
             </div>

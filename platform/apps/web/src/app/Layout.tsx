@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Network, Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight } from "lucide-react";
+import { Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight } from "lucide-react";
 import { moduleNavTarget, buildModuleNavTree } from "@bridge/module-manifests";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
@@ -409,9 +409,8 @@ export default function Layout() {
   const homeActive = location.pathname === "/" || isActive("/home");
   // Intelligence is its own top-level cross-Module capability page (ADR-154);
   // it no longer deep-links into a Settings section.
-  const intelligenceActive = isActive("/intelligence");
+  const intelligenceActive = isActive("/intelligence") || isActive("/second-brain");
   const settingsActive = isActive("/settings");
-  const secondBrainActive = isActive("/second-brain");
   // ADR-180 (user directive 2026-08-05): the rail is reserved for Modules,
   // Second Brain, Intelligence, Settings and the profile/Organization control at
   // the top. Research is NOT a rail citizen — `/research` is the Run surface of
@@ -654,19 +653,15 @@ export default function Layout() {
             the overflow). Settings is the LAST entry, at the absolute bottom of
             the rail: there is nothing to scroll past it (user directive
             2026-08-05, ADR-180).
-            Second Brain + Intelligence sit above Settings.
-            Second Brain is the cross-Module Graph preset; Intelligence is the
-            cross-Module capability inventory (Agents · Automations · Skills ·
-            Integrations) at its own top-level route (ADR-154). */}
+            Intelligence sits above Settings and is the ONLY entry point to
+            Second Brain: the cross-Module Graph is Intelligence's first tab
+            (ADR-224 / user directive 2026-08-10 — "I asked for second brain to
+            appear inside intelligence but I still see it in left nav bar").
+            One entry point, so the rail cannot disagree with the tab strip. */}
         <div
           className="border-t flex flex-col gap-0.5 px-1.5 pb-3 pt-2 shrink-0"
           style={{ borderColor: "var(--color-border)" }}
         >
-          <Link to="/second-brain" className={navItemClass(secondBrainActive)} title="Second Brain">
-            {secondBrainActive && <ActiveBar />}
-            <Network className="w-5 h-5 shrink-0" style={{ color: secondBrainActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            <span className={navLabelClass()}>Second Brain</span>
-          </Link>
           <Link to="/intelligence" className={navItemClass(intelligenceActive)} title="Intelligence">
             {intelligenceActive && <ActiveBar />}
             <Sparkles className="w-5 h-5 shrink-0" style={{ color: intelligenceActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
@@ -725,15 +720,6 @@ export default function Layout() {
               ))}
             </div>
             <div className="mt-3 space-y-1 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
-              <Link
-                to="/second-brain"
-                onClick={() => setMobileModulesOpen(false)}
-                className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
-                style={{ color: "var(--color-navy)" }}
-              >
-                <Network className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
-                Second Brain
-              </Link>
               <Link
                 to="/intelligence"
                 onClick={() => setMobileModulesOpen(false)}
