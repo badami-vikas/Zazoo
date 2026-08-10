@@ -29,7 +29,7 @@
  * mode working. Only geometry and typography are ported literally (40px rows,
  * 16px/10px cell padding, 13px body, 10px uppercase headers at 0.07em).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { applyFilters, applySorts } from "@bridge/tables";
 import type { ColumnSpec, TableSpec } from "@bridge/tables";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -114,6 +114,7 @@ export function TableView({
   data,
   onViewChange,
   onInsert,
+  insertDisabledReason,
   onUpdate,
   onOpenRecord,
   onEditRecord,
@@ -151,6 +152,11 @@ export function TableView({
    * a View in its own right for anyone who wants the long form.
    */
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
+  const addRowReasonId = useId();
+  /** Honest default: the surface has no create path wired, and saying so beats
+   *  a control that vanishes. Pages that know the real reason pass it. */
+  const insertReason =
+    insertDisabledReason ?? "This Database has no create path wired yet, so Records cannot be added by hand here.";
 
   // A pending row-open, held back long enough for a second click to cancel it.
   const pendingOpen = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -522,17 +528,29 @@ export function TableView({
             </tr>
           )}
 
-          {onInsert && !draft && (
+          {/* The add-row is part of the table's SHAPE, not a per-page opt-in.
+              Gating its existence on `onInsert` is what made JobPilot and
+              Signals silently lose a control DealPilot and Relationship had —
+              the user compared two Modules and correctly called it a bug
+              (2026-08-10). §3a: a control that cannot act is disabled and says
+              why; it never just disappears. */}
+          {!draft && (
             <tr style={{ borderTop: "1px solid var(--color-line-soft)" }}>
               <td colSpan={colSpan} className="px-2 py-1.5">
                 <button
                   type="button"
+                  disabled={!onInsert}
                   onClick={() => setDraft({})}
-                  className="bridge-add-row w-full rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors"
+                  title={onInsert ? undefined : insertReason}
+                  aria-describedby={onInsert ? undefined : addRowReasonId}
+                  className="bridge-add-row w-full rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                   style={{ color: "var(--color-warm-gray)" }}
                 >
                   + Add record
                 </button>
+                {!onInsert && (
+                  <span id={addRowReasonId} className="sr-only">{insertReason}</span>
+                )}
               </td>
             </tr>
           )}

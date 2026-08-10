@@ -65,7 +65,7 @@ function Panel({ title, note, children }: { title: string; note: string; childre
 
 /** Each instance owns its own ViewConfig so switching a view in one panel
  *  doesn't move the others. */
-function Sample({ data, width }: { data: DataRow[]; width: string }) {
+function Sample({ data, width, canInsert = true }: { data: DataRow[]; width: string; canInsert?: boolean }) {
   const [view, setView] = useState<ViewConfig>(() => defaultViewConfig(`${SPEC.id}:table`));
   return (
     <div style={{ width, height: 360 }} className="overflow-hidden">
@@ -75,7 +75,9 @@ function Sample({ data, width }: { data: DataRow[]; width: string }) {
         data={data}
         onViewChange={setView}
         searchPlaceholder="Search…"
-        onInsert={async () => {}}
+        {...(canInsert
+          ? { onInsert: async () => {} }
+          : { insertDisabledReason: "This surface has no create path — Records arrive from an Integration." })}
         insights={
           <DashboardRow
             metrics={[
@@ -165,6 +167,13 @@ function UiKit() {
         note="Zero rows keeps the headers, column rhythm, add-row and footer — no message replaces the table."
       >
         <Sample data={[]} width="100%" />
+      </Panel>
+
+      <Panel
+        title="No create path — the add-row is disabled, never absent"
+        note="§3a: a standard control's existence is never conditional on a page prop. Hover the row for the reason."
+      >
+        <Sample data={ROWS} width="100%" canInsert={false} />
       </Panel>
 
       <Panel

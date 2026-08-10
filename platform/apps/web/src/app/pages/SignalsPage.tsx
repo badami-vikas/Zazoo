@@ -162,6 +162,7 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
               data={rows}
               onViewChange={setView}
               onOpenRecord={openRecord}
+              insertDisabledReason="A Signal is a participant-linked Event that Bridge observed — it is recorded from a real interaction, never typed in."
               insights={<DashboardRow metrics={metrics} />}
             />
           </section>

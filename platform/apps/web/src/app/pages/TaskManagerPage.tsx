@@ -237,7 +237,9 @@ export function TaskManagerPage() {
               view={view}
               data={rows}
               onViewChange={changeView}
-              {...(API_TRANSPORT_CONFIGURED ? { onInsert: insertTask, onUpdate: updateTask } : {})}
+              {...(API_TRANSPORT_CONFIGURED
+                ? { onInsert: insertTask, onUpdate: updateTask }
+                : { insertDisabledReason: "The API transport is not configured in this build, so Tasks cannot be created here." })}
               onOpenRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
               onEditRecord={(row) => navigate(`/task-manager/${String(row.id)}`)}
               insights={

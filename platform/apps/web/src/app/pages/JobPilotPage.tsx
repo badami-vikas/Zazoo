@@ -134,6 +134,7 @@ export function JobPilotPage() {
               view={view}
               data={rows}
               searchPlaceholder="Search jobs…"
+              insertDisabledReason="Jobs arrive from the JobPilot sourcing Integration, not by hand — track one by moving its Stage."
               onViewChange={setView}
               onUpdate={moveStage}
               canUpdateRow={(row) => Boolean(row["id"])}

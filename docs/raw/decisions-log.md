@@ -5271,3 +5271,59 @@ label sat in a fixed 88px box at the midpoint, unrotated.
 - Still not built, and still the honest recommendation from ADR-221: a LOCAL graph at
   depth 1–2 scoped to one focal Record. Colour and labels make the full-scope canvas
   legible; they do not make an unfiltered full-scope graph the right default.
+
+## ADR-224 — A standard control's EXISTENCE is never a page's decision; the gate now checks what renders, not what mounts (2026-08-10; AP-144)
+
+**Context.** ADR-221 added the `insights`/`actions` slots and a conformance gate, and §10 of the UI rules
+recorded why the rules kept getting lost. The user then reported, in the same session, that the rules were
+still not holding: *"I dont see the Add row option in few tabes and in some it is present. I want the UI
+elements same for all modules and only the data displayed should be different."* and *"I asked for second
+brain to appear inside intelligence but I still see it in left nav bar."* and *"I asked for a diagnosis on
+why I'm forced to repeat the issues."*
+
+All four Modules named (Task Manager, JobPilot, DealPilot, Relationship) **did** route through
+`ModuleSurfaceLayout` + `DataViews` and **did** pass the conformance gate. The user was still right. That is
+the finding: the gate proved pages MOUNT the shared shell and proved nothing about what the shell RENDERS
+once mounted.
+
+**Decision.**
+
+1. **A standard control's existence is never conditional on a page prop.** `TableView` gated the add-row on
+   `{onInsert && ...}`, so a page that did not wire a create path silently lost a control other Modules had.
+   The row now always renders; without a create path it is disabled and states why
+   (`insertDisabledReason`, with an honest default). Pages configure behaviour and copy — never presence.
+   This is §3a applied to the kit itself rather than only to page-authored controls.
+2. **The gates assert rendered behaviour.** `every page that cannot insert states WHY` and `the insights row
+   is ONE component everywhere` are the first two of that kind. Both failed on first run — the former on
+   OrganizationPage and SecondBrainPage, the latter on DealPilot — which is the evidence that structural
+   conformance was not covering this.
+3. **One entry point per surface.** Second Brain's rail entry and mobile-drawer entry are deleted;
+   `/second-brain` redirects to `/intelligence` so existing links survive without a second renderer. A move
+   is not finished until the old entry point is gone, and a test pins the count at one.
+4. **`StatCard` is folded into `DashboardRow`** as optional `icon`/`tone`. DealPilot was rendering a bespoke
+   card grid inside the kit's own insights slot — same slot, two components.
+
+**Rejected alternatives.**
+
+- *Add `onInsert` to JobPilot and Signals.* Rejected: it fixes the two Modules the user happened to open and
+  leaves the next one to rediscover. The defect is that the kit permitted the difference.
+- *Leave the rail entry as a shortcut to the Intelligence tab.* Rejected: two entry points is how the rail
+  and the tab strip disagreed in the first place, and the user asked for a move, not an alias.
+- *Keep `StatCard` and document it as DealPilot's variant.* Rejected — that is the divergence, written down.
+- *Forbid optional props on `DataViewProps` outright.* Too blunt. The rule that carries the weight is
+  narrower and enforceable: optional props may vary CONTENT (a metric's icon, a reason string), never the
+  presence of a standard control.
+
+**Consequences.**
+
+- Every `foo?:` added to `DataViewProps` from here is a divergence risk and needs the presence/content test
+  applied before it lands.
+- Pages must now name a reason when they cannot insert. Four did not and now do; the reasons are real
+  (Jobs arrive from an Integration; a Signal is an observed Event; Second Brain is a view of Records that
+  exist elsewhere; the Organization page is a plan preview).
+- §10 gains failures 6–9 — the second-order diagnosis of why the repeats continued after §10 itself was
+  written. The honest summary: the first round of corrective measures fixed the fact that rules could not
+  fail, and did not fix the fact that they were checking the wrong thing.
+- Still true and still unaddressed by any gate: a page can pass every test here and be wrong in ways only a
+  person looking at two Modules side by side will catch. The lab and the gates narrow that gap; they do not
+  close it.

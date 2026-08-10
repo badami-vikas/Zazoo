@@ -66,6 +66,16 @@ export interface DataViewProps {
    * for routing this through the governed pipeline (e.g. action.propose). Absent
    * for read-only views — FormView disables its submit button when not provided. */
   onInsert?: (draft: Partial<DataRow>) => void | Promise<void>;
+  /**
+   * Why this surface cannot create a Record by hand. §3a: the add-row is part
+   * of the table's shape and ALWAYS renders — a surface that simply omitted it
+   * left the user comparing two Modules and finding one silently missing a
+   * control (user report 2026-08-10: "I dont see the Add row option in few
+   * tabes and in some it is present. I want the UI elements same for all
+   * modules and only the data displayed should be different."). Without
+   * `onInsert` the row renders disabled and states this reason.
+   */
+  insertDisabledReason?: string;
   onUpdate?: (rowId: string, patch: Partial<DataRow>) => void | Promise<void>;
   canUpdateRow?: (row: DataRow) => boolean;
   onDuplicate?: (row: DataRow) => void | Promise<void>;

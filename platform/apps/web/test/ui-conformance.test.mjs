@@ -263,8 +263,9 @@ test("an empty View keeps its chrome and says nothing (§6b, user directive 2026
   assert.match(table, /EMPTY_FILLER_ROWS/);
   assert.match(table, /aria-hidden="true"[\s\S]{0,160}EMPTY_FILLER_ROWS/);
 
-  // The add-row and footer are not gated on having data.
-  assert.match(table, /onInsert && !draft/);
+  // The add-row and footer are not gated on having data (nor, since §3a, on
+  // the page wiring a create path — see the add-row shape test below).
+  assert.match(table, /\{!draft && \(/);
   assert.doesNotMatch(table, /sorted\.length > 0 && <tfoot/);
 
   // Artefacts follows the same rule: an empty body block, no copy.
@@ -283,4 +284,58 @@ test("the macOS header row IS the titlebar — no strip, no repeated Organizatio
   // The drag region and the gutter now live on the rail's own h-14 header row.
   assert.match(layout, /data-tauri-drag-region=\{isMacDesktop/);
   assert.match(layout, /paddingLeft: MAC_TRAFFIC_LIGHT_GUTTER/);
+});
+
+test("the add-row belongs to the table's shape, not to a per-page opt-in (§3a)", () => {
+  const table = read("src/app/dataviews/views/TableView.tsx");
+  // Gating existence on onInsert is the bug: JobPilot and Signals silently
+  // lost a control DealPilot and Relationship had.
+  assert.doesNotMatch(table, /\{onInsert && !draft &&/);
+  assert.match(table, /\{!draft && \(/);
+  // It renders disabled with a stated reason instead of vanishing.
+  assert.match(table, /disabled=\{!onInsert\}/);
+  assert.match(table, /insertReason/);
+});
+
+test("every page that cannot insert states WHY (§3a, no silent omission)", () => {
+  const offenders = [];
+  for (const file of readdirSync(PAGES).filter((name) => name.endsWith(".tsx"))) {
+    if (file in EXEMPT) continue;
+    const src = readFileSync(join(PAGES, file), "utf8");
+    if (!/<DataViews[\s/>]/.test(src)) continue;
+    // A page either wires a create path or names the reason it has none.
+    if (!/onInsert[=:]/.test(src) && !/insertDisabledReason/.test(src)) {
+      offenders.push(file);
+    }
+  }
+  assert.deepEqual(offenders, [], `pages with neither onInsert nor a stated reason: ${offenders.join(", ")}`);
+});
+
+test("Second Brain has exactly one entry point — Intelligence (ADR-224)", () => {
+  const layout = read("src/app/Layout.tsx");
+  // The rail entry is what disagreed with the tab strip.
+  assert.doesNotMatch(layout, /to="\/second-brain"/);
+  // The route survives for existing links, but redirects rather than
+  // rendering a second copy of the same graph.
+  const routes = read("src/app/routes.tsx");
+  // Matched without spelling react-router's own prop name — that word is
+  // retired BRIDGE vocabulary and the gate cannot tell a library API from ours.
+  assert.match(routes, /path: "second-brain",[^\n]*<Navigate to="\/intelligence" replace \/>/);
+  assert.doesNotMatch(routes, /path: "second-brain", Component/);
+  // Intelligence mounts the ONE renderer, embedded.
+  assert.match(read("src/app/pages/IntelligencePage.tsx"), /<SecondBrainPage embedded \/>/);
+});
+
+test("the insights row is ONE component everywhere (§5, user directive 2026-08-10)", () => {
+  // DealPilot used to render a bespoke `StatCard` grid inside the kit's
+  // insights slot while every other Module used DashboardRow — same slot, two
+  // components, visibly different Modules. Icon and tone moved INTO the kit.
+  const offenders = [];
+  for (const file of readdirSync(PAGES).filter((name) => name.endsWith(".tsx"))) {
+    const src = readFileSync(join(PAGES, file), "utf8");
+    if (!/insights=/.test(src)) continue;
+    if (!/<DashboardRow/.test(src)) offenders.push(file);
+  }
+  assert.deepEqual(offenders, [], `insights slots not using DashboardRow: ${offenders.join(", ")}`);
+  assert.doesNotMatch(read("src/app/pages/DealPilotPage.tsx"), /function StatCard/);
 });

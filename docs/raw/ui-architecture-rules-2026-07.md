@@ -92,6 +92,12 @@ Helpdesk is an application of the generic rules, not an exception to them (§0):
 
 Every affordance does something useful. A card, row, node, badge, count, status, recommendation, Module name, or graph edge that looks interactive must open detail, edit, filter, provenance/explanation, or a governed Action. Read-only information uses plain non-interactive styling. Disabled Actions show the missing permission/dependency and next step. Keyboard, pointer, and touch paths reach the same Actions. Tests fail for clickable-looking elements without a route or handler and for handlers that only dismiss without an outcome.
 
+**A standard control's EXISTENCE is never conditional on a page prop (added 2026-08-10, ADR-224).** Pages
+configure a control's behaviour and its copy; they never decide whether it is present. The add-row is the
+worked example: gating it on `onInsert` meant JobPilot and Signals silently lacked a control DealPilot had,
+and the user found it by comparing two Modules. Without a create path the row renders DISABLED with a stated
+reason, never absent. This is enforced, not advised — see the conformance gate.
+
 ## 4. Standard views — Form joins the set
 
 Every landing section offers the standard views. New standard view: **Form** (confirmed 2026-07-13 — earlier "forum" wording was a typo) — instead of presenting existing data, it renders one input per field of the page's primary table (respecting field types, required flags, defaults) and **collects** a new row (or edits a selected one). Form view is the create/intake lens over the same schema the table view reads — no separate hand-built "create" screens for standard entities.
@@ -366,6 +372,38 @@ User challenge, verbatim: *"Critically evaluate why all these rules I had shared
 **Failure 4 — new surfaces defaulted to hand-rolled.** Writing a fresh page from scratch was always the path of least resistance, because nothing objected. The `ArtifactsPage` built earlier in this same session is a live instance: a bespoke toolbar, a bespoke search input, a bespoke grid. The failure mode is current, not historical.
 
 **Failure 5 — the rules were shared in a rendered format instead of the repository.** A published HTML page is a snapshot; the next session reads the repo. Canon that lives outside `docs/` is canon that will be re-derived from memory. **Corrective: this `.md` is the only store. Rendered views are exports of it, never the source.**
+
+### Second-order diagnosis: why the repeats CONTINUED after §10 was written (2026-08-10, same session)
+
+User challenge, verbatim: *"I asked for a diagnosis on why I'm forced to repeat the issues."* §10 above was
+written earlier in this same session and the repeats kept happening anyway, so §10 was an incomplete
+diagnosis. What it missed:
+
+**Failure 6 — the gate checked MOUNTING, never RENDERING.** The conformance test asserted that every
+data-shape page mounts `<ModuleSurfaceLayout>` + `<DataViews>`. All four Modules the user named passed it,
+and the user was *still* correct that they looked different — because the shared shell exposed optional
+props (`onInsert`, `insights`, `actions`) and a page that omitted one silently lost a control. Structural
+conformance without behavioural conformance produces exactly the observed outcome: a green gate and visibly
+different pages. **Corrective: gates now assert what RENDERS.** `every page that cannot insert states WHY`
+is the first of that kind, and it failed on two pages the moment it was written.
+
+**Failure 7 — optional props are opt-in divergence, and the kit kept adding them.** Every `foo?:` on
+`DataViewProps` is a licence for one page to differ from another. The add-row was the clearest case: the kit
+made the *existence* of a standard control depend on a page-level prop, so divergence was the default and
+uniformity was the thing requiring effort. **Corrective (standing rule): a standard control's EXISTENCE is
+never conditional on a page prop. Pages configure behaviour and copy; they do not decide whether a control
+is present.** A control that cannot act is disabled with a stated reason (§3a) — never absent.
+
+**Failure 8 — the same ask was answered twice in one session without removing the old surface.** Second
+Brain was added as Intelligence's first tab and left in the left-nav rail, so the user saw the thing they
+had asked to move still sitting where it was. Adding the new home is only half of "move it". **Corrective:
+a move is not done until the old entry point is deleted or redirects, and a test pins the count of entry
+points at one.**
+
+**Failure 9 — verification ran on the lab, not on the surfaces the user looks at.** The UI Kit lab proved
+the kit renders correctly. It could not prove JobPilot does, because JobPilot's difference lived in the
+props JobPilot passes. The lab is necessary and was not sufficient. **Corrective: for any "all Modules
+should look the same" claim, audit the call sites, not just the component.**
 
 ### Corrective measures (landed)
 

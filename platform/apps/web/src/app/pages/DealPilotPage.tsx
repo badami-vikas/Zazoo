@@ -11,12 +11,12 @@ import {
   Target,
   TrendingUp,
 } from "lucide-react";
-import type { ComponentType } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
+import { DashboardRow } from "../components/shared/DashboardRow";
 import { DataViews } from "../dataviews/DataViews";
 import { viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow, GraphNode } from "../dataviews/types";
@@ -127,40 +127,6 @@ function formatMoney(value: number): string {
   return `$${value.toLocaleString()}`;
 }
 
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  icon: ComponentType<{ className?: string }>;
-  tone?: "default" | "warn";
-}) {
-  return (
-    <div
-      className="flex items-center gap-3 rounded-xl border bg-white px-4 py-3"
-      style={{ borderColor: "var(--color-border)" }}
-    >
-      <span
-        className={`grid size-9 shrink-0 place-items-center rounded-lg ${
-          tone === "warn" ? "bg-rose-50 text-rose-600" : "bg-slate-50 text-[var(--color-steel)]"
-        }`}
-      >
-        <Icon className="size-4" />
-      </span>
-      <div className="min-w-0">
-        <div className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>
-          {label}
-        </div>
-        <div className="text-lg font-semibold leading-tight" style={{ color: "var(--color-navy)" }}>
-          {value}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** Implied EV multiple = asking price / EBITDA, when both are present and EBITDA > 0. */
 function impliedMultiple(record: RecordRow): number | undefined {
@@ -686,21 +652,25 @@ export function DealPilotPage() {
                   onOpenRecord={openRecord}
                   insights={
                     dealStats ? (
-                      <div className="grid grid-cols-2 gap-3 pb-3 sm:grid-cols-4">
-                        <StatCard label="Showing" value={String(dealStats.showing)} icon={Layers} />
-                        <StatCard label="Total EV" value={formatMoney(dealStats.totalEv)} icon={TrendingUp} />
-                        <StatCard
-                          label="P0 flags"
-                          value={String(dealStats.p0Flags)}
-                          icon={AlertTriangle}
-                          tone={dealStats.p0Flags > 0 ? "warn" : "default"}
-                        />
-                        <StatCard
-                          label="Avg evidence"
-                          value={dealStats.avgEvidence === null ? "—" : `${dealStats.avgEvidence}%`}
-                          icon={Activity}
-                        />
-                      </div>
+                      <DashboardRow
+                        metrics={[
+                          { id: "showing", label: "Showing", value: String(dealStats.showing), icon: Layers },
+                          { id: "ev", label: "Total EV", value: formatMoney(dealStats.totalEv), icon: TrendingUp },
+                          {
+                            id: "p0",
+                            label: "P0 flags",
+                            value: String(dealStats.p0Flags),
+                            icon: AlertTriangle,
+                            ...(dealStats.p0Flags > 0 ? { tone: "warn" as const } : {}),
+                          },
+                          {
+                            id: "evidence",
+                            label: "Avg evidence",
+                            value: dealStats.avgEvidence === null ? "—" : `${dealStats.avgEvidence}%`,
+                            icon: Activity,
+                          },
+                        ]}
+                      />
                     ) : undefined
                   }
                 />

@@ -184,6 +184,7 @@ export function OrganizationPage() {
                     spec={spec}
                     view={view}
                     data={rows}
+                    insertDisabledReason="This is a preview of the compiled Organization plan — Records are created on the Module's own Page, once the Module is installed."
                     isRelationship={isRelationship}
                     onViewChange={(next) => setViewsByCompiledId((prev) => ({ ...prev, [compiledView.id]: next }))}
                   />

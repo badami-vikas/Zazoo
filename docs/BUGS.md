@@ -2,6 +2,32 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **RESOLVED 2026-08-10 — The add-row existed on some Module Pages and silently not on others, because the kit made it a per-page opt-in (attach: TASK-001; fixed by ADR-223's §3a change).**
+  User report, verbatim: *"I dont see the Add row option in few tabes and in some it is present. I want the
+  UI elements same for all modules and only the data displayed should be different."* Confirmed in code:
+  `TableView` gated the add-row on `{onInsert && !draft && ...}`, and only DealPilot, Relationship and
+  (conditionally) Task Manager passed `onInsert` — JobPilot, Signals, Second Brain and Organization passed
+  none, so the control was absent with no explanation. This is a §3a violation the conformance gate did not
+  cover: the gate checked that pages MOUNT the shell, never that the shell renders the same controls once
+  mounted. Fix: the add-row always renders; without a create path it renders disabled and states the reason
+  (`insertDisabledReason`, honest default). New gate `every page that cannot insert states WHY` fails on any
+  page that has neither — it caught OrganizationPage and SecondBrainPage on first run.
+
+- **RESOLVED 2026-08-10 — Second Brain had two entry points that could disagree: a left-nav rail item and Intelligence's first tab (attach: TASK-001; ADR-223).**
+  User report, verbatim: *"I asked for second brain to appear inside intelligence but I still see it in left
+  nav bar."* The Intelligence tab was added earlier the same session without removing the rail entry, so both
+  existed. Fix: rail + mobile-drawer entries removed, `/second-brain` redirects to `/intelligence` (the path
+  stays so existing links work), Intelligence's rail item lights up for both paths, and a conformance test
+  pins that there is exactly one renderer.
+
+- **RESOLVED 2026-08-10 — apps/web typecheck was red against origin/main; the cause was a stale local `dist/`, not the merge (attach: TASK-049).**
+  After merging K5, `SettingsPage.tsx` failed with `"google" is not assignable to type '"chat" | "whatsapp"'`.
+  `packages/core/src/learning/capture-consent.ts` had the three-source union but `packages/core/dist/` still
+  carried the two-source one, and apps/web resolves `@bridge/core` through the built `.d.ts`. Reproduced on a
+  clean `origin/main` worktree — same error — then cleared by `turbo run build`. **Recurrence risk:** a
+  `tsc --noEmit` in apps/web is only meaningful after its workspace deps are built; a red typecheck here
+  should be re-checked against a fresh build before it is reported as a break in someone else's change.
+
 - **RESOLVED 2026-08-10 — A parallel branch's pushed merge (5d93778) deleted decisions-log ADR-197..214 and the K-ladder TASK rows (attach: TASK-036, whose CI fix that commit carried; repaired in the K3 commit).**
   The cloud branch behind the TASK-036 vocabulary-allowlist fix resolved its ledger conflicts by keeping its
   own `docs/TASKS.md` and `docs/raw/decisions-log.md`: upstream ADR-197..214 (TM slices + the entire AI
