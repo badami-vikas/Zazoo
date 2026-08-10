@@ -1,5 +1,7 @@
 # Change Log
 
+- **2026-08-10 — TASK-036 CI green gate (commit 7f650054)**: All 72 `pnpm verify` tasks pass on `main`. Fixed nested `test()` anti-pattern in `@bridge/db` (ledger-store 4 subtests, module-store 3 subtests), `@bridge/core` (taint 4, module-lifecycle 1), `@bridge/models` (2), `@bridge/commons` (2); fixed net-guard DNS abort timeout (ref'd timer keeps event loop alive through AbortSignal.timeout); deleted stale dist artifacts importing renamed vocabulary exports; resolved hermes/node shim PATH collision (nvm v24 prefix required for `--test-isolation=none`).
+
 - **2026-08-09 — Slices 13 & 14: the three decisions become human-reachable, and TM6 finishes (TASK-021, ADR-208/AP-129, ADR-209/AP-130)**:
   **Slice 13.** The planning edit (ADR-200), the dependency edge (ADR-204) and the routing assignment
   (ADR-207) all existed only over the API — which for a decision surface is not a partial state, it is

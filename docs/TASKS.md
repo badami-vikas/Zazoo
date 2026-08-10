@@ -594,7 +594,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Green CI and an honest event backbone
 - ID: TASK-036
-- Status: ready
+- Status: done
 - Token-cost note (2026-08-04, ADR-168): the fast `test` scripts run `--test-reporter=dot`, so a green run prints dots instead of one line per passing test (whole-monorepo run: tens of KB → ~1.4KB). Failures still print the full assertion, diff and stack. When reading a failing run, do NOT pipe the output through `tail` — the dot reporter puts the failure detail near the TOP, and truncating cost one debugging round-trip on 2026-08-04. `test:coverage` keeps full spec output for CI.
 - Priority: P1
 - Horizon: Core Modules
