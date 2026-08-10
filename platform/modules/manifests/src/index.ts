@@ -885,11 +885,22 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
         "A nested sub-module of NetworkManager. Help items are Records and their activity is Events, both on the same private contracts the parent Module uses — Helpdesk adds a surface over that data rather than a second store beside it.",
       lineageManifestId: null,
       dependencies: [],
-      // Reuses NetworkManager's existing sub-module capability rather than
-      // minting a parallel one: the data and the plane are identical, and a
-      // second capability over the same Records would be two grants to keep in
-      // sync for no added control.
-      capabilities: [],
+      // Every module needs >=1 declared capability (manifest.js's non-empty-
+      // array rule — the seed step rejects an empty array outright, which is
+      // what a stale build of this manifest failed on 2026-08-10). This is the
+      // SAME id NetworkManager already declares (`relationship.submodule.
+      // helpdesk`, above) with the identical permission set, not a second
+      // grant: the data and the plane are identical, so restating the same
+      // capability under Helpdesk's own module row is descriptive (what this
+      // Module's inventory shows) rather than a new authority boundary.
+      capabilities: [
+        capability("relationship.submodule.helpdesk", "Helpdesk", "database", [
+          readPrivate("record"),
+          writePrivate("record"),
+          readPrivate("event"),
+          writePrivate("event"),
+        ]),
+      ],
       contextProviders: [],
       organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
       module: {
