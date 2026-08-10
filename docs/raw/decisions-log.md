@@ -5204,3 +5204,63 @@ work.
   object with type-derived colour and labelled edges, or a hand-arranged persistent
   canvas. Bridge has real typed Relations, so labelling edges is the cheapest large win
   and the clearest differentiator from the file-link tools. Not built in this batch.
+
+## ADR-222 — The graph encodes two things and explains both: type by colour, Relation by an edge label (2026-08-10; AP-142; follows ADR-221's research)
+
+**Context.** ADR-221 recorded the cross-tool finding and deliberately built nothing.
+The user then chose the two items it named as the cheapest large wins: *"Yes, label the
+relations. Color code nodes."*
+
+`GraphView` already drew a label and already filled nodes with a colour, so this is not
+new capability — it is the difference between an encoding and a decoration. What existed:
+`databaseColor()` hashed the `databaseId` into `hsl(hash % 360, 52%, 48%)`, and the edge
+label sat in a fixed 88px box at the midpoint, unrotated.
+
+**Decision.**
+
+1. **Colour is categorical, from a fixed ordered palette, with a mandatory legend.** A
+   360-way hash makes two Modules render indistinguishable hues routinely, and nothing
+   on screen said what any colour meant — so the encoding carried no information even
+   when it happened to be distinct. Twelve curated hues, assigned by stable sorted
+   position of the distinct types present, and a legend row. Every source in the
+   research flagged the missing legend as a top complaint; Capacities' type-derived
+   colour is the single most-cited reason its small graph is legible.
+2. **The Relation label is drawn on the edge**, rotated to it and normalised into
+   (-90°, 90°] so it never renders upside down, in a pill sized to its text.
+   Obsidian/Logseq/Roam cannot do this — their edges are untyped wikilinks — and their
+   users ask for it. Bridge has real typed Relations, so this is the differentiator and
+   it belongs on the canvas rather than behind a click.
+3. **Text fades with zoom, edges before nodes**, and a label wider than the gap between
+   its two node circles is withheld. Selection always keeps its label. Suppression is
+   stated on screen, not silent (§3a).
+
+**Rejected alternatives.**
+
+- *Keep the hash but widen the hue spread.* Rejected: it fixes collisions probabilistically
+  and still explains nothing. The legend is the actual fix, and a legend needs a finite
+  named palette to list.
+- *Hash into the 12-colour palette* (stable slot per type, no reassignment when scope
+  changes). Rejected: re-admits collisions. Ordered assignment can move a type's colour
+  when scope changes, which is the real cost of this choice — accepted, because a colour
+  that is stable AND ambiguous is worse than one that is unambiguous and named on screen.
+- *Colour edges by relation type as well.* Rejected: colour encodes one category or it
+  encodes none. Relation type is already carried by the label and by the existing
+  relation-type filter.
+- *Node size by degree* (a near-universal convention in the research). Not built — the
+  user asked for labels and colour, and radius currently encodes selection. Adding a
+  second meaning to radius needs its own decision.
+- *Draw every label regardless of fit.* Rejected after seeing it: on a short edge the pill
+  landed on top of both node labels — the same wall-of-text failure the fade rules exist
+  to prevent.
+
+**Consequences.**
+
+- `GRAPH_PALETTE` is now a canon surface: adding a Module type past twelve wraps the
+  palette, and the wrap is visible in the legend rather than silent.
+- Colour assignment depends on the resolved scope's node set, computed before the
+  `MAX_RENDERED_NODES` truncation so the cut cannot recolour survivors.
+- Two pure modules (`graph-palette.ts`, `graph-edge-label.ts`) hold everything testable;
+  `GraphView` keeps only rendering. `test/graph-visual.test.mjs` pins the contract.
+- Still not built, and still the honest recommendation from ADR-221: a LOCAL graph at
+  depth 1–2 scoped to one focal Record. Colour and labels make the full-scope canvas
+  legible; they do not make an unfiltered full-scope graph the right default.

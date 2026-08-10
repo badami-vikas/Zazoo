@@ -24,9 +24,10 @@ import { createRoot } from "react-dom/client";
 import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { useState } from "react";
 import { DataViews } from "./app/dataviews/DataViews";
+import { viewConfigForKind } from "./app/dataviews/eligibility";
 import { DashboardRow } from "./app/components/shared/DashboardRow";
 import { Button } from "./app/components/ui/button";
-import type { DataRow } from "./app/dataviews/types";
+import type { DataRow, GraphData } from "./app/dataviews/types";
 import "./styles/globals.css";
 
 const SPEC: TableSpec = {
@@ -90,6 +91,54 @@ function Sample({ data, width }: { data: DataRow[]; width: string }) {
   );
 }
 
+/** A deliberately tiny graph — enough types to show the categorical palette and
+ *  enough edges to show that Relation labels are drawn ON the edge. */
+const GRAPH_SPEC: TableSpec = {
+  id: "uikit.graph",
+  columns: [
+    { id: "name", label: "Name", kind: "text", editable: false },
+    { id: "related", label: "Related", kind: "relation", relationTarget: "uikit.related", editable: false },
+  ],
+};
+
+const GRAPH: GraphData = {
+  databases: [
+    { id: "relationship.people", label: "People", moduleId: "relationship" },
+    { id: "dealpilot.deals", label: "Deals", moduleId: "dealpilot" },
+    { id: "relationship.communities", label: "Communities", moduleId: "relationship" },
+  ],
+  nodes: [
+    { id: "p1", label: "Placeholder Person", databaseId: "relationship.people", databaseLabel: "People", moduleId: "relationship" },
+    { id: "p2", label: "Second Person", databaseId: "relationship.people", databaseLabel: "People", moduleId: "relationship" },
+    { id: "d1", label: "Placeholder Deal", databaseId: "dealpilot.deals", databaseLabel: "Deals", moduleId: "dealpilot" },
+    { id: "c1", label: "Placeholder Community", databaseId: "relationship.communities", databaseLabel: "Communities", moduleId: "relationship" },
+  ],
+  edges: [
+    { id: "e1", sourceId: "p1", targetId: "d1", label: "introduced by", relationType: "introduced_by" },
+    { id: "e2", sourceId: "p2", targetId: "d1", label: "advises", relationType: "advises" },
+    { id: "e3", sourceId: "p1", targetId: "c1", label: "member of", relationType: "member_of" },
+    { id: "e4", sourceId: "p2", targetId: "p1", label: "worked with", relationType: "worked_with" },
+  ],
+};
+
+function GraphSample() {
+  const [view, setView] = useState<ViewConfig>(() =>
+    viewConfigForKind(GRAPH_SPEC, "graph", { id: "uikit.graph:graph", graphScope: "full" }),
+  );
+  return (
+    <div style={{ height: 520 }} className="overflow-hidden">
+      <DataViews
+        spec={GRAPH_SPEC}
+        view={view}
+        data={[]}
+        availableKinds={["graph"]}
+        onViewChange={setView}
+        graphData={GRAPH}
+      />
+    </div>
+  );
+}
+
 function UiKit() {
   return (
     <main
@@ -127,6 +176,13 @@ function UiKit() {
 
       <Panel title="Narrower still" note="Same row, less space.">
         <Sample data={ROWS} width="380px" />
+      </Panel>
+
+      <Panel
+        title="Graph — labelled Relations, colour by type"
+        note="Every edge carries its Relation label, rotated to the edge and never upside down. Node colour is categorical with a legend; labels fade out as you zoom out."
+      >
+        <GraphSample />
       </Panel>
     </main>
   );

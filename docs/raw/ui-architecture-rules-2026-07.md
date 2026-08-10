@@ -227,6 +227,13 @@ Left Sidebar and right Chat Panel share one `PanelControl` component and state m
 
 All installed Modules render as clickable left-nav items, sourced from Module installations—not pins, local fixtures, or hardcoded route maps. Module sub-navigation may expand beneath each item. Below the Module list, **Second Brain** opens a cross-Module graph over permitted Records, Relations, Events, Files, Agents, and origin Modules. Graph requirements: Module/type/time/Person/Community filters; provenance and edge evidence; local/cloud permission pruning; node expansion and backlinks; keyboard/list fallback; virtualization threshold; no static or fabricated graph. Every node/edge opens source detail or a governed Action.
 
+**Visual encoding (added 2026-08-10, ADR-222).** The graph's two encodings are fixed, because an unencoded graph is the decorative failure every comparable tool is criticised for:
+
+- **Node colour is categorical by Database/type**, drawn from the fixed ordered `GRAPH_PALETTE`, assigned by stable sorted position of the distinct types present — never a hue hash, which collides. **A legend is mandatory**; colour that is not explained encodes nothing. The same `colorOf` feeds the canvas and the selection panel, so they cannot disagree. Colour is assigned over the whole resolved scope, not the rendered slice, so truncating at `MAX_RENDERED_NODES` never recolours the survivors.
+- **Every edge carries its Relation label, drawn on the edge**, rotated to it and normalised into (-90°, 90°] so text is never upside down; the pill is sized to its text. Bridge has real typed Relations and the file-link tools do not — this is the differentiator, so the label is on the canvas, not hidden behind a click.
+- **Text fades with zoom**, edge labels before node labels, and a label wider than the gap between its two nodes is withheld rather than drawn over them. A selected node/edge always keeps its label. When labels are suppressed the surface says so ("Zoom in to read Relation labels") rather than silently dropping them (§3a).
+
+
 ## 5d. Platform red-flag feedback
 
 Green/yellow feedback flags do not exist. Red flag is one platform feedback primitive, separate from domain status, fit, stage, or Decision.
