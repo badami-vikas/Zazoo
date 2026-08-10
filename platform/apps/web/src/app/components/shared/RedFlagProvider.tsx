@@ -87,6 +87,14 @@ export function useRedFlagContext(): RedFlagContextValue {
   return ctx;
 }
 
+/** Same context, but `null` instead of a throw when no provider is mounted.
+ * For surfaces that render whether or not the Module supports red flags —
+ * `StandardCellMenu` shows the Flag command disabled with a reason (AP-021)
+ * rather than crashing on an unsupported Database. */
+export function useOptionalRedFlagContext(): RedFlagContextValue | null {
+  return useContext(RedFlagContext);
+}
+
 export function RedFlagProvider({ scope, children }: { scope: RedFlagScope; children: ReactNode }) {
   const [rows, setRows] = useState<RedFlagRow[] | null>(null);
   const [error, setError] = useState(false);

@@ -31,14 +31,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyFilters, applySorts } from "@bridge/tables";
-import type { ColumnSpec } from "@bridge/tables";
+import type { ColumnSpec, TableSpec } from "@bridge/tables";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check, ChevronDown, Plus } from "lucide-react";
 import { Button } from "../../components/ui/button.js";
 import { StandardColumnMenu } from "../../components/shared/StandardColumnMenu.js";
 import { StandardRowMenu } from "../../components/shared/StandardRowMenu.js";
 import { RedFlagControl } from "../../components/shared/RedFlagControl.js";
-import { RedFlagProvider } from "../../components/shared/RedFlagProvider.js";
+import { StandardCellMenu } from "../../components/shared/StandardCellMenu.js";
+import { RedFlagProvider, useOptionalRedFlagContext } from "../../components/shared/RedFlagProvider.js";
 import {
   isFlaggableValue,
   isSupportedRedFlagModule,
@@ -134,6 +135,8 @@ export function TableView({
 
   const [aggregates, setAggregates] = useState<Record<string, AggregateKind>>({});
   const [editing, setEditing] = useState<{ key: string; col: string } | null>(null);
+  /** Open cell right-click menu (§5f), or null. Position is the pointer. */
+  const [cellMenu, setCellMenu] = useState<CellMenuState | null>(null);
   /**
    * The in-place new-Element draft. Non-null means one blank row is appended to
    * the body with an editor in every column.
@@ -359,6 +362,26 @@ export function TableView({
                         cancelPendingOpen();
                         if (editable) setEditing({ key, col: col.id });
                       }}
+                      // §5f: right-click opens the SAME command list the row
+                      // caret does, plus the cell-scoped commands (edit, copy,
+                      // clear, flag). The flag lives here now rather than on
+                      // hover (user directive 2026-08-10).
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        cancelPendingOpen();
+                        setCellMenu({
+                          key,
+                          row,
+                          stableRecordId,
+                          rowEditable,
+                          columnId: col.id,
+                          columnLabel: col.label,
+                          editable,
+                          text,
+                          position: { x: event.clientX, y: event.clientY },
+                        });
+                      }}
                     >
                       {isEditing && stableRecordId ? (
                         <InlineEditor
@@ -525,6 +548,23 @@ export function TableView({
           </tfoot>
         )}
       </table>
+
+      {/* §5f — the cell right-click menu. Rendered INSIDE the provider subtree
+          below so its Flag command can read/write the batched flag state. */}
+      {cellMenu && (
+        <CellMenu
+          state={cellMenu}
+          spec={spec}
+          moduleId={moduleId}
+          onClose={() => setCellMenu(null)}
+          onOpenRecord={onOpenRecord}
+          onEditRecord={onEditRecord}
+          onDuplicate={onDuplicate}
+          onPin={onPin}
+          onEditCell={() => setEditing({ key: cellMenu.key, col: cellMenu.columnId })}
+          onUpdate={onUpdate}
+        />
+      )}
     </div>
   );
 
@@ -535,6 +575,105 @@ export function TableView({
     <RedFlagProvider scope={{ moduleId, databaseId: spec.id }}>{table}</RedFlagProvider>
   ) : (
     table
+  );
+}
+
+interface CellMenuState {
+  key: string;
+  row: DataRow;
+  stableRecordId: string | null;
+  rowEditable: boolean;
+  columnId: string;
+  columnLabel: string;
+  editable: boolean;
+  text: string;
+  position: { x: number; y: number };
+}
+
+/**
+ * Binds `StandardCellMenu` to this table's flag state and governed update path.
+ * Split out because it needs `useOptionalRedFlagContext`, which only resolves
+ * inside the `RedFlagProvider` the table body is wrapped in — and must NOT
+ * throw on the Modules that have no flag support at all (AP-021: show the
+ * command disabled with its reason, never crash).
+ */
+function CellMenu({
+  state,
+  spec,
+  moduleId,
+  onClose,
+  onEditCell,
+  onUpdate,
+  ...rowHandlers
+}: {
+  state: CellMenuState;
+  spec: TableSpec;
+  moduleId: string;
+  onClose: () => void;
+  onEditCell: () => void;
+  onUpdate?: DataViewProps["onUpdate"];
+  onOpenRecord?: DataViewProps["onOpenRecord"];
+  onEditRecord?: DataViewProps["onEditRecord"];
+  onDuplicate?: DataViewProps["onDuplicate"];
+  onPin?: DataViewProps["onPin"];
+}) {
+  const flags = useOptionalRedFlagContext();
+  const anchor =
+    state.stableRecordId === null
+      ? null
+      : ({
+          kind: "cell",
+          moduleId,
+          databaseId: spec.id,
+          recordId: state.stableRecordId,
+          fieldId: state.columnId,
+        } as const);
+  const current = anchor && flags ? flags.flagFor(anchor) : null;
+  const flagState =
+    current?.value.status === "open" ? "flagged" : current ? "cleared" : "none";
+
+  return (
+    <StandardCellMenu
+      row={state.row}
+      stableRecordId={state.stableRecordId}
+      canUpdate={state.rowEditable}
+      position={state.position}
+      onClose={onClose}
+      cell={{
+        columnId: state.columnId,
+        columnLabel: state.columnLabel,
+        editable: state.editable,
+        flagState,
+      }}
+      onEditCell={onEditCell}
+      onCopyCell={
+        state.text
+          ? () => navigator.clipboard?.writeText(state.text)
+          : undefined
+      }
+      {...(state.editable && state.stableRecordId && onUpdate
+        ? {
+            onClearCell: () =>
+              onUpdate(state.stableRecordId as string, { [state.columnId]: null }),
+          }
+        : {})}
+      {...(anchor && flags
+        ? {
+            onToggleFlag: async () => {
+              if (current?.value.status === "open") {
+                await flags.clear(current.row.id);
+                return;
+              }
+              if (current) {
+                await flags.reopen(current.row.id);
+                return;
+              }
+              await flags.create({ anchor, renderedValue: state.text });
+            },
+          }
+        : {})}
+      {...rowHandlers}
+    />
   );
 }
 

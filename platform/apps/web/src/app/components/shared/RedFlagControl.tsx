@@ -78,9 +78,20 @@ export interface RedFlagControlProps {
    * plumbing to their own markup. */
   children: React.ReactNode;
   className?: string;
+  /**
+   * How the un-flagged glyph behaves (user directive 2026-08-10).
+   *
+   * - `"menu"` (DEFAULT, tables): the flag is NOT offered on hover. Flagging is
+   *   a command on the cell right-click menu (`StandardCellMenu`). An OPEN flag
+   *   is still always drawn — §5d's "always visible" requirement is about the
+   *   flagged STATE, and moving the invitation into the menu does not weaken it.
+   * - `"hover"`: the legacy affordance, for surfaces with no cell context menu
+   *   to host the command (rendered bullets in Results/Files, chat answers).
+   */
+  affordance?: "menu" | "hover";
 }
 
-export function RedFlagControl({ anchor, renderedValue, renderedVersion, children, className }: RedFlagControlProps) {
+export function RedFlagControl({ anchor, renderedValue, renderedVersion, children, className, affordance = 'menu' }: RedFlagControlProps) {
   const ctx = useRedFlagContext();
   const [position, setPosition] = useState<MenuPosition | null>(null);
   const [reasonDraft, setReasonDraft] = useState('');
@@ -382,7 +393,13 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
           // same control").
           isOpen
             ? 'opacity-100'
-            : 'opacity-0 group-hover/rf:opacity-100 group-focus-within/rf:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60 [@media(any-pointer:coarse)]:opacity-60',
+            : affordance === 'hover'
+              ? 'opacity-0 group-hover/rf:opacity-100 group-focus-within/rf:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60 [@media(any-pointer:coarse)]:opacity-60'
+              // `menu` affordance: no hover invitation at all. The glyph stays
+              // mounted and keyboard-reachable (focus reveals it) so §5d's
+              // keyboard-parity requirement still holds, but pointer users get
+              // the command from the cell right-click menu instead.
+              : 'opacity-0 group-focus-within/rf:opacity-100 focus-visible:opacity-100',
         )}
         title={label}
       >

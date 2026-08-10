@@ -195,6 +195,36 @@ test("dropdowns are built on the one shared primitive (§5e)", () => {
   );
 });
 
+test("cell right-click opens the standard menu, and the flag lives in it (§5f)", () => {
+  const table = readFileSync(join(APP, "dataviews", "views", "TableView.tsx"), "utf8");
+  assert.match(
+    table,
+    /onContextMenu=\{\(event\) => \{/,
+    "Cells must open StandardCellMenu on right-click (§5f) — two gestures, one menu.",
+  );
+  assert.match(table, /StandardCellMenu/, "TableView must render the shared cell menu.");
+
+  const menu = readFileSync(join(APP, "components", "shared", "StandardCellMenu.tsx"), "utf8");
+  // The row-scoped half must be the SAME item list the row caret renders —
+  // never a re-typed second copy.
+  assert.match(
+    menu,
+    /StandardRowMenuItems/,
+    "The cell menu's row commands must reuse StandardRowMenuItems, not restate them.",
+  );
+  for (const command of ["Edit cell", "Copy value", "Clear cell", "Delete row"]) {
+    assert.ok(menu.includes(command), `Cell menu is missing the "${command}" command (§5f).`);
+  }
+  assert.match(menu, /onToggleFlag/, "Flagging must be a cell-menu command (user directive 2026-08-10).");
+
+  const flag = readFileSync(join(APP, "components", "shared", "RedFlagControl.tsx"), "utf8");
+  assert.match(
+    flag,
+    /affordance = 'menu'/,
+    "The flag must NOT be offered on hover by default — it is a right-click command now.",
+  );
+});
+
 test("clicking an open red flag removes it (§5d, user directive 2026-08-10)", () => {
   const src = readFileSync(join(APP, "components", "shared", "RedFlagControl.tsx"), "utf8");
   // Plain activation on an open flag must reach handleClear, not the popover.
