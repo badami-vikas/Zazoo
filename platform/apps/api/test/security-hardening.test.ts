@@ -138,6 +138,7 @@ test("onboarding.saveProfile: the honest paths (null / phone) are still accepted
 
     assert.equal(viaNull.profile.verificationMethod, null);
 
+    await caller.onboarding.verifyPhoneOtp({ phone: "+1234567890", code: "123456" });
     const viaPhone = await caller.onboarding.saveProfile({
       organizationId: PILOT_ORGANIZATION,
       avatarStyle: "otter",

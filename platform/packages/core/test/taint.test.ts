@@ -188,112 +188,6 @@ test("declassification requires an exact validator rule or Human decision", () =
     sensitivity: "public",
     instructionRisk: "data",
   });
-
-  test("prompt-free metrics, alerts, and Event replay reproduce sink decisions", () => {
-    const label = labelAtSource("web_search", {
-      ref: "event-1",
-      valueHash: hashTaintValue("bounded evidence"),
-      sensitivity: "public",
-      instructionRisk: "data",
-    });
-
-    test("trace identity keeps repeated decisions and Plane routing durable", async () => {
-      const local = new InMemoryTaintAuditStore();
-      const cloud = new InMemoryTaintAuditStore();
-      const routing = new PlaneRoutingTaintAuditStore(local, cloud);
-      const label = labelAtSource("human_input", {
-        ref: "trace-routing",
-        valueHash: hashTaintValue("public request"),
-        sensitivity: "public",
-        instructionRisk: "instruction_like",
-      });
-
-      test("model output cannot weaken any prompt label axis", () => {
-        const promptLabel = labelAtSource("web_search", {
-          ref: "model-prompt",
-          valueHash: hashTaintValue("external evidence"),
-          sensitivity: "public",
-          instructionRisk: "data",
-        });
-        const weaker = labelAtSource("system_generated", {
-          ref: "model-output",
-          valueHash: hashTaintValue("answer"),
-          sensitivity: "public",
-          instructionRisk: "none",
-        });
-        assert.throws(() =>
-          assertModelOutputTaint(
-            { prompt: "external evidence", tier: "cheap", taintLabel: promptLabel },
-            {
-              text: "answer",
-              model: "test-model",
-              tier: "cheap",
-              usage: {
-                inputTokens: 1,
-                outputTokens: 1,
-                cacheCreationInputTokens: 0,
-                cacheReadInputTokens: 0,
-                source: "estimated",
-              },
-              taintLabel: weaker,
-            },
-          ),
-        );
-      });
-      const trace = evaluateTaintSink("external_send", [label]);
-      const first: PersistedTaintSinkTrace = {
-        ...trace,
-        id: "trace-local",
-        organizationId: "org-1",
-        ledgerId: "ledger-local",
-        createdAt: "2026-07-21T00:00:00.000Z",
-        plane: "local",
-      };
-      const second: PersistedTaintSinkTrace = {
-        ...trace,
-        id: "trace-cloud",
-        organizationId: "org-1",
-        ledgerId: "ledger-cloud",
-        createdAt: "2026-07-21T00:00:01.000Z",
-        plane: "cloud",
-      };
-      await routing.appendSinkTrace(first);
-      await routing.appendSinkTrace(second);
-      assert.equal(local.sinkTraces.length, 1);
-      assert.equal(cloud.sinkTraces.length, 1);
-      assert.equal(
-        (await routing.listSinkTraces("org-1", "ledger-local"))[0]?.id,
-        first.id,
-      );
-      assert.equal(
-        (await routing.listSinkTraces("org-1", "ledger-cloud"))[0]?.id,
-        second.id,
-      );
-    });
-    const trace = evaluateTaintSink("external_send", [label]);
-    const persisted: PersistedTaintSinkTrace = {
-      ...trace,
-      id: "trace-1",
-      organizationId: "org-1",
-      ledgerId: "ledger-1",
-      createdAt: "2026-07-21T00:00:00.000Z",
-      plane: "local",
-    };
-    const metrics = summarizeTaintTraces([persisted]);
-    assert.deepEqual(
-      {
-        total: metrics.total,
-        allowed: metrics.allowed,
-        humanReview: metrics.humanReview,
-        blocked: metrics.blocked,
-        unknown: metrics.unknown,
-      },
-      { total: 1, allowed: 0, humanReview: 1, blocked: 0, unknown: 0 },
-    );
-    assert.deepEqual(metrics.alerts, []);
-    assert.equal(replayTaintSinkTrace(persisted).matches, true);
-    assert.equal(JSON.stringify(persisted).includes("bounded evidence"), false);
-  });
   const after = createTaintLabel({
     trust: "verified_system",
     source: "web",
@@ -339,5 +233,111 @@ test("declassification requires an exact validator rule or Human decision", () =
       createdAt: "2026-07-21T00:00:00.000Z",
       plane: "cloud",
     }),
+  );
+});
+
+test("prompt-free metrics, alerts, and Event replay reproduce sink decisions", () => {
+  const label = labelAtSource("web_search", {
+    ref: "event-1",
+    valueHash: hashTaintValue("bounded evidence"),
+    sensitivity: "public",
+    instructionRisk: "data",
+  });
+  const trace = evaluateTaintSink("external_send", [label]);
+  const persisted: PersistedTaintSinkTrace = {
+    ...trace,
+    id: "trace-1",
+    organizationId: "org-1",
+    ledgerId: "ledger-1",
+    createdAt: "2026-07-21T00:00:00.000Z",
+    plane: "local",
+  };
+  const metrics = summarizeTaintTraces([persisted]);
+  assert.deepEqual(
+    {
+      total: metrics.total,
+      allowed: metrics.allowed,
+      humanReview: metrics.humanReview,
+      blocked: metrics.blocked,
+      unknown: metrics.unknown,
+    },
+    { total: 1, allowed: 0, humanReview: 1, blocked: 0, unknown: 0 },
+  );
+  assert.deepEqual(metrics.alerts, []);
+  assert.equal(replayTaintSinkTrace(persisted).matches, true);
+  assert.equal(JSON.stringify(persisted).includes("bounded evidence"), false);
+});
+
+test("trace identity keeps repeated decisions and Plane routing durable", async () => {
+  const local = new InMemoryTaintAuditStore();
+  const cloud = new InMemoryTaintAuditStore();
+  const routing = new PlaneRoutingTaintAuditStore(local, cloud);
+  const label = labelAtSource("human_input", {
+    ref: "trace-routing",
+    valueHash: hashTaintValue("public request"),
+    sensitivity: "public",
+    instructionRisk: "instruction_like",
+  });
+  const trace = evaluateTaintSink("external_send", [label]);
+  const first: PersistedTaintSinkTrace = {
+    ...trace,
+    id: "trace-local",
+    organizationId: "org-1",
+    ledgerId: "ledger-local",
+    createdAt: "2026-07-21T00:00:00.000Z",
+    plane: "local",
+  };
+  const second: PersistedTaintSinkTrace = {
+    ...trace,
+    id: "trace-cloud",
+    organizationId: "org-1",
+    ledgerId: "ledger-cloud",
+    createdAt: "2026-07-21T00:00:01.000Z",
+    plane: "cloud",
+  };
+  await routing.appendSinkTrace(first);
+  await routing.appendSinkTrace(second);
+  assert.equal(local.sinkTraces.length, 1);
+  assert.equal(cloud.sinkTraces.length, 1);
+  assert.equal(
+    (await routing.listSinkTraces("org-1", "ledger-local"))[0]?.id,
+    first.id,
+  );
+  assert.equal(
+    (await routing.listSinkTraces("org-1", "ledger-cloud"))[0]?.id,
+    second.id,
+  );
+});
+
+test("model output cannot weaken any prompt label axis", () => {
+  const promptLabel = labelAtSource("web_search", {
+    ref: "model-prompt",
+    valueHash: hashTaintValue("external evidence"),
+    sensitivity: "public",
+    instructionRisk: "data",
+  });
+  const weaker = labelAtSource("system_generated", {
+    ref: "model-output",
+    valueHash: hashTaintValue("answer"),
+    sensitivity: "public",
+    instructionRisk: "none",
+  });
+  assert.throws(() =>
+    assertModelOutputTaint(
+      { prompt: "external evidence", tier: "cheap", taintLabel: promptLabel },
+      {
+        text: "answer",
+        model: "test-model",
+        tier: "cheap",
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          source: "estimated",
+        },
+        taintLabel: weaker,
+      },
+    ),
   );
 });

@@ -333,7 +333,7 @@ interface ResolvedAddress {
 export interface UnsafeTestOverrides {
   isBlockedIp?: (ip: string) => boolean;
   isBlockedHostname?: (hostname: string) => boolean;
-  dnsLookup?: (hostname: string) => Promise<ResolvedAddress[]>;
+  dnsLookup?: (hostname: string, signal: AbortSignal) => Promise<ResolvedAddress[]>;
 }
 
 /**
@@ -342,7 +342,7 @@ export interface UnsafeTestOverrides {
  * `SsrfBlockedError` if the hostname itself is blocked, or if EVERY resolved
  * address is blocked (no safe address to connect to).
  */
-async function resolveGuardedAddresses(hostname: string, overrides?: UnsafeTestOverrides): Promise<ResolvedAddress[]> {
+async function resolveGuardedAddresses(hostname: string, overrides?: UnsafeTestOverrides, signal?: AbortSignal): Promise<ResolvedAddress[]> {
   const blockedHostname = overrides?.isBlockedHostname ?? isBlockedHostname;
   const blockedIp = overrides?.isBlockedIp ?? isBlockedIp;
   const normalized = normalizeHostname(hostname);
@@ -359,7 +359,7 @@ async function resolveGuardedAddresses(hostname: string, overrides?: UnsafeTestO
   }
 
   const resolver = overrides?.dnsLookup ?? (async (h: string) => (await dnsLookup(h, { all: true })) as ResolvedAddress[]);
-  const addresses = await resolver(normalized);
+  const addresses = await resolver(normalized, signal ?? new AbortController().signal);
   const safe = addresses.filter((a) => !blockedIp(a.address));
   if (safe.length === 0) {
     throw new SsrfBlockedError(`${normalized} resolves only to private/reserved addresses`);
@@ -764,6 +764,7 @@ export async function guardedDownloadToFile(
         resolveGuardedAddresses(
           currentUrl.hostname,
           options.unsafeTestOverrides,
+          combinedSignal,
         ),
         combinedSignal,
       );
@@ -931,7 +932,7 @@ async function guardedFetchAfterRequestValidation(
       ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)])
       : AbortSignal.timeout(timeoutMs);
     const addresses = await waitWithAbort(
-      resolveGuardedAddresses(currentUrl.hostname, overrides),
+      resolveGuardedAddresses(currentUrl.hostname, overrides, combinedSignal),
       combinedSignal,
     );
 

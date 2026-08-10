@@ -68,83 +68,6 @@ test("module store: create + get round-trip, manifest jsonb preserved", async ()
       lineageManifestId: null,
     });
 
-    test("module store: Commons Module attachment preserves the verified content-hash pin", async () => {
-      const { db, close } = await createLocalDb();
-      try {
-        const organizationId = await seedOrganization(db);
-        const store = new DrizzleModuleStore(db);
-        const manifest = dummyManifest({ name: "dummy-commons-skill", kind: "skill" });
-        const content = {
-          name: manifest.name,
-          version: manifest.version,
-          kind: manifest.kind,
-          summary: manifest.summary,
-          tags: ["need:calendar"],
-          manifest,
-          provenance: {
-            sourceRepository: "https://github.com/example/repo",
-            sourceRef: "skill",
-            inspectedCommit: "0123456789abcdef0123456789abcdef01234567",
-            repositoryLicense: "MIT",
-            contentLicense: "MIT",
-            licenseVerified: true,
-          },
-          securityScan: {
-            scanner: "bridge-commons-manifest" as const,
-            scannerVersion: "1.0.0" as const,
-            policyVersion: "CM1-2026-07" as const,
-            status: "passed" as const,
-            riskBand: "informational" as const,
-            lethalTrifecta: false,
-            checks: [],
-          },
-        };
-        const hash = (value: string) => `hash(${value})`;
-        const integrity = computeCommonsContentHash(content, hash);
-        const entry: CommonsModuleEntry = {
-          ...content,
-          integrity,
-          publishedAt: "2026-07-16T00:00:00.000Z",
-          signature: {
-            signature: `sig(${canonicalizeCommonsSignedPayload(content, integrity, "2026-07-16T00:00:00.000Z")})`,
-            publicKey: "trusted-key",
-            algorithm: "ed25519",
-            signedAt: "2026-07-16T00:00:00.000Z",
-          },
-        };
-        assert.deepEqual(
-          verifyCommonsEntry(
-            entry,
-            hash,
-            (data, signature, publicKey) => signature === `sig(${data})` && publicKey === "trusted-key",
-            { trustedPublicKeys: ["trusted-key"] },
-          ),
-          { valid: true },
-        );
-        assert.equal(computeCommonsContentHash(commonsModuleContent(entry), hash).value, integrity.value);
-
-        const created = await store.create({
-          organizationId,
-          moduleName: manifest.name,
-          moduleVersion: manifest.version,
-          manifest,
-          computedRisk: "informational",
-          state: "private",
-          status: "pending_review",
-          lineageManifestId: null,
-          moduleAttachment: {
-            source: "commons",
-            ownerModuleName: "job-pilot",
-            agentId: "application-agent",
-            needId: "calendar",
-            contentHash: integrity.value,
-          },
-        });
-        assert.equal((await store.get(created.id))?.moduleAttachment?.contentHash, integrity.value);
-      } finally {
-        await close();
-      }
-    });
     assert.equal(created.moduleName, "dummy-module");
 
     const fetched = await store.get(created.id);
@@ -300,38 +223,6 @@ test("module store: re-registering the SAME name+version is idempotent — retur
       lineageManifestId: null,
     });
 
-    test("module store: concurrent attachment retries converge on one installation", async () => {
-      const { db, close } = await createLocalDb();
-      try {
-        const organizationId = await seedOrganization(db);
-        const store = new DrizzleModuleStore(db);
-        const manifest = dummyManifest({ name: "calendar-availability", kind: "skill" });
-        const proposal = {
-          organizationId,
-          moduleName: manifest.name,
-          moduleVersion: manifest.version,
-          manifest,
-          computedRisk: "informational" as const,
-          state: "private" as const,
-          status: "pending_review" as const,
-          lineageManifestId: null,
-          moduleAttachment: {
-            source: "commons" as const,
-            ownerModuleName: "job-pilot",
-            agentId: "application-agent",
-            needId: "interview-calendar-availability",
-            contentHash: `sha256:${"1".repeat(64)}`,
-          },
-        };
-
-        const rows = await Promise.all(Array.from({ length: 8 }, () => store.create(proposal)));
-        assert.equal(new Set(rows.map((row) => row.id)).size, 1);
-        assert.equal((await store.listVersions(organizationId, manifest.name)).length, 1);
-      } finally {
-        await close();
-      }
-    });
-
     const second = await store.create({
       organizationId,
       moduleName: "dummy-idempotent-pkg",
@@ -433,60 +324,6 @@ test("module store: install v1 -> install v2 -> rollback lifecycle (promote auto
       lineageManifestId: null,
     });
 
-    test("module store: available Commons attachments are scoped to their Module Agent target", async () => {
-      const { db, close } = await createLocalDb();
-      try {
-        const organizationId = await seedOrganization(db);
-        const store = new DrizzleModuleStore(db);
-        const manifest = dummyManifest({ name: "shared-commons-skill", version: "1.0.0" });
-        const first = await store.create({
-          organizationId,
-          moduleName: manifest.name,
-          moduleVersion: manifest.version,
-          manifest,
-          computedRisk: "informational",
-          state: "available",
-          status: "installed",
-          lineageManifestId: null,
-          moduleAttachment: {
-            source: "commons",
-            ownerModuleName: "job-pilot",
-            agentId: "application-agent",
-            needId: "calendar",
-            contentHash: `sha256:${"1".repeat(64)}`,
-          },
-        });
-        const second = await store.create({
-          organizationId,
-          moduleName: manifest.name,
-          moduleVersion: manifest.version,
-          manifest,
-          computedRisk: "informational",
-          state: "available",
-          status: "installed",
-          lineageManifestId: null,
-          moduleAttachment: {
-            source: "commons",
-            ownerModuleName: "job-pilot",
-            agentId: "research-agent",
-            needId: "calendar",
-            contentHash: `sha256:${"1".repeat(64)}`,
-          },
-        });
-
-        assert.equal(
-          (await store.getAvailable(organizationId, manifest.name, first.moduleAttachment))?.id,
-          first.id,
-        );
-        assert.equal(
-          (await store.getAvailable(organizationId, manifest.name, second.moduleAttachment))?.id,
-          second.id,
-        );
-        assert.equal(await store.getAvailable(organizationId, manifest.name), null);
-      } finally {
-        await close();
-      }
-    });
     await store.setState(v1.id, "promoted");
     const v1Available = await store.setState(v1.id, "available");
     await store.setStatus(v1.id, "installed");
@@ -594,4 +431,169 @@ test("module store: read-time — get throws on a manifest shape already-malform
 
 test("parseModuleManifestRow: throws loudly on a missing required field", () => {
   assert.throws(() => parseModuleManifestRow({ name: "dummy" }), /Invalid module_installations.manifest jsonb/);
+});
+
+test("module store: Commons Module attachment preserves the verified content-hash pin", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const organizationId = await seedOrganization(db);
+    const store = new DrizzleModuleStore(db);
+    const manifest = dummyManifest({ name: "dummy-commons-skill", kind: "skill" });
+    const content = {
+      name: manifest.name,
+      version: manifest.version,
+      kind: manifest.kind,
+      summary: manifest.summary,
+      tags: ["need:calendar"],
+      manifest,
+      provenance: {
+        sourceRepository: "https://github.com/example/repo",
+        sourceRef: "skill",
+        inspectedCommit: "0123456789abcdef0123456789abcdef01234567",
+        repositoryLicense: "MIT",
+        contentLicense: "MIT",
+        licenseVerified: true,
+      },
+      securityScan: {
+        scanner: "bridge-commons-manifest" as const,
+        scannerVersion: "1.0.0" as const,
+        policyVersion: "CM1-2026-07" as const,
+        status: "passed" as const,
+        riskBand: "informational" as const,
+        lethalTrifecta: false,
+        checks: [],
+      },
+    };
+    const hash = (value: string) => `hash(${value})`;
+    const integrity = computeCommonsContentHash(content, hash);
+    const entry: CommonsModuleEntry = {
+      ...content,
+      integrity,
+      publishedAt: "2026-07-16T00:00:00.000Z",
+      signature: {
+        signature: `sig(${canonicalizeCommonsSignedPayload(content, integrity, "2026-07-16T00:00:00.000Z")})`,
+        publicKey: "trusted-key",
+        algorithm: "ed25519",
+        signedAt: "2026-07-16T00:00:00.000Z",
+      },
+    };
+    assert.deepEqual(
+      verifyCommonsEntry(
+        entry,
+        hash,
+        (data, signature, publicKey) => signature === `sig(${data})` && publicKey === "trusted-key",
+        { trustedPublicKeys: ["trusted-key"] },
+      ),
+      { valid: true },
+    );
+    assert.equal(computeCommonsContentHash(commonsModuleContent(entry), hash).value, integrity.value);
+
+    const created = await store.create({
+      organizationId,
+      moduleName: manifest.name,
+      moduleVersion: manifest.version,
+      manifest,
+      computedRisk: "informational",
+      state: "private",
+      status: "pending_review",
+      lineageManifestId: null,
+      moduleAttachment: {
+        source: "commons",
+        ownerModuleName: "job-pilot",
+        agentId: "application-agent",
+        needId: "calendar",
+        contentHash: integrity.value,
+      },
+    });
+    assert.equal((await store.get(created.id))?.moduleAttachment?.contentHash, integrity.value);
+  } finally {
+    await close();
+  }
+});
+
+test("module store: concurrent attachment retries converge on one installation", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const organizationId = await seedOrganization(db);
+    const store = new DrizzleModuleStore(db);
+    const manifest = dummyManifest({ name: "calendar-availability", kind: "skill" });
+    const proposal = {
+      organizationId,
+      moduleName: manifest.name,
+      moduleVersion: manifest.version,
+      manifest,
+      computedRisk: "informational" as const,
+      state: "private" as const,
+      status: "pending_review" as const,
+      lineageManifestId: null,
+      moduleAttachment: {
+        source: "commons" as const,
+        ownerModuleName: "job-pilot",
+        agentId: "application-agent",
+        needId: "interview-calendar-availability",
+        contentHash: `sha256:${"1".repeat(64)}`,
+      },
+    };
+
+    const rows = await Promise.all(Array.from({ length: 8 }, () => store.create(proposal)));
+    assert.equal(new Set(rows.map((row) => row.id)).size, 1);
+    assert.equal((await store.listVersions(organizationId, manifest.name)).length, 1);
+  } finally {
+    await close();
+  }
+});
+
+test("module store: available Commons attachments are scoped to their Module Agent target", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const organizationId = await seedOrganization(db);
+    const store = new DrizzleModuleStore(db);
+    const manifest = dummyManifest({ name: "shared-commons-skill", version: "1.0.0" });
+    const first = await store.create({
+      organizationId,
+      moduleName: manifest.name,
+      moduleVersion: manifest.version,
+      manifest,
+      computedRisk: "informational",
+      state: "available",
+      status: "installed",
+      lineageManifestId: null,
+      moduleAttachment: {
+        source: "commons",
+        ownerModuleName: "job-pilot",
+        agentId: "application-agent",
+        needId: "calendar",
+        contentHash: `sha256:${"1".repeat(64)}`,
+      },
+    });
+    const second = await store.create({
+      organizationId,
+      moduleName: manifest.name,
+      moduleVersion: manifest.version,
+      manifest,
+      computedRisk: "informational",
+      state: "available",
+      status: "installed",
+      lineageManifestId: null,
+      moduleAttachment: {
+        source: "commons",
+        ownerModuleName: "job-pilot",
+        agentId: "research-agent",
+        needId: "calendar",
+        contentHash: `sha256:${"1".repeat(64)}`,
+      },
+    });
+
+    assert.equal(
+      (await store.getAvailable(organizationId, manifest.name, first.moduleAttachment))?.id,
+      first.id,
+    );
+    assert.equal(
+      (await store.getAvailable(organizationId, manifest.name, second.moduleAttachment))?.id,
+      second.id,
+    );
+    assert.equal(await store.getAvailable(organizationId, manifest.name), null);
+  } finally {
+    await close();
+  }
 });
