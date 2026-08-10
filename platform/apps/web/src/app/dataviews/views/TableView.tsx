@@ -222,6 +222,11 @@ export function TableView({
           laptop viewport. At 375px it scrolls inside its own box (AP-081). */}
       <table className="w-full min-w-[860px] border-collapse text-[13px]">
         <thead className="sticky top-0 z-20">
+          {/* Avilo's header uses bg-line-soft/60 (its <thead> isn't sticky, so
+              translucency is free). Ours IS sticky (`top-0 z-20`) — a
+              translucent header would show scrolling rows bleeding through
+              underneath it, which is a real visual bug, not a cosmetic
+              difference — so this one stays solid. */}
           <tr style={{ background: "var(--color-line-soft)" }}>
             {columns.map((col) => {
               const activeSort = view.sorts.find((sort) => sort.id === col.id);
@@ -321,7 +326,11 @@ export function TableView({
                 // tuned to. It also silently broke windowing, whose `estimateSize`
                 // has to agree with the real height or the spacer rows mis-scroll.
                 className="bridge-table-row"
-                style={{ height: ROW_HEIGHT, borderBottom: "1px solid var(--color-line-soft)" }}
+                style={{
+                  height: ROW_HEIGHT,
+                  borderBottom:
+                    index === sorted.length - 1 ? undefined : "1px solid var(--color-line-soft)",
+                }}
               >
                 {columns.map((col) => {
                   const value = row[col.id];

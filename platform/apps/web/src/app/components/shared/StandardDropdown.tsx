@@ -35,6 +35,7 @@ export function StandardDropdown({
   onSelect,
   onAdd,
   addLabel = 'Add',
+  addDisabledReason,
   searchable,
   triggerIcon,
   placeholder = 'Select…',
@@ -48,6 +49,14 @@ export function StandardDropdown({
   /** Omit to hide the pinned add row — but prefer supplying it: "Add" is standard. */
   onAdd?: () => void;
   addLabel?: string;
+  /**
+   * Renders the Add row disabled with this reason instead of hiding it —
+   * AP-021: an interactive-looking control that cannot yet do anything must
+   * explain why, never simply disappear. Use when the capability the row
+   * points at is real but not wired yet (e.g. saved Lists before persistence
+   * ships), not for capabilities that will never exist.
+   */
+  addDisabledReason?: string;
   /** Force the search box on/off. Default: on past SEARCH_THRESHOLD options. */
   searchable?: boolean;
   triggerIcon?: ReactNode;
@@ -76,7 +85,7 @@ export function StandardDropdown({
     setQuery('');
   }
 
-  if (options.length === 0 && !onAdd) return null;
+  if (options.length === 0 && !onAdd && !addDisabledReason) return null;
 
   return (
     <div className={`relative shrink-0 ${className ?? ''}`}>
@@ -164,14 +173,20 @@ export function StandardDropdown({
               )}
             </div>
 
-            {onAdd && (
+            {(onAdd || addDisabledReason) && (
               <button
                 type="button"
-                onClick={() => {
-                  close();
-                  onAdd();
-                }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm font-medium border-t shrink-0"
+                disabled={!onAdd}
+                title={addDisabledReason}
+                onClick={
+                  onAdd
+                    ? () => {
+                        close();
+                        onAdd();
+                      }
+                    : undefined
+                }
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm font-medium border-t shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                 style={{
                   height: ROW_PX,
                   borderColor: 'var(--color-border)',

@@ -28,16 +28,18 @@
  */
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
+  Check,
   ChevronRight,
   File as FileIcon,
   FileCode,
   FileImage,
   FileSpreadsheet,
   FileText,
+  Filter,
   Folder,
-  FolderOpen,
   LayoutGrid,
   List as ListIcon,
+  MoreVertical,
   Search,
   Upload,
 } from "lucide-react";
@@ -93,13 +95,7 @@ function iconFor(entry: FileEntry): typeof FileIcon {
   return FileIcon;
 }
 
-export function ModuleFilesSection({
-  moduleName,
-  title = "Files",
-}: {
-  moduleName: string;
-  title?: string;
-}) {
+export function ModuleFilesSection({ moduleName }: { moduleName: string }) {
   const [inventory, setInventory] = useState<FileInventory | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -112,6 +108,7 @@ export function ModuleFilesSection({
   const [sortDir, setSortDir] = useState<FileSortDir>("asc");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -201,23 +198,9 @@ export function ModuleFilesSection({
 
   return (
     <section className="space-y-3" aria-labelledby={`${moduleName}-files-title`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <FolderOpen className="size-4" style={{ color: "var(--color-steel)" }} />
-          <h2
-            id={`${moduleName}-files-title`}
-            className="text-sm font-semibold"
-            style={{ color: "var(--color-navy)" }}
-          >
-            {title}
-          </h2>
-        </div>
-        <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-xs font-medium hover:bg-[var(--color-surface)]">
-          <Upload className="size-3.5" />
-          {uploading ? "Copying locally…" : "Add local File"}
-          <input type="file" multiple className="sr-only" disabled={uploading} onChange={addFiles} />
-        </label>
-      </div>
+      <h2 id={`${moduleName}-files-title`} className="sr-only">
+        Artefacts
+      </h2>
 
       {loading ? (
         <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
@@ -236,12 +219,19 @@ export function ModuleFilesSection({
             {error}
           </p>
         )
-      ) : hasFiles ? (
+      ) : (
         <div
           className="overflow-hidden rounded-xl border"
           style={{ borderColor: "var(--color-border)", background: "var(--color-background)" }}
         >
-          {/* Toolbar: breadcrumb · filter · view switch */}
+          {/* Single toolbar row (user directive 2026-08-10): breadcrumb reads
+              "Artefacts" in place of the old "Files" heading + module name,
+              with Search, a disabled-with-reason Filter (AP-021 — Files has
+              only a name dimension today, no type/date filter is wired), the
+              Upload action as an icon button next to Filter, and the standard
+              3-dots menu. The Icons/Details toggle moved into that menu
+              instead of sitting in the row (§6a still applies: the icon grid
+              only ever renders once populated). */}
           <div
             className="flex flex-wrap items-center gap-2 border-b px-3 py-2"
             style={{ borderColor: "var(--color-border)", background: "var(--color-line-soft)" }}
@@ -256,7 +246,7 @@ export function ModuleFilesSection({
                 className="rounded px-1.5 py-0.5 font-medium hover:bg-black/5"
                 style={{ color: folder === "" ? "var(--color-navy)" : "var(--color-navy-mid)" }}
               >
-                {moduleName}
+                Artefacts
               </button>
               {crumbs.map((crumb, index) => {
                 const target = crumbs.slice(0, index + 1).join("/");
@@ -297,8 +287,8 @@ export function ModuleFilesSection({
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Filter"
-                aria-label="Filter Files in this folder"
+                placeholder="Search"
+                aria-label="Search Files in this folder"
                 className="h-7 w-32 rounded-md border pl-7 pr-2 text-xs outline-none"
                 style={{
                   borderColor: "var(--color-border)",
@@ -308,36 +298,82 @@ export function ModuleFilesSection({
               />
             </div>
 
-            <div
-              className="flex items-center gap-0.5 rounded-md border p-0.5"
-              style={{ borderColor: "var(--color-border)" }}
-              role="group"
-              aria-label="File view"
+            <button
+              type="button"
+              disabled
+              title="File type and date filters aren't wired yet."
+              className="flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium disabled:opacity-45 disabled:cursor-not-allowed"
+              style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
             >
-              {([
-                ["icons", LayoutGrid, "Icons"],
-                ["details", ListIcon, "Details"],
-              ] as const).map(([mode, Icon, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setView(mode)}
-                  aria-pressed={view === mode}
-                  title={`${label} view`}
-                  className="rounded p-1"
-                  style={{
-                    background: view === mode ? "var(--color-row-hover)" : "transparent",
-                    color: view === mode ? "var(--color-navy)" : "var(--color-warm-gray)",
-                  }}
-                >
-                  <Icon className="size-3.5" />
-                  <span className="sr-only">{label} view</span>
-                </button>
-              ))}
+              <Filter className="size-3.5" />
+              Filter
+            </button>
+
+            <label
+              className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md border hover:bg-black/5"
+              style={{ borderColor: "var(--color-border)" }}
+              title={uploading ? "Copying locally…" : "Add local File"}
+            >
+              <Upload className="size-3.5" style={{ color: "var(--color-warm-gray)" }} />
+              <span className="sr-only">{uploading ? "Copying locally…" : "Add local File"}</span>
+              <input type="file" multiple className="sr-only" disabled={uploading} onChange={addFiles} />
+            </label>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-label="More Artefacts options"
+                className="flex size-7 items-center justify-center rounded-md border hover:bg-black/5"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <MoreVertical className="size-3.5" style={{ color: "var(--color-warm-gray)" }} />
+              </button>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-lg border bg-white shadow-lg"
+                    style={{ borderColor: "var(--color-border)" }}
+                  >
+                    {([
+                      ["icons", LayoutGrid, "Icons view"],
+                      ["details", ListIcon, "Details view"],
+                    ] as const).map(([mode, Icon, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={view === mode}
+                        onClick={() => {
+                          setView(mode);
+                          setMenuOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium hover:bg-[var(--color-surface)]"
+                        style={{ color: view === mode ? "var(--color-navy)" : "var(--color-navy-mid)" }}
+                      >
+                        <Icon className="size-3.5" />
+                        {label}
+                        {view === mode && <Check className="ml-auto size-3.5" />}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
-          {entries.length === 0 ? (
+          {!hasFiles ? (
+            /* Canon (ui-architecture-rules §6a): the zero state names what
+               would appear here, in one line, and is NEVER a folder icon grid. */
+            <div className="p-4 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+              <p>No local Files yet — Files you add to this Module appear here.</p>
+              {inventory?.root && <p className="mt-1 break-all">{inventory.root}</p>}
+            </div>
+          ) : entries.length === 0 ? (
             <p className="p-6 text-center text-xs" style={{ color: "var(--color-warm-gray)" }}>
               {query.trim()
                 ? `No File in this folder matches “${query.trim()}”.`
@@ -487,32 +523,24 @@ export function ModuleFilesSection({
             </div>
           )}
 
-          <div
-            className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-1.5 text-[11px]"
-            style={{
-              borderColor: "var(--color-border)",
-              background: "var(--color-line-soft)",
-              color: "var(--color-warm-gray)",
-            }}
-          >
-            <span>
-              {entries.length} item{entries.length === 1 ? "" : "s"}
-              {inventory?.truncated && " · showing the first 200 local Files"}
-            </span>
-            <span className="truncate" title={inventory?.root}>
-              {inventory?.root}
-            </span>
-          </div>
-        </div>
-      ) : (
-        /* Canon (ui-architecture-rules §6a): the zero state names what would
-           appear here, in one line, and is NEVER a folder icon grid. */
-        <div
-          className="rounded-lg border border-dashed p-4 text-xs"
-          style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
-        >
-          <p>No local Files yet — Files you add to this Module appear here.</p>
-          {inventory?.root && <p className="mt-1 break-all">{inventory.root}</p>}
+          {hasFiles && (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-1.5 text-[11px]"
+              style={{
+                borderColor: "var(--color-border)",
+                background: "var(--color-line-soft)",
+                color: "var(--color-warm-gray)",
+              }}
+            >
+              <span>
+                {entries.length} item{entries.length === 1 ? "" : "s"}
+                {inventory?.truncated && " · showing the first 200 local Files"}
+              </span>
+              <span className="truncate" title={inventory?.root}>
+                {inventory?.root}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

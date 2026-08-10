@@ -7,7 +7,6 @@ import {
   Eye,
   Layers,
   LockKeyhole,
-  Plus,
   RefreshCw,
   Target,
   TrendingUp,
@@ -451,11 +450,6 @@ export function DealPilotPage() {
     return { showing: deals.length, totalEv, p0Flags, avgEvidence };
   }, [pageId, records]);
 
-  function openAddDeal() {
-    setFormRecord(null);
-    setView(viewConfigForKind(tableSpec, "form", view));
-  }
-
   useEffect(() => {
     setView(defaultViewConfig(`${tableSpec.id}:table`));
   }, [pageId, tableSpec.id]);
@@ -636,28 +630,12 @@ export function DealPilotPage() {
         />
       ) : (
         <>
-          <div
-            className="flex items-center justify-between border-b px-4 py-2"
-            style={{ borderColor: "var(--color-border)", backgroundColor: "white" }}
-          >
-            <h2 className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
-              All {PAGE_META[pageId].label}
-            </h2>
-            <div className="flex items-center gap-2">
-              {pageId === "deals" && (
-                <button
-                  type="button"
-                  onClick={openAddDeal}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-steel)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
-                >
-                  <Plus className="size-4" /> Add Deal
-                </button>
-              )}
-              {/* ADR-180: the 3-dots Control Panel entry was the menu's only item
-                  and duplicated the scroll-revealed Intelligence Section's
-                  "Manage in Module Detail" link, so the control is removed. */}
-            </div>
-          </div>
+          {/* The "All Deals" heading + "Add Deal" button row was removed
+              2026-08-10 (user directive: "There should be no All deals, Add
+              deal kind of row.") — <DataViews> already owns both: its List
+              dropdown carries the list identity ("All"), and its in-place
+              add-row (TableView's onInsert affordance) is the one standard
+              way to create a record, not a page-local duplicate. */}
           {notice && (
             <div className="px-4 py-2 border-b text-sm flex items-center justify-between" style={{ borderColor: "var(--color-border)" }}>
               <span>{notice}</span>
@@ -692,23 +670,6 @@ export function DealPilotPage() {
             </div>
           )}
           <ModuleSurfaceLayout
-            above={dealStats ? (
-              <div className="grid grid-cols-2 gap-3 px-3 pt-3 sm:grid-cols-4 sm:px-4 sm:pt-4">
-                <StatCard label="Showing" value={String(dealStats.showing)} icon={Layers} />
-                <StatCard label="Total EV" value={formatMoney(dealStats.totalEv)} icon={TrendingUp} />
-                <StatCard
-                  label="P0 flags"
-                  value={String(dealStats.p0Flags)}
-                  icon={AlertTriangle}
-                  tone={dealStats.p0Flags > 0 ? "warn" : "default"}
-                />
-                <StatCard
-                  label="Avg evidence"
-                  value={dealStats.avgEvidence === null ? "—" : `${dealStats.avgEvidence}%`}
-                  icon={Activity}
-                />
-              </div>
-            ) : null}
             table={
               <section className="h-full" aria-label={`${PAGE_META[pageId].label} Database`}>
                 <DataViews
@@ -725,6 +686,25 @@ export function DealPilotPage() {
                     setView(viewConfigForKind(tableSpec, "form", view));
                   }}
                   onOpenRecord={openRecord}
+                  insights={
+                    dealStats ? (
+                      <div className="grid grid-cols-2 gap-3 pb-3 sm:grid-cols-4">
+                        <StatCard label="Showing" value={String(dealStats.showing)} icon={Layers} />
+                        <StatCard label="Total EV" value={formatMoney(dealStats.totalEv)} icon={TrendingUp} />
+                        <StatCard
+                          label="P0 flags"
+                          value={String(dealStats.p0Flags)}
+                          icon={AlertTriangle}
+                          tone={dealStats.p0Flags > 0 ? "warn" : "default"}
+                        />
+                        <StatCard
+                          label="Avg evidence"
+                          value={dealStats.avgEvidence === null ? "—" : `${dealStats.avgEvidence}%`}
+                          icon={Activity}
+                        />
+                      </div>
+                    ) : undefined
+                  }
                 />
               </section>
             }

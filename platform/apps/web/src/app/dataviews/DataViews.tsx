@@ -43,7 +43,7 @@
  * `overscroll-behavior`: scroll chaining out to the page scroller when the
  * table bottoms out is the WANTED behaviour, and `contain` would break it.
  */
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { RowFilter, TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
 import { StandardDropdown } from "../components/shared/StandardDropdown.js";
 import { Button } from "../components/ui/button.js";
@@ -67,7 +67,7 @@ import {
 } from "./registry.js";
 import { computeEligibleKinds, migrateViewConfig, viewConfigForKind } from "./eligibility.js";
 import { filterRowsByQuery } from "./rowSearch.js";
-import { ArrowUpDown, Eye, MoreVertical, Plus, Search } from "lucide-react";
+import { ArrowUpDown, ChevronDown, ChevronUp, Eye, MoreVertical, Plus, Search } from "lucide-react";
 import type { DataRow, DataViewProps } from "./types.js";
 import { ControlPanel } from "./ControlPanel.js";
 
@@ -93,6 +93,12 @@ export interface DataViewsProps
    * Omitted until saved per-user view configs land; the dropdown simply hides
    * the slot rather than showing a control that does nothing (§3a). */
   onAddView?: () => void;
+  /** Optional dashboard/stat-card content (user directive 2026-08-10: "The
+   * dashboard should appear below the search bar row and its collapsible
+   * arrow should be inline"). Renders BELOW the toolbar row — never above it
+   * as a page-local banner — behind an inline collapse toggle in that same
+   * row, not a separate arrow row of its own. Expanded by default. */
+  insights?: ReactNode;
 }
 
 export function DataViews({
@@ -105,9 +111,11 @@ export function DataViews({
   searchPlaceholder = "Search…",
   fill = true,
   onAddView,
+  insights,
   ...viewProps
 }: DataViewsProps) {
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [insightsOpen, setInsightsOpen] = useState(true);
   const [filterDraft, setFilterDraft] = useState("");
   const [filterColumn, setFilterColumn] = useState(spec.columns[0]?.id ?? "");
   const [search, setSearch] = useState("");
@@ -194,26 +202,43 @@ export function DataViews({
   return (
     <div className={fill ? "flex h-full min-h-0 flex-col gap-3" : "flex flex-col gap-3"}>
       <div className="flex flex-none flex-wrap items-center justify-between gap-2">
-        {/* §5e: the View dropdown is a StandardDropdown like every other dropdown —
-            selected first, searchable, pinned Add slot. Not a bespoke Select. */}
-        <StandardDropdown
-          ariaLabel="Switch view"
-          options={switcherKinds.map((kind) => {
-            const Icon = VIEW_METADATA[kind].icon;
-            return {
-              id: kind,
-              label: VIEW_METADATA[kind].label,
-              icon: <Icon className="size-4 shrink-0" />,
-            };
-          })}
-          activeId={activeView.kind}
-          onSelect={(kind) =>
-            onViewChange(viewConfigForKind(spec, kind as ViewKind, activeView))
-          }
-          {...(onAddView ? { onAdd: onAddView } : {})}
-          addLabel="Add view"
-          emptyLabel="No eligible views"
-        />
+        {/* §5: List dropdown ALWAYS renders first, View dropdown second — this is
+            the enforcement point, not StandardToolbar (which almost nothing
+            mounts). "All" is the one real List every Database has today; saved
+            Lists are TASK-062 (ViewConfig persistence isn't built yet), so Add
+            List is shown — never hidden — disabled with that reason (§3a/AP-021:
+            explain, don't omit). */}
+        <div className="flex items-center gap-2">
+          <StandardDropdown
+            ariaLabel="Select list"
+            options={[{ id: "all", label: "All" }]}
+            activeId="all"
+            onSelect={() => {}}
+            addLabel="Add list"
+            addDisabledReason="Saved Lists need persisted View configuration, which is not built yet (TASK-062)."
+            emptyLabel="No lists yet"
+          />
+          {/* §5e: the View dropdown is a StandardDropdown like every other dropdown —
+              selected first, searchable, pinned Add slot. Not a bespoke Select. */}
+          <StandardDropdown
+            ariaLabel="Switch view"
+            options={switcherKinds.map((kind) => {
+              const Icon = VIEW_METADATA[kind].icon;
+              return {
+                id: kind,
+                label: VIEW_METADATA[kind].label,
+                icon: <Icon className="size-4 shrink-0" />,
+              };
+            })}
+            activeId={activeView.kind}
+            onSelect={(kind) =>
+              onViewChange(viewConfigForKind(spec, kind as ViewKind, activeView))
+            }
+            {...(onAddView ? { onAdd: onAddView } : {})}
+            addLabel="Add view"
+            emptyLabel="No eligible views"
+          />
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
@@ -334,8 +359,24 @@ export function DataViews({
           </DropdownMenu>
 
           <ControlPanel spec={spec} eligibleKinds={switcherKinds} />
+
+          {insights && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="px-2"
+              aria-expanded={insightsOpen}
+              aria-label={insightsOpen ? "Hide insights" : "Show insights"}
+              title={insightsOpen ? "Hide insights" : "Show insights"}
+              onClick={() => setInsightsOpen((open) => !open)}
+            >
+              {insightsOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+            </Button>
+          )}
         </div>
       </div>
+
+      {insights && insightsOpen && <div className="flex-none">{insights}</div>}
 
       {/* THE DEFINITE-HEIGHT BOX. Nothing below this line may fall back to
           content sizing — see the header block. */}

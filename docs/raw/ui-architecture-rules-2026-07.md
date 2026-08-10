@@ -130,7 +130,7 @@ No standalone Skills toggle. Humans and Automations request work from an Agent; 
 > specific for deal pilot or chief of staff agent and not generic for all modules
 > or all agents? Isn't that what standardization means?"*)
 
-**Shell:** Toggle strip (center-aligned, full-width) at the very top of the module header. One row below it is the StandardToolbar. Below that: the Insights chevron (collapsed by default). Below that: the view occupies full remaining screen height with internal scroll ~1.5× screen height.
+**Shell:** Toggle strip (center-aligned, full-width) at the very top of the module header. One row below it is the toolbar (§5's slot order below — the Insights chevron is the LAST slot of that same row, inline, never a separate arrow row of its own; corrected 2026-08-10, user directive: "its collapsible arrow should be inline"). Below the toolbar: the Insights/dashboard content, when expanded. Below that: the view occupies full remaining screen height with internal scroll ~1.5× screen height.
 
 **Canonical toolbar slot order (left → right):**
 List dropdown → View dropdown → Search → Filter → Custom actions → 3-dots → Insights chevron
@@ -363,7 +363,6 @@ exempt:                # not Database surfaces — reason recorded in the gate
   - GoogleIntegrationPanel
   - HomePage
   - IntelligencePage
-  - ModuleDetailPage
   - PublicHelpdesk
   - RelationshipHelpdeskPage
   - SettingsPage
@@ -371,16 +370,26 @@ exempt:                # not Database surfaces — reason recorded in the gate
   - WhatsAppPage
 totals:
   fully_conformant: 5
-  of_pages: 21
+  of_pages: 20
   toolbar_note: >-
-    StandardToolbar has ONE consumer. The canonical slot order in §5 is not what
-    the Module pages render; <DataViews> renders its own competing toolbar.
-    Converging them is the single highest-leverage fix and is tracked as TASK-061.
+    Corrected 2026-08-10 (user directive: "I thought the rule just created was
+    clear on list dropdown, followed by view dropdown"): StandardToolbar was
+    never the real enforcement point — it has ONE consumer (ApprovalsPage).
+    <DataViews> is what nearly every Module page actually renders through, so
+    IT is where §5's slot order lives or doesn't. Its own toolbar now carries
+    List dropdown → View dropdown → Search → Filter → 3-dots → Insights
+    chevron, matching §5. Any future §5 slot change is made in
+    `platform/apps/web/src/app/dataviews/DataViews.tsx`, not StandardToolbar —
+    a rule fixed only in the doc, or only in the component nothing renders,
+    is exactly the drift Failure 2 describes.
 ```
+
+Module Detail (the `/module/:moduleId` capability-inventory route) was removed 2026-08-10
+(user directive: "There is no module detail page. Delete it. Ensure no trace of it
+remains.") — deleted, not exempted; no longer appears anywhere above.
 
 ### Known gaps still open at time of writing (not claimed as done)
 
-- `<DataViews>`'s inline toolbar does not follow §5's slot order and has no List dropdown, no Insights chevron, and Add-column outside the 3-dots.
 - The **New Element row** (§5) is specified but not implemented in either table renderer.
 - **Cell right-click** (§5f) is not wired; only the column-header caret and row 3-dots open menus.
 - **Form view** has no share affordance, no per-field config overlay, and no click-outside-autosave — it is a submit-button form (§5's Form clarification is ahead of the code).

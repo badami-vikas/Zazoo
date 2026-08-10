@@ -36,7 +36,6 @@ const PAGES = join(APP, "pages");
 const EXEMPT = {
   "GoogleIntegrationPanel.tsx": "Integration credential/consent panel — no Database rows.",
   "HomePage.tsx": "Cross-Module landing surface; composes Module cards, owns no single Database.",
-  "ModuleDetailPage.tsx": "Manifest-driven capability inventory (§4b) — not a Database page.",
   "PublicHelpdesk.tsx": "Unauthenticated surface outside the authed nav shell entirely.",
   "SettingsPage.tsx": "Preferences form; not a Database view.",
   "TaskRecordDetailPage.tsx": "Record Detail surface (§3b) — sections, not a landing view.",

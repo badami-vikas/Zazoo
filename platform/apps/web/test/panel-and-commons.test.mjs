@@ -1,34 +1,20 @@
 /**
- * module-detail.test.mjs — focused tests for TASK-001 Module Detail and
- * PanelControl logic (§4b, §5b).
+ * panel-and-commons.test.mjs (renamed from module-detail.test.mjs 2026-08-10 —
+ * ModuleDetailPage was removed per user directive: "There is no module detail
+ * page. Delete it. Ensure no trace of it remains." This file kept the tests
+ * that were never actually about that page: PanelControl logic (§5b),
+ * Intelligence (ADR-154), Commons attachment/install-retry, and Relationship
+ * routing. The three tests that asserted against ModuleDetailPage.tsx's
+ * source, and the "Module Detail route" string-format test, are gone with it.
  *
- * Tests are pure-logic (no DOM/React runtime), exercising:
- *   1. RISK_LABELS — every risk tier has a display label
- *   2. PanelControl state logic — collapsed persists, width clamping, drag direction
- *   3. Nav modules filter — only installed, available modules are shown
+ * Tests are pure-logic (no DOM/React runtime) except where a small set of
+ * source files are read and pattern-matched directly.
  *
- * Run with: node --test test/module-detail.test.mjs
+ * Run with: node --test test/panel-and-commons.test.mjs
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-
-// ---------------------------------------------------------------------------
-// Inline the logic under test so this file has no import dependency on React
-// or the browser environment. Tests validate the algorithms, not the JSX.
-// ---------------------------------------------------------------------------
-
-/** Mirrored from ModuleDetailPage.tsx */
-const RISK_LABELS = {
-  informational: "Informational — read-only",
-  advisory: "Advisory — reads and proposes changes",
-  transformational: "Transformational — modifies local data",
-  operational: "Operational — manages live resources",
-  external: "External — sends to external services (governed)",
-};
-
-/** Mirrored from built-in-modules.ts */
-const BUILT_IN_MODULE_NAMES = ["deal-pilot", "job-pilot", "relationship", "calendar"];
 
 // ---------------------------------------------------------------------------
 // PanelControl state logic (mirrored from usePanelControl, no React)
@@ -55,14 +41,6 @@ function continuousWidth(startWidth, dx, min, max) {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-
-test("RISK_LABELS covers all risk tiers from built-in-modules.ts", () => {
-  // built-in modules use: advisory, operational, external
-  for (const tier of ["advisory", "operational", "external"]) {
-    assert.ok(tier in RISK_LABELS, `Missing risk label for "${tier}"`);
-    assert.ok(RISK_LABELS[tier].length > 0);
-  }
-});
 
 test("PanelControl clampWidth respects min/max bounds", () => {
   assert.equal(clampWidth(50, 76, 220), 76, "below min clamps to min");
@@ -152,22 +130,23 @@ test("Nav module filter: only installed Module manifests appear", () => {
   );
 });
 
-test("Module Detail route uses moduleName as route param", () => {
-  // The route is /module/:moduleId where moduleId === moduleName
-  for (const name of BUILT_IN_MODULE_NAMES) {
-    const route = `/module/${name}`;
-    assert.ok(route.startsWith("/module/"), `route should start with /module/`);
-    assert.ok(route.endsWith(name), `route should end with moduleName`);
-  }
+test("A Module with no declared Page lands on Home, never a dead /module/:id link", () => {
+  // Module Detail was removed 2026-08-10; Layout.tsx's moduleNavTarget fallback
+  // must route to Home, not to the deleted page's route shape.
+  const layout = readFileSync(new URL("../src/app/Layout.tsx", import.meta.url), "utf8");
+  assert.match(layout, /to: nav\?\.landing \?\? "\/home"/);
+  assert.match(layout, /base: nav\?\.base \?\? "\/home"/);
+  assert.doesNotMatch(layout, /`\/module\/\$\{mod\.moduleName\}`/);
 });
 
-test("Commons discovery stays Module-scoped; the deprecated Intelligence/marketplace prototype stays dead", () => {
+test("no trace of Module Detail remains in routes or pages", () => {
   const routes = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
-  // VOCAB6 deleted the PROTOTYPE Intelligence surface (a marketplace/tools hub
-  // built on hardcoded agent fixtures). That stays deleted.
-  assert.doesNotMatch(routes, /path: "marketplace"/);
-  assert.doesNotMatch(routes, /path: "tools"/);
+  assert.doesNotMatch(routes, /ModuleDetailPage/);
+  assert.doesNotMatch(routes, /path: "module\/:moduleId"/);
+});
 
+test("Commons discovery stays Module-scoped; Intelligence stays manifest-sourced (ADR-154)", () => {
+  const routes = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
   // ADR-154 reintroduces /intelligence as something different in kind: the
   // manifest-driven cross-Module capability inventory. It must stay
   // manifest-sourced — no fixture data, no marketplace.
@@ -257,44 +236,6 @@ test("Commons install retries resume promotion after an interrupted install", ()
   assert.equal(nextStep({ state: "private", status: "pending_review" }), "install");
   assert.equal(nextStep({ state: "promoted", status: "installed" }), "promote");
   assert.equal(nextStep({ state: "available", status: "installed" }), "done");
-});
-
-test("Module Automation Run delegates to server-owned Agent execution and existing Approvals", () => {
-  const source = readFileSync(new URL("../src/app/pages/ModuleDetailPage.tsx", import.meta.url), "utf8");
-  assert.match(source, /trpc\.automation\.runById\.mutate/);
-  assert.match(source, /automationId:\s*manifestAutomationId/);
-  assert.match(source, /moduleName:\s*pkg\.moduleName/);
-  assert.match(source, /automation\.automationId/);
-  assert.match(source, /runtimeAutomationIds\.has\(automation\.id\)/);
-  assert.match(source, /automation\.runRoute/);
-  assert.match(source, /to=\{automation\.runRoute\}/);
-  assert.match(source, /Runtime binding pending/);
-  assert.doesNotMatch(source, /actor:\s*\{/);
-  assert.match(source, /to="\/approvals"/);
-  assert.match(source, /Review or correct in Approvals/);
-});
-
-test("installed Commons Skill Run uses the server-owned Agent binding and existing correction surface", () => {
-  const source = readFileSync(new URL("../src/app/pages/ModuleDetailPage.tsx", import.meta.url), "utf8");
-  assert.match(source, /attachment\.runtimeSkillIds\.includes\(capability\.id\)/);
-  assert.match(source, /trpc\.commons\.runInstalledSkill\.mutate/);
-  assert.match(source, /installationId:\s*attachment\.id/);
-  assert.match(source, /Run with \$\{agent\.name\}/);
-  assert.match(source, /attachment\.runtimeBindingIssues\[0\]/);
-  assert.match(source, /Runtime binding unavailable/);
-  assert.match(source, /to="\/approvals"/);
-  assert.match(source, /Review or correct in Approvals/);
-  assert.doesNotMatch(source, /actor:\s*\{/);
-});
-
-test("Module Detail exposes inspectable recent attributable Automation Runs", () => {
-  const source = readFileSync(new URL("../src/app/pages/ModuleDetailPage.tsx", import.meta.url), "utf8");
-  assert.match(source, /trpc\.modules\.recentRuns\.query/);
-  assert.match(source, /onRunRecorded\(\)/);
-  assert.match(source, /refreshKey/);
-  assert.match(source, /title="Recent Runs"/);
-  assert.match(source, /<details/);
-  assert.match(source, /run\.agentId/);
 });
 
 test("both shell panels share a single collapse control + double-arrow resize handle (no extend button) and Escape", () => {

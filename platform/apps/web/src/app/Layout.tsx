@@ -286,15 +286,16 @@ export default function Layout() {
   // Modules shown under Home: default Modules (Task Manager) first, then the
   // installed Modules from modules.list, de-duplicated by moduleName. Defaults
   // guarantee the list is never empty, so no "unavailable" state is ever shown.
-  // Land each Module on its primary data Page (buttons-at-top), falling back to
-  // the /module/:name capability inventory only for Modules with no data Pages.
+  // Land each Module on its primary data Page (buttons-at-top). Module Detail
+  // was removed 2026-08-10 — a Module with no declared Page has nowhere of its
+  // own to land, so it goes to Home rather than a dead `/module/:name` link.
   const apiModules: NavModule[] = (installedModules ?? []).map((mod) => {
     const nav = moduleNavTarget(mod.moduleName);
     return {
       moduleName: mod.moduleName,
       displayName: mod.displayName,
-      to: nav?.landing ?? `/module/${mod.moduleName}`,
-      base: nav?.base ?? `/module/${mod.moduleName}`,
+      to: nav?.landing ?? "/home",
+      base: nav?.base ?? "/home",
       icon: Boxes,
       parentModule: mod.parentModule,
     };
@@ -323,11 +324,10 @@ export default function Layout() {
     return railExpanded ? `text-sm font-medium leading-none truncate ${extra}` : `text-[9px] font-medium leading-none ${extra}`;
   }
 
-  // Highlight for the Module's data Pages (base) AND its /module/:name
-  // capability inventory, so the rail entry stays lit on the overview reached
-  // from a data Page's Intelligence Section.
+  // Highlight for the Module's data Pages (base). Module Detail (/module/:name)
+  // was removed 2026-08-10 — there is no separate overview route to also match.
   function moduleActive(mod: NavModule): boolean {
-    return isActive(mod.base) || isActive(`/module/${mod.moduleName}`);
+    return isActive(mod.base);
   }
 
   /** One rail entry. `disclosure` adds the sub-module expand/collapse control;

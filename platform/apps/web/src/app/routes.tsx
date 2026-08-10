@@ -18,8 +18,6 @@ import { SecondBrainPage } from "./pages/SecondBrainPage";
 import { IntelligencePage } from "./pages/IntelligencePage";
 // TASK-028: background Research Run timeline/interrupt Page (plan §5).
 import { ResearchRunsPage } from "./pages/ResearchRunsPage";
-// TASK-001 / VOCAB6: manifest-driven Module Detail (§4b)
-import { ModuleDetailPage } from "./pages/ModuleDetailPage";
 // WhatsApp Module: the live session surface plus its Tool list.
 import { WhatsAppPage } from "./pages/WhatsAppPage";
 import { InstalledModuleBoundary } from "./components/InstalledModuleBoundary";
@@ -125,10 +123,10 @@ export const router = createBrowserRouter([
       { path: "module/whatsapp/chats", element: <WhatsAppPage page="chats" /> },
       { path: "module/whatsapp/tools", element: <WhatsAppPage page="tools" /> },
 
-      // TASK-001 / VOCAB6: manifest-driven Module Detail surface (§4b).
-      // Route param = moduleName (e.g. "deal-pilot", "job-pilot"). Every
-      // installed Module in the left nav links here.
-      { path: "module/:moduleId", Component: ModuleDetailPage },
+      // Module Detail was removed 2026-08-10 (user directive: "There is no
+      // module detail page. Delete it. Ensure no trace of it remains.") — no
+      // `/module/:moduleId` route exists any more; a Module with no declared
+      // Page lands on Home instead (Layout.tsx's moduleNavTarget fallback).
       { path: `${childPath(relationshipSignalsRoute)}/:signalId/event`, Component: SignalSourceEventPage },
       { path: `${childPath(relationshipSignalsRoute)}/:signalId`, Component: SignalDetailPage },
       { path: `${childPath(relationshipModule.route)}/people/:recordId`, element: <RelationshipRecordDetailPage kind="person" /> },
