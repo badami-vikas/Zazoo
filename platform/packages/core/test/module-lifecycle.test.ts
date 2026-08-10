@@ -127,44 +127,45 @@ test("InMemoryModuleStore: create/get/list round trip", async () => {
     lineageManifestId: null,
   });
 
-  test("InMemoryModuleStore: attachment retries require identical signed content but allow rerisking", async () => {
-    const store = new InMemoryModuleStore();
-    const attachment = {
-      source: "commons" as const,
-      ownerModuleName: "job-pilot",
-      agentId: "application-agent",
-      needId: "calendar",
-      contentHash: `sha256:${"1".repeat(64)}`,
-    };
-    const base = {
-      organizationId: "test_fixture_ws",
-      moduleName: "dummy-module",
-      moduleVersion: "1.0.0",
-      manifest: row().manifest,
-      computedRisk: "informational" as const,
-      state: "private" as const,
-      status: "pending_review" as const,
-      lineageManifestId: null,
-      moduleAttachment: attachment,
-    };
-    const created = await store.create(base);
-    const reriskedRetry = await store.create({ ...base, computedRisk: "external" });
-    assert.equal(reriskedRetry.id, created.id);
-    await assert.rejects(
-      () =>
-        store.create({
-          ...base,
-          moduleAttachment: { ...attachment, contentHash: `sha256:${"2".repeat(64)}` },
-        }),
-      /conflicting immutable content/,
-    );
-  });
   assert.match(created.id, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   const fetched = await store.get(created.id);
   assert.equal(fetched?.moduleName, "dummy-module");
   const { items, total } = await store.list("test_fixture_ws", { limit: 10, offset: 0 });
   assert.equal(total, 1);
   assert.equal(items[0]?.id, created.id);
+});
+
+test("InMemoryModuleStore: attachment retries require identical signed content but allow rerisking", async () => {
+  const store = new InMemoryModuleStore();
+  const attachment = {
+    source: "commons" as const,
+    ownerModuleName: "job-pilot",
+    agentId: "application-agent",
+    needId: "calendar",
+    contentHash: `sha256:${"1".repeat(64)}`,
+  };
+  const base = {
+    organizationId: "test_fixture_ws",
+    moduleName: "dummy-module",
+    moduleVersion: "1.0.0",
+    manifest: row().manifest,
+    computedRisk: "informational" as const,
+    state: "private" as const,
+    status: "pending_review" as const,
+    lineageManifestId: null,
+    moduleAttachment: attachment,
+  };
+  const created = await store.create(base);
+  const reriskedRetry = await store.create({ ...base, computedRisk: "external" });
+  assert.equal(reriskedRetry.id, created.id);
+  await assert.rejects(
+    () =>
+      store.create({
+        ...base,
+        moduleAttachment: { ...attachment, contentHash: `sha256:${"2".repeat(64)}` },
+      }),
+    /conflicting immutable content/,
+  );
 });
 
 test("InMemoryModuleStore: getAvailable returns the one available version", async () => {

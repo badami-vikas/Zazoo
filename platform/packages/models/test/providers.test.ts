@@ -60,96 +60,96 @@ test("OllamaProvider omits system/options when absent", async () => {
     prompt_eval_count: 1,
     eval_count: 0,
   });
-
-  test("LlamaCppProvider uses the capability file boundary and binds constrained JSON", async () => {
-    const { impl, calls } = recordingFetch({
-      model: MANAGED_LLAMA_MODEL_ID,
-      choices: [{ message: { content: "{\"type\":\"answer\",\"text\":\"ready\"}" } }],
-      usage: { prompt_tokens: 11, completion_tokens: 7 },
-    });
-    const provider = new LlamaCppProvider({
-      readCapability: () => ({
-        version: 1,
-        baseUrl: "http://127.0.0.1:49152",
-        apiKey: "a".repeat(64),
-        model: MANAGED_LLAMA_MODEL_ID,
-        runtimeRevision: "b10107",
-        pid: 123,
-      }),
-      fetchImpl: impl,
-    });
-    const schema = {
-      type: "object",
-      properties: { type: { const: "answer" }, text: { type: "string" } },
-      required: ["type", "text"],
-      additionalProperties: false,
-    };
-
-    const completion = await provider.complete({
-      system: "system",
-      prompt: "hello",
-      maxTokens: 128,
-      tier: "cheap",
-      responseFormat: {
-        type: "json_schema",
-        name: "chat_envelope",
-        schema,
-        strict: true,
-      },
-    });
-
-    assert.equal(completion.model, MANAGED_LLAMA_MODEL_ID);
-    assert.equal(completion.usage.inputTokens, 11);
-    assert.equal(calls[0]!.url, "http://127.0.0.1:49152/v1/chat/completions");
-    assert.equal(calls[0]!.init!.headers!.authorization, `Bearer ${"a".repeat(64)}`);
-    const body = JSON.parse(calls[0]!.init!.body!);
-    assert.deepEqual(body.messages, [
-      { role: "system", content: "system" },
-      { role: "user", content: "hello" },
-    ]);
-    assert.equal(body.max_tokens, 128);
-    assert.equal(body.temperature, 0);
-    assert.deepEqual(body.response_format, {
-      type: "json_object",
-      schema,
-    });
-  });
-
-  test("LlamaCppProvider rejects stale, non-loopback, and relabeled capabilities", async () => {
-    for (const capability of [
-      {
-        version: 1,
-        baseUrl: "http://localhost:49152",
-        apiKey: "a".repeat(64),
-        model: MANAGED_LLAMA_MODEL_ID,
-        runtimeRevision: "b10107",
-        pid: 1,
-      },
-      {
-        version: 1,
-        baseUrl: "http://127.0.0.1:49152",
-        apiKey: "a".repeat(64),
-        model: "wrong-model",
-        runtimeRevision: "b10107",
-        pid: 1,
-      },
-    ]) {
-      const provider = new LlamaCppProvider({
-        readCapability: () => capability,
-        fetchImpl: recordingFetch({}).impl,
-      });
-      assert.equal(provider.routingHealth(), "unavailable");
-      await assert.rejects(
-        () => provider.complete({ prompt: "q", tier: "cheap" }),
-        /loopback|unexpected model identity/,
-      );
-    }
-  });
   const p = new OllamaProvider({ baseUrl: "http://x", fetchImpl: impl });
   await p.complete({ prompt: "q", tier: "cheap" });
   const body = JSON.parse(calls[0]!.init!.body!);
   assert.equal("system" in body, false);
   assert.equal("options" in body, false);
+});
+
+test("LlamaCppProvider uses the capability file boundary and binds constrained JSON", async () => {
+  const { impl, calls } = recordingFetch({
+    model: MANAGED_LLAMA_MODEL_ID,
+    choices: [{ message: { content: "{\"type\":\"answer\",\"text\":\"ready\"}" } }],
+    usage: { prompt_tokens: 11, completion_tokens: 7 },
+  });
+  const provider = new LlamaCppProvider({
+    readCapability: () => ({
+      version: 1,
+      baseUrl: "http://127.0.0.1:49152",
+      apiKey: "a".repeat(64),
+      model: MANAGED_LLAMA_MODEL_ID,
+      runtimeRevision: "b10107",
+      pid: 123,
+    }),
+    fetchImpl: impl,
+  });
+  const schema = {
+    type: "object",
+    properties: { type: { const: "answer" }, text: { type: "string" } },
+    required: ["type", "text"],
+    additionalProperties: false,
+  };
+
+  const completion = await provider.complete({
+    system: "system",
+    prompt: "hello",
+    maxTokens: 128,
+    tier: "cheap",
+    responseFormat: {
+      type: "json_schema",
+      name: "chat_envelope",
+      schema,
+      strict: true,
+    },
+  });
+
+  assert.equal(completion.model, MANAGED_LLAMA_MODEL_ID);
+  assert.equal(completion.usage.inputTokens, 11);
+  assert.equal(calls[0]!.url, "http://127.0.0.1:49152/v1/chat/completions");
+  assert.equal(calls[0]!.init!.headers!.authorization, `Bearer ${"a".repeat(64)}`);
+  const body = JSON.parse(calls[0]!.init!.body!);
+  assert.deepEqual(body.messages, [
+    { role: "system", content: "system" },
+    { role: "user", content: "hello" },
+  ]);
+  assert.equal(body.max_tokens, 128);
+  assert.equal(body.temperature, 0);
+  assert.deepEqual(body.response_format, {
+    type: "json_object",
+    schema,
+  });
+});
+
+test("LlamaCppProvider rejects stale, non-loopback, and relabeled capabilities", async () => {
+  for (const capability of [
+    {
+      version: 1,
+      baseUrl: "http://localhost:49152",
+      apiKey: "a".repeat(64),
+      model: MANAGED_LLAMA_MODEL_ID,
+      runtimeRevision: "b10107",
+      pid: 1,
+    },
+    {
+      version: 1,
+      baseUrl: "http://127.0.0.1:49152",
+      apiKey: "a".repeat(64),
+      model: "wrong-model",
+      runtimeRevision: "b10107",
+      pid: 1,
+    },
+  ]) {
+    const provider = new LlamaCppProvider({
+      readCapability: () => capability,
+      fetchImpl: recordingFetch({}).impl,
+    });
+    assert.equal(provider.routingHealth(), "unavailable");
+    await assert.rejects(
+      () => provider.complete({ prompt: "q", tier: "cheap" }),
+      /loopback|unexpected model identity/,
+    );
+  }
 });
 
 test("OllamaProvider shapes /api/embed requests", async () => {

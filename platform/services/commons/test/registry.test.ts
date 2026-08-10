@@ -136,23 +136,6 @@ test("publish rejects an expected content-hash mismatch before storage", async (
     await rm(dataDir, { recursive: true, force: true });
   });
 
-  test("publish rejects provenance that would fail read-time trust verification", async (t) => {
-    const dataDir = await mkdtemp(join(tmpdir(), "commons-test-"));
-    const app = buildTestServer(dataDir);
-    t.after(async () => {
-      await app.close();
-      await rm(dataDir, { recursive: true, force: true });
-    });
-
-    const response = await publish(app, {
-      manifest: generalizedManifest(),
-      provenance: { ...provenance, sourceRef: "" },
-    });
-    assert.equal(response.statusCode, 400);
-    assert.equal(response.json().error, "invalid_provenance");
-    assert.equal((await app.inject({ url: "/v1/modules/example-view" })).statusCode, 404);
-  });
-
   const response = await publish(app, {
     manifest: generalizedManifest(),
     provenance,
@@ -163,7 +146,7 @@ test("publish rejects an expected content-hash mismatch before storage", async (
   assert.equal((await app.inject({ url: "/v1/modules/example-view" })).statusCode, 404);
 });
 
-test("publish scan resolves and verifies the exact dependency closure", async (t) => {
+test("publish rejects provenance that would fail read-time trust verification", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "commons-test-"));
   const app = buildTestServer(dataDir);
   t.after(async () => {
@@ -171,34 +154,51 @@ test("publish scan resolves and verifies the exact dependency closure", async (t
     await rm(dataDir, { recursive: true, force: true });
   });
 
-  test("publish scan rejects Organization Blueprint capability references without exact signed pins", async (t) => {
-    const dataDir = await mkdtemp(join(tmpdir(), "commons-test-"));
-    const app = buildTestServer(dataDir);
-    t.after(async () => {
-      await app.close();
-      await rm(dataDir, { recursive: true, force: true });
-    });
-    const response = await publish(app, {
-      manifest: {
-        name: "test-fixture-unpinned-blueprint",
-        version: "1.0.0",
-        kind: "organization_definition",
-        summary: "A generalized organization definition.",
-        description: "A declarative organization fixture.",
-        capabilities: [],
-        blueprint: {
-          vocabulary: {},
-          entities: [],
-          views: [],
-          capabilities: ["cap.people-directory@1.0.0"],
-        },
+  const response = await publish(app, {
+    manifest: generalizedManifest(),
+    provenance: { ...provenance, sourceRef: "" },
+  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error, "invalid_provenance");
+  assert.equal((await app.inject({ url: "/v1/modules/example-view" })).statusCode, 404);
+});
+
+test("publish scan rejects Organization Blueprint capability references without exact signed pins", async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), "commons-test-"));
+  const app = buildTestServer(dataDir);
+  t.after(async () => {
+    await app.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const response = await publish(app, {
+    manifest: {
+      name: "test-fixture-unpinned-blueprint",
+      version: "1.0.0",
+      kind: "organization_definition",
+      summary: "A generalized organization definition.",
+      description: "A declarative organization fixture.",
+      capabilities: [],
+      blueprint: {
+        vocabulary: {},
+        entities: [],
+        views: [],
+        capabilities: ["cap.people-directory@1.0.0"],
       },
-      provenance,
-    });
-    assert.equal(response.statusCode, 422);
-    assert.ok(response.json().securityScan.checks.some((item: { id: string; status: string }) =>
-      item.id === "blueprint-capability-pins" && item.status === "fail"
-    ));
+    },
+    provenance,
+  });
+  assert.equal(response.statusCode, 422);
+  assert.ok(response.json().securityScan.checks.some((item: { id: string; status: string }) =>
+    item.id === "blueprint-capability-pins" && item.status === "fail"
+  ));
+});
+
+test("publish scan resolves and verifies the exact dependency closure", async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), "commons-test-"));
+  const app = buildTestServer(dataDir);
+  t.after(async () => {
+    await app.close();
+    await rm(dataDir, { recursive: true, force: true });
   });
 
   const dependent = {

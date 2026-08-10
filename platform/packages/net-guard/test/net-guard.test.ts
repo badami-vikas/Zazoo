@@ -271,7 +271,17 @@ test("the timeout also bounds DNS resolution before a socket exists", async () =
       timeoutMs: 20,
       unsafeTestOverrides: {
         isBlockedHostname: () => false,
-        dnsLookup: () => new Promise(() => undefined),
+        dnsLookup: (_, signal) => new Promise<never>((_, reject) => {
+          if (signal.aborted) { reject(signal.reason); return; }
+          // A ref'd timer keeps the event loop alive so the test runner does not
+          // declare the event loop drained before AbortSignal.timeout fires.
+          // clearTimeout ensures it doesn't outlive the abort.
+          const t = setTimeout(
+            () => reject(new Error("DNS mock: signal never fired within 1 s")),
+            1000,
+          );
+          signal.addEventListener("abort", () => { clearTimeout(t); reject(signal.reason); }, { once: true });
+        }),
       },
     }),
     (error) => error instanceof DOMException && error.name === "TimeoutError",
