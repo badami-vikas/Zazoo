@@ -576,7 +576,7 @@ test("modules.list: paginates a organization's installations", async () => {
   }
 });
 
-test("built-in bootstrap retires standalone Helpdesk and all Calendar versions without deleting history", async () => {
+test("built-in bootstrap retires all Calendar versions but leaves Helpdesk alone — it now ships as a NetworkManager sub-module and retiring it here would vanish the freshly seeded row one restart later", async () => {
   const store = new InMemoryModuleStore();
   const row = await store.create({
     organizationId: PILOT_ORGANIZATION,
@@ -611,9 +611,9 @@ test("built-in bootstrap retires standalone Helpdesk and all Calendar versions w
 
   await retireSupersededBuiltIns(store, PILOT_ORGANIZATION);
 
-  const retired = await store.get(row.id);
-  assert.equal(retired?.state, "legacy");
-  assert.equal(retired?.status, "installed");
+  const helpdesk = await store.get(row.id);
+  assert.equal(helpdesk?.state, "available", "helpdesk is NOT retired — it ships as a sub-module under this name");
+  assert.equal(helpdesk?.status, "installed");
   assert.equal((await store.get(calendarAvailable.id))?.state, "legacy");
   assert.equal((await store.get(calendarDraft.id))?.state, "legacy");
 });

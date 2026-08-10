@@ -414,6 +414,8 @@ export {
 // itself.
 export {
   assembleRunContext,
+  enforceMemoryBudget,
+  MEMORY_SLOT_BUDGET_CHARS,
   projectToPrompt,
   projectToSystemPrompt,
   renderPersonaSystemPreamble,
@@ -425,6 +427,7 @@ export {
   type RetrievedMemorySnippet,
   type RunOutputContract,
   type RunTraceMetadata,
+  type MemoryBudgetReport,
   type ModelRunContext,
   type AssembleRunContextInput,
 } from "./run-context.js";

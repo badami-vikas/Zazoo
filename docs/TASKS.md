@@ -798,13 +798,13 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K4 — Continuous context: fusion feeds every run
 - ID: TASK-048
-- Status: ready
+- Status: done (2026-08-10, ADR-220/AP-140)
 - Priority: P2
 - Horizon: Core Modules
 - Outcome: Retrieval fusion fills the memory slot of EVERY agent run under an enforced context budget (ADR-177 Layer B), not just chat, and the semantic embedder (local Ollama) becomes the Local-Plane default with the hashing embedder as deterministic fallback.
 - Prototype test: a non-chat agent run's assembled context contains fused retrieval output and respects a budget cap (over-budget input is truncated by policy, asserted); with Ollama present the semantic embedder is selected, without it the lexical fallback engages and indexer + query share one embedding space (existing invariant, re-asserted at the new default).
 - Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K4; LA5 fusion (built, chat-only, flighted) generalized through the TASK-044 single context door.
-- Evidence: LA5 (TASK-032) fusion machinery; `run-context.ts`.
+- Evidence: ADR-220. Shipped: `MEMORY_SLOT_BUDGET_CHARS` Layer B ceiling + tighten-only override + ranked-prefix truncation + always-reporting `trace.memoryBudget` meter in `assembleRunContext`; `@communications`/`@agent` converse runs retrieve via `fusedChatMemory` (flight + provider-plane gated — local memory never enters a cloud prompt); semantic embedder as the Local-Plane default via a dedicated Ollama adapter at the `semanticEmbedder` seam (a local-mode completion registration was tried first and failed the converse suite — down daemon hard-fails turns; only embeddings degrade per ADR-213). Verified: core 6/6 (4 RED under mutation), api 4/4 (2 RED under mutation; capture provider proves claim text reaches both system prompts and vanishes flight-off), pnpm verify green, live boot indexer warn names the configured Ollama space (default resolved, honestly degraded, no daemon installed). Honest residuals: model-backed converse paths live-exercised via unit captures (K0 precedent — no local model on this machine); Automation-step model runs still assemble no retrieval (none of them currently calls a model through the door — the seam is ready when one does); cloud-provider-plane gate asserted by code path, not a live cloud test.
 - Requests: user directive 2026-08-09 ("start on AI harness")
 - Approval: AP-131 APPLIED
 - Dependencies: TASK-044, TASK-047 (skeleton only); unblocks TASK-043 E5
