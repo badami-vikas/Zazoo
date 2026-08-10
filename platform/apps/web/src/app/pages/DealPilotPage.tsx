@@ -7,6 +7,7 @@ import {
   Eye,
   Layers,
   LockKeyhole,
+  Paperclip,
   Plus,
   RefreshCw,
   Target,
@@ -38,6 +39,11 @@ const PAGE_META = {
   sources: { label: "Sources", icon: Database, kind: "source" as const },
   theses: { label: "Theses", icon: Target, kind: "thesis" as const },
 };
+
+const ALL_TABS = [
+  ...( Object.keys(PAGE_META) as (keyof typeof PAGE_META)[] ).map((id) => ({ id, label: PAGE_META[id].label, icon: PAGE_META[id].icon })),
+  { id: "artifacts" as const, label: "Artifacts", icon: Paperclip },
+];
 
 function parsePage(value: string | undefined): PageId {
   return value === "sources" || value === "theses" ? value : "deals";
@@ -587,20 +593,17 @@ export function DealPilotPage() {
     if (targetPage && targetId) navigate(`/dealpilot/${targetPage}/${targetId}`);
   }
 
-  const tabs = (Object.keys(PAGE_META) as PageId[]).map((id) => ({
-    id,
-    label: PAGE_META[id].label,
-    icon: PAGE_META[id].icon,
-  }));
+  const tabs = ALL_TABS;
+
+  function handleTabChange(id: string) {
+    if (id === "artifacts") { navigate("/dealpilot/artifacts"); return; }
+    navigate(`/dealpilot/${id}`);
+  }
 
   if (error) {
-    // Deal/Source/Thesis Records are served from the Cloud Plane (Supabase), so the
-    // list and detail load in the web app. Only entering Source credentials, running
-    // live discovery, and raw captures stay desktop-only (and self-explain inline).
-    // Anything reaching here is a genuine load error — offer a retry.
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
-        <Header tabs={tabs} activeTab={pageId} onTabChange={(id) => navigate(`/dealpilot/${id}`)} />
+        <Header tabs={tabs} activeTab={pageId} onTabChange={handleTabChange} />
         <div className="grid flex-1 place-items-center p-8">
           <div className="max-w-md space-y-3 text-center">
             <p className="text-sm text-red-700">{error}</p>
@@ -619,7 +622,7 @@ export function DealPilotPage() {
       <Header
         tabs={tabs}
         activeTab={pageId}
-        onTabChange={(id) => navigate(`/dealpilot/${id}`)}
+        onTabChange={handleTabChange}
       />
       {recordId && detail ? (
         <RecordDetailSurface

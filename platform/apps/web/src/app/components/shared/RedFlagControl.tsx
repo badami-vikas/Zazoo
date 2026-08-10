@@ -214,7 +214,25 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
       }
       return;
     }
-    // Already flagged (open or cleared) — second selection opens inspect/edit/clear.
+    // User directive 2026-08-10: "Clicking a red flag should remove red flag."
+    // Plain activation is a TOGGLE — open → cleared, cleared → reopened. The
+    // inspect/edit/reason panel moved to the secondary gesture (right-click /
+    // long-press / Shift+Enter, see openDetail below) so the common case costs
+    // one click instead of click → popover → Clear.
+    if (isOpen) {
+      await handleClear();
+      return;
+    }
+    await handleReopen();
+  }
+
+  /** Secondary gesture on an existing flag: inspect, edit the reason, enact or
+   * revoke a governed correction, or delete the flag's history permanently.
+   * Never reachable before a flag exists — there is nothing to inspect. */
+  function openDetail(event: React.MouseEvent | React.KeyboardEvent) {
+    if (!current) return;
+    event.preventDefault();
+    event.stopPropagation();
     setReasonDraft(reason);
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     setPosition(clampMenuPosition({ x: rect.left, y: rect.bottom + 4 }));
@@ -302,9 +320,9 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
   }
 
   const label = isOpen
-    ? 'Flagged as incorrect — inspect, edit, or clear'
+    ? 'Flagged as incorrect — click to remove the flag (right-click to inspect or edit)'
     : current
-      ? 'Previously flagged, now cleared — inspect or reopen'
+      ? 'Previously flagged, now cleared — click to flag again (right-click to inspect)'
       : ctx.loading
         ? ctx.error
           ? 'Could not load current flag status — click to retry'
@@ -330,7 +348,15 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
         aria-pressed={isOpen}
         disabled={busy || (!current && ctx.loading && !ctx.error)}
         onClick={handleGlyphActivate}
+        onContextMenu={openDetail}
         onKeyDown={(e) => {
+          // Enter/Space = the toggle (create / clear / reopen).
+          // Shift+Enter = the keyboard equivalent of right-click: inspect/edit.
+          // §5d requires keyboard parity for every pointer gesture.
+          if (e.key === 'Enter' && e.shiftKey) {
+            openDetail(e);
+            return;
+          }
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             void handleGlyphActivate(e);

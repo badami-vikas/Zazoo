@@ -972,3 +972,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: R-044
 - Approval: AP-119 applied for task creation and queue position
 - Dependencies: TASK-023 (done)
+
+## UI standardization convergence — one toolbar, one shell, one dropdown
+- ID: TASK-061
+- Status: ready
+- Priority: P1
+- Horizon: Prototype
+- Outcome: every page in `platform/apps/web` renders its data through ONE toolbar in §5's canonical slot order (List → View → Search → Filter → Custom actions → 3-dots → Insights chevron), so a user moving between Modules sees the same controls in the same places. Today two toolbars coexist — `StandardToolbar` (§5-conformant, ONE consumer: ApprovalsPage) and `<DataViews>`'s own inline row (the one the Module pages actually render, with no List dropdown, no Insights chevron, and Add-column outside the 3-dots) — which is the mechanical reason "every page still looks different".
+- Prototype test: `KNOWN_DIVERGENCES` in `platform/apps/web/test/ui-conformance.test.mjs` is empty and the array is deleted; a live desktop pass over DealPilot, JobPilot, Relationship, Task Manager, Signals, Approvals and Artifacts shows identical toolbar slot order and identical dropdown behaviour (selected-first, search, pinned Add) on every one.
+- Scope: converge `<DataViews>`'s inline toolbar into `StandardToolbar`; route the 10 ratchet entries through `ModuleSurfaceLayout`+`DataViews` (ArtifactsPage, ApprovalsPage, ResearchRunsPage, RelationshipSubmodulePage, OrganizationPage, SecondBrainPage) or exempt them with a reason; move Sort and Add column into the 3-dots; add the fixed New Element row above the column summary; wire cell right-click to `StandardRowMenu` and column right-click to `StandardColumnMenu` (§5f); Form view — drop any Build/Preview split, add click-outside autosave and the share affordance under §5's list/view permission model.
+- Evidence: adoption audit + root-cause post-mortem recorded in `docs/raw/ui-architecture-rules-2026-07.md` §10 (2026-08-10). Landed this session: the conformance gate itself, `StandardDropdown` (§5e) with `ListDropdown` and the View switcher converted onto it, and red-flag click-to-remove (§5).
+- Requests: user directive 2026-08-10 ("Can you also audit all pages if they use the standardized view entity because every page still looks different to me"; "Critically evaluate why all these rules I had shared earlier got lost and ensure this behaviour doesnt repeat with corrective measures")
+- Approval: user directive 2026-08-10 recorded as APPLIED for task creation, queue position, and the §0/§5e/§5f/§5g/§10 canon additions
+- Dependencies: none

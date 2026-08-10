@@ -42,13 +42,7 @@
  */
 import { useMemo, useRef, useState } from "react";
 import type { RowFilter, TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../components/ui/select.js";
+import { StandardDropdown } from "../components/shared/StandardDropdown.js";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
 import {
@@ -87,6 +81,10 @@ export interface DataViewsProps
    * declares its own fixed view height. See the header block: `false` is only
    * for a page that stacks several views in auto-height flow. */
   fill?: boolean;
+  /** Optional handler for the View dropdown's pinned "＋ Add view" slot (§5e).
+   * Omitted until saved per-user view configs land; the dropdown simply hides
+   * the slot rather than showing a control that does nothing (§3a). */
+  onAddView?: () => void;
 }
 
 export function DataViews({
@@ -98,6 +96,7 @@ export function DataViews({
   availableKinds,
   searchPlaceholder = "Search…",
   fill = true,
+  onAddView,
   ...viewProps
 }: DataViewsProps) {
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
@@ -163,27 +162,26 @@ export function DataViews({
   return (
     <div className={fill ? "flex h-full min-h-0 flex-col gap-3" : "flex flex-col gap-3"}>
       <div className="flex flex-none flex-wrap items-center justify-between gap-2">
-        <Select
-          value={activeView.kind}
-          onValueChange={(kind) =>
+        {/* §5e: the View dropdown is a StandardDropdown like every other dropdown —
+            selected first, searchable, pinned Add slot. Not a bespoke Select. */}
+        <StandardDropdown
+          ariaLabel="Switch view"
+          options={switcherKinds.map((kind) => {
+            const Icon = VIEW_METADATA[kind].icon;
+            return {
+              id: kind,
+              label: VIEW_METADATA[kind].label,
+              icon: <Icon className="size-4 shrink-0" />,
+            };
+          })}
+          activeId={activeView.kind}
+          onSelect={(kind) =>
             onViewChange(viewConfigForKind(spec, kind as ViewKind, activeView))
           }
-        >
-          <SelectTrigger size="sm" aria-label="Switch view" className="w-auto min-w-[8.5rem] gap-2">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {switcherKinds.map((kind) => {
-              const Icon = VIEW_METADATA[kind].icon;
-              return (
-                <SelectItem key={kind} value={kind}>
-                  <Icon className="size-4" />
-                  {VIEW_METADATA[kind].label}
-                </SelectItem>
-              );
-            })}
-          </SelectContent>
-        </Select>
+          {...(onAddView ? { onAdd: onAddView } : {})}
+          addLabel="Add view"
+          emptyLabel="No eligible views"
+        />
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">

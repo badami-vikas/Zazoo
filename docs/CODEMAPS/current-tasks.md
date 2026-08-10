@@ -15,7 +15,6 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-031 | in_progress | P2 | Platform bloat cleanup and table-renderer standardization | TASK-027, TASK-028 |
 | TASK-032 | in_progress | P2 | Deal Copilot learning observation loop (generic Egg baseline v1) | TASK-002 |
 | TASK-033 | in_progress | P2 | Universal Commons capability archetypes (roadmap-v2 Phase 4) | TASK-032 |
-| TASK-036 | done | P1 | Green CI and an honest event backbone | none |
 | TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | TASK-007 |
 | TASK-040 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 |
 | TASK-041 | ready | P2 | Pending Tests — live verification backlog | non-task gate (see TASKS.md) |

@@ -1,20 +1,19 @@
 // ListDropdown — the standard "which list am I looking at" control (shell-v2, user spec
-// 2026-07-07). Replaces the ListBar pill row: a dropdown trigger showing the currently-open
-// list's name, first toolbar slot on every list-capable page. Menu shape per spec: first item =
-// the currently-open list, up to 5 list items visible (more → the list area scrolls), and a
-// pinned "＋ Add list" slot that is ALWAYS visible at the bottom, never scrolled away.
+// 2026-07-07), first toolbar slot on every list-capable page.
+//
+// It is now a thin binding over <StandardDropdown> (§5e, user directive 2026-08-10:
+// "Add and search feature in a dropdown is a standard, not case by case implementation").
+// Menu shape — selected list first, search box, five rows before scroll, pinned "＋ Add list"
+// that never scrolls away — lives in StandardDropdown and is shared with every other
+// dropdown in the app rather than re-implemented here.
 import { useState } from 'react';
-import { ChevronDown, Check, List as ListIcon, Plus } from 'lucide-react';
+import { List as ListIcon } from 'lucide-react';
+import { StandardDropdown } from './StandardDropdown';
 
 export interface ListOption {
   id: string;
   label: string;
 }
-
-// Five 36px rows visible before the list area scrolls (the Add-list slot sits below, outside
-// the scroll container, so it can never scroll away).
-const MAX_VISIBLE_ROWS = 5;
-const ROW_PX = 36;
 
 export function ListDropdown({
   lists,
@@ -27,67 +26,18 @@ export function ListDropdown({
   onSelect: (id: string) => void;
   onAddList?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const active = lists.find((l) => l.id === activeId) ?? lists[0];
-  // Spec: the currently-open list renders first in the menu, then the rest in given order.
-  const ordered = active ? [active, ...lists.filter((l) => l.id !== active.id)] : lists;
-  if (lists.length === 0 && !onAddList) return null;
-
   return (
-    <div className="relative shrink-0">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-sm font-semibold shadow-inner max-w-[220px]"
-        style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
-        title={active?.label}
-      >
-        <ListIcon className="w-4 h-4 shrink-0" style={{ color: 'var(--color-steel)' }} />
-        <span className="truncate">{active?.label ?? 'Lists'}</span>
-        <ChevronDown className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--color-warm-gray)' }} />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            className="absolute top-full left-0 mt-1 w-52 border rounded-xl shadow-lg z-50 overflow-hidden bg-white flex flex-col"
-            style={{ borderColor: 'var(--color-border)' }}
-          >
-            <div className="py-1 overflow-y-auto" style={{ maxHeight: MAX_VISIBLE_ROWS * ROW_PX }}>
-              {ordered.map((l) => {
-                const isActive = active && l.id === active.id;
-                return (
-                  <button
-                    key={l.id}
-                    onClick={() => { onSelect(l.id); setOpen(false); }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-left"
-                    style={{
-                      height: ROW_PX,
-                      backgroundColor: isActive ? 'var(--color-surface)' : 'transparent',
-                      color: isActive ? 'var(--color-steel)' : 'var(--color-navy-mid)',
-                    }}
-                  >
-                    <span className="truncate flex-1">{l.label}</span>
-                    {isActive && <Check className="w-3.5 h-3.5 shrink-0" />}
-                  </button>
-                );
-              })}
-              {ordered.length === 0 && (
-                <div className="px-3 py-2 text-xs" style={{ color: 'var(--color-warm-gray)' }}>No lists yet</div>
-              )}
-            </div>
-            {onAddList && (
-              <button
-                onClick={() => { setOpen(false); onAddList(); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm font-medium border-t shrink-0"
-                style={{ height: ROW_PX, borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)', backgroundColor: 'white' }}
-              >
-                <Plus className="w-3.5 h-3.5" /> Add list
-              </button>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+    <StandardDropdown
+      options={lists}
+      activeId={activeId}
+      onSelect={onSelect}
+      {...(onAddList ? { onAdd: onAddList } : {})}
+      addLabel="Add list"
+      ariaLabel="Select list"
+      placeholder="Lists"
+      emptyLabel="No lists yet"
+      triggerIcon={<ListIcon className="w-4 h-4 shrink-0" style={{ color: 'var(--color-steel)' }} />}
+    />
   );
 }
 

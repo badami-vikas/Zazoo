@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "test": "node --test-reporter=dot --test src/app/data/*.test.mjs test/*.test.mjs",
     "test:coverage": "node --test src/app/data/*.test.mjs test/*.test.mjs",
+    "test:ui-conformance": "node --test-reporter=dot --test test/ui-conformance.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

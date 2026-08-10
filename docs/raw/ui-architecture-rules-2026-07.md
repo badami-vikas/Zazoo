@@ -5,7 +5,7 @@ doc_kind: design
 status: active
 companions: [requirement-ui-architecture-rules-2026-07-13.md, requirement-bugs-2026-07-14-actionable-shell-second-brain.md, egg-commons-feature-roadmap-2026-07.md, spec-control-panel-icon.md]
 related_wiki: ../wiki/ui-architecture.md
-updated: 2026-07-15
+updated: 2026-08-10
 tags: [ui, information-architecture, pages, sections, views, lists, sub-modules, files, canon]
 ---
 
@@ -88,11 +88,88 @@ Clicking any installed Module in left navigation opens `/module/:moduleId`. Modu
 
 No standalone Skills toggle. Humans and Automations request work from an Agent; only that attributable Agent invokes an allowlisted Skill. Empty Sections use honest empty states rather than invented capability cards.
 
-## 5. Toolbar + 3-dots (Control Panel moves)
+## 5. Toolbar standard (canonical order — updated 2026-08-10)
+
+> **§0 — SCOPE. These rules are GENERIC. There is no per-Module UI standard.**
+> A rule written here binds every Module, every Agent surface, every sub-module,
+> and every workspace the compiler generates. DealPilot, JobPilot, Relationship,
+> Chief of Staff, Artifacts, Second Brain and Task Manager are **examples of the
+> standard being applied**, never places where the standard is defined. If a rule
+> reads as though it belongs to one Module, that phrasing is a defect in this
+> document — fix the phrasing, do not fork the rule. Correspondingly: a behaviour
+> that only one page implements is not a standard, it is a divergence, and §10
+> is what catches it. (User directive 2026-08-10: *"Why is the UI standardization
+> specific for deal pilot or chief of staff agent and not generic for all modules
+> or all agents? Isn't that what standardization means?"*)
+
+**Shell:** Toggle strip (center-aligned, full-width) at the very top of the module header. One row below it is the StandardToolbar. Below that: the Insights chevron (collapsed by default). Below that: the view occupies full remaining screen height with internal scroll ~1.5× screen height.
+
+**Canonical toolbar slot order (left → right):**
+List dropdown → View dropdown → Search → Filter → Custom actions → 3-dots → Insights chevron
+
+- **List dropdown**: every list is a named stored overlay (column show/hide + filters + sorts) over the same Database rows — never a new page. Lists can show different column subsets and different row subsets of the same table. A list shared with a user grants **view permission only** (edit the visible data but not access hidden columns/rows); hidden columns/rows become accessible only if the user is added as **co-owner**.
+- **View dropdown**: switches render mode (table, card, board, calendar, gallery, form, graph, tree). **Map view appears only if a location/coordinate column exists in the current database** — never shown otherwise.
+- **Search**: inline filter over visible rows; does not persist as a list.
+- **Filter**: opens filter builder; filters can be saved as part of a list.
+- **Custom actions**: surface-specific buttons (e.g. "Run Research", "Discover Deals") placed before 3-dots. For card, board, gallery, tree, and other non-table views the **Add [Entity]** button (e.g. "Add Card", "Add Node", "Add Location") lives here — to the right of Filter, left of 3-dots.
+- **3-dots menu**: Add column · View options · Sort options · Export · Admin (mount/unmount, scope, version). **Add column is always inside 3-dots, never in the toolbar itself.** **Sort is inside 3-dots, not a toolbar button.**
+- **Insights chevron**: collapses/expands the Intelligence Section below the view.
+
+**New Element row (inline add):** A fixed, always-visible row appears just above the column summary row at the bottom of the table. Clicking it inserts a new blank row at the bottom with all editable cells in inline-edit mode. This row must never scroll out of view.
+
+**Form is a VIEW, not an alternative to the New Element row (clarified 2026-08-10).** Adding a row inline and opening Form view are two lenses over the same insert path, not competing "add" mechanisms. Consequences that are binding:
+
+- Form view never replaces, hides, or substitutes for the New Element row; a table always has both.
+- Form view carries **no Build/Preview mode toggle**. There is no design-time/run-time split: the form IS the live form. Field configuration (label, help text, required, order, visibility) is reached the same way every other view's configuration is — the 3-dots menu — not through a mode switch above the fields.
+- Editing a form field is the same gesture as editing a cell: **double-click to edit, click outside to auto-save.** There is no Submit-only form and no explicit save button for edits to an existing record. (New-record intake still needs one explicit create action, because "click outside" cannot distinguish an abandoned blank draft from a submission.)
+- Form view is **shareable** under §5's list/view permission model: a shared form grants access to the fields the view exposes and nothing else. Hidden fields stay inaccessible to a view-access recipient regardless of edit rights.
+
+**Cell interactions:**
+- **Double-click any cell** → triggers inline edit of that cell. Clicking outside commits.
+- **Hover any cell** → a subtle uncolored flag icon appears (no layout shift). Clicking it turns the flag red, and it **stays permanently visible** on that cell — faint/subtle but always shown even without hover.
+- **Clicking a red flag REMOVES the red flag** (user directive 2026-08-10). Plain activation is a toggle: unflagged → flagged → unflagged. Inspect/edit/reason/correction-history moved to the **secondary gesture** (right-click, long-press, or Shift+Enter), so the common case costs one click. Clearing remains reversible and audited (§5d).
+
+**Every element (every Record row) has a dedicated routable page** and is clickable from the table or any view. Clicking a row title/primary field navigates to that Record's detail page.
 
 - The ⚙ **Control Panel icon slot** (`controlPanelTo` in `StandardToolbar.tsx`, between Filter and 3-dots — R-018/ADR-029) is **retired as a toolbar slot**. Control Panel becomes an **item inside the 3-dots menu**.
 - **Reconsider Control Panel contents** during alignment: anything that is *data about the page's own records* (resource tables, per-Initiative bindings, status overviews) becomes a **section on the page**; only true *administration* (mounting/unmounting capabilities, scope/permission config, versioning) stays behind the 3-dots → Control Panel.
-- 3-dots menu = page-level actions + admin entries (Control Panel, export, settings-ish); toolbar keeps: List dropdown → view dropdown → search → filter → custom actions → 3-dots → insights chevron.
+
+## 5e. The standard dropdown (added 2026-08-10)
+
+> User directive, verbatim: *"Add and search feature in a dropdown is a standard, not case by case implementation. Ensure its in place."*
+
+Every dropdown that picks from a list of named things — Lists, Views, column pickers, relation pickers, Module pickers, filter-field pickers — renders through **one** primitive (`components/shared/StandardDropdown.tsx`). A page never hand-rolls a menu panel. The primitive always provides:
+
+1. the **currently-selected option first** in the menu;
+2. a **type-to-filter search box** — automatic past 6 options, forcible either way by the caller;
+3. a **pinned "＋ Add …" row at the bottom** that never scrolls away;
+4. five rows visible before the option area scrolls;
+5. Escape to close, `role="listbox"`/`aria-selected` semantics, keyboard reachability.
+
+If a dropdown needs a behaviour this primitive lacks, the behaviour is added **to the primitive**. A local variant is a divergence, and §10 fails the build for it. `ListDropdown` and the `<DataViews>` View switcher are bindings over this primitive, not separate implementations.
+
+## 5f. Right-click and 3-dots menus are one standard (restated 2026-08-10)
+
+Three menus exist platform-wide. All three are compiler-owned and identical in every Module:
+
+| Gesture | Menu | Contents |
+|---|---|---|
+| Right-click a **column header** (or click its header caret) | `StandardColumnMenu` | §5a's ordered command list — rename, edit, change type, Smartfill, filter, sort, group, calculate, lock, hide, add left/right, duplicate, delete, Add page/Remove page |
+| Right-click a **cell** (or its row caret) | `StandardRowMenu` | Open · Edit · Duplicate · Pin · Delete, plus cell-scoped commands (copy value, flag, view provenance) |
+| Click the toolbar **3-dots** | toolbar menu | Add column · View options · Sort · Export · Admin |
+
+Binding rules:
+
+- Right-click MUST open the same menu the visible caret/3-dots button opens. Two gestures, one menu definition — never a second item list.
+- Every right-click command has a visible non-pointer equivalent; context menus are never pointer-only (§5a).
+- Unsupported commands are omitted or disabled **with a stated reason** (AP-021) — never silently greyed.
+- No Module adds a Module-specific item to these menus without the item being added to the shared definition first.
+
+## 5g. Shell invariants (restated 2026-08-10)
+
+- **Both panels are always collapsible and expandable**, and both reveal their control on hover: the resize/extend affordance is hidden at rest and fades in on hover or keyboard focus of the ~8px edge hit-zone (`ResizeHandle`, ADR-187). The collapse toggle itself stays visible in every state.
+- **Headers are always aligned.** One shared height constant (`h-14` / 56 px) governs the rail's organization row, every page header, and the chat-panel header. A surface that sets its own header height is a divergence.
+- **The Zazoo companion is present on every launch of the Bridge app**, on every route, independent of onboarding state (user directive 2026-08-05, restated 2026-08-10). Presence is not gated on organization confirmation or on onboarding completion; only what the companion may *do* is gated (AP-021 — before setup it greets and drives onboarding rather than offering actions that cannot execute).
 
 ## 5a. Standard column + toggle context menus
 
@@ -209,6 +286,77 @@ Aligning the project = executing this checklist against `platform/apps/web`:
 13. Apply §3a actionability audit to every changed card/row/node/status; no dead Module cards or decorative controls.
 
 Exit: typecheck + build green; authority tests prove Skills reject non-Agent actors and closed allowlists; live desktop + 375px checks cover ≥3 restructured Pages, both panel directions, every Module drill-down, Relationship toggles, and Second Brain; repository search finds no visible Tools/Knowledge copy or routes; BUGS/log/dummy ledgers updated.
+
+## 10. Why these rules kept getting lost — and the gate that stops it (2026-08-10)
+
+User challenge, verbatim: *"Critically evaluate why all these rules I had shared earlier got lost and ensure this behaviour doesnt repeat with corrective measures."* The honest post-mortem:
+
+**Failure 1 — the rules were only ever written down.** Every rule in this document was advisory. Nothing in `pnpm verify` failed when a page ignored it. A rule that cannot fail is a preference, and preferences lose to whatever is fastest to write in the moment. This is the root cause; the rest are symptoms.
+
+**Failure 2 — two competing toolbars were allowed to coexist.** `StandardToolbar.tsx` implements §5's slot order — and is used by exactly ONE page (`ApprovalsPage`). The real Module pages route through `<DataViews>`, which grew its **own** inline toolbar (view Select · search · filter input · Columns button · ControlPanel) that never had a List dropdown, never had the canonical order, and put Add-column controls outside the 3-dots. So the toolbar §5 describes and the toolbar users actually see were different objects. Documenting one while shipping the other guaranteed drift.
+
+**Failure 3 — "standardized" was recorded as done when only the component existed.** Building `StandardToolbar`/`ModuleSurfaceLayout`/`DataViews` was logged as the standardization work. Adoption was never measured, so 15 of 21 pages never routed through the shell and nothing surfaced that fact.
+
+**Failure 4 — new surfaces defaulted to hand-rolled.** Writing a fresh page from scratch was always the path of least resistance, because nothing objected. The `ArtifactsPage` built earlier in this same session is a live instance: a bespoke toolbar, a bespoke search input, a bespoke grid. The failure mode is current, not historical.
+
+**Failure 5 — the rules were shared in a rendered format instead of the repository.** A published HTML page is a snapshot; the next session reads the repo. Canon that lives outside `docs/` is canon that will be re-derived from memory. **Corrective: this `.md` is the only store. Rendered views are exports of it, never the source.**
+
+### Corrective measures (landed)
+
+| # | Measure | Where |
+|---|---|---|
+| 1 | **Conformance gate.** Every page under `pages/` must render through `<ModuleSurfaceLayout>` + `<DataViews>`, or appear in an `EXEMPT` map **with a written reason**. A new page that diverges fails the build immediately. | `platform/apps/web/test/ui-conformance.test.mjs` |
+| 2 | **Reinvention scan.** Source patterns that indicate a hand-rolled dropdown, toolbar search slot, or raw `<table>` on a page fail the same gate. | same |
+| 3 | **Ratchet, not a snapshot.** Pre-existing divergences are listed in `KNOWN_DIVERGENCES`. The list can only shrink: a page not on it that diverges fails; a page on it that is fixed also fails until its entry is deleted. The backlog can never grow and can never carry a stale alibi. | same |
+| 4 | **Rule-level assertions.** Specific canon — dropdowns delegating to `StandardDropdown`, red-flag click clearing the flag, keyboard parity for pointer gestures — is asserted directly, so the behaviour cannot regress silently. | same |
+| 5 | **One store.** This file. Wiki companion summarizes; artifacts export. Neither is canon. | `docs/raw/ui-architecture-rules-2026-07.md` |
+
+### Adoption audit, 2026-08-10
+
+Measured by import analysis across `platform/apps/web/src/app/pages/` (21 pages):
+
+```yaml
+conformant:            # standard shell + standard views
+  - DealPilotPage
+  - JobPilotPage
+  - RelationshipPage
+  - SignalsPage
+  - TaskManagerPage
+partial:
+  - OrganizationPage:  DataViews without ModuleSurfaceLayout
+  - SecondBrainPage:   DataViews without ModuleSurfaceLayout
+  - ApprovalsPage:     the only StandardToolbar consumer; no DataViews
+diverged:              # hand-rolled surface, in the ratchet
+  - ArtifactsPage
+  - RelationshipSubmodulePage
+  - ResearchRunsPage
+exempt:                # not Database surfaces — reason recorded in the gate
+  - ChiefOfStaffPage
+  - GoogleIntegrationPanel
+  - HomePage
+  - IntelligencePage
+  - ModuleDetailPage
+  - PublicHelpdesk
+  - RelationshipHelpdeskPage
+  - SettingsPage
+  - TaskRecordDetailPage
+  - WhatsAppPage
+totals:
+  fully_conformant: 5
+  of_pages: 21
+  toolbar_note: >-
+    StandardToolbar has ONE consumer. The canonical slot order in §5 is not what
+    the Module pages render; <DataViews> renders its own competing toolbar.
+    Converging them is the single highest-leverage fix and is tracked as TASK-061.
+```
+
+### Known gaps still open at time of writing (not claimed as done)
+
+- `<DataViews>`'s inline toolbar does not follow §5's slot order and has no List dropdown, no Insights chevron, and Add-column outside the 3-dots.
+- The **New Element row** (§5) is specified but not implemented in either table renderer.
+- **Cell right-click** (§5f) is not wired; only the column-header caret and row 3-dots open menus.
+- **Form view** has no share affordance, no per-field config overlay, and no click-outside-autosave — it is a submit-button form (§5's Form clarification is ahead of the code).
+- **Map view eligibility** is computed from column metadata, but the DealPilot/Relationship specs do not yet declare location columns, so the gating is untested against real data.
 
 ## 9. Questions resolved 2026-07-13 (superseded — kept for trail)
 

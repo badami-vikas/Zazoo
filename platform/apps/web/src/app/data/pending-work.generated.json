@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T19:01:18.677Z",
+  "generatedAt": "2026-08-10T06:12:22.019Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1211,7 +1211,7 @@
     {
       "id": "TASK-036",
       "title": "TASK-036 — Green CI and an honest event backbone",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "CI is green on `main` across every defined job, the `desktop installers` job actually executes rather than skipping, and the kernel's domain Events reach a subscriber instead of being dropped.",
@@ -1229,7 +1229,7 @@
       ],
       "approval": "none (the vocabulary-gate resolution is a canon call and needs its own row)",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 596,

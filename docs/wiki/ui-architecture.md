@@ -2,6 +2,20 @@
 
 full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-2026-07.md) · verbatim: [../raw/requirement-ui-architecture-rules-2026-07-13.md](../raw/requirement-ui-architecture-rules-2026-07-13.md) · AP-011. Binds hand-built pages AND compiler output.
 
+**RULES ARE GENERIC (§0, 2026-08-10).** No per-Module UI standard exists. DealPilot/CoS/JobPilot are *examples of* the standard, never definitions of it. A behaviour only one page implements is a divergence, not a standard.
+
+**ENFORCEMENT (§10, 2026-08-10).** Rules used to live only in docs → nothing failed when a page ignored them → 5 of 21 pages were conformant and two competing toolbars coexisted (`StandardToolbar` = 1 consumer; `DataViews` grew its own). Now `platform/apps/web/test/ui-conformance.test.mjs` fails the build: every page must use `ModuleSurfaceLayout`+`DataViews` or sit in `EXEMPT` with a written reason; hand-rolled dropdowns/search/raw `<table>` fail; pre-existing divergences sit in a **ratchet** that can only shrink (fixed entry not deleted = also fails). Burn-down = TASK-061. **This `.md` is the only store — rendered/HTML exports are never canon.**
+
+**Standard dropdown (§5e).** ONE primitive: `StandardDropdown.tsx`. Always selected-first + type-to-filter search (auto >6 opts) + pinned "＋ Add" that never scrolls + 5 rows then scroll. `ListDropdown` and the View switcher are bindings over it. Missing behaviour → add to the primitive, never a local variant.
+
+**Red flag click = REMOVE flag (§5, 2026-08-10).** Plain click toggles unflagged↔flagged. Inspect/edit/reason/correction moved to right-click / long-press / Shift+Enter.
+
+**Form is a VIEW, not an Add-row alternative (§5).** Table always keeps its New Element row too. **No Build/Preview mode toggle** — field config lives in 3-dots like every other view. Double-click edits, click-outside auto-saves. Shareable under the list/view permission model.
+
+**3 menus, one definition each (§5f).** Column right-click ≡ header caret ≡ `StandardColumnMenu`; cell right-click ≡ row caret ≡ `StandardRowMenu`; toolbar 3-dots = Add column · View options · Sort · Export · Admin. Right-click MUST open the same menu the visible button opens.
+
+**Shell invariants (§5g).** Both panels always collapsible/expandable, affordance revealed on hover/focus. Headers always aligned — one `h-14` constant. **Zazoo companion present on every launch, every route,** ungated by onboarding (only what it may *do* is gated).
+
 **Data shape decide surface:**
 - Different columns, same table / strong sibling cluster → **TOGGLE**. Seeds: Relationship Signals/People/Communities · DealPilot Deals/Sources/Theses. Agents/Automations/Integrations/Files/Results stay standard Sections unless user adds eligible DB-backed Page. Skills never Page.
 - Same columns, same table (row subset) → **LIST** (ListDropdown). Never new page.
