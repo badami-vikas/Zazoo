@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T07:37:07.677Z",
+  "generatedAt": "2026-08-10T07:50:40.759Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1987,6 +1987,112 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 977,
       "rank": 61
+    },
+    {
+      "id": "TASK-062",
+      "title": "TASK-062 — Persist ViewConfig — the unlock behind saved views, lists, sharing and linked views",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Prototype",
+      "outcome": "a named View survives reload. `ViewConfig` is React state today, so every filter, sort, column-visibility choice and List selection is discarded on refresh — which is why Lists, view sharing, personal-vs-collaborative views and linked views are all absent despite the UI for several of them existing. One `view_config` table (id, database_id, name, owner, scope, kind, filters, sorts, groups, hidden_columns, widths) plus CRUD delivers five benchmark capabilities from one schema change.",
+      "prototypeTest": "create a filtered+sorted View on DealPilot Deals, name it, reload the browser, and it returns exactly as configured; the same View appears in the List dropdown for a second session; a second Database shows its own Views and never the first's.",
+      "scope": [
+        "T1/P1 of `docs/raw/capability-audit-notion-airtable-evernote-2026-08-10.md`. Prerequisite for TASK-064 (sharing) and for the personal-vs-collaborative ownership model in ui-architecture-rules §5."
+      ],
+      "evidence": [
+        "capability audit 2026-08-10 §3 — measured from `platform/packages/tables/src/types.ts` and `dataviews/DataViews.tsx`",
+        "no persistence path exists in the repo."
+      ],
+      "requests": [
+        "user directive 2026-08-10 (capability audit vs Notion/Airtable/Evernote)"
+      ],
+      "approval": "user directive 2026-08-10 recorded as APPLIED for task creation and queue position",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 990,
+      "rank": 62
+    },
+    {
+      "id": "TASK-063",
+      "title": "TASK-063 — Record metadata columns from the Event log",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "`created_time`, `created_by`, `last_edited_time`, `last_edited_by` exist as real ColumnKinds derived from the Event log rather than stored twice. Both Notion and Airtable treat these as built-ins, and activity feeds, staleness Automations and \"recently edited\" Views all depend on them.",
+      "prototypeTest": "a Record written through the governed pipeline shows a correct created/last-edited actor and timestamp in a table View; sorting by last-edited orders rows correctly; the values are derived, not writable by a Form or inline edit.",
+      "scope": [
+        "T1/P2 of the capability audit. Cheapest high-leverage field gap — the data already exists in Events."
+      ],
+      "evidence": [
+        "capability audit 2026-08-10 §1 — Bridge has 11 of ~26 benchmark field types",
+        "these four are the lowest-cost of the missing set."
+      ],
+      "requests": [
+        "user directive 2026-08-10"
+      ],
+      "approval": "user directive 2026-08-10 recorded as APPLIED for task creation and queue position",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1003,
+      "rank": 63
+    },
+    {
+      "id": "TASK-064",
+      "title": "TASK-064 — Scoped share grants — wire the built Share panel to Views and Forms",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Prototype",
+      "outcome": "the Share panel recovered from `claude/bridge-ai-launch-e29e00` stops being honestly-disabled and actually shares. Bridge has exactly one sharing primitive today (`helpdeskTickets.accessToken`) and it is not connected to Views; generalize it into a scoped share grant (target, scope, access level, expiry, revocation) so a View or Form can be shared at view-only, edit, or co-owner level — which is what ui-architecture-rules §5 already declares as canon with no implementation behind it.",
+      "prototypeTest": "share a filtered View at view-access with a second identity; that identity can edit visible cells, cannot read a hidden column or a filtered-out row, and gains both only when promoted to co-owner; revoking the grant closes access immediately; a published Form accepts a submission through the ordinary governed insert path.",
+      "scope": [
+        "T1/P3 of the capability audit. Depends on TASK-062 because a share grant needs a persisted View to point at."
+      ],
+      "evidence": [
+        "capability audit 2026-08-10 §3/§4",
+        "the Share UI exists and is disabled with its reason (commit eed00466, AP-021)."
+      ],
+      "requests": [
+        "user directive 2026-08-10 (attached Share panel screenshot)"
+      ],
+      "approval": "user directive 2026-08-10 recorded as APPLIED for task creation and queue position",
+      "dependencies": [
+        "TASK-062 (ready)"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1016,
+      "rank": 64
+    },
+    {
+      "id": "TASK-065",
+      "title": "TASK-065 — Notes and Governance Sections on every Record",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "every Record Detail surface carries the two mandatory Sections canonized in ui-architecture-rules §3b. Notes gives a Record its own body — rich text, checkboxes/checklists, templates, revision history with restore, save-by-email routing, inline attachments. Governance gives per-field provenance, Proposal/approval history, open red flags and their learning state, per-field residency, the read/edit/comment/co-own model, and attributable Agent/Automation Runs.",
+      "prototypeTest": "on a Record in two unrelated Modules, both Sections render; a checklist edit in Notes survives reload and appears in the Record's own revision history with a restore path; Governance shows the real provenance and approval trail for a value written by an Agent, and an open red flag with its learning state.",
+      "scope": [
+        "T2/P7 of the capability audit. This is the \"rows are pages\" shape (Notion) plus the governance half no competitor has — the audit's §9 argues the pair is the product."
+      ],
+      "evidence": [
+        "capability audit 2026-08-10 §5/§9",
+        "Bridge currently has no record comments, no per-Record revision UI, and no Record body."
+      ],
+      "requests": [
+        "user directive 2026-08-10 (\"every element should have a notes section and governance section\")"
+      ],
+      "approval": "user directive 2026-08-10 recorded as APPLIED for task creation, queue position, and the §3b canon addition",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1029,
+      "rank": 65
     }
   ]
 }

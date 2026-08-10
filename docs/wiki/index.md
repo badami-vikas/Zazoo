@@ -34,6 +34,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [oss](oss.md) — open-source picks, build-not-buy, licenses.
 - [competitive](competitive.md) — rivals, easy-adds, avoid, moat.
 - [ui-architecture](ui-architecture.md) — data-shape→surface rules, Form, shared menus, Control Panel→3-dots, Files Section, `~/Documents/Bridge/<Organization>/`; UI-RULES-1 first runtime task. Full View Grammar (8 kinds, eligibility rules, feature list per kind) → [../raw/brd-dataengine-views-2026-07.md](../raw/brd-dataengine-views-2026-07.md) — **2026-07-17, TASK-014 scope**. **Graph view gains scope selector (single-DB/multi-DB/full); Second Brain = Graph at full scope, not a separate surface (ADR-110, 2026-07-17).**
+- [capability-audit](capability-audit.md) — Bridge vs Notion/Airtable/Evernote measured FROM CODE (2026-08-10). 11 of ~26 field types; 8 views; **views are not persisted — one missing table gates 5 benchmark features**; `formula` declared with no evaluator. Bridge-only moat: governed writes, provenance, red-flag learning, Skill columns, local-first, Graph/Second Brain, Commons. Plan sequenced by leverage. Notes + Governance now MANDATORY Record Sections.
 - [design](design.md) — prototype alignment audit + fix spec.
 - [design-system](design-system.md) — brand/type/color tokens + violations.
 - [resilience](resilience.md) — failure-class field guide → Engine/Governance/Learning/Builder/Human ownership.

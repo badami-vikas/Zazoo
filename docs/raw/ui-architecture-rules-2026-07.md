@@ -60,6 +60,34 @@ Page scroll model: page-level vertical scroll containing sections; the landing s
 
 Every Database Record has a dedicated routable Record Detail surface. Record Detail is not a sibling Page and does not create a new toggle. It composes the Record’s Fields plus standard Sections for linked Records, Relations, Tasks, Files, Results, Integrations, Agent/Automation activity, and Event history according to installed Module bindings and permissions. A Module may add domain Sections, but it may not turn section-only content into default Pages.
 
+**Every Record carries two MANDATORY Sections (added 2026-08-10, user directive: "every element should have a notes section and governance section"). They are not Module-optional.**
+
+**Notes** — the Record's own body. A row is not just cells; it is a page (the Notion "rows are pages" shape, with Evernote's note tooling):
+
+- rich text with checkboxes and checklists;
+- templates, including user-authored custom templates;
+- note history with restore — every revision, reversible;
+- save-by-email into the Record, with subject-line routing commands (target Database, tags, reminder);
+- inline attachments, which participate in the Files Section and the local tree (§6);
+- keyboard shortcuts, including user-configurable global ones.
+
+**Governance** — what makes the Notes trustworthy, and what no competitor surface has:
+
+- provenance per field: source, Agent or import, timestamp;
+- Proposal/approval history for every governed write to this Record;
+- open red flags and the learning state of each;
+- residency per field — which plane it lives on, what is mirrored where;
+- who may read, edit, comment, or co-own (the same model §5 gives Lists and Views);
+- Agent and Automation activity attributable to this Record, with Run links.
+
+### 3c. Helpdesk (clarified 2026-08-10)
+
+Helpdesk is an application of the generic rules, not an exception to them (§0):
+
+- **Helpdesk is a Database.** Standard toolbar, views, lists, and Record Detail like any other.
+- **Custom Helpdesk is an associated Database**, so by §2 rule 1 it is a **sibling toggle Page** — not a sub-module, not a bespoke surface.
+- **"Public" is a property-level feature, not a database type.** It marks which of a Helpdesk Record's properties are publicly exposed, and surfaces two standard ways: a checkbox inside Record Detail, and a command on the cell/row right-click menu (§5f). It never creates a second Database; a Record's public projection is a filtered view of the same row.
+
 ### 3a. Actionability contract
 
 Every affordance does something useful. A card, row, node, badge, count, status, recommendation, Module name, or graph edge that looks interactive must open detail, edit, filter, provenance/explanation, or a governed Action. Read-only information uses plain non-interactive styling. Disabled Actions show the missing permission/dependency and next step. Keyboard, pointer, and touch paths reach the same Actions. Tests fail for clickable-looking elements without a route or handler and for handlers that only dismiss without an outcome.

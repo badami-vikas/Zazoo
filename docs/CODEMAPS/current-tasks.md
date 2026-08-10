@@ -34,3 +34,7 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-059 | ready | P3 | Avatar text replacement | TASK-027 |
 | TASK-060 | ready | P3 | opensrc-backed code research for Builder Agent and Learning Agent | TASK-023 |
 | TASK-061 | ready | P1 | UI standardization convergence — one toolbar, one shell, one dropdown | none |
+| TASK-062 | ready | P1 | Persist ViewConfig — the unlock behind saved views, lists, sharing and linked views | none |
+| TASK-063 | ready | P2 | Record metadata columns from the Event log | none |
+| TASK-064 | ready | P1 | Scoped share grants — wire the built Share panel to Views and Forms | TASK-062 |
+| TASK-065 | ready | P2 | Notes and Governance Sections on every Record | none |
