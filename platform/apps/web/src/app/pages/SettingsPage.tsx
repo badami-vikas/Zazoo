@@ -274,7 +274,7 @@ type RetrievalEvalList = Awaited<ReturnType<typeof trpc.learning.retrieval.evals
 type CaptureStatus = Awaited<ReturnType<typeof trpc.learning.capture.status.query>>;
 
 const CAPTURE_SOURCE_COPY: Record<
-  "chat" | "whatsapp",
+  "chat" | "whatsapp" | "google",
   { label: string; description: string }
 > = {
   chat: {
@@ -284,6 +284,10 @@ const CAPTURE_SOURCE_COPY: Record<
   whatsapp: {
     label: "WhatsApp messages",
     description: "Your own outbound messages become behavior signals (group/direct and time of day only — never the message body, never anyone else's messages).",
+  },
+  google: {
+    label: "Google email & calendar",
+    description: "Email threads and calendar events you approve into Bridge become metadata signals (sender, subject, time; event attendees — never message bodies or event descriptions).",
   },
 };
 
@@ -309,7 +313,7 @@ function CaptureConsentCard() {
 
   if (!status?.enabled) return null;
 
-  async function flipSource(source: "chat" | "whatsapp", enabled: boolean) {
+  async function flipSource(source: "chat" | "whatsapp" | "google", enabled: boolean) {
     await trpc.learning.capture.setSource.mutate({ organizationId: PILOT_ORGANIZATION, source, enabled });
     setMessage(
       enabled
@@ -342,7 +346,7 @@ function CaptureConsentCard() {
           Off by default. Each source is a separate consent; turning one on lets Bridge notice YOUR OWN rhythms in data
           it already holds locally. Signals are envelope-only (never message text), private, Local Plane, and deletable.
         </p>
-        {(["chat", "whatsapp"] as const).map((source) => {
+        {(["chat", "whatsapp", "google"] as const).map((source) => {
           const row = status.sources[source];
           return (
             <div key={source} className="rounded-lg border p-3 flex items-start justify-between gap-3">

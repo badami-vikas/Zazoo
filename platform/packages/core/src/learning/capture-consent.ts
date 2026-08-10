@@ -29,10 +29,15 @@
  *    boolean).
  */
 
-/** The K2 sources. Later capture rungs (email/calendar = K5, app-focus = K7,
- * browser = K8) add members here — each new member is a new consent surface
- * by construction, because `defaultCaptureConsent` starts it OFF. */
-export const CAPTURE_SOURCES = ["chat", "whatsapp"] as const;
+/** The capture sources. K2 shipped "chat" and "whatsapp"; K5 adds "google" —
+ * the connected Google account's approved email threads and calendar events,
+ * metadata-first (the plan's "per-account toggle": the pilot holds exactly one
+ * Google account per user, so the account-shaped consent IS this one source;
+ * a multi-account future grows the key, not this contract). Later capture
+ * rungs (app-focus = K7, browser = K8) add members here — each new member is
+ * a new consent surface by construction, because `defaultCaptureConsent`
+ * starts it OFF. */
+export const CAPTURE_SOURCES = ["chat", "whatsapp", "google"] as const;
 export type CaptureSource = (typeof CAPTURE_SOURCES)[number];
 
 export function isCaptureSource(value: unknown): value is CaptureSource {

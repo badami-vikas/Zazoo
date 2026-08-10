@@ -1,5 +1,5 @@
 /**
- * Categorical colour for graph nodes (ADR-222).
+ * Categorical colour for graph nodes (ADR-223).
  *
  * WHY THIS REPLACES A HASH. `GraphView` used to colour a node by hashing its
  * `databaseId` into `hsl(hash % 360, 52%, 48%)`. Two problems, both fatal to the

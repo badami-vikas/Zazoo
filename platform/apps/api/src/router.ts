@@ -87,6 +87,7 @@ import {
   PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE,
   ledgerSignalId,
   chatCaptureSignalId,
+  googleCaptureSignalId,
   whatsAppCaptureSignalId,
   resolveLocalPlanningModel,
   type Wiring,
@@ -241,7 +242,7 @@ import {
 import { WEB_RESEARCH_SKILL_ID } from "./web-research-skill.js";
 import type { ModelBinding } from "@bridge/capability-kit";
 import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
-import { authUrl } from "@bridge/integrations-google";
+import { authUrl, CALENDAR_SOURCE, GMAIL_SOURCE, type IntakeDirective } from "@bridge/integrations-google";
 import {
   routeHelpRequest,
   draftHelpOffer,
@@ -274,8 +275,10 @@ import {
   rejectSuggestion as rejectLearningSuggestion,
   retrieveLearnedPreferences,
   CAPTURE_SOURCES,
+  calendarEventCaptureSignal,
   captureAllowed,
   chatTurnCaptureSignal,
+  gmailThreadCaptureSignal,
   readCaptureConsent,
   recordSignal as recordCaptureSignal,
   whatsAppMessageCaptureSignal,
@@ -463,6 +466,96 @@ async function readCaptureConsentState(
   return readCaptureConsent(
     await wiring.localPlane.state.read(organizationId, LEARNING_CAPTURE_CONSENT_NAMESPACE),
   );
+}
+
+/**
+ * AI Harness K5 (TASK-049): after an approved Google intake proposal has
+ * MATERIALIZED, emit metadata-only capture signals under the "google"
+ * consent source (flight on, consent explicitly ON — default off).
+ *
+ * The emission moment is deliberately post-approval, not sync time: the
+ * human's approval of the intake row is the warrant for learning from it,
+ * and a record the user vetoes never becomes a signal. The envelope mappers
+ * (@bridge/core source-emitters) cannot express a thread's snippet/bodies or
+ * an event's description — this call site reads ONLY the metadata fields off
+ * the approved directive payload, so there is no code path from content to a
+ * signal row. Ids are deterministic per SOURCE record, so a reconcile replay
+ * or re-approval never duplicates a signal.
+ *
+ * Failure here is caught and logged, never thrown: the user's approval has
+ * already applied, and capture bookkeeping must not turn a materialized
+ * decision into an error response. A lost emission self-heals on the next
+ * reconcile replay of the same proposal (same deterministic id, still absent).
+ */
+async function emitGoogleCaptureSignals(
+  wiring: Wiring,
+  resolved: Proposal,
+): Promise<void> {
+  try {
+    if (!wiring.learningObservationEnabled) return;
+    const ownerUserId =
+      resolved.request.onBehalfOf?.type === "user" ? resolved.request.onBehalfOf.id : null;
+    if (!ownerUserId) return;
+    const organizationId = resolved.request.organizationId;
+    const consent = await readCaptureConsentState(wiring, organizationId);
+    if (!captureAllowed(consent, "google")) return;
+    const out = resolved.output?.proposedOutput as { directive?: IntakeDirective } | undefined;
+    const entities = out?.directive?.entities;
+    if (!Array.isArray(entities)) return;
+    const owner = { organizationId, userId: ownerUserId };
+    for (const entity of entities) {
+      // Only the Interaction Event row signals — a possible_duplicate Signal
+      // or the private Memory copy is not an interaction that happened.
+      if (entity.kind !== "event") continue;
+      const payload =
+        typeof entity.payload === "object" && entity.payload !== null && !Array.isArray(entity.payload)
+          ? (entity.payload as Record<string, unknown>)
+          : {};
+      const subject = typeof payload.subject === "string" ? payload.subject : "";
+      const occurredAt = typeof payload.occurredAt === "string" ? payload.occurredAt : null;
+      const counterparty = typeof payload.with === "string" && payload.with.length > 0 ? payload.with : null;
+      if (!occurredAt) continue;
+      const signalId = googleCaptureSignalId(entity.source, entity.sourceRecordId);
+      if (await wiring.memoryStore.get(signalId, owner)) continue;
+      const scope = { organizationId, userId: ownerUserId };
+      const signal =
+        entity.source === GMAIL_SOURCE
+          ? gmailThreadCaptureSignal(
+              {
+                threadId: entity.sourceRecordId,
+                subject,
+                counterpartyEmail: counterparty,
+                lastMessageAt: occurredAt,
+                ...(entity.taintLabel ? { taintLabel: entity.taintLabel } : {}),
+              },
+              scope,
+              signalId,
+            )
+          : entity.source === CALENDAR_SOURCE
+            ? calendarEventCaptureSignal(
+                {
+                  eventId: entity.sourceRecordId,
+                  summary: subject,
+                  startsAt: occurredAt,
+                  attendeeEmails: Array.isArray(payload.attendees)
+                    ? payload.attendees.filter((email): email is string => typeof email === "string")
+                    : counterparty
+                      ? [counterparty]
+                      : [],
+                  ...(entity.taintLabel ? { taintLabel: entity.taintLabel } : {}),
+                },
+                scope,
+                signalId,
+              )
+            : null;
+      if (signal) await recordCaptureSignal(wiring.memoryStore, signal);
+    }
+  } catch (cause) {
+    console.error(
+      `K5 google capture emission failed for proposal ${resolved.id} — the approval stands; a reconcile replay will re-attempt`,
+      cause,
+    );
+  }
 }
 
 /**
@@ -4194,6 +4287,7 @@ async function reconcileApprovedExternalEffect(
   const resolved = proposalFromResolvedRelationshipLedger(original, decision);
   try {
     const effects = await ctx.wiring.google.onApproved(proposalId, resolved, ctx.run);
+    if (effects.materialized) await emitGoogleCaptureSignals(ctx.wiring, resolved);
     const dealPilotEffects = await materializeDealPilotApproval(ctx.wiring, resolved);
     return {
       proposalId,
@@ -9372,6 +9466,7 @@ export const appRouter = t.router({
           );
         }
         const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
+        if (effects.materialized) await emitGoogleCaptureSignals(ctx.wiring, resolved);
         const dealPilotEffects =
           resolved.status === "applied"
             ? await materializeDealPilotApproval(ctx.wiring, resolved)

@@ -669,6 +669,10 @@ export interface BuildWiringOptions {
   webResearchContentGuard?: ContentGuard;
   /** Test-only adapter injection. Runtime defaults to the real OS keyring. */
   dealPilotCredentialVault?: SourceCredentialVault;
+  /** Test-only Google gateway injection (K5 capture tests drive the REAL
+   * intake pipeline over a fixture gateway). Runtime always resolves from
+   * the environment: real googleapis when configured, fail-closed when not. */
+  googleGateways?: GoogleGatewayFactory;
   /** Test-only opt-in; runtime must name a durable Local Plane directory. */
   allowEphemeralLocalPlane?: boolean;
   localDir?: string;
@@ -872,6 +876,14 @@ export function chatCaptureSignalId(turnId: string): string {
 
 export function whatsAppCaptureSignalId(messageId: string): string {
   return deterministicUuid(`learning:signal:whatsapp:${messageId}`);
+}
+
+/** K5 (TASK-049): one signal per approved Google intake record, keyed by the
+ * SOURCE record id (thread/event) — re-approving, reconciling, or re-syncing
+ * the same record derives the same id and is skipped, exactly like the K2
+ * ids above. */
+export function googleCaptureSignalId(source: string, sourceRecordId: string): string {
+  return deterministicUuid(`learning:signal:google:${source}:${sourceRecordId}`);
 }
 
 function createObservationDigestSkill(deps: {
@@ -5294,11 +5306,15 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   try {
   // Google egress adapter: real googleapis when configured. NO fake fallback — the
   // platform sources only real data; if unconfigured, Google calls fail closed.
+  // (`options.googleGateways` is the composition-test seam, never set at runtime.)
   const googleOAuth = oauthConfigFromEnv();
-  const gateways: GoogleGatewayFactory = googleOAuth
-    ? new GoogleApiGatewayFactory(googleOAuth, localPlane.secrets)
-    : new MissingGoogleGatewayFactory();
-  const googleGatewayKind: "google" | "unconfigured" = googleOAuth ? "google" : "unconfigured";
+  const gateways: GoogleGatewayFactory =
+    options.googleGateways ??
+    (googleOAuth
+      ? new GoogleApiGatewayFactory(googleOAuth, localPlane.secrets)
+      : new MissingGoogleGatewayFactory());
+  const googleGatewayKind: "google" | "unconfigured" =
+    googleOAuth || options.googleGateways ? "google" : "unconfigured";
 
   // Register the Google skills (source/stage/compose) into the pipeline registry.
   for (const s of googleSkills({ gateways, bodies: localPlane.bodies })) skillRegistry.register(s);

@@ -1,5 +1,5 @@
 /**
- * The two pure pieces of the graph's visual encoding (ADR-222): categorical
+ * The two pure pieces of the graph's visual encoding (ADR-223): categorical
  * node colour + legend, and edge-label placement/fade.
  *
  * These are source-text assertions in the same style as the other web tests —
@@ -18,7 +18,7 @@ const palette = readFileSync(join(DATAVIEWS, "graph-palette.ts"), "utf8");
 const labels = readFileSync(join(DATAVIEWS, "graph-edge-label.ts"), "utf8");
 const view = readFileSync(join(DATAVIEWS, "views", "GraphView.tsx"), "utf8");
 
-test("node colour is categorical and explained, never a hue hash (ADR-222)", () => {
+test("node colour is categorical and explained, never a hue hash (ADR-223)", () => {
   // The hash is the thing being replaced: 360-way hashing made two Modules
   // routinely render the same colour and told the reader nothing.
   assert.doesNotMatch(view, /hsl\(\$\{Math\.abs\(hash\)/);

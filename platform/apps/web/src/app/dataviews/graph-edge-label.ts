@@ -1,5 +1,5 @@
 /**
- * Placement for the relation label drawn on a graph edge (ADR-222).
+ * Placement for the relation label drawn on a graph edge (ADR-223).
  *
  * Bridge has REAL typed Relations, which the file-link tools (Obsidian, Logseq,
  * Roam) structurally do not — their edges are untyped wikilinks, which is why

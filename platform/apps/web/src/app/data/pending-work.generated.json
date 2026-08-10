@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T10:20:07.492Z",
+  "generatedAt": "2026-08-10T11:47:18.120Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1616,26 +1616,35 @@
     {
       "id": "TASK-049",
       "title": "TASK-049 — K5 — Capture: email + calendar signals, metadata-first",
-      "status": "pending",
+      "status": "open",
       "priority": "P2",
       "horizon": "Core Modules",
       "outcome": "The Google integration emits learning signals metadata-first (sender/subject/time; calendar events + attendees) under a per-account toggle; content summarization is later and separately gated. This rung is what makes commitments and the brief genuinely good.",
-      "prototypeTest": "with the account toggle off, nothing is emitted; on, metadata signals appear as inspectable/deletable Memory and NO body content is present in any emitted signal (asserted over a fixture with a distinctive body string).",
+      "prototypeTest": "with the account toggle off, nothing is emitted; on, metadata signals appear as inspectable/deletable Memory and NO body content is present in any emitted signal (asserted over a fixture with a distinctive body string). PASSED: `apps/api/test/google-capture.test.ts` drives the REAL wiring over a fixture gateway — consent-off silence, metadata-only emission (distinctive body/snippet/description strings asserted absent), veto silence, replay idempotency, deletability.",
       "scope": [
         "`docs/raw/ai-harness-plan-2026-08-09.md` K5",
         "existing Google integration surfaces."
       ],
       "evidence": [
-        "harness-plan capture invariants."
+        "ADR-221. Shipped: `\"google\"` as the third `CAPTURE_SOURCES` member (one account-shaped toggle",
+        "K2 state machine unchanged)",
+        "`gmailThreadCaptureSignal`/`calendarEventCaptureSignal` core mappers whose envelopes cannot express snippet/body/description",
+        "emission at post-approval materialization via both `google.onApproved` call sites with deterministic per-source-record ids (`googleCaptureSignalId`)",
+        "staged calendar payload gains invite-list emails",
+        "`BuildWiringOptions.googleGateways` test seam",
+        "Settings renders the third consent card. Verified: core 13/13 (4 RED under mutation), api 4/4 (2 RED under mutation), `pnpm verify` green, live durable-boot walk (google OFF by default beside the K2 sources → Human flip records who/when → sync fails CLOSED without OAuth → pause keeps consent → restart proves durability). Honest residuals: no live end-to-end with a real Google account (ADR-215 OAuth client registration is the standing blocker)",
+        "attendees may include the owner's address (self-exclusion deferred to K6)",
+        "`timeOfDay` on the API's local clock (K2's named limit)."
       ],
       "requests": [
-        "user directive 2026-08-09 (\"start on AI harness\")"
+        "user directive 2026-08-09 (\"start on AI harness\")",
+        "\"start on k5\" 2026-08-10"
       ],
-      "approval": "AP-131 APPLIED",
+      "approval": "AP-131 APPLIED; AP-141 APPLIED",
       "dependencies": [
         "TASK-044"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done (2026-08-10)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 813,

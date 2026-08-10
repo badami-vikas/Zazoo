@@ -811,15 +811,15 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K5 — Capture: email + calendar signals, metadata-first
 - ID: TASK-049
-- Status: ready
+- Status: done (2026-08-10)
 - Priority: P2
 - Horizon: Core Modules
 - Outcome: The Google integration emits learning signals metadata-first (sender/subject/time; calendar events + attendees) under a per-account toggle; content summarization is later and separately gated. This rung is what makes commitments and the brief genuinely good.
-- Prototype test: with the account toggle off, nothing is emitted; on, metadata signals appear as inspectable/deletable Memory and NO body content is present in any emitted signal (asserted over a fixture with a distinctive body string).
+- Prototype test: with the account toggle off, nothing is emitted; on, metadata signals appear as inspectable/deletable Memory and NO body content is present in any emitted signal (asserted over a fixture with a distinctive body string). PASSED: `apps/api/test/google-capture.test.ts` drives the REAL wiring over a fixture gateway — consent-off silence, metadata-only emission (distinctive body/snippet/description strings asserted absent), veto silence, replay idempotency, deletability.
 - Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K5; existing Google integration surfaces.
-- Evidence: harness-plan capture invariants.
-- Requests: user directive 2026-08-09 ("start on AI harness")
-- Approval: AP-131 APPLIED
+- Evidence: ADR-222. Shipped: `"google"` as the third `CAPTURE_SOURCES` member (one account-shaped toggle; K2 state machine unchanged); `gmailThreadCaptureSignal`/`calendarEventCaptureSignal` core mappers whose envelopes cannot express snippet/body/description; emission at post-approval materialization via both `google.onApproved` call sites with deterministic per-source-record ids (`googleCaptureSignalId`); staged calendar payload gains invite-list emails; `BuildWiringOptions.googleGateways` test seam; Settings renders the third consent card. Verified: core 13/13 (4 RED under mutation), api 4/4 (2 RED under mutation), `pnpm verify` green, live durable-boot walk (google OFF by default beside the K2 sources → Human flip records who/when → sync fails CLOSED without OAuth → pause keeps consent → restart proves durability). Honest residuals: no live end-to-end with a real Google account (ADR-215 OAuth client registration is the standing blocker); attendees may include the owner's address (self-exclusion deferred to K6); `timeOfDay` on the API's local clock (K2's named limit).
+- Requests: user directive 2026-08-09 ("start on AI harness"); "start on k5" 2026-08-10
+- Approval: AP-131 APPLIED; AP-142 APPLIED
 - Dependencies: TASK-044
 
 ## K6 — Recommendation rhythm: morning brief + commitments
