@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd LaunchAgent for the Recon enrichment scheduler.
+
+  This is a TEMPLATE — the __TOKENS__ are filled in by deploy/install.sh, which
+  substitutes the absolute paths for your machine. Do not load this file as-is.
+
+  launchd is the root supervisor: KeepAlive restarts the daemon if it crashes,
+  RunAtLoad starts it at login. You do NOT need pm2 or any agent watchdog on top.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.bridge.recon.scheduler</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__NODE__</string>
+        <string>__RECON_DIR__/scripts/scheduler.mjs</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__RECON_DIR__</string>
+
+    <!-- launchd starts processes with a minimal PATH; the scheduler shells out to
+         `npx tsx`, so the node bin dir MUST be on PATH or the worker won't launch. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__NODE_BIN__:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart on crash. The daemon itself decides when to PAUSE for throttling;
+         that's an idle loop, not an exit, so KeepAlive won't fight the breaker. -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Don't hammer a restart loop if it dies immediately at boot. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>__RECON_DIR__/data/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__RECON_DIR__/data/launchd.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
