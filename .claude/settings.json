@@ -159,5 +159,5 @@
     "ui-to-vue": "off",
     "x-api": "off"
   },
-  "autoCompactWindow": 400000
+  "autoCompactWindow": 450000
 }

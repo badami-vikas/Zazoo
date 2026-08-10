@@ -3269,6 +3269,13 @@ Separately, at the user's request `autoCompactWindow: 400000` is now a project d
 - Verified: four new tests seen RED first (10 tests, 6 pass/4 fail before; 10/10 after), made to fail on behavior rather than compilation by landing the `degraded` field first. `check:vocabulary` output byte-identical with and without the change. Not claimed: no live run against a real Ollama — none is installed on this machine, which is exactly the condition the fix addresses.
 - Separately recorded in BUGS.md while gathering that evidence: `pnpm verify` fails at `check:vocabulary` on a CLEAN `main` (`500fbb8`) with 90 WhatsApp/manifests findings that were never baselined, so CI's `platform` job is red — and `supabase-migrate` declares `needs: platform`, meaning **hosted Supabase migrations have not been applying** while Render's `autoDeploy` continues to ship API code on every push. Not confirmed against Actions run history (no `gh` CLI here); flagged, not fixed.
 
+## 2026-08-10 — AI Harness K4: fusion feeds every run, the memory slot gets a meter, and the Local Plane gets its semantic default (ADR-220, AP-140, TASK-048)
+
+- The two model-run surfaces whose memory slot K0 reserved and nothing fed — `@communications` and `@agent` — now retrieve through the SAME fusion machinery as `chat.turn.send`, per-run gated on the flight and the resolved provider's plane (local-plane private memory never rides into a cloud model's prompt). Accepted K3 claims reach every run: the capture-provider tests assert the literal claim text in both projected system prompts, and its absence with the flight off. Two seen-RED mutations (budget-never-binds: 4 tests; fusion-never-feeds: 2 tests).
+- Layer B lands at the door: `assembleRunContext` enforces `MEMORY_SLOT_BUDGET_CHARS` (12k chars) with a tighten-only override (widening clamps DOWN), ranked-prefix truncation (whole best snippets first; a top snippet bigger than the whole budget is truncated rather than lost), and a `trace.memoryBudget` meter that reports on EVERY memory-carrying run, not only violations. "Fusion feeds every run" and "no run spends an unbounded prompt on retrieval" are one property now.
+- The semantic embedder becomes the Local-Plane DEFAULT, resolved from a dedicated Ollama adapter at the `semanticEmbedder` seam (the desktop is the local plane; its vector lane previously ran lexical forever with no upgrade path). The FIRST attempt registered Ollama into local mode's completion providers — the existing converse suite failed it on the spot: a down daemon hard-fails every turn, because completions have no per-call fallback; only embeddings carry the ADR-213 degrade. Resolution moved to the seam where the degrade can catch it. The live durable boot's 30-second indexer pass logged the ADR-213 degrade warn naming the configured Ollama space — resolved by default, attempted, honestly downgraded to lexical with no daemon installed, which is that invariant's fourth live data point. TASK-043 E5 (paraphrase-robust rejection fingerprints) is unblocked.
+- Found by running the gates before building: the fast-forwarded tip was RED (`modules.test.ts` still asserted the Helpdesk-retiring behavior the stranded-branch recovery deliberately reversed — test updated to the new contract, 25/25) and the recovered branch's ADR-194/195 + AP-114/115 collided with upstream numbers (renumbered ADR-218/219 + AP-138/139, all cross-references updated). Same pattern as last night, same repair precedent.
+
 ## 2026-08-10 — Merge repair: a parallel branch's push clobbered ADR-197..214 and the K-ladder task rows; restored, its novel content grafted (ADR-217; TASK-055..060; AP-137 renumber)
 
 - Remote commit `5d93778` ("fix(ci): unblock all CI gates", authored on a parallel cloud branch) landed the TASK-036 vocabulary-allowlist batch (its AP-135) and ESLint/lint fixes — but its ledger merge kept that branch's OWN `docs/TASKS.md` and `docs/raw/decisions-log.md` wholesale: upstream ADR-197..214 (every TM slice + the whole AI Harness K-ladder record) were deleted, TASK-050..054 rows vanished, and TASK-044..049 were repurposed for its companion tasks — despite the commit message's own "upstream takes precedence for numbering" rule. Found at K3 push time when the push was rejected non-fast-forward.
@@ -3321,7 +3328,7 @@ User challenged why previously-shared UI rules kept disappearing and why "every 
 - `docs/TASKS.md` — TASK-061 (P1) for the convergence itself.
 
 **Not claimed as done** (recorded in §10): DataViews toolbar still non-conformant; New Element row unimplemented; cell right-click unwired; Form view has no share affordance, no per-field config, no click-outside autosave; Map eligibility untested against real location columns.
-## 2026-08-06 — Table renderer reversed: canvas out, DOM `<table>` + windowing in (ADR-194, AP-114)
+## 2026-08-06 — Table renderer reversed: canvas out, DOM `<table>` + windowing in (ADR-218/AP-138, renumbered 2026-08-10 from the stranded branch's ADR-194/AP-114)
 
 Owner reported the table was not the Avilo replica asked for and asked directly whether Glide was
 the cause, restating "my priority is UI over others". It was the cause: `glide-data-grid` paints to
@@ -3358,7 +3365,7 @@ failing against a mutated implementation first. `check:vocabulary` clean for eve
 Reported, not fixed: `StandardColumnMenuPanel` still paints `bg-white` — a dark-mode leak predating
 this change, left out to keep the rewrite scoped.
 
-## 2026-08-06 — Files Section becomes a real file explorer (ADR-195, AP-115)
+## 2026-08-06 — Files Section becomes a real file explorer (ADR-219/AP-139, renumbered 2026-08-10 from the stranded branch's ADR-195/AP-115)
 
 Owner asked for the file explorer UI to resemble a file explorer, with a screenshot of a folder-tile
 grid. **The screenshot is the native macOS Open panel** — raised by the hidden `<input type="file">`,
@@ -3388,7 +3395,7 @@ immutable 0.3.1; the card scanner needs a multimodal seam on `ModelProvider`, wh
 
 ## 2026-08-10 (2) — stranded-branch recovery, cell right-click, capability audit
 
-**The "erosion" was stranding.** User reported repeatedly that features "built earlier" were missing — the Form View Share panel, the Artifacts/Files explorer, the Add-record row. Git forensics found all of them on `claude/bridge-ai-launch-e29e00`: 8 commits, built 2026-08-06, **never merged to main**. Nothing was deleted; nothing on main could ever have shown them. Merged (2640d316) — conflicts were append-only ledgers plus one generated file and the vocabulary allowlist; **no source-file conflicts**. Recovered: Share panel, Files explorer (ADR-195), Add-record row, DOM table + windowing (ADR-194), Helpdesk as NetworkManager sub-module, column-menu consolidation.
+**The "erosion" was stranding.** User reported repeatedly that features "built earlier" were missing — the Form View Share panel, the Artifacts/Files explorer, the Add-record row. Git forensics found all of them on `claude/bridge-ai-launch-e29e00`: 8 commits, built 2026-08-06, **never merged to main**. Nothing was deleted; nothing on main could ever have shown them. Merged (2640d316) — conflicts were append-only ledgers plus one generated file and the vocabulary allowlist; **no source-file conflicts**. Recovered: Share panel, Files explorer (ADR-219), Add-record row, DOM table + windowing (ADR-218), Helpdesk as NetworkManager sub-module, column-menu consolidation.
 
 **Deleted my own duplicate.** `ArtifactsPage.tsx`, written earlier the same session, duplicated the branch's `ModuleFilesSection` — which is strictly better and already mounted on ten pages. Removed it, its route, and the DealPilot Artifacts tab: Files are a Section below the table (§3), not a sibling toggle Page. This also cleared 21 of 25 `check:vocabulary` violations (`artifact` is a retired family). Remaining four were the branch's "Add element" copy → renamed to "Add record" (`Element` retired; `Record` is the glossary term).
 

@@ -162,6 +162,20 @@ export interface RunTraceMetadata {
   /** `LedgerEntry.id`s this run is already linked to (e.g. the proposal that triggered
    * it) — empty when this run has not yet produced or been triggered by a ledger row. */
   ledgerEntryIds: string[];
+  /** Layer B meter for the memory slot (AI Harness K4, ADR-177's budget envelope):
+   * present whenever the caller supplied memory — a meter that always reports beats
+   * one that only reports violations. */
+  memoryBudget?: MemoryBudgetReport;
+}
+
+/** What the memory-slot budget did to this run's retrieval input. */
+export interface MemoryBudgetReport {
+  budgetChars: number;
+  suppliedSnippets: number;
+  includedSnippets: number;
+  droppedSnippets: number;
+  /** True when the last included snippet was hard-truncated to fit. */
+  truncatedFinalSnippet: boolean;
 }
 
 export interface ModelConversationSegment {
@@ -253,11 +267,66 @@ export interface AssembleRunContextInput {
   disclosedCapabilities?: DisclosedCapability[];
   governance: RunGovernanceState;
   memory?: RetrievedMemorySnippet[];
+  /** Tighten-only override of the memory-slot budget (AI Harness K4). Values above
+   * `MEMORY_SLOT_BUDGET_CHARS` are clamped DOWN to it — the ceiling is policy, and a
+   * widening override would make the budget advisory. */
+  memoryBudgetChars?: number;
   conversationHistory?: readonly ModelConversationSegment[];
   outputContract: RunOutputContract;
   /** Ledger entry ids this run is already linked to (e.g. a triggering proposal's
    * ledger row id) — defaults to an empty array for a run with no prior ledger link. */
   ledgerEntryIds?: string[];
+}
+
+/**
+ * Layer B ceiling for the memory slot, in characters of snippet text (AI Harness K4;
+ * ADR-177's budget envelope applied at the one context door). Roomy for the fusion
+ * retriever's normal output (≤5 snippets, typically well under 2k chars each) while
+ * actually binding against the pathological case (each snippet may carry up to 4k
+ * chars) — without a ceiling here, "fusion feeds every run" would also mean "any run
+ * can silently spend an unbounded prompt on retrieval".
+ */
+export const MEMORY_SLOT_BUDGET_CHARS = 12_000;
+
+/**
+ * Enforce the memory-slot budget over RANKED snippets (fusion returns them best-first,
+ * so the kept prefix is the highest-value subset): include whole snippets while they
+ * fit; the first snippet that would overflow — and everything after it — is dropped.
+ * One exception: when even the TOP snippet exceeds the budget it is hard-truncated to
+ * fit rather than dropped, because a run that retrieved something should never lose
+ * its single best hit to the meter. Pure and deterministic; the report goes on the
+ * trace whenever memory was supplied.
+ */
+export function enforceMemoryBudget(
+  memory: readonly RetrievedMemorySnippet[],
+  budgetChars: number = MEMORY_SLOT_BUDGET_CHARS,
+): { memory: RetrievedMemorySnippet[]; report: MemoryBudgetReport } {
+  const budget = Math.min(Math.max(0, Math.floor(budgetChars)), MEMORY_SLOT_BUDGET_CHARS);
+  const included: RetrievedMemorySnippet[] = [];
+  let used = 0;
+  let truncatedFinalSnippet = false;
+  for (const snippet of memory) {
+    if (used + snippet.text.length <= budget) {
+      included.push(snippet);
+      used += snippet.text.length;
+      continue;
+    }
+    if (included.length === 0 && budget > 0) {
+      included.push({ ...snippet, text: snippet.text.slice(0, budget) });
+      truncatedFinalSnippet = true;
+    }
+    break;
+  }
+  return {
+    memory: included,
+    report: {
+      budgetChars: budget,
+      suppliedSnippets: memory.length,
+      includedSnippets: included.length,
+      droppedSnippets: memory.length - included.length,
+      truncatedFinalSnippet,
+    },
+  };
 }
 
 /**
@@ -270,6 +339,11 @@ export interface AssembleRunContextInput {
  * (determinism.ts's discipline).
  */
 export function assembleRunContext(input: AssembleRunContextInput, runCtx: RunCtx): ModelRunContext {
+  // AI Harness K4: the memory slot is budgeted AT THE DOOR — every run that
+  // carries retrieval pays the same enforcement, chat and non-chat alike.
+  const budgeted = input.memory
+    ? enforceMemoryBudget(input.memory, input.memoryBudgetChars ?? MEMORY_SLOT_BUDGET_CHARS)
+    : null;
   return {
     persona: input.persona,
     request: input.request,
@@ -277,13 +351,14 @@ export function assembleRunContext(input: AssembleRunContextInput, runCtx: RunCt
     contextItems: input.contextItems ?? [],
     disclosedCapabilities: input.disclosedCapabilities ?? [],
     governance: input.governance,
-    memory: input.memory ?? [],
+    memory: budgeted ? budgeted.memory : [],
     conversationHistory: boundedConversationHistory(input.conversationHistory),
     outputContract: input.outputContract,
     trace: {
       runId: runCtx.ids.next(),
       assembledAt: runCtx.clock.nowISO(),
       ledgerEntryIds: input.ledgerEntryIds ?? [],
+      ...(budgeted ? { memoryBudget: budgeted.report } : {}),
     },
   };
 }

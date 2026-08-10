@@ -292,6 +292,7 @@ import {
   rejectClaimSuggestion,
   TAINT_SENSITIVITY,
   type ClaimProposal,
+  type RetrievedMemorySnippet,
 } from "@bridge/core";
 import {
   jobsTableSpec,
@@ -18546,6 +18547,35 @@ export const appRouter = t.router({
       // persona cards, observable at the API boundary. Never carries authority.
       const personaCard = { id: cosPersona.id, name: cosPersona.name, ...(cosPersona.tone ? { tone: cosPersona.tone } : {}) };
 
+      // AI Harness K4: retrieval fusion feeds EVERY run through the context
+      // door, not just chat.turn.send — the @communications and @agent paths
+      // below fill the memory slot K0 reserved. Gated per-run on the flight
+      // AND on the resolved provider's plane: local-plane private memory
+      // never rides into a cloud model's prompt (the same per-turn provider-
+      // plane gate chat.turn.send applies). Best-effort — a run never fails
+      // because retrieval did; the Layer B budget is enforced at the door.
+      const fusedConverseMemory = async (
+        providerPlane: "local" | "cloud" | undefined,
+        query: string,
+      ): Promise<RetrievedMemorySnippet[]> => {
+        if (!ctx.wiring.retrievalFusionEnabled || providerPlane !== "local") return [];
+        try {
+          const fused = await fusedChatMemory({
+            memoryStore: ctx.wiring.memoryStore,
+            vectorIndex: ctx.wiring.vectorIndex,
+            graphStore: ctx.wiring.graphStore,
+            ...(ctx.wiring.claimSubstrateEnabled ? { claimStore: ctx.wiring.claimStore } : {}),
+            organizationId: input.organizationId,
+            ownerUserId: ctx.identity.id,
+            query,
+            ...(ctx.wiring.semanticEmbedder ? { embedder: ctx.wiring.semanticEmbedder } : {}),
+          });
+          return fused.snippets;
+        } catch {
+          return [];
+        }
+      };
+
       // A leading "@communications"/"@comms" mention resolves to the
       // Communications SKILL (ADR-046), not an agent — no identity, no
       // capability_scope, just a direct model-backed drafting reply. Checked
@@ -18572,6 +18602,12 @@ export const appRouter = t.router({
         // ModelRunContext — the system prompt is a projection, never a
         // hand-rolled string, so the kernel invariants and the K4 memory
         // slot exist here exactly as they do for every other model run.
+        // K4: the Communications run retrieves like every other run — same
+        // fusion, same provider-plane gate, same Layer B budget at the door.
+        const communicationsMemory = await fusedConverseMemory(
+          configuredModel?.plane,
+          skillMention.rest || input.message,
+        );
         const communicationsContext = assembleRunContext(
           {
             persona: buildCommunicationsPersona(
@@ -18580,6 +18616,7 @@ export const appRouter = t.router({
             ),
             request: skillMention.rest || input.message,
             governance: { approvalRequirement: "explicit_human", trustGrants: [] },
+            ...(communicationsMemory.length > 0 ? { memory: communicationsMemory } : {}),
             outputContract: { description: DIRECT_REPLY_OUTPUT_CONTRACT },
           },
           ctx.run,
@@ -18641,6 +18678,12 @@ export const appRouter = t.router({
         // strongest thing a chat reply can carry is a draft this procedure must
         // still propose — the "no independent write" guarantee is structural,
         // not a convention re-checked here.
+        // K4: an addressed foundational Agent retrieves like every other run —
+        // the memory slot K0 reserved on invokeAgent is finally fed.
+        const agentMemory = await fusedConverseMemory(
+          configuredModel?.plane,
+          rest || input.message,
+        );
         const result = await invokeAgent({
           agentId,
           message: rest || input.message,
@@ -18650,6 +18693,7 @@ export const appRouter = t.router({
           ...(governedModel
             ? { model: { provider: governedModel.provider, runCtx: ctx.run } }
             : {}),
+          ...(agentMemory.length > 0 ? { memory: agentMemory } : {}),
           ...(cosPersona.tone && configuredModel?.plane !== "cloud"
             ? { tone: cosPersona.tone }
             : {}),

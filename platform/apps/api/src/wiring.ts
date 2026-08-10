@@ -4607,6 +4607,12 @@ export async function buildInMemoryPorts(env: {
       : new InMemoryChatStore(),
     // Echo double (local plane) — zero-infra mode makes no network calls, model
     // calls included; anything needing a real model runs in persistent mode.
+    // Deliberately NO OllamaProvider here (AI Harness K4 considered and
+    // rejected it): a registered completion provider whose daemon is down
+    // HARD-FAILS converse — completions have no per-call fallback, unlike
+    // embeddings (ADR-213). The Local-Plane semantic-embedder DEFAULT is
+    // resolved from a dedicated Ollama adapter at the semanticEmbedder seam
+    // instead, where the lexical degrade catches an absent daemon.
     modelProviders: [new LlamaCppProvider(), new EchoModelProvider()],
     memory: { roles: mRoles, agents: mAgents, ephemeral: mEphemeral },
     // origin/main (TASK-010/restart-test infra) — when the caller supplies its
@@ -5394,7 +5400,20 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const modelProviders = options.modelProviders
     ? [...options.modelProviders]
     : [...modeModelProviders];
-  const semanticEmbedder = options.semanticEmbedder ?? resolveSemanticEmbedder(modelProviders);
+  const semanticEmbedder =
+    options.semanticEmbedder ??
+    resolveSemanticEmbedder(modelProviders) ??
+    // AI Harness K4: the semantic embedder is the LOCAL-PLANE DEFAULT. When
+    // the registered providers carry no embedder (local mode deliberately
+    // does not route completions to Ollama — a down daemon would hard-fail
+    // converse), resolve one from a dedicated Ollama adapter instead: the
+    // embedding path has the ADR-213 per-call lexical degrade, so an absent
+    // daemon costs nothing but the honest downgrade warn. Explicit
+    // `modelProviders` overrides (tests/deployments compose exactly what
+    // they name) and the public-cloud boundary get NO implicit default.
+    (!options.modelProviders && !publicCloudOnly
+      ? resolveSemanticEmbedder([new OllamaProvider()])
+      : undefined);
   // Kernel policies are deployment-invariant safety rules. Persistent mode also
   // evaluates organization policies from Postgres; it must not replace these rules.
   const staticPolicyStore = new InMemoryPolicyStore(policies);
