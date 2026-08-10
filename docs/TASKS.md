@@ -824,15 +824,15 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K6 — Recommendation rhythm: morning brief + commitments
 - ID: TASK-050
-- Status: ready
+- Status: done (2026-08-10)
 - Priority: P2
 - Horizon: Core Modules
 - Outcome: A morning brief (overdue/due/upcoming commitments, pending suggestions, recent activity) plus commitment detection mined from real prose, materializing into the K3 substrate on acceptance, plus approvals nudges and next-action suggestions — all suggested-then-accepted and annoyance-capped. The visible daily payoff that makes the loop legible.
-- Prototype test: a commitment stated in real prose is detected, surfaced as a suggestion, and materializes into the graph only on acceptance; the brief renders the three commitment buckets from real data; the annoyance cap measurably limits suggestion volume (over-cap suggestions deferred, asserted).
-- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K6; absorbs the EG3 design (`docs/raw/egg-commons-feature-roadmap-2026-07.md`). The 2026-08-08 session record's "TASK-040" pointer for this work was stale — TASK-040 is LA3 Phase 2; THIS row is the brief's canonical home.
-- Evidence: EG3 design (complete, previously paused behind this workstream's sequencing).
-- Requests: user directive 2026-08-09 ("start on AI harness")
-- Approval: AP-131 APPLIED
+- Prototype test: a commitment stated in real prose is detected, surfaced as a suggestion, and materializes into the graph only on acceptance; the brief renders the three commitment buckets from real data; the annoyance cap measurably limits suggestion volume (over-cap suggestions deferred, asserted). PASSED: `apps/api/test/learning-commitments.test.ts` (5/5, 2 RED under mutation) + `packages/core/test/learning-commitments.test.ts` (9/9, 3 RED under mutation) + live browser walk.
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K6; absorbs the EG3 design (`docs/raw/egg-commons-feature-roadmap-2026-07.md`). The 2026-08-08 session record's "TASK-040" pointer for this work was stale — TASK-040 is LA3 Phase 2; THIS row is the brief's canonical home. Substrate note (ADR-225): acceptance materializes into the EXISTING governed commitment substrate (relationship graph Event snapshots) — the "K3 substrate" phrasing above predates the discovery that the commitment machinery already shipped; one substrate, per the K3 rule.
+- Evidence: ADR-225. Shipped: core `learning/commitments.ts` (deterministic precision-biased detector + due-phrase parser + CAS suggestion lifecycle + caps 2/run, 5 outstanding, over-cap DEFERRED); detection in `chat.turn.send` (learning flight, local-plane owner turns, in-conversation capability — NOT the K2 chat toggle, whose contract is envelope-only signals); `learning.commitments.status/suggestions/accept/reject` (accept flips lineage first, then the SAME `relationship_commitment_mutation` as the manual surface; person is the human's choice); db `listCommitmentsForOwner` (owner-wide, shared SQL, 22/22 incl. privacy); `brief.morning` + Home `MorningBriefCard` (calendar-day buckets, suggestion review with unique-hint preselect, approvals nudges, 24h activity, deterministic next actions). Verified: pnpm verify green; live durable boot + REAL BROWSER walk (prose → suggestion → Accept → bucket updated, queue drained; restart durability; live-caught grammar fix). Honest residuals: English-only due vocabulary at 17:00 local; detection on chat sends only (WhatsApp/email prose needs its own consent surface at a later rung); no morning notification — the user opens Home; EG3's File/Result lane and day-7 reflection remain outside this rung.
+- Requests: user directive 2026-08-09 ("start on AI harness"); "start" 2026-08-10
+- Approval: AP-131 APPLIED; AP-145 APPLIED
 - Dependencies: TASK-047, TASK-049 (a chat/ledger-only brief may ship first)
 
 ## K7 — Capture: app-focus sensor

@@ -2326,6 +2326,83 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
   }
 });
 
+test("K6: the owner-wide Commitment read crosses People, filters by status, and stays private", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
+    const [outsider, personA, personB] = await Promise.all([
+      db
+        .insert(schema.users)
+        .values({ email: "test_fixture_ownerwide_viewer@example.com" })
+        .returning({ id: schema.users.id })
+        .then((rows) => rows[0]),
+      db
+        .insert(schema.people)
+        .values({ organizationId, userId: ownerUserId, visibility: "private", fullNameOverride: "Person A" })
+        .returning({ id: schema.people.id })
+        .then((rows) => rows[0]),
+      db
+        .insert(schema.people)
+        .values({ organizationId, userId: ownerUserId, visibility: "private", fullNameOverride: "Person B" })
+        .returning({ id: schema.people.id })
+        .then((rows) => rows[0]),
+    ]);
+    assert.ok(outsider);
+    assert.ok(personA);
+    assert.ok(personB);
+    const store = new DrizzleGraphStore(db);
+    const mk = async (personId: string, text: string, dueAt: Date | null, status: "pending" | "completed") => {
+      const id = randomUUID();
+      await store.materializeCommitment({
+        operation: "create",
+        commitmentId: id,
+        transitionEventId: id,
+        organizationId,
+        ownerUserId,
+        personId,
+        text,
+        dueAt,
+        status,
+        decisionLedgerId: randomUUID(),
+        decisionSequence: 1,
+        decisionAt: new Date("2026-08-01T09:00:00.000Z"),
+      });
+      return id;
+    };
+    await mk(personA.id, "Overdue for A", new Date("2026-08-05T17:00:00.000Z"), "pending");
+    await mk(personB.id, "Upcoming for B", new Date("2026-08-20T17:00:00.000Z"), "pending");
+    await mk(personB.id, "Done for B", null, "completed");
+
+    const all = await store.listCommitmentsForOwner(organizationId, ownerUserId, {
+      limit: 25,
+      offset: 0,
+    });
+    assert.equal(all.total, 3, "commitments across BOTH People appear owner-wide");
+    assert.deepEqual(
+      [...new Set(all.items.map((item) => item.personId))].sort(),
+      [personA.id, personB.id].sort(),
+    );
+    // Due-dated rows come first, soonest due first — the brief's bucket order.
+    assert.equal(all.items[0]?.text, "Overdue for A");
+    assert.equal(all.items[1]?.text, "Upcoming for B");
+
+    const pending = await store.listCommitmentsForOwner(organizationId, ownerUserId, {
+      limit: 25,
+      offset: 0,
+      status: "pending",
+    });
+    assert.equal(pending.total, 2, "the status filter narrows the owner-wide read");
+
+    assert.deepEqual(
+      await store.listCommitmentsForOwner(organizationId, outsider.id, { limit: 25, offset: 0 }),
+      { items: [], total: 0 },
+      "another member reads NONE of the owner's commitments owner-wide",
+    );
+  } finally {
+    await close();
+  }
+});
+
 test("Introductions require double consent and keep decline reasons private", async () => {
   const { db, close } = await createLocalDb();
   try {

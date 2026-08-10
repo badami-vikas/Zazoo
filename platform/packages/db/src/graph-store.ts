@@ -3876,6 +3876,41 @@ export class DrizzleGraphStore {
     }
     const person = await this.getPerson(organizationId, viewerUserId, personId);
     if (!person) return { items: [], total: 0 };
+    return this.#listCommitmentRows(organizationId, viewerUserId, { ...opts, personId });
+  }
+
+  /** K6 (TASK-050): the morning brief's owner-wide read — every Commitment the
+   * viewer owns, across all People, same snapshot semantics and ordering as
+   * the per-person read (due-dated first, soonest due first). */
+  async listCommitmentsForOwner(
+    organizationId: string,
+    viewerUserId: string,
+    opts: PageOpts & {
+      includeArchived?: boolean;
+      status?: CommitmentStatus;
+      snapshotAt?: Date;
+    },
+  ): Promise<CommitmentPage> {
+    if (!this.#hasRlsContext(organizationId, viewerUserId)) {
+      return this.#withRlsContext(organizationId, viewerUserId, (store) =>
+        store.listCommitmentsForOwner(organizationId, viewerUserId, opts),
+      );
+    }
+    return this.#listCommitmentRows(organizationId, viewerUserId, opts);
+  }
+
+  async #listCommitmentRows(
+    organizationId: string,
+    viewerUserId: string,
+    opts: PageOpts & {
+      personId?: string;
+      includeArchived?: boolean;
+      commitmentId?: string;
+      status?: CommitmentStatus;
+      snapshotAt?: Date;
+    },
+  ): Promise<CommitmentPage> {
+    const personId = opts.personId;
     const limit = clamp(opts.limit, 1, 100);
     const offset = clamp(opts.offset, 0, 10_000);
     const result = await this.#db.execute(sql`
@@ -3920,11 +3955,11 @@ export class DrizzleGraphStore {
           AND commitment.src_type = 'event'
           AND commitment.src_id = transition.id
           AND commitment.dst_type = 'person'
-          AND commitment.dst_id = ${personId}::uuid
           AND commitment.edge_type = 'commitment'
           AND commitment.owner_user_id = ${viewerUserId}::uuid
         WHERE transition.organization_id = ${organizationId}::uuid
           AND transition.entity_type = 'interaction'
+          ${personId ? sql`AND commitment.dst_id = ${personId}::uuid` : sql``}
           ${opts.snapshotAt
             ? sql`AND transition.created_at <= ${opts.snapshotAt}`
             : sql``}
