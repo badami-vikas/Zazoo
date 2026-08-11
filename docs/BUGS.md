@@ -2,6 +2,39 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **OPEN 2026-08-10 — Desktop shell aborted with "fatal runtime error: Rust cannot catch foreign exceptions" after ~62 minutes of otherwise-normal `pnpm dev` runtime (attach: TASK-027).**
+  Found during this session's own testing, not a user report. `[bridge-desktop] avatar overlay visible` at
+  `t=1786365891`; the process aborted at `t≈1786369628` — no error, warning, or eprintln in between, just
+  routine `chat.thread.get`/`chat.model.status` polling (chat panel was open) then the abort. This is the
+  exact class of crash `jobs.rs`'s header and TASK-027's evidence describe — WKWebView tears down an in-page
+  IPC scheme task after ~60s, and a Tauri command answering after that raises an Objective-C exception Rust
+  cannot catch, so the whole process aborts — and TASK-027's evidence says this was already fixed 2026-07-30
+  by converting the long-running companion/research commands to start/poll pairs.
+  **Ruled out as the cause:** this session's two new job-pattern commands (`chase.rs` `start_chase_game`/
+  `stop_chase_game`, `point.rs` `point_at_start`/`point_at_poll`) — grepping the full session log for
+  `chase:`/`point` finds zero invocations before the crash; neither had been tried yet. Both return quickly
+  (`start_chase_game` just spawns a thread and returns `Ok(())`; `point_at_start` returns a job id via
+  `spawn_blocking`), so neither holds an IPC reply open past 60s the way the pre-fix `companion_ask` did.
+  **Not yet identified:** which command (if any) was the one holding a reply open, or whether this is instead
+  a still-open gap in the 2026-07-30 fix (e.g. a command not yet converted to the start/poll shape, or the
+  `app.emit()` calls several commands — including this session's new ones — make from a background thread,
+  which is a different IPC path than the one the fix addressed and hasn't been individually audited for the
+  same abort risk).
+  **Repro:** none yet — happened once, unattended, no reliable trigger found. Evidence preserved here so a
+  second occurrence can be correlated against this timing/shape rather than re-diagnosed from scratch.
+  **SECOND OCCURRENCE, same session, same day.** Relaunched clean (`avatar overlay visible` at
+  `t=1786370149`), aborted with the identical `fatal runtime error: Rust cannot catch foreign exceptions` at
+  `t≈1786376189` — this time after ~100 minutes, again with only routine `chat.thread.get`/`chat.model.status`
+  polling in the log and zero `chase`/`point` invocations (chase.rs and point.rs were rewritten between the
+  two occurrences — different code, same crash, same shape). Two data points now: it recurs on a timescale of
+  roughly 1–2 hours of idle-ish runtime with the chat panel open, independent of which commands were actually
+  invoked. That pattern (time-based, not action-based) points away from any single slow command and toward
+  something periodic — a poll interval, a timer, a retry loop — occasionally outliving the ~60s WKWebView
+  deadline. Worth checking next: anything in `useChat.ts`'s poll interval (chat.model.status is fetched every
+  1–5s per `useChat.ts`'s own comment) or a periodic Rust-side watcher (`notch.rs`'s hover poll, the display
+  topology watcher in `overlay.rs`) whose OWN `app.emit`/command-reply path could occasionally stall past 60s
+  under system load, rather than assuming it is a single named command.
+
 - **RESOLVED 2026-08-10 — The add-row existed on some Module Pages and silently not on others, because the kit made it a per-page opt-in (attach: TASK-001; fixed by ADR-223's §3a change).**
   User report, verbatim: *"I dont see the Add row option in few tabes and in some it is present. I want the
   UI elements same for all modules and only the data displayed should be different."* Confirmed in code:

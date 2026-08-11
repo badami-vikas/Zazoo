@@ -125,11 +125,21 @@ export function AvatarFigure({
   return <ZazooAvatar director={director} width={44} species={species} />;
 }
 
-/** Small style-aware Avatar badge used in chrome slots. */
+/**
+ * Small style-aware Avatar badge used in chrome slots (chat panel header,
+ * collapsed rail). Previously hardcoded `reducedMotion` to true, which
+ * silently swapped in `ZazooCompact` — a second, hand-drawn, non-species-
+ * colored rig — instead of the shipped `ZazooAvatar` the desktop overlay
+ * renders. That made the chat panel's avatar visibly a different character
+ * from "the avatar on screen." Reading the real preference keeps both
+ * surfaces on the one renderer, per the "one renderer is the point" note
+ * above.
+ */
 export function AvatarIcon({ style, size = 24 }: { style: AvatarStyle; size?: number }) {
+  const reducedMotion = usePrefersReducedMotion();
   return (
     <span className="inline-flex" style={{ width: size, height: size }}>
-      <AvatarFigure avatarStyle={style} status="idle" blinking={false} reducedMotion />
+      <AvatarFigure avatarStyle={style} status="idle" blinking={false} reducedMotion={reducedMotion} />
     </span>
   );
 }

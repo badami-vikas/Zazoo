@@ -1277,7 +1277,7 @@ fn run_ask(
 /// Logical (scale-adjusted) size of the monitor at `index`, fetched on the
 /// main thread — Tao's monitor enumeration is not safe from worker threads
 /// on macOS. Bounded wait; `None` on any failure (callers degrade).
-fn monitor_logical_size(app: &AppHandle, index: usize) -> Option<(f64, f64)> {
+pub(crate) fn monitor_logical_size(app: &AppHandle, index: usize) -> Option<(f64, f64)> {
     let (sender, receiver) = std::sync::mpsc::channel();
     let handle = app.clone();
     app.run_on_main_thread(move || {
@@ -1349,7 +1349,7 @@ pub fn is_guarded_app(name: &str, bundle_id: &str) -> bool {
         .any(|fragment| name.contains(fragment))
 }
 
-fn guarded_frontmost_app() -> Option<String> {
+pub(crate) fn guarded_frontmost_app() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
         let (name, bundle_id) = crate::providers::apps::frontmost_app_once()?;
@@ -1372,7 +1372,7 @@ fn frontmost_app_name() -> Option<String> {
     }
 }
 
-fn schedule_marks_clear(app: &AppHandle) {
+pub(crate) fn schedule_marks_clear(app: &AppHandle) {
     let state = app.state::<CompanionState>();
     let generation = {
         let Ok(mut guard) = state.marks_generation.lock() else {

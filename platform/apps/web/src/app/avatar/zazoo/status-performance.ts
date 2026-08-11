@@ -90,3 +90,22 @@ export const MEDITATE_PERFORMANCE: ZazooPerformance = {
   energy: 0.15,
   warmth: 0.8,
 };
+
+/** Chase game (chat trigger "let's play a game", `chase.rs`) is live: the
+ * rig's existing `sneaking` action — already built for exactly this, eyes
+ * darting, ears up — reused rather than inventing a new one. Persists for
+ * the whole flight; there is no `duration` because it only ends on capture. */
+export const CHASE_FLEEING_PERFORMANCE: ZazooPerformance = {
+  emotion: "curious",
+  action: "sneaking",
+  attention: "user",
+  energy: 0.85,
+};
+
+/** One-shot when the real cursor catches the fleeing companion. */
+export const CHASE_CAUGHT_PERFORMANCE: ZazooPerformance = {
+  emotion: "concerned",
+  action: "idle",
+  energy: 0.5,
+  duration: 1.6,
+};

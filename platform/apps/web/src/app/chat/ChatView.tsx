@@ -15,7 +15,7 @@ import {
 import { Link } from "react-router";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { tauriInvoke, tauriInvokeStrict } from "../avatar/tauri-internals";
+import { tauriInvoke, tauriInvokeJob, tauriInvokeStrict } from "../avatar/tauri-internals";
 import { isNearChatBottom } from "./chat-state.mjs";
 import { type ChatSurfaceKind, type ChatTurn, useChat } from "./useChat";
 
@@ -26,6 +26,19 @@ interface VoiceCapabilities {
 }
 
 const RECORDER_MIME_PREFERENCE = ["audio/mp4", "audio/webm", "audio/ogg"];
+
+/** "let's play a game" / "catch me if you can" starts the chase game
+ * (`chase.rs`) — the companion's own on-screen pointer flees the real
+ * cursor across the desktop until caught. "stop the game" ends it early. */
+const CHASE_GAME_TRIGGER = /play (a |)game|catch me if you can/i;
+const CHASE_GAME_STOP_TRIGGER = /stop (the |)game|stop chasing|stop playing/i;
+
+/** "point at/to the settings button" locates a named UI element on screen
+ * (`point.rs` — same two-stage vision locator `companion_ask` uses) and both
+ * spotlights it and glides the avatar there. Same standing Cloud Plane
+ * consent as chat (AP-142/AP-143) — the screenshot goes out with no separate
+ * prompt. */
+const POINT_AT_TRIGGER = /^point\s+(?:at|to|towards)\s+(.+)/i;
 
 async function blobToBase64(blob: Blob): Promise<string> {
   const buffer = await blob.arrayBuffer();
@@ -563,6 +576,18 @@ export function ChatView({
     const message = draft.trim();
     if (!message || chat.sending) return;
     restoreComposerFocusRef.current = true;
+    // Easter egg, not a governed action: no data touched, nothing to approve.
+    // Fires alongside the normal send — see chase.rs — and no-ops outside the
+    // desktop shell (tauriInvoke degrades silently in the browser).
+    const pointMatch = POINT_AT_TRIGGER.exec(message);
+    if (CHASE_GAME_STOP_TRIGGER.test(message)) void tauriInvoke("stop_chase_game");
+    else if (CHASE_GAME_TRIGGER.test(message)) void tauriInvoke("start_chase_game");
+    else if (pointMatch) {
+      void tauriInvokeJob("point_at_start", "point_at_poll", { target: pointMatch[1].trim() }, {
+        valueKey: "done",
+        timeoutMs: 20_000,
+      }).catch((error: unknown) => console.error("[companion] point-at failed", error));
+    }
     const accepted = await chat.send(message);
     if (accepted) setDraft("");
   };

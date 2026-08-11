@@ -105,6 +105,9 @@ impl NotchGeometry {
 pub struct NotchState {
     pub geometry: Mutex<Option<NotchGeometry>>,
     watcher_running: AtomicBool,
+    // Tracks the Fn key state so the hover-watcher loop can emit PTT events
+    // without a CGEventTap (which would need Input Monitoring permission).
+    fn_key_pressed: AtomicBool,
 }
 
 #[cfg(target_os = "macos")]
@@ -204,15 +207,17 @@ pub fn current_geometry(app: &AppHandle) -> Option<NotchGeometry> {
 ///
 /// `NSEvent::mouseLocation` is a free function on any thread and needs no TCC
 /// grant — the reason the peek works without prompting for Input Monitoring.
+/// `pub(crate)`: also polled by `chase.rs`'s flee loop — same permission-free
+/// read, just a second consumer.
 #[cfg(target_os = "macos")]
-fn cursor_position(screen_height: f64) -> (f64, f64) {
+pub(crate) fn cursor_position(screen_height: f64) -> (f64, f64) {
     use objc2_app_kit::NSEvent;
     let point = NSEvent::mouseLocation();
     (point.x, screen_height - point.y)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn cursor_position(_screen_height: f64) -> (f64, f64) {
+pub(crate) fn cursor_position(_screen_height: f64) -> (f64, f64) {
     (f64::NAN, f64::NAN)
 }
 
@@ -292,6 +297,21 @@ pub fn start_hover_watcher(app: AppHandle) {
                             },
                         );
                     }
+                }
+            }
+
+            // Fn key PTT: poll NSEvent.modifierFlags (class method, no TCC
+            // permission needed — same pattern as mouseLocation above).
+            #[cfg(target_os = "macos")]
+            {
+                use objc2_app_kit::{NSEvent, NSEventModifierFlags};
+                let flags = NSEvent::modifierFlags_class();
+                let fn_now = flags.contains(NSEventModifierFlags::Function);
+                let fn_state = app.state::<NotchState>();
+                let fn_was = fn_state.fn_key_pressed.swap(fn_now, Ordering::Relaxed);
+                if fn_now != fn_was {
+                    let ptt_state = if fn_now { "pressed" } else { "released" };
+                    let _ = app.emit(crate::companion::COMPANION_PTT_EVENT, ptt_state);
                 }
             }
 

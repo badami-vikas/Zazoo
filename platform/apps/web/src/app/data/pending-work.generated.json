@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T11:47:18.120Z",
+  "generatedAt": "2026-08-11T15:13:35.881Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1626,7 +1626,7 @@
         "existing Google integration surfaces."
       ],
       "evidence": [
-        "ADR-221. Shipped: `\"google\"` as the third `CAPTURE_SOURCES` member (one account-shaped toggle",
+        "ADR-222. Shipped: `\"google\"` as the third `CAPTURE_SOURCES` member (one account-shaped toggle",
         "K2 state machine unchanged)",
         "`gmailThreadCaptureSignal`/`calendarEventCaptureSignal` core mappers whose envelopes cannot express snippet/body/description",
         "emission at post-approval materialization via both `google.onApproved` call sites with deterministic per-source-record ids (`googleCaptureSignalId`)",
@@ -1640,7 +1640,7 @@
         "user directive 2026-08-09 (\"start on AI harness\")",
         "\"start on k5\" 2026-08-10"
       ],
-      "approval": "AP-131 APPLIED; AP-141 APPLIED",
+      "approval": "AP-131 APPLIED; AP-142 APPLIED",
       "dependencies": [
         "TASK-044"
       ],

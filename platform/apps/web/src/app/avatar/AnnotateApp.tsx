@@ -204,8 +204,22 @@ interface MarksPayload {
   marks: AnnotationMark[];
 }
 
+/** Live position of the chase game's fleeing pointer glyph (`chase.rs`) —
+ * a plain, narrowly-typed number stream, not a mark: it updates ~25×/sec,
+ * far faster than the typed-mark list is meant to churn, so it stays a
+ * separate event rather than stretching `AnnotationMark` to cover motion. */
+const POINTER_EVENT = "bridge:chase-pointer";
+
+interface PointerPayload {
+  monitor: number;
+  x: number;
+  y: number;
+  active: boolean;
+}
+
 export function AnnotateApp() {
   const [marks, setMarks] = useState<AnnotationMark[]>([]);
+  const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     // Which monitor this window covers — injected by the Rust shell at
@@ -229,6 +243,13 @@ export function AnnotateApp() {
       // argument deserialization, not event delivery.
       void internals?.invoke("annotate_ready").catch(() => undefined);
       void internals?.invoke("annotate_ready", { rendered: applied.length }).catch(() => undefined);
+    });
+    tauriListen<PointerPayload>(POINTER_EVENT, (payload) => {
+      setPointer(
+        payload && payload.active && payload.monitor === myMonitor
+          ? { x: payload.x, y: payload.y }
+          : null,
+      );
     });
     // Readiness ping: proves this surface mounted (the window is fully
     // transparent when it has no marks, so there is no other visual tell).
@@ -301,6 +322,16 @@ export function AnnotateApp() {
           <MarkShape mark={mark} />
         </g>
       ))}
+      {/* Chase game: the companion's OWN pointer — a filled dot distinct
+        * from both the real OS cursor and the (fixed, untouched) avatar
+        * itself, driven purely by `chase.rs`'s position stream. */}
+      {pointer && (
+        <g>
+          <circle cx={pointer.x} cy={pointer.y} r={16} fill="none" stroke={HALO_COLOR} strokeWidth={HALO_STROKE} />
+          <circle cx={pointer.x} cy={pointer.y} r={16} fill={MARK_COLOR} fillOpacity={0.25} stroke={MARK_COLOR} strokeWidth={STROKE} />
+          <circle cx={pointer.x} cy={pointer.y} r={5} fill={MARK_COLOR} />
+        </g>
+      )}
     </svg>
     </div>
   );

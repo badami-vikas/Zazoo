@@ -396,6 +396,34 @@ fn topology_monitors(app: &AppHandle) -> Vec<Monitor> {
     app.available_monitors().unwrap_or_default()
 }
 
+/// Whether the companion is currently docked at the notch — `chase.rs` needs
+/// to know this to force it into a normal, visible, free-floating shape
+/// before it can flee, since a docked window is a thin hidden-until-hover
+/// sliver, not the 96×96 avatar.
+pub(crate) fn is_docked(app: &AppHandle) -> bool {
+    app.state::<DisplayTopologyState>().docked.load(Ordering::SeqCst)
+}
+
+/// Union of every connected monitor's logical bounds — "the whole desktop"
+/// rectangle `chase.rs`'s flee loop clamps the companion's flight to, so it
+/// can roam any display without ever drifting into off-screen space no
+/// window sits behind.
+pub(crate) fn virtual_desktop_bounds(app: &AppHandle) -> (f64, f64, f64, f64) {
+    let monitors = topology_monitors(app);
+    if monitors.is_empty() {
+        return (0.0, 0.0, f64::MAX, f64::MAX);
+    }
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for monitor in &monitors {
+        let b = logical_monitor_bounds(monitor);
+        min_x = min_x.min(b.x);
+        min_y = min_y.min(b.y);
+        max_x = max_x.max(b.x + b.width);
+        max_y = max_y.max(b.y + b.height);
+    }
+    (min_x, min_y, max_x, max_y)
+}
+
 fn display_topology(monitors: &[Monitor]) -> DisplayTopology {
     monitors
         .iter()

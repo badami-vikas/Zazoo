@@ -27,11 +27,13 @@
 
 mod annotate;
 mod api_sidecar;
+mod chase;
 mod companion;
 mod jobs;
 mod notch;
 mod model_supervisor;
 mod overlay;
+mod point;
 mod providers;
 mod research_webview;
 mod whatsapp_send;
@@ -427,6 +429,8 @@ pub fn run() {
         .manage(overlay::DisplayTopologyState::default())
         .manage(overlay::OverlaySessionState::default())
         .manage(notch::NotchState::default())
+        .manage(chase::ChaseState::default())
+        .manage(point::PointJobs::default())
         .manage(companion::CompanionState::default())
         .manage(companion::CompanionAskJobs::default())
         .manage(whatsapp_webview::WhatsAppState::default())
@@ -484,6 +488,10 @@ pub fn run() {
             overlay::overlay_save_position,
             overlay::overlay_get_position,
             notch::notch_geometry,
+            chase::start_chase_game,
+            chase::stop_chase_game,
+            point::point_at_start,
+            point::point_at_poll,
             overlay::overlay_dock_notch,
             overlay::overlay_undock_free,
             overlay::focus_main_window,

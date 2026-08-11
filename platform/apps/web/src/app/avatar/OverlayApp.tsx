@@ -36,6 +36,8 @@ import { ZazooDirector } from "./zazoo/director";
 import {
   ANSWERED_PERFORMANCE,
   CAPTURE_PERFORMANCE,
+  CHASE_CAUGHT_PERFORMANCE,
+  CHASE_FLEEING_PERFORMANCE,
   MEDITATE_PERFORMANCE,
   PET_PERFORMANCE,
   PTT_PRESSED_PERFORMANCE,
@@ -352,6 +354,64 @@ export function OverlayApp() {
       unlisten();
     };
   }, [director]);
+
+  // Chase game ("let's play a game" in Chat, `chase.rs`): the Rust flee loop
+  // owns the window's position, this just owns the FACE — sneaking while
+  // fleeing, a startled beat when the real cursor catches it (the loop
+  // itself already snaps the window back home on capture).
+  useEffect(() => {
+    let unlistenStarted: () => void = () => undefined;
+    let unlistenCaught: () => void = () => undefined;
+    let unlistenStopped: () => void = () => undefined;
+    void (async () => {
+      unlistenStarted = await tauriListen("bridge:chase-started", () => {
+        // The avatar itself never moves for this game (chase.rs drives a
+        // separate pointer glyph on the annotate overlay) — this just plays
+        // the "watching its pointer dart around" face.
+        director.perform(CHASE_FLEEING_PERFORMANCE);
+      });
+      unlistenCaught = await tauriListen("bridge:chase-caught", () => {
+        director.perform(CHASE_CAUGHT_PERFORMANCE);
+      });
+      unlistenStopped = await tauriListen("bridge:chase-stopped", () => {
+        director.perform(statusToPerformance(status));
+      });
+    })().catch((error: unknown) => {
+      console.error("[companion] chase game listener failed", error);
+    });
+    return () => {
+      unlistenStarted();
+      unlistenCaught();
+      unlistenStopped();
+    };
+  }, [director, status]);
+
+  // Point-at ("point at the settings button" in Chat, `point.rs`): Rust
+  // does the locating, spotlighting, and window-glide — this just plays a
+  // "looking at the screen, not you" beat while it works, same vocabulary
+  // `reading_context` already uses (`statusToPerformance`), then reverts.
+  useEffect(() => {
+    let unlistenStarted: () => void = () => undefined;
+    let unlistenDone: () => void = () => undefined;
+    void (async () => {
+      unlistenStarted = await tauriListen("bridge:point-started", () => {
+        // Rust may have force-undocked the window to glide to the target
+        // (same reasoning as chase-started above).
+        setHome("free");
+        saveHome("free");
+        director.perform({ emotion: "curious", attention: "away" });
+      });
+      unlistenDone = await tauriListen("bridge:point-done", () => {
+        director.perform(statusToPerformance(status));
+      });
+    })().catch((error: unknown) => {
+      console.error("[companion] point-at listener failed", error);
+    });
+    return () => {
+      unlistenStarted();
+      unlistenDone();
+    };
+  }, [director, status]);
 
   // Global push-to-talk (⌘⇧Space, registered Rust-side): pressing summons
   // the ask panel and starts voice capture; releasing stops it. Only the

@@ -311,35 +311,30 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
   const send = useCallback(async (message: string) => {
     if (!view) return false;
     if (view.thread.plane === "cloud") {
+      // Picking a Cloud Plane thread IS the user's consent to send this
+      // message to that thread's model provider (user directive 2026-08-10)
+      // — the per-message grant is still fetched and still does its real job
+      // (single-use, pinned to this exact disclosed context via
+      // `contextDigest`), it's just applied immediately instead of behind a
+      // second confirmation click. `confirmCloud`/`cloudDisclosure` below
+      // stay available for a caller that still wants to show the banner.
       const clientRequestId = crypto.randomUUID();
       setSending(true);
       setError(null);
       try {
         const threadId = view.thread.id;
-        const generation = selectionGenerationRef.current;
         const disclosure = await trpc.chat.turn.prepareCloud.mutate({
           organizationId: PILOT_ORGANIZATION,
           threadId,
           message,
           surface: { kind: surfaceKind },
         });
-        if (canApplyChatResponse({
-          generation,
-          currentGeneration: selectionGenerationRef.current,
-          threadId,
-          activeThreadId: activeIdRef.current,
-          desiredThreadId: desiredIdRef.current,
-          selectsThread: false,
-        })) {
-          setCloudDisclosure(disclosure);
-          setPendingCloudRequest({ message, clientRequestId });
-        }
+        return await submit(message, disclosure.grantId, { clientRequestId });
       } catch (cause) {
         setError(errorMessage(cause));
-      } finally {
         setSending(false);
+        return false;
       }
-      return false;
     }
     return submit(message);
   }, [submit, surfaceKind, view]);
