@@ -315,6 +315,9 @@ importers:
       '@bridge/facts':
         specifier: workspace:*
         version: link:../../packages/facts
+      '@bridge/jobpilot-skills':
+        specifier: workspace:*
+        version: link:../../tools/jobpilot
       '@bridge/module-manifests':
         specifier: workspace:*
         version: link:../manifests
@@ -609,6 +612,19 @@ importers:
         version: 5.9.3
 
   tools/eslint-rules: {}
+
+  tools/jobpilot:
+    dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
 
   tools/people-sourcing:
     dependencies:

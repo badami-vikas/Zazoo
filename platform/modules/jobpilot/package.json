@@ -20,6 +20,7 @@
     "@bridge/capability-kit": "workspace:*",
     "@bridge/company-sourcing": "workspace:*",
     "@bridge/people-sourcing": "workspace:*",
+    "@bridge/jobpilot-skills": "workspace:*",
     "@bridge/dedupe": "workspace:*",
     "@bridge/facts": "workspace:*",
     "@bridge/module-manifests": "workspace:*",

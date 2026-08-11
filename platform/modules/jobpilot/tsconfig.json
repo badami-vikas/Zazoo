@@ -10,6 +10,7 @@
     { "path": "../../packages/capability-kit" },
     { "path": "../../tools/company-sourcing" },
     { "path": "../../tools/people-sourcing" },
+    { "path": "../../tools/jobpilot" },
     { "path": "../../packages/dedupe" },
     { "path": "../../packages/facts" },
     { "path": "../../packages/sourcing" },
