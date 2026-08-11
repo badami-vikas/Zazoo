@@ -486,6 +486,7 @@ pub fn run() {
             notch::notch_geometry,
             overlay::overlay_dock_notch,
             overlay::overlay_undock_free,
+            overlay::overlay_present_docked_panel,
             overlay::focus_main_window,
             annotate::annotate_show,
             annotate::annotate_clear,

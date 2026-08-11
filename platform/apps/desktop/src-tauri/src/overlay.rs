@@ -766,6 +766,57 @@ pub fn overlay_undock_free(
     Ok(())
 }
 
+/// Position the ask/chat panels while the avatar is docked in the notch.
+///
+/// Deliberately NOT `overlay_dock_notch`: raising a panel this size (up to
+/// 500pt tall, vs the notch surface's own 152pt max) to `PanelLevel::PopUpMenu`
+/// crashed the app — a raw `NSApplication` objc2 message-send aborted with an
+/// uncatchable foreign exception, reproducible only once the docked window
+/// reached that combination of size and level (see decisions-log). This uses
+/// `Status` instead — the SAME level the free-floating home has run at safely
+/// for months — centred horizontally on the notch like the docked surface,
+/// but clamped to `visible_top` rather than the cutout's y=0: `Status` renders
+/// BELOW the real menu bar (unlike `PopUpMenu`), so sitting flush with the
+/// display top would let the menu bar clip it.
+///
+/// Deliberately does NOT touch `DisplayTopologyState.docked` — leaving it
+/// exactly as the notch surface last set it (`true`) means `enforce_free_bounds`
+/// and free-mode position persistence, which both gate on that flag, stay
+/// inert for the panel's short-lived presentation, exactly as they should for
+/// a surface that is still conceptually part of the notch home.
+#[tauri::command]
+pub fn overlay_present_docked_panel(
+    window: WebviewWindow,
+    app: AppHandle,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let geometry = crate::notch::current_geometry(&app)
+        .ok_or_else(|| "notch geometry unavailable".to_string())?;
+    let centre = if geometry.has_notch {
+        geometry.x + geometry.width / 2.0
+    } else {
+        geometry.screen_width / 2.0
+    };
+    let min_x = geometry.visible_left;
+    let max_x = (geometry.visible_right - width).max(min_x);
+    let left = (centre - width / 2.0).clamp(min_x, max_x);
+    let min_y = geometry.visible_top;
+    let max_y = (geometry.visible_bottom - height).max(min_y);
+    let top = min_y.clamp(min_y, max_y);
+    eprintln!(
+        "[bridge-desktop] docked panel: window rect x={left} y={top} w={width} h={height}"
+    );
+    set_panel_above_menu_bar(&window, false)?;
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_position(LogicalPosition::new(left, top))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn collapsed_top_left(
     position: PhysicalPosition<i32>,
     size: tauri::PhysicalSize<u32>,

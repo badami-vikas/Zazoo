@@ -113,6 +113,15 @@ export function NotchHome({
   const avatarRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{ y: number; pointerId: number } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Debounces the pose-toggle click against a double-click: without this, a
+  // double-click's two leading `click` events would flip the composer open
+  // then shut before `runDrop` ever fires, a flicker on the way out the door.
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (clickTimer.current) clearTimeout(clickTimer.current);
+    };
+  }, []);
 
   // Entrance beat. Scheduled via BOTH rAF and a timer: this component mounts
   // while the OS window is still HIDDEN, and a hidden WKWebView delivers no
@@ -445,11 +454,28 @@ export function NotchHome({
         onPointerUp={dropping ? undefined : endDrag}
         onPointerCancel={dropping ? undefined : endDrag}
         onClick={() => {
-          if (!dropping) onPose(pose === "chat" ? "bed" : "chat");
+          if (dropping || clickTimer.current) return;
+          // Held briefly so a double-click's leading clicks never toggle the
+          // composer open-then-shut on the way to `onDoubleClick` below.
+          clickTimer.current = setTimeout(() => {
+            clickTimer.current = null;
+            onPose(pose === "chat" ? "bed" : "chat");
+          }, 220);
+        }}
+        onDoubleClick={() => {
+          if (dropping) return;
+          if (clickTimer.current) {
+            clearTimeout(clickTimer.current);
+            clickTimer.current = null;
+          }
+          // Same undock the drag-down gesture triggers — a second, discoverable
+          // way out of the notch for anyone who doesn't find the drag (user
+          // directive).
+          runDrop();
         }}
         role="button"
         tabIndex={0}
-        aria-label={`${name} — click to ${pose === "chat" ? "close the composer" : "open the composer"}, drag down to move to the desktop`}
+        aria-label={`${name} — click to ${pose === "chat" ? "close the composer" : "open the composer"}, double-click or drag down to move to the desktop`}
       >
         <ZazooAvatar director={director} width={AVATAR_SIZE} />
       </div>
