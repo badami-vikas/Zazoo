@@ -210,23 +210,101 @@ fn create_bootstrap_window(app: &tauri::AppHandle) -> Result<(), String> {
     result
 }
 
+/// Run a native teardown step that may raise an ObjC exception, and keep the
+/// process alive if it does.
+///
+/// Tearing a window down calls into AppKit/WebKit, which report failure by
+/// *raising* rather than returning an error. Such an exception unwinds through
+/// tao's run-loop observer, whose `catch_unwind` can only abort on a foreign
+/// exception — the `__rust_foreign_exception` crash class. Recovery paths in
+/// particular must never die this way: the sidecar-loss handler exists to tell
+/// the user the Local Plane is gone, so aborting inside it replaces an honest
+/// message with a crash.
+///
+/// The exception is logged with its name and reason rather than swallowed, so
+/// a teardown that raises stays visible instead of becoming a silent no-op.
+fn guard_native_teardown(what: &str, step: impl FnOnce() + std::panic::UnwindSafe) {
+    #[cfg(target_os = "macos")]
+    {
+        if let Err(exception) = objc2::exception::catch(step) {
+            match exception {
+                Some(raised) => eprintln!(
+                    "[bridge-desktop] native teardown of {what} raised {raised:?} — \
+                     continuing instead of aborting"
+                ),
+                None => eprintln!(
+                    "[bridge-desktop] native teardown of {what} raised a nil exception — \
+                     continuing instead of aborting"
+                ),
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    step();
+}
+
+/// Turn a `tauri-nspanel` panel back into the plain window it was made from,
+/// so it can be torn down without aborting the process.
+///
+/// `to_panel` swizzles the live `NSWindow`'s class. By then WebKit has already
+/// KVO-registered `WKWindowVisibilityObserver` on that window for
+/// `contentLayoutRect`, so the swizzle discards the KVO subclass the runtime
+/// installed. Destroying the window in that state makes WebKit's matching
+/// `removeObserver:` raise `NSRangeException` ("not registered as an
+/// observer"). `to_window` restores the class captured at conversion time,
+/// which repairs KVO dispatch so the removal resolves normally.
+///
+/// Every teardown path funnels through here rather than special-casing one
+/// label: `close_overlay_window` has demoted the Avatar panel since
+/// 2026-07-18, and the annotate panel — created on the same NSPanel treatment
+/// — never got the same guard.
+#[cfg(target_os = "macos")]
+fn demote_panel_before_teardown(window: &tauri::WebviewWindow) {
+    use tauri_nspanel::ManagerExt;
+    let label = window.label();
+    let Ok(panel) = window.app_handle().get_webview_panel(label) else {
+        return;
+    };
+    if panel.to_window().is_none() {
+        eprintln!("[bridge-desktop] could not demote panel {label} before teardown");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn demote_panel_before_teardown(_window: &tauri::WebviewWindow) {}
+
 fn retire_window(window: &tauri::WebviewWindow, label: &str) {
-    if let Err(error) = window.hide() {
-        eprintln!("[bridge-desktop] failed to hide {label}: {error}");
-    }
-    if let Err(error) = window.destroy() {
-        eprintln!("[bridge-desktop] failed to destroy {label}: {error}");
-    }
+    guard_native_teardown(
+        label,
+        std::panic::AssertUnwindSafe(|| {
+            if let Err(error) = window.hide() {
+                eprintln!("[bridge-desktop] failed to hide {label}: {error}");
+            }
+            demote_panel_before_teardown(window);
+            if let Err(error) = window.destroy() {
+                eprintln!("[bridge-desktop] failed to destroy {label}: {error}");
+            }
+        }),
+    );
 }
 
 fn retire_app_window(app: &tauri::AppHandle, label: &str, window: &tauri::WebviewWindow) {
     if overlay::is_overlay_label(label) {
-        if let Err(error) = window.hide() {
-            eprintln!("[bridge-desktop] failed to hide {label} after sidecar loss: {error}");
-        }
-        if let Err(error) = overlay::close_overlay_window(app, label) {
-            eprintln!("[bridge-desktop] failed to close {label} after sidecar loss: {error}");
-        }
+        guard_native_teardown(
+            label,
+            std::panic::AssertUnwindSafe(|| {
+                if let Err(error) = window.hide() {
+                    eprintln!(
+                        "[bridge-desktop] failed to hide {label} after sidecar loss: {error}"
+                    );
+                }
+                if let Err(error) = overlay::close_overlay_window(app, label) {
+                    eprintln!(
+                        "[bridge-desktop] failed to close {label} after sidecar loss: {error}"
+                    );
+                }
+            }),
+        );
         return;
     }
     retire_window(window, &format!("{label} after sidecar loss"));
@@ -246,6 +324,13 @@ fn take_bootstrap_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow>
 }
 
 fn show_sidecar_unavailable(app: &tauri::AppHandle) {
+    guard_native_teardown(
+        "the sidecar-loss handler",
+        std::panic::AssertUnwindSafe(|| show_sidecar_unavailable_inner(app)),
+    );
+}
+
+fn show_sidecar_unavailable_inner(app: &tauri::AppHandle) {
     overlay::stop_display_topology_watcher(app);
     if let Err(error) = sensor_bridge::shutdown(&app.state::<sensor_bridge::SensorHubState>()) {
         eprintln!("[bridge-desktop] failed to stop capture after sidecar loss: {error}");
@@ -285,22 +370,120 @@ fn show_sidecar_unavailable(app: &tauri::AppHandle) {
     }
 }
 
+/// Liveness probe cadence. The timeout must exceed the sidecar's worst
+/// *slow-but-alive* response, not its typical one: a debug build under load
+/// answers `/health` in single-digit milliseconds but the whole process can
+/// stall for seconds behind a main-thread hop or a model load, and a stalled
+/// probe is not a dead sidecar.
+const HEALTH_PROBE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+const HEALTH_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+/// Loss is declared on *continuous unreachability over time*, never on a raw
+/// count of failed probes. A count silently shortens as the probe gets slower
+/// or the interval shorter — the reason a ~2.3s hiccup used to brick the app
+/// permanently while the sidecar was still answering 200 to every request.
+const HEALTH_LOSS_AFTER: std::time::Duration = std::time::Duration::from_secs(6);
+
+/// Recovery budget for a crashed sidecar. Bounded on purpose: a sidecar that
+/// dies repeatedly is a real fault and must surface as one, not as an endless
+/// respawn loop burning CPU behind a UI that looks fine.
+const HEALTH_RESTART_BUDGET: u32 = 3;
+/// Restarts only count against the budget while they stay close together. A
+/// crash today and another next week are not the same failure, and treating
+/// them as one is how a long-lived app ends up permanently unrecoverable.
+const HEALTH_RESTART_BUDGET_WINDOW: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// One liveness observation. Returns `true` only when the sidecar has been
+/// unreachable for a continuous `HEALTH_LOSS_AFTER`; any single success clears
+/// the streak. Split out from the polling thread so the verdict is testable
+/// without a socket.
+fn liveness_step(
+    healthy: bool,
+    now: std::time::Instant,
+    unreachable_since: &mut Option<std::time::Instant>,
+) -> bool {
+    if healthy {
+        *unreachable_since = None;
+        return false;
+    }
+    let since = *unreachable_since.get_or_insert(now);
+    now.duration_since(since) >= HEALTH_LOSS_AFTER
+}
+
+/// Whether a recovery attempt is still owed, and the budget state that follows.
+/// Pure so the "does it eventually give up, and does it eventually forgive"
+/// question is answerable without spawning processes.
+fn restart_budget_step(
+    now: std::time::Instant,
+    used: u32,
+    first_restart_at: Option<std::time::Instant>,
+) -> (bool, u32, Option<std::time::Instant>) {
+    let window_open = first_restart_at
+        .is_some_and(|first| now.duration_since(first) < HEALTH_RESTART_BUDGET_WINDOW);
+    if !window_open {
+        return (true, 1, Some(now));
+    }
+    if used >= HEALTH_RESTART_BUDGET {
+        return (false, used, first_restart_at);
+    }
+    (true, used + 1, first_restart_at)
+}
+
 fn monitor_sidecar(app: tauri::AppHandle, port: u16, token: String) {
     let fallback_app = app.clone();
     if let Err(error) = std::thread::Builder::new()
         .name("bridge-api-liveness".to_string())
         .spawn(move || {
-            let mut consecutive_failures = 0_u8;
+            let mut unreachable_since: Option<std::time::Instant> = None;
+            let mut restarts_used: u32 = 0;
+            let mut first_restart_at: Option<std::time::Instant> = None;
             loop {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                if api_sidecar::health_ok(port, &token, std::time::Duration::from_millis(750)) {
-                    consecutive_failures = 0;
+                std::thread::sleep(HEALTH_PROBE_INTERVAL);
+                let healthy = api_sidecar::health_ok(port, &token, HEALTH_PROBE_TIMEOUT);
+                let was_unreachable = unreachable_since.is_some();
+                if !liveness_step(healthy, std::time::Instant::now(), &mut unreachable_since) {
+                    // Keep a transient stall visible without acting on it —
+                    // silently absorbing it is how the tolerance regressed.
+                    if !healthy && !was_unreachable {
+                        eprintln!(
+                            "[bridge-desktop] api sidecar unreachable — tolerating for up to {}s",
+                            HEALTH_LOSS_AFTER.as_secs()
+                        );
+                    } else if healthy && was_unreachable {
+                        eprintln!("[bridge-desktop] api sidecar reachable again");
+                    }
                     continue;
                 }
-                consecutive_failures += 1;
-                if consecutive_failures < 3 {
-                    continue;
+                // Sustained unreachability is a dead child, not a stall. Put an
+                // identical one back on the retained socket before spending the
+                // user's whole session: the replacement reuses the same port and
+                // token, so the already-scripted webviews keep working and the
+                // Local Plane never has to be declared lost at all.
+                let (may_restart, next_used, next_first) =
+                    restart_budget_step(std::time::Instant::now(), restarts_used, first_restart_at);
+                if may_restart {
+                    restarts_used = next_used;
+                    first_restart_at = next_first;
+                    eprintln!(
+                        "[bridge-desktop] api sidecar unreachable for {}s — restarting it \
+                         (attempt {restarts_used}/{HEALTH_RESTART_BUDGET})",
+                        HEALTH_LOSS_AFTER.as_secs()
+                    );
+                    if api_sidecar::restart(&app.state::<api_sidecar::ApiSidecarState>()) {
+                        unreachable_since = None;
+                        continue;
+                    }
+                    eprintln!("[bridge-desktop] api sidecar restart failed");
+                } else {
+                    eprintln!(
+                        "[bridge-desktop] api sidecar exhausted its restart budget \
+                         ({HEALTH_RESTART_BUDGET} in {}s)",
+                        HEALTH_RESTART_BUDGET_WINDOW.as_secs()
+                    );
                 }
+                eprintln!(
+                    "[bridge-desktop] api sidecar unreachable for {}s — declaring Local Plane loss",
+                    HEALTH_LOSS_AFTER.as_secs()
+                );
                 if let Err(error) =
                     sensor_bridge::shutdown(&app.state::<sensor_bridge::SensorHubState>())
                 {
@@ -345,7 +528,7 @@ fn finish_sidecar_bootstrap(app: &tauri::AppHandle, spawned: Option<api_sidecar:
         let port = spawned.port;
         let token = spawned.token.clone();
         let state = app.state::<api_sidecar::ApiSidecarState>();
-        let lock_result = state.0.lock();
+        let lock_result = state.inner.lock();
         match lock_result {
             Ok(mut guard) => {
                 *guard = Some(spawned);
@@ -618,6 +801,107 @@ pub fn run() {
 #[cfg(test)]
 mod security_tests {
     use super::*;
+
+    /// The regression this replaces: loss was a *count* of 3 failed probes, so
+    /// a stall barely longer than 3 probe timeouts permanently bricked the app
+    /// while the sidecar was still answering 200 to every request.
+    #[test]
+    fn transient_unreachability_is_not_local_plane_loss() {
+        let start = std::time::Instant::now();
+        let mut unreachable_since = None;
+
+        // A stall well past the old 3-failure threshold must be tolerated.
+        assert!(!liveness_step(false, start, &mut unreachable_since));
+        assert!(!liveness_step(
+            false,
+            start + std::time::Duration::from_secs(1),
+            &mut unreachable_since
+        ));
+        assert!(!liveness_step(
+            false,
+            start + std::time::Duration::from_secs(4),
+            &mut unreachable_since
+        ));
+
+        // One success clears the streak, so a later failure starts over.
+        assert!(!liveness_step(
+            true,
+            start + std::time::Duration::from_secs(5),
+            &mut unreachable_since
+        ));
+        assert!(unreachable_since.is_none());
+        assert!(!liveness_step(
+            false,
+            start + std::time::Duration::from_secs(6),
+            &mut unreachable_since
+        ));
+    }
+
+    #[test]
+    fn continuous_unreachability_still_declares_loss() {
+        let start = std::time::Instant::now();
+        let mut unreachable_since = None;
+
+        assert!(!liveness_step(false, start, &mut unreachable_since));
+        assert!(!liveness_step(
+            false,
+            start + HEALTH_LOSS_AFTER - std::time::Duration::from_millis(1),
+            &mut unreachable_since
+        ));
+        // Fail-closed is preserved: a genuinely dead sidecar is still reported.
+        assert!(liveness_step(
+            false,
+            start + HEALTH_LOSS_AFTER,
+            &mut unreachable_since
+        ));
+    }
+
+    #[test]
+    fn probe_timeout_fits_inside_the_loss_window() {
+        // A single probe must never be able to consume the whole tolerance
+        // window on its own, or loss would again hinge on one slow read.
+        assert!(HEALTH_PROBE_TIMEOUT < HEALTH_LOSS_AFTER);
+        assert!(HEALTH_PROBE_INTERVAL < HEALTH_LOSS_AFTER);
+    }
+
+    #[test]
+    fn a_crashed_sidecar_is_restarted_before_local_plane_loss_is_declared() {
+        // The whole point of the recovery path: the first sustained outage must
+        // spend a restart attempt, not the user's session.
+        let (may_restart, used, first) = restart_budget_step(std::time::Instant::now(), 0, None);
+        assert!(may_restart);
+        assert_eq!(used, 1);
+        assert!(first.is_some());
+    }
+
+    #[test]
+    fn a_sidecar_that_keeps_dying_stops_being_restarted() {
+        // Bounded recovery: a genuinely broken sidecar has to surface as broken
+        // instead of being respawned forever behind a healthy-looking UI.
+        let start = std::time::Instant::now();
+        let mut used = 0;
+        let mut first = None;
+        for _ in 0..HEALTH_RESTART_BUDGET {
+            let (may_restart, next_used, next_first) = restart_budget_step(start, used, first);
+            assert!(may_restart);
+            used = next_used;
+            first = next_first;
+        }
+        let (may_restart, _, _) = restart_budget_step(start, used, first);
+        assert!(!may_restart, "restart budget must be exhaustible");
+    }
+
+    #[test]
+    fn the_restart_budget_is_forgiven_after_the_window() {
+        // An outage now and another one much later are separate faults. Without
+        // this the app becomes permanently unrecoverable after enough uptime.
+        let start = std::time::Instant::now();
+        let much_later = start + HEALTH_RESTART_BUDGET_WINDOW + std::time::Duration::from_secs(1);
+        let (may_restart, used, _) =
+            restart_budget_step(much_later, HEALTH_RESTART_BUDGET, Some(start));
+        assert!(may_restart);
+        assert_eq!(used, 1, "a fresh window restarts the count");
+    }
 
     #[test]
     fn privileged_webview_navigation_stays_on_trusted_origins() {

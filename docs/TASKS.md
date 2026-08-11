@@ -6,7 +6,7 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038`
+IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-066`
 
 IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
 
@@ -1038,3 +1038,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-08-10 ("every element should have a notes section and governance section")
 - Approval: user directive 2026-08-10 recorded as APPLIED for task creation, queue position, and the §3b canon addition
 - Dependencies: none
+
+## Desktop shell survives Local Plane loss instead of aborting
+- ID: TASK-066
+- Status: done
+- Priority: P0
+- Horizon: Prototype
+- Outcome: A sidecar stall, crash, or kill is survivable. The shell never aborts on native teardown, a transient stall is not mistaken for Local Plane loss, and a genuinely dead sidecar is restarted in place on the same port and token rather than ending the session.
+- Prototype test: With the app running, `kill -9` the sidecar node PID. The log must show `restarting it (attempt 1/3)` then `recovered on http://127.0.0.1:<same port>`, `grep -c "fatal runtime error"` must stay 0, and the shell process must still be alive. Repeating past the 3-per-10-minute budget must fail closed with a Local Plane loss verdict rather than looping.
+- Scope: ADR-229. Closes the `__rust_foreign_exception` abort class that BUG-2026-07-30 declared "closed by construction" on 2026-07-31 and that recurred with a different trigger on 2026-08-06. Four changes: time-based liveness (6 s continuous unreachability, 3 s probe) replacing a failed-probe count; `demote_panel_before_teardown` generalizing the guard `overlay.rs` already had to every retired window; `guard_native_teardown` wrapping native teardown in `objc2::exception::catch`; and `api_sidecar::restart` respawning the child on the retained loopback listener with the original token. Two adjacent defects fixed under the same evidence: debug builds preferring a stale staged sidecar over the fresh monorepo build, and the notch geometry read losing its cutout at startup so the companion parked away from the notch.
+- Evidence: `docs/BUGS.md` 2026-08-06 entry, RESOLVED 2026-08-12 with the captured `NSRangeException` / `AnnotatePanel` exception — the datum the entry recorded as never obtained. Live verification: three launches with zero aborts where the pre-fix binary aborted deterministically ~35 s in; a forced `kill -9` recovering on the same port with a new child PID; a real transient caught in an ordinary session (`tolerating for up to 6s` → `reachable again`).
+- Requests: user reports 2026-08-12, verbatim: *"Currently the desktop app is not working properly and crashing a lot. Can you check and fix all the perf issues? It is eating up lot RAM also"*, *"it says local plane unavailable"* (repeated), *"the notch part is coming elsewhere"*
+- Approval: none needed (defect repair; ADR-229 records the design decisions)
+- Dependencies: none
+- Invariants this task establishes — breaking either reopens the abort class: every window promoted with `to_panel` MUST be demoted with `panel.to_window()` before `destroy()`, and every native teardown path MUST stay inside `guard_native_teardown`.

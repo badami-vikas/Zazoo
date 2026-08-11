@@ -181,11 +181,30 @@ export function OverlayApp() {
 
   useEffect(() => {
     let active = true;
-    void tauriInvoke("notch_geometry").then((geo) => {
-      if (active && geo) setNotchGeometry(geo as NotchGeometry);
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Retried, not fetched once. Without geometry this component falls through
+    // to the free-floating overlay, so a single miss at startup — when the main
+    // thread is busiest and the read is most likely to time out — parks the
+    // companion away from the cutout for the entire session with nothing to
+    // recover it. Backs off rather than hammering the main-thread hop.
+    const attempt = (delayMs: number) => {
+      void tauriInvoke("notch_geometry").then((geo) => {
+        if (!active) return;
+        if (geo) {
+          setNotchGeometry(geo as NotchGeometry);
+          return;
+        }
+        if (delayMs > 8000) {
+          console.error("[companion] notch geometry never became available");
+          return;
+        }
+        timer = setTimeout(() => attempt(delayMs * 2), delayMs);
+      });
+    };
+    attempt(500);
     return () => {
       active = false;
+      if (timer) clearTimeout(timer);
     };
   }, []);
 

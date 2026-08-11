@@ -712,7 +712,7 @@ pub fn overlay_dock_notch(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
-    let geometry = crate::notch::current_geometry(&app)
+    let geometry = crate::notch::interactive_geometry(&app)
         .ok_or_else(|| "notch geometry unavailable".to_string())?;
 
     // Centre on the cutout when there is one; on a flat panel the roadmap's
@@ -791,7 +791,7 @@ pub fn overlay_present_docked_panel(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
-    let geometry = crate::notch::current_geometry(&app)
+    let geometry = crate::notch::interactive_geometry(&app)
         .ok_or_else(|| "notch geometry unavailable".to_string())?;
     let centre = if geometry.has_notch {
         geometry.x + geometry.width / 2.0

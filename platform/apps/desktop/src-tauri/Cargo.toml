@@ -59,7 +59,10 @@ libc = "0.2"
 # Upstream: https://github.com/ahkohd/tauri-nspanel
 # License: MIT OR Apache-2.0 (LICENSE_MIT + LICENSE_APACHE-2.0 at this rev).
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6" }
-objc2 = "0.6"
+# `exception` gives us `objc2::exception::catch`, the only way to stop an ObjC
+# exception raised during native window teardown from reaching tao's run-loop
+# observer, where Rust can only abort (`__rust_foreign_exception`).
+objc2 = { version = "0.6", features = ["exception"] }
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "std",
     "NSString",

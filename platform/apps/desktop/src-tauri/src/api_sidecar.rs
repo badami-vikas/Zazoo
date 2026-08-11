@@ -25,25 +25,59 @@ use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Managed API process and authenticated loopback shutdown material. `None` in
 /// dev mode / when the spawn failed.
+///
+/// `stopping` lets a long-running restart abandon itself the moment the app
+/// starts quitting: `restart` holds the mutex while it waits on a fresh child,
+/// and app exit must not block behind that wait.
 #[derive(Default)]
-pub struct ApiSidecarState(pub Mutex<Option<SpawnedApi>>);
+pub struct ApiSidecarState {
+    pub inner: Mutex<Option<SpawnedApi>>,
+    pub stopping: AtomicBool,
+}
+
+/// Everything needed to put an identical child back on the retained socket.
+/// Held so a crashed sidecar can be replaced without re-resolving anything and,
+/// critically, without minting a new port or token — the webviews were handed
+/// those at creation and cannot be re-scripted afterwards.
+#[derive(Clone)]
+struct RespawnPlan {
+    node: PathBuf,
+    entry: PathBuf,
+    local_dir: PathBuf,
+    native_keyring: Option<PathBuf>,
+}
 
 pub struct SpawnedApi {
     pub port: u16,
     pub child: Child,
     pub token: String,
     listener_reservation: Option<TcpListener>,
+    respawn: RespawnPlan,
 }
 
 /// Resolve the built API entrypoint. Order:
 ///  1. BRIDGE_API_SERVER_JS env override (power users / tests)
-///  2. Tauri resource dir (`<resources>/api/dist/src/server.js`)
-///  3. Monorepo-relative path in debug builds only
+///  2. Debug only: the monorepo build, which `prepare-dev.mjs` just rebuilt
+///  3. Tauri resource dir (`<resources>/api/dist/src/server.js`)
+///  4. Monorepo-relative path (debug fallback, same path as 2)
+///
+/// Step 2 is the one that looks out of place and is load-bearing. The staged
+/// copy under the resource dir is produced by `prepare:bundle`, which is wired
+/// as `beforeBuildCommand` — production only. `beforeDevCommand` rebuilds the
+/// monorepo tree and stages nothing, while Tauri keeps copying the *existing*
+/// `generated/api/` into `target/debug/api/` and never prunes it. Preferring
+/// the resource copy in debug therefore pins the dev app to whatever the API
+/// looked like the last time someone ran a production bundle: after a `git
+/// pull` it fails with `ERR_MODULE_NOT_FOUND`, the sidecar never reports a
+/// port, and the app shows "Local Plane unavailable" with a perfectly good
+/// build sitting on disk. Release builds are unaffected — `debug_assertions`
+/// is false there, so the signed resource tree stays authoritative.
 pub fn resolve_api_entry(resource_dir: Option<PathBuf>) -> Option<PathBuf> {
     if let Ok(p) = std::env::var("BRIDGE_API_SERVER_JS") {
         let p = PathBuf::from(p);
@@ -51,19 +85,20 @@ pub fn resolve_api_entry(resource_dir: Option<PathBuf>) -> Option<PathBuf> {
             return Some(p);
         }
     }
+    // apps/desktop/src-tauri → apps/api/dist/src/server.js
+    let repo_relative =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../api/dist/src/server.js");
+    if cfg!(debug_assertions) && repo_relative.is_file() {
+        return Some(repo_relative);
+    }
     if let Some(dir) = resource_dir {
         let p = dir.join("api").join("dist/src/server.js");
         if p.is_file() {
             return Some(p);
         }
     }
-    if cfg!(debug_assertions) {
-        // apps/desktop/src-tauri → apps/api/dist/src/server.js
-        let repo_relative =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../api/dist/src/server.js");
-        if repo_relative.is_file() {
-            return Some(repo_relative);
-        }
+    if cfg!(debug_assertions) && repo_relative.is_file() {
+        return Some(repo_relative);
     }
     None
 }
@@ -453,8 +488,35 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
             return None;
         }
     };
-    let port = match await_reported_port(&mut child, Duration::from_secs(60)) {
-        Ok(port) if port == reserved_port => port,
+    if !verify_child_on_reserved_port(&mut child, reserved_port, &token, Duration::from_secs(60)) {
+        return None;
+    }
+    println!("[bridge-desktop] api sidecar healthy at http://127.0.0.1:{reserved_port}");
+    Some(SpawnedApi {
+        port: reserved_port,
+        child,
+        token,
+        listener_reservation: Some(listener_reservation),
+        respawn: RespawnPlan {
+            node,
+            entry,
+            local_dir,
+            native_keyring,
+        },
+    })
+}
+
+/// Drive a freshly spawned child to "authenticated /health answers on the port
+/// we reserved". Kills the child and returns false on every failure, so a
+/// half-started sidecar never becomes a configured transport.
+fn verify_child_on_reserved_port(
+    child: &mut Child,
+    reserved_port: u16,
+    token: &str,
+    port_timeout: Duration,
+) -> bool {
+    match await_reported_port(child, port_timeout) {
+        Ok(port) if port == reserved_port => {}
         Ok(port) => {
             eprintln!(
                 "[bridge-desktop] api sidecar: child reported port {port}, but the retained \
@@ -462,7 +524,7 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
             );
             let _ = child.kill();
             let _ = child.wait();
-            return None;
+            return false;
         }
         Err(error) => {
             eprintln!(
@@ -471,19 +533,19 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
             );
             let _ = child.kill();
             let _ = child.wait();
-            return None;
+            return false;
         }
-    };
-    match wait_child_healthy(&mut child, port, &token, Duration::from_secs(10)) {
+    }
+    match wait_child_healthy(child, reserved_port, token, Duration::from_secs(10)) {
         Ok(true) => {}
         Ok(false) => {
             eprintln!(
                 "[bridge-desktop] api sidecar: authenticated /health never answered on port \
-                 {port} within the readiness deadline; refusing the webview transport"
+                 {reserved_port} within the readiness deadline; refusing the webview transport"
             );
             let _ = child.kill();
             let _ = child.wait();
-            return None;
+            return false;
         }
         Err(error) => {
             eprintln!(
@@ -492,19 +554,17 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
             );
             let _ = child.kill();
             let _ = child.wait();
-            return None;
+            return false;
         }
     }
     match child.try_wait() {
-        Ok(None) => {
-            println!("[bridge-desktop] api sidecar healthy at http://127.0.0.1:{port}");
-        }
+        Ok(None) => true,
         Ok(Some(status)) => {
             eprintln!(
                 "[bridge-desktop] api sidecar exited during readiness with status {status}; \
                  refusing to configure the webview transport"
             );
-            return None;
+            false
         }
         Err(error) => {
             eprintln!(
@@ -513,15 +573,86 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
             );
             let _ = child.kill();
             let _ = child.wait();
-            return None;
+            false
         }
     }
-    Some(SpawnedApi {
+}
+
+/// Replace a dead sidecar child in place, reusing the retained loopback
+/// listener and the original launch token.
+///
+/// This is what keeps a sidecar crash recoverable. The webviews were handed
+/// `window.__BRIDGE_API_URL__` and their capability token by an initialization
+/// script at window-creation time and there is no way to re-script a live
+/// webview, so a replacement that minted a fresh port or token would be
+/// unreachable — which is exactly why sidecar loss used to be terminal.
+///
+/// The ADR-144 boundary is preserved rather than bent: the parent never
+/// released the reserved socket, so nothing else could have bound that port in
+/// the gap, and the new child inherits the very same descriptor.
+pub fn restart(state: &ApiSidecarState) -> bool {
+    if state.stopping.load(Ordering::SeqCst) {
+        return false;
+    }
+    let Ok(mut guard) = state.inner.lock() else {
+        eprintln!("[bridge-desktop] api sidecar: lifecycle state is poisoned; cannot restart");
+        return false;
+    };
+    let Some(previous) = guard.take() else {
+        return false;
+    };
+    let SpawnedApi {
         port,
-        child,
+        mut child,
         token,
-        listener_reservation: Some(listener_reservation),
-    })
+        listener_reservation,
+        respawn,
+    } = previous;
+    // Reap whatever is left of the old child before rebinding, so the inherited
+    // descriptor is not shared with a process that is still exiting.
+    match child.try_wait() {
+        Ok(Some(_)) => {}
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    if state.stopping.load(Ordering::SeqCst) {
+        return false;
+    }
+    let Some(listener) = listener_reservation else {
+        eprintln!(
+            "[bridge-desktop] api sidecar: the loopback reservation was released; refusing to \
+             rebind a credential-bearing port"
+        );
+        return false;
+    };
+    let mut replacement = match spawn_api(
+        &respawn.node,
+        &respawn.entry,
+        &respawn.local_dir,
+        &token,
+        respawn.native_keyring.as_deref(),
+        Some(&listener),
+    ) {
+        Ok(child) => child,
+        Err(error) => {
+            eprintln!("[bridge-desktop] api sidecar: respawn failed: {error}");
+            return false;
+        }
+    };
+    if !verify_child_on_reserved_port(&mut replacement, port, &token, Duration::from_secs(30)) {
+        return false;
+    }
+    println!("[bridge-desktop] api sidecar recovered on http://127.0.0.1:{port}");
+    *guard = Some(SpawnedApi {
+        port,
+        child: replacement,
+        token,
+        listener_reservation: Some(listener),
+        respawn,
+    });
+    true
 }
 
 fn request_http_stop(port: u16, token: &str, timeout: Duration) -> std::io::Result<()> {
@@ -566,6 +697,7 @@ fn stop_child(api: SpawnedApi) {
         mut child,
         token,
         listener_reservation: _listener_reservation,
+        respawn: _respawn,
     } = api;
     match child.try_wait() {
         Ok(Some(_)) => return,
@@ -624,7 +756,11 @@ fn stop_child(api: SpawnedApi) {
 
 /// Gracefully stop the child, with a bounded force-kill fallback.
 pub fn shutdown(state: &ApiSidecarState) {
-    if let Ok(mut guard) = state.0.lock() {
+    // Latch first: a restart in flight is holding the mutex while it waits on a
+    // fresh child, and app exit must not sit behind that. The flag tells it to
+    // abandon the replacement instead.
+    state.stopping.store(true, Ordering::SeqCst);
+    if let Ok(mut guard) = state.inner.lock() {
         if let Some(api) = guard.take() {
             stop_child(api);
         }
@@ -636,6 +772,49 @@ mod tests {
     use super::*;
     use std::ffi::OsStr;
     use std::net::TcpListener;
+
+    #[test]
+    fn dev_prefers_the_live_monorepo_build_over_a_staged_copy() {
+        // A stale `target/debug/api` used to win over the API that
+        // `beforeDevCommand` had just rebuilt, so a `git pull` surfaced as
+        // "Local Plane unavailable" until someone manually re-staged.
+        let staged = std::env::temp_dir().join("bridge-stale-resource-dir");
+        let staged_entry = staged.join("api").join("dist/src/server.js");
+        std::fs::create_dir_all(staged_entry.parent().expect("staged parent"))
+            .expect("staged resource tree");
+        std::fs::write(&staged_entry, "// stale").expect("staged entry");
+
+        let live = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../api/dist/src/server.js");
+        let resolved = resolve_api_entry(Some(staged.clone()));
+        let _ = std::fs::remove_dir_all(&staged);
+
+        if live.is_file() {
+            assert_eq!(
+                resolved.as_deref(),
+                Some(live.as_path()),
+                "debug builds must run the freshly built API, not a staged copy"
+            );
+        } else {
+            // No monorepo build present (a bare checkout): the staged copy is
+            // still the correct answer rather than nothing at all.
+            assert_eq!(resolved.as_deref(), Some(staged_entry.as_path()));
+        }
+    }
+
+    #[test]
+    fn an_explicit_override_still_wins_over_everything() {
+        let dir = std::env::temp_dir().join("bridge-override-entry");
+        std::fs::create_dir_all(&dir).expect("override dir");
+        let entry = dir.join("server.js");
+        std::fs::write(&entry, "// override").expect("override entry");
+        // SAFETY: single-threaded within this test; the variable is removed
+        // before it returns so no other test observes it.
+        unsafe { std::env::set_var("BRIDGE_API_SERVER_JS", &entry) };
+        let resolved = resolve_api_entry(None);
+        unsafe { std::env::remove_var("BRIDGE_API_SERVER_JS") };
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(resolved.as_deref(), Some(entry.as_path()));
+    }
 
     #[test]
     fn sidecar_command_sets_durable_local_plane_directory() {
@@ -1045,6 +1224,12 @@ mod tests {
             child,
             token: "test-sidecar-token".to_string(),
             listener_reservation: None,
+            respawn: RespawnPlan {
+                node: PathBuf::from("node"),
+                entry: PathBuf::from("server.js"),
+                local_dir: PathBuf::from("/test/bridge/local-plane"),
+                native_keyring: None,
+            },
         });
 
         assert!(
