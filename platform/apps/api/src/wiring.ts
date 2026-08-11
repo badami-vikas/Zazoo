@@ -159,8 +159,8 @@ import {
   type ClaimGroundingFailure,
 } from "@bridge/jobpilot";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
 import { localGeocodingProviderFromEnv } from "./geocoding-provider.js";
@@ -5477,6 +5477,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // published, so a deployment that never saved a key never prompts the OS
   // keyring. Test-injected provider lists are left alone.
   if (!options.modelProviders && !publicCloudOnly) {
+    let groqSavedKey: string | null = null;
     for (const slot of MODEL_PROVIDER_KEY_SLOTS) {
       if (modelProviders.some((provider) => provider.id === slot.id)) continue;
       let savedKey: string | null = null;
@@ -5491,7 +5492,31 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         );
       }
       if (!savedKey) continue;
-      if (slot.id === "groq") modelProviders.push(new GroqProvider({ apiKey: savedKey }));
+      if (slot.id === "groq") {
+        modelProviders.push(new GroqProvider({ apiKey: savedKey }));
+        groqSavedKey = savedKey;
+      }
+    }
+    // Sync the groq key to companion.json so the Rust companion binary can
+    // reach the STT/vision APIs. It reads GROQ_API_KEY env first, then this
+    // file (groq_api_key() in companion.rs). Only runs on desktop where
+    // BRIDGE_LOCAL_DIR points into the app's data dir.
+    if (localDir) {
+      try {
+        const companionJsonPath = join(dirname(localDir), "companion.json");
+        let config: Record<string, unknown> = {};
+        try {
+          config = JSON.parse(readFileSync(companionJsonPath, "utf8") as string);
+        } catch { /* file absent or unparseable — start fresh */ }
+        if (groqSavedKey) {
+          config.groqApiKey = groqSavedKey;
+        } else {
+          delete config.groqApiKey;
+        }
+        writeFileSync(companionJsonPath, JSON.stringify(config, null, 2), "utf8");
+      } catch (error) {
+        console.warn("[wiring] could not sync companion.json:", error instanceof Error ? error.message : error);
+      }
     }
   }
 

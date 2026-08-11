@@ -7,6 +7,8 @@
  */
 import { initTRPC, TRPCError } from "@trpc/server";
 import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
   IntegrationFloorScopeError,
@@ -405,6 +407,20 @@ import {
   OrganizationFilesRecoveryError,
 } from "./module-files.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
+
+// Syncs the groq key to companion.json so the Rust companion can use STT
+// without restart. Mirrors the boot-time sync in wiring.ts.
+function syncGroqKeyToCompanionJson(apiKey: string | null): void {
+  const localDir = process.env.BRIDGE_LOCAL_DIR;
+  if (!localDir) return;
+  try {
+    const filePath = join(dirname(localDir), "companion.json");
+    let config: Record<string, unknown> = {};
+    try { config = JSON.parse(readFileSync(filePath, "utf8") as string); } catch { /* absent */ }
+    if (apiKey) { config.groqApiKey = apiKey; } else { delete config.groqApiKey; }
+    writeFileSync(filePath, JSON.stringify(config, null, 2), "utf8");
+  } catch { /* best-effort */ }
+}
 
 const t = initTRPC.context<ApiContext>().create();
 type OutreachDraftResult =
@@ -13751,6 +13767,7 @@ export const appRouter = t.router({
           providerId,
           input.apiKey,
         );
+        if (providerId === "groq") syncGroqKeyToCompanionJson(input.apiKey);
         // Deliberately returns no echo of the value, not even masked. The
         // provider is constructed from the vault at boot, so this response
         // states the honest activation requirement rather than implying the
@@ -13779,6 +13796,7 @@ export const appRouter = t.router({
           input.organizationId,
           providerId,
         );
+        if (providerId === "groq") syncGroqKeyToCompanionJson(null);
         return {
           providerId,
           removed,
