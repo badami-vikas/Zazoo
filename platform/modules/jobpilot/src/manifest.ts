@@ -19,7 +19,7 @@ export const jobPilotManifest: ModuleExecutableManifest = parseExecutableManifes
     nav: "Modules",
     icon: "briefcase",
   })),
-  skillDependencies: ["company-sourcing", "people-sourcing"],
+  skillDependencies: ["company-sourcing", "people-sourcing", "resume-evidence-evaluator"],
   capabilities: [{ resourceType: "external:fetch", action: "read", dataScope: "public", egress: true }],
   intakePolicy: { quarantine: true, commitVia: "pipeline_proposal", scope: "public", accountBoundOnly: true },
 }) as ModuleExecutableManifest;
