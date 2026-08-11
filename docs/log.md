@@ -1,5 +1,22 @@
 # Change Log
 
+- **2026-08-11 — K7 unblocked: stable local code-signing identity, TCC grants rebuild-durable (ADR-228/AP-147)**:
+  The blocker was never the bundle (the pipeline, CI Developer-ID import, and deep bundle verifier all
+  existed) — it was that local builds ad-hoc signed, and TCC stores a cdhash-anchored designated
+  requirement that dies on every rebuild (ADR-184/185). Fixed with a per-machine self-signed
+  "Bridge Dev Signing" certificate (openssl → login keychain, key material deleted, NO trust-store or
+  admin change — codesign signs with it untrusted) and auto-detection in `build-tauri.mjs`: explicit
+  `APPLE_SIGNING_IDENTITY` always wins, `-` forces ad-hoc, absent cert = old behavior, so CI and other
+  machines are untouched. Hardened runtime stays OFF for local-identity builds on purpose (no Team ID →
+  library validation would reject our own keyring/llama dylibs); the release path keeps it. Proof,
+  measured on two full builds that both passed `verify-macos-bundle.mjs`: CDHash changed
+  (`c8305011…` → `98b4208c…`) while the designated requirement stayed byte-identical
+  (`identifier "ai.bridge.desktop" and certificate root = H"48868b88…"`); the ad-hoc counterfactual on a
+  copy measured `designated => cdhash H"…"` — the exact ADR-184 failure. test:bundle 8/8 with one
+  mutation seen RED (local identity must not override an explicit ad-hoc request). TASK-051 blocked →
+  ready; K7's live walk will show a human-granted Accessibility grant surviving a rebuild. Remaining
+  human step: grant once in System Settings when K7 starts.
+
 - **2026-08-11 — K8: browser-extension capture, domain/title only (TASK-052, ADR-227/AP-146)**:
   The second post-brief capture rung. "browser" joined `CAPTURE_SOURCES` (K2 machinery unchanged) with a
   NEW per-domain policy in core: default-deny (empty allowlist captures nothing), deny-wins, label-boundary

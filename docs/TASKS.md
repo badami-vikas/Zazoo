@@ -837,16 +837,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K7 — Capture: app-focus sensor
 - ID: TASK-051
-- Status: blocked
+- Status: ready (unblocked 2026-08-11, ADR-228/AP-147)
 - Priority: P3
 - Horizon: Hardening
 - Outcome: The first ambient sensor: a real frontmost-app/window-title provider in the `@bridge/sensors` SensorHub (today: fake provider, unwired), the hub wired into the API, the Avatar blink-tell firing on capture, and a pause/kill switch.
-- Prototype test: focusing a different app creates an inspectable Memory naming it, the Avatar blinks, and the kill switch verifiably stops capture (no Memory rows while paused, asserted live).
+- Prototype test: focusing a different app creates an inspectable Memory naming it, the Avatar blinks, and the kill switch verifiably stops capture (no Memory rows while paused, asserted live). K7's live walk must additionally show a TCC grant surviving a rebuild of the signed .app (the ADR-228 mechanism, human-granted once).
 - Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K7; `@bridge/sensors` SensorHub + CaptureLedger substrate.
-- Evidence: ADR-184 — TCC grants are not durable on the unbundled dev binary.
-- Requests: user directive 2026-08-09 ("start on AI harness")
-- Approval: AP-131 APPLIED
-- Dependencies: TASK-044; blocked on a signed `.app` bundle (ADR-184)
+- Evidence: ADR-184 — TCC grants are not durable on the unbundled dev binary. RESOLVED by ADR-228: local builds sign with the stable "Bridge Dev Signing" identity; designated requirement proven byte-identical across rebuilds (CDHash changed) on two full bundle-verified builds; `tauri dev` remains non-durable by nature — durable-TCC work runs `pnpm build:tauri`.
+- Requests: user directive 2026-08-09 ("start on AI harness"); user directive 2026-08-11 ("k7 unblock")
+- Approval: AP-131 APPLIED; AP-147 APPLIED
+- Dependencies: TASK-044
 
 ## K8 — Capture: browser extension, domain/title first
 - ID: TASK-052

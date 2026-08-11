@@ -33,7 +33,12 @@ function teamIdentifier(path) {
 
 export function isReleaseSigningIdentity(identity) {
   const normalized = identity?.trim();
-  return Boolean(normalized && normalized !== "-");
+  // The local dev identity (build-tauri.mjs LOCAL_SIGNING_IDENTITY) is a
+  // self-signed cert with no Team ID — a stable-DR local build, not a
+  // release build; the shared-Team-ID assertion cannot apply to it.
+  return Boolean(
+    normalized && normalized !== "-" && normalized !== "Bridge Dev Signing",
+  );
 }
 
 async function findNativeAddons(directory, found = []) {

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T14:07:11.018Z",
+  "generatedAt": "2026-08-11T14:56:36.433Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1695,27 +1695,29 @@
     {
       "id": "TASK-051",
       "title": "TASK-051 — K7 — Capture: app-focus sensor",
-      "status": "blocked",
+      "status": "open",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "The first ambient sensor: a real frontmost-app/window-title provider in the `@bridge/sensors` SensorHub (today: fake provider, unwired), the hub wired into the API, the Avatar blink-tell firing on capture, and a pause/kill switch.",
-      "prototypeTest": "focusing a different app creates an inspectable Memory naming it, the Avatar blinks, and the kill switch verifiably stops capture (no Memory rows while paused, asserted live).",
+      "prototypeTest": "focusing a different app creates an inspectable Memory naming it, the Avatar blinks, and the kill switch verifiably stops capture (no Memory rows while paused, asserted live). K7's live walk must additionally show a TCC grant surviving a rebuild of the signed .app (the ADR-228 mechanism, human-granted once).",
       "scope": [
         "`docs/raw/ai-harness-plan-2026-08-09.md` K7",
         "`@bridge/sensors` SensorHub + CaptureLedger substrate."
       ],
       "evidence": [
-        "ADR-184 — TCC grants are not durable on the unbundled dev binary."
+        "ADR-184 — TCC grants are not durable on the unbundled dev binary. RESOLVED by ADR-228: local builds sign with the stable \"Bridge Dev Signing\" identity",
+        "designated requirement proven byte-identical across rebuilds (CDHash changed) on two full bundle-verified builds",
+        "`tauri dev` remains non-durable by nature — durable-TCC work runs `pnpm build:tauri`."
       ],
       "requests": [
-        "user directive 2026-08-09 (\"start on AI harness\")"
+        "user directive 2026-08-09 (\"start on AI harness\")",
+        "user directive 2026-08-11 (\"k7 unblock\")"
       ],
-      "approval": "AP-131 APPLIED",
+      "approval": "AP-131 APPLIED; AP-147 APPLIED",
       "dependencies": [
-        "TASK-044",
-        "blocked on a signed `.app` bundle (ADR-184)"
+        "TASK-044"
       ],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "ready (unblocked 2026-08-11, ADR-228/AP-147)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 839,

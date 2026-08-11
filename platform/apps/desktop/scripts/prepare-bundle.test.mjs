@@ -17,7 +17,7 @@ import {
   isReleaseSigningIdentity,
 } from "./verify-macos-bundle.mjs";
 import { firstCodesignIdentity } from "./import-macos-certificate.mjs";
-import { localMacSigningConfig } from "./build-tauri.mjs";
+import { detectLocalSigningIdentity, localMacSigningConfig } from "./build-tauri.mjs";
 
 const modelRuntimeManifest = JSON.parse(
   readFileSync(new URL("../model-runtime-manifest.json", import.meta.url), "utf8"),
@@ -152,6 +152,41 @@ test("macOS bundles are ad-hoc signed locally while Developer ID builds retain r
   );
   assert.equal(localMacSigningConfig("linux", undefined), null);
   assert.match(certificateImporter, /BRIDGE_RELEASE_SIGNING=1/);
+
+  // K7 unblock (ADR-228): a "Bridge Dev Signing" cert in the keychain makes
+  // local builds sign with a STABLE designated requirement (TCC-durable),
+  // hardened runtime off (self-signed = no Team ID = library validation
+  // would reject our own dylibs). Explicit env always wins over detection.
+  assert.equal(detectLocalSigningIdentity(""), null);
+  assert.equal(detectLocalSigningIdentity(undefined), null);
+  assert.equal(
+    detectLocalSigningIdentity('  1) 48868B88 "Bridge Dev Signing" (CSSMERR_TP_NOT_TRUSTED)'),
+    "Bridge Dev Signing",
+  );
+  assert.deepEqual(localMacSigningConfig("darwin", undefined, "Bridge Dev Signing"), {
+    bundle: {
+      macOS: {
+        hardenedRuntime: false,
+        signingIdentity: "Bridge Dev Signing",
+      },
+    },
+  });
+  // An explicit ad-hoc request beats the detected local identity.
+  assert.deepEqual(localMacSigningConfig("darwin", "-", "Bridge Dev Signing"), {
+    bundle: {
+      macOS: {
+        hardenedRuntime: false,
+        signingIdentity: "-",
+      },
+    },
+  });
+  // An explicit release identity beats it too, and stays untouched.
+  assert.equal(
+    localMacSigningConfig("darwin", "Developer ID Application: Bridge", "Bridge Dev Signing"),
+    null,
+  );
+  // The local identity is NOT a release identity (no Team ID to assert).
+  assert.equal(isReleaseSigningIdentity("Bridge Dev Signing"), false);
 });
 
 test("macOS bundle verification discovers the packaged llama executable and libraries", async () => {
