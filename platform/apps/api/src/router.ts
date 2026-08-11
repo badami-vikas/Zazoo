@@ -86,6 +86,7 @@ import {
   PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE,
   PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE,
   ledgerSignalId,
+  browserCaptureSignalId,
   chatCaptureSignalId,
   googleCaptureSignalId,
   whatsAppCaptureSignalId,
@@ -276,9 +277,13 @@ import {
   retrieveLearnedPreferences,
   CAPTURE_SOURCES,
   acceptCommitmentSuggestion,
+  browserCaptureVerdict,
+  browserVisitCaptureSignal,
   calendarEventCaptureSignal,
   captureAllowed,
   chatTurnCaptureSignal,
+  normalizeBrowserDomain,
+  readBrowserDomainPolicy,
   detectCommitmentCandidates,
   gmailThreadCaptureSignal,
   listCommitmentSuggestions,
@@ -470,6 +475,24 @@ async function readCaptureConsentState(
 ): Promise<CaptureConsentState> {
   return readCaptureConsent(
     await wiring.localPlane.state.read(organizationId, LEARNING_CAPTURE_CONSENT_NAMESPACE),
+  );
+}
+
+/** Local state-store namespace holding the K8 browser domain policy
+ * (@bridge/core learning/browser-capture). Local Plane by residency, like
+ * the consent state it refines: which domains the owner's browser may
+ * report on lives beside the consent that lets it report at all. */
+const LEARNING_BROWSER_POLICY_NAMESPACE = "learning:browser-domain-policy";
+
+/** Read the current browser domain policy, failing CLOSED: a missing or
+ * malformed row is the empty capture-nothing policy (the core parser's
+ * contract, mutation-checked there). */
+async function readBrowserPolicyState(
+  wiring: Pick<Wiring, "localPlane">,
+  organizationId: string,
+): Promise<ReturnType<typeof readBrowserDomainPolicy>> {
+  return readBrowserDomainPolicy(
+    await wiring.localPlane.state.read(organizationId, LEARNING_BROWSER_POLICY_NAMESPACE),
   );
 }
 
@@ -14207,6 +14230,151 @@ export const appRouter = t.router({
           );
           return { paused: state.paused, sources: state.sources };
         }),
+
+      /** K8 (TASK-052) — the browser extension's capture lane. Consent
+       * (the "browser" source above) answers WHETHER the extension may
+       * report visits; the domain policy here answers WHICH domains —
+       * default-deny, so an empty allowlist captures nothing. The verdict
+       * is evaluated on BOTH sides of the process boundary: the extension
+       * consults `policy` before a payload exists (a denied domain is
+       * never sent anywhere), and `visit` re-evaluates before writing
+       * (defense in depth against a stale or bypassed extension). What
+       * arrives is already URL-free — the input schema has no url field,
+       * and a path-bearing "domain" fails hostname normalization. Private
+       * windows never reach this code at all: the extension manifest
+       * declares incognito "not_allowed", so the capture path is absent
+       * there, not filtered. */
+      browser: t.router({
+        /** Everything the extension needs to go honestly dormant or
+         * capture: flight, consent, kill switch, and the domain lists.
+         * Always answerable, like `capture.status`. */
+        policy: procedure
+          .input(z.object({ organizationId: z.string().min(1) }))
+          .query(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
+            const policy = await readBrowserPolicyState(ctx.wiring, input.organizationId);
+            return {
+              enabled: ctx.wiring.learningObservationEnabled,
+              capturing:
+                ctx.wiring.learningObservationEnabled && captureAllowed(consent, "browser"),
+              paused: consent.paused,
+              allowlist: policy.allowlist,
+              denylist: policy.denylist,
+            };
+          }),
+
+        /** Editing the domain lists is a Human decision, like consent
+         * itself. Entries are validated LOUDLY — a typo is refused with
+         * the offending entry named, never silently dropped into a
+         * narrower policy than the human believes they wrote. */
+        setPolicy: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              allowlist: z.array(z.string().min(1).max(253)).max(200),
+              denylist: z.array(z.string().min(1).max(253)).max(200),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            if (ctx.identity.type !== "user") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message: "The browser domain policy is a Human decision — only a user identity may change it",
+              });
+            }
+            const normalize = (entries: string[], list: string) =>
+              entries.map((entry) => {
+                const domain = normalizeBrowserDomain(entry);
+                if (!domain) {
+                  throw new TRPCError({
+                    code: "BAD_REQUEST",
+                    message: `"${entry}" is not a bare domain — ${list} entries look like "github.com" (no scheme, path, or port)`,
+                  });
+                }
+                return domain;
+              });
+            const next = {
+              allowlist: [...new Set(normalize(input.allowlist, "allowlist"))],
+              denylist: [...new Set(normalize(input.denylist, "denylist"))],
+            };
+            await ctx.wiring.localPlane.state.update(
+              input.organizationId,
+              LEARNING_BROWSER_POLICY_NAMESPACE,
+              null,
+              () => ({ state: next, result: next }),
+            );
+            return next;
+          }),
+
+        /** One reported visit. Never errors on a declined capture — the
+         * extension is a background caller, and a structured verdict must
+         * not become a retry loop. Idempotent per extension-minted
+         * visitId, so a retried POST writes nothing twice. */
+        visit: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              visitId: z.string().uuid(),
+              domain: z.string().min(1).max(253),
+              title: z.string().max(500),
+              visitedAt: z.string().datetime(),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            if (ctx.identity.type !== "user") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message:
+                  "Browser visits are behavior signals about a human — only that user's own identity may report them",
+              });
+            }
+            const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
+            if (!captureAllowed(consent, "browser")) {
+              return { captured: false, verdict: "consent_off" as const };
+            }
+            const policy = await readBrowserPolicyState(ctx.wiring, input.organizationId);
+            const verdict = browserCaptureVerdict(policy, input.domain);
+            if (verdict !== "allowed") {
+              return { captured: false, verdict };
+            }
+            // Verdict "allowed" implies the domain normalized.
+            const domain = normalizeBrowserDomain(input.domain)!;
+            const title = input.title.trim().slice(0, 300);
+            const signalId = browserCaptureSignalId(input.visitId);
+            const owner = { organizationId: input.organizationId, userId: ctx.identity.id };
+            if (await ctx.wiring.memoryStore.get(signalId, owner)) {
+              return { captured: false, verdict: "duplicate" as const };
+            }
+            const signal = browserVisitCaptureSignal(
+              {
+                visitId: input.visitId,
+                domain,
+                title,
+                visitedAt: input.visitedAt,
+                // Titles are page-authored text — untrusted web content,
+                // labeled as such at the capture boundary.
+                taintLabel: labelAtSource("browser_capture", {
+                  ref: `browser:visit:${input.visitId}`,
+                  valueHash: hashTaintValue({ domain, title }),
+                  sensitivity: "private",
+                  instructionRisk: "instruction_like",
+                }),
+              },
+              owner,
+              signalId,
+            );
+            if (signal) await recordCaptureSignal(ctx.wiring.memoryStore, signal);
+            return { captured: true, verdict: "captured" as const };
+          }),
+      }),
     }),
 
     /** K3 (TASK-047, ADR-215) — the knowledge substrate, minimal cut. One

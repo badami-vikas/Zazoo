@@ -850,15 +850,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K8 — Capture: browser extension, domain/title first
 - ID: TASK-052
-- Status: ready
+- Status: done (2026-08-11, ADR-227, AP-146)
 - Priority: P3
 - Horizon: Hardening
 - Outcome: A browser extension captures domain/title-level activity (page content later, separately gated) with an allowlist/denylist, and private windows are structurally excluded from capture.
-- Prototype test: a visit to an allowlisted domain creates an inspectable Memory with domain+title only; a denylisted domain creates nothing; a private-window visit creates nothing by construction (the capture path is absent, not filtered).
-- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K8; the unified-learning spec's extension salvage is design source material where applicable (reuse intake applies).
-- Evidence: harness-plan capture invariants.
-- Requests: user directive 2026-08-09 ("start on AI harness")
-- Approval: AP-131 APPLIED
+- Prototype test: a visit to an allowlisted domain creates an inspectable Memory with domain+title only; a denylisted domain creates nothing; a private-window visit creates nothing by construction (the capture path is absent, not filtered). PASSED — allowlisted visit wrote one domain+title observed-signal Memory (no URL anywhere in the row, asserted); denylisted and unlisted visits wrote nothing (structured verdicts); private windows are excluded by the manifest's `"incognito": "not_allowed"` (Chrome never runs the extension there — pinned by a structural test over the manifest, alongside the capability-surface assertions: tabs/storage/alarms only, no content scripts, no scripting/debugger).
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K8; the unified-learning spec's extension salvage is design source material where applicable (reuse intake applies). Reuse intake result: the first-party recon-salvage extension's CHASSIS reused (MV3 skeleton, esbuild build shape, onUpdated worker pattern); its scraping machinery deliberately not.
+- Evidence: harness-plan capture invariants. Shipped: core `learning/browser-capture.ts` policy (default-deny, deny-wins, label-boundary, fail-closed; 19/19, 3 mutations seen RED) + "browser" as fourth `CAPTURE_SOURCES` member + `browser_capture` taint source; API `learning.capture.browser` policy/setPolicy/visit (6/6 over real buildWiring, 2 mutations seen RED; idempotent per visitId; Human-only loud policy edits); `@bridge/browser-extension` MV3 package sharing @bridge/core's verdict via subpath export (5/5, 2 mutations seen RED); Settings browser card + domain-list editor. `pnpm verify` 77/77. Live durable-boot walk (verdict matrix, restart durability, kill switch, K6 brief `browser` activity) + real-browser Settings walk (toggle provenance, editor round-trip, loud refusal rendered).
+- Residuals: load-unpacked into a real Chrome profile is a documented one-step user action (wire contract proven byte-identically over HTTP); paste-your-own-token extension config (pairing flow = candidate follow-up); no visit retry queue; Avatar blink-on-capture lands with K7's sensor hub; title pattern-redaction belongs to K10 sensitivity tiers.
+- Requests: user directive 2026-08-09 ("start on AI harness"); user directive 2026-08-11 ("Start on K8")
+- Approval: AP-131 APPLIED; AP-146 APPLIED
 - Dependencies: TASK-044
 
 ## K9 — Builder ladder: rung 3 steps, rung 4 structures

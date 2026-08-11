@@ -46,6 +46,7 @@ export interface CaptureScope {
 export const CHAT_CAPTURE_MODULE_ID = "chat";
 export const WHATSAPP_CAPTURE_MODULE_ID = "whatsapp";
 export const GOOGLE_CAPTURE_MODULE_ID = "google";
+export const BROWSER_CAPTURE_MODULE_ID = "browser";
 
 export type TimeOfDayBucket = "morning" | "afternoon" | "evening" | "night";
 
@@ -191,6 +192,55 @@ export function calendarEventCaptureSignal(
         : {}),
     },
     observedAt: envelope.startsAt,
+    ...(envelope.taintLabel ? { taintLabel: envelope.taintLabel } : {}),
+  };
+}
+
+/**
+ * K8 (ADR-210 "Capture: browser") — the browser envelope follows the K5
+ * metadata-first precedent (`domain`/`title` ARE the signal, exactly as
+ * subject/counterparty are for Gmail), with one structural property beyond
+ * it: there is NO URL FIELD. Paths and query strings — where session
+ * tokens, document ids, and search terms live — are inexpressible on this
+ * envelope; the extension reduces a URL to its hostname before a payload
+ * exists, so the full URL never crosses the process boundary at all. Page
+ * CONTENT is a later, separately gated rung. Private-window visits are
+ * excluded upstream by construction (the extension manifest declares
+ * incognito "not_allowed", so no capture code runs there — absent, not
+ * filtered).
+ */
+
+/** The slice of a browser visit capture may see. The URL and the page
+ * content are structurally inexpressible. */
+export interface BrowserVisitCaptureEnvelope {
+  /** Extension-minted id for this visit; the idempotency anchor. */
+  visitId: string;
+  /** Bare hostname, already reduced from the URL inside the browser. */
+  domain: string;
+  title: string;
+  visitedAt: string;
+  taintLabel?: TaintLabel;
+}
+
+export function browserVisitCaptureSignal(
+  envelope: BrowserVisitCaptureEnvelope,
+  scope: CaptureScope,
+  signalId: string,
+): ObservedSignal | null {
+  return {
+    id: signalId,
+    organizationId: scope.organizationId,
+    ownerUserId: scope.userId,
+    moduleId: BROWSER_CAPTURE_MODULE_ID,
+    recordKind: "visit",
+    recordId: envelope.visitId,
+    action: "browse",
+    attributes: {
+      domain: envelope.domain,
+      title: envelope.title,
+      timeOfDay: timeOfDayBucket(envelope.visitedAt),
+    },
+    observedAt: envelope.visitedAt,
     ...(envelope.taintLabel ? { taintLabel: envelope.taintLabel } : {}),
   };
 }

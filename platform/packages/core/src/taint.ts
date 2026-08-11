@@ -541,6 +541,7 @@ export const TAINT_SOURCE_IDS = [
   "sensor_capture",
   "email_google_intake",
   "web_search",
+  "browser_capture",
   "mcp_result",
   "file_import",
 ] as const;
@@ -571,6 +572,7 @@ export const TAINT_SOURCE_REGISTRY: Readonly<
   sensor_capture: { source: "sensor", defaultTrust: "untrusted" },
   email_google_intake: { source: "google", defaultTrust: "untrusted" },
   web_search: { source: "web", defaultTrust: "untrusted" },
+  browser_capture: { source: "web", defaultTrust: "untrusted" },
   mcp_result: { source: "mcp", defaultTrust: "untrusted" },
   file_import: { source: "file_import", defaultTrust: "untrusted" },
 });

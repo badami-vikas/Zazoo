@@ -1,5 +1,27 @@
 # Change Log
 
+- **2026-08-11 — K8: browser-extension capture, domain/title only (TASK-052, ADR-227/AP-146)**:
+  The second post-brief capture rung. "browser" joined `CAPTURE_SOURCES` (K2 machinery unchanged) with a
+  NEW per-domain policy in core: default-deny (empty allowlist captures nothing), deny-wins, label-boundary
+  subdomain matching, fail-closed parse. The URL is structurally inexpressible end to end — the MV3
+  extension reduces it to a bare hostname in-browser, no schema field can carry it, and a path-bearing
+  "domain" fails normalization at the API. The extension bundles @bridge/core's own `browserCaptureVerdict`
+  (new dependency-free subpath export) so both sides of the process boundary run the SAME compiled verdict;
+  the API re-evaluates it anyway (defense in depth). Private windows are excluded by construction:
+  manifest `"incognito": "not_allowed"`, no content scripts, no scripting/debugger — all pinned by a
+  structural test. Declined captures are structured verdicts (never errors); writes idempotent per
+  extension-minted visitId; titles taint-labeled `browser_capture` (web/untrusted/instruction_like) at the
+  boundary. Settings gained the Browser-visits toggle + a domain-list editor whose typos are refused
+  LOUDLY with the entry named. Evidence: core 19/19 (3 mutations RED), api 6/6 (2 RED), extension 5/5
+  (2 RED), `pnpm verify` 77/77 (the new package runs inside the gate — first rung to grow the task count);
+  live durable boot walked the full verdict matrix over the extension's exact wire requests, survived a
+  restart, watched the kill switch drain the extension's policy to dormant, and saw the K6 brief report
+  `browser: 2` recent activity; a real-browser walk drove the Settings card (toggle provenance, editor
+  round-trip, loud refusal live). Reuse intake: recon-salvage extension chassis only; its scraping
+  machinery deliberately not. Residuals: real-Chrome load-unpacked is a documented user step; token config
+  is paste-your-own; no retry queue; blink lands with K7; title redaction with K10. No ledger-id collision
+  this rung — remote high-water (ADR-226/AP-145) checked before writing AND before push.
+
 - **2026-08-10 — TASK-036 CI green gate (commit 7f650054)**: All 72 `pnpm verify` tasks pass on `main`. Fixed nested `test()` anti-pattern in `@bridge/db` (ledger-store 4 subtests, module-store 3 subtests), `@bridge/core` (taint 4, module-lifecycle 1), `@bridge/models` (2), `@bridge/commons` (2); fixed net-guard DNS abort timeout (ref'd timer keeps event loop alive through AbortSignal.timeout); deleted stale dist artifacts importing renamed vocabulary exports; resolved hermes/node shim PATH collision (nvm v24 prefix required for `--test-isolation=none`).
 
 - **2026-08-09 — Slices 13 & 14: the three decisions become human-reachable, and TM6 finishes (TASK-021, ADR-208/AP-129, ADR-209/AP-130)**:

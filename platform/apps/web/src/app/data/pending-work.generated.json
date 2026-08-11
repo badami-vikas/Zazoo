@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T09:34:33.625Z",
+  "generatedAt": "2026-08-11T14:07:11.018Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1724,26 +1724,34 @@
     {
       "id": "TASK-052",
       "title": "TASK-052 — K8 — Capture: browser extension, domain/title first",
-      "status": "pending",
+      "status": "open",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "A browser extension captures domain/title-level activity (page content later, separately gated) with an allowlist/denylist, and private windows are structurally excluded from capture.",
-      "prototypeTest": "a visit to an allowlisted domain creates an inspectable Memory with domain+title only; a denylisted domain creates nothing; a private-window visit creates nothing by construction (the capture path is absent, not filtered).",
+      "prototypeTest": "a visit to an allowlisted domain creates an inspectable Memory with domain+title only; a denylisted domain creates nothing; a private-window visit creates nothing by construction (the capture path is absent, not filtered). PASSED — allowlisted visit wrote one domain+title observed-signal Memory (no URL anywhere in the row, asserted); denylisted and unlisted visits wrote nothing (structured verdicts); private windows are excluded by the manifest's `\"incognito\": \"not_allowed\"` (Chrome never runs the extension there — pinned by a structural test over the manifest, alongside the capability-surface assertions: tabs/storage/alarms only, no content scripts, no scripting/debugger).",
       "scope": [
         "`docs/raw/ai-harness-plan-2026-08-09.md` K8",
-        "the unified-learning spec's extension salvage is design source material where applicable (reuse intake applies)."
+        "the unified-learning spec's extension salvage is design source material where applicable (reuse intake applies). Reuse intake result: the first-party recon-salvage extension's CHASSIS reused (MV3 skeleton, esbuild build shape, onUpdated worker pattern)",
+        "its scraping machinery deliberately not."
       ],
       "evidence": [
-        "harness-plan capture invariants."
+        "harness-plan capture invariants. Shipped: core `learning/browser-capture.ts` policy (default-deny, deny-wins, label-boundary, fail-closed",
+        "19/19, 3 mutations seen RED) + \"browser\" as fourth `CAPTURE_SOURCES` member + `browser_capture` taint source",
+        "API `learning.capture.browser` policy/setPolicy/visit (6/6 over real buildWiring, 2 mutations seen RED",
+        "idempotent per visitId",
+        "Human-only loud policy edits)",
+        "`@bridge/browser-extension` MV3 package sharing @bridge/core's verdict via subpath export (5/5, 2 mutations seen RED)",
+        "Settings browser card + domain-list editor. `pnpm verify` 77/77. Live durable-boot walk (verdict matrix, restart durability, kill switch, K6 brief `browser` activity) + real-browser Settings walk (toggle provenance, editor round-trip, loud refusal rendered)."
       ],
       "requests": [
-        "user directive 2026-08-09 (\"start on AI harness\")"
+        "user directive 2026-08-09 (\"start on AI harness\")",
+        "user directive 2026-08-11 (\"Start on K8\")"
       ],
-      "approval": "AP-131 APPLIED",
+      "approval": "AP-131 APPLIED; AP-146 APPLIED",
       "dependencies": [
         "TASK-044"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done (2026-08-11, ADR-227, AP-146)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 852,
@@ -1775,7 +1783,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 865,
+      "sourceLine": 866,
       "rank": 53
     },
     {
@@ -1804,7 +1812,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 878,
+      "sourceLine": 879,
       "rank": 54
     },
     {
@@ -1838,7 +1846,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 899,
+      "sourceLine": 900,
       "rank": 55
     },
     {
@@ -1868,7 +1876,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 912,
+      "sourceLine": 913,
       "rank": 56
     },
     {
@@ -1897,7 +1905,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 925,
+      "sourceLine": 926,
       "rank": 57
     },
     {
@@ -1926,7 +1934,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 938,
+      "sourceLine": 939,
       "rank": 58
     },
     {
@@ -1954,7 +1962,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 951,
+      "sourceLine": 952,
       "rank": 59
     },
     {
@@ -1981,7 +1989,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 964,
+      "sourceLine": 965,
       "rank": 60
     },
     {
@@ -2012,7 +2020,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 977,
+      "sourceLine": 978,
       "rank": 61
     },
     {
@@ -2038,7 +2046,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 990,
+      "sourceLine": 991,
       "rank": 62
     },
     {
@@ -2064,7 +2072,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1003,
+      "sourceLine": 1004,
       "rank": 63
     },
     {
@@ -2092,7 +2100,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1016,
+      "sourceLine": 1017,
       "rank": 64
     },
     {
@@ -2118,7 +2126,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1029,
+      "sourceLine": 1030,
       "rank": 65
     }
   ]

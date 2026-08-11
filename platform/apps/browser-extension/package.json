@@ -1,0 +1,22 @@
+{
+  "name": "@bridge/browser-extension",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "K8 capture extension — domain/title-level visits for allowlisted domains only, verdicts decided by the same @bridge/core policy the API enforces, private windows structurally excluded (manifest incognito not_allowed).",
+  "scripts": {
+    "build": "tsc -b && node build.mjs",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --test-reporter=dot --test dist/test/*.test.js",
+    "test:coverage": "node --experimental-test-coverage --test-coverage-include='dist/src/capture.js' --test-coverage-lines=80 --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "@bridge/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.310",
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3"
+  }
+}

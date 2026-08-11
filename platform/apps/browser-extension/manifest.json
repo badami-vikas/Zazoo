@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Bridge — Activity Capture",
+  "version": "0.1.0",
+  "description": "Reports domain/title-level visits on your allowlisted domains to your local Bridge. No page content, no URLs, and never in private windows.",
+  "incognito": "not_allowed",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": ["tabs", "storage", "alarms"],
+  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"]
+}
