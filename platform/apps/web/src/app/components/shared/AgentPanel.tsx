@@ -128,7 +128,10 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
           />
         </div>
         <div className="font-bold text-lg tracking-tight flex items-center gap-2">
-          <AvatarIcon style={avatarStyle} size={24} />
+          {/* 32 in a 56px header row: big enough to read as a character now
+              that the badge actually fits its box, small enough to leave the
+              title its baseline. */}
+          <AvatarIcon style={avatarStyle} size={32} />
           <span style={{ color: "var(--color-navy)" }}>{agentName}</span>
         </div>
         <div className="w-9" />

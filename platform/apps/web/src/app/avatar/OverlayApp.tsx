@@ -301,16 +301,26 @@ export function OverlayApp() {
   // signal — the geometric wake zone is intentionally too small to cover
   // that), or holding an open composer. Anything else conceals it, so a
   // sleeping Zazoo costs the desktop nothing.
+  //
+  // GEOMETRY IS PART OF THE CONTRACT. NotchHome renders only once the cutout is
+  // known, so without geometry the free-floating overlay is what is on screen —
+  // but the visibility effect below used to follow the stored `home` preference
+  // instead, keeping the window concealed and waiting for a notch-hover signal
+  // that Rust only ever emits when it HAS geometry. That combination is a
+  // companion that never appears at all (2026-08-12: "the avatar is missing as
+  // Desktop overlay"). One derived flag now drives presentation and rendering
+  // alike, so the two can no longer disagree about which surface is live.
+  const inNotchHome = home === "notch" && notchGeometry !== null;
   const notchVisible =
-    home === "notch" &&
+    inNotchHome &&
     (notchHover || notchDomHover || notchPose === "chat" || panel === "ask" || panel === "chat");
   useEffect(() => {
-    if (home !== "notch" || !sessionReady) return;
+    if (!inNotchHome || !sessionReady) return;
     void tauriInvoke(notchVisible ? "overlay_present" : "overlay_conceal");
     // Once concealed, the window's own hover has nothing to report — clear it
     // so a stale `true` doesn't pin the window open forever the next wake.
     if (!notchVisible) setNotchDomHover(false);
-  }, [home, sessionReady, notchVisible]);
+  }, [inNotchHome, sessionReady, notchVisible]);
 
   const expanded = panel !== "none";
 
@@ -382,9 +392,9 @@ export function OverlayApp() {
     // In the notch home, visibility is the hover contract's to decide (the
     // window is concealed at rest so the desktop is untouched). Presenting
     // here too would race that effect for control of one window.
-    if (home === "notch") return;
+    if (inNotchHome) return;
     void tauriInvoke(sessionReady ? "overlay_present" : "overlay_conceal");
-  }, [sessionReady, home]);
+  }, [sessionReady, inNotchHome]);
 
   // Derived companion state (the machine's read model).
   const working =
@@ -725,7 +735,7 @@ export function OverlayApp() {
   // idle/resting surface — it only renders once geometry is known, since
   // placing a notch panel from guessed coordinates would put it somewhere
   // arbitrary on the display.
-  if (home === "notch" && notchGeometry) {
+  if (inNotchHome) {
     if (panel === "ask") {
       return (
         <div

@@ -86,11 +86,16 @@ export function AvatarFigure({
   status,
   blinking,
   reducedMotion,
+  width = 44,
 }: {
   avatarStyle: AvatarStyle;
   status: AvatarStatus;
   blinking: boolean;
   reducedMotion: boolean;
+  /** Drawn width of the full-body rig. Callers that live in a fixed slot must
+   * pass their slot's size: ZazooAvatar declares `overflow: visible`, so a rig
+   * larger than its container spills over the neighbours instead of clipping. */
+  width?: number;
 }) {
   // Stable per instance: ZazooAvatar's rAF loop depends on the identity of
   // this object, and a fresh director each render would restart the animation
@@ -121,8 +126,8 @@ export function AvatarFigure({
   // Reduced motion gets the static head, never the spring/blink/breath loop.
   // The figure this replaced hardcoded its motion on, which is the
   // inconsistency `CompanionZazooFace` was written to stop copying.
-  if (reducedMotion) return <ZazooCompact size={44} />;
-  return <ZazooAvatar director={director} width={44} species={species} />;
+  if (reducedMotion) return <ZazooCompact size={width} />;
+  return <ZazooAvatar director={director} width={width} species={species} />;
 }
 
 /**
@@ -135,11 +140,37 @@ export function AvatarFigure({
  * surfaces on the one renderer, per the "one renderer is the point" note
  * above.
  */
+/** Head-crop geometry, shared with `CompanionZazooFace`: body width and the
+ * downward nudge that centres the crop window on the face, both as a ratio of
+ * the square slot. */
+const HEAD_CROP_WIDTH_RATIO = 64 / 44;
+const HEAD_CROP_OFFSET_RATIO = -6 / 44;
+
 export function AvatarIcon({ style, size = 24 }: { style: AvatarStyle; size?: number }) {
   const reducedMotion = usePrefersReducedMotion();
+  // The badge's box used to be `size` square while the rig inside it was drawn
+  // at a hardcoded 44px — and ZazooAvatar's <svg> is `overflow: visible`, so the
+  // extra 20px of panda escaped the box in every direction and hung out of the
+  // panel header over the text below it (2026-08-12 report).
+  //
+  // Fitting the WHOLE animal into a 32px square would leave a head a few pixels
+  // across, so this is the same square head crop `CompanionZazooFace` uses:
+  // draw the body oversized and let the box clip it, nudged down so the window
+  // centres on the face rather than the ear tips.
   return (
-    <span className="inline-flex" style={{ width: size, height: size }}>
-      <AvatarFigure avatarStyle={style} status="idle" blinking={false} reducedMotion={reducedMotion} />
+    <span
+      className="inline-flex justify-center shrink-0"
+      style={{ width: size, height: size, overflow: "hidden", alignItems: "flex-start" }}
+    >
+      <span style={{ marginTop: size * HEAD_CROP_OFFSET_RATIO }}>
+        <AvatarFigure
+          avatarStyle={style}
+          status="idle"
+          blinking={false}
+          reducedMotion={reducedMotion}
+          width={size * HEAD_CROP_WIDTH_RATIO}
+        />
+      </span>
     </span>
   );
 }
