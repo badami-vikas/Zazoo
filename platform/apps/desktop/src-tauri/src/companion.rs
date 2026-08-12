@@ -45,7 +45,18 @@ pub const COMPANION_PTT_EVENT: &str = "bridge:companion-ptt";
 pub(crate) const GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
 /// Vision-capable Groq model for the screen-aware path. Overridable so a
 /// deprecated model id never requires a rebuild.
-const DEFAULT_VISION_MODEL: &str = "llama-3.2-11b-vision-preview";
+const DEFAULT_VISION_MODEL: &str = "meta-llama/llama-4-scout-17b-16e-instruct";
+/// Model ids Groq has retired. An override — a shell env var, or the
+/// `companion.json` this app wrote itself — outranks the default, so once one
+/// of these is pinned anywhere the screen-aware path 400s on every ask and
+/// shipping a new default fixes nothing. Overrides naming a retired model are
+/// ignored rather than obeyed, and the reason is logged once per resolve, so
+/// the next retirement is one line here instead of another bug report.
+const RETIRED_VISION_MODELS: &[&str] = &[
+    "llama-3.2-11b-vision-preview",
+    "llama-3.2-90b-vision-preview",
+    "llava-v1.5-7b-4096-preview",
+];
 /// Text-only Groq model for the local-model-absent fallback path. Uses a
 /// widely available model so a standard free-tier key always works.
 const DEFAULT_TEXT_MODEL: &str = "llama-3.3-70b-versatile";
@@ -126,11 +137,49 @@ pub(crate) fn groq_api_key(app: &AppHandle) -> Option<String> {
 }
 
 pub(crate) fn vision_model(app: &AppHandle) -> String {
-    std::env::var("BRIDGE_COMPANION_VISION_MODEL")
+    let override_id = std::env::var("BRIDGE_COMPANION_VISION_MODEL")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .or_else(|| load_config(app).vision_model)
-        .unwrap_or_else(|| DEFAULT_VISION_MODEL.to_string())
+        .or_else(|| load_config(app).vision_model);
+    match override_id {
+        Some(id) if !is_retired_vision_model(&id) => id,
+        Some(id) => {
+            eprintln!(
+                "[bridge-desktop] companion: vision model override {id:?} is decommissioned — using {DEFAULT_VISION_MODEL}"
+            );
+            DEFAULT_VISION_MODEL.to_string()
+        }
+        None => DEFAULT_VISION_MODEL.to_string(),
+    }
+}
+
+fn is_retired_vision_model(id: &str) -> bool {
+    let id = id.trim();
+    RETIRED_VISION_MODELS.iter().any(|retired| *retired == id)
+}
+
+#[cfg(test)]
+mod vision_model_tests {
+    use super::{is_retired_vision_model, DEFAULT_VISION_MODEL, RETIRED_VISION_MODELS};
+
+    #[test]
+    fn the_shipped_default_is_not_a_retired_model() {
+        // The 2026-08-12 report: every screen-aware ask 400'd with
+        // `model_decommissioned` because the default was still a retired id.
+        assert!(
+            !is_retired_vision_model(DEFAULT_VISION_MODEL),
+            "DEFAULT_VISION_MODEL {DEFAULT_VISION_MODEL} is on the retired list"
+        );
+    }
+
+    #[test]
+    fn retired_ids_are_recognised_whatever_the_whitespace() {
+        for retired in RETIRED_VISION_MODELS {
+            assert!(is_retired_vision_model(retired));
+            assert!(is_retired_vision_model(&format!("  {retired} ")));
+        }
+        assert!(!is_retired_vision_model("meta-llama/llama-4-scout-17b-16e-instruct"));
+    }
 }
 
 /// Resolve the managed local model endpoint published by model_supervisor

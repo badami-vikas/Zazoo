@@ -219,9 +219,14 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       // lose mass. The anchor is the FLOOR (y=288), not the centre — a body
       // that squashes about its middle floats; one that squashes about its
       // base plants, which is where the weight reads from.
+      // Amplitude is sized for the SMALLEST place this rig is drawn: the 84px
+      // desktop companion, where the old 3.5% breath moved the silhouette by
+      // about one pixel and read as a still image. At 6% the body visibly
+      // rises and falls there and still stays a breath, not a pulse, at lab
+      // size.
       const sq = f.squash;
-      const sy = (1 + f.breath * 0.035 + (f.posture - 0.5) * 0.03) * (1 - sq * 0.2);
-      const sx = (1 - f.breath * 0.018) / sy;
+      const sy = (1 + f.breath * 0.06 + (f.posture - 0.5) * 0.03) * (1 - sq * 0.2);
+      const sx = (1 - f.breath * 0.03) / sy;
       r.body.current!.setAttribute(
         "transform",
         `rotate(${(f.bodyLean * 0.5).toFixed(2)} 120 282) translate(120 288) scale(${sx.toFixed(4)} ${sy.toFixed(4)}) translate(-120 -288)`,

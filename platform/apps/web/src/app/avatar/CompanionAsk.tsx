@@ -97,14 +97,18 @@ export function CompanionAsk({
   name,
   pttActive,
   onAnswered,
+  onSpeechStopped,
 }: {
   name: string;
   /** True while the global push-to-talk shortcut is held. */
   pttActive: boolean;
-  /** Fired once per successfully delivered answer. Receives the answer text and
+  /** Fired once per successfully delivered answer. Receives the answer text,
    * the model's emotion tag (one of the ZazooEmotion names) so the shell can
-   * animate the rig to match the reply's emotional tone. */
-  onAnswered?: (text: string, emotion?: string) => void;
+   * animate the rig to match the reply's emotional tone, and whether the answer
+   * is actually being read aloud right now — the cue the mouth flaps on. */
+  onAnswered?: (text: string, emotion?: string, spoke?: boolean) => void;
+  /** Speech was cut short — the mouth has to stop with it. */
+  onSpeechStopped?: () => void;
 }) {
   const [capabilities, setCapabilities] = useState<CompanionCapabilities | null>(null);
   const [question, setQuestion] = useState("");
@@ -186,7 +190,7 @@ export function CompanionAsk({
           // keeps that provenance when the turn rides along on a later ask.
           { role: "assistant", content: result.text, screenDerived: result.screenShared },
         ];
-        onAnswered?.(result.text, result.emotion ?? undefined);
+        onAnswered?.(result.text, result.emotion ?? undefined, result.spoke);
         setAnswer(result);
         setQuestion("");
       } catch (raised) {
@@ -396,7 +400,10 @@ export function CompanionAsk({
             {answer.spoke && (
               <button
                 type="button"
-                onClick={() => void tauriInvoke("companion_stop_speaking")}
+                onClick={() => {
+                  void tauriInvoke("companion_stop_speaking");
+                  onSpeechStopped?.();
+                }}
                 className="whitespace-nowrap rounded-[var(--radius-button)] border border-border text-xs px-2 py-1 hover:bg-[var(--color-surface)]"
                 style={{ color: "var(--color-navy)" }}
               >

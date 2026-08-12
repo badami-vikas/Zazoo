@@ -75,6 +75,16 @@ const AVATAR_RENDER_SIZE = 84;
 const AVATAR_SESSION_READY_EVENT = "bridge:avatar-session-ready";
 const COMPANION_PTT_EVENT = "bridge:companion-ptt";
 const NOTCH_HOVER_EVENT = "bridge:notch-hover";
+const CURSOR_EVENT = "bridge:cursor";
+/** Screen distance at which the gaze channel saturates — roughly a third of a
+ * laptop display, so ordinary mousing across the screen sweeps the pupils end
+ * to end instead of pinning them at the limit the whole time. */
+const GAZE_SATURATION_PX = 520;
+/** macOS `say` runs near 175 wpm. The mouth flap is a performance, not a
+ * lip-sync, so an estimate from the word count is indistinguishable from a real
+ * end-of-speech callback — and costs no Rust-side child-process watcher.
+ * ponytail: swap for a spoken-finished event if visemes ever matter. */
+const SPEECH_WORDS_PER_SECOND = 175 / 60;
 
 /** Which home Zazoo currently lives in. Persisted, because dragging him out of
  * the notch is a deliberate choice that must survive a restart — waking to find
@@ -127,7 +137,9 @@ const WINDOW_SIZE: Record<
   expanded: { w: 320, h: 400 },
   chat: { w: 320, h: 420 },
   ask: { w: 380, h: 500 },
-  menu: { w: 220, h: 190 },
+  // Four items now — an undecorated window clips its webview to its own
+  // bounds, so a menu taller than this is a menu with an invisible last item.
+  menu: { w: 220, h: 230 },
 };
 
 export function OverlayApp() {
@@ -158,6 +170,15 @@ export function OverlayApp() {
     director.perform(statusToPerformance(status));
   }, [director, status]);
   const blinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Stops the mouth flapping when the estimated speech duration is up. */
+  const speechTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (speechTimer.current) clearTimeout(speechTimer.current);
+      director.setTalking(false);
+    },
+    [director],
+  );
   const avatarPointerGesture = useRef<AvatarPointerGesture | null>(null);
   const suppressAvatarClick = useRef(false);
 
@@ -229,6 +250,33 @@ export function OverlayApp() {
     });
     return () => unlisten();
   }, []);
+
+  // GAZE — Zazoo watches the real pointer. The overlay window is ~96px and the
+  // cursor is almost always outside it, so DOM pointer events see nothing: the
+  // Rust `mouseLocation` poll (the one the notch hover check already runs) is
+  // the only source of gaze on the desktop. Screen point → offset from this
+  // window's centre → the director's -1..1 cursor channel, which the rig turns
+  // into pupil travel with the head lagging behind it.
+  useEffect(() => {
+    let unlisten: () => void = () => undefined;
+    void (async () => {
+      unlisten = await tauriListen<{ x: number; y: number }>(CURSOR_EVENT, (payload) => {
+        if (!payload || !Number.isFinite(payload.x) || !Number.isFinite(payload.y)) return;
+        const cx = window.screenX + window.innerWidth / 2;
+        const cy = window.screenY + window.innerHeight / 2;
+        // Saturates about a screen-third away: past that it is a held look in
+        // one direction, and pushing the pupils further only makes them squint.
+        const clamp = (v: number) => Math.max(-1, Math.min(1, v / GAZE_SATURATION_PX));
+        director.setCursor({ x: clamp(payload.x - cx), y: clamp(payload.y - cy) });
+      });
+    })().catch((error: unknown) => {
+      console.error("[companion] cursor listener failed", error);
+    });
+    return () => {
+      unlisten();
+      director.setCursor(null);
+    };
+  }, [director]);
 
   // Dragging the free avatar back up to the notch re-docks it (Rust's
   // drag-end check emits this when the window is released with its centre in
@@ -530,7 +578,7 @@ export function OverlayApp() {
     director.perform(
       hovering || expanded
         ? { emotion: "calm", action: "idle", attention: "user", energy: 0.4 }
-        : { emotion: "calm", action: "idle", energy: 0.2, warmth: 0.8 },
+        : { emotion: "calm", action: "idle", attention: "cursor", energy: 0.2, warmth: 0.8 },
     );
   }, [home, hovering, expanded, status, director]);
 
@@ -588,6 +636,28 @@ export function OverlayApp() {
     }
   }
 
+  // TALKING — the director has had a syllable-envelope `talk` channel since
+  // Zazoo v1, and until now nothing outside the lab ever switched it on, so the
+  // companion answered aloud with a closed mouth. `spoke` is the honest signal:
+  // it is true only when Rust actually handed the text to `say`.
+  function stopTalking() {
+    if (speechTimer.current) clearTimeout(speechTimer.current);
+    speechTimer.current = null;
+    director.setTalking(false);
+  }
+
+  function handleAnswered(text: string, emotion?: string, spoke?: boolean) {
+    director.perform(emotionPerformance(emotion));
+    stopTalking();
+    if (!spoke) return;
+    director.setTalking(true);
+    const words = text.trim().split(/\s+/).filter(Boolean).length;
+    speechTimer.current = setTimeout(
+      () => director.setTalking(false),
+      Math.min(90_000, (words / SPEECH_WORDS_PER_SECOND) * 1000 + 400),
+    );
+  }
+
   function submitHoverDraft() {
     const text = hoverDraft.trim();
     if (!text) return;
@@ -617,6 +687,15 @@ export function OverlayApp() {
     // status, not a new AvatarStatus — it persists until the next status
     // change (e.g. listening) naturally overrides it.
     director.perform(MEDITATE_PERFORMANCE);
+  }
+
+  // The companion's pointer only ever appeared as a side effect of an answer
+  // that happened to place a mark, so "I can't see the pointer" had no way to
+  // be checked. This is the direct trigger: fifteen seconds of pointer, on
+  // demand, independent of whether any model said anything.
+  function handleShowPointer() {
+    setMenuOpen(false);
+    void tauriInvoke("companion_demo_pointer", { durationSecs: 15 });
   }
 
   function handleObserve() {
@@ -679,7 +758,8 @@ export function OverlayApp() {
           <CompanionAsk
             name={name}
             pttActive={pttActive}
-            onAnswered={(_text, emotion) => director.perform(emotionPerformance(emotion))}
+            onAnswered={handleAnswered}
+            onSpeechStopped={stopTalking}
           />
         </div>
       );
@@ -756,7 +836,7 @@ export function OverlayApp() {
           setNotchPose("bed");
           // Landing is an arrival, not a state: the settle performance is over,
           // so hand back to the resting meditation the free home defaults to.
-          director.perform(MEDITATE_PERFORMANCE);
+          director.perform({ emotion: "calm", action: "idle", attention: "cursor", energy: 0.2, warmth: 0.8 });
         }}
       />
     );
@@ -828,6 +908,15 @@ export function OverlayApp() {
               role="menuitem"
               className="w-full text-left px-3 py-2 hover:bg-[var(--color-surface)]"
               style={{ color: "var(--color-navy)" }}
+              onClick={handleShowPointer}
+            >
+              Show pointer (15s)
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="w-full text-left px-3 py-2 hover:bg-[var(--color-surface)]"
+              style={{ color: "var(--color-navy)" }}
               onClick={openAskPanel}
             >
               Ask about my screen
@@ -860,7 +949,8 @@ export function OverlayApp() {
           <CompanionAsk
             name={name}
             pttActive={pttActive}
-            onAnswered={(_text, emotion) => director.perform(emotionPerformance(emotion))}
+            onAnswered={handleAnswered}
+            onSpeechStopped={stopTalking}
           />
         </div>
       )}

@@ -249,6 +249,23 @@ pub struct NotchHoverPayload {
     pub cursor_y: f64,
 }
 
+/// Screen-space cursor position, in top-left-origin logical points. The
+/// overlay webview is a small window that the pointer is almost never inside,
+/// so its own DOM pointer events cannot tell Zazoo where the user is looking —
+/// this poll is the only source of gaze there is.
+pub const CURSOR_EVENT: &str = "bridge:cursor";
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CursorPayload {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// Below this the cursor has not meaningfully moved; a still mouse should cost
+/// no IPC at all, exactly like the edge-triggered hover signal beside it.
+const CURSOR_MOVE_EPSILON: f64 = 1.5;
+
 /// Edge-triggered hover watcher. Emits only on transition, so an idle cursor
 /// costs one `mouseLocation` read per tick and no IPC at all.
 pub fn start_hover_watcher(app: AppHandle) {
@@ -261,6 +278,7 @@ pub fn start_hover_watcher(app: AppHandle) {
         let mut inside = false;
         let mut ticks_since_geometry = u32::MAX;
         let mut geometry: Option<NotchGeometry> = None;
+        let mut last_cursor = (f64::NAN, f64::NAN);
 
         loop {
             if !app.state::<NotchState>().watcher_running.load(Ordering::SeqCst) {
@@ -312,6 +330,16 @@ pub fn start_hover_watcher(app: AppHandle) {
             if let Some(geo) = geometry {
                 let (x, y) = cursor_position(geo.screen_height);
                 if x.is_finite() && y.is_finite() {
+                    // Gaze: the same read the hover check already paid for, so
+                    // following the cursor costs one event on movement and
+                    // nothing while the mouse is still.
+                    if !last_cursor.0.is_finite()
+                        || (x - last_cursor.0).abs() > CURSOR_MOVE_EPSILON
+                        || (y - last_cursor.1).abs() > CURSOR_MOVE_EPSILON
+                    {
+                        last_cursor = (x, y);
+                        let _ = app.emit(CURSOR_EVENT, CursorPayload { x, y });
+                    }
                     let now_inside = geo.contains_cursor(x, y);
                     if now_inside != inside {
                         inside = now_inside;
