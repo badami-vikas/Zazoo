@@ -2,6 +2,19 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **OPEN 2026-08-13 — Hosted API readiness reports persistent-ledger failure while liveness stays healthy (attach: TASK-006, P1).**
+  Found during post-deploy verification of unrelated desktop commit `b6c1df12`, not from a user report.
+  GitHub deployments marked both Render services successful for that exact SHA; web `/` and API
+  `/health` returned 200, and the deployed Companion overlay passed its screen/Research/spoken-response
+  browser walk. API `/health/ready` returned 503 before the new API deployment completed and again
+  after its success plus a 45-second wait:
+  `{"ready":false,"persistent":true,"boundary":"public-cloud","checks":{"ledger":"error","localPlane":"ok"}}`.
+  That before/after evidence rules out the desktop/web-only diff as the trigger and shows a standing
+  hosted persistence/configuration fault. The route logs the underlying exception server-side, but
+  Render logs require an authorized dashboard session unavailable here. Exit: retrieve that error,
+  repair the persistent ledger/database configuration without weakening readiness, then prove
+  `/health`, `/health/ready`, pilot authentication, and one owner-scoped ledger read on the live SHA.
+
 - **RESOLVED 2026-08-13 — Companion screen sharing, Research, and spoken-answer text existed but were not discoverable or reliably visible (attach: TASK-027, P0; ADR-233).**
   User reports, verbatim: *"I dont see the screen share feature and research agent feature
   Can you pull the latest"* and *"also talk the response is also not shown now"*. Pulling latest
