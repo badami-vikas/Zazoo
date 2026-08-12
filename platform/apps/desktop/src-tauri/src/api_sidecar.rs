@@ -79,8 +79,20 @@ pub struct SpawnedApi {
 /// build sitting on disk. Release builds are unaffected — `debug_assertions`
 /// is false there, so the signed resource tree stays authoritative.
 pub fn resolve_api_entry(resource_dir: Option<PathBuf>) -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("BRIDGE_API_SERVER_JS") {
-        let p = PathBuf::from(p);
+    resolve_api_entry_from(
+        std::env::var_os("BRIDGE_API_SERVER_JS").map(PathBuf::from),
+        resource_dir,
+    )
+}
+
+/// Resolution logic with the env override passed explicitly, so tests can
+/// exercise the ordering without mutating process env (which is shared across
+/// parallel test threads).
+fn resolve_api_entry_from(
+    override_entry: Option<PathBuf>,
+    resource_dir: Option<PathBuf>,
+) -> Option<PathBuf> {
+    if let Some(p) = override_entry {
         if p.is_file() {
             return Some(p);
         }
@@ -785,7 +797,7 @@ mod tests {
         std::fs::write(&staged_entry, "// stale").expect("staged entry");
 
         let live = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../api/dist/src/server.js");
-        let resolved = resolve_api_entry(Some(staged.clone()));
+        let resolved = resolve_api_entry_from(None, Some(staged.clone()));
         let _ = std::fs::remove_dir_all(&staged);
 
         if live.is_file() {
@@ -807,11 +819,7 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("override dir");
         let entry = dir.join("server.js");
         std::fs::write(&entry, "// override").expect("override entry");
-        // SAFETY: single-threaded within this test; the variable is removed
-        // before it returns so no other test observes it.
-        unsafe { std::env::set_var("BRIDGE_API_SERVER_JS", &entry) };
-        let resolved = resolve_api_entry(None);
-        unsafe { std::env::remove_var("BRIDGE_API_SERVER_JS") };
+        let resolved = resolve_api_entry_from(Some(entry.clone()), None);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(resolved.as_deref(), Some(entry.as_path()));
     }
