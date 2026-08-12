@@ -854,15 +854,15 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 ] as const
               ).map(([ex, dir, eyeRef, pupilRef, sparkRef], i) =>
                 species.eye === "dark" ? (
-                  // panda: the whole eye is the dark gloss, tilted with its
-                  // patch; the catchlights carry the gaze
+                  // panda: white sclera so blinks and state are visible against
+                  // the black patch; dark pupil moves with gaze
                   <g key={i} ref={eyeRef} data-layer="eyes">
                     <g transform={`rotate(${-dir * RIG.eye.tilt} ${ex} ${RIG.eye.y})`}>
-                      <ellipse cx={ex} cy={RIG.eye.y} rx={erx} ry={ery} fill="url(#zz-eye)" />
+                      <ellipse cx={ex} cy={RIG.eye.y} rx={erx} ry={ery} fill="#F0EDFF" stroke="#C8C0E8" strokeWidth="0.5" />
                       <g ref={pupilRef}>
-                        <ellipse cx={ex} cy={RIG.eye.y} rx={erx} ry={ery} fill="url(#zz-eye)" />
-                        <circle cx={ex + dir * 0.45} cy={RIG.eye.y - 2.3} r={1.25} fill="#FFF" opacity="0.97" />
-                        <circle ref={sparkRef} cx={ex - dir * 1.9} cy={RIG.eye.y + 2.4} r={0.72} fill="#FFF" opacity="0.5" />
+                        <ellipse cx={ex} cy={RIG.eye.y} rx={erx * 0.58} ry={ery * 0.58} fill="#1A1920" />
+                        <circle cx={ex + dir * 0.45} cy={RIG.eye.y - 1.8} r={1.1} fill="#FFF" opacity="0.95" />
+                        <circle ref={sparkRef} cx={ex - dir * 1.6} cy={RIG.eye.y + 2.0} r={0.62} fill="#FFF" opacity="0.5" />
                       </g>
                     </g>
                   </g>

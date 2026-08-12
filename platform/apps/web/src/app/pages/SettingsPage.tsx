@@ -25,6 +25,9 @@ import {
 import clsx from "clsx";
 import { ExecutionLedger } from "../components/ExecutionLedger";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
+import { tauriInvoke } from "../avatar/tauri-internals";
+import { AVATAR_COLOR_KEY, AVATAR_CURSOR_VISIBLE_KEY } from "../avatar/AnnotateApp";
+import { AVATAR_SHARE_SCREEN_KEY, AVATAR_SPEAK_ANSWERS_KEY } from "../avatar/CompanionAsk";
 
 const navItems = [
   { id: "organization", label: "Organization", icon: Building2 },
@@ -32,6 +35,8 @@ const navItems = [
   { id: "team", label: "Team & Permissions", icon: Users },
   { id: "sources", label: "Sources", icon: BookOpen },
   { id: "governance", label: "Governance", icon: Shield },
+  { id: "desktop", label: "Desktop Permissions", icon: Shield },
+  { id: "avatar", label: "Avatar", icon: Settings },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "billing", label: "Billing & Plan", icon: CreditCard },
   { id: "security", label: "Security", icon: Shield },
@@ -1276,6 +1281,218 @@ function GovernanceSection() {
   );
 }
 
+type DesktopCapabilities = { screenPermission: boolean; tts: boolean };
+
+const DEFAULT_MARK_COLOR = "#FFD400";
+
+function readStoredColor() {
+  try { return localStorage.getItem(AVATAR_COLOR_KEY) ?? DEFAULT_MARK_COLOR; } catch { return DEFAULT_MARK_COLOR; }
+}
+function readStoredCursorVisible() {
+  try { return localStorage.getItem(AVATAR_CURSOR_VISIBLE_KEY) !== "false"; } catch { return true; }
+}
+function readStoredShareScreen() {
+  try { return localStorage.getItem(AVATAR_SHARE_SCREEN_KEY) !== "false"; } catch { return true; }
+}
+function readStoredSpeakAnswers() {
+  try { return localStorage.getItem(AVATAR_SPEAK_ANSWERS_KEY) !== "false"; } catch { return true; }
+}
+
+function DesktopSection() {
+  const isTauri = typeof window !== "undefined" && !!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  const [caps, setCaps] = useState<DesktopCapabilities | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  function refreshCaps() {
+    void tauriInvoke("companion_capabilities").then((v) => {
+      if (v && typeof v === "object") setCaps(v as DesktopCapabilities);
+    });
+  }
+
+  useEffect(() => {
+    if (!isTauri) return;
+    refreshCaps();
+  }, [isTauri]);
+
+  function openSettings(section: string) {
+    void tauriInvoke("open_privacy_settings", { section }).then(() => {
+      setMessage("System Settings opened — grant Bridge Desktop the permission, then return here.");
+      setTimeout(() => { refreshCaps(); setMessage(null); }, 3000);
+    });
+  }
+
+  if (!isTauri) {
+    return (
+      <div className="flex flex-col gap-6">
+        <SectionHeader title="Desktop Permissions" desc="macOS permissions used by Bridge Desktop." />
+        <NothingConfigured icon={Shield} note="Desktop permissions are only visible in the Bridge Desktop app." />
+      </div>
+    );
+  }
+
+  const permissions = [
+    {
+      key: "Privacy_ScreenCapture",
+      title: "Screen Recording",
+      desc: "Required to share your screen with the Bridge companion so it can answer questions about what's on screen.",
+      granted: caps?.screenPermission,
+    },
+    {
+      key: "Privacy_Microphone",
+      title: "Microphone",
+      desc: "Required for push-to-talk voice input in the companion panel (hold ⌘⇧Space or Fn to speak).",
+      granted: null, // macOS doesn't expose mic TCC status without AVFoundation; open System Settings to check
+    },
+  ];
+
+  return (
+    <div className="flex flex-col gap-6">
+      <SectionHeader title="Desktop Permissions" desc="macOS permissions Bridge Desktop uses. Grant them in System Settings when prompted." />
+      {permissions.map((p) => (
+        <Card key={p.key}>
+          <div className="p-6 flex items-start justify-between gap-4">
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm text-[var(--color-navy)]">{p.title}</span>
+                {p.granted === true && (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Granted</span>
+                )}
+                {p.granted === false && (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Not granted</span>
+                )}
+              </div>
+              <p className="text-xs text-[var(--color-navy-mid)]">{p.desc}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openSettings(p.key)}
+              className="shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border hover:bg-[var(--color-surface)] transition-colors"
+              style={{ color: "var(--color-navy)" }}
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Open in System Settings
+            </button>
+          </div>
+        </Card>
+      ))}
+      {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
+      {caps?.tts && (
+        <Card>
+          <div className="p-6 space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-sm text-[var(--color-navy)]">Text-to-Speech</span>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Available</span>
+            </div>
+            <p className="text-xs text-[var(--color-navy-mid)]">Bridge uses macOS built-in speech (say) to read answers aloud. Enable the &quot;Speak answers aloud&quot; toggle in the companion panel.</p>
+          </div>
+        </Card>
+      )}
+
+    </div>
+  );
+}
+
+function AvatarSection() {
+  const [markColor, setMarkColor] = useState(readStoredColor);
+  const [cursorVisible, setCursorVisible] = useState(readStoredCursorVisible);
+  const [shareScreen, setShareScreen] = useState(readStoredShareScreen);
+  const [speakAnswers, setSpeakAnswers] = useState(readStoredSpeakAnswers);
+
+  function handleColorChange(color: string) {
+    setMarkColor(color);
+    try { localStorage.setItem(AVATAR_COLOR_KEY, color); } catch {}
+  }
+
+  function handleCursorToggle(visible: boolean) {
+    setCursorVisible(visible);
+    try { localStorage.setItem(AVATAR_CURSOR_VISIBLE_KEY, visible ? "true" : "false"); } catch {}
+  }
+
+  function handleShareScreen(on: boolean) {
+    setShareScreen(on);
+    try { localStorage.setItem(AVATAR_SHARE_SCREEN_KEY, on ? "true" : "false"); } catch {}
+  }
+
+  function handleSpeakAnswers(on: boolean) {
+    setSpeakAnswers(on);
+    try { localStorage.setItem(AVATAR_SPEAK_ANSWERS_KEY, on ? "true" : "false"); } catch {}
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <SectionHeader title="Avatar" desc="Appearance and attention settings for the Bridge companion." />
+      <Card>
+        <div className="p-6 space-y-4">
+          <div className="font-semibold text-sm text-[var(--color-navy)]">Annotation colour</div>
+          <p className="text-xs text-[var(--color-navy-mid)]">
+            Colour used for spotlights, highlights, arrows, and the attention cursor. Changes apply instantly.
+          </p>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-xs text-[var(--color-navy)]">
+              <span className="font-semibold">Colour</span>
+              <input
+                type="color"
+                value={markColor}
+                onChange={(e) => handleColorChange(e.target.value)}
+                className="w-8 h-8 rounded cursor-pointer border border-[var(--color-border)] p-0.5 bg-white"
+                title="Choose annotation colour"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => handleColorChange(DEFAULT_MARK_COLOR)}
+              className="text-xs px-2 py-1 rounded border hover:bg-[var(--color-surface)] transition-colors"
+              style={{ color: "var(--color-navy-mid)" }}
+            >
+              Reset to yellow
+            </button>
+          </div>
+        </div>
+      </Card>
+      <Card>
+        <div className="p-6 space-y-3">
+          <div className="font-semibold text-sm text-[var(--color-navy)]">Attention cursor</div>
+          <p className="text-xs text-[var(--color-navy-mid)]">
+            When enabled, the avatar controls a cursor that follows what it's focusing on — it appears where the companion's attention is and moves as focus shifts. Ask it to point at something and it will.
+          </p>
+          <label className="flex items-center gap-2 text-xs text-[var(--color-navy)] cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={cursorVisible}
+              onChange={(e) => handleCursorToggle(e.target.checked)}
+              className="rounded"
+            />
+            <span>Show avatar attention cursor</span>
+          </label>
+        </div>
+      </Card>
+      <Card>
+        <div className="p-6 space-y-4">
+          <div className="font-semibold text-sm text-[var(--color-navy)]">Voice &amp; Screen</div>
+          <label className="flex items-center gap-2 text-xs text-[var(--color-navy)] cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={shareScreen}
+              onChange={(e) => handleShareScreen(e.target.checked)}
+              className="rounded"
+            />
+            <span>Share screen with each question (screenshot sent to Groq)</span>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-[var(--color-navy)] cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={speakAnswers}
+              onChange={(e) => handleSpeakAnswers(e.target.checked)}
+              className="rounded"
+            />
+            <span>Speak answers aloud (macOS built-in voice)</span>
+          </label>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function HelpSection() {
   return (
     <div className="flex flex-col gap-6">
@@ -1356,6 +1573,10 @@ export function SettingsPage() {
         return <SourcesSection />;
       case "governance":
         return <GovernanceSection />;
+      case "desktop":
+        return <DesktopSection />;
+      case "avatar":
+        return <AvatarSection />;
       case "notifications":
         return (
           <div className="flex flex-col gap-6">

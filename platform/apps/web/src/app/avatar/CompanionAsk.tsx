@@ -20,6 +20,21 @@ import { dispatchCaptureEvent, setAvatarStatus } from "./avatar-store";
 import { tauriInvoke, tauriInvokeJob, tauriInvokeStrict } from "./tauri-internals";
 import { ResearchRun } from "./ResearchRun";
 
+export const AVATAR_SHARE_SCREEN_KEY = "bridge:avatar:share_screen";
+export const AVATAR_SPEAK_ANSWERS_KEY = "bridge:avatar:speak_answers";
+
+function readShareScreen() {
+  try { return localStorage.getItem(AVATAR_SHARE_SCREEN_KEY) !== "false"; } catch { return true; }
+}
+function readSpeakAnswers() {
+  try { return localStorage.getItem(AVATAR_SPEAK_ANSWERS_KEY) !== "false"; } catch { return true; }
+}
+
+function isExplicitResearch(text: string) {
+  const t = text.trim().toLowerCase();
+  return t.startsWith("research ") || t.startsWith("deep research") || t.startsWith("deep dive");
+}
+
 interface CompanionCapabilities {
   cloudVision: boolean;
   visionModel: string;
@@ -31,7 +46,7 @@ interface CompanionCapabilities {
 
 interface CompanionAnswer {
   text: string;
-  provider: "groq-vision" | "local-qwen";
+  provider: "groq-vision" | "groq-text" | "local-qwen";
   screenShared: boolean;
   points: number;
   spoke: boolean;
@@ -90,10 +105,12 @@ export function CompanionAsk({
   onAnswered?: () => void;
 }) {
   const [capabilities, setCapabilities] = useState<CompanionCapabilities | null>(null);
-  const [mode, setMode] = useState<"ask" | "research">("ask");
   const [question, setQuestion] = useState("");
-  const [shareScreen, setShareScreen] = useState(false);
-  const [speakAnswers, setSpeakAnswers] = useState(true);
+  const [researchMode, setResearchMode] = useState(false);
+  // shareScreen and speakAnswers are persisted in localStorage (Settings → Avatar);
+  // the values are read once on mount and stay stable unless the user changes Settings.
+  const [shareScreen] = useState(readShareScreen);
+  const [speakAnswers] = useState(readSpeakAnswers);
   const [busy, setBusy] = useState<"idle" | "capturing" | "thinking" | "transcribing">("idle");
   const [answer, setAnswer] = useState<CompanionAnswer | null>(null);
   const [error, setError] = useState<AskError | null>(null);
@@ -271,29 +288,19 @@ export function CompanionAsk({
           ? "Transcribing your voice…"
           : null;
 
-  const modeTabs = (
-    <div className="flex gap-1 px-3 pt-3">
-      {(["ask", "research"] as const).map((tab) => (
-        <button
-          key={tab}
-          type="button"
-          onClick={() => setMode(tab)}
-          className={`rounded px-2 py-0.5 text-xs ${
-            mode === tab
-              ? "bg-[var(--color-navy)] text-white"
-              : "text-[var(--color-navy-mid)]"
-          }`}
-        >
-          {tab === "ask" ? "Ask" : "Research"}
-        </button>
-      ))}
-    </div>
-  );
-
-  if (mode === "research") {
+  if (researchMode) {
     return (
       <div className="flex flex-col" style={{ minHeight: 0 }}>
-        {modeTabs}
+        <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+          <button
+            type="button"
+            onClick={() => setResearchMode(false)}
+            className="text-xs text-[var(--color-navy-mid)] hover:text-[var(--color-navy)]"
+          >
+            ← Back
+          </button>
+          <span className="text-xs text-[var(--color-navy-mid)]">Deep Research</span>
+        </div>
         <ResearchRun />
       </div>
     );
@@ -301,46 +308,12 @@ export function CompanionAsk({
 
   return (
     <div className="flex flex-col gap-2 text-sm" style={{ minHeight: 0, overflowY: "auto" }}>
-      {modeTabs}
-      <div className="flex flex-col gap-2 p-3 pt-2">
-      <label className="flex items-start gap-2 text-xs text-[var(--color-navy-mid)]">
-        <input
-          type="checkbox"
-          checked={shareScreen && canSeeScreen}
-          disabled={!canSeeScreen}
-          onChange={(event) => setShareScreen(event.target.checked)}
-          style={{ marginTop: 2 }}
-        />
-        <span>
-          {canSeeScreen ? (
-            <>
-              Share this screen for each question — one screenshot of this display, plus this
-              conversation's recent turns, is sent to {capabilities?.visionModel} (Groq) per ask.
-              Off = fully local, no screen view.
-            </>
-          ) : (
-            <>
-              Screen answers need a cloud vision key (GROQ_API_KEY). Without it, {name} answers
-              locally and cannot see your screen.
-            </>
-          )}
-        </span>
-      </label>
+      <div className="flex flex-col gap-2 p-3">
       {capabilities && canSeeScreen && !capabilities.screenPermission && (
         <p className="text-xs text-muted-foreground">
           macOS Screen Recording permission is not granted yet — screenshots may only show the
           wallpaper (System Settings → Privacy &amp; Security → Screen Recording).
         </p>
-      )}
-      {capabilities?.tts && (
-        <label className="flex items-center gap-2 text-xs text-[var(--color-navy-mid)]">
-          <input
-            type="checkbox"
-            checked={speakAnswers}
-            onChange={(event) => setSpeakAnswers(event.target.checked)}
-          />
-          Speak answers aloud
-        </label>
       )}
 
       <textarea
@@ -349,13 +322,17 @@ export function CompanionAsk({
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
-            void ask(question);
+            if (isExplicitResearch(question)) {
+              setResearchMode(true);
+            } else {
+              void ask(question);
+            }
           }
         }}
         placeholder={
           recording
-            ? "Listening… release ⌘⇧Space to ask"
-            : "Ask about your screen… (Enter to send)"
+            ? "Listening… release Fn to ask"
+            : "Ask anything… (Enter to send)"
         }
         rows={2}
         disabled={busy !== "idle"}
@@ -364,12 +341,18 @@ export function CompanionAsk({
       />
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          {recording ? "● Recording" : "Hold ⌘⇧Space anywhere to talk"}
+          {recording ? "● Recording" : "Hold Fn to talk"}
         </p>
         <button
           type="button"
           disabled={busy !== "idle" || !question.trim()}
-          onClick={() => void ask(question)}
+          onClick={() => {
+            if (isExplicitResearch(question)) {
+              setResearchMode(true);
+            } else {
+              void ask(question);
+            }
+          }}
           className="rounded-[var(--radius-button)] border border-border bg-[var(--color-navy)] text-[var(--color-background)] text-xs px-3 py-1.5 hover:opacity-90 disabled:opacity-50"
         >
           Ask
@@ -404,7 +387,9 @@ export function CompanionAsk({
             <p className="text-xs text-muted-foreground">
               {answer.provider === "groq-vision"
                 ? "Answered by Groq vision — screen shared with your consent"
-                : "Answered locally by the managed model — no screen view"}
+                : answer.provider === "groq-text"
+                  ? "Answered by Groq (text only — no screen view)"
+                  : "Answered locally by the managed model — no screen view"}
             </p>
             {answer.spoke && (
               <button

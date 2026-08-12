@@ -45,7 +45,10 @@ pub const COMPANION_PTT_EVENT: &str = "bridge:companion-ptt";
 pub(crate) const GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
 /// Vision-capable Groq model for the screen-aware path. Overridable so a
 /// deprecated model id never requires a rebuild.
-const DEFAULT_VISION_MODEL: &str = "meta-llama/llama-4-scout-17b-16e-instruct";
+const DEFAULT_VISION_MODEL: &str = "llama-3.2-11b-vision-preview";
+/// Text-only Groq model for the local-model-absent fallback path. Uses a
+/// widely available model so a standard free-tier key always works.
+const DEFAULT_TEXT_MODEL: &str = "llama-3.3-70b-versatile";
 const DEFAULT_STT_MODEL: &str = "whisper-large-v3-turbo";
 /// Retained for the legacy `[POINT:x,y:label]` vocabulary, which the pipeline
 /// no longer drives (raw coordinates proved unreliable — see the locator) but
@@ -1067,12 +1070,49 @@ struct AskOutcome {
     marks: Vec<annotate::AnnotationMark>,
 }
 
+/// Matches "open <app>" questions and runs the app via macOS `open -a`.
+/// Returns Some(AskOutcome) if the question was handled, None otherwise.
+fn try_open_app_shortcut(question: &str, speak: bool) -> Option<AskOutcome> {
+    let q = question.trim().to_lowercase();
+    let app_name = if q == "open edge" || q == "open microsoft edge" || q.starts_with("open edge ") {
+        Some("Microsoft Edge")
+    } else if q == "open safari" || q.starts_with("open safari ") {
+        Some("Safari")
+    } else if q == "open chrome" || q == "open google chrome" || q.starts_with("open chrome ") {
+        Some("Google Chrome")
+    } else if q == "open firefox" || q.starts_with("open firefox ") {
+        Some("Firefox")
+    } else {
+        None
+    }?;
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").args(["-a", app_name]).spawn();
+    }
+    Some(AskOutcome {
+        answer: CompanionAnswer {
+            text: format!("Opening {}…", app_name),
+            provider: "groq-text",
+            screen_shared: false,
+            points: 0,
+            spoke: speak,
+            capture_note: None,
+        },
+        marks: Vec::new(),
+    })
+}
+
 fn run_ask(
     app: &AppHandle,
     monitor_index: usize,
     request: CompanionAskRequest,
     question: String,
 ) -> Result<AskOutcome, CompanionError> {
+    // Fast-path: "open <app>" commands execute locally without a model call.
+    if let Some(outcome) = try_open_app_shortcut(&question, request.speak) {
+        return Ok(outcome);
+    }
+
     let cloud_key = groq_api_key(app);
     let use_cloud_vision = request.share_screen_with_cloud && cloud_key.is_some();
 
@@ -1283,27 +1323,21 @@ fn run_ask(
     // GROQ text fallback when the local model is not yet running.
     if let Some(key) = cloud_key {
         let body = serde_json::json!({
-            "model": vision_model(app),
+            "model": DEFAULT_TEXT_MODEL,
             "messages": messages,
             "temperature": 0.4,
             "max_tokens": 700,
-            "reasoning_effort": "none",
         });
         let url = format!("{GROQ_BASE_URL}/chat/completions");
-        let raw = match post_chat(&url, &key, body.clone()) {
+        let raw = match post_chat(&url, &key, body) {
             Ok(raw) => raw,
-            Err(e) if e.code == "COMPANION_PROVIDER_STATUS" && e.message.contains("reasoning_effort") => {
-                let mut b = body;
-                b.as_object_mut().unwrap().remove("reasoning_effort");
-                post_chat(&url, &key, b)?
-            }
             Err(e) => return Err(e),
         };
         let raw = strip_think_blocks(&raw);
         return Ok(AskOutcome {
             answer: CompanionAnswer {
                 text: strip_point_tags(&raw),
-                provider: "groq-vision",
+                provider: "groq-text",
                 screen_shared: false,
                 points: 0,
                 spoke: request.speak,
@@ -1473,7 +1507,7 @@ fn speak(app: &AppHandle, text: &str) {
         }
         // Text goes over stdin — never argv — so answer content can't be
         // interpreted as `say` flags.
-        match Command::new("say")
+        match Command::new("/usr/bin/say")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -1521,6 +1555,26 @@ pub fn companion_stop_speaking(state: State<'_, CompanionState>) -> Result<(), C
         let _ = child.kill();
         let _ = child.wait();
     }
+    Ok(())
+}
+
+/// Open a macOS System Settings privacy panel (e.g. `Privacy_ScreenCapture`,
+/// `Privacy_Microphone`). No-op on non-macOS.
+#[tauri::command]
+pub fn open_privacy_settings(section: String) -> Result<(), CompanionError> {
+    #[cfg(target_os = "macos")]
+    {
+        let url = format!(
+            "x-apple.systempreferences:com.apple.preference.security?{}",
+            section
+        );
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| err("OPEN_SETTINGS_FAILED", e.to_string()))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = section;
     Ok(())
 }
 

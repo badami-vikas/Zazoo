@@ -51,26 +51,24 @@ function tauriListen<T>(event: string, callback: (payload: T) => void): void {
   });
 }
 
-/**
- * High-visibility yellow. The annotation surface floats over ARBITRARY
- * application windows — light, dark, photographic — so a theme colour is the
- * wrong tool: every mark is drawn twice, a wide near-black halo beneath a
- * bright yellow stroke, which stays legible on any background.
- */
-const MARK_COLOR = "#FFD400";
+const DEFAULT_MARK_COLOR = "#FFD400";
 const HALO_COLOR = "rgba(0,0,0,0.85)";
 const STROKE = 4;
 const HALO_STROKE = 9;
 
-const COLORS = {
-  highlight: MARK_COLOR,
-  arrow: MARK_COLOR,
-  callout: MARK_COLOR,
-  spotlight: MARK_COLOR,
-} as const;
+/** localStorage keys written by SettingsPage and read here. */
+export const AVATAR_COLOR_KEY = "bridge:avatar:mark_color";
+export const AVATAR_CURSOR_VISIBLE_KEY = "bridge:avatar:cursor_visible";
+
+function readMarkColor() {
+  try { return localStorage.getItem(AVATAR_COLOR_KEY) ?? DEFAULT_MARK_COLOR; } catch { return DEFAULT_MARK_COLOR; }
+}
+function readCursorVisible() {
+  try { return localStorage.getItem(AVATAR_CURSOR_VISIBLE_KEY) !== "false"; } catch { return true; }
+}
 
 /** Label text with its own halo, so it reads over any window beneath it. */
-function MarkLabel({ x, y, text, anchor }: { x: number; y: number; text: string; anchor?: "middle" }) {
+function MarkLabel({ x, y, text, anchor, color }: { x: number; y: number; text: string; anchor?: "middle"; color: string }) {
   const common = {
     x,
     y,
@@ -84,14 +82,14 @@ function MarkLabel({ x, y, text, anchor }: { x: number; y: number; text: string;
       <text {...common} stroke={HALO_COLOR} strokeWidth={5} strokeLinejoin="round" fill="none">
         {text}
       </text>
-      <text {...common} fill={MARK_COLOR}>
+      <text {...common} fill={color}>
         {text}
       </text>
     </>
   );
 }
 
-function MarkShape({ mark }: { mark: AnnotationMark }) {
+function MarkShape({ mark, color }: { mark: AnnotationMark; color: string }) {
   const cx = mark.x + mark.width / 2;
   const cy = mark.y + mark.height / 2;
 
@@ -99,80 +97,30 @@ function MarkShape({ mark }: { mark: AnnotationMark }) {
     case "highlight":
       return (
         <>
-          <rect
-            x={mark.x}
-            y={mark.y}
-            width={mark.width}
-            height={mark.height}
-            rx={6}
-            fill="none"
-            stroke={HALO_COLOR}
-            strokeWidth={HALO_STROKE}
-          />
-          <rect
-            x={mark.x}
-            y={mark.y}
-            width={mark.width}
-            height={mark.height}
-            rx={6}
-            fill={MARK_COLOR}
-            fillOpacity={0.12}
-            stroke={COLORS.highlight}
-            strokeWidth={STROKE}
-          />
-          {mark.label && <MarkLabel x={mark.x} y={mark.y - 10} text={mark.label} />}
+          <rect x={mark.x} y={mark.y} width={mark.width} height={mark.height} rx={6} fill="none" stroke={HALO_COLOR} strokeWidth={HALO_STROKE} />
+          <rect x={mark.x} y={mark.y} width={mark.width} height={mark.height} rx={6} fill={color} fillOpacity={0.12} stroke={color} strokeWidth={STROKE} />
+          {mark.label && <MarkLabel x={mark.x} y={mark.y - 10} text={mark.label} color={color} />}
         </>
       );
     case "callout":
       return (
         <>
-          <rect
-            x={mark.x}
-            y={mark.y}
-            width={mark.width}
-            height={mark.height}
-            rx={8}
-            fill={HALO_COLOR}
-            fillOpacity={0.82}
-            stroke={HALO_COLOR}
-            strokeWidth={HALO_STROKE}
-          />
-          <rect
-            x={mark.x}
-            y={mark.y}
-            width={mark.width}
-            height={mark.height}
-            rx={8}
-            fill="none"
-            stroke={COLORS.callout}
-            strokeWidth={STROKE}
-          />
-          {mark.label && <MarkLabel x={cx} y={cy} text={mark.label} anchor="middle" />}
+          <rect x={mark.x} y={mark.y} width={mark.width} height={mark.height} rx={8} fill={HALO_COLOR} fillOpacity={0.82} stroke={HALO_COLOR} strokeWidth={HALO_STROKE} />
+          <rect x={mark.x} y={mark.y} width={mark.width} height={mark.height} rx={8} fill="none" stroke={color} strokeWidth={STROKE} />
+          {mark.label && <MarkLabel x={cx} y={cy} text={mark.label} anchor="middle" color={color} />}
         </>
       );
     case "spotlight": {
       const r = Math.max(mark.width, mark.height) / 2 + 10;
       return (
         <>
-          {/* Soft yellow wash so the target area itself lifts off the
-            * background, then halo + bright ring. */}
-          <circle cx={cx} cy={cy} r={r} fill={MARK_COLOR} fillOpacity={0.18} />
+          <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={0.18} />
           <circle cx={cx} cy={cy} r={r} fill="none" stroke={HALO_COLOR} strokeWidth={HALO_STROKE} />
-          <circle
-            cx={cx}
-            cy={cy}
-            r={r}
-            fill="none"
-            stroke={COLORS.spotlight}
-            strokeWidth={STROKE}
-            strokeDasharray="10 6"
-          />
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={STROKE} strokeDasharray="10 6" />
         </>
       );
     }
     case "arrow": {
-      // Points from just above-left of the target toward its top-left
-      // corner — a plain, unambiguous "here" indicator.
       const tipX = mark.x;
       const tipY = mark.y;
       const tailX = mark.x - 40;
@@ -180,16 +128,8 @@ function MarkShape({ mark }: { mark: AnnotationMark }) {
       return (
         <>
           <line x1={tailX} y1={tailY} x2={tipX} y2={tipY} stroke={HALO_COLOR} strokeWidth={HALO_STROKE} />
-          <line
-            x1={tailX}
-            y1={tailY}
-            x2={tipX}
-            y2={tipY}
-            stroke={COLORS.arrow}
-            strokeWidth={STROKE}
-            markerEnd="url(#annotate-arrowhead)"
-          />
-          {mark.label && <MarkLabel x={tailX} y={tailY - 10} text={mark.label} />}
+          <line x1={tailX} y1={tailY} x2={tipX} y2={tipY} stroke={color} strokeWidth={STROKE} markerEnd="url(#annotate-arrowhead)" />
+          {mark.label && <MarkLabel x={tailX} y={tailY - 10} text={mark.label} color={color} />}
         </>
       );
     }
@@ -220,6 +160,18 @@ interface PointerPayload {
 export function AnnotateApp() {
   const [marks, setMarks] = useState<AnnotationMark[]>([]);
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
+  const [markColor, setMarkColor] = useState(readMarkColor);
+  const [cursorVisible, setCursorVisible] = useState(readCursorVisible);
+
+  useEffect(() => {
+    // Pick up color/visibility changes written by SettingsPage in real-time.
+    function onStorage(e: StorageEvent) {
+      if (e.key === AVATAR_COLOR_KEY) setMarkColor(e.newValue ?? DEFAULT_MARK_COLOR);
+      if (e.key === AVATAR_CURSOR_VISIBLE_KEY) setCursorVisible(e.newValue !== "false");
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   useEffect(() => {
     // Which monitor this window covers — injected by the Rust shell at
@@ -235,12 +187,7 @@ export function AnnotateApp() {
         (payload.monitor === null || payload.monitor === myMonitor)
           ? payload.marks
           : [];
-      // A non-matching broadcast clears this window, so marks from an
-      // earlier ask never linger on another display.
       setMarks(applied);
-      // Two pings on purpose: the no-arg call uses the exact shape proven to
-      // work at mount, so if only the counted one is missing the fault is
-      // argument deserialization, not event delivery.
       void internals?.invoke("annotate_ready").catch(() => undefined);
       void internals?.invoke("annotate_ready", { rendered: applied.length }).catch(() => undefined);
     });
@@ -251,8 +198,6 @@ export function AnnotateApp() {
           : null,
       );
     });
-    // Readiness ping: proves this surface mounted (the window is fully
-    // transparent when it has no marks, so there is no other visual tell).
     void internals?.invoke("annotate_ready").catch(() => undefined);
   }, []);
 
@@ -263,10 +208,7 @@ export function AnnotateApp() {
         position: "fixed",
         inset: 0,
         background: "transparent",
-        // The frame is a plain CSS border, not an SVG rect: SVG geometry
-        // attributes do not reliably accept calc() in WebKit, so a
-        // `width="calc(100% - 8px)"` rect silently computes to zero.
-        border: marks.length > 0 ? `6px solid ${MARK_COLOR}` : "none",
+        border: cursorVisible && marks.length > 0 ? `6px solid ${markColor}` : "none",
         borderRadius: 10,
         boxSizing: "border-box",
         pointerEvents: "none",
@@ -279,57 +221,25 @@ export function AnnotateApp() {
     >
       <defs>
         <marker id="annotate-arrowhead" markerWidth={10} markerHeight={10} refX={8} refY={5} orient="auto">
-          <path d="M0,0 L10,5 L0,10 Z" fill={COLORS.arrow} />
+          <path d="M0,0 L10,5 L0,10 Z" fill={markColor} />
         </marker>
       </defs>
-      {/* Entrance animation only (companion "pointing" feel): a short
-        * fade-and-settle per mark, slightly staggered. Pure CSS on the typed
-        * mark shapes — content and geometry stay entirely Rust-validated. */}
-      {/* Marks must be visible with NO animation running. An entrance
-        * animation with `backwards` fill holds opacity:0 during its delay,
-        * so a webview that throttles animations (transparent, never-focused,
-        * click-through window) leaves every mark permanently invisible.
-        * Base state is therefore fully opaque; the pulse only ever touches
-        * `transform`, so if it never runs the mark still reads correctly. */}
       <style>{`
-        .annotate-mark {
-          transform-box: fill-box;
-          transform-origin: center;
-        }
-        .annotate-mark--spotlight {
-          animation: annotate-pulse 2.4s ease-in-out infinite;
-        }
-        @keyframes annotate-pulse {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.06); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .annotate-mark--spotlight { animation: none; }
-        }
+        .annotate-mark { transform-box: fill-box; transform-origin: center; }
+        .annotate-mark--spotlight { animation: annotate-pulse 2.4s ease-in-out infinite; }
+        @keyframes annotate-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+        @media (prefers-reduced-motion: reduce) { .annotate-mark--spotlight { animation: none; } }
       `}</style>
-      {/* Screen-edge frame while any mark is showing: an unmistakable "the
-        * companion is pointing at something" tell that does not depend on
-        * the mark landing where you happen to be looking. */}
-      {marks.map((mark, i) => (
-        <g
-          key={i}
-          className={
-            mark.kind === "spotlight"
-              ? "annotate-mark annotate-mark--spotlight"
-              : "annotate-mark"
-          }
-        >
-          <MarkShape mark={mark} />
+      {cursorVisible && marks.map((mark, i) => (
+        <g key={i} className={mark.kind === "spotlight" ? "annotate-mark annotate-mark--spotlight" : "annotate-mark"}>
+          <MarkShape mark={mark} color={markColor} />
         </g>
       ))}
-      {/* Chase game: the companion's OWN pointer — a filled dot distinct
-        * from both the real OS cursor and the (fixed, untouched) avatar
-        * itself, driven purely by `chase.rs`'s position stream. */}
-      {pointer && (
+      {pointer && cursorVisible && (
         <g>
           <circle cx={pointer.x} cy={pointer.y} r={16} fill="none" stroke={HALO_COLOR} strokeWidth={HALO_STROKE} />
-          <circle cx={pointer.x} cy={pointer.y} r={16} fill={MARK_COLOR} fillOpacity={0.25} stroke={MARK_COLOR} strokeWidth={STROKE} />
-          <circle cx={pointer.x} cy={pointer.y} r={5} fill={MARK_COLOR} />
+          <circle cx={pointer.x} cy={pointer.y} r={16} fill={markColor} fillOpacity={0.25} stroke={markColor} strokeWidth={STROKE} />
+          <circle cx={pointer.x} cy={pointer.y} r={5} fill={markColor} />
         </g>
       )}
     </svg>

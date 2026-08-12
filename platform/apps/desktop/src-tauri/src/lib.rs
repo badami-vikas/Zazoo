@@ -687,6 +687,7 @@ pub fn run() {
             companion::companion_ask_poll,
             companion::companion_speak,
             companion::companion_stop_speaking,
+            companion::open_privacy_settings,
             companion::companion_transcribe,
             whatsapp_webview::whatsapp_open,
             whatsapp_webview::whatsapp_position,

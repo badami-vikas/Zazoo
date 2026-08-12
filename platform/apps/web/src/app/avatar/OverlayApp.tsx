@@ -28,7 +28,6 @@
  * fullscreen auxiliary presence.
  */
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { ChatView } from "../chat/ChatView";
 import { CompanionAsk } from "./CompanionAsk";
 import { CompanionZazooFace } from "./zazoo/CompanionZazooFace";
@@ -155,17 +154,17 @@ export function OverlayApp() {
   const avatarPointerGesture = useRef<AvatarPointerGesture | null>(null);
   const suppressAvatarClick = useRef(false);
 
-  const [pendingCount, setPendingCount] = useState<number | null>(null);
-  const [pendingError, setPendingError] = useState(false);
-
   // Right-click menu (Hide / Meditate / Observe).
   const [menuOpen, setMenuOpen] = useState(false);
   const [observing, setObserving] = useState(false);
 
   // Hover chat input (replaces the old hover status label — typing here and
   // pressing Enter opens the full chat panel with the message already sent).
+  // `pinned` keeps the hover bar visible after a click even when the cursor
+  // leaves — clicked again (or panel opened) to unpin.
   const [hoverDraft, setHoverDraft] = useState("");
   const [chatSeed, setChatSeed] = useState<{ text: string; nonce: number } | null>(null);
+  const [pinned, setPinned] = useState(false);
 
   // --- Notch home (roadmap Z1) -------------------------------------------
   const [home, setHome] = useState<AvatarHome>(() =>
@@ -341,7 +340,7 @@ export function OverlayApp() {
       : working
         ? "working"
         : "expanded_idle"
-    : hovering
+    : hovering || pinned
       ? "hover"
       : "collapsed";
 
@@ -485,13 +484,11 @@ export function OverlayApp() {
         ? WINDOW_SIZE.ask
         : panel === "chat"
           ? WINDOW_SIZE.chat
-          : panel === "status"
-            ? WINDOW_SIZE.expanded
-            : hovering
-              ? WINDOW_SIZE.hover
-              : WINDOW_SIZE.collapsed;
+          : hovering || pinned
+            ? WINDOW_SIZE.hover
+            : WINDOW_SIZE.collapsed;
     void tauriInvoke("overlay_resize", { width: size.w, height: size.h });
-  }, [panel, hovering, menuOpen, home]);
+  }, [panel, hovering, pinned, menuOpen, home]);
 
   // Docked in the notch, the ask/chat panels replace NotchHome outright (see
   // the render below) rather than being a variant of it, so they need their
@@ -518,24 +515,6 @@ export function OverlayApp() {
         : { emotion: "calm", action: "meditating", energy: 0.15, warmth: 0.8 },
     );
   }, [home, hovering, expanded, status, director]);
-
-  function openStatusPanel() {
-    if (panel === "status") {
-      setPanel("none");
-      return;
-    }
-    setPanel("status");
-    // Same call the in-page overlay's wake() makes — one source of truth
-    // for "how many actions await approval".
-    setPendingError(false);
-    trpc.action.listPending
-      .query({ organizationId: PILOT_ORGANIZATION, limit: 1, offset: 0 })
-      .then((res) => setPendingCount(res.total))
-      .catch(() => {
-        setPendingCount(null);
-        setPendingError(true);
-      });
-  }
 
   function beginAvatarPointerGesture(event: ReactPointerEvent<HTMLButtonElement>) {
     if (!event.isPrimary || event.button !== 0) return;
@@ -580,10 +559,15 @@ export function OverlayApp() {
       suppressAvatarClick.current = false;
       return;
     }
-    // A plain click pets the avatar (a one-shot reaction) AND still opens
-    // the status panel — petting is a reaction, not a replacement gesture.
     director.perform(PET_PERFORMANCE);
-    openStatusPanel();
+    // Toggle pinned: clicking the avatar pins the hover bar visible; clicking
+    // again (or opening a panel) unpins.
+    if (panel !== "none") {
+      setPanel("none");
+      setPinned(false);
+    } else {
+      setPinned((prev) => !prev);
+    }
   }
 
   function submitHoverDraft() {
@@ -591,11 +575,13 @@ export function OverlayApp() {
     if (!text) return;
     setChatSeed({ text, nonce: Date.now() });
     setHoverDraft("");
+    setPinned(false);
     setPanel("chat");
   }
 
   function openAskPanel() {
     setMenuOpen(false);
+    setPinned(false);
     setPanel((prev) => (prev === "ask" ? "none" : "ask"));
   }
 
@@ -832,48 +818,6 @@ export function OverlayApp() {
         </>
       )}
 
-      {!menuOpen && panel === "status" && (
-        <div
-          role="dialog"
-          aria-label={`${name} — companion panel`}
-          className="w-full mb-2 rounded-[var(--radius-card)] border border-border bg-background shadow-lg p-4 text-sm"
-          style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto" }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <p className="font-medium text-[var(--color-navy)]">{name}</p>
-            <button
-              type="button"
-              aria-label="Close"
-              className="text-muted-foreground hover:text-[var(--color-steel)]"
-              onClick={() => setPanel("none")}
-            >
-              ×
-            </button>
-          </div>
-          <div className="space-y-1.5 text-[var(--color-navy-mid)]">
-            <p>
-              <span className="text-muted-foreground">Status: </span>
-              {observing ? "Observing your screen…" : label}
-            </p>
-            <p>
-              <span className="text-muted-foreground">Pending approvals: </span>
-              {pendingError
-                ? "not reachable yet"
-                : pendingCount === null
-                  ? "checking…"
-                  : pendingCount}
-            </p>
-            <button
-              type="button"
-              className="mt-3 w-full rounded-[var(--radius-button)] border border-border bg-[var(--color-navy)] text-[var(--color-background)] text-xs px-3 py-2 hover:opacity-90"
-              onClick={() => void tauriInvoke("focus_main_window")}
-            >
-              Open Bridge
-            </button>
-          </div>
-        </div>
-      )}
-
       {!menuOpen && panel === "ask" && (
         <div
           role="dialog"
@@ -971,7 +915,7 @@ export function OverlayApp() {
                 onFocus={() => setHovering(true)}
                 placeholder={`Message ${name}…`}
                 aria-label={`Message ${name}`}
-                className="min-w-0 flex-1 rounded-[var(--radius-button)] border border-border bg-background shadow-md text-xs px-2.5 py-1.5 focus:outline-none focus-visible:ring-2"
+                className="min-w-0 flex-1 rounded-[var(--radius-button)] border border-border bg-background shadow-md text-sm px-2 py-1.5 focus:outline-none focus-visible:ring-2"
               />
             </div>
           )}
