@@ -23,8 +23,8 @@ import { ResearchRun } from "./ResearchRun";
 export const AVATAR_SHARE_SCREEN_KEY = "bridge:avatar:share_screen";
 export const AVATAR_SPEAK_ANSWERS_KEY = "bridge:avatar:speak_answers";
 
-function readShareScreen() {
-  try { return localStorage.getItem(AVATAR_SHARE_SCREEN_KEY) !== "false"; } catch { return true; }
+export function readAvatarShareScreenPreference() {
+  try { return localStorage.getItem(AVATAR_SHARE_SCREEN_KEY) === "true"; } catch { return false; }
 }
 function readSpeakAnswers() {
   try { return localStorage.getItem(AVATAR_SPEAK_ANSWERS_KEY) !== "false"; } catch { return true; }
@@ -96,12 +96,17 @@ async function blobToBase64(blob: Blob): Promise<string> {
 export function CompanionAsk({
   name,
   pttActive,
+  autoQuestion,
+  onAutoQuestionConsumed,
   onAnswered,
   onSpeechStopped,
 }: {
   name: string;
   /** True while the global push-to-talk shortcut is held. */
   pttActive: boolean;
+  /** One-shot screen-aware question supplied by the Observe menu action. */
+  autoQuestion?: { text: string; nonce: number } | null;
+  onAutoQuestionConsumed?: () => void;
   /** Fired once per successfully delivered answer. Receives the answer text,
    * the model's emotion tag (one of the ZazooEmotion names) so the shell can
    * animate the rig to match the reply's emotional tone, and whether the answer
@@ -113,9 +118,9 @@ export function CompanionAsk({
   const [capabilities, setCapabilities] = useState<CompanionCapabilities | null>(null);
   const [question, setQuestion] = useState("");
   const [researchMode, setResearchMode] = useState(false);
-  // shareScreen and speakAnswers are persisted in localStorage (Settings → Avatar);
-  // the values are read once on mount and stay stable unless the user changes Settings.
-  const [shareScreen] = useState(readShareScreen);
+  // Shared with Settings → Avatar, but screen egress must also be visible and
+  // controllable at the point where the user asks a question.
+  const [shareScreen, setShareScreen] = useState(readAvatarShareScreenPreference);
   const [speakAnswers] = useState(readSpeakAnswers);
   const [busy, setBusy] = useState<"idle" | "capturing" | "thinking" | "transcribing">("idle");
   const [answer, setAnswer] = useState<CompanionAnswer | null>(null);
@@ -127,6 +132,16 @@ export function CompanionAsk({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const busyRef = useRef(false);
+  const lastAutoQuestionRef = useRef<number | null>(null);
+  const responseRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!answer && !error) return;
+    const frame = requestAnimationFrame(() => {
+      responseRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [answer, error]);
 
   useEffect(() => {
     void tauriInvoke("companion_capabilities").then((value) => {
@@ -203,6 +218,36 @@ export function CompanionAsk({
     },
     [capabilities, shareScreen, speakAnswers],
   );
+
+  useEffect(() => {
+    if (
+      !autoQuestion ||
+      !capabilities ||
+      lastAutoQuestionRef.current === autoQuestion.nonce
+    ) {
+      return;
+    }
+    lastAutoQuestionRef.current = autoQuestion.nonce;
+    onAutoQuestionConsumed?.();
+    setQuestion(autoQuestion.text);
+    if (!shareScreen) {
+      setError({
+        code: "COMPANION_SCREEN_SHARING_DISABLED",
+        message:
+          "Observe needs screen sharing. Enable Share screen with questions above, then press Ask.",
+      });
+      return;
+    }
+    if (!capabilities.cloudVision) {
+      setError({
+        code: "COMPANION_NO_VISION_PROVIDER",
+        message:
+          "Observe needs a Groq API key in Settings → API Keys. The installed local model and Chief of Staff chat model are text-only and cannot analyze screenshots.",
+      });
+      return;
+    }
+    void ask(autoQuestion.text);
+  }, [ask, autoQuestion, capabilities, onAutoQuestionConsumed, shareScreen]);
 
   // ---- push-to-talk recording ------------------------------------------
   const startRecording = useCallback(async () => {
@@ -293,20 +338,44 @@ export function CompanionAsk({
         : busy === "transcribing"
           ? "Transcribing your voice…"
           : null;
+  const modeControls = (
+    <div
+      aria-label="Companion mode"
+      className="flex items-center gap-1 border-b border-border px-3 py-2"
+    >
+      <button
+        type="button"
+        aria-pressed={!researchMode}
+        disabled={busy !== "idle"}
+        onClick={() => setResearchMode(false)}
+        className={`rounded-[var(--radius-button)] px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+          !researchMode
+            ? "bg-[var(--color-navy)] text-[var(--color-background)]"
+            : "text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)]"
+        }`}
+      >
+        Ask
+      </button>
+      <button
+        type="button"
+        aria-pressed={researchMode}
+        disabled={busy !== "idle"}
+        onClick={() => setResearchMode(true)}
+        className={`rounded-[var(--radius-button)] px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+          researchMode
+            ? "bg-[var(--color-navy)] text-[var(--color-background)]"
+            : "text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)]"
+        }`}
+      >
+        Research
+      </button>
+    </div>
+  );
 
   if (researchMode) {
     return (
       <div className="flex flex-col" style={{ minHeight: 0 }}>
-        <div className="flex items-center gap-2 px-3 pt-2 pb-1">
-          <button
-            type="button"
-            onClick={() => setResearchMode(false)}
-            className="text-xs text-[var(--color-navy-mid)] hover:text-[var(--color-navy)]"
-          >
-            ← Back
-          </button>
-          <span className="text-xs text-[var(--color-navy-mid)]">Deep Research</span>
-        </div>
+        {modeControls}
         <ResearchRun />
       </div>
     );
@@ -314,15 +383,62 @@ export function CompanionAsk({
 
   return (
     <div className="flex flex-col gap-2 text-sm" style={{ minHeight: 0, overflowY: "auto" }}>
+      {modeControls}
       <div className="flex flex-col gap-2 p-3">
       {capabilities && canSeeScreen && !capabilities.screenPermission && (
         <p className="text-xs text-muted-foreground">
-          macOS Screen Recording permission is not granted yet — screenshots may only show the
-          wallpaper (System Settings → Privacy &amp; Security → Screen Recording).
+          macOS Screen Recording permission is not granted yet. Bridge will refuse a
+          wallpaper-only capture and open System Settings when you try.
+        </p>
+      )}
+      {capabilities && !canSeeScreen && (
+        <p className="text-xs text-muted-foreground">
+          Screenshot analysis needs a Groq API key in Settings → API Keys. The local model remains
+          available for text-only questions.
         </p>
       )}
 
+      <div className="rounded-[var(--radius-button)] border border-border px-2 py-2">
+        <div className="flex items-center gap-2">
+          <input
+            id="companion-share-screen"
+            type="checkbox"
+            checked={shareScreen}
+            disabled={busy !== "idle"}
+            aria-describedby="companion-share-screen-note"
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setShareScreen(enabled);
+              try {
+                localStorage.setItem(AVATAR_SHARE_SCREEN_KEY, enabled ? "true" : "false");
+              } catch (storageError) {
+                console.error("[companion] could not persist screen-sharing preference", storageError);
+                setError({
+                  code: "COMPANION_PREFERENCE_NOT_PERSISTED",
+                  message:
+                    "Screen sharing changed for this panel, but Bridge could not save the choice.",
+                });
+              }
+            }}
+            className="rounded"
+          />
+          <label
+            htmlFor="companion-share-screen"
+            className="text-xs font-medium text-[var(--color-navy)]"
+          >
+            Share screen with questions
+          </label>
+        </div>
+        <p
+          id="companion-share-screen-note"
+          className="mt-1 pl-5 text-xs text-[var(--color-navy-mid)]"
+        >
+          One screenshot per question is sent to Groq when enabled; turn it off for text-only asks.
+        </p>
+      </div>
+
       <textarea
+        aria-label="Question for companion"
         value={question}
         onChange={(event) => setQuestion(event.target.value)}
         onKeyDown={(event) => {
@@ -369,6 +485,7 @@ export function CompanionAsk({
 
       {error && (
         <div
+          ref={responseRef}
           role="alert"
           className="rounded-[var(--radius-button)] border border-border px-2 py-1.5 text-xs"
           style={{ color: "var(--color-navy)" }}
@@ -378,7 +495,14 @@ export function CompanionAsk({
       )}
 
       {answer && (
-        <div className="flex flex-col gap-1.5">
+        <div
+          ref={responseRef}
+          role="status"
+          aria-live="polite"
+          aria-label={`${name} response`}
+          className="flex flex-col gap-1.5 rounded-[var(--radius-button)] border border-border bg-[var(--color-surface)] p-2"
+        >
+          <p className="text-xs font-medium text-[var(--color-navy-mid)]">{name} says</p>
           <p className="whitespace-pre-wrap text-[var(--color-navy)]">{answer.text}</p>
           {answer.points > 0 && (
             <p className="text-xs text-muted-foreground">

@@ -22,6 +22,22 @@ const OVERLAY_SOURCE = readFileSync(
   new URL("../src/app/avatar/OverlayApp.tsx", import.meta.url),
   "utf8",
 );
+const COMPANION_ASK_SOURCE = readFileSync(
+  new URL("../src/app/avatar/CompanionAsk.tsx", import.meta.url),
+  "utf8",
+);
+const SETTINGS_SOURCE = readFileSync(
+  new URL("../src/app/pages/SettingsPage.tsx", import.meta.url),
+  "utf8",
+);
+const SENSOR_BRIDGE_SOURCE = readFileSync(
+  new URL("../../desktop/src-tauri/src/sensor_bridge.rs", import.meta.url),
+  "utf8",
+);
+const DESKTOP_LIB_SOURCE = readFileSync(
+  new URL("../../desktop/src-tauri/src/lib.rs", import.meta.url),
+  "utf8",
+);
 
 /** Drives a director on one continuous ~60fps clock: `advance(seconds)` returns
  * every frame it produced, and time never rewinds between calls (a director
@@ -121,4 +137,79 @@ test("the overlay's resting pose is not the eyes-shut meditation", () => {
   assert.ok(resting.length > 0, "could not locate the resting-pose effect");
   assert.ok(!resting.includes("meditating"), "the resting pose is meditating again");
   assert.ok(resting.includes('attention: "cursor"'), "the resting pose ignores the cursor");
+});
+
+test("Observe routes through the screen-aware ask instead of discarding a screenshot", () => {
+  const observe = OVERLAY_SOURCE.slice(
+    OVERLAY_SOURCE.indexOf("function handleObserve"),
+    OVERLAY_SOURCE.indexOf("const name ="),
+  );
+  assert.ok(observe.length > 0, "could not locate the Observe handler");
+  assert.ok(observe.includes('setPanel("ask")'), "Observe does not open the analysis panel");
+  assert.ok(observe.includes("setAskSeed("), "Observe does not seed a screen-aware question");
+  assert.ok(observe.includes("OBSERVE_QUESTION"), "Observe lost its screen-analysis question");
+  assert.ok(
+    !observe.includes("capture_screenshot_on_demand"),
+    "Observe still takes and discards a screenshot instead of analyzing it",
+  );
+  assert.ok(
+    COMPANION_ASK_SOURCE.includes("void ask(autoQuestion.text)"),
+    "CompanionAsk does not submit Observe to the analysis job",
+  );
+  assert.ok(
+    !SENSOR_BRIDGE_SOURCE.includes("pub fn capture_screenshot_on_demand"),
+    "raw screenshot bytes remain exposed through an unused IPC command",
+  );
+  assert.ok(
+    !DESKTOP_LIB_SOURCE.includes("sensor_bridge::capture_screenshot_on_demand"),
+    "the raw screenshot IPC command remains registered",
+  );
+});
+
+test("the companion visibly exposes screen sharing and Research", () => {
+  assert.ok(
+    COMPANION_ASK_SOURCE.includes('id="companion-share-screen"'),
+    "screen sharing is hidden outside the companion panel",
+  );
+  assert.ok(
+    COMPANION_ASK_SOURCE.includes("setShareScreen(enabled)"),
+    "the visible screen-sharing control does not update the ask path",
+  );
+  assert.ok(
+    COMPANION_ASK_SOURCE.includes("localStorage.setItem(AVATAR_SHARE_SCREEN_KEY"),
+    "the visible screen-sharing choice does not persist to Settings",
+  );
+  assert.ok(
+    COMPANION_ASK_SOURCE.includes(
+      'localStorage.getItem(AVATAR_SHARE_SCREEN_KEY) === "true"',
+    ),
+    "an absent screen-sharing preference no longer fails closed",
+  );
+  assert.ok(
+    SETTINGS_SOURCE.includes("useState(readAvatarShareScreenPreference)"),
+    "Settings and Companion do not share one fail-closed screen preference reader",
+  );
+  assert.ok(
+    COMPANION_ASK_SOURCE.includes("onClick={() => setResearchMode(true)}"),
+    "Research remains reachable only through a hidden typed phrase",
+  );
+  assert.ok(
+    COMPANION_ASK_SOURCE.includes("aria-pressed={researchMode}"),
+    "the visible Research mode does not expose its selected state",
+  );
+});
+
+test("spoken companion answers remain visible in the panel", () => {
+  assert.ok(
+    COMPANION_ASK_SOURCE.includes('aria-label={`${name} response`}'),
+    "the spoken answer has no visible, named response surface",
+  );
+  assert.ok(
+    COMPANION_ASK_SOURCE.includes('role="status"'),
+    "the spoken answer is not announced as a live status",
+  );
+  assert.ok(
+    COMPANION_ASK_SOURCE.includes("responseRef.current?.scrollIntoView"),
+    "the answer can render below the newly visible controls without being brought into view",
+  );
 });

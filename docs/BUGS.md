@@ -2,6 +2,44 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **RESOLVED 2026-08-13 — Companion screen sharing, Research, and spoken-answer text existed but were not discoverable or reliably visible (attach: TASK-027, P0; ADR-233).**
+  User reports, verbatim: *"I dont see the screen share feature and research agent feature
+  Can you pull the latest"* and *"also talk the response is also not shown now"*. Pulling latest
+  `main` added only an API-sidecar test-race fix; it did not change these surfaces. Screen sharing
+  was available only under Settings → Avatar. Research was implemented in `ResearchRun.tsx`, but
+  Companion exposed it only after users guessed a phrase such as `research ...`. Successful spoken
+  answers rendered after the question controls; once the new point-of-use controls consumed more
+  vertical space, the answer could land below the visible panel without being brought into view.
+  Fixed under ADR-233: Companion now has explicit Ask/Research mode controls, a persisted
+  point-of-use Share screen checkbox, and a named live response card that auto-scrolls into view.
+  Browser QA exercised the actual start/poll answer path with a deterministic shell stub and proved
+  the response card visible inside the viewport after a spoken result; separate visual checks proved
+  screen sharing and Research visible and operable. Avatar regressions pass 9/9; full configured web
+  tests, production build, typecheck, targeted ESLint, Rust 164 passed + 1 ignored, clippy, vocabulary,
+  no-dummy-runtime, agent-context, and whitespace gates pass.
+
+- **RESOLVED 2026-08-13 — Latest-main Avatar "Observe — what am I looking at?" captured and discarded an image, never analyzed it, swallowed capture errors, and treated macOS's wallpaper-only ungranted capture as success (attach: TASK-027, P0; ADR-232).**
+  User report, verbatim: *"One of the other repo owners has pulled the latest and using the bridge
+  desktop app. For him the screenshoot and analyze is not working can you check that?"* Follow-up:
+  *"Also chief of staff and avatar model are different?"* Code confirmed three independent failures.
+  `OverlayApp.handleObserve` invoked `capture_screenshot_on_demand` through rejection-swallowing
+  `tauriInvoke`, discarded the returned JPEG, then reset the Avatar to idle; no analysis call existed.
+  `capture_display_jpeg` called `CGRequestScreenCaptureAccess` but proceeded when the refreshed
+  preflight stayed false; macOS can exit 0 with every window stripped, so wallpaper became fabricated
+  context. Packaged-app portability also depended on PATH finding `screencapture`.
+  Chief of Staff and Avatar are intentionally capability-routed, not one model: local Chief of Staff
+  uses managed Qwen3-4B (or Cloud Chat uses Groq `openai/gpt-oss-20b`), while screenshot analysis uses
+  Groq vision `meta-llama/llama-4-scout-17b-16e-instruct`; installed local model is text-only. Repair
+  Resolved under ADR-232: Observe routes through the existing consented `CompanionAsk` job, requires
+  a real vision provider, fail closed before capture without the TCC grant, preserve typed errors,
+  remove the now-unused raw-screenshot IPC command, and use `/usr/sbin/screencapture`.
+  Regression test proves Observe opens and submits the screen-aware job and raw pixels have no JS IPC
+  command; Rust test proves false→false permission preflight refuses before capture. Full Rust tests
+  (164 passed, 1 ignored), clippy, full web tests/typecheck/production build, vocabulary,
+  no-dummy-runtime, agent-context, and whitespace gates pass. No live screenshot was sent to Groq
+  during verification; the second owner still needs to retry after granting Screen Recording and
+  configuring the shared Groq key.
+
 - **OPEN 2026-08-10 — Desktop shell aborted with "fatal runtime error: Rust cannot catch foreign exceptions" after ~62 minutes of otherwise-normal `pnpm dev` runtime (attach: TASK-027).**
   Found during this session's own testing, not a user report. `[bridge-desktop] avatar overlay visible` at
   `t=1786365891`; the process aborted at `t≈1786369628` — no error, warning, or eprintln in between, just

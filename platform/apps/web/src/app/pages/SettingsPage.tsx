@@ -27,7 +27,11 @@ import { ExecutionLedger } from "../components/ExecutionLedger";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { tauriInvoke } from "../avatar/tauri-internals";
 import { AVATAR_COLOR_KEY, AVATAR_CURSOR_VISIBLE_KEY } from "../avatar/AnnotateApp";
-import { AVATAR_SHARE_SCREEN_KEY, AVATAR_SPEAK_ANSWERS_KEY } from "../avatar/CompanionAsk";
+import {
+  AVATAR_SHARE_SCREEN_KEY,
+  AVATAR_SPEAK_ANSWERS_KEY,
+  readAvatarShareScreenPreference,
+} from "../avatar/CompanionAsk";
 
 const navItems = [
   { id: "organization", label: "Organization", icon: Building2 },
@@ -1295,9 +1299,6 @@ function readStoredColor() {
 function readStoredCursorVisible() {
   try { return localStorage.getItem(AVATAR_CURSOR_VISIBLE_KEY) !== "false"; } catch { return true; }
 }
-function readStoredShareScreen() {
-  try { return localStorage.getItem(AVATAR_SHARE_SCREEN_KEY) !== "false"; } catch { return true; }
-}
 function readStoredSpeakAnswers() {
   try { return localStorage.getItem(AVATAR_SPEAK_ANSWERS_KEY) !== "false"; } catch { return true; }
 }
@@ -1399,7 +1400,7 @@ function DesktopSection() {
 function AvatarSection() {
   const [markColor, setMarkColor] = useState(readStoredColor);
   const [cursorVisible, setCursorVisible] = useState(readStoredCursorVisible);
-  const [shareScreen, setShareScreen] = useState(readStoredShareScreen);
+  const [shareScreen, setShareScreen] = useState(readAvatarShareScreenPreference);
   const [speakAnswers, setSpeakAnswers] = useState(readStoredSpeakAnswers);
 
   function handleColorChange(color: string) {

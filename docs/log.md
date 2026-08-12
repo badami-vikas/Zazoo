@@ -1,5 +1,16 @@
 # Change Log
 
+- **2026-08-13 — Companion capabilities and spoken responses made visible (ADR-233/AP-150)**:
+  User reports preserved: screen sharing and Research were not visible, then talk produced no visible
+  response. Code paths existed but UI hid screen consent in Settings, hid Research behind guessed trigger
+  phrases, and left completed answers below controls without scrolling. Companion now has explicit
+  Ask/Research modes, one persisted point-of-use Share screen checkbox over the existing governed path,
+  and a named ARIA-live response card auto-scrolled into view. Real-overlay browser QA exercised a
+  deterministic start/poll spoken result and proved the card visible inside the viewport; Research and
+  screen controls were also interacted with and captured. Final gates: Avatar 9/9, full web tests,
+  production build, typecheck, targeted ESLint, Rust 164 passed + 1 ignored, clippy, vocabulary,
+  no-dummy-runtime, agent-context, and whitespace all pass.
+
 - **2026-08-11 — K7 unblocked: stable local code-signing identity, TCC grants rebuild-durable (ADR-228/AP-147)**:
   The blocker was never the bundle (the pipeline, CI Developer-ID import, and deep bundle verifier all
   existed) — it was that local builds ad-hoc signed, and TCC stores a cdhash-anchored designated
@@ -3488,3 +3499,21 @@ Verified: 3 launches with 0 aborts (pre-fix aborted deterministically ~35 s in);
 **The genuinely new capability is the window title, and it fails closed.** A narrow AX binding (app → AXFocusedWindow → AXTitle, linear CF ownership so every +1 ref provably releases) reads the title only under the Accessibility grant; no grant or any AX failure reads as *no title* — an absent attribute plus a recorded redaction, never an empty string, and distinct from an app that titled its window "". The desktop drain loop reconciles consent → `sensor_start`/`sensor_stop` every 30s, so the Settings toggle and kill switch stop the poller itself; the route's consent gate stays as defense in depth. Two durable-store honesty fixes along the way: hub registration now checks-before-inserting on the (org, name, version) natural key (row ids are UUIDs; the logical `ctx-provider:<id>` lives in the manifest JSON; re-boots reuse, suspensions survive), and Apple's AX symbol names went into the reviewed retired-vocabulary allowlist (foreign linker symbols are not ours to rename).
 
 **Verified**: core 23/23, sensors 13/13, api 6/6 over real buildWiring, cargo 163/163, six mutations seen RED, `pnpm verify` 77/77. Live durable-boot walk 10/10 — consent matrix, kill switch + restore, same-boot duplicate, restart-surviving idempotency, K6 brief showing `apps: 3` recent activity. Row-level pglite read: 3 rows exactly (declined + duplicate wrote nothing), suppressed row carries NO windowTitle key, sensor/untrusted taint with origin ref. Real-browser Settings walk: the "App focus (desktop)" card renders with honest Accessibility copy and the toggle round-trips with fresh provenance both ways. Honest limits: the signed .app was rebuilt + bundle-verified but not launched (the user's own desktop app was running from another checkout; a second instance would contend for its Local Plane — ADR-229's exact surface); the one-time Accessibility grant remains the user's step, with ADR-228's byte-identical DR as the mechanism. Filed: the api_sidecar cargo test env-var race (parallel-only flake, pre-existing).
+
+## 2026-08-13 — Avatar Observe restored as real screenshot analysis (ADR-232; AP-149; TASK-027)
+
+Second owner on latest `main` reported screenshot+analyze broken. Code did exactly that: Observe captured,
+discarded JPEG, swallowed failure, never called model. Capture also proceeded after failed Screen Recording
+preflight, letting macOS wallpaper-only output look valid. Fixed: Observe seeds existing `CompanionAsk`;
+missing Share-screen/Groq vision says why; capture requests then rechecks TCC and refuses before invoking
+absolute `/usr/sbin/screencapture`; typed permission error preserved through ask/point callers; unused
+raw-screenshot IPC command removed so capture bytes stay Rust-owned until consented provider egress.
+
+Model split clarified, not removed: Chief of Staff text = managed Qwen3-4B or Groq gpt-oss-20b; Avatar
+screen vision = Groq Llama-4 Scout. Same Groq credential may enable both; local model cannot see screenshots.
+Verified: Observe regression submits the screen-aware job and pins removal of raw-screenshot IPC; Rust
+permission regression; 164 Rust tests passed + 1 ignored; clippy completed with pre-existing warnings
+only; full configured web tests, typecheck, production build, vocabulary, no-dummy-runtime,
+agent-context, and whitespace gates pass. Security review: Privacy Guard still runs before capture,
+temp image removed on read failure, pixels remain Rust-owned until consented Groq egress. No live cloud
+screenshot sent. TASK-027 returned done; second-owner retry remains external confirmation.

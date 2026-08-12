@@ -1,13 +1,11 @@
 //! sensor_bridge — the Rust side of the Sensor SPI (@bridge/sensors).
 //!
 //! P0 slice: "apps" (NSWorkspace frontmost-app polling) and "clipboard"
-//! (NSPasteboard changeCount polling) are REAL macOS providers now. "screen"
-//! stays an honest on-demand-only stub (ScreenCaptureKit / CGWindowList
-//! headless capture needs the Screen Recording permission granted
-//! interactively; there's no meaningful headless capture to build against
-//! here) but `sensor_list` now reports real availability + permission state
-//! for all three so the JS side can render "granted / needs prompt / denied"
-//! per provider instead of guessing.
+//! (NSPasteboard changeCount polling) are REAL macOS providers. "screen" is
+//! REAL on-demand capture only: it preflights Screen Recording permission and
+//! refuses wallpaper-only output when the grant is absent. `sensor_list`
+//! reports real availability + permission state for all three so the JS side
+//! can render "granted / needs prompt / denied" instead of guessing.
 //!
 //! Lifecycle: `sensor_start`/`sensor_stop` actually start/stop a background
 //! poller thread per provider (see providers/apps.rs, providers/clipboard.rs).
@@ -199,8 +197,8 @@ pub fn sensor_list() -> Result<Vec<SensorDescriptor>, SensorBridgeError> {
             SensorDescriptor {
                 id: "screen".to_string(),
                 kind: "screen".to_string(),
-                // ON-DEMAND capture is real now (capture_screenshot_on_demand /
-                // capture_display_jpeg, TASK-027). Streaming capture remains
+                // ON-DEMAND capture is real now (capture_display_jpeg via the
+                // companion/point actions, TASK-027). Streaming capture remains
                 // unbuilt by design — no rolling recorder. Availability
                 // reflects the live Screen Recording permission state.
                 availability: if screen_permission_granted() {
@@ -271,8 +269,8 @@ pub fn sensor_start(
             "screen" => {
                 return Err(not_implemented(
                     "sensor_start(screen)",
-                    "ScreenCaptureKit / CGWindowListCreateImage (on-demand only; use \
-                     capture_screenshot_on_demand)",
+                    "ScreenCaptureKit / CGWindowListCreateImage (on-demand only; use the \
+                     companion ask or point action)",
                 ))
             }
             _ => unreachable!("checked against KNOWN_SENSOR_IDS above"),
@@ -382,9 +380,9 @@ pub fn screen_permission_granted() -> bool {
 }
 
 /// Trigger the one-time OS Screen Recording prompt when not yet granted.
-/// Returns the (possibly refreshed) grant state. Safe to call repeatedly —
-/// macOS only actually prompts once; afterwards the user must flip it in
-/// System Settings.
+/// The caller must preflight again after this returns; the request result does
+/// not replace a refreshed permission check. Safe to call repeatedly — macOS
+/// only actually prompts once; afterwards the user must flip it in Settings.
 #[cfg(target_os = "macos")]
 fn request_screen_permission() -> bool {
     unsafe {
@@ -395,6 +393,33 @@ fn request_screen_permission() -> bool {
     }
 }
 
+#[derive(Debug)]
+pub struct ScreenCaptureError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl ScreenCaptureError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+fn screen_permission_gate(granted_after_request: bool) -> Result<(), ScreenCaptureError> {
+    if granted_after_request {
+        return Ok(());
+    }
+    Err(ScreenCaptureError::new(
+        "SCREEN_PERMISSION_REQUIRED",
+        "Screen Recording permission is required. Bridge refused a wallpaper-only capture because \
+         it would not represent the visible screen. Enable Bridge Desktop in System Settings > \
+         Privacy & Security > Screen Recording, then quit and reopen Bridge.",
+    ))
+}
+
 /// One captured display frame plus honest metadata. The JPEG bytes are raw
 /// capture material: LOCAL-PLANE ONLY unless the user explicitly consented,
 /// for one specific ask, to cloud egress (companion.rs documents that gate).
@@ -402,7 +427,6 @@ pub struct CapturedScreen {
     pub jpeg_bytes: Vec<u8>,
     pub image_width: usize,
     pub image_height: usize,
-    pub permission_granted: bool,
 }
 
 /// Capture ONE JPEG frame of the given display (0-indexed, matching the
@@ -410,20 +434,29 @@ pub struct CapturedScreen {
 ///  - pushes an inspectable `screen` observation into the drain queue
 ///    (metadata only — never the image bytes, per the Observation contract),
 ///  - emits the `sensor.capture` blink-tell event.
+///
 /// The image bytes go only to the caller.
 pub fn capture_display_jpeg(
     app: &AppHandle,
     monitor_index: usize,
-) -> Result<CapturedScreen, String> {
+) -> Result<CapturedScreen, ScreenCaptureError> {
     #[cfg(target_os = "macos")]
     {
-        let disabled = with_hub(app, |inner| inner.disabled)?;
+        let disabled = with_hub(app, |inner| inner.disabled)
+            .map_err(|message| ScreenCaptureError::new("SENSOR_HUB_UNAVAILABLE", message))?;
         if disabled {
-            return Err(
-                "capture is disabled because the trusted Bridge surface is unavailable".to_string(),
-            );
+            return Err(ScreenCaptureError::new(
+                "SENSOR_DISABLED",
+                "capture is disabled because the trusted Bridge surface is unavailable",
+            ));
         }
-        let permission_granted = request_screen_permission();
+        let granted_before_request = screen_permission_granted();
+        if !granted_before_request {
+            let _ = request_screen_permission();
+        }
+        let permission_granted = screen_permission_granted();
+        screen_permission_gate(permission_granted)?;
+
         let file = std::env::temp_dir().join(format!(
             "bridge-companion-capture-{}-{}.jpg",
             std::process::id(),
@@ -432,7 +465,7 @@ pub fn capture_display_jpeg(
         // `screencapture` displays are 1-indexed; `-x` mutes the shutter
         // sound. An out-of-range display makes the tool fail, which we
         // surface rather than silently capturing the wrong screen.
-        let status = std::process::Command::new("screencapture")
+        let status = std::process::Command::new("/usr/sbin/screencapture")
             .arg("-x")
             .arg("-t")
             .arg("jpg")
@@ -440,16 +473,34 @@ pub fn capture_display_jpeg(
             .arg((monitor_index + 1).to_string())
             .arg(&file)
             .status()
-            .map_err(|error| format!("screencapture failed to start: {error}"))?;
+            .map_err(|error| {
+                ScreenCaptureError::new(
+                    "SCREEN_CAPTURE_FAILED",
+                    format!("screencapture failed to start: {error}"),
+                )
+            })?;
         if !status.success() {
             let _ = std::fs::remove_file(&file);
-            return Err(format!("screencapture exited with status {status}"));
+            return Err(ScreenCaptureError::new(
+                "SCREEN_CAPTURE_FAILED",
+                format!("screencapture exited with status {status}"),
+            ));
         }
-        let jpeg_bytes =
-            std::fs::read(&file).map_err(|error| format!("captured file unreadable: {error}"))?;
+        let jpeg_bytes = std::fs::read(&file);
+        // Remove capture material even when reading it fails.
         let _ = std::fs::remove_file(&file);
-        let size = imagesize::blob_size(&jpeg_bytes)
-            .map_err(|error| format!("captured image undecodable: {error}"))?;
+        let jpeg_bytes = jpeg_bytes.map_err(|error| {
+            ScreenCaptureError::new(
+                "SCREEN_CAPTURE_EMPTY",
+                format!("captured file unreadable: {error}"),
+            )
+        })?;
+        let size = imagesize::blob_size(&jpeg_bytes).map_err(|error| {
+            ScreenCaptureError::new(
+                "SCREEN_CAPTURE_EMPTY",
+                format!("captured image undecodable: {error}"),
+            )
+        })?;
 
         // Every capture → an inspectable entry + the blink tell. Metadata
         // only; the raw frame never enters the queue or the event payload.
@@ -467,7 +518,8 @@ pub fn capture_display_jpeg(
             .cloned()
             .unwrap_or_default(),
         };
-        with_hub(app, |inner| inner.queue.push(observation.clone()))?;
+        with_hub(app, |inner| inner.queue.push(observation.clone()))
+            .map_err(|message| ScreenCaptureError::new("SENSOR_HUB_UNAVAILABLE", message))?;
         let _ = app.emit(
             "sensor:capture",
             serde_json::to_value(&observation).unwrap_or(serde_json::Value::Null),
@@ -477,13 +529,15 @@ pub fn capture_display_jpeg(
             jpeg_bytes,
             image_width: size.width,
             image_height: size.height,
-            permission_granted,
         })
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, monitor_index);
-        Err("screen capture is only implemented on macOS in this slice".to_string())
+        Err(ScreenCaptureError::new(
+            "SENSOR_NOT_IMPLEMENTED",
+            "screen capture is only implemented on macOS in this slice",
+        ))
     }
 }
 
@@ -495,52 +549,6 @@ fn with_hub<T>(app: &AppHandle, f: impl FnOnce(&mut SensorHubInner) -> T) -> Res
         .lock()
         .map_err(|_| "sensor hub mutex is poisoned".to_string())?;
     Ok(f(&mut inner))
-}
-
-/// Screenshot metadata returned to the webview. The image itself is base64
-/// JPEG — requested explicitly by the user (Observe / companion ask), never
-/// streamed.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScreenshotPayload {
-    pub base64_jpeg: String,
-    pub image_width: usize,
-    pub image_height: usize,
-    pub permission_granted: bool,
-}
-
-/// One ON-DEMAND screenshot of the calling window's display — never a
-/// rolling recorder. Captures the display the calling overlay lives on
-/// (its label encodes the monitor index; the main window maps to display 0).
-#[tauri::command]
-pub fn capture_screenshot_on_demand(
-    app: AppHandle,
-    window: tauri::WebviewWindow,
-) -> Result<ScreenshotPayload, SensorBridgeError> {
-    #[cfg(target_os = "macos")]
-    {
-        use base64::Engine;
-        let monitor_index = crate::overlay::monitor_index_for_label(window.label());
-        let captured =
-            capture_display_jpeg(&app, monitor_index).map_err(|message| SensorBridgeError {
-                code: "SENSOR_CAPTURE_FAILED",
-                message,
-            })?;
-        Ok(ScreenshotPayload {
-            base64_jpeg: base64::engine::general_purpose::STANDARD.encode(&captured.jpeg_bytes),
-            image_width: captured.image_width,
-            image_height: captured.image_height,
-            permission_granted: captured.permission_granted,
-        })
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (app, window);
-        Err(not_implemented(
-            "capture_screenshot_on_demand",
-            "a Windows/Linux capture path (GDI / xdg-desktop-portal)",
-        ))
-    }
 }
 
 #[cfg(test)]
@@ -570,5 +578,16 @@ mod tests {
         assert!(inner.running.is_empty());
         assert!(inner.queue.is_empty());
         assert!(inner.raw_ring.is_empty());
+    }
+
+    #[test]
+    fn screen_permission_gate_refuses_wallpaper_only_capture() {
+        assert!(screen_permission_gate(true).is_ok());
+
+        let error = screen_permission_gate(false)
+            .expect_err("an ungranted capture must fail closed");
+        assert_eq!(error.code, "SCREEN_PERMISSION_REQUIRED");
+        assert!(error.message.contains("wallpaper-only"));
+        assert!(error.message.contains("quit and reopen Bridge"));
     }
 }

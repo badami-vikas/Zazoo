@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T19:06:05.947Z",
+  "generatedAt": "2026-08-12T20:14:51.871Z",
   "items": [
     {
       "id": "TASK-026",
@@ -911,7 +911,7 @@
       "id": "TASK-027",
       "title": "TASK-027 — Screen-aware companion ask prototype (clicky parity)",
       "status": "completed",
-      "priority": "P2",
+      "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The desktop Avatar answers questions about what is on the user's screen the way the open-source clicky family does — global push-to-talk summon, one consented screenshot per ask to a cloud vision model (or a fully local text answer without one), typed on-screen pointing marks parsed from `[POINT:x,y:label]` tags, spoken answers via local TTS, and bounded ephemeral conversation memory — without weakening Local Plane residency, blink-tell capture honesty, or the un-spoofable typed annotation vocabulary.",
       "prototypeTest": "On a real desktop build with Screen Recording granted and GROQ_API_KEY configured, hold ⌘⇧Space, speak a question about a visible app, and watch the avatar expand, blink on capture, answer aloud, and spotlight the referenced screen locations with auto-clearing marks; uncheck screen sharing (or remove the key) and confirm the same ask answers locally with an honest \"cannot see your screen\" boundary and zero image egress; deny the mic and confirm typed asks still work end to end.",
@@ -924,9 +924,11 @@
         "72/72 desktop Rust tests, 106/106 web tests, web typecheck and production build pass. Live 2026-07-29 validation on the user's machine with real grants and key found and fixed six defects — dotted Tauri event names (`annotate.marks`/`sensor.capture` had NEVER delivered), reasoning-model `<think>` leakage and empty answers, the missing `annotate*` capability entry that denied the annotation webview `plugin:event|listen`, an SVG `calc()` frame plus an opacity-0 entrance animation that prevented painting, and an ordinary always-on-top annotate window that could not draw over a fullscreen app — then proved summon, consented capture, correct screen description, rendered yellow spotlight+callout marks over a fullscreen app, ~12s auto-clear, and push-to-talk Whisper transcription. Full record and screenshot evidence: outputs/2026-07-29-task-027-companion-clicky-parity.md"
       ],
       "requests": [
-        "R-041"
+        "R-041",
+        "user report 2026-08-13, verbatim: *\"One of the other repo owners has pulled the latest and using the bridge desktop app. For him the screenshoot and analyze is not working can you check that?\"*",
+        "follow-ups: *\"Also chief of staff and avatar model are different?\"*, *\"I dont see the screen share feature and research agent feature Can you pull the latest\"*, and *\"also talk the response is also not shown now\"*."
       ],
-      "approval": "none",
+      "approval": "AP-149 and AP-150 applied",
       "dependencies": [],
       "canonicalStatus": "done",
       "sourceType": "task",
@@ -972,7 +974,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 476,
+      "sourceLine": 479,
       "rank": 28
     },
     {
@@ -1050,7 +1052,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 490,
+      "sourceLine": 494,
       "rank": 30
     },
     {
@@ -1087,7 +1089,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 503,
+      "sourceLine": 507,
       "rank": 31
     },
     {
@@ -1118,7 +1120,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 520,
+      "sourceLine": 524,
       "rank": 32
     },
     {
@@ -1144,7 +1146,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 542,
+      "sourceLine": 546,
       "rank": 33
     },
     {
@@ -1175,7 +1177,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 570,
+      "sourceLine": 574,
       "rank": 34
     },
     {
@@ -1205,7 +1207,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 583,
+      "sourceLine": 587,
       "rank": 35
     },
     {
@@ -1232,7 +1234,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 596,
+      "sourceLine": 600,
       "rank": 36
     },
     {
@@ -1259,7 +1261,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 613,
+      "sourceLine": 617,
       "rank": 37
     },
     {
@@ -1284,7 +1286,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 556,
+      "sourceLine": 560,
       "rank": 38
     },
     {
@@ -1314,7 +1316,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1043,
+      "sourceLine": 1047,
       "rank": 39
     },
     {
@@ -1348,7 +1350,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 634,
+      "sourceLine": 638,
       "rank": 40
     },
     {
@@ -1382,7 +1384,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 649,
+      "sourceLine": 653,
       "rank": 41
     },
     {
@@ -1409,7 +1411,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 663,
+      "sourceLine": 667,
       "rank": 42
     },
     {
@@ -1440,7 +1442,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 708,
+      "sourceLine": 712,
       "rank": 43
     },
     {
@@ -1466,7 +1468,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 722,
+      "sourceLine": 726,
       "rank": 44
     },
     {
@@ -1501,7 +1503,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 742,
+      "sourceLine": 746,
       "rank": 45
     },
     {
@@ -1535,7 +1537,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 757,
+      "sourceLine": 761,
       "rank": 46
     },
     {
@@ -1570,7 +1572,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 772,
+      "sourceLine": 776,
       "rank": 47
     },
     {
@@ -1605,7 +1607,7 @@
       "canonicalStatus": "done (2026-08-09, minimal cut per AP-136/ADR-216; deferred loops are named follow-ups below)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 786,
+      "sourceLine": 790,
       "rank": 48
     },
     {
@@ -1640,7 +1642,7 @@
       "canonicalStatus": "done (2026-08-10, ADR-220/AP-140)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 800,
+      "sourceLine": 804,
       "rank": 49
     },
     {
@@ -1677,7 +1679,7 @@
       "canonicalStatus": "done (2026-08-10)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 813,
+      "sourceLine": 817,
       "rank": 50
     },
     {
@@ -1719,7 +1721,7 @@
       "canonicalStatus": "done (2026-08-10)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 826,
+      "sourceLine": 830,
       "rank": 51
     },
     {
@@ -1754,7 +1756,7 @@
       "canonicalStatus": "done (2026-08-13, ADR-230, AP-148)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 839,
+      "sourceLine": 843,
       "rank": 52
     },
     {
@@ -1790,7 +1792,7 @@
       "canonicalStatus": "done (2026-08-11, ADR-227, AP-146)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 852,
+      "sourceLine": 856,
       "rank": 53
     },
     {
@@ -1819,7 +1821,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 866,
+      "sourceLine": 870,
       "rank": 54
     },
     {
@@ -1848,7 +1850,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 879,
+      "sourceLine": 883,
       "rank": 55
     },
     {
@@ -1882,7 +1884,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 900,
+      "sourceLine": 904,
       "rank": 56
     },
     {
@@ -1912,7 +1914,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 913,
+      "sourceLine": 917,
       "rank": 57
     },
     {
@@ -1941,7 +1943,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 926,
+      "sourceLine": 930,
       "rank": 58
     },
     {
@@ -1970,7 +1972,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 939,
+      "sourceLine": 943,
       "rank": 59
     },
     {
@@ -1998,7 +2000,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 952,
+      "sourceLine": 956,
       "rank": 60
     },
     {
@@ -2025,7 +2027,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 965,
+      "sourceLine": 969,
       "rank": 61
     },
     {
@@ -2056,7 +2058,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 978,
+      "sourceLine": 982,
       "rank": 62
     },
     {
@@ -2082,7 +2084,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 991,
+      "sourceLine": 995,
       "rank": 63
     },
     {
@@ -2108,7 +2110,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1004,
+      "sourceLine": 1008,
       "rank": 64
     },
     {
@@ -2136,7 +2138,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1017,
+      "sourceLine": 1021,
       "rank": 65
     },
     {
@@ -2162,7 +2164,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1030,
+      "sourceLine": 1034,
       "rank": 66
     }
   ]
