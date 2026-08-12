@@ -1090,8 +1090,25 @@ fn run_ask(
             ));
         }
         let key = cloud_key.expect("checked above");
-        let capture = sensor_bridge::capture_display_jpeg(app, monitor_index)
-            .map_err(|error| err("COMPANION_CAPTURE_FAILED", error))?;
+        let capture = match sensor_bridge::capture_display_jpeg(app, monitor_index) {
+            Ok(c) => c,
+            Err(error) => {
+                if !sensor_bridge::screen_permission_granted() {
+                    // Open System Settings at the Screen Recording page so the
+                    // user can grant permission without hunting through menus.
+                    let _ = std::process::Command::new("open")
+                        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+                        .spawn();
+                    return Err(err(
+                        "COMPANION_NO_SCREEN_PERMISSION",
+                        "Screen Recording permission is needed to share your screen. \
+                         System Settings → Privacy & Security → Screen Recording has been opened \
+                         — enable Bridge Desktop there, then try again.",
+                    ));
+                }
+                return Err(err("COMPANION_CAPTURE_FAILED", error));
+            }
+        };
         let capture_note = (!capture.permission_granted).then(|| {
             "Screen Recording permission is not granted, so the screenshot may not include \
              window contents (System Settings > Privacy & Security > Screen Recording)."
@@ -1230,18 +1247,6 @@ fn run_ask(
     // Local path: managed Qwen via the model_supervisor's published endpoint.
     // Text-only, no capture leaves the machine, honest about not seeing the
     // screen. Frontmost-app name is the one lightweight context signal.
-    let endpoint = local_endpoint(app).ok_or_else(|| {
-        err(
-            "COMPANION_NO_MODEL",
-            if request.share_screen_with_cloud {
-                "no cloud vision key is configured (GROQ_API_KEY) and the managed local model \
-                 is not running"
-            } else {
-                "the managed local model is not running yet — wait for Bridge's model runtime \
-                 to finish starting, or configure GROQ_API_KEY for cloud answers"
-            },
-        )
-    })?;
     let frontmost = frontmost_app_name();
     let mut messages = vec![serde_json::json!({
         "role": "system",
@@ -1249,29 +1254,75 @@ fn run_ask(
     })];
     messages.extend(bounded_history(&request.history, &LOCAL_HISTORY_BUDGET));
     messages.push(serde_json::json!({ "role": "user", "content": question }));
-    let body = serde_json::json!({
-        "model": endpoint.model,
-        "messages": messages,
-        "temperature": 0.4,
-        "max_tokens": 700,
-    });
-    let raw = post_chat(
-        &format!("{}/v1/chat/completions", endpoint.base_url),
-        &endpoint.api_key,
-        body,
-    )?;
-    let raw = strip_think_blocks(&raw);
-    Ok(AskOutcome {
-        answer: CompanionAnswer {
-            text: strip_point_tags(&raw),
-            provider: "local-qwen",
-            screen_shared: false,
-            points: 0,
-            spoke: request.speak,
-            capture_note: None,
+
+    if let Some(endpoint) = local_endpoint(app) {
+        let body = serde_json::json!({
+            "model": endpoint.model,
+            "messages": messages,
+            "temperature": 0.4,
+            "max_tokens": 700,
+        });
+        let raw = strip_think_blocks(&post_chat(
+            &format!("{}/v1/chat/completions", endpoint.base_url),
+            &endpoint.api_key,
+            body,
+        )?);
+        return Ok(AskOutcome {
+            answer: CompanionAnswer {
+                text: strip_point_tags(&raw),
+                provider: "local-qwen",
+                screen_shared: false,
+                points: 0,
+                spoke: request.speak,
+                capture_note: None,
+            },
+            marks: Vec::new(),
+        });
+    }
+
+    // GROQ text fallback when the local model is not yet running.
+    if let Some(key) = cloud_key {
+        let body = serde_json::json!({
+            "model": vision_model(app),
+            "messages": messages,
+            "temperature": 0.4,
+            "max_tokens": 700,
+            "reasoning_effort": "none",
+        });
+        let url = format!("{GROQ_BASE_URL}/chat/completions");
+        let raw = match post_chat(&url, &key, body.clone()) {
+            Ok(raw) => raw,
+            Err(e) if e.code == "COMPANION_PROVIDER_STATUS" && e.message.contains("reasoning_effort") => {
+                let mut b = body;
+                b.as_object_mut().unwrap().remove("reasoning_effort");
+                post_chat(&url, &key, b)?
+            }
+            Err(e) => return Err(e),
+        };
+        let raw = strip_think_blocks(&raw);
+        return Ok(AskOutcome {
+            answer: CompanionAnswer {
+                text: strip_point_tags(&raw),
+                provider: "groq-vision",
+                screen_shared: false,
+                points: 0,
+                spoke: request.speak,
+                capture_note: None,
+            },
+            marks: Vec::new(),
+        });
+    }
+
+    Err(err(
+        "COMPANION_NO_MODEL",
+        if request.share_screen_with_cloud {
+            "no cloud vision key is configured (GROQ_API_KEY) and the managed local model \
+             is not running"
+        } else {
+            "the managed local model is not running yet — install it in Chat, or configure \
+             GROQ_API_KEY for cloud answers"
         },
-        marks: Vec::new(),
-    })
+    ))
 }
 
 /// Logical (scale-adjusted) size of the monitor at `index`, fetched on the
