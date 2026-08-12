@@ -220,8 +220,8 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       // that squashes about its middle floats; one that squashes about its
       // base plants, which is where the weight reads from.
       const sq = f.squash;
-      const sy = (1 + f.breath * 0.014 + (f.posture - 0.5) * 0.03) * (1 - sq * 0.2);
-      const sx = (1 - f.breath * 0.007) / sy;
+      const sy = (1 + f.breath * 0.035 + (f.posture - 0.5) * 0.03) * (1 - sq * 0.2);
+      const sx = (1 - f.breath * 0.018) / sy;
       r.body.current!.setAttribute(
         "transform",
         `rotate(${(f.bodyLean * 0.5).toFixed(2)} 120 282) translate(120 288) scale(${sx.toFixed(4)} ${sy.toFixed(4)}) translate(-120 -288)`,

@@ -51,6 +51,7 @@ interface CompanionAnswer {
   points: number;
   spoke: boolean;
   captureNote: string | null;
+  emotion: string | null;
 }
 
 interface HistoryTurn {
@@ -100,9 +101,10 @@ export function CompanionAsk({
   name: string;
   /** True while the global push-to-talk shortcut is held. */
   pttActive: boolean;
-  /** Fired once per successfully delivered answer — lets the shell play a
-   * transient celebration on the avatar rig. Visual-only. */
-  onAnswered?: () => void;
+  /** Fired once per successfully delivered answer. Receives the answer text and
+   * the model's emotion tag (one of the ZazooEmotion names) so the shell can
+   * animate the rig to match the reply's emotional tone. */
+  onAnswered?: (text: string, emotion?: string) => void;
 }) {
   const [capabilities, setCapabilities] = useState<CompanionCapabilities | null>(null);
   const [question, setQuestion] = useState("");
@@ -184,7 +186,7 @@ export function CompanionAsk({
           // keeps that provenance when the turn rides along on a later ask.
           { role: "assistant", content: result.text, screenDerived: result.screenShared },
         ];
-        onAnswered?.();
+        onAnswered?.(result.text, result.emotion ?? undefined);
         setAnswer(result);
         setQuestion("");
       } catch (raised) {

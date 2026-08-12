@@ -42,6 +42,13 @@ import {
   PTT_PRESSED_PERFORMANCE,
   statusToPerformance,
 } from "./zazoo/status-performance";
+import type { ZazooEmotion } from "./zazoo/director";
+
+const VALID_EMOTIONS = new Set<string>(["calm","curious","thinking","listening","happy","proud","unsure","concerned","comforting","celebrating","sleepy"]);
+function emotionPerformance(emotion: string | undefined) {
+  if (!emotion || !VALID_EMOTIONS.has(emotion)) return ANSWERED_PERFORMANCE;
+  return { emotion: emotion as ZazooEmotion, warmth: 0.85, energy: 0.55, duration: 3.0 };
+}
 import { tauriInvoke, tauriListen } from "./tauri-internals";
 import { NotchHome, type NotchPose } from "./NotchHome";
 import type { NotchGeometry } from "./notch-home";
@@ -504,15 +511,26 @@ export function OverlayApp() {
     void tauriInvoke("overlay_present_docked_panel", { width: size.w, height: size.h });
   }, [home, panel]);
 
-  // Free-floating Zazoo rests in meditation and opens his eyes when you reach
-  // for him — the same contract as the notch bed, so the two homes behave
-  // identically once he has landed.
+  // Close panel/unpin when the overlay window loses focus (user clicks elsewhere
+  // on the desktop or another app). This is what "clicking elsewhere closes it" means
+  // in a Tauri always-on-top window — the OS blur event is the only signal available.
+  useEffect(() => {
+    function onBlur() {
+      if (panel !== "none") setPanel("none");
+      setPinned(false);
+    }
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [panel]);
+
+  // Free-floating Zazoo: idle but breathing — no meditation (eyes-open = visible
+  // breath and blink). The meditate action is still available via right-click menu.
   useEffect(() => {
     if (home !== "free" || status !== "idle") return;
     director.perform(
       hovering || expanded
         ? { emotion: "calm", action: "idle", attention: "user", energy: 0.4 }
-        : { emotion: "calm", action: "meditating", energy: 0.15, warmth: 0.8 },
+        : { emotion: "calm", action: "idle", energy: 0.2, warmth: 0.8 },
     );
   }, [home, hovering, expanded, status, director]);
 
@@ -661,7 +679,7 @@ export function OverlayApp() {
           <CompanionAsk
             name={name}
             pttActive={pttActive}
-            onAnswered={() => director.perform(ANSWERED_PERFORMANCE)}
+            onAnswered={(_text, emotion) => director.perform(emotionPerformance(emotion))}
           />
         </div>
       );
@@ -842,7 +860,7 @@ export function OverlayApp() {
           <CompanionAsk
             name={name}
             pttActive={pttActive}
-            onAnswered={() => director.perform(ANSWERED_PERFORMANCE)}
+            onAnswered={(_text, emotion) => director.perform(emotionPerformance(emotion))}
           />
         </div>
       )}
@@ -905,18 +923,30 @@ export function OverlayApp() {
               </button>
               {/* Typing here and hitting Enter opens the chat panel with this
                * message already sent (ChatView's autoSend). */}
-              <input
-                type="text"
-                value={hoverDraft}
-                onChange={(event) => setHoverDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") submitHoverDraft();
-                }}
-                onFocus={() => setHovering(true)}
-                placeholder={`Message ${name}…`}
-                aria-label={`Message ${name}`}
-                className="min-w-0 flex-1 rounded-[var(--radius-button)] border border-border bg-background shadow-md text-sm px-2 py-1.5 focus:outline-none focus-visible:ring-2"
-              />
+              <div className="relative min-w-0 flex-1">
+                <input
+                  type="text"
+                  value={hoverDraft}
+                  onChange={(event) => setHoverDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") submitHoverDraft();
+                    if (event.key === "Escape") { setHoverDraft(""); setPinned(false); }
+                  }}
+                  onFocus={() => setHovering(true)}
+                  placeholder={`Message ${name}…`}
+                  aria-label={`Message ${name}`}
+                  className="w-full rounded-[var(--radius-button)] border border-border bg-background shadow-md text-sm px-2 py-1.5 pr-7 focus:outline-none focus-visible:ring-2"
+                />
+                <button
+                  type="button"
+                  aria-label="Close"
+                  onClick={() => { setHoverDraft(""); setPinned(false); }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground leading-none"
+                  style={{ fontSize: 14, lineHeight: 1 }}
+                >
+                  ×
+                </button>
+              </div>
             </div>
           )}
           {/* Avatar button + drag handle wrapper.

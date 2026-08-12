@@ -690,6 +690,7 @@ pub fn run() {
             companion::open_privacy_settings,
             companion::companion_transcribe,
             companion::companion_move_pointer,
+            companion::companion_demo_pointer,
             whatsapp_webview::whatsapp_open,
             whatsapp_webview::whatsapp_position,
             whatsapp_webview::whatsapp_hide,

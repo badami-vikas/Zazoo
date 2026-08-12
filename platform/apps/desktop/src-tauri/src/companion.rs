@@ -825,6 +825,23 @@ pub struct CompanionAnswer {
     /// Honest capture-quality note (e.g. Screen Recording permission not
     /// granted, so the screenshot may show only the wallpaper).
     pub capture_note: Option<String>,
+    /// Emotion the model tagged its response with (one of the ZazooEmotion
+    /// names, lower-case), or None when no tag was present.
+    pub emotion: Option<String>,
+}
+
+/// Strip a leading `[EMOTION:X]` line from the model's reply (whitelist-only;
+/// any unrecognised tag is left in the prose and treated as absent).
+fn strip_emotion_tag(text: &str) -> (Option<String>, &str) {
+    let t = text.trim_start();
+    if !t.starts_with("[EMOTION:") { return (None, text); }
+    if let Some(end) = t.find(']') {
+        let emotion = t[9..end].trim().to_lowercase();
+        if matches!(emotion.as_str(), "calm"|"curious"|"thinking"|"listening"|"happy"|"proud"|"unsure"|"concerned"|"comforting"|"celebrating"|"sleepy") {
+            return (Some(emotion), t[end + 1..].trim_start());
+        }
+    }
+    (None, text)
 }
 
 /// Per-path history budgets. The vision path shares its request with a
@@ -903,7 +920,10 @@ fn vision_system_prompt(image_w: usize, image_h: usize) -> String {
          If your answer refers to one specific thing on screen, end your reply with a single tag \
          of the exact form [CELL:<number>:<short label>] giving the printed number of the cell \
          that thing sits in, e.g. [CELL:57:Ask button]. Read the number off the grid rather than \
-         estimating it. Use the tag only for something you can actually see, never more than one."
+         estimating it. Use the tag only for something you can actually see, never more than one. \
+         Start your reply with exactly one emotion tag on its own line, chosen to match the tone \
+         of your answer: [EMOTION:happy], [EMOTION:curious], [EMOTION:concerned], \
+         [EMOTION:comforting], [EMOTION:thinking], [EMOTION:celebrating], or [EMOTION:calm]."
     )
 }
 
@@ -915,7 +935,10 @@ fn local_system_prompt(frontmost: Option<&str>) -> String {
         "You are Bridge's on-screen companion, answering fully locally. {context}You CANNOT see \
          the user's screen in this mode — say so plainly if the question needs visual context, \
          and answer what you can from the question itself. Keep answers brief (2-5 sentences), \
-         plain prose suitable for being read aloud. Do not emit [POINT:...] tags."
+         plain prose suitable for being read aloud. Do not emit [POINT:...] tags. \
+         Start your reply with exactly one emotion tag on its own line: [EMOTION:happy], \
+         [EMOTION:curious], [EMOTION:concerned], [EMOTION:comforting], [EMOTION:thinking], \
+         [EMOTION:celebrating], or [EMOTION:calm]."
     )
 }
 
@@ -1072,24 +1095,100 @@ struct AskOutcome {
 
 /// Matches "open <app>" questions and runs the app via macOS `open -a`.
 /// Returns Some(AskOutcome) if the question was handled, None otherwise.
-/// Emit a `bridge:chase-pointer` event to show/hide the annotation dot at the given position.
-#[tauri::command]
-pub fn companion_move_pointer(app: AppHandle, x: f64, y: f64, active: bool, monitor: usize) -> Result<(), CompanionError> {
-    app.emit("bridge:chase-pointer", serde_json::json!({ "monitor": monitor, "x": x, "y": y, "active": active }))
-        .map_err(|e| err("POINTER_EMIT_FAILED", e.to_string()))
+const ANNOTATE_LABEL: &str = "annotate";
+
+fn annotate_windows_show(app: &AppHandle) {
+    for (_, win) in app.webview_windows() {
+        if win.label().starts_with(ANNOTATE_LABEL) {
+            let _ = win.show();
+        }
+    }
 }
 
+fn annotate_windows_hide(app: &AppHandle) {
+    for (_, win) in app.webview_windows() {
+        if win.label().starts_with(ANNOTATE_LABEL) {
+            let _ = win.hide();
+        }
+    }
+}
+
+/// Emit a `bridge:chase-pointer` event to show/hide the annotation dot at the given position.
+/// Also shows/hides the annotate window (which is hidden by default when no marks are active).
+#[tauri::command]
+pub fn companion_move_pointer(app: AppHandle, x: f64, y: f64, active: bool, monitor: usize) -> Result<(), CompanionError> {
+    if active { annotate_windows_show(&app); }
+    app.emit("bridge:chase-pointer", serde_json::json!({ "monitor": monitor, "x": x, "y": y, "active": active }))
+        .map_err(|e| err("POINTER_EMIT_FAILED", e.to_string()))?;
+    if !active { annotate_windows_hide(&app); }
+    Ok(())
+}
+
+/// Smoothly move the pointer dot to (x, y) on the given monitor, then hide it after `hide_after_ms`.
+/// Shows the annotate window so the dot is actually visible.
 fn show_pointer_then_hide(app: &AppHandle, x: f64, y: f64, monitor: usize, hide_after_ms: u64) {
+    annotate_windows_show(app);
     let _ = app.emit("bridge:chase-pointer", serde_json::json!({ "monitor": monitor, "x": x, "y": y, "active": true }));
     let app2 = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(hide_after_ms));
         let _ = app2.emit("bridge:chase-pointer", serde_json::json!({ "monitor": 0, "x": 0.0, "y": 0.0, "active": false }));
+        annotate_windows_hide(&app2);
     });
+}
+
+/// Animate the pointer dot randomly across the screen for `duration_secs` so the user can
+/// confirm it is working. Lissajous path (two incommensurate sines) avoids a mechanical oval.
+fn start_pointer_demo(app: AppHandle, duration_secs: f64) {
+    let (w, h) = monitor_logical_size(&app, 0).unwrap_or((1280.0, 800.0));
+    annotate_windows_show(&app);
+    std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs_f64(duration_secs);
+        let mut px = 0.0_f64;
+        let mut py = 0.0_f64;
+        while std::time::Instant::now() < deadline {
+            px += 0.065;
+            py += 0.041;
+            let x = w * 0.15 + w * 0.70 * (px.sin() * 0.5 + 0.5);
+            let y = h * 0.15 + h * 0.60 * (py.sin() * 0.5 + 0.5);
+            let _ = app.emit("bridge:chase-pointer", serde_json::json!({ "monitor": 0, "x": x, "y": y, "active": true }));
+            std::thread::sleep(Duration::from_millis(40));
+        }
+        let _ = app.emit("bridge:chase-pointer", serde_json::json!({ "monitor": 0, "x": 0.0, "y": 0.0, "active": false }));
+        annotate_windows_hide(&app);
+    });
+}
+
+/// Animate the pointer across the screen for `duration_secs` (default 15, max 30).
+/// Call this to verify the annotation overlay is working — the dot will sweep the screen visibly.
+#[tauri::command]
+pub fn companion_demo_pointer(app: AppHandle, duration_secs: Option<f64>) -> Result<(), CompanionError> {
+    start_pointer_demo(app, duration_secs.unwrap_or(15.0).min(30.0));
+    Ok(())
 }
 
 fn try_open_app_shortcut(app: &AppHandle, question: &str, speak: bool) -> Option<AskOutcome> {
     let q = question.trim().to_lowercase();
+
+    // "show my pointer" / "demo pointer" / "move your cursor" — visual demo for 15 seconds.
+    if q.contains("your pointer") || q.contains("demo pointer") || q.contains("move your cursor")
+        || q == "show pointer" || q == "show your pointer" || q == "move pointer"
+        || (q.contains("pointer") && q.contains("visible"))
+    {
+        start_pointer_demo(app.clone(), 15.0);
+        return Some(AskOutcome {
+            answer: CompanionAnswer {
+                text: "Moving my pointer across your screen for 15 seconds!".into(),
+                provider: "groq-text",
+                screen_shared: false,
+                points: 0,
+                spoke: speak,
+                capture_note: None,
+                emotion: Some("celebrating".into()),
+            },
+            marks: Vec::new(),
+        });
+    }
 
     // WhatsApp — show the pointer animating to the dock area, then open the app.
     if q == "open whatsapp" || q == "click whatsapp" || q == "open whatsapp in bridge"
@@ -1109,6 +1208,7 @@ fn try_open_app_shortcut(app: &AppHandle, question: &str, speak: bool) -> Option
                 points: 0,
                 spoke: speak,
                 capture_note: None,
+                emotion: Some("happy".into()),
             },
             marks: Vec::new(),
         });
@@ -1140,6 +1240,7 @@ fn try_open_app_shortcut(app: &AppHandle, question: &str, speak: bool) -> Option
             points: 0,
             spoke: speak,
             capture_note: None,
+            emotion: Some("happy".into()),
         },
         marks: Vec::new(),
     })
@@ -1312,16 +1413,17 @@ fn run_ask(
             marks.len(),
             raw.chars().take(120).collect::<String>(),
         );
+        let (emotion, clean) = strip_emotion_tag(&raw);
+        let clean = strip_point_tags(&strip_cell_tags(clean));
         return Ok(AskOutcome {
             answer: CompanionAnswer {
-                // Both tag vocabularies are stripped: the user reads and
-                // hears prose, never locator bookkeeping.
-                text: strip_point_tags(&strip_cell_tags(&raw)),
+                text: clean,
                 provider: "groq-vision",
                 screen_shared: true,
                 points: usize::from(!marks.is_empty()),
                 spoke: request.speak,
                 capture_note,
+                emotion,
             },
             marks,
         });
@@ -1350,14 +1452,16 @@ fn run_ask(
             &endpoint.api_key,
             body,
         )?);
+        let (emotion, clean) = strip_emotion_tag(&raw);
         return Ok(AskOutcome {
             answer: CompanionAnswer {
-                text: strip_point_tags(&raw),
+                text: strip_point_tags(clean).into(),
                 provider: "local-qwen",
                 screen_shared: false,
                 points: 0,
                 spoke: request.speak,
                 capture_note: None,
+                emotion,
             },
             marks: Vec::new(),
         });
@@ -1377,14 +1481,16 @@ fn run_ask(
             Err(e) => return Err(e),
         };
         let raw = strip_think_blocks(&raw);
+        let (emotion, clean) = strip_emotion_tag(&raw);
         return Ok(AskOutcome {
             answer: CompanionAnswer {
-                text: strip_point_tags(&raw),
+                text: strip_point_tags(clean).into(),
                 provider: "groq-text",
                 screen_shared: false,
                 points: 0,
                 spoke: request.speak,
                 capture_note: None,
+                emotion,
             },
             marks: Vec::new(),
         });
