@@ -279,7 +279,7 @@ type RetrievalEvalList = Awaited<ReturnType<typeof trpc.learning.retrieval.evals
 type CaptureStatus = Awaited<ReturnType<typeof trpc.learning.capture.status.query>>;
 
 const CAPTURE_SOURCE_COPY: Record<
-  "chat" | "whatsapp" | "google" | "browser",
+  "chat" | "whatsapp" | "google" | "browser" | "apps",
   { label: string; description: string }
 > = {
   chat: {
@@ -297,6 +297,10 @@ const CAPTURE_SOURCE_COPY: Record<
   browser: {
     label: "Browser visits",
     description: "The Bridge extension reports domain and page title for domains you allowlist below — never page content, never full URLs, and never private windows (the extension cannot run there).",
+  },
+  apps: {
+    label: "App focus (desktop)",
+    description: "The Bridge desktop app notices which app is frontmost and its window title. Titles need the macOS Accessibility permission — without it, app names only. Never window contents, keystrokes, or screenshots.",
   },
 };
 
@@ -322,7 +326,7 @@ function CaptureConsentCard() {
 
   if (!status?.enabled) return null;
 
-  async function flipSource(source: "chat" | "whatsapp" | "google" | "browser", enabled: boolean) {
+  async function flipSource(source: "chat" | "whatsapp" | "google" | "browser" | "apps", enabled: boolean) {
     await trpc.learning.capture.setSource.mutate({ organizationId: PILOT_ORGANIZATION, source, enabled });
     setMessage(
       enabled
@@ -355,7 +359,7 @@ function CaptureConsentCard() {
           Off by default. Each source is a separate consent; turning one on lets Bridge notice YOUR OWN rhythms in data
           it already holds locally. Signals are envelope-only (never message text), private, Local Plane, and deletable.
         </p>
-        {(["chat", "whatsapp", "google", "browser"] as const).map((source) => {
+        {(["chat", "whatsapp", "google", "browser", "apps"] as const).map((source) => {
           const row = status.sources[source];
           return (
             <div key={source} className="rounded-lg border p-3 flex items-start justify-between gap-3">

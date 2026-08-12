@@ -47,6 +47,7 @@ export const CHAT_CAPTURE_MODULE_ID = "chat";
 export const WHATSAPP_CAPTURE_MODULE_ID = "whatsapp";
 export const GOOGLE_CAPTURE_MODULE_ID = "google";
 export const BROWSER_CAPTURE_MODULE_ID = "browser";
+export const APP_FOCUS_CAPTURE_MODULE_ID = "apps";
 
 export type TimeOfDayBucket = "morning" | "afternoon" | "evening" | "night";
 
@@ -241,6 +242,53 @@ export function browserVisitCaptureSignal(
       timeOfDay: timeOfDayBucket(envelope.visitedAt),
     },
     observedAt: envelope.visitedAt,
+    ...(envelope.taintLabel ? { taintLabel: envelope.taintLabel } : {}),
+  };
+}
+
+/**
+ * K7 (TASK-051) — the desktop shell's app-focus capture. The envelope is
+ * what the Rust `apps` provider derives and nothing more: app name, bundle
+ * id, window title (null whenever the Accessibility grant is absent or the
+ * AX read failed — fail-closed, never a guess), and when focus landed.
+ * Structurally inexpressible here: window CONTENT, AX trees, screen pixels,
+ * input events — none of those have a field, so no code path can smuggle
+ * them into a signal row. `bundleId` is an attribute deliberately (K5
+ * precedent: higher-cardinality but the stable app identity is exactly the
+ * rhythm facet K6's brief consumes; localized names wobble across locales).
+ */
+export interface AppFocusCaptureEnvelope {
+  /** Shell-minted id for this focus event; the idempotency anchor. */
+  focusId: string;
+  appName: string;
+  bundleId: string;
+  /** null = suppressed (no Accessibility grant / AX read failed) — the
+   * fail-closed state, distinct from an app that titled its window "". */
+  windowTitle: string | null;
+  focusedAt: string;
+  taintLabel?: TaintLabel;
+}
+
+export function appFocusCaptureSignal(
+  envelope: AppFocusCaptureEnvelope,
+  scope: CaptureScope,
+  signalId: string,
+): ObservedSignal | null {
+  return {
+    id: signalId,
+    organizationId: scope.organizationId,
+    ownerUserId: scope.userId,
+    moduleId: APP_FOCUS_CAPTURE_MODULE_ID,
+    recordKind: "focus",
+    recordId: envelope.focusId,
+    action: "focus",
+    attributes: {
+      appName: envelope.appName,
+      bundleId: envelope.bundleId,
+      ...(envelope.windowTitle === null ? {} : { windowTitle: envelope.windowTitle }),
+      timeOfDay: timeOfDayBucket(envelope.focusedAt),
+    },
+    observedAt: envelope.focusedAt,
     ...(envelope.taintLabel ? { taintLabel: envelope.taintLabel } : {}),
   };
 }

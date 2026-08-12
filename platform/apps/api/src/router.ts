@@ -88,6 +88,7 @@ import {
   PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE,
   PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE,
   ledgerSignalId,
+  appFocusCaptureSignalId,
   browserCaptureSignalId,
   chatCaptureSignalId,
   googleCaptureSignalId,
@@ -14390,6 +14391,97 @@ export const appRouter = t.router({
               signalId,
             );
             if (signal) await recordCaptureSignal(ctx.wiring.memoryStore, signal);
+            return { captured: true, verdict: "captured" as const };
+          }),
+      }),
+
+      /** K7 (TASK-051) — the desktop shell's app-focus capture lane. The
+       * "apps" consent source above answers WHETHER the shell may report
+       * focus events; the shell's own sensor is additionally stopped at
+       * the source while consent is off (the drain loop reconciles), so
+       * the gate here is defense in depth, not the only wall. What
+       * arrives is already derived — app name, bundle id, window title
+       * (null = suppressed fail-closed absent the Accessibility grant) —
+       * and flows through the @bridge/sensors hub's full capture
+       * contract: capability-manifested provider, inspectable ledger
+       * entry, "sensor.capture" blink DomainEvent, and the learning-loop
+       * consumer's one durable observed-signal Memory. */
+      appfocus: t.router({
+        /** Everything the shell's drain loop needs to run or go honestly
+         * dormant: flight, consent, kill switch. Always answerable, like
+         * `capture.status`. */
+        status: procedure
+          .input(z.object({ organizationId: z.string().min(1) }))
+          .query(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
+            return {
+              enabled: ctx.wiring.learningObservationEnabled,
+              capturing:
+                ctx.wiring.learningObservationEnabled && captureAllowed(consent, "apps"),
+              paused: consent.paused,
+            };
+          }),
+
+        /** One reported focus event. Never errors on a declined capture —
+         * the drain loop is a background caller, and a structured verdict
+         * must not become a retry loop. Idempotent per shell-minted
+         * focusId, so a re-drained report writes nothing twice. */
+        focus: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              focusId: z.string().uuid(),
+              appName: z.string().min(1).max(200),
+              bundleId: z.string().min(1).max(300),
+              windowTitle: z.string().max(500).nullable(),
+              focusedAt: z.string().datetime(),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            if (ctx.identity.type !== "user") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message:
+                  "App-focus events are behavior signals about a human — only that user's own identity may report them",
+              });
+            }
+            const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
+            if (!captureAllowed(consent, "apps")) {
+              return { captured: false, verdict: "consent_off" as const };
+            }
+            const appName = input.appName.trim();
+            const bundleId = input.bundleId.trim();
+            if (!appName || !bundleId) {
+              return { captured: false, verdict: "malformed" as const };
+            }
+            const signalId = appFocusCaptureSignalId(input.focusId);
+            const owner = { organizationId: input.organizationId, userId: ctx.identity.id };
+            if (await ctx.wiring.memoryStore.get(signalId, owner)) {
+              return { captured: false, verdict: "duplicate" as const };
+            }
+            const relayed = await ctx.wiring.appFocusSensor.report(ctx.identity.id, {
+              focusId: input.focusId,
+              appName,
+              bundleId,
+              // null stays null — suppression is a fact worth keeping,
+              // never repaired into an empty title.
+              windowTitle:
+                input.windowTitle === null ? null : input.windowTitle.trim().slice(0, 300),
+              focusedAt: input.focusedAt,
+            });
+            if (!relayed) {
+              // The lane's provider dropped it (stopped) — structurally
+              // possible, never expected under this wiring; surface loudly.
+              throw new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: "the app-focus sensor lane dropped a consented report",
+              });
+            }
             return { captured: true, verdict: "captured" as const };
           }),
       }),

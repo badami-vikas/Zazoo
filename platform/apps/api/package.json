@@ -36,6 +36,7 @@
     "@bridge/models": "workspace:*",
     "@bridge/module-manifests": "workspace:*",
     "@bridge/net-guard": "workspace:*",
+    "@bridge/sensors": "workspace:*",
     "@bridge/whatsapp": "workspace:*",
     "@fastify/cors": "^10.0.1",
     "@fastify/rate-limit": "^10.3.0",

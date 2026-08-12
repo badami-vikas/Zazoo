@@ -133,8 +133,25 @@ export class SensorHub {
     };
     const computedRisk = computeRisk(manifest, () => undefined);
 
+    // Re-registration across process boots (K7: the manifest row outlives
+    // the process on a durable CapabilityStore): check-before-insert on the
+    // (organization, name, version) NATURAL key, per the ports.ts ADR-023
+    // precedent — durable stores key rows by UUID, so the logical
+    // `ctx-provider:<id>` lives inside the manifest JSON, not in the row id.
+    // Reuse touches NOTHING about the existing row's state, so a suspension
+    // survives a restart instead of being resurrected by the next boot.
+    const existing = await this.#deps.capabilities.getManifestByNameVersion(
+      this.#deps.organizationId,
+      manifest.name,
+      manifest.version,
+    );
+    if (existing) {
+      this.#providers.set(provider.id, provider);
+      return existing;
+    }
+
     const row = await this.#deps.capabilities.createManifest({
-      id: manifest.id,
+      id: this.#deps.ids(),
       organizationId: this.#deps.organizationId,
       capabilityType: "integration",
       name: manifest.name,
@@ -146,7 +163,7 @@ export class SensorHub {
       dependencies: [],
     });
     await this.#deps.capabilities.upsertState({
-      manifestId: manifest.id,
+      manifestId: row.id,
       organizationId: this.#deps.organizationId,
       state: "draft", // generation ≠ activation — even built-ins start Draft
       suspended: false,

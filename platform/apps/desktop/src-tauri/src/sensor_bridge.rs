@@ -172,9 +172,20 @@ pub fn sensor_list() -> Result<Vec<SensorDescriptor>, SensorBridgeError> {
                 id: "apps".to_string(),
                 kind: "apps".to_string(),
                 // NSWorkspace.frontmostApplication needs no special macOS
-                // permission entitlement.
+                // permission entitlement; the K7 window-title half is
+                // Accessibility-gated and fails closed (app names only)
+                // until the user grants it — reported honestly here.
                 availability: "available",
-                permission_note: None,
+                permission_note: if crate::providers::accessibility::ax_permission_status() {
+                    None
+                } else {
+                    Some(
+                        "window titles require the Accessibility permission (System \
+                         Settings > Privacy & Security > Accessibility); capturing app \
+                         names only until granted"
+                            .to_string(),
+                    )
+                },
             },
             SensorDescriptor {
                 id: "clipboard".to_string(),

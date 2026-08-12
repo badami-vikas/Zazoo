@@ -837,15 +837,15 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K7 — Capture: app-focus sensor
 - ID: TASK-051
-- Status: ready (unblocked 2026-08-11, ADR-228/AP-147)
+- Status: done (2026-08-13, ADR-230, AP-148)
 - Priority: P3
 - Horizon: Hardening
 - Outcome: The first ambient sensor: a real frontmost-app/window-title provider in the `@bridge/sensors` SensorHub (today: fake provider, unwired), the hub wired into the API, the Avatar blink-tell firing on capture, and a pause/kill switch.
-- Prototype test: focusing a different app creates an inspectable Memory naming it, the Avatar blinks, and the kill switch verifiably stops capture (no Memory rows while paused, asserted live). K7's live walk must additionally show a TCC grant surviving a rebuild of the signed .app (the ADR-228 mechanism, human-granted once).
+- Prototype test: focusing a different app creates an inspectable Memory naming it, the Avatar blinks, and the kill switch verifiably stops capture (no Memory rows while paused, asserted live). K7's live walk must additionally show a TCC grant surviving a rebuild of the signed .app (the ADR-228 mechanism, human-granted once). PASSED with one human step outstanding — live durable-boot walk 10/10 (consent matrix, titled + suppressed-title captures each writing one inspectable Memory naming the app, kill switch verifiably stopping rows while paused, RESTART-surviving idempotency, K6 brief `apps: 3`); row-level pglite assertion (3 rows exactly; suppressed row has NO windowTitle key; sensor/untrusted taint at source); blink = the hub's "sensor.capture" DomainEvent per ingest (asserted) riding TASK-027's existing overlay listener. The TCC-grant-survival half: the signed .app was rebuilt and bundle-verified, but launching it was deliberately skipped (the user's own desktop app was running from another checkout — a second instance contends for its Local Plane, ADR-229's surface); the one-time Accessibility grant is the user's step, with ADR-228's byte-identical designated requirement as the proven durability mechanism, and titles fail closed to app-names-only until granted (asserted live).
 - Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K7; `@bridge/sensors` SensorHub + CaptureLedger substrate.
-- Evidence: ADR-184 — TCC grants are not durable on the unbundled dev binary. RESOLVED by ADR-228: local builds sign with the stable "Bridge Dev Signing" identity; designated requirement proven byte-identical across rebuilds (CDHash changed) on two full bundle-verified builds; `tauri dev` remains non-durable by nature — durable-TCC work runs `pnpm build:tauri`.
-- Requests: user directive 2026-08-09 ("start on AI harness"); user directive 2026-08-11 ("k7 unblock")
-- Approval: AP-131 APPLIED; AP-147 APPLIED
+- Evidence: ADR-230. Shipped: "apps" fifth `CAPTURE_SOURCES` member; `PushContextProvider` (drops fail-closed while stopped) + natural-key hub registration reuse; API `learning.capture.appfocus` status/focus lane over the hub with structured verdicts; narrow AX title read (linear CF ownership, fail-closed); desktop drain loop (consent reconciles sensor_start/stop at 30s, drains at 5s); Settings "App focus (desktop)" card. Core 23/23, sensors 13/13, api 6/6, cargo 163/163, six mutations RED, `pnpm verify` 77/77.
+- Requests: user directive 2026-08-09 ("start on AI harness"); user directive 2026-08-11 ("k7 unblock"); user directive 2026-08-13 ("start on next tasks fr AI harness")
+- Approval: AP-131 APPLIED; AP-147 APPLIED; AP-148 APPLIED
 - Dependencies: TASK-044
 
 ## K8 — Capture: browser extension, domain/title first

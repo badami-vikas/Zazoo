@@ -21,12 +21,14 @@ import {
   withSourceConsent,
 } from "../src/learning/capture-consent.js";
 import {
+  appFocusCaptureSignal,
   browserVisitCaptureSignal,
   calendarEventCaptureSignal,
   chatTurnCaptureSignal,
   gmailThreadCaptureSignal,
   timeOfDayBucket,
   whatsAppMessageCaptureSignal,
+  type AppFocusCaptureEnvelope,
   type BrowserVisitCaptureEnvelope,
   type CalendarEventCaptureEnvelope,
   type ChatTurnCaptureEnvelope,
@@ -388,4 +390,82 @@ test("K8: a browser visit signal is domain+title+timeOfDay — the URL is struct
   // field to carry one, so a path/token string cannot appear.
   const SECRET = "/secret/path?token=XYZZY";
   assert.ok(!JSON.stringify(signal).includes(SECRET));
+});
+
+// ── K7: the "apps" source + app-focus emitter (TASK-051) ────────────────────
+
+test("K7: 'apps' is a consent source that defaults OFF like every other", () => {
+  assert.ok(isCaptureSource("apps"));
+  const state = defaultCaptureConsent();
+  assert.equal(captureAllowed(state, "apps"), false);
+  // Enabling apps says nothing about any other source, and pause wins.
+  const appsOn = withSourceConsent(state, "apps", true, "user-1", AT);
+  assert.equal(captureAllowed(appsOn, "apps"), true);
+  assert.equal(captureAllowed(appsOn, "browser"), false);
+  assert.equal(captureAllowed(withCapturePaused(appsOn, true, "user-1", AT), "apps"), false);
+});
+
+test("K7: an app-focus signal is appName+bundleId+windowTitle+timeOfDay — nothing else", () => {
+  const envelope: AppFocusCaptureEnvelope = {
+    focusId: "f-1",
+    appName: "Xcode",
+    bundleId: "com.apple.dt.Xcode",
+    windowTitle: "bridge — build succeeded",
+    focusedAt: AT,
+    taintLabel: UNKNOWN_LABEL,
+  };
+  const signal = appFocusCaptureSignal(envelope, SCOPE, "s-7");
+  assert.ok(signal);
+  assert.equal(signal.moduleId, "apps");
+  assert.equal(signal.recordKind, "focus");
+  assert.equal(signal.recordId, "f-1");
+  assert.equal(signal.action, "focus");
+  assert.deepEqual(Object.keys(signal.attributes).sort(), [
+    "appName",
+    "bundleId",
+    "timeOfDay",
+    "windowTitle",
+  ]);
+  assert.equal(signal.attributes.windowTitle, "bridge — build succeeded");
+  assert.equal(signal.taintLabel, UNKNOWN_LABEL);
+});
+
+test("K7: a suppressed title (no Accessibility grant) is ABSENT, not empty — and distinct from ''", () => {
+  const suppressed = appFocusCaptureSignal(
+    { focusId: "f-2", appName: "Mail", bundleId: "com.apple.mail", windowTitle: null, focusedAt: AT },
+    SCOPE,
+    "s-8",
+  );
+  assert.ok(suppressed);
+  assert.deepEqual(Object.keys(suppressed.attributes).sort(), ["appName", "bundleId", "timeOfDay"]);
+  // An app that genuinely titled its window "" still carries the field.
+  const empty = appFocusCaptureSignal(
+    { focusId: "f-3", appName: "Mail", bundleId: "com.apple.mail", windowTitle: "", focusedAt: AT },
+    SCOPE,
+    "s-9",
+  );
+  assert.ok(empty);
+  assert.equal(empty.attributes.windowTitle, "");
+});
+
+test("K7: window content, AX trees, and input events are structurally inexpressible", () => {
+  // The envelope admits exactly these keys — a provider cannot smuggle a
+  // richer capture through the emitter without a type error AND this list
+  // changing in the same review.
+  const envelope: Required<AppFocusCaptureEnvelope> = {
+    focusId: "f-4",
+    appName: "Safari",
+    bundleId: "com.apple.Safari",
+    windowTitle: "Apple",
+    focusedAt: AT,
+    taintLabel: UNKNOWN_LABEL,
+  };
+  assert.deepEqual(Object.keys(envelope).sort(), [
+    "appName",
+    "bundleId",
+    "focusId",
+    "focusedAt",
+    "taintLabel",
+    "windowTitle",
+  ]);
 });

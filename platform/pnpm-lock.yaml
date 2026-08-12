@@ -62,6 +62,9 @@ importers:
       '@bridge/net-guard':
         specifier: workspace:*
         version: link:../../packages/net-guard
+      '@bridge/sensors':
+        specifier: workspace:*
+        version: link:../../packages/sensors
       '@bridge/whatsapp':
         specifier: workspace:*
         version: link:../../modules/whatsapp

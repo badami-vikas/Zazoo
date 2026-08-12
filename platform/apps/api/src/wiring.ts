@@ -114,6 +114,8 @@ import {
   uuidv7,
   hashTaintValue,
   labelAtSource,
+  appFocusCaptureSignal,
+  recordSignal,
   analyzeTaskImpactFit,
   findDuplicateTasks,
   proposeQueueSequence,
@@ -296,6 +298,11 @@ import {
   resolveModuleAutomationRuntimeId,
 } from "./built-in-modules.js";
 import { deterministicUuid } from "./deterministic-uuid.js";
+import {
+  InMemoryCaptureLedger,
+  PushContextProvider,
+  SensorHub,
+} from "@bridge/sensors";
 import {
   createOrganizationRenameLease,
   defaultBridgeFilesRoot,
@@ -567,6 +574,8 @@ export interface Wiring {
   cultureFetchAbortControllers: Map<string, AbortController>;
   /** Inspectable, correctable, deletable learned preferences. */
   memoryStore: MemoryStore;
+  /** K7 (TASK-051) — the app-focus sensor lane (see `AppFocusSensorLane`). */
+  appFocusSensor: AppFocusSensorLane;
   /** K3 (TASK-047) — entities + claims, the knowledge substrate's persisted
    * store. Same db as `memoryStore`; only `learning.claims.*` procedures
    * and the Second Brain projection read it, and only the governed
@@ -890,6 +899,44 @@ export function googleCaptureSignalId(source: string, sourceRecordId: string): s
  * (network flake, worker restart) derives the same id and is skipped. */
 export function browserCaptureSignalId(visitId: string): string {
   return deterministicUuid(`learning:signal:browser:${visitId}`);
+}
+
+/** K7 (TASK-051): one signal per shell-minted focus id — a re-drained or
+ * retried focus report derives the same id and is skipped. */
+export function appFocusCaptureSignalId(focusId: string): string {
+  return deterministicUuid(`learning:signal:apps:${focusId}`);
+}
+
+/** The one app-focus provider id — the desktop shell's `apps` poller,
+ * relayed. Also the capability-manifest key (`ctx-provider:<id>`). */
+export const APP_FOCUS_PROVIDER_ID = "desktop-apps";
+
+/** One reported focus event, as the shell derived it. `windowTitle: null`
+ * is the FAIL-CLOSED state (no Accessibility grant / AX read failed) —
+ * distinct from an app that titled its window "". */
+export interface AppFocusReport {
+  focusId: string;
+  appName: string;
+  bundleId: string;
+  windowTitle: string | null;
+  focusedAt: string;
+}
+
+/** K7 (TASK-051) — the app-focus sensor lane: the @bridge/sensors
+ * SensorHub, wired. `report` relays one shell-drained focus event into the
+ * hub's full capture contract (capability-manifested provider → inspectable
+ * capture-ledger entry → "sensor.capture" blink DomainEvent → the
+ * learning-loop consumer, which writes the ONE durable observed-signal
+ * Memory for the capturing user). Consent and idempotency are the ROUTE's
+ * gates, checked before a report reaches this lane — by the time `report`
+ * runs, capture has been consented to and is not a duplicate. */
+export interface AppFocusSensorLane {
+  /** In-memory capture ledger behind every per-user hub (inspection seam;
+   * durable inspectability is the Memory row the consumer writes). */
+  ledger: InMemoryCaptureLedger;
+  /** Relay one focus event for the capturing user. Returns false only when
+   * the provider dropped it (stopped — fail-closed, never buffered). */
+  report(userId: string, focus: AppFocusReport): Promise<boolean>;
 }
 
 function createObservationDigestSkill(deps: {
@@ -5925,6 +5972,122 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     }
   }
 
+  // K7 (TASK-051) — the app-focus sensor lane: @bridge/sensors' SensorHub,
+  // wired into the composition root at last (it shipped kernel-side with a
+  // fake provider and no host). One hub per capturing user, built lazily on
+  // the first report: registration writes the provider's capability
+  // manifest (risk COMPUTED from its read-only context permission, never
+  // self-declared; re-registration over the durable store reuses the row),
+  // and the subscribed learning-loop consumer turns each derived
+  // observation into that user's ONE observed-signal Memory — the
+  // "Learning Agent consumes context, not screenshots" seam, exercised for
+  // real. The hub also appends the in-memory capture-ledger entry and emits
+  // the "sensor.capture" blink DomainEvent per ingest. The lane exists
+  // regardless of the learning flight: the ROUTE holds the flight, consent,
+  // and idempotency gates, so a lane report is by construction consented.
+  const appFocusLedger = new InMemoryCaptureLedger();
+  const appFocusProviders = new Map<string, Promise<PushContextProvider>>();
+  const appFocusSensor: AppFocusSensorLane = {
+    ledger: appFocusLedger,
+    report(userId, focus) {
+      let built = appFocusProviders.get(userId);
+      if (!built) {
+        built = (async () => {
+          const hub = new SensorHub({
+            capabilities: capabilityStore,
+            ledger: appFocusLedger,
+            events,
+            organizationId: PILOT_ORGANIZATION,
+            userId,
+            surface: "desktop",
+            ids: () => randomUUID(),
+            nowISO: () => new Date().toISOString(),
+          });
+          const provider = new PushContextProvider(APP_FOCUS_PROVIDER_ID, "apps");
+          await hub.register(provider);
+          hub.subscribe({
+            id: `learning-loop:${userId}`,
+            plane: "local",
+            async onObservation(observation) {
+              if (observation.kind !== "apps") return;
+              const payload = observation.payload as Partial<AppFocusReport>;
+              if (
+                typeof payload.focusId !== "string" ||
+                typeof payload.appName !== "string" ||
+                typeof payload.bundleId !== "string" ||
+                typeof payload.focusedAt !== "string"
+              ) {
+                return; // fail closed: a malformed relay writes nothing
+              }
+              const windowTitle =
+                typeof payload.windowTitle === "string" ? payload.windowTitle : null;
+              const signal = appFocusCaptureSignal(
+                {
+                  focusId: payload.focusId,
+                  appName: payload.appName,
+                  bundleId: payload.bundleId,
+                  windowTitle,
+                  focusedAt: payload.focusedAt,
+                  // Window titles are app-authored text about private work —
+                  // labeled untrusted at the capture boundary, like K8 titles.
+                  taintLabel: labelAtSource("sensor_capture", {
+                    ref: `apps:focus:${payload.focusId}`,
+                    valueHash: hashTaintValue({
+                      appName: payload.appName,
+                      bundleId: payload.bundleId,
+                      windowTitle,
+                    }),
+                    sensitivity: "private",
+                    instructionRisk: "instruction_like",
+                  }),
+                },
+                { organizationId: PILOT_ORGANIZATION, userId },
+                appFocusCaptureSignalId(payload.focusId),
+              );
+              if (signal) await recordSignal(memoryStore, signal);
+            },
+          });
+          await hub.start(APP_FOCUS_PROVIDER_ID);
+          return provider;
+        })();
+        appFocusProviders.set(userId, built);
+      }
+      return built.then((provider) =>
+        provider.push({
+          raw: {
+            id: `apps:focus:${focus.focusId}`,
+            providerId: APP_FOCUS_PROVIDER_ID,
+            kind: "apps",
+            occurredAt: focus.focusedAt,
+            // Focus events carry no raw payload beyond the derived fields —
+            // the shell already reduced them; nothing richer exists to keep.
+            rawPayload: {
+              appName: focus.appName,
+              bundleId: focus.bundleId,
+              windowTitle: focus.windowTitle,
+            },
+          },
+          observation: {
+            id: `apps:focus:${focus.focusId}:observation`,
+            providerId: APP_FOCUS_PROVIDER_ID,
+            kind: "apps",
+            occurredAt: focus.focusedAt,
+            summary:
+              focus.windowTitle === null || focus.windowTitle === ""
+                ? `Focused ${focus.appName}`
+                : `Focused ${focus.appName} — ${focus.windowTitle}`,
+            payload: { ...focus },
+            redactions:
+              focus.windowTitle === null
+                ? ["window title suppressed: Accessibility not granted"]
+                : [],
+            rawCaptureId: `apps:focus:${focus.focusId}`,
+          },
+        }),
+      );
+    },
+  };
+
   // TASK-032 — flight-gated scheduled observation digest. Registered ONLY
   // while the learning observation flight is on: the Skill goes into the
   // registry, its Goal/Task pair is ensured, and the Automation lands in the
@@ -6166,6 +6329,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     cultureLatestRunPointerStore,
     cultureFetchAbortControllers,
     memoryStore,
+    appFocusSensor,
     claimStore,
     evalStore,
     aqvSource,
