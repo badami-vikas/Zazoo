@@ -38,7 +38,7 @@ use std::{
     sync::Mutex,
     time::Duration,
 };
-use tauri::{AppHandle, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 pub const COMPANION_PTT_EVENT: &str = "bridge:companion-ptt";
 
@@ -1072,8 +1072,48 @@ struct AskOutcome {
 
 /// Matches "open <app>" questions and runs the app via macOS `open -a`.
 /// Returns Some(AskOutcome) if the question was handled, None otherwise.
-fn try_open_app_shortcut(question: &str, speak: bool) -> Option<AskOutcome> {
+/// Emit a `bridge:chase-pointer` event to show/hide the annotation dot at the given position.
+#[tauri::command]
+pub fn companion_move_pointer(app: AppHandle, x: f64, y: f64, active: bool, monitor: usize) -> Result<(), CompanionError> {
+    app.emit("bridge:chase-pointer", serde_json::json!({ "monitor": monitor, "x": x, "y": y, "active": active }))
+        .map_err(|e| err("POINTER_EMIT_FAILED", e.to_string()))
+}
+
+fn show_pointer_then_hide(app: &AppHandle, x: f64, y: f64, monitor: usize, hide_after_ms: u64) {
+    let _ = app.emit("bridge:chase-pointer", serde_json::json!({ "monitor": monitor, "x": x, "y": y, "active": true }));
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(hide_after_ms));
+        let _ = app2.emit("bridge:chase-pointer", serde_json::json!({ "monitor": 0, "x": 0.0, "y": 0.0, "active": false }));
+    });
+}
+
+fn try_open_app_shortcut(app: &AppHandle, question: &str, speak: bool) -> Option<AskOutcome> {
     let q = question.trim().to_lowercase();
+
+    // WhatsApp — show the pointer animating to the dock area, then open the app.
+    if q == "open whatsapp" || q == "click whatsapp" || q == "open whatsapp in bridge"
+        || (q.contains("whatsapp") && (q.starts_with("open ") || q.starts_with("click ")))
+    {
+        if let Some((w, h)) = monitor_logical_size(app, 0) {
+            // Approximate dock position: centre-bottom of screen, ~80px from edge.
+            show_pointer_then_hide(app, w / 2.0, h - 80.0, 0, 2500);
+        }
+        #[cfg(target_os = "macos")]
+        { let _ = Command::new("open").args(["-a", "WhatsApp"]).spawn(); }
+        return Some(AskOutcome {
+            answer: CompanionAnswer {
+                text: "Opening WhatsApp…".into(),
+                provider: "groq-text",
+                screen_shared: false,
+                points: 0,
+                spoke: speak,
+                capture_note: None,
+            },
+            marks: Vec::new(),
+        });
+    }
+
     let app_name = if q == "open edge" || q == "open microsoft edge" || q.starts_with("open edge ") {
         Some("Microsoft Edge")
     } else if q == "open safari" || q.starts_with("open safari ") {
@@ -1087,7 +1127,10 @@ fn try_open_app_shortcut(question: &str, speak: bool) -> Option<AskOutcome> {
     }?;
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open").args(["-a", app_name]).spawn();
+        if let Some((w, h)) = monitor_logical_size(app, 0) {
+            show_pointer_then_hide(app, w / 2.0, h - 80.0, 0, 2000);
+        }
+        let _ = Command::new("open").args(["-a", app_name]).spawn();
     }
     Some(AskOutcome {
         answer: CompanionAnswer {
@@ -1109,7 +1152,7 @@ fn run_ask(
     question: String,
 ) -> Result<AskOutcome, CompanionError> {
     // Fast-path: "open <app>" commands execute locally without a model call.
-    if let Some(outcome) = try_open_app_shortcut(&question, request.speak) {
+    if let Some(outcome) = try_open_app_shortcut(app, &question, request.speak) {
         return Ok(outcome);
     }
 

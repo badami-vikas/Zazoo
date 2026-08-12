@@ -188,6 +188,14 @@ export function AnnotateApp() {
           ? payload.marks
           : [];
       setMarks(applied);
+      // Auto-show pointer at first mark's centre so the cursor is always visible
+      // when the companion places an annotation (not just during the chase game).
+      if (applied.length > 0) {
+        const m = applied[0];
+        setPointer({ x: m.x + m.width / 2, y: m.y + m.height / 2 });
+      } else {
+        setPointer(null);
+      }
       void internals?.invoke("annotate_ready").catch(() => undefined);
       void internals?.invoke("annotate_ready", { rendered: applied.length }).catch(() => undefined);
     });
