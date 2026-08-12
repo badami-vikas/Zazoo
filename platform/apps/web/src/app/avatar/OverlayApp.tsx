@@ -183,11 +183,30 @@ export function OverlayApp() {
 
   useEffect(() => {
     let active = true;
-    void tauriInvoke("notch_geometry").then((geo) => {
-      if (active && geo) setNotchGeometry(geo as NotchGeometry);
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Retried, not fetched once. Without geometry this component falls through
+    // to the free-floating overlay, so a single miss at startup — when the main
+    // thread is busiest and the read is most likely to time out — parks the
+    // companion away from the cutout for the entire session with nothing to
+    // recover it. Backs off rather than hammering the main-thread hop.
+    const attempt = (delayMs: number) => {
+      void tauriInvoke("notch_geometry").then((geo) => {
+        if (!active) return;
+        if (geo) {
+          setNotchGeometry(geo as NotchGeometry);
+          return;
+        }
+        if (delayMs > 8000) {
+          console.error("[companion] notch geometry never became available");
+          return;
+        }
+        timer = setTimeout(() => attempt(delayMs * 2), delayMs);
+      });
+    };
+    attempt(500);
     return () => {
       active = false;
+      if (timer) clearTimeout(timer);
     };
   }, []);
 
@@ -229,7 +248,8 @@ export function OverlayApp() {
   // that), or holding an open composer. Anything else conceals it, so a
   // sleeping Zazoo costs the desktop nothing.
   const notchVisible =
-    home === "notch" && (notchHover || notchDomHover || notchPose === "chat");
+    home === "notch" &&
+    (notchHover || notchDomHover || notchPose === "chat" || panel === "ask" || panel === "chat");
   useEffect(() => {
     if (home !== "notch" || !sessionReady) return;
     void tauriInvoke(notchVisible ? "overlay_present" : "overlay_conceal");
@@ -473,6 +493,20 @@ export function OverlayApp() {
     void tauriInvoke("overlay_resize", { width: size.w, height: size.h });
   }, [panel, hovering, menuOpen, home]);
 
+  // Docked in the notch, the ask/chat panels replace NotchHome outright (see
+  // the render below) rather than being a variant of it, so they need their
+  // own window box too. Deliberately NOT `overlay_dock_notch` (NotchHome's own
+  // command, which raises the panel to PanelLevel::PopUpMenu): a panel this
+  // size at that level crashed the app (uncatchable NSApplication objc2
+  // exception — see decisions-log). `overlay_present_docked_panel` keeps the
+  // SAME Status level the free-floating home already runs at safely.
+  useEffect(() => {
+    if (home !== "notch") return;
+    if (panel !== "ask" && panel !== "chat") return;
+    const size = panel === "ask" ? WINDOW_SIZE.ask : WINDOW_SIZE.chat;
+    void tauriInvoke("overlay_present_docked_panel", { width: size.w, height: size.h });
+  }, [home, panel]);
+
   // Free-floating Zazoo rests in meditation and opens his eyes when you reach
   // for him — the same contract as the notch bed, so the two homes behave
   // identically once he has landed.
@@ -599,10 +633,103 @@ export function OverlayApp() {
   // app session behind it could not act on anything at all.
   if (!sessionReady) return null;
 
-  // Notch home: a wholly different surface, not a variant of the free overlay.
-  // It only renders once geometry is known — placing a notch panel from
-  // guessed coordinates would put it somewhere arbitrary on the display.
+  // Notch home: a wholly different surface, not a variant of the free overlay
+  // — EXCEPT for the ask/chat panels, which are the same governed surfaces
+  // regardless of where the avatar lives (⌘⇧Space push-to-talk sets `panel`
+  // the same way in both homes; a docked avatar should not lose voice,
+  // screen-pointing, Research Runs, or the ability to actually send a chat
+  // message just because it is parked in the notch). NotchHome only owns the
+  // idle/resting surface — it only renders once geometry is known, since
+  // placing a notch panel from guessed coordinates would put it somewhere
+  // arbitrary on the display.
   if (home === "notch" && notchGeometry) {
+    if (panel === "ask") {
+      return (
+        <div
+          role="dialog"
+          aria-label={`Ask ${name} about your screen`}
+          style={{
+            width: "100vw",
+            height: "100vh",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            background: "var(--color-background)",
+            borderRadius: "var(--radius-card)",
+          }}
+        >
+          <div
+            className="flex items-center justify-between px-3 py-2 border-b"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <p className="font-medium text-[var(--color-navy)]">{name} — Ask</p>
+            <button
+              type="button"
+              aria-label="Close ask panel"
+              className="text-muted-foreground hover:text-[var(--color-steel)]"
+              onClick={() => setPanel("none")}
+            >
+              ×
+            </button>
+          </div>
+          <CompanionAsk
+            name={name}
+            pttActive={pttActive}
+            onAnswered={() => director.perform(ANSWERED_PERFORMANCE)}
+          />
+        </div>
+      );
+    }
+
+    if (panel === "chat") {
+      return (
+        <div
+          role="dialog"
+          aria-label={`Chat with ${name}`}
+          style={{
+            width: "100vw",
+            height: "100vh",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            background: "var(--color-background)",
+            borderRadius: "var(--radius-card)",
+          }}
+        >
+          <div
+            className="flex items-center justify-between px-3 py-2 border-b"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <p className="font-medium text-[var(--color-navy)]">{name}</p>
+            <button
+              type="button"
+              aria-label="Close chat"
+              className="text-muted-foreground hover:text-[var(--color-steel)]"
+              onClick={() => {
+                setPanel("none");
+                setChatSeed(null);
+                setNotchPose("bed");
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <ChatView
+            key={chatSeed?.nonce ?? "chat"}
+            surface="avatar_overlay"
+            compact
+            initialDraft={chatSeed?.text}
+            autoSend={!!chatSeed}
+            onOpenTask={(taskId) => {
+              void tauriInvoke("focus_main_window", {
+                route: `/task-manager/${taskId}`,
+              });
+            }}
+          />
+        </div>
+      );
+    }
+
     return (
       <NotchHome
         director={director}
@@ -613,8 +740,10 @@ export function OverlayApp() {
         visible={notchVisible}
         name={name}
         onSubmit={(text) => {
+          // Hand off to the real ChatView above instead of NotchHome's own
+          // inline textarea delivering nothing: `autoSend` fires this seeded
+          // draft as soon as that panel mounts.
           setChatSeed({ text, nonce: Date.now() });
-          setNotchPose("chat");
           setPanel("chat");
         }}
         onLanded={() => {

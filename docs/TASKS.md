@@ -6,7 +6,7 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038`
+IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-066`
 
 IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
 
@@ -824,41 +824,42 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K6 — Recommendation rhythm: morning brief + commitments
 - ID: TASK-050
-- Status: ready
+- Status: done (2026-08-10)
 - Priority: P2
 - Horizon: Core Modules
 - Outcome: A morning brief (overdue/due/upcoming commitments, pending suggestions, recent activity) plus commitment detection mined from real prose, materializing into the K3 substrate on acceptance, plus approvals nudges and next-action suggestions — all suggested-then-accepted and annoyance-capped. The visible daily payoff that makes the loop legible.
-- Prototype test: a commitment stated in real prose is detected, surfaced as a suggestion, and materializes into the graph only on acceptance; the brief renders the three commitment buckets from real data; the annoyance cap measurably limits suggestion volume (over-cap suggestions deferred, asserted).
-- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K6; absorbs the EG3 design (`docs/raw/egg-commons-feature-roadmap-2026-07.md`). The 2026-08-08 session record's "TASK-040" pointer for this work was stale — TASK-040 is LA3 Phase 2; THIS row is the brief's canonical home.
-- Evidence: EG3 design (complete, previously paused behind this workstream's sequencing).
-- Requests: user directive 2026-08-09 ("start on AI harness")
-- Approval: AP-131 APPLIED
+- Prototype test: a commitment stated in real prose is detected, surfaced as a suggestion, and materializes into the graph only on acceptance; the brief renders the three commitment buckets from real data; the annoyance cap measurably limits suggestion volume (over-cap suggestions deferred, asserted). PASSED: `apps/api/test/learning-commitments.test.ts` (5/5, 2 RED under mutation) + `packages/core/test/learning-commitments.test.ts` (9/9, 3 RED under mutation) + live browser walk.
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K6; absorbs the EG3 design (`docs/raw/egg-commons-feature-roadmap-2026-07.md`). The 2026-08-08 session record's "TASK-040" pointer for this work was stale — TASK-040 is LA3 Phase 2; THIS row is the brief's canonical home. Substrate note (ADR-225): acceptance materializes into the EXISTING governed commitment substrate (relationship graph Event snapshots) — the "K3 substrate" phrasing above predates the discovery that the commitment machinery already shipped; one substrate, per the K3 rule.
+- Evidence: ADR-225. Shipped: core `learning/commitments.ts` (deterministic precision-biased detector + due-phrase parser + CAS suggestion lifecycle + caps 2/run, 5 outstanding, over-cap DEFERRED); detection in `chat.turn.send` (learning flight, local-plane owner turns, in-conversation capability — NOT the K2 chat toggle, whose contract is envelope-only signals); `learning.commitments.status/suggestions/accept/reject` (accept flips lineage first, then the SAME `relationship_commitment_mutation` as the manual surface; person is the human's choice); db `listCommitmentsForOwner` (owner-wide, shared SQL, 22/22 incl. privacy); `brief.morning` + Home `MorningBriefCard` (calendar-day buckets, suggestion review with unique-hint preselect, approvals nudges, 24h activity, deterministic next actions). Verified: pnpm verify green; live durable boot + REAL BROWSER walk (prose → suggestion → Accept → bucket updated, queue drained; restart durability; live-caught grammar fix). Honest residuals: English-only due vocabulary at 17:00 local; detection on chat sends only (WhatsApp/email prose needs its own consent surface at a later rung); no morning notification — the user opens Home; EG3's File/Result lane and day-7 reflection remain outside this rung.
+- Requests: user directive 2026-08-09 ("start on AI harness"); "start" 2026-08-10
+- Approval: AP-131 APPLIED; AP-145 APPLIED
 - Dependencies: TASK-047, TASK-049 (a chat/ledger-only brief may ship first)
 
 ## K7 — Capture: app-focus sensor
 - ID: TASK-051
-- Status: blocked
+- Status: ready (unblocked 2026-08-11, ADR-228/AP-147)
 - Priority: P3
 - Horizon: Hardening
 - Outcome: The first ambient sensor: a real frontmost-app/window-title provider in the `@bridge/sensors` SensorHub (today: fake provider, unwired), the hub wired into the API, the Avatar blink-tell firing on capture, and a pause/kill switch.
-- Prototype test: focusing a different app creates an inspectable Memory naming it, the Avatar blinks, and the kill switch verifiably stops capture (no Memory rows while paused, asserted live).
+- Prototype test: focusing a different app creates an inspectable Memory naming it, the Avatar blinks, and the kill switch verifiably stops capture (no Memory rows while paused, asserted live). K7's live walk must additionally show a TCC grant surviving a rebuild of the signed .app (the ADR-228 mechanism, human-granted once).
 - Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K7; `@bridge/sensors` SensorHub + CaptureLedger substrate.
-- Evidence: ADR-184 — TCC grants are not durable on the unbundled dev binary.
-- Requests: user directive 2026-08-09 ("start on AI harness")
-- Approval: AP-131 APPLIED
-- Dependencies: TASK-044; blocked on a signed `.app` bundle (ADR-184)
+- Evidence: ADR-184 — TCC grants are not durable on the unbundled dev binary. RESOLVED by ADR-228: local builds sign with the stable "Bridge Dev Signing" identity; designated requirement proven byte-identical across rebuilds (CDHash changed) on two full bundle-verified builds; `tauri dev` remains non-durable by nature — durable-TCC work runs `pnpm build:tauri`.
+- Requests: user directive 2026-08-09 ("start on AI harness"); user directive 2026-08-11 ("k7 unblock")
+- Approval: AP-131 APPLIED; AP-147 APPLIED
+- Dependencies: TASK-044
 
 ## K8 — Capture: browser extension, domain/title first
 - ID: TASK-052
-- Status: ready
+- Status: done (2026-08-11, ADR-227, AP-146)
 - Priority: P3
 - Horizon: Hardening
 - Outcome: A browser extension captures domain/title-level activity (page content later, separately gated) with an allowlist/denylist, and private windows are structurally excluded from capture.
-- Prototype test: a visit to an allowlisted domain creates an inspectable Memory with domain+title only; a denylisted domain creates nothing; a private-window visit creates nothing by construction (the capture path is absent, not filtered).
-- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K8; the unified-learning spec's extension salvage is design source material where applicable (reuse intake applies).
-- Evidence: harness-plan capture invariants.
-- Requests: user directive 2026-08-09 ("start on AI harness")
-- Approval: AP-131 APPLIED
+- Prototype test: a visit to an allowlisted domain creates an inspectable Memory with domain+title only; a denylisted domain creates nothing; a private-window visit creates nothing by construction (the capture path is absent, not filtered). PASSED — allowlisted visit wrote one domain+title observed-signal Memory (no URL anywhere in the row, asserted); denylisted and unlisted visits wrote nothing (structured verdicts); private windows are excluded by the manifest's `"incognito": "not_allowed"` (Chrome never runs the extension there — pinned by a structural test over the manifest, alongside the capability-surface assertions: tabs/storage/alarms only, no content scripts, no scripting/debugger).
+- Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K8; the unified-learning spec's extension salvage is design source material where applicable (reuse intake applies). Reuse intake result: the first-party recon-salvage extension's CHASSIS reused (MV3 skeleton, esbuild build shape, onUpdated worker pattern); its scraping machinery deliberately not.
+- Evidence: harness-plan capture invariants. Shipped: core `learning/browser-capture.ts` policy (default-deny, deny-wins, label-boundary, fail-closed; 19/19, 3 mutations seen RED) + "browser" as fourth `CAPTURE_SOURCES` member + `browser_capture` taint source; API `learning.capture.browser` policy/setPolicy/visit (6/6 over real buildWiring, 2 mutations seen RED; idempotent per visitId; Human-only loud policy edits); `@bridge/browser-extension` MV3 package sharing @bridge/core's verdict via subpath export (5/5, 2 mutations seen RED); Settings browser card + domain-list editor. `pnpm verify` 77/77. Live durable-boot walk (verdict matrix, restart durability, kill switch, K6 brief `browser` activity) + real-browser Settings walk (toggle provenance, editor round-trip, loud refusal rendered).
+- Residuals: load-unpacked into a real Chrome profile is a documented one-step user action (wire contract proven byte-identically over HTTP); paste-your-own-token extension config (pairing flow = candidate follow-up); no visit retry queue; Avatar blink-on-capture lands with K7's sensor hub; title pattern-redaction belongs to K10 sensitivity tiers.
+- Requests: user directive 2026-08-09 ("start on AI harness"); user directive 2026-08-11 ("Start on K8")
+- Approval: AP-131 APPLIED; AP-146 APPLIED
 - Dependencies: TASK-044
 
 ## K9 — Builder ladder: rung 3 steps, rung 4 structures
@@ -1037,3 +1038,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-08-10 ("every element should have a notes section and governance section")
 - Approval: user directive 2026-08-10 recorded as APPLIED for task creation, queue position, and the §3b canon addition
 - Dependencies: none
+
+## Desktop shell survives Local Plane loss instead of aborting
+- ID: TASK-066
+- Status: done
+- Priority: P0
+- Horizon: Prototype
+- Outcome: A sidecar stall, crash, or kill is survivable. The shell never aborts on native teardown, a transient stall is not mistaken for Local Plane loss, and a genuinely dead sidecar is restarted in place on the same port and token rather than ending the session.
+- Prototype test: With the app running, `kill -9` the sidecar node PID. The log must show `restarting it (attempt 1/3)` then `recovered on http://127.0.0.1:<same port>`, `grep -c "fatal runtime error"` must stay 0, and the shell process must still be alive. Repeating past the 3-per-10-minute budget must fail closed with a Local Plane loss verdict rather than looping.
+- Scope: ADR-229. Closes the `__rust_foreign_exception` abort class that BUG-2026-07-30 declared "closed by construction" on 2026-07-31 and that recurred with a different trigger on 2026-08-06. Four changes: time-based liveness (6 s continuous unreachability, 3 s probe) replacing a failed-probe count; `demote_panel_before_teardown` generalizing the guard `overlay.rs` already had to every retired window; `guard_native_teardown` wrapping native teardown in `objc2::exception::catch`; and `api_sidecar::restart` respawning the child on the retained loopback listener with the original token. Two adjacent defects fixed under the same evidence: debug builds preferring a stale staged sidecar over the fresh monorepo build, and the notch geometry read losing its cutout at startup so the companion parked away from the notch.
+- Evidence: `docs/BUGS.md` 2026-08-06 entry, RESOLVED 2026-08-12 with the captured `NSRangeException` / `AnnotatePanel` exception — the datum the entry recorded as never obtained. Live verification: three launches with zero aborts where the pre-fix binary aborted deterministically ~35 s in; a forced `kill -9` recovering on the same port with a new child PID; a real transient caught in an ordinary session (`tolerating for up to 6s` → `reachable again`).
+- Requests: user reports 2026-08-12, verbatim: *"Currently the desktop app is not working properly and crashing a lot. Can you check and fix all the perf issues? It is eating up lot RAM also"*, *"it says local plane unavailable"* (repeated), *"the notch part is coming elsewhere"*
+- Approval: none needed (defect repair; ADR-229 records the design decisions)
+- Dependencies: none
+- Invariants this task establishes — breaking either reopens the abort class: every window promoted with `to_panel` MUST be demoted with `panel.to_window()` before `destroy()`, and every native teardown path MUST stay inside `guard_native_teardown`.

@@ -21,16 +21,24 @@ import {
   withSourceConsent,
 } from "../src/learning/capture-consent.js";
 import {
+  browserVisitCaptureSignal,
   calendarEventCaptureSignal,
   chatTurnCaptureSignal,
   gmailThreadCaptureSignal,
   timeOfDayBucket,
   whatsAppMessageCaptureSignal,
+  type BrowserVisitCaptureEnvelope,
   type CalendarEventCaptureEnvelope,
   type ChatTurnCaptureEnvelope,
   type GmailThreadCaptureEnvelope,
   type WhatsAppMessageCaptureEnvelope,
 } from "../src/learning/source-emitters.js";
+import {
+  browserCaptureVerdict,
+  normalizeBrowserDomain,
+  readBrowserDomainPolicy,
+} from "../src/learning/browser-capture.js";
+import { UNKNOWN_LABEL } from "../src/taint.js";
 
 const SCOPE = { organizationId: "org-1", userId: "user-1" };
 const AT = "2026-08-09T09:30:00.000Z";
@@ -297,4 +305,87 @@ test("google content is structurally inexpressible: no envelope admits snippet/b
     assert.ok(!JSON.stringify(signal).includes(SECRET));
     assert.equal(signal.reason, undefined);
   }
+});
+
+// ── K8: the "browser" source + domain policy (TASK-052) ─────────────────────
+
+test("K8: 'browser' is a consent source that defaults OFF like every other", () => {
+  assert.ok(isCaptureSource("browser"));
+  const state = defaultCaptureConsent();
+  assert.equal(captureAllowed(state, "browser"), false);
+  // Enabling browser says nothing about any other source, and pause wins.
+  const browserOn = withSourceConsent(state, "browser", true, "user-1", AT);
+  assert.equal(captureAllowed(browserOn, "browser"), true);
+  assert.equal(captureAllowed(browserOn, "chat"), false);
+  assert.equal(captureAllowed(withCapturePaused(browserOn, true, "user-1", AT), "browser"), false);
+});
+
+test("K8: the domain policy parse fails CLOSED — malformed reads as capture-nothing", () => {
+  for (const stored of [null, undefined, 42, "allow-everything", [], { allowlist: "github.com" }]) {
+    const policy = readBrowserDomainPolicy(stored);
+    assert.deepEqual(policy, { allowlist: [], denylist: [] });
+    assert.equal(browserCaptureVerdict(policy, "github.com"), "not_allowlisted");
+  }
+  // Malformed ENTRIES are dropped, never repaired into something wider.
+  const partial = readBrowserDomainPolicy({
+    allowlist: ["GitHub.com.", "https://evil.com/path", "has space.com", 7, "linear.app"],
+    denylist: ["Mail.Google.com"],
+  });
+  assert.deepEqual(partial.allowlist, ["github.com", "linear.app"]);
+  assert.deepEqual(partial.denylist, ["mail.google.com"]);
+});
+
+test("K8: default-deny — the empty allowlist captures nothing, listed domains capture on label boundaries", () => {
+  const policy = readBrowserDomainPolicy({ allowlist: ["google.com"], denylist: [] });
+  assert.equal(browserCaptureVerdict(policy, "google.com"), "allowed");
+  assert.equal(browserCaptureVerdict(policy, "DOCS.Google.com"), "allowed", "subdomains of an entry match");
+  assert.equal(browserCaptureVerdict(policy, "evilgoogle.com"), "not_allowlisted", "label boundary holds");
+  assert.equal(browserCaptureVerdict(policy, "github.com"), "not_allowlisted", "unlisted is denied");
+  assert.equal(browserCaptureVerdict(policy, "not a domain"), "not_allowlisted", "malformed is denied");
+  const empty = readBrowserDomainPolicy({});
+  assert.equal(browserCaptureVerdict(empty, "google.com"), "not_allowlisted");
+});
+
+test("K8: deny wins — a domain matching both lists is denylisted, including via subdomain", () => {
+  const policy = readBrowserDomainPolicy({
+    allowlist: ["google.com"],
+    denylist: ["mail.google.com"],
+  });
+  assert.equal(browserCaptureVerdict(policy, "docs.google.com"), "allowed");
+  assert.equal(browserCaptureVerdict(policy, "mail.google.com"), "denylisted");
+  assert.equal(browserCaptureVerdict(policy, "deep.mail.google.com"), "denylisted");
+  // The same domain on both lists is denied outright.
+  const both = readBrowserDomainPolicy({ allowlist: ["bank.com"], denylist: ["bank.com"] });
+  assert.equal(browserCaptureVerdict(both, "bank.com"), "denylisted");
+});
+
+test("K8: normalizeBrowserDomain accepts bare hostnames only", () => {
+  assert.equal(normalizeBrowserDomain("  GitHub.COM.  "), "github.com");
+  assert.equal(normalizeBrowserDomain("localhost"), "localhost");
+  for (const bad of ["https://a.com", "a.com/path", "a.com:443", "a b.com", "-a.com", "", 9]) {
+    assert.equal(normalizeBrowserDomain(bad), null, `must reject: ${String(bad)}`);
+  }
+});
+
+test("K8: a browser visit signal is domain+title+timeOfDay — the URL is structurally inexpressible", () => {
+  const envelope: BrowserVisitCaptureEnvelope = {
+    visitId: "v-1",
+    domain: "github.com",
+    title: "Pull request #42 — bridge",
+    visitedAt: AT,
+    taintLabel: UNKNOWN_LABEL,
+  };
+  const signal = browserVisitCaptureSignal(envelope, SCOPE, "s-5");
+  assert.ok(signal);
+  assert.equal(signal.moduleId, "browser");
+  assert.equal(signal.recordKind, "visit");
+  assert.equal(signal.recordId, "v-1");
+  assert.equal(signal.action, "browse");
+  assert.deepEqual(Object.keys(signal.attributes).sort(), ["domain", "timeOfDay", "title"]);
+  assert.equal(signal.attributes.domain, "github.com");
+  assert.equal(signal.taintLabel, UNKNOWN_LABEL);
+  // No URL, path, or query anywhere on the signal — the envelope has no
+  // field to carry one, so a path/token string cannot appear.
+  const SECRET = "/secret/path?token=XYZZY";
+  assert.ok(!JSON.stringify(signal).includes(SECRET));
 });

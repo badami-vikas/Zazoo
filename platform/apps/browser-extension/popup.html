@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font: 13px/1.45 -apple-system, system-ui, sans-serif; margin: 0; width: 320px; color: #1a2233; }
+      main { padding: 14px 16px 16px; }
+      h1 { font-size: 14px; margin: 0 0 2px; }
+      p.sub { margin: 0 0 12px; color: #5a6474; font-size: 12px; }
+      label { display: block; font-weight: 600; font-size: 12px; margin: 10px 0 3px; }
+      input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #c9d0da; border-radius: 6px; font-size: 12px; }
+      button { margin-top: 12px; width: 100%; padding: 7px 0; border: 0; border-radius: 6px; background: #33506d; color: #fff; font-weight: 600; cursor: pointer; }
+      #status { margin: 12px 0 0; font-size: 12px; color: #33506d; min-height: 16px; }
+      #status.bad { color: #b3261e; }
+      p.note { margin: 12px 0 0; font-size: 11px; color: #5a6474; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Bridge — Activity Capture</h1>
+      <p class="sub">Domain and title only, allowlisted domains only, never in private windows.</p>
+      <label for="apiUrl">Bridge API URL</label>
+      <input id="apiUrl" type="text" autocomplete="off" spellcheck="false" />
+      <label for="organizationId">Organization ID</label>
+      <input id="organizationId" type="text" autocomplete="off" spellcheck="false" />
+      <label for="token">Access token</label>
+      <input id="token" type="password" autocomplete="off" />
+      <button id="save" type="button">Save &amp; check</button>
+      <p id="status"></p>
+      <p class="note">
+        Paste your own Bridge access token; it stays in this browser's extension storage.
+        Which domains are captured is decided in Bridge Settings, and every captured visit
+        is an inspectable, deletable Memory there.
+      </p>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

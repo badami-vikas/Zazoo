@@ -1,5 +1,44 @@
 # Change Log
 
+- **2026-08-11 — K7 unblocked: stable local code-signing identity, TCC grants rebuild-durable (ADR-228/AP-147)**:
+  The blocker was never the bundle (the pipeline, CI Developer-ID import, and deep bundle verifier all
+  existed) — it was that local builds ad-hoc signed, and TCC stores a cdhash-anchored designated
+  requirement that dies on every rebuild (ADR-184/185). Fixed with a per-machine self-signed
+  "Bridge Dev Signing" certificate (openssl → login keychain, key material deleted, NO trust-store or
+  admin change — codesign signs with it untrusted) and auto-detection in `build-tauri.mjs`: explicit
+  `APPLE_SIGNING_IDENTITY` always wins, `-` forces ad-hoc, absent cert = old behavior, so CI and other
+  machines are untouched. Hardened runtime stays OFF for local-identity builds on purpose (no Team ID →
+  library validation would reject our own keyring/llama dylibs); the release path keeps it. Proof,
+  measured on two full builds that both passed `verify-macos-bundle.mjs`: CDHash changed
+  (`c8305011…` → `98b4208c…`) while the designated requirement stayed byte-identical
+  (`identifier "ai.bridge.desktop" and certificate root = H"48868b88…"`); the ad-hoc counterfactual on a
+  copy measured `designated => cdhash H"…"` — the exact ADR-184 failure. test:bundle 8/8 with one
+  mutation seen RED (local identity must not override an explicit ad-hoc request). TASK-051 blocked →
+  ready; K7's live walk will show a human-granted Accessibility grant surviving a rebuild. Remaining
+  human step: grant once in System Settings when K7 starts.
+
+- **2026-08-11 — K8: browser-extension capture, domain/title only (TASK-052, ADR-227/AP-146)**:
+  The second post-brief capture rung. "browser" joined `CAPTURE_SOURCES` (K2 machinery unchanged) with a
+  NEW per-domain policy in core: default-deny (empty allowlist captures nothing), deny-wins, label-boundary
+  subdomain matching, fail-closed parse. The URL is structurally inexpressible end to end — the MV3
+  extension reduces it to a bare hostname in-browser, no schema field can carry it, and a path-bearing
+  "domain" fails normalization at the API. The extension bundles @bridge/core's own `browserCaptureVerdict`
+  (new dependency-free subpath export) so both sides of the process boundary run the SAME compiled verdict;
+  the API re-evaluates it anyway (defense in depth). Private windows are excluded by construction:
+  manifest `"incognito": "not_allowed"`, no content scripts, no scripting/debugger — all pinned by a
+  structural test. Declined captures are structured verdicts (never errors); writes idempotent per
+  extension-minted visitId; titles taint-labeled `browser_capture` (web/untrusted/instruction_like) at the
+  boundary. Settings gained the Browser-visits toggle + a domain-list editor whose typos are refused
+  LOUDLY with the entry named. Evidence: core 19/19 (3 mutations RED), api 6/6 (2 RED), extension 5/5
+  (2 RED), `pnpm verify` 77/77 (the new package runs inside the gate — first rung to grow the task count);
+  live durable boot walked the full verdict matrix over the extension's exact wire requests, survived a
+  restart, watched the kill switch drain the extension's policy to dormant, and saw the K6 brief report
+  `browser: 2` recent activity; a real-browser walk drove the Settings card (toggle provenance, editor
+  round-trip, loud refusal live). Reuse intake: recon-salvage extension chassis only; its scraping
+  machinery deliberately not. Residuals: real-Chrome load-unpacked is a documented user step; token config
+  is paste-your-own; no retry queue; blink lands with K7; title redaction with K10. No ledger-id collision
+  this rung — remote high-water (ADR-226/AP-145) checked before writing AND before push.
+
 - **2026-08-10 — TASK-036 CI green gate (commit 7f650054)**: All 72 `pnpm verify` tasks pass on `main`. Fixed nested `test()` anti-pattern in `@bridge/db` (ledger-store 4 subtests, module-store 3 subtests), `@bridge/core` (taint 4, module-lifecycle 1), `@bridge/models` (2), `@bridge/commons` (2); fixed net-guard DNS abort timeout (ref'd timer keeps event loop alive through AbortSignal.timeout); deleted stale dist artifacts importing renamed vocabulary exports; resolved hermes/node shim PATH collision (nvm v24 prefix required for `--test-isolation=none`).
 
 - **2026-08-09 — Slices 13 & 14: the three decisions become human-reachable, and TM6 finishes (TASK-021, ADR-208/AP-129, ADR-209/AP-130)**:
@@ -3269,6 +3308,15 @@ Separately, at the user's request `autoCompactWindow: 400000` is now a project d
 - Verified: four new tests seen RED first (10 tests, 6 pass/4 fail before; 10/10 after), made to fail on behavior rather than compilation by landing the `degraded` field first. `check:vocabulary` output byte-identical with and without the change. Not claimed: no live run against a real Ollama — none is installed on this machine, which is exactly the condition the fix addresses.
 - Separately recorded in BUGS.md while gathering that evidence: `pnpm verify` fails at `check:vocabulary` on a CLEAN `main` (`500fbb8`) with 90 WhatsApp/manifests findings that were never baselined, so CI's `platform` job is red — and `supabase-migrate` declares `needs: platform`, meaning **hosted Supabase migrations have not been applying** while Render's `autoDeploy` continues to ship API code on every push. Not confirmed against Actions run history (no `gh` CLI here); flagged, not fixed.
 
+## 2026-08-10 — AI Harness K6: the morning brief + commitment detection — the loop becomes legible on one screen (ADR-225, AP-145, TASK-050)
+
+- **The substrate discovery shaped the rung**: a complete governed commitment machinery already existed (graph Event snapshots with decision provenance, per-person reads, RelationshipPage UI) — so K6 did NOT build a commitments store, and acceptance materializes through the SAME `relationship_commitment_mutation` the manual surface uses. The TASK row's "K3 substrate" phrasing predated this; one substrate, per the K3 rule (recorded in ADR-225).
+- **Detection is deterministic and in-conversation**: first-person patterns over the owner's OWN chat turn in the send path (negations/questions excluded; small due vocabulary resolved to 17:00 local), riding the learning flight — deliberately NOT the K2 chat toggle, whose consent copy promises envelope-only signals. Detection writes a suggestion quoting the user's own sentence back; ambient WhatsApp/email prose scanning is excluded until it gets its own consent surface.
+- **Suggested-then-accepted, annoyance-capped**: CAS lineage per normalized sentence (rejected = never re-proposed, store-level), caps of 2 per run and 5 outstanding, over-cap candidates DEFERRED with no lineage written — they re-propose when the queue drains (asserted core + API). Accept flips the lineage before proposing, so a double-accept cannot mint twice; the person link is the human's choice, the detector's hint only preselects on a unique match.
+- **`brief.morning` + the Home card**: owner-wide commitment read (`listCommitmentsForOwner` — shared SQL with the per-person read, 22/22 db incl. cross-person + privacy), calendar-day buckets (due earlier today stays "due today"; only a strictly-earlier day is overdue), suggestion review inline, approvals nudges, 24h signal activity, deterministic next actions. Buckets and approvals render regardless of the learning flight; an empty morning says so honestly.
+- **Live, twice over**: durable-boot HTTP walk (person → prose turn → suggestion with counterparty "Priya" + Friday resolved → accept → commitment pending with due → brief renders it; restart durability) AND a real-browser walk of the Home card (suggestion block with preselected person → Accept → Upcoming 1→2, queue drained, confirmation copy). The live render caught a subject-verb defect in the next-action lines ("1 proposal await…") — fixed and re-proven. The machine's managed-model gate fails the assistant reply AFTER the user turn + detection persist (no local model installed; existing behavior, unaffected loop).
+- Evidence: core 9/9 (3 RED under mutation), db 22/22, api 5/5 (2 RED under mutation) + full API suite green, web typecheck/tests green, `pnpm verify` green. Residuals named in ADR-225: English-only due phrases; chat-sends-only detection; no morning notification rung yet; EG3's File/Result lane + day-7 reflection stay outside K6.
+
 ## 2026-08-10 — AI Harness K5: Google email + calendar become metadata-first capture signals, post-approval (ADR-222, AP-142, TASK-049)
 
 - `"google"` is the third capture-consent source — one account-shaped toggle (the plan's "per-account toggle"; the pilot holds one connected Google account per user), default OFF, Human-only, kill-switch-covered, fail-closed parse: all inherited from the K2 state machine with zero new consent code. Settings renders the third card from the same component.
@@ -3418,3 +3466,17 @@ immutable 0.3.1; the card scanner needs a multimodal seam on `ModelProvider`, wh
 **Queued:** TASK-062 (persist ViewConfig — one table, five benchmark features), TASK-063 (metadata columns from Events), TASK-064 (scoped share grants → wire the recovered Share panel), TASK-065 (Notes + Governance Sections).
 
 Verified: check:vocabulary OK, web typecheck clean, web tests 173/173, manifests 19/19, vite build clean, ui-conformance gate green.
+
+## 2026-08-12 — The desktop abort class, diagnosed: a false Local Plane-loss verdict was tearing down a WebKit-observed NSPanel (ADR-229; TASK-066)
+
+**Captured the exception nobody had.** `docs/BUGS.md` recorded three failed closes of the `__rust_foreign_exception` class and, honestly, that the ObjC exception itself had never been obtained — the `.ips` reports carry no reason (`asi` is just `"abort() called"`) because the abort precedes AppKit's uncaught handler. Running the bare `target/debug/bridge-desktop` under `lldb` with a breakpoint on `objc_exception_throw` (Vite hosted separately on 5173) produced it: `NSRangeException — Cannot remove an observer <WKWindowVisibilityObserver> for the key path "contentLayoutRect" from <AnnotatePanel> because it is not registered as an observer.` Two traps worth remembering: `breakpoint command add` registers only the LAST `--one-liner`, and `bt` crashes lldb itself in this target.
+
+**The crash and "Local Plane unavailable" were ONE bug, and the second caused the first.** Liveness declared loss on 3 consecutive failed `/health` probes at a 750 ms timeout — a ~2.3 s stall was a permanent verdict — while the sidecar was answering `200` to every probe. That false verdict ran `show_sidecar_unavailable`, which destroyed every window including `annotate`; `tauri-nspanel` had `object_setClass`'d that NSWindow, throwing away the KVO subclass WebKit installed. `overlay.rs:903` had carried exactly the right guard (`panel.to_window()` before close) since the July `AvatarPanel` abort — `annotate.rs` never received it. A missed affected-neighbour, which is the failure mode the ownership rule in CLAUDE.md exists to prevent. The user had been reporting the two halves as separate defects for days.
+
+**Four fixes.** Liveness is time-based, never count-based (a failed-probe count silently shortens as the probe slows — how the tolerance regressed); panels are demoted before every teardown; native teardown runs inside `objc2::exception::catch` so a raised exception is logged with name and reason instead of aborting in tao's run-loop observer; and sidecar loss is now **recoverable** — `api_sidecar::restart` respawns the child on the retained loopback listener with the original token, bounded to 3 attempts per 10 minutes. Same port and token are forced rather than convenient: a live webview cannot be re-scripted after its init script runs, which is exactly why loss used to be terminal. ADR-144's boundary is preserved — the parent never releases the socket, so nothing can bind that port in the gap.
+
+**Two adjacent defects, same evidence.** (1) `resolve_api_entry` preferred the staged resource copy over the monorepo build in **debug**. `prepare:bundle` is `beforeBuildCommand` — production only — while `beforeDevCommand` stages nothing and Tauri never prunes `target/debug/api/`. So dev ran whatever the API looked like at the last production bundle; after a pull it died with `ERR_MODULE_NOT_FOUND`, reported no port, and showed "Local Plane unavailable" with a good build on disk. This is why the message kept coming back. (2) The notch geometry read used one 500 ms main-thread budget for both the 60 ms hover poll and the user-visible command, the poll wrote its `None` over the cached cutout, and the renderer fetched once with no retry — so a startup timeout parked the companion away from the notch for the whole session ("the notch part is coming elsewhere").
+
+**Told the user the local model was not the cause.** They offered to remove it; it was not the culprit, and its SHA-256 stall had already been fixed upstream on 2026-07-31.
+
+Verified: 3 launches with 0 aborts (pre-fix aborted deterministically ~35 s in); `kill -9` on the sidecar → `restarting it (attempt 1/3)` → `recovered on http://127.0.0.1:62708`, same port, new child PID, shell alive at 22.5 MB; a REAL transient caught in an ordinary session (`tolerating for up to 6s` → `reachable again`) — the exact moment that used to brick the app; notch docking at `x=705.5 w=300` on a 1710 pt display, centre 855.5 = dead centre. cargo test 160 passed (9 new), clippy no new warnings, fmt clean on all changed code, web 166 passed, tsc + ESLint clean.

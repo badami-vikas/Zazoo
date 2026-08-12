@@ -886,6 +886,12 @@ export function googleCaptureSignalId(source: string, sourceRecordId: string): s
   return deterministicUuid(`learning:signal:google:${source}:${sourceRecordId}`);
 }
 
+/** K8 (TASK-052): one signal per extension-minted visit id — a retried POST
+ * (network flake, worker restart) derives the same id and is skipped. */
+export function browserCaptureSignalId(visitId: string): string {
+  return deterministicUuid(`learning:signal:browser:${visitId}`);
+}
+
 function createObservationDigestSkill(deps: {
   memoryStore: MemoryStore;
   ledger: LedgerStore;

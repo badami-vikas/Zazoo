@@ -20,9 +20,6 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-041 | ready | P2 | Pending Tests — live verification backlog | non-task gate (see TASKS.md) |
 | TASK-042 | ready | P2 | Input-pack regeneration tests for Skills, Modules, and Integrations | TASK-033 |
 | TASK-043 | ready | P2 | Constitution enforcement mechanisms (ADR-176 adopt-list) | non-task gate (see TASKS.md) |
-| TASK-050 | ready | P2 | K6 — Recommendation rhythm: morning brief + commitments | TASK-047, TASK-049 |
-| TASK-051 | blocked | P3 | K7 — Capture: app-focus sensor | TASK-044 |
-| TASK-052 | ready | P3 | K8 — Capture: browser extension, domain/title first | TASK-044 |
 | TASK-053 | ready | P2 | K9 — Builder ladder: rung 3 steps, rung 4 structures | TASK-045, TASK-047, TASK-042 |
 | TASK-054 | blocked | P3 | K11 — EG4 sensor tier: input, screen, ambient voice | TASK-043, TASK-051 |
 | TASK-055 | ready | P3 | Companion trigger and capture parity — Fn hold, double-click listen, on-request recording | TASK-027 |

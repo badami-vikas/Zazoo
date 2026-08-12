@@ -12,6 +12,10 @@
     "./server": {
       "types": "./dist/src/server.d.ts",
       "default": "./dist/src/server.js"
+    },
+    "./learning/browser-capture": {
+      "types": "./dist/src/learning/browser-capture.d.ts",
+      "default": "./dist/src/learning/browser-capture.js"
     }
   },
   "scripts": {

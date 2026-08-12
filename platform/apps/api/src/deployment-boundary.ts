@@ -155,6 +155,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
 
   // — Learning / Memory: reads and writes personal Memory, which is Local by residency.
   ["learning.", "personal Memory is Local Plane"],
+  ["brief.", "the morning brief reads private Local-Plane Memory and commitments"],
   ["onboarding.", "onboarding profile + learning state are Local Plane"],
   ["redFlag.", "red-flag Memory is private, owner-scoped, Local"],
   ["chiefOfStaff.", "routes to Local-Plane skills and Memory"],

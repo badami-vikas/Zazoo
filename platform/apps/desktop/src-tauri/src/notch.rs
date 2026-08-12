@@ -39,6 +39,14 @@ const HOT_ZONE_PAD_BELOW: f64 = 14.0;
 /// affordance is fussy; widening the catch area is what makes the peek feel
 /// responsive rather than finicky.
 const HOT_ZONE_PAD_SIDE: f64 = 48.0;
+/// How long a background poll waits for its main-thread hop before skipping the
+/// tick. Short on purpose: another read is 60ms away.
+const POLL_GEOMETRY_WAIT: Duration = Duration::from_millis(500);
+/// How long a user-visible read waits. Generous on purpose: during startup the
+/// main thread is building three webviews, and losing this read is what parks
+/// the companion away from the cutout for the whole session. There is no next
+/// tick to save it, so patience here is correctness, not politeness.
+const INTERACTIVE_GEOMETRY_WAIT: Duration = Duration::from_secs(4);
 
 pub const NOTCH_HOVER_EVENT: &str = "bridge:notch-hover";
 
@@ -191,7 +199,14 @@ fn read_geometry_on_main_thread() -> Option<NotchGeometry> {
 
 /// `NSScreen` is main-thread-only, so the read is hopped onto the main thread
 /// and awaited. Callers may be on any thread (commands, the watcher).
-pub fn current_geometry(app: &AppHandle) -> Option<NotchGeometry> {
+///
+/// `wait` is a caller decision because the two callers want opposite things.
+/// The 60ms hover poll must never stack up behind a busy main thread, so it
+/// waits briefly and skips the tick. Anything user-visible must not give up
+/// that fast: returning `None` there sends the webview down its "geometry
+/// unknown" path, which places the companion somewhere other than the notch
+/// for the rest of the session.
+fn current_geometry_within(app: &AppHandle, wait: Duration) -> Option<NotchGeometry> {
     let (tx, rx) = mpsc::channel();
     let hop = app.run_on_main_thread(move || {
         let _ = tx.send(read_geometry_on_main_thread());
@@ -200,7 +215,12 @@ pub fn current_geometry(app: &AppHandle) -> Option<NotchGeometry> {
         return None;
     }
     // Bounded: a wedged main thread must not hang a poll tick forever.
-    rx.recv_timeout(Duration::from_millis(500)).ok().flatten()
+    rx.recv_timeout(wait).ok().flatten()
+}
+
+/// Poll-cadence read. Cheap to lose — the next tick is 60ms away.
+pub fn current_geometry(app: &AppHandle) -> Option<NotchGeometry> {
+    current_geometry_within(app, POLL_GEOMETRY_WAIT)
 }
 
 /// Global cursor position in **top-left origin logical points**.
@@ -254,9 +274,16 @@ pub fn start_hover_watcher(app: AppHandle) {
             if ticks_since_geometry >= 16 {
                 ticks_since_geometry = 0;
                 let previous = geometry;
-                geometry = current_geometry(&app);
-                if let Ok(mut slot) = app.state::<NotchState>().geometry.lock() {
-                    *slot = geometry;
+                let read = current_geometry(&app);
+                // A timed-out hop is "not read", not "no notch". Letting a
+                // skipped tick overwrite a known-good cutout with `None` is
+                // how one busy moment mislays the companion: the next thing
+                // to ask for geometry gets nothing and places itself blind.
+                if read.is_some() {
+                    geometry = read;
+                    if let Ok(mut slot) = app.state::<NotchState>().geometry.lock() {
+                        *slot = geometry;
+                    }
                 }
                 // Log only on change (including the first read): the cutout is
                 // the one number every notch-home layout decision derives from,
@@ -326,15 +353,31 @@ pub fn stop_hover_watcher(app: &AppHandle) {
         .store(false, Ordering::SeqCst);
 }
 
-#[tauri::command]
-pub fn notch_geometry(app: AppHandle, state: State<'_, NotchState>) -> Option<NotchGeometry> {
-    if let Some(geo) = current_geometry(&app) {
+/// Patient read for anything the user can see, with the last good cutout as a
+/// fallback. A command that gives up here does not get retried by a timer —
+/// the companion simply ends up placed as if the display had no notch.
+pub fn interactive_geometry(app: &AppHandle) -> Option<NotchGeometry> {
+    let state = app.state::<NotchState>();
+    if let Some(geo) = current_geometry_within(app, INTERACTIVE_GEOMETRY_WAIT) {
         if let Ok(mut slot) = state.geometry.lock() {
             *slot = Some(geo);
         }
         return Some(geo);
     }
-    state.geometry.lock().ok().and_then(|slot| *slot)
+    let cached = state.geometry.lock().ok().and_then(|slot| *slot);
+    if cached.is_none() {
+        eprintln!(
+            "[bridge-desktop] notch home: geometry unavailable after {}s — the companion cannot \
+             place itself at the cutout",
+            INTERACTIVE_GEOMETRY_WAIT.as_secs()
+        );
+    }
+    cached
+}
+
+#[tauri::command]
+pub fn notch_geometry(app: AppHandle, _state: State<'_, NotchState>) -> Option<NotchGeometry> {
+    interactive_geometry(&app)
 }
 
 #[cfg(test)]

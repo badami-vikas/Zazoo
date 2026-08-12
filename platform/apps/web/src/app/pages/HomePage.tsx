@@ -1,9 +1,211 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, Boxes, Sparkles } from "lucide-react";
+import { ArrowRight, Boxes, CalendarClock, Sparkles } from "lucide-react";
 import { Link } from "react-router";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
 type InstalledModule = Awaited<ReturnType<typeof trpc.modules.list.query>>["items"][number];
+
+type MorningBrief = Awaited<ReturnType<typeof trpc.brief.morning.query>>;
+type BriefPerson = Awaited<ReturnType<typeof trpc.relationship.listPeople.query>>["items"][number];
+
+const BUCKET_LABELS = [
+  ["overdue", "Overdue"],
+  ["dueToday", "Due today"],
+  ["upcoming", "Upcoming"],
+] as const;
+
+/**
+ * K6 (TASK-050) — the morning brief: the visible daily payoff. Every section
+ * is a live read of real stores (`brief.morning`); an unreachable API renders
+ * nothing dead, and an empty morning says so honestly. Commitment suggestions
+ * are reviewed HERE: the person link is the human's choice (the detector's
+ * hint only preselects when exactly one Person matches), Accept materializes
+ * through the governed pipeline, Reject silences that sentence forever.
+ */
+function MorningBriefCard() {
+  const [brief, setBrief] = useState<MorningBrief | null>(null);
+  const [people, setPeople] = useState<BriefPerson[]>([]);
+  const [personChoice, setPersonChoice] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState<string | null>(null);
+
+  function refresh() {
+    trpc.brief.morning
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then(setBrief)
+      .catch(() => setBrief(null)); // unreachable API = render nothing dead
+    trpc.relationship.listPeople
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then((result) => setPeople(result.items))
+      .catch(() => setPeople([]));
+  }
+  useEffect(refresh, []);
+
+  if (!brief) return null;
+
+  const suggestions = brief.suggestions.commitments;
+  const bucketsEmpty = BUCKET_LABELS.every(([key]) => brief.commitments[key].length === 0);
+  const quiet =
+    bucketsEmpty && suggestions.length === 0 && brief.approvals.total === 0 &&
+    brief.recentActivity.length === 0;
+
+  function chosenPersonId(suggestionId: string, hint: string | null): string {
+    const explicit = personChoice[suggestionId];
+    if (explicit) return explicit;
+    if (hint) {
+      const matches = people.filter((person) =>
+        (person.displayName ?? "").toLowerCase().includes(hint.toLowerCase()),
+      );
+      if (matches.length === 1) return matches[0]!.id;
+    }
+    return "";
+  }
+
+  async function acceptSuggestion(suggestionId: string, hint: string | null) {
+    const personId = chosenPersonId(suggestionId, hint);
+    if (!personId) {
+      setMessage("Choose which Person this commitment is to before accepting.");
+      return;
+    }
+    try {
+      await trpc.learning.commitments.accept.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        suggestionMemoryId: suggestionId,
+        personId,
+      });
+      setMessage("Commitment created. It now shows in the buckets above and on the Person's page.");
+    } catch (error) {
+      setMessage(String(error));
+    }
+    refresh();
+  }
+
+  async function rejectSuggestion(suggestionId: string) {
+    try {
+      await trpc.learning.commitments.reject.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        suggestionMemoryId: suggestionId,
+      });
+      setMessage("Dismissed. That sentence will not be suggested again.");
+    } catch (error) {
+      setMessage(String(error));
+    }
+    refresh();
+  }
+
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border bg-white p-5" style={{ borderColor: "var(--color-border)" }}>
+      <div className="flex items-center gap-2">
+        <CalendarClock className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+        <h2 className="font-semibold" style={{ color: "var(--color-navy)" }}>Today</h2>
+        <span className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+          as of {new Date(brief.generatedAt).toLocaleTimeString()}
+        </span>
+      </div>
+
+      {quiet ? (
+        <p className="text-sm" style={{ color: "var(--color-warm-gray)" }}>
+          Nothing needs you right now — no open commitments, suggestions, or waiting approvals.
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {BUCKET_LABELS.map(([key, label]) => (
+              <div key={key} className="rounded-lg border p-3" style={{ borderColor: key === "overdue" && brief.commitments.overdue.length > 0 ? "var(--danger)" : "var(--color-border)" }}>
+                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: key === "overdue" && brief.commitments.overdue.length > 0 ? "var(--danger)" : "var(--color-warm-gray)" }}>
+                  {label} · {brief.commitments[key].length}
+                </p>
+                {brief.commitments[key].length === 0 ? (
+                  <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>None.</p>
+                ) : (
+                  <ul className="mt-1 space-y-1">
+                    {brief.commitments[key].map((item) => (
+                      <li key={item.id} className="text-sm" style={{ color: "var(--color-navy-mid)" }}>
+                        {item.text}
+                        <span className="block text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                          {item.personName ?? "Unlinked"}{item.dueAt ? ` · due ${new Date(item.dueAt).toLocaleDateString()}` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {brief.nextActions.length > 0 && (
+            <ul className="space-y-1">
+              {brief.nextActions.map((line) => (
+                <li key={line} className="text-sm" style={{ color: "var(--color-navy-mid)" }}>• {line}</li>
+              ))}
+            </ul>
+          )}
+
+          {suggestions.length > 0 && (
+            <div className="space-y-2 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>
+                Noticed in your own messages — track these?
+              </p>
+              {suggestions.map((suggestion) => (
+                <div key={suggestion.memoryId} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "var(--color-border)" }}>
+                  <div>
+                    <p className="text-sm" style={{ color: "var(--color-navy)" }}>“{suggestion.candidate.text}”</p>
+                    <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                      {suggestion.candidate.dueHint ? `Due ${suggestion.candidate.dueHint} · ` : ""}accepting creates a Commitment you can inspect, complete, or archive.
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <select
+                      value={chosenPersonId(suggestion.memoryId, suggestion.candidate.counterpartyHint)}
+                      onChange={(event) => setPersonChoice((prev) => ({ ...prev, [suggestion.memoryId]: event.target.value }))}
+                      className="rounded-lg border px-2 py-1.5 text-xs"
+                      style={{ borderColor: "var(--color-border)", color: "var(--color-navy-mid)" }}
+                      aria-label="Person this commitment is to"
+                    >
+                      <option value="">Person…</option>
+                      {people.map((person) => (
+                        <option key={person.id} value={person.id}>{person.displayName ?? person.id}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void acceptSuggestion(suggestion.memoryId, suggestion.candidate.counterpartyHint)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+                      style={{ backgroundColor: "var(--color-steel)" }}
+                    >
+                      Accept
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void rejectSuggestion(suggestion.memoryId)}
+                      className="rounded-lg border px-3 py-1.5 text-xs font-semibold"
+                      style={{ borderColor: "var(--color-border)", color: "var(--color-navy-mid)" }}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+            {brief.approvals.total > 0 && (
+              <Link to="/settings?section=governance" className="font-semibold" style={{ color: "var(--color-steel)" }}>
+                {brief.approvals.total} approval{brief.approvals.total === 1 ? "" : "s"} waiting →
+              </Link>
+            )}
+            {brief.recentActivity.map((activity) => (
+              <span key={activity.moduleId}>
+                {activity.moduleId}: {activity.count} signal{activity.count === 1 ? "" : "s"} in 24h
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+      {message && <p className="text-xs" style={{ color: "var(--color-steel)" }}>{message}</p>}
+    </section>
+  );
+}
 
 export function HomePage() {
   const [modules, setModules] = useState<InstalledModule[] | null>(null);
@@ -61,6 +263,8 @@ export function HomePage() {
             Open a Module to work with its real Records, Agents, Automations, Integrations, Files, and Results.
           </p>
         </div>
+
+        <MorningBriefCard />
 
         {modules === null && !error ? (
           <div className="rounded-xl border p-6 text-sm" style={{ borderColor: "var(--color-border)" }}>

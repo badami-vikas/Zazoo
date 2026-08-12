@@ -274,7 +274,7 @@ type RetrievalEvalList = Awaited<ReturnType<typeof trpc.learning.retrieval.evals
 type CaptureStatus = Awaited<ReturnType<typeof trpc.learning.capture.status.query>>;
 
 const CAPTURE_SOURCE_COPY: Record<
-  "chat" | "whatsapp" | "google",
+  "chat" | "whatsapp" | "google" | "browser",
   { label: string; description: string }
 > = {
   chat: {
@@ -288,6 +288,10 @@ const CAPTURE_SOURCE_COPY: Record<
   google: {
     label: "Google email & calendar",
     description: "Email threads and calendar events you approve into Bridge become metadata signals (sender, subject, time; event attendees — never message bodies or event descriptions).",
+  },
+  browser: {
+    label: "Browser visits",
+    description: "The Bridge extension reports domain and page title for domains you allowlist below — never page content, never full URLs, and never private windows (the extension cannot run there).",
   },
 };
 
@@ -313,7 +317,7 @@ function CaptureConsentCard() {
 
   if (!status?.enabled) return null;
 
-  async function flipSource(source: "chat" | "whatsapp" | "google", enabled: boolean) {
+  async function flipSource(source: "chat" | "whatsapp" | "google" | "browser", enabled: boolean) {
     await trpc.learning.capture.setSource.mutate({ organizationId: PILOT_ORGANIZATION, source, enabled });
     setMessage(
       enabled
@@ -346,7 +350,7 @@ function CaptureConsentCard() {
           Off by default. Each source is a separate consent; turning one on lets Bridge notice YOUR OWN rhythms in data
           it already holds locally. Signals are envelope-only (never message text), private, Local Plane, and deletable.
         </p>
-        {(["chat", "whatsapp", "google"] as const).map((source) => {
+        {(["chat", "whatsapp", "google", "browser"] as const).map((source) => {
           const row = status.sources[source];
           return (
             <div key={source} className="rounded-lg border p-3 flex items-start justify-between gap-3">
@@ -372,9 +376,98 @@ function CaptureConsentCard() {
             </div>
           );
         })}
+        {status.sources.browser.enabled && !status.paused && <BrowserDomainPolicyEditor />}
         {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
       </div>
     </Card>
+  );
+}
+
+/**
+ * K8 (TASK-052) — which domains the browser extension may report on.
+ * Default-deny: an empty allowlist captures nothing even with the source
+ * toggle on, and the denylist always wins (allow `google.com`, deny
+ * `mail.google.com`). The server refuses malformed entries loudly with the
+ * offending entry named — a typo never silently narrows the policy.
+ */
+function BrowserDomainPolicyEditor() {
+  const [allowlist, setAllowlist] = useState("");
+  const [denylist, setDenylist] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    trpc.learning.capture.browser.policy
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then((policy) => {
+        setAllowlist(policy.allowlist.join(", "));
+        setDenylist(policy.denylist.join(", "));
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(false)); // unreachable API = render nothing dead
+  }, []);
+
+  if (!loaded) return null;
+
+  const splitDomains = (value: string) =>
+    value
+      .split(/[\s,]+/)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+
+  async function save() {
+    try {
+      const saved = await trpc.learning.capture.browser.setPolicy.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        allowlist: splitDomains(allowlist),
+        denylist: splitDomains(denylist),
+      });
+      setAllowlist(saved.allowlist.join(", "));
+      setDenylist(saved.denylist.join(", "));
+      setNote(
+        saved.allowlist.length === 0
+          ? "Saved. The allowlist is empty, so no visits are captured yet."
+          : `Saved. Visits on ${saved.allowlist.length} allowlisted domain${saved.allowlist.length === 1 ? "" : "s"} will be captured.`,
+      );
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <div className="rounded-lg border p-3 space-y-2">
+      <p className="text-sm font-medium">Browser capture domains</p>
+      <p className="text-xs text-[var(--color-warm-gray)]">
+        Only domains on the allowlist are captured (subdomains included); the denylist carves
+        exceptions out and always wins. Separate domains with commas.
+      </p>
+      <label className="block text-xs font-semibold">
+        Allowlist
+        <input
+          type="text"
+          value={allowlist}
+          onChange={(event) => setAllowlist(event.target.value)}
+          className="mt-1 w-full rounded-lg border px-2 py-1.5 text-xs font-normal"
+        />
+      </label>
+      <label className="block text-xs font-semibold">
+        Denylist
+        <input
+          type="text"
+          value={denylist}
+          onChange={(event) => setDenylist(event.target.value)}
+          className="mt-1 w-full rounded-lg border px-2 py-1.5 text-xs font-normal"
+        />
+      </label>
+      <button
+        type="button"
+        onClick={() => void save()}
+        className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white"
+      >
+        Save domains
+      </button>
+      {note && <p className="text-xs text-[var(--color-steel)]">{note}</p>}
+    </div>
   );
 }
 

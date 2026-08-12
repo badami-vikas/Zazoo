@@ -200,7 +200,7 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
-## OPEN 2026-08-06 — The `__rust_foreign_exception` abort class is back, now on a webview page reload
+## RESOLVED 2026-08-12 — The `__rust_foreign_exception` abort class, diagnosed and closed on captured evidence (attach: TASK-066; ADR-229)
 
 The abort family BUG-2026-07-30 declared "closed by construction" on 2026-07-31 has recurred twice
 in 14 hours on a dev build, with a **different trigger**. That fix removed long-held IPC replies by
@@ -230,6 +230,68 @@ full-page reload does exactly that.
   avatar/annotate NSPanels (all three were up in both crashes) are required. Nobody has bisected it.
 - Found while verifying an unrelated dark-mode fix, not by testing this. Unattached to a TASK —
   needs one with its own outcome test before anyone claims the class is closed a second time.
+
+**RESOLVED 2026-08-12.** The missing datum — the ObjC exception itself — was finally captured under
+`lldb` with a breakpoint on `objc_exception_throw` (raw `target/debug/bridge-desktop`, Vite hosted
+separately on 5173):
+
+```
+NSRangeException — Cannot remove an observer <WKWindowVisibilityObserver 0x7dd9b8d80>
+for the key path "contentLayoutRect" from <AnnotatePanel 0x7dc310a00>
+because it is not registered as an observer.
+```
+
+- **This entry's own open question is answered: yes, the NSPanels are required — specifically
+  `annotate`.** `tauri-nspanel`'s `from_window` does `object_setClass` on the live NSWindow, throwing
+  away the KVO subclass WebKit installed; `window.destroy()` then removes an observer the substituted
+  class never registered. `overlay.rs` had carried exactly this guard (`panel.to_window()` before
+  close) since the July `AvatarPanel` abort; `annotate.rs` never received it — a missed
+  affected-neighbour, not a new mechanism.
+- **The trigger was not HMR, and not an in-flight scheme task.** It was the liveness monitor
+  declaring Local Plane loss on **3 failed `/health` probes at 750 ms** — a ~2.3 s stall — while the
+  sidecar was answering `200` to every probe. That false verdict ran `show_sidecar_unavailable`,
+  which destroyed every window including `annotate`. A page reload reaches the same teardown, which
+  is why the HMR correlation looked causal; it supplied a second route to one destination.
+  **"Local Plane unavailable" was therefore the trigger of the crash, not a symptom beside it** —
+  the two reports the user filed separately were one defect.
+- Reproduction, on demand (this entry previously recorded that nobody had one): `kill -9` the sidecar
+  node PID. Pre-fix that aborts every time; post-fix it logs
+  `unreachable for 6s — restarting it (attempt 1/3)` → `recovered on http://127.0.0.1:62708` (same
+  port, new child PID), no abort.
+- Fixes in ADR-229: time-based liveness (6 s continuous, 3 s probe), panel demotion before every
+  teardown, native teardown wrapped in `objc2::exception::catch`, and sidecar loss made recoverable
+  by respawning on the retained listener with the original token.
+- **Do not close this class again without both invariants held**: a window promoted with `to_panel`
+  must be demoted before `destroy()`, and native teardown must stay inside the exception guard. A new
+  panel added without either reopens this for a fourth time.
+- The `.ips` reports remain useless for this class — they carry no ObjC reason (`asi` is only
+  `"abort() called"`) because the abort precedes AppKit's uncaught handler. Use the lldb recipe. Two
+  traps: `breakpoint command add` registers only the LAST `--one-liner`, and `bt` crashes lldb itself
+  (`Illegal instruction: 4`) in this target.
+
+- **RESOLVED 2026-08-12 — dev builds ran a stale sidecar, surfacing as "Local Plane unavailable" after any pull (attach: TASK-066; ADR-229).**
+  `resolve_api_entry` preferred the staged resource copy over the monorepo build in debug. `generated/api/`
+  is produced by `prepare:bundle`, wired as `beforeBuildCommand` — **production only** — while
+  `beforeDevCommand` (`prepare-dev.mjs`) rebuilds the monorepo and stages nothing, and Tauri keeps copying
+  `generated/api/` into `target/debug/api/` without ever pruning. The dev app therefore ran whatever the API
+  looked like at the last production bundle: after a pull it died with
+  `ERR_MODULE_NOT_FOUND: @bridge/core/dist/src/automation-trigger.js`, never reported a port, and showed
+  "Local Plane unavailable" with a perfectly good build sitting on disk. The manual escape was
+  `rm -rf target/debug/api && pnpm prepare:bundle`, which nobody would guess. Debug now prefers the freshly
+  built monorepo tree; release is unaffected (`debug_assertions` is false there, so the signed resource tree
+  stays authoritative). Regression test pins both the dev precedence and the env override.
+
+- **RESOLVED 2026-08-12 — the companion placed itself away from the notch for a whole session (attach: TASK-066; ADR-229).**
+  User report, verbatim: *"the notch part is coming elsewhere"*. `current_geometry` used one 500 ms
+  main-thread timeout for both the 60 ms hover poll and the user-visible `notch_geometry` command, and the
+  poll wrote its `None` result over the cached cutout. During startup the main thread is building three
+  webviews, so the read times out; `notch_geometry` returns nothing; `OverlayApp` — which fetched exactly
+  once with no retry — falls through to the free-floating overlay and stays there. Three compounding
+  defects, each individually survivable. Fixes: separate budgets (500 ms poll / 4 s interactive), a
+  timed-out poll can no longer poison a known-good cutout, `overlay_dock_notch` and the docked-panel
+  placement use the patient read, and the renderer retries with backoff. Verified live:
+  `notch dock: window rect x=705.5 y=0 w=300 h=136 (notch centre=855.5)` on a 1710 pt display — the window
+  centre lands exactly on the cutout centre.
 
 ---
 
