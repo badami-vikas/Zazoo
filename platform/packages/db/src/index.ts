@@ -151,6 +151,16 @@ export {
 } from "./helpdesk-store.js";
 export { DrizzleResourcesStore, type ResourceRow, type CreateResourceInput as CreateResourceStoreInput } from "./resources-store.js";
 export {
+  DrizzleAcademicsStore,
+  type SubjectRow,
+  type LectureSessionRow,
+  type AssignmentRow,
+  type CreateSubjectInput,
+  type CreateLectureSessionInput,
+  type CreateAssignmentInput,
+} from "./academics-store.js";
+export { DrizzleEventsStore, type ConferenceEventRow, type CreateConferenceEventInput } from "./events-store.js";
+export {
   DrizzleCapabilityStore,
   parseDependencies,
   parseEvidence,

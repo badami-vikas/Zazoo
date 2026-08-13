@@ -1250,6 +1250,93 @@ export const resources = pgTable(
 );
 
 // =====================================================================
+// ACADEMICS MODULE (TASK-067) + EVENTS SUB-MODULE (TASK-068, ADR-231)
+// Plain organization-authenticated CRUD, same tier as `resources` above —
+// tracking a Subject/Session/Assignment/Event has no external effect
+// requiring approval. `instructor`/`speakers` are plain text for this first
+// skeleton rather than a relation to `people` — TASK-067/068's later phases
+// (identity resolution, extraction) are what earns that join.
+// =====================================================================
+
+export const academicsSubjects = pgTable(
+  "academics_subjects",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    code: text("code"),
+    title: text("title").notNull(),
+    term: text("term"),
+    instructor: text("instructor"),
+    credits: integer("credits"),
+    status: text("status").notNull().default("planned"), // planned | active | complete | dropped
+    grade: text("grade"),
+    targetGrade: text("target_grade"),
+    createdAt: now(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [index("academics_subjects_org_idx").on(t.organizationId, t.createdAt)],
+);
+
+export const academicsLectureSessions = pgTable(
+  "academics_lecture_sessions",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    subjectId: uuid("subject_id").notNull().references(() => academicsSubjects.id),
+    sessionDate: timestamp("session_date", { withTimezone: true }),
+    topic: text("topic"),
+    status: text("status").notNull().default("scheduled"), // scheduled | attended | missed | reviewed
+    myNotes: text("my_notes"),
+    createdAt: now(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [index("academics_lecture_sessions_org_idx").on(t.organizationId, t.subjectId)],
+);
+
+export const academicsAssignments = pgTable(
+  "academics_assignments",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    subjectId: uuid("subject_id").notNull().references(() => academicsSubjects.id),
+    title: text("title").notNull(),
+    type: text("type"), // problem set | essay | project | exam | lab
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    weight: integer("weight"), // 0..100, ColumnSpec `display: "meter"`
+    status: text("status").notNull().default("not_started"), // not_started | in_progress | submitted | graded
+    risk: text("risk"), // red | yellow | green — domain signal (AP-023), not a feedback flag
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    grade: text("grade"),
+    createdAt: now(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [index("academics_assignments_org_idx").on(t.organizationId, t.subjectId)],
+);
+
+/** NetworkManager's Events sub-module (`parentModule: "relationship"`, ADR-178/231).
+ * Named `conferenceEvents` — the generic `events` table above already means the
+ * interaction timeline; this is an unrelated entity. Speaker resolution into the
+ * existing `people` table is TASK-068's extraction-pipeline phase, not this one. */
+export const conferenceEvents = pgTable(
+  "conference_events",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    name: text("name").notNull(),
+    url: text("url"),
+    type: text("type"), // conference | meetup | summit | webinar
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    location: text("location"),
+    status: text("status").notNull().default("watching"), // watching | registered | attending | attended
+    extractionStatus: text("extraction_status").notNull().default("not_run"), // not_run | pending | done
+    createdAt: now(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [index("conference_events_org_idx").on(t.organizationId, t.createdAt)],
+);
+
+// =====================================================================
 // LAYER 8 — CAPABILITY TRUST MODEL (vision pivot 2026-07-06,
 // docs/wiki/vision.md "Capability Trust Model" + "Promotion defaults")
 // =====================================================================

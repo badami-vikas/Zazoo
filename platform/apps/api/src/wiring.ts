@@ -187,6 +187,8 @@ import {
   DrizzleJobPilotStore,
   DrizzleHelpdeskStore,
   DrizzleResourcesStore,
+  DrizzleAcademicsStore,
+  DrizzleEventsStore,
   DrizzleCapabilityStore,
   DrizzleEvalStore,
   DrizzlePolicyParamStore,
@@ -481,6 +483,10 @@ export interface Wiring {
   helpdeskStore: DrizzleHelpdeskStore;
   /** Resources catalog (replaces the prototype's Supabase-direct read). */
   resourcesStore: DrizzleResourcesStore;
+  /** Academics Module — Subjects/Lecture Sessions/Assignments (TASK-067). */
+  academicsStore: DrizzleAcademicsStore;
+  /** NetworkManager's Events sub-module (TASK-068). */
+  eventsStore: DrizzleEventsStore;
   /** Capability Trust Model — capability_manifests + capability_states (docs/wiki/vision.md). */
   capabilityStore: CapabilityStore;
   /** P1 Organization Generator — organization_definitions (blueprint/version/status), the
@@ -4268,6 +4274,8 @@ export interface ModePorts {
   dealPilotRecordStore?: DealPilotStore;
   helpdeskStore: DrizzleHelpdeskStore;
   resourcesStore: DrizzleResourcesStore;
+  academicsStore: DrizzleAcademicsStore;
+  eventsStore: DrizzleEventsStore;
   capabilityStore: CapabilityStore;
   /** VAR-1 tunable space (ADR-169) — Drizzle-backed in BOTH modes. Its consumer
    * is the promotion gate's resolveGates(); a defaults-only store silently
@@ -4408,6 +4416,8 @@ export function buildPersistentPorts(env: {
     dealPilotRecordStore: new DrizzleDealPilotStore(db),
     helpdeskStore: new DrizzleHelpdeskStore(db, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(db),
+    academicsStore: new DrizzleAcademicsStore(db),
+    eventsStore: new DrizzleEventsStore(db),
     capabilityStore: new DrizzleCapabilityStore(db, PILOT_ORGANIZATION),
     evalStore: new DrizzleEvalStore(db, PILOT_ORGANIZATION),
     policyParams: new DrizzlePolicyParamStore(db),
@@ -4641,6 +4651,8 @@ export async function buildInMemoryPorts(env: {
     jobpilotStore: new DrizzleJobPilotStore(localDb, PILOT_ORGANIZATION),
     helpdeskStore: new DrizzleHelpdeskStore(localDb, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(localDb),
+    academicsStore: new DrizzleAcademicsStore(localDb),
+    eventsStore: new DrizzleEventsStore(localDb),
     capabilityStore: new DrizzleCapabilityStore(localDb, PILOT_ORGANIZATION),
     evalStore: new DrizzleEvalStore(localDb, PILOT_ORGANIZATION),
     policyParams: new DrizzlePolicyParamStore(localDb),
@@ -5426,6 +5438,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     jobpilotStore,
     helpdeskStore,
     resourcesStore,
+    academicsStore,
+    eventsStore,
     capabilityStore,
     organizationDefinitionStore,
     moduleStore,
@@ -6309,6 +6323,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     jobpilotStore,
     helpdeskStore,
     resourcesStore,
+    academicsStore,
+    eventsStore,
     capabilityStore,
     organizationDefinitionStore,
     moduleStore,

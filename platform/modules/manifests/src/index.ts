@@ -208,6 +208,8 @@ const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   "deal-pilot": "platform/modules/dealpilot/src/manifest.ts",
   "job-pilot": "platform/modules/jobpilot/src/manifest.ts",
   relationship: "platform/apps/web/src/app/pages/RelationshipPage.tsx",
+  academics: "platform/apps/web/src/app/pages/AcademicsPage.tsx",
+  events: "platform/apps/web/src/app/pages/EventsPage.tsx",
   "task-manager": "platform/packages/core/src/task-manager.ts",
   whatsapp: "platform/modules/whatsapp/src/index.ts",
 };
@@ -472,6 +474,47 @@ const relationshipCapabilities = [
     }],
     [{ id: "google-gmail" }, { id: "google-calendar" }],
   ),
+];
+
+/**
+/**
+ * Academics Module capabilities (TASK-067, ADR-231). Three private
+ * database Pages over the owner's own coursework Records — no egress. The
+ * Study Steward Agent is declared with no `skillIds` yet: lecture-synthesis,
+ * syllabus-intake, recall-scheduler, reference-resolve, and workload-forecast
+ * are later phases of this same Task, not a separate Module version.
+ */
+const academicsCapabilities = [
+  capability("academics.page.subjects", "Subjects", "database", [readPrivate("record"), writePrivate("record")]),
+  capability("academics.page.lecture-sessions", "Lecture Sessions", "database", [
+    readPrivate("record"),
+    writePrivate("record"),
+  ]),
+  capability("academics.page.assignments", "Assignments", "database", [
+    readPrivate("record"),
+    writePrivate("record"),
+  ]),
+  capability("academics.agent.study-steward", "Study Steward", "agent", [
+    readPrivate("record"),
+    writePrivate("record"),
+  ]),
+];
+
+/**
+ * Events sub-module capabilities (TASK-068, ADR-231). Nested under
+ * NetworkManager for nav only (ADR-178) — nesting grants nothing, so this
+ * Module declares its own `person` permissions rather than relying on the
+ * parent's. Speaker extraction and the LinkedIn outreach-note drafting Skill
+ * are later phases of this same Task; there is no automated LinkedIn SEND
+ * capability declared here or anywhere else, deliberately — see ADR-231.
+ */
+const eventsCapabilities = [
+  capability("events.page.events", "Events", "database", [
+    readPrivate("record"),
+    writePrivate("record"),
+    readPrivate("person"),
+    writePrivate("person"),
+  ]),
 ];
 
 /**
@@ -924,6 +967,99 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     },
   },
   {
+    // Internal: personal coursework vault. No egress, no third-party session.
+    computedRisk: "operational",
+    manifest: {
+      name: "academics",
+      version: "0.1.0",
+      kind: "organization_definition",
+      summary: "Subjects, Lecture Sessions, and Assignments — the owner's coursework vault.",
+      description:
+        "Three sibling toggles over the owner's own coursework Records: Subjects, Lecture Sessions, Assignments. A Subject's Record Detail carries its own Sessions and Assignments as related Sections (ui-architecture-rules — toggles stay one level; nesting is a sub-module concern, not this Module's). Local Files land under `~/Documents/Bridge/<Organization>/Academics/`.",
+      lineageManifestId: null,
+      dependencies: [],
+      capabilities: academicsCapabilities,
+      contextProviders: [{ kind: "capture", required: false }],
+      organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      module: {
+        displayName: "Academics",
+        // Bare parent route — three Pages share this prefix, same convention
+        // as NetworkManager's own multi-Page `route: "/module/relationship"`
+        // (a single-Page sub-module like Helpdesk uses its own Page route).
+        route: "/module/academics",
+        pages: [
+          {
+            id: "subjects",
+            name: "Subjects",
+            route: "/module/academics/subjects",
+            databaseId: "academics.subjects",
+            capabilityId: "academics.page.subjects",
+          },
+          {
+            id: "sessions",
+            name: "Lecture Sessions",
+            route: "/module/academics/sessions",
+            databaseId: "academics.lecture-sessions",
+            capabilityId: "academics.page.lecture-sessions",
+          },
+          {
+            id: "assignments",
+            name: "Assignments",
+            route: "/module/academics/assignments",
+            databaseId: "academics.assignments",
+            capabilityId: "academics.page.assignments",
+          },
+        ],
+        agents: [
+          {
+            id: "study-steward",
+            name: "Study Steward",
+            capabilityId: "academics.agent.study-steward",
+            skillIds: [],
+            // Raw lecture capture (recording/transcript) stays Local by
+            // principle — the same reasoning WhatsApp's Agents carry.
+            plane: "local",
+          },
+        ],
+        automations: [],
+      },
+    },
+  },
+  {
+    // Internal: reads and writes NetworkManager's own private People through a
+    // capability this Module declares itself — nesting grants nothing (ADR-178).
+    computedRisk: "operational",
+    manifest: {
+      name: "events",
+      version: "0.1.0",
+      kind: "organization_definition",
+      summary: "Conference and event links, with speakers resolved into NetworkManager's People.",
+      description:
+        "A nested sub-module of NetworkManager for conference/event links. There is deliberately no separate Speakers table — the extraction pipeline (TASK-068, later phase) resolves speakers into the Module's existing People database under the same three-tier match gate NetworkManager already uses, and drafts an outreach note for a human to send manually. No automated LinkedIn send capability is declared here or anywhere in this codebase (ADR-231).",
+      lineageManifestId: null,
+      dependencies: [],
+      capabilities: eventsCapabilities,
+      contextProviders: [{ kind: "capture", required: false }],
+      organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      module: {
+        displayName: "Events",
+        parentModule: "relationship",
+        route: "/module/relationship/events",
+        pages: [
+          {
+            id: "events",
+            name: "Events",
+            route: "/module/relationship/events",
+            databaseId: "events.events",
+            capabilityId: "events.page.events",
+          },
+        ],
+        agents: [],
+        automations: [],
+      },
+    },
+  },
+  {
     // External: the Module renders a third-party site inside the desktop shell
     // and reads the owner's private contact graph out of it.
     computedRisk: "external",
@@ -1308,7 +1444,12 @@ export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
       // Events are the owner's private relationship data, not a generalized
       // capability another Organization could install. Commons never carries
       // personal data.
-      pkg.manifest.name !== "helpdesk",
+      pkg.manifest.name !== "helpdesk" &&
+      // Academics is the owner's own coursework — personal data, same reasoning.
+      pkg.manifest.name !== "academics" &&
+      // Events resolves speakers into the owner's own private People, same as
+      // Helpdesk's reasoning above (TASK-068, ADR-231).
+      pkg.manifest.name !== "events",
   ).map((pkg) => ({
     ...pkg,
     commons: {

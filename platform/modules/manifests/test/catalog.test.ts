@@ -15,6 +15,8 @@ test("built-in Module catalog has one manifest per Module name", () => {
     "job-pilot",
     "relationship",
     "helpdesk",
+    "academics",
+    "events",
     "whatsapp",
     "task-manager",
   ]);

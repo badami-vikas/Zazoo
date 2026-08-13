@@ -6,7 +6,7 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-066`
+IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-066, TASK-067, TASK-068`
 
 IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
 
@@ -1052,3 +1052,29 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: none needed (defect repair; ADR-229 records the design decisions)
 - Dependencies: none
 - Invariants this task establishes — breaking either reopens the abort class: every window promoted with `to_panel` MUST be demoted with `panel.to_window()` before `destroy()`, and every native teardown path MUST stay inside `guard_native_teardown`.
+
+## Academics Module — Subjects/Lecture Sessions/Assignments vault
+- ID: TASK-067
+- Status: ready
+- Priority: P2
+- Horizon: Prototype
+- Outcome: a new `academics` Module (P1 of the plan) with three sibling toggles — Subjects, Lecture Sessions, Assignments — database-backed, using the shared `records`/`TableSpec` mechanism, no bespoke per-module data store. A Subject's Record Detail shows its own Lecture Sessions and Assignments as related Sections. Local Files land under `~/Documents/Bridge/<Organization>/Academics/`.
+- Prototype test: install the Module, add a Subject, add a Lecture Session and an Assignment related to it, reload — all three toggles show real rows (never dummy), the Subject's Record Detail shows both related rows, and the Module row passes `manifests/test/catalog.test.ts`.
+- Scope: manifest entry in `platform/modules/manifests/src/index.ts` (`BUILT_IN_MODULES`), catalog test name-list update, routes in `apps/web/src/app/routes.tsx`, page component(s) modeled on the existing toggle pattern, `BUILT_IN_SOURCE_REFS` entry. Study Steward Agent (`plane: local`) declared with no Skills wired yet — Skills (lecture-synthesis, syllabus-intake, recall-scheduler, reference-resolve, workload-forecast) and their Automations are follow-on tasks, not this one.
+- Evidence: none — greenfield. Confirmed via repo-wide grep that no academics/course/assignment/lecture Module, Page, route, or doc exists (`docs/wiki/`, `docs/TASKS.md`, `platform/`).
+- Requests: user directive 2026-08-13, verbatim: *"I want to create a new module called Academics. The main module should act like a vault where I have a toggle for Subjects inside which I can add and manage lecture sessions, then a toggle for assignments."*
+- Approval: AP-149 (2026-08-13) — recorded APPLIED
+- Dependencies: none
+
+## Events sub-module (NetworkManager) — speaker extraction + LinkedIn outreach queue
+- ID: TASK-068
+- Status: ready
+- Priority: P2
+- Horizon: Prototype
+- Outcome: an `events` sub-module (`parentModule: "relationship"`) under NetworkManager tracking conference/event links, plus a manual speaker-extraction Automation that fetches an Event URL, extracts speaker rows, resolves identity through OpenAlex/ORCID/Crossref under the existing 3-tier match gate (strong/moderate/flag), and drafts People + Event→Person edges for approval — reusing the WhatsApp Contact Extractor's draft-then-approve staging. A second, human-in-the-loop outreach queue drafts personalized LinkedIn connection notes from resolved speakers for the owner to send manually — there is no automated LinkedIn send capability (no LinkedIn API exposes invitations; their User Agreement prohibits automated access; `Tools/recon-salvage-2026-08-03/README.md:192` already codifies "LinkedIn is never fetched directly").
+- Prototype test: add an Event URL, run extraction — draft People/edges appear in the approval queue with correct tier labeling (never an auto-merge on moderate/weak matches); approving one produces the outreach-queue row with a drafted note; there is no code path that sends a LinkedIn request without a human click.
+- Scope: manifest entry (own capability, since `parentModule` grants nothing per ADR-178 — must declare `readPrivate("person")`/`writePrivate("person")` itself), one Page/TableSpec, route, page component, catalog test update. Extraction pipeline (fetch/extract → OpenAlex resolve → 3-tier gate → draft write) and the outreach-queue drafting Skill are follow-on implementation work under this Task, sequenced after the manifest/page skeleton lands.
+- Evidence: none — greenfield. Confirmed via repo-wide grep (incl. `git log --all --grep`) that no "dice"/"conference"/"speaker" process exists in this repo; "dice" only ever means the Dice string-similarity coefficient (`platform/packages/dedupe/src/scoring.ts:1`); "conference" only appears as an unbuilt future Tool (`platform/tools/recorder/package.json:6`, `docs/raw/calendar-plan.md:270`).
+- Requests: user directive 2026-08-13, verbatim: *"add a sub-module to Relationships module called Events where I can add conference land events links. Similar to dice conference process, I need a workflow automation to extract speaker names and details, an automation to send linkedin connection request."* Corrected in the same turn: no matching prior process exists in-repo, and unattended LinkedIn sending is not built — see Outcome.
+- Approval: AP-149 (2026-08-13) — recorded APPLIED
+- Dependencies: none

@@ -19,6 +19,8 @@ import { IntelligencePage } from "./pages/IntelligencePage";
 import { ResearchRunsPage } from "./pages/ResearchRunsPage";
 // WhatsApp Module: the live session surface plus its Tool list.
 import { WhatsAppPage } from "./pages/WhatsAppPage";
+import { AcademicsPage } from "./pages/AcademicsPage";
+import { EventsPage } from "./pages/EventsPage";
 import { InstalledModuleBoundary } from "./components/InstalledModuleBoundary";
 import {
   RelationshipPage,
@@ -82,6 +84,8 @@ function ModuleRootRedirect() {
 const dealPilotModule = requireBuiltInModule("deal-pilot").manifest.module!;
 const jobPilotModule = requireBuiltInModule("job-pilot").manifest.module!;
 const relationshipModule = requireBuiltInModule("relationship").manifest.module!;
+const academicsModule = requireBuiltInModule("academics").manifest.module!;
+const eventsModule = requireBuiltInModule("events").manifest.module!;
 const dealPilotRoot = parentRoute(dealPilotModule.route);
 const relationshipSignalsRoute = relationshipModule.pages.find((page) => page.id === "signals")!.route;
 
@@ -133,6 +137,12 @@ export const router = createBrowserRouter([
       { path: "module/whatsapp", element: <Navigate to="/module/whatsapp/chats" replace /> },
       { path: "module/whatsapp/chats", element: <WhatsAppPage page="chats" /> },
       { path: "module/whatsapp/tools", element: <WhatsAppPage page="tools" /> },
+
+      // Academics: three sibling toggles (Subjects/Sessions/Assignments),
+      // TASK-067. `:page` matches the manifest's page ids.
+      { path: `${childPath(academicsModule.route)}/:page`, Component: AcademicsPage },
+      // Events sub-module of NetworkManager (TASK-068, ADR-231) — one Page.
+      { path: childPath(eventsModule.route), Component: EventsPage },
 
       // Module Detail was removed 2026-08-10 (user directive: "There is no
       // module detail page. Delete it. Ensure no trace of it remains."). The

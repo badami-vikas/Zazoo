@@ -281,6 +281,13 @@
       "when": 1786298852413,
       "tag": "0040_k3_claim_substrate",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786622163660,
+      "tag": "0041_academics_events_module",
+      "breakpoints": true
     }
   ]
 }
