@@ -30,6 +30,7 @@
     "@bridge/dealpilot": "workspace:*",
     "@bridge/dedupe": "workspace:*",
     "@bridge/devpilot": "workspace:*",
+    "@bridge/events-extraction": "workspace:*",
     "@bridge/facts": "workspace:*",
     "@bridge/integrations-github": "workspace:*",
     "@bridge/integrations-google": "workspace:*",

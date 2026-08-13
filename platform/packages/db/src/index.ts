@@ -172,6 +172,13 @@ export {
 } from "./academics-store.js";
 export { DrizzleEventsStore, type ConferenceEventRow, type CreateConferenceEventInput } from "./events-store.js";
 export {
+  DrizzleEventExtractionStore,
+  type EventSpeakerDraftRow,
+  type EventOutreachDraftRow,
+  type InsertSpeakerDraftInput,
+  type InsertOutreachDraftInput,
+} from "./events-extraction-store.js";
+export {
   DrizzleCapabilityStore,
   parseDependencies,
   parseEvidence,

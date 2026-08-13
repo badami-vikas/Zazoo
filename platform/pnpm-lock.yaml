@@ -44,6 +44,9 @@ importers:
       '@bridge/devpilot':
         specifier: workspace:*
         version: link:../../modules/devpilot
+      '@bridge/events-extraction':
+        specifier: workspace:*
+        version: link:../../packages/events-extraction
       '@bridge/facts':
         specifier: workspace:*
         version: link:../../packages/facts
@@ -480,6 +483,19 @@ importers:
         version: 5.9.3
 
   packages/dedupe:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/events-extraction:
+    dependencies:
+      '@bridge/dedupe':
+        specifier: workspace:*
+        version: link:../dedupe
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

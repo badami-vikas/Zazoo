@@ -183,6 +183,42 @@ test("DevPilot D1 declares no external:send capability — read-only until D2 is
   }
 });
 
+test("Events declares no external:send capability anywhere — no automated LinkedIn send path (ADR-231/239)", () => {
+  const events = requireBuiltInModule("events").manifest;
+  for (const capability of events.capabilities) {
+    for (const permission of capability.permissions) {
+      assert.notEqual(
+        permission.resourceType,
+        "external:send",
+        `${capability.id} must not declare external:send — LinkedIn exposes no invitation API and prohibits automated access`,
+      );
+    }
+  }
+  // The outreach-queue Skill drafts a note; it declares no network permission
+  // of any kind (not even a read) — it operates entirely on already-local
+  // Person/Event data, never touching LinkedIn.
+  const outreach = events.capabilities.find((c) => c.id === "events.tool.outreach-queue");
+  assert.ok(outreach);
+  assert.ok(!outreach.permissions.some((p) => p.resourceType.startsWith("external:")));
+  // The one capability that DOES reach the network is scoped to fetch-only,
+  // public data (the Event URL + OpenAlex) — never egress of anything private.
+  const extraction = events.capabilities.find((c) => c.id === "events.tool.speaker-extraction");
+  assert.ok(extraction);
+  const fetchPermission = extraction.permissions.find((p) => p.resourceType === "external:fetch");
+  assert.equal(fetchPermission?.action, "read");
+  assert.equal(fetchPermission?.dataScope, "public");
+});
+
+test("Events' Speaker Steward Agent owns both extraction Skills, and there is no scheduled Automation for either (manual-trigger only)", () => {
+  const events = requireBuiltInModule("events").manifest;
+  assert.equal(events.module?.agents.length, 1);
+  assert.deepEqual(events.module?.agents[0]?.skillIds, [
+    "events.tool.speaker-extraction",
+    "events.tool.outreach-queue",
+  ]);
+  assert.deepEqual(events.module?.automations, []);
+});
+
 test("DevPilot's tracker Agent has a Plane and its poll Automation has a machine-readable schedule", () => {
   const devpilot = requireBuiltInModule("devpilot").manifest;
   assert.equal(devpilot.module?.agents.length, 1);

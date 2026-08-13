@@ -189,6 +189,7 @@ import {
   DrizzleResourcesStore,
   DrizzleAcademicsStore,
   DrizzleEventsStore,
+  DrizzleEventExtractionStore,
   DrizzleCapabilityStore,
   DrizzleEvalStore,
   DrizzlePolicyParamStore,
@@ -518,6 +519,8 @@ export interface Wiring {
   academicsStore: DrizzleAcademicsStore;
   /** NetworkManager's Events sub-module (TASK-068). */
   eventsStore: DrizzleEventsStore;
+  /** Speaker-extraction review queue + outreach queue (TASK-070 follow-on, ADR-239). */
+  eventExtractionStore: DrizzleEventExtractionStore;
   /** Capability Trust Model — capability_manifests + capability_states (docs/wiki/vision.md). */
   capabilityStore: CapabilityStore;
   /** P1 Organization Generator — organization_definitions (blueprint/version/status), the
@@ -4344,6 +4347,7 @@ export interface ModePorts {
   resourcesStore: DrizzleResourcesStore;
   academicsStore: DrizzleAcademicsStore;
   eventsStore: DrizzleEventsStore;
+  eventExtractionStore: DrizzleEventExtractionStore;
   capabilityStore: CapabilityStore;
   /** VAR-1 tunable space (ADR-169) — Drizzle-backed in BOTH modes. Its consumer
    * is the promotion gate's resolveGates(); a defaults-only store silently
@@ -4488,6 +4492,7 @@ export function buildPersistentPorts(env: {
     resourcesStore: new DrizzleResourcesStore(db),
     academicsStore: new DrizzleAcademicsStore(db),
     eventsStore: new DrizzleEventsStore(db),
+    eventExtractionStore: new DrizzleEventExtractionStore(db),
     capabilityStore: new DrizzleCapabilityStore(db, PILOT_ORGANIZATION),
     evalStore: new DrizzleEvalStore(db, PILOT_ORGANIZATION),
     policyParams: new DrizzlePolicyParamStore(db),
@@ -4732,6 +4737,7 @@ export async function buildInMemoryPorts(env: {
     resourcesStore: new DrizzleResourcesStore(localDb),
     academicsStore: new DrizzleAcademicsStore(localDb),
     eventsStore: new DrizzleEventsStore(localDb),
+    eventExtractionStore: new DrizzleEventExtractionStore(localDb),
     capabilityStore: new DrizzleCapabilityStore(localDb, PILOT_ORGANIZATION),
     evalStore: new DrizzleEvalStore(localDb, PILOT_ORGANIZATION),
     policyParams: new DrizzlePolicyParamStore(localDb),
@@ -5536,6 +5542,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     resourcesStore,
     academicsStore,
     eventsStore,
+    eventExtractionStore,
     capabilityStore,
     organizationDefinitionStore,
     moduleStore,
@@ -6548,6 +6555,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     resourcesStore,
     academicsStore,
     eventsStore,
+    eventExtractionStore,
     capabilityStore,
     organizationDefinitionStore,
     moduleStore,

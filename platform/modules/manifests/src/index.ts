@@ -532,12 +532,15 @@ const academicsCapabilities = [
 ];
 
 /**
- * Events sub-module capabilities (TASK-068, ADR-231). Nested under
+ * Events sub-module capabilities (TASK-068/070, ADR-231/239). Nested under
  * NetworkManager for nav only (ADR-178) — nesting grants nothing, so this
  * Module declares its own `person` permissions rather than relying on the
- * parent's. Speaker extraction and the LinkedIn outreach-note drafting Skill
- * are later phases of this same Task; there is no automated LinkedIn SEND
- * capability declared here or anywhere else, deliberately — see ADR-231.
+ * parent's. `speaker-extraction` is the only capability here that reaches the
+ * network (`external:fetch`, public/egress — the Event URL and OpenAlex, both
+ * unauthenticated); `outreach-queue` touches no network at all — it only
+ * templates a note from an already-approved local Person/Event and writes a
+ * draft row. There is no automated LinkedIn SEND capability declared here or
+ * anywhere else, deliberately — see ADR-231/239.
  */
 const eventsCapabilities = [
   capability("events.page.events", "Events", "database", [
@@ -546,6 +549,35 @@ const eventsCapabilities = [
     readPrivate("person"),
     writePrivate("person"),
   ]),
+  capability(
+    "events.tool.speaker-extraction",
+    "Speaker Extraction",
+    "skill",
+    [
+      { resourceType: "external:fetch", action: "read", dataScope: "public", egress: true },
+      readPrivate("person"),
+      writePrivate("person"),
+      readPrivate("record"),
+      writePrivate("record"),
+    ],
+    [{ id: "openalex" }],
+  ),
+  capability("events.tool.outreach-queue", "Outreach Queue", "skill", [
+    readPrivate("person"),
+    readPrivate("record"),
+    writePrivate("record"),
+  ]),
+  capability(
+    "events.agent.speaker-steward",
+    "Events Speaker Steward",
+    "agent",
+    [readPrivate("person"), writePrivate("person"), readPrivate("record"), writePrivate("record")],
+    [],
+    [
+      { manifestId: "events.tool.speaker-extraction", versionRange: "0.2.0" },
+      { manifestId: "events.tool.outreach-queue", versionRange: "0.2.0" },
+    ],
+  ),
 ];
 
 /**
@@ -1112,11 +1144,16 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "operational",
     manifest: {
       name: "events",
-      version: "0.1.0",
+      // 0.2.0 (TASK-070 follow-on, ADR-239): the extraction pipeline and
+      // outreach-queue Skill landed, declaring `events.tool.speaker-extraction`
+      // / `events.tool.outreach-queue` / `events.agent.speaker-steward`. The
+      // installed manifest is immutable per version — content changes REQUIRE
+      // this bump, or seedBuiltInModules refuses to start.
+      version: "0.2.0",
       kind: "organization_definition",
       summary: "Conference and event links, with speakers resolved into NetworkManager's People.",
       description:
-        "A nested sub-module of NetworkManager for conference/event links. There is deliberately no separate Speakers table — the extraction pipeline (TASK-068, later phase) resolves speakers into the Module's existing People database under the same three-tier match gate NetworkManager already uses, and drafts an outreach note for a human to send manually. No automated LinkedIn send capability is declared here or anywhere in this codebase (ADR-231).",
+        "A nested sub-module of NetworkManager for conference/event links. There is deliberately no separate Speakers table — the extraction pipeline (fetch -> extract -> OpenAlex resolve -> the same three-tier match gate NetworkManager already uses) resolves speakers into the Module's existing People database via a manual, human-reviewed draft-then-approve queue, and approving a speaker drafts an outreach note for a human to send manually. No automated LinkedIn send capability is declared here or anywhere in this codebase (ADR-231).",
       lineageManifestId: null,
       dependencies: [],
       capabilities: eventsCapabilities,
@@ -1135,7 +1172,23 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
             capabilityId: "events.page.events",
           },
         ],
-        agents: [],
+        agents: [
+          {
+            id: "speaker-steward",
+            name: "Events Speaker Steward",
+            capabilityId: "events.agent.speaker-steward",
+            skillIds: ["events.tool.speaker-extraction", "events.tool.outreach-queue"],
+            // Extraction reaches the network (Event URL + OpenAlex, both
+            // unauthenticated) from the OWNER'S OWN device via guardedFetch —
+            // same reasoning as DevPilot's GitHub sync and WhatsApp's local
+            // Agents: the call originates locally, so this stays local plane.
+            plane: "local",
+          },
+        ],
+        // Deliberately empty: both Skills are manual-trigger only (a "run
+        // extraction" click, an "approve" click), never scheduled — there is
+        // no Automation entry for either, mirroring WhatsApp's Contact
+        // Extractor precedent.
         automations: [],
       },
     },
