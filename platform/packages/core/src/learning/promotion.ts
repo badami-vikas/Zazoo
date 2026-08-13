@@ -24,6 +24,7 @@
 import type { MemoryAuthScope, MemoryEntry, MemoryStore } from "../memory/memory-store.js";
 import type { AutomationDefinition } from "../ports.js";
 import type { DetectedPattern } from "./observation.js";
+import { acceptanceStamp } from "./acceptance-audit.js";
 
 export const PROMOTION_SUGGESTION_KIND = "automation_draft_suggestion";
 
@@ -210,6 +211,8 @@ async function transitionPromotion(
   toStatus: PromotionStatus,
   actorUserId: string,
   nextId: () => string,
+  /** K10 E2: merged into the superseded row (e.g. the acceptance stamp). */
+  extraContent?: Record<string, unknown>,
 ): Promise<MemoryEntry> {
   const current = await store.get(suggestionMemoryId, scope);
   if (!current) throw new Error(`learning: unknown or unauthorized promotion ${suggestionMemoryId}`);
@@ -243,7 +246,7 @@ async function transitionPromotion(
       type: "semantic",
       subjectRecordId: current.subjectRecordId ?? null,
       scope: "private",
-      content: JSON.stringify({ ...content, anchor: { ...anchor, status: toStatus } }),
+      content: JSON.stringify({ ...content, ...(extraContent ?? {}), anchor: { ...anchor, status: toStatus } }),
       sourceRefType: current.sourceRefType ?? null,
       sourceRefId: current.sourceRefId ?? null,
       confidence: current.confidence,
@@ -279,6 +282,8 @@ export async function acceptAutomationDraft(
   suggestionMemoryId: string,
   actorUserId: string,
   nextId: () => string,
+  /** K10 E2: the exact text the client rendered; stamps the acceptance. */
+  shownText?: string,
 ): Promise<{ suggestion: MemoryEntry; draft: AutomationDraftSpec }> {
   const current = await store.get(suggestionMemoryId, scope);
   if (!current) throw new Error(`learning: unknown or unauthorized promotion ${suggestionMemoryId}`);
@@ -287,7 +292,11 @@ export async function acceptAutomationDraft(
   const anchor = content?.["anchor"] as { moduleId?: unknown } | undefined;
   if (!pattern) throw new Error(`learning: promotion ${suggestionMemoryId} carries no pattern`);
   const moduleId = typeof anchor?.moduleId === "string" ? anchor.moduleId : "unknown";
-  const accepted = await transitionPromotion(store, scope, suggestionMemoryId, "accepted", actorUserId, nextId);
+  const stamp = await acceptanceStamp(
+    shownText,
+    typeof content?.["suggestedText"] === "string" ? (content["suggestedText"] as string) : "",
+  );
+  const accepted = await transitionPromotion(store, scope, suggestionMemoryId, "accepted", actorUserId, nextId, stamp ? { acceptance: stamp } : undefined);
   return {
     suggestion: accepted,
     draft: {

@@ -117,8 +117,14 @@ fn run_point(app: &AppHandle, monitor_index: usize, target: &str) -> Result<(), 
     })?;
     let model = vision_model(app);
 
-    let capture = sensor_bridge::capture_display_jpeg(app, monitor_index)
-        .map_err(|error| err("POINT_CAPTURE_FAILED", error))?;
+    let capture = sensor_bridge::capture_display_jpeg(app, monitor_index).map_err(|error| {
+        let code = if error.code == "SCREEN_PERMISSION_REQUIRED" {
+            "POINT_NO_SCREEN_PERMISSION"
+        } else {
+            "POINT_CAPTURE_FAILED"
+        };
+        err(code, error.message)
+    })?;
     let coarse_gridded = gridded_jpeg(&capture.jpeg_bytes, COARSE_COLS, COARSE_ROWS)
         .ok_or_else(|| err("POINT_IMAGE_DECODE_FAILED", "couldn't decode the screen capture"))?;
     let coarse_number = ask_grid_number(&key, &model, &coarse_gridded, target, COARSE_COLS, COARSE_ROWS)

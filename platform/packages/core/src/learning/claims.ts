@@ -26,6 +26,7 @@
 import type { MemoryAuthScope, MemoryEntry, MemoryStore } from "../memory/memory-store.js";
 import type { RetrievedMemorySnippet } from "../run-context.js";
 import { TAINT_SENSITIVITY, type TaintLabel, type TaintSensitivity } from "../taint.js";
+import { acceptanceStamp } from "./acceptance-audit.js";
 
 export const CLAIM_SUGGESTION_KIND = "claim_suggestion";
 
@@ -36,6 +37,9 @@ export const RED_CLAIM_CLASSES = [
   "health",
   "protected_characteristic",
   "psychological_conclusion",
+  // K10 E3 (TASK-043): the fourth never-propose class the constitution
+  // names. Growing RED is the safe direction — it only refuses more.
+  "financial_distress",
 ] as const;
 export type RedClaimClass = (typeof RED_CLAIM_CLASSES)[number];
 
@@ -160,6 +164,145 @@ export function readClaimSuggestion(entry: MemoryEntry): ClaimSuggestion | null 
   };
 }
 
+// ---------------------------------------------------------------------------
+// K10 E3+E4 (TASK-043) — the content-tier and evidence gates, executed at the
+// ONE proposal door. The claimClass union above keeps red UNTYPEABLE; this
+// gate keeps red CONTENT out even when it arrives under a proposable class
+// ("stated_fact: has cancer" is a health claim no matter what the enum says).
+// ---------------------------------------------------------------------------
+
+export type ClaimContentTier = "green" | "amber" | "red";
+
+/** Deterministic red-content term families per never-propose class. Substring
+ * match over lowercase `field value` — deliberately over-broad: a false RED
+ * on innocuous text costs one refused suggestion; a false GREEN on a health
+ * conclusion costs the invariant. Model-assisted scoring, when it arrives,
+ * may only RAISE the tier this classifier produced (raiseContentTier). */
+const RED_CONTENT_TERMS: Record<RedClaimClass, readonly string[]> = {
+  health: [
+    "diagnos", "cancer", "illness", "disease", "therapy", "medication",
+    "mental health", "depress", "anxiety", "adhd", "autis", "pregnan",
+    "disabilit", "chronic pain", "addict", "sober", "rehab", "surgery",
+  ],
+  protected_characteristic: [
+    "religio", "ethnic", "racial", "race is", "sexual orientation", "gay",
+    "lesbian", "bisexual", "transgender", "muslim", "christian", "jewish",
+    "hindu", "buddhis", "atheis", "political affiliation", "votes for",
+    "immigration status", "nationality is",
+  ],
+  psychological_conclusion: [
+    "narcissis", "toxic", "untrustworthy", "incompetent", "lazy",
+    "manipulat", "unstable", "difficult person", "bad friend", "hates me",
+    "doesn't respect", "passive aggressive", "insecure", "our relationship is",
+  ],
+  financial_distress: [
+    "bankrupt", "in debt", "broke", "can't afford", "cannot afford",
+    "missed payment", "behind on rent", "foreclos", "evict", "loan default",
+    "payday loan", "financial trouble", "owes money",
+  ],
+};
+
+/** Amber = judgment/absolute-shaped content: storable, but only as an
+ * OBSERVED fact with its evidence shown — never as a conclusion. */
+const AMBER_CONTENT_TERMS: readonly string[] = [
+  "always", "never", "the best", "the worst", "great at", "bad at",
+  "doesn't like", "dislikes", "loves", "hates", "refuses to",
+];
+
+export interface ClaimContentVerdict {
+  tier: ClaimContentTier;
+  matchedClass?: RedClaimClass;
+  matchedTerm?: string;
+}
+
+/** Deterministic content classifier over what the claim SAYS. Red wins over
+ * amber; unmatched content is green. */
+export function classifyClaimContent(field: string, value: string): ClaimContentVerdict {
+  const haystack = `${field} ${value}`.toLowerCase();
+  for (const redClass of RED_CLAIM_CLASSES) {
+    for (const term of RED_CONTENT_TERMS[redClass]) {
+      if (haystack.includes(term)) {
+        return { tier: "red", matchedClass: redClass, matchedTerm: term };
+      }
+    }
+  }
+  for (const term of AMBER_CONTENT_TERMS) {
+    if (haystack.includes(term)) return { tier: "amber", matchedTerm: term };
+  }
+  return { tier: "green" };
+}
+
+const CONTENT_TIER_RANK: Record<ClaimContentTier, number> = { green: 0, amber: 1, red: 2 };
+
+/** RAISE-ONLY join (invariant 15): any later scorer — model-assisted
+ * included — can only make content MORE sensitive, never less. */
+export function raiseContentTier(base: ClaimContentTier, ...others: ClaimContentTier[]): ClaimContentTier {
+  let winner = base;
+  for (const candidate of others) {
+    if (CONTENT_TIER_RANK[candidate] > CONTENT_TIER_RANK[winner]) winner = candidate;
+  }
+  return winner;
+}
+
+/** K10 E4: split a claim value into clauses. Deliberately narrow markers
+ * ("; " and ", and ") so noun phrases like "Head of Research and
+ * Development" stay ONE clause; a compound statement that hides an
+ * unevidenced clause behind a semicolon or ", and" is refused. */
+export function splitStatementClauses(value: string): string[] {
+  return value
+    .split(/;\s+|,\s+and\s+/i)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.length > 0);
+}
+
+/** Typed refusal from the proposal gate — callers surface it loudly. */
+export class ClaimGateError extends Error {
+  constructor(
+    readonly reason: "red_content" | "no_evidence" | "compound_statement",
+    detail: string,
+    readonly matchedClass?: RedClaimClass,
+  ) {
+    super(detail);
+    this.name = "ClaimGateError";
+  }
+}
+
+/**
+ * The machine check before emission (E3 + E4). Throws ClaimGateError on:
+ *  - RED content (never proposed, whatever the claimClass enum said);
+ *  - zero evidence refs (every durable statement references >=1
+ *    evidence/observation id);
+ *  - compound multi-clause values (the evidence map is checked per clause —
+ *    a compound statement must be split into one claim per clause so no
+ *    clause rides in unevidenced).
+ * Returns the content tier for the caller to render honestly.
+ */
+export function gateClaimProposal(claim: ClaimProposal): { tier: "green" | "amber" } {
+  const verdict = classifyClaimContent(claim.field, claim.value);
+  if (verdict.tier === "red") {
+    throw new ClaimGateError(
+      "red_content",
+      `this claim reads as ${verdict.matchedClass?.replace(/_/g, " ")} content (matched "${verdict.matchedTerm}") — ` +
+        `a never-propose class: Bridge does not store conclusions like this about people`,
+      verdict.matchedClass,
+    );
+  }
+  if (claim.evidence.length === 0) {
+    throw new ClaimGateError(
+      "no_evidence",
+      "every durable statement must reference at least one evidence or observation id — a claim without evidence cannot be proposed",
+    );
+  }
+  const clauses = splitStatementClauses(claim.value);
+  if (clauses.length > 1) {
+    throw new ClaimGateError(
+      "compound_statement",
+      `this value contains ${clauses.length} clauses — the claim→evidence map is checked per clause, so propose each clause as its own claim`,
+    );
+  }
+  return { tier: verdict.tier };
+}
+
 export interface ProposeClaimOptions {
   organizationId: string;
   ownerUserId: string;
@@ -179,6 +322,9 @@ export async function proposeClaimSuggestion(
   store: MemoryStore,
   options: ProposeClaimOptions,
 ): Promise<ClaimSuggestion | null> {
+  // K10 E3+E4: the machine check runs BEFORE the duplicate check — a red or
+  // unevidenced claim is refused loudly even when its lineage exists.
+  const { tier } = gateClaimProposal(options.claim);
   const lineageIdFor = options.lineageIdFor ?? ((key: string) => key);
   const lineageKey = lineageIdFor(claimSuggestionLineageKey(options.claim));
   const current = await store.currentForLineage(
@@ -192,9 +338,16 @@ export async function proposeClaimSuggestion(
     ...(options.claim.taintLabel ? [options.claim.taintLabel.sensitivity] : []),
   );
   const claim: ClaimProposal = { ...options.claim, sensitivity };
+  // Amber content renders as an OBSERVED fact with its evidence shown —
+  // never a conclusion (invariant 15). Green keeps the plain framing.
   const suggestedText =
-    `Remember about ${claim.entity.name}: ${claim.field} is "${claim.value}"? ` +
-    `Accepting stores this as a claim you can inspect, correct, or delete at any time.`;
+    tier === "amber"
+      ? `Observed about ${claim.entity.name}: ${claim.field} — "${claim.value}" ` +
+        `(${claim.evidence.length} evidence reference${claim.evidence.length === 1 ? "" : "s"}). ` +
+        `Accepting stores this as an observed fact — with its evidence, never as a conclusion — ` +
+        `and you can inspect, correct, or delete it at any time.`
+      : `Remember about ${claim.entity.name}: ${claim.field} is "${claim.value}"? ` +
+        `Accepting stores this as a claim you can inspect, correct, or delete at any time.`;
   const row = await store.casSupersede({
     organizationId: options.organizationId,
     ownerUserId: options.ownerUserId,
@@ -212,6 +365,9 @@ export async function proposeClaimSuggestion(
           status: "proposed" satisfies ClaimSuggestionStatus,
           claimClass: claim.claimClass,
           entityKind: claim.entity.kind,
+          // K10 E3: the tier the deterministic classifier assigned at the
+          // door — inspectable on the row, raise-only ever after.
+          contentTier: tier,
         },
         claim,
         suggestedText,
@@ -259,6 +415,8 @@ async function transitionClaimSuggestion(
   toStatus: ClaimSuggestionStatus,
   actorUserId: string,
   nextId: () => string,
+  /** K10 E2: merged into the superseded row (e.g. the acceptance stamp). */
+  extraContent?: Record<string, unknown>,
 ): Promise<{ entry: MemoryEntry; suggestion: ClaimSuggestion }> {
   const current = await store.get(suggestionMemoryId, scope);
   if (!current) throw new Error(`claims: unknown or unauthorized claim suggestion ${suggestionMemoryId}`);
@@ -288,7 +446,7 @@ async function transitionClaimSuggestion(
       type: "semantic",
       subjectRecordId: current.subjectRecordId ?? null,
       scope: "private",
-      content: JSON.stringify({ ...content, anchor: { ...anchor, status: toStatus } }),
+      content: JSON.stringify({ ...content, ...(extraContent ?? {}), anchor: { ...anchor, status: toStatus } }),
       sourceRefType: current.sourceRefType ?? null,
       sourceRefId: current.sourceRefId ?? null,
       confidence: current.confidence,
@@ -313,9 +471,14 @@ export async function acceptClaimSuggestion(
   suggestionMemoryId: string,
   actorUserId: string,
   nextId: () => string,
+  /** K10 E2: the exact text the client rendered; stamps the acceptance. */
+  shownText?: string,
 ): Promise<{ suggestion: ClaimSuggestion; claim: ClaimProposal }> {
+  const current = await store.get(suggestionMemoryId, scope);
+  const currentParsed = current ? readClaimSuggestion(current) : null;
+  const stamp = await acceptanceStamp(shownText, currentParsed?.suggestedText ?? "");
   const { suggestion } = await transitionClaimSuggestion(
-    store, scope, suggestionMemoryId, "accepted", actorUserId, nextId,
+    store, scope, suggestionMemoryId, "accepted", actorUserId, nextId, stamp ? { acceptance: stamp } : undefined,
   );
   return { suggestion, claim: suggestion.claim };
 }

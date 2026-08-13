@@ -76,6 +76,7 @@ const AVATAR_SESSION_READY_EVENT = "bridge:avatar-session-ready";
 const COMPANION_PTT_EVENT = "bridge:companion-ptt";
 const NOTCH_HOVER_EVENT = "bridge:notch-hover";
 const CURSOR_EVENT = "bridge:cursor";
+const OBSERVE_QUESTION = "What am I looking at?";
 /** Screen distance at which the gaze channel saturates — roughly a third of a
  * laptop display, so ordinary mousing across the screen sweeps the pupils end
  * to end instead of pinning them at the limit the whole time. */
@@ -184,7 +185,6 @@ export function OverlayApp() {
 
   // Right-click menu (Hide / Meditate / Observe).
   const [menuOpen, setMenuOpen] = useState(false);
-  const [observing, setObserving] = useState(false);
 
   // Hover chat input (replaces the old hover status label — typing here and
   // pressing Enter opens the full chat panel with the message already sent).
@@ -192,6 +192,7 @@ export function OverlayApp() {
   // leaves — clicked again (or panel opened) to unpin.
   const [hoverDraft, setHoverDraft] = useState("");
   const [chatSeed, setChatSeed] = useState<{ text: string; nonce: number } | null>(null);
+  const [askSeed, setAskSeed] = useState<{ text: string; nonce: number } | null>(null);
   const [pinned, setPinned] = useState(false);
 
   // --- Notch home (roadmap Z1) -------------------------------------------
@@ -510,6 +511,7 @@ export function OverlayApp() {
           // listening status pose follows once CompanionAsk starts recording.
           director.perform(PTT_PRESSED_PERFORMANCE);
           setMenuOpen(false);
+          setAskSeed(null);
           setPanel("ask");
           setPttActive(true);
         } else {
@@ -680,6 +682,7 @@ export function OverlayApp() {
   function openAskPanel() {
     setMenuOpen(false);
     setPinned(false);
+    setAskSeed(null);
     setPanel((prev) => (prev === "ask" ? "none" : "ask"));
   }
 
@@ -710,12 +713,9 @@ export function OverlayApp() {
 
   function handleObserve() {
     setMenuOpen(false);
-    setObserving(true);
-    setAvatarStatus("reading_context");
-    void tauriInvoke("capture_screenshot_on_demand").finally(() => {
-      setObserving(false);
-      setAvatarStatus("idle");
-    });
+    setPinned(false);
+    setAskSeed({ text: OBSERVE_QUESTION, nonce: Date.now() });
+    setPanel("ask");
   }
 
   const name = prefs.avatarName || "Bridge Avatar";
@@ -740,7 +740,7 @@ export function OverlayApp() {
       return (
         <div
           role="dialog"
-          aria-label={`Ask ${name} about your screen`}
+          aria-label={`${name} companion panel`}
           style={{
             width: "100vw",
             height: "100vh",
@@ -755,12 +755,15 @@ export function OverlayApp() {
             className="flex items-center justify-between px-3 py-2 border-b"
             style={{ borderColor: "var(--color-border)" }}
           >
-            <p className="font-medium text-[var(--color-navy)]">{name} — Ask</p>
+            <p className="font-medium text-[var(--color-navy)]">{name} — Companion</p>
             <button
               type="button"
               aria-label="Close ask panel"
               className="text-muted-foreground hover:text-[var(--color-steel)]"
-              onClick={() => setPanel("none")}
+              onClick={() => {
+                setPanel("none");
+                setAskSeed(null);
+              }}
             >
               ×
             </button>
@@ -768,6 +771,8 @@ export function OverlayApp() {
           <CompanionAsk
             name={name}
             pttActive={pttActive}
+            autoQuestion={askSeed}
+            onAutoQuestionConsumed={() => setAskSeed(null)}
             onAnswered={handleAnswered}
             onSpeechStopped={stopTalking}
           />
@@ -938,7 +943,7 @@ export function OverlayApp() {
       {!menuOpen && panel === "ask" && (
         <div
           role="dialog"
-          aria-label={`Ask ${name} about your screen`}
+          aria-label={`${name} companion panel`}
           className="w-full mb-2 rounded-[var(--radius-card)] border border-border bg-background shadow-lg text-sm flex flex-col"
           style={{ flex: "1 1 auto", minHeight: 0 }}
         >
@@ -946,12 +951,15 @@ export function OverlayApp() {
             className="flex items-center justify-between px-3 py-2 border-b"
             style={{ borderColor: "var(--color-border)" }}
           >
-            <p className="font-medium text-[var(--color-navy)]">{name} — Ask</p>
+            <p className="font-medium text-[var(--color-navy)]">{name} — Companion</p>
             <button
               type="button"
               aria-label="Close ask panel"
               className="text-muted-foreground hover:text-[var(--color-steel)]"
-              onClick={() => setPanel("none")}
+              onClick={() => {
+                setPanel("none");
+                setAskSeed(null);
+              }}
             >
               ×
             </button>
@@ -959,6 +967,8 @@ export function OverlayApp() {
           <CompanionAsk
             name={name}
             pttActive={pttActive}
+            autoQuestion={askSeed}
+            onAutoQuestionConsumed={() => setAskSeed(null)}
             onAnswered={handleAnswered}
             onSpeechStopped={stopTalking}
           />

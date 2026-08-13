@@ -247,6 +247,8 @@ import { WEB_RESEARCH_SKILL_ID } from "./web-research-skill.js";
 import type { ModelBinding } from "@bridge/capability-kit";
 import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
 import { authUrl, CALENDAR_SOURCE, GMAIL_SOURCE, type IntakeDirective } from "@bridge/integrations-google";
+import { classifyPatShape, maskPat } from "@bridge/integrations-github";
+import { reposTableSpec, pullsTableSpec, issuesTableSpec, pullsTriageBoardView, issuesUpdatedListView } from "@bridge/devpilot";
 import {
   routeHelpRequest,
   draftHelpOffer,
@@ -269,6 +271,15 @@ import {
   generalizeLearnedPreferences,
   isLearningObservationEntry,
   listPromotionSuggestions,
+  auditAcceptances,
+  ClaimGateError,
+  hashingEmbed,
+  isSuppressedByRejections,
+  type RejectionSuppressionVerdict,
+  type TextEmbedder,
+  recordRejectionFingerprint,
+  draftStepsFromEpisodes,
+  episodesForSkill,
   rejectAutomationDraft,
   seedSuggestionsFromArchetypes,
   supportBandRank,
@@ -383,6 +394,7 @@ import {
   COMMONS_BUILT_IN_MODULES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCE_AUTOMATION_ID,
+  DEVPILOT_GITHUB_POLL_AUTOMATION_ID,
   TASK_MANAGER_DRIFT_AUTOMATION_ID,
   TASK_MANAGER_SWEEP_AUTOMATION_ID,
   TASK_MANAGER_SCAN_AUTOMATION_ID,
@@ -499,6 +511,72 @@ async function readCaptureConsentState(
  * (@bridge/core learning/browser-capture). Local Plane by residency, like
  * the consent state it refines: which domains the owner's browser may
  * report on lives beside the consent that lets it report at all. */
+
+/** K10 E5's own lexical tier — deliberately NOT the shared
+ * `hashingTextEmbedder()` (dim 128, id "bridge-hashing-lexical-v1") that
+ * LA5 retrieval fusion already has vectors stored under. Reusing that id
+ * here would let two different-dimensional vector spaces collide under one
+ * id ("different spaces never mix" — retrieval.ts), and 128 buckets is
+ * collision-prone for the SHORT 2-3 token texts a rejected claim usually
+ * is (`hashingEmbed` genuinely maps "cet" and "ist" to the same bucket at
+ * dim 128 — a real collision, not a hypothetical one). A dedicated id and
+ * a much larger bucket count make an unrelated short claim colliding with
+ * a rejected one astronomically less likely, without touching fusion's
+ * existing vectors at all. */
+const REJECTION_LEXICAL_DIM = 4096;
+function rejectionLexicalEmbedder(): TextEmbedder {
+  return {
+    id: "bridge-rejection-lexical-v1",
+    embed: async (texts) => texts.map((text) => hashingEmbed(text, REJECTION_LEXICAL_DIM)),
+  };
+}
+
+/** K10 E5 — run a rejection-fingerprint operation with the semantic
+ * embedder when the LA5 lane has one, falling back to the always-available
+ * lexical hashing embedder when the semantic tier errors at runtime (e.g.
+ * Ollama down). A human's rejection must never fail because a model server
+ * is unreachable; the lexical tier still catches reworded repeats. */
+async function withRejectionEmbedder<T>(
+  wiring: Wiring,
+  run: (embedder: TextEmbedder) => Promise<T>,
+): Promise<T> {
+  const semantic = wiring.semanticEmbedder;
+  if (semantic) {
+    try {
+      return await run(semantic);
+    } catch {
+      // fall through to the lexical tier
+    }
+  }
+  return run(rejectionLexicalEmbedder());
+}
+
+/** K10 E5 — the suppression CHECK, unlike a single fingerprint write, must
+ * consult every tier a fingerprint could have been written under: a
+ * rejection recorded while Ollama was reachable lands under the semantic
+ * embedder's id, one recorded while it was down lands under the lexical
+ * hashing id, and the daemon can flap between the two rejections in a
+ * lineage's history. Checking only "today's" tier would let a same-session
+ * tier flip silently un-suppress an already-rejected idea — the lexical
+ * tier is always checked (it is always computable), and the semantic tier
+ * is checked in addition whenever it is actually reachable right now. */
+async function isSuppressedByRejectionsAnyTier(
+  wiring: Wiring,
+  text: string,
+  scope: { organizationId: string; userId: string },
+  nowISO: string,
+): Promise<RejectionSuppressionVerdict> {
+  const lexical = await isSuppressedByRejections(wiring.memoryStore, rejectionLexicalEmbedder(), text, scope, nowISO);
+  if (lexical.suppressed) return lexical;
+  const semantic = wiring.semanticEmbedder;
+  if (!semantic) return lexical;
+  try {
+    return await isSuppressedByRejections(wiring.memoryStore, semantic, text, scope, nowISO);
+  } catch {
+    return lexical;
+  }
+}
+
 const LEARNING_BROWSER_POLICY_NAMESPACE = "learning:browser-domain-policy";
 
 /** Read the current browser domain policy, failing CLOSED: a missing or
@@ -2324,6 +2402,16 @@ const dealpilotProcedure = procedure.use(async ({ ctx, next }) => {
     ctx.verifying || ctx.wiring.persistent || process.env.NODE_ENV === "production";
   if (authenticationRequired && !ctx.authenticated) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "authentication required for DealPilot" });
+  }
+  await assertMembership(ctx.wiring.organizationStore, PILOT_ORGANIZATION, ctx.identity.id);
+  return next();
+});
+
+const devpilotProcedure = procedure.use(async ({ ctx, next }) => {
+  const authenticationRequired =
+    ctx.verifying || ctx.wiring.persistent || process.env.NODE_ENV === "production";
+  if (authenticationRequired && !ctx.authenticated) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "authentication required for DevPilot" });
   }
   await assertMembership(ctx.wiring.organizationStore, PILOT_ORGANIZATION, ctx.identity.id);
   return next();
@@ -6011,6 +6099,15 @@ function assertLearningFlightEnabled(ctx: { wiring: Pick<Wiring, "learningObserv
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message: "learning observation flight is disabled (BRIDGE_LEARNING_OBSERVATION)",
+    });
+  }
+}
+
+function assertDevpilotFlightEnabled(ctx: { wiring: Pick<Wiring, "devpilotEnabled"> }): void {
+  if (!ctx.wiring.devpilotEnabled) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "DevPilot flight is disabled (BRIDGE_DEVPILOT)",
     });
   }
 }
@@ -13118,6 +13215,223 @@ export const appRouter = t.router({
    * facts + candidate list (capture ≠ commit). Thesis storage is basic get/set, in-memory
    * (wiring.ts) — no thesis-management UI yet, that's a separate future item.
    */
+  devpilot: t.router({
+    /** Table specs + default Views for the three Pages — mirrors JobPilot's
+     * `definition` procedure (apps/web has no build dependency on
+     * @bridge/devpilot, same as it has none on @bridge/dealpilot/@bridge/jobpilot). */
+    definitions: devpilotProcedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(({ input }) => {
+        assertPilotOrganization(input.organizationId);
+        return {
+          repos: reposTableSpec,
+          pulls: pullsTableSpec,
+          issues: issuesTableSpec,
+          pullsTriageBoardView: pullsTriageBoardView(),
+          issuesUpdatedListView: issuesUpdatedListView(),
+        };
+      }),
+
+    /** Always answerable (flight off included), like `learning.status`, so
+     * clients can honestly hide the surface instead of rendering dead
+     * controls. */
+    status: devpilotProcedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const githubIntegration = (await ctx.wiring.integrationStore.list(input.organizationId)).find(
+          (row) => row.provider === "github" && row.status === "active",
+        );
+        // 200 mirrors the sync Skill's own per-cycle tracked-repo bound — tracked
+        // repos are user-curated (toggled one at a time), never realistically
+        // more than that, so this stays an exact count without a dedicated
+        // COUNT query.
+        const trackedRepos = githubIntegration
+          ? await ctx.wiring.devpilot.store.listRepos(input.organizationId, { limit: 200, offset: 0 }, true)
+          : [];
+        // Every sync cycle upserts ALL repos (phase 1) before syncing pulls/issues
+        // for tracked ones (phase 2), so the max `syncedAt` among the tracked set
+        // is an honest "last synced" reading without a second, differently-
+        // ordered query (listRepos only orders by `pushedAt`, GitHub's own
+        // activity time — not when WE last synced).
+        const latestSyncedAt = trackedRepos.reduce<Date | null>(
+          (latest, repo) => (!latest || repo.syncedAt > latest ? repo.syncedAt : latest),
+          null,
+        );
+        const lastSyncAt = latestSyncedAt ? latestSyncedAt.toISOString() : null;
+        return {
+          enabled: ctx.wiring.devpilotEnabled,
+          githubConnected: Boolean(githubIntegration),
+          trackedRepoCount: trackedRepos.length,
+          lastSyncAt,
+        };
+      }),
+
+    github: t.router({
+      connect: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1), personalAccessToken: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          assertHumanIdentity(ctx, "Connecting a GitHub Personal Access Token");
+          if (ctx.wiring.publicCloudOnly) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "GitHub Personal Access Tokens require the Local Plane — connect from the desktop app",
+            });
+          }
+          const kind = classifyPatShape(input.personalAccessToken);
+          if (!kind) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Not a recognized GitHub Personal Access Token shape" });
+          }
+          const gateway = ctx.wiring.devpilot.gateways.forToken(input.personalAccessToken);
+          let viewer;
+          try {
+            viewer = await gateway.viewer();
+          } catch (error) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `GitHub rejected this token: ${error instanceof Error ? error.message : String(error)}`,
+            });
+          }
+          const existing = (await ctx.wiring.integrationStore.list(input.organizationId)).find(
+            (row) => row.provider === "github",
+          );
+          const integration = existing ?? (await ctx.wiring.integrationStore.connect(input.organizationId, "github", []));
+          await ctx.wiring.localPlane.secrets.putToken({
+            integrationId: integration.id,
+            organizationId: input.organizationId,
+            provider: "github",
+            accessToken: input.personalAccessToken,
+            // Fine-grained PATs carry no enumerable scope header (permissions
+            // are per-repository); classic PATs' scopes aren't requested here
+            // since D1 asks for read-only fine-grained tokens by convention.
+            scope: "",
+            tokenType: "pat",
+            updatedAt: new Date().toISOString(),
+          });
+          const masked = maskPat(input.personalAccessToken);
+          return { connected: true, login: viewer.login, kind: masked.kind, last4: masked.last4 };
+        }),
+
+      disconnect: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          assertHumanIdentity(ctx, "Disconnecting a GitHub Personal Access Token");
+          const existing = (await ctx.wiring.integrationStore.list(input.organizationId)).find(
+            (row) => row.provider === "github",
+          );
+          if (!existing) return { ok: true };
+          await ctx.wiring.localPlane.secrets.deleteToken(existing.id);
+          await ctx.wiring.integrationStore.disconnect(input.organizationId, existing.id);
+          return { ok: true };
+        }),
+
+      status: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const existing = (await ctx.wiring.integrationStore.list(input.organizationId)).find(
+            (row) => row.provider === "github" && row.status === "active",
+          );
+          if (!existing) return { connected: false as const };
+          const token = await ctx.wiring.localPlane.secrets.getToken(existing.id);
+          if (!token) return { connected: false as const };
+          const masked = maskPat(token.accessToken);
+          return { connected: true as const, kind: masked.kind, last4: masked.last4 };
+        }),
+    }),
+
+    repos: t.router({
+      list: devpilotProcedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            limit: z.number().int().min(1).max(200).default(100),
+            offset: z.number().int().min(0).default(0),
+            trackedOnly: z.boolean().default(false),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          return ctx.wiring.devpilot.store.listRepos(
+            input.organizationId,
+            { limit: input.limit, offset: input.offset },
+            input.trackedOnly,
+          );
+        }),
+
+      setTracked: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1), repoId: z.string().min(1), tracked: z.boolean() }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const row = await ctx.wiring.devpilot.store.setTracked(input.organizationId, input.repoId, input.tracked);
+          if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Repo not found" });
+          return row;
+        }),
+    }),
+
+    pulls: t.router({
+      list: devpilotProcedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            limit: z.number().int().min(1).max(200).default(100),
+            offset: z.number().int().min(0).default(0),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          return ctx.wiring.devpilot.store.listPulls(input.organizationId, { limit: input.limit, offset: input.offset });
+        }),
+    }),
+
+    issues: t.router({
+      list: devpilotProcedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            limit: z.number().int().min(1).max(200).default(100),
+            offset: z.number().int().min(0).default(0),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          return ctx.wiring.devpilot.store.listIssues(input.organizationId, { limit: input.limit, offset: input.offset });
+        }),
+    }),
+
+    sync: t.router({
+      /** Manually re-runs the SAME governed Automation the 15-min scheduler
+       * triggers (DealPilot's discoverDeals precedent) — the manual path and
+       * the scheduled path share one attributable Agent Run shape, so a
+       * learning signal from either carries the same moduleId:"devpilot". */
+      run: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const result = await ctx.wiring.automationExecutor.runById(
+            {
+              organizationId: input.organizationId,
+              automationId: DEVPILOT_GITHUB_POLL_AUTOMATION_ID,
+              onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
+              params: { organizationId: input.organizationId },
+            },
+            withHumanInputTaint(ctx.run, `devpilot:sync:${ctx.identity.id}`, input),
+          );
+          const proposal = result.proposals[0];
+          if (!proposal) throw new Error("DevPilot GitHub sync Automation produced no proposal");
+          return proposal.output?.proposedOutput;
+        }),
+    }),
+  }),
+
   dealpilot: t.router({
     module: dealpilotProcedure
       .input(z.object({ organizationId: z.string().min(1) }))
@@ -14555,18 +14869,48 @@ export const appRouter = t.router({
               instructionRisk: "data",
             }),
           };
-          const suggestion = await proposeClaimSuggestion(ctx.wiring.memoryStore, {
-            organizationId: input.organizationId,
-            ownerUserId: ctx.identity.id,
-            claim,
-            nextId: () => ctx.run.ids.next(),
-            // The persistent adapter's lineage column is uuid-typed — same
-            // mapping the preference digest uses (K0 regression class).
-            lineageIdFor: deterministicUuid,
-          });
-          return suggestion
-            ? { proposed: true as const, suggestion }
-            : { proposed: false as const, reason: "This exact claim already has a pending, accepted, or rejected proposal." };
+          // K10 E5: paraphrase-robust rejection suppression — checks every
+          // tier a fingerprint could have been written under (lexical
+          // hashing always, semantic in addition when reachable), never
+          // just whichever tier happens to be live for this one request.
+          const rejectionScope = { organizationId: input.organizationId, userId: ctx.identity.id };
+          const suppression = await isSuppressedByRejectionsAnyTier(
+            ctx.wiring,
+            `${input.field}: ${input.value}`,
+            rejectionScope,
+            new Date().toISOString(),
+          );
+          if (suppression.suppressed) {
+            return {
+              proposed: false as const,
+              refused: "rejected_similar" as const,
+              reason:
+                `too similar to something you already rejected ("${suppression.matchedText}"` +
+                `${suppression.permanent ? ", permanently suppressed" : ""}) — ` +
+                `delete that rejection fingerprint from Memory to propose it again`,
+            };
+          }
+          try {
+            const suggestion = await proposeClaimSuggestion(ctx.wiring.memoryStore, {
+              organizationId: input.organizationId,
+              ownerUserId: ctx.identity.id,
+              claim,
+              nextId: () => ctx.run.ids.next(),
+              // The persistent adapter's lineage column is uuid-typed — same
+              // mapping the preference digest uses (K0 regression class).
+              lineageIdFor: deterministicUuid,
+            });
+            return suggestion
+              ? { proposed: true as const, suggestion }
+              : { proposed: false as const, reason: "This exact claim already has a pending, accepted, or rejected proposal." };
+          } catch (error) {
+            // K10 E3+E4: the proposal gate's refusals are structured and
+            // specific — surfaced verbatim, never smoothed into success.
+            if (error instanceof ClaimGateError) {
+              return { proposed: false as const, refused: error.reason, reason: error.message };
+            }
+            throw error;
+          }
         }),
 
       suggestions: procedure
@@ -14596,7 +14940,14 @@ export const appRouter = t.router({
        * TASK-047 prototype test). Contradiction with a live same-(entity,
        * field) claim supersedes by lineage inside the store transaction. */
       acceptClaim: procedure
-        .input(z.object({ organizationId: z.string().min(1), suggestionMemoryId: z.string().min(1) }))
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            suggestionMemoryId: z.string().min(1),
+            /** K10 E2: the exact text the client rendered to the human. */
+            shownText: z.string().max(4000).optional(),
+          }),
+        )
         .mutation(async ({ input, ctx }) => {
           assertClaimFlightEnabled(ctx);
           assertPilotOrganization(input.organizationId);
@@ -14651,7 +15002,7 @@ export const appRouter = t.router({
           }
           const { claim } = await acceptClaimSuggestion(
             ctx.wiring.memoryStore, scope, input.suggestionMemoryId, ctx.identity.id,
-            () => ctx.run.ids.next(),
+            () => ctx.run.ids.next(), input.shownText,
           );
           const materialized = await ctx.wiring.claimStore.materializeClaim({
             organizationId: input.organizationId,
@@ -14679,6 +15030,18 @@ export const appRouter = t.router({
           const suggestion = await rejectClaimSuggestion(
             ctx.wiring.memoryStore, scope, input.suggestionMemoryId, ctx.identity.id,
             () => ctx.run.ids.next(),
+          );
+          // K10 E5: the rejection leaves a fingerprint so the same idea
+          // cannot come back merely reworded; strikes escalate 30d → 90d →
+          // permanent, and deleting the fingerprint Memory un-suppresses.
+          await withRejectionEmbedder(ctx.wiring, (embedder) =>
+            recordRejectionFingerprint(ctx.wiring.memoryStore, embedder, {
+              organizationId: input.organizationId,
+              ownerUserId: ctx.identity.id,
+              text: `${suggestion.claim.field}: ${suggestion.claim.value}`,
+              nowISO: new Date().toISOString(),
+              nextId: () => ctx.run.ids.next(),
+            }),
           );
           return { suggestion };
         }),
@@ -14917,7 +15280,14 @@ export const appRouter = t.router({
         }),
 
       accept: procedure
-        .input(z.object({ organizationId: z.string().min(1), suggestionMemoryId: z.string().min(1) }))
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            suggestionMemoryId: z.string().min(1),
+            /** K10 E2: the exact text the client rendered to the human. */
+            shownText: z.string().max(4000).optional(),
+          }),
+        )
         .mutation(async ({ input, ctx }) => {
           assertLearningFlightEnabled(ctx);
           assertPilotOrganization(input.organizationId);
@@ -14928,6 +15298,7 @@ export const appRouter = t.router({
               input.suggestionMemoryId,
               ctx.identity.id,
               () => ctx.run.ids.next(),
+              input.shownText,
             );
             return { suggestionMemoryId: suggestion.id, preferenceMemoryId: preference.id };
           } catch (error) {
@@ -15158,6 +15529,8 @@ export const appRouter = t.router({
           z.object({
             organizationId: z.string().min(1),
             suggestionMemoryId: z.string().min(1),
+            /** K10 E2: the exact text the client rendered to the human. */
+            shownText: z.string().max(4000).optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -15170,6 +15543,7 @@ export const appRouter = t.router({
               input.suggestionMemoryId,
               ctx.identity.id,
               () => ctx.run.ids.next(),
+              input.shownText,
             );
             // Deterministic id: the same accepted pattern always names the
             // same draft row (re-derivable on any instance).
@@ -15274,6 +15648,85 @@ export const appRouter = t.router({
             return { automationId: draft.id, steps: steps.length, status: "draft" as const };
           }),
 
+        /** K9 rung 3 (TASK-053, ADR-231) — the Capability Builder drafts the
+         * STEPS for an accepted promotion. Constrained generation, not
+         * codegen — and not even a model call: the step is DERIVED from the
+         * ledger episodes behind the pattern (the governed shape the human
+         * demonstrably approved ≥6 times), constrained to the live skill
+         * registry and the canonical step schema. Refusals are structured
+         * and specific (a K7/K8 behavior rhythm has no skill to bind; an
+         * unregistered skill proposes nothing; zero remaining episodes
+         * proposes nothing). The draft STAYS a draft — the executor still
+         * cannot see it, and activation remains the explicit governed step
+         * above. */
+        proposeSteps: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              automationId: z.string().min(1),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            if (ctx.identity.type !== "user") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message: "Drafting steps is part of the Human review of a draft — only a user identity may request it",
+              });
+            }
+            const drafts = await ctx.wiring.automationRegistry.listByStatus(input.organizationId, "draft");
+            const draft = drafts.find((definition) => definition.id === input.automationId);
+            if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "draft not found" });
+
+            // The pattern lives on the ACCEPTED promotion suggestion whose
+            // deterministic automation id names this draft — the same
+            // derivation `accept` used, run in reverse by search.
+            const accepted = await listPromotionSuggestions(
+              ctx.wiring.memoryStore,
+              { organizationId: input.organizationId, userId: ctx.identity.id },
+              undefined,
+              "accepted",
+            );
+            const backing = accepted.find(
+              (suggestion) =>
+                deterministicUuid(
+                  `learning:promotion:automation:${input.organizationId}:${suggestion.moduleId}:${suggestion.pattern.action}:${suggestion.pattern.attributeKey}=${suggestion.pattern.attributeValue}`,
+                ) === input.automationId,
+            );
+            if (!backing) {
+              throw new TRPCError({
+                code: "NOT_FOUND",
+                message: "no accepted promotion pattern backs this draft — nothing to derive steps from",
+              });
+            }
+
+            const { items } = await ctx.wiring.ledger.listHistory(input.organizationId, {
+              limit: 200,
+              offset: 0,
+            });
+            const episodes = episodesForSkill(items, backing.pattern.attributeValue);
+            const result = draftStepsFromEpisodes(backing.pattern, episodes, (skillId) =>
+              Boolean(ctx.wiring.skillRegistry.get(skillId)),
+            );
+            if (!result.proposed) {
+              return { proposed: false as const, reason: result.reason, detail: result.detail };
+            }
+            // The canonical write-boundary validation every registry write
+            // gets — the Builder does not bypass it just because it derived
+            // the steps itself.
+            const steps = parseAutomationSteps(result.steps);
+            await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
+            return {
+              proposed: true as const,
+              automationId: draft.id,
+              steps,
+              evidence: result.evidence,
+              status: "draft" as const,
+            };
+          }),
+
         activate: procedure
           .input(
             z.object({
@@ -15306,6 +15759,24 @@ export const appRouter = t.router({
           }),
       }),
     }),
+
+    /** K10 E2 (TASK-043) — the bulk-accept audit. Every accepted suggestion
+     * across the three suggestion kinds, classified by its shown-text stamp:
+     * "reviewed" (client sent the exact rendered text and it matched the
+     * canonical suggestion text) vs "unverified" (no stamp, or a mismatch —
+     * e.g. a stale tab accepted after the suggestion was superseded). The
+     * stamp never blocks an acceptance; it makes rubber-stamping visible. */
+    acceptanceAudit: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertLearningFlightEnabled(ctx);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return auditAcceptances(ctx.wiring.memoryStore, {
+          organizationId: input.organizationId,
+          userId: ctx.identity.id,
+        });
+      }),
 
     /** Retrieval quality read surface (ADR-174). `status` always answers so
      * clients hide the card honestly while the fusion flight is off; `evals`

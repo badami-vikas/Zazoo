@@ -1,0 +1,75 @@
+{
+  "_comment": [
+    "K10 E1 (ADR-232 pending id, TASK-043): the CLOSED PORT-SET ALLOWLIST for the",
+    "Learning surfaces. test/port-allowlist.test.ts snapshots every import that",
+    "LEAVES src/learning or src/memory (relative ../ specifiers and bare modules)",
+    "and fails the build when an import or imported NAME appears that this file",
+    "does not list — 'core holds no pipeline handle' (ADR-077) becomes a provable",
+    "structural property instead of a review convention.",
+    "",
+    "This file is APPROVAL-GATED: changing it is a canon change requiring a",
+    "docs/APPROVALS.md row (reviewed: AP-152 · 2026-08-13 · TASK-043). Adding a",
+    "port here without review is exactly the move the mechanism exists to catch.",
+    "Unused entries fail the gate too — dead allowances are drift in the other",
+    "direction and must be pruned.",
+    "",
+    "Note the one reviewed pipeline symbol: src/memory may import ONLY the",
+    "AlreadyResolvedError class (an Error subtype used to refuse double-decides);",
+    "it is not an execution handle. src/learning may import NOTHING from",
+    "pipeline.js — the test pins that independently of this file."
+  ],
+  "scopes": {
+    "src/learning": {
+      "../memory/memory-store.js": ["MemoryAuthScope", "MemoryEntry", "MemoryStore"],
+      "../module/privacy.js": ["findOrganizationDataPaths"],
+      "../ports.js": ["AutomationDefinition"],
+      "../run-context.js": ["RetrievedMemorySnippet"],
+      "../taint.js": ["TAINT_SENSITIVITY", "TaintLabel", "TaintSensitivity"],
+      "../types.js": ["Action", "LedgerEntry", "Plane", "TrustOrigin"]
+    },
+    "src/memory": {
+      "../context-provider.js": ["ContextDataScope"],
+      "../data-scope.js": ["DataScope"],
+      "../pipeline.js": ["AlreadyResolvedError"],
+      "../ports.js": [
+        "AgentQuery",
+        "AutomationDefinition",
+        "AutomationRegistry",
+        "AutomationRunRecord",
+        "AutomationRunRecorder",
+        "EphemeralQuery",
+        "EventBus",
+        "LedgerStore",
+        "LocalMediaStore",
+        "MODEL_TIERS",
+        "MediaCaptureRecord",
+        "MediaKind",
+        "MediaStatus",
+        "ModelCompletion",
+        "ModelCompletionRequest",
+        "ModelProvider",
+        "ModelTier",
+        "PolicyEvalInput",
+        "PolicyStore",
+        "RoleQuery",
+        "RunCtx",
+        "Skill",
+        "SkillRegistry",
+        "VarianceAdjuster",
+        "assertModelCompletionRequest",
+        "modelRequestTaint"
+      ],
+      "../taint.js": ["TaintLabel", "labelFromLegacyTrustOrigin"],
+      "../types.js": [
+        "Actor",
+        "DomainEvent",
+        "GrantRule",
+        "LedgerEntry",
+        "Plane",
+        "PolicyResult",
+        "RunContext",
+        "TrustOrigin"
+      ]
+    }
+  }
+}

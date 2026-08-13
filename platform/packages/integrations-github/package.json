@@ -1,0 +1,27 @@
+{
+  "name": "@bridge/integrations-github",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "GitHub integration — the EGRESS adapter (REST v3 over @bridge/net-guard's guardedFetch, the only file that touches the GitHub API), a fine-grained PAT paste-and-validate flow (no OAuth app registration needed for a single-user connector), and pure intake mapping into DevPilot repo/pull/issue rows. Read-only in D1: no external:send capability.",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --test-reporter=dot --test dist/test/*.test.js",
+    "test:coverage": "node --experimental-test-coverage --test-coverage-include='dist/src/**' --test-coverage-exclude='**/test/**' --test-coverage-lines=70 --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "@bridge/devpilot": "workspace:*",
+    "@bridge/net-guard": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

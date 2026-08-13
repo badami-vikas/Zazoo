@@ -105,6 +105,11 @@ export const TASK_MANAGER_STALE_REVIEW_AUTOMATION_KEY = "task-manager.stale-task
 export const TASK_MANAGER_PLANNING_AUTOMATION_KEY = "task-manager.planning-playbook";
 export const LEARNING_RECOMMENDATION_SKILL_ID = "stageLearningRecommendation";
 export const CITED_ROLE_MODEL_PRACTICE_VERSION = "1.0.1";
+/** DevPilot D0/D1 (TASK-067/TASK-068, ADR-235) — continuing the runtime-id
+ * sequence after Task Manager's routing Automation (…000108). */
+export const DEVPILOT_TRACKER_AGENT_ID = "b0000000-0000-4000-a000-000000000109";
+export const DEVPILOT_GITHUB_POLL_AUTOMATION_ID = "b0000000-0000-4000-a000-00000000010a";
+export const DEVPILOT_GITHUB_POLL_AUTOMATION_KEY = "devpilot.github-poll";
 
 export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAutomationId: string): string | undefined {
   if (moduleName === "deal-pilot" && manifestAutomationId === DEALPILOT_SOURCE_AUTOMATION_KEY) {
@@ -158,6 +163,9 @@ export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAut
   if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_ROUTING_AUTOMATION_KEY) {
     return TASK_MANAGER_ROUTING_AUTOMATION_ID;
   }
+  if (moduleName === "devpilot" && manifestAutomationId === DEVPILOT_GITHUB_POLL_AUTOMATION_KEY) {
+    return DEVPILOT_GITHUB_POLL_AUTOMATION_ID;
+  }
   return undefined;
 }
 
@@ -180,6 +188,7 @@ export function isModuleRuntimeAutomationId(automationId: string): boolean {
     TASK_MANAGER_REOPEN_AUTOMATION_ID,
     TASK_MANAGER_DEPENDENCY_AUTOMATION_ID,
     TASK_MANAGER_ROUTING_AUTOMATION_ID,
+    DEVPILOT_GITHUB_POLL_AUTOMATION_ID,
   ].includes(automationId);
 }
 
@@ -199,6 +208,9 @@ export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId:
   if (moduleName === "task-manager" && manifestAgentId === "chief-of-staff") {
     return CHIEF_OF_STAFF_AGENT_RUNTIME_ID;
   }
+  if (moduleName === "devpilot" && manifestAgentId === "tracker-agent") {
+    return DEVPILOT_TRACKER_AGENT_ID;
+  }
   return undefined;
 }
 
@@ -212,6 +224,7 @@ const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   events: "platform/apps/web/src/app/pages/EventsPage.tsx",
   "task-manager": "platform/packages/core/src/task-manager.ts",
   whatsapp: "platform/modules/whatsapp/src/index.ts",
+  devpilot: "platform/modules/devpilot/src/index.ts",
 };
 
 function builtInSourceRef(moduleName: string): string {
@@ -666,6 +679,44 @@ const taskManagerAutomations = [
   // review, not because anything about it runs on its own.
   ["planning-playbook", "Internal Strategist"],
 ] as const;
+
+// DevPilot D0/D1 (TASK-067/TASK-068, ADR-235) — a freelance engineer's
+// tracked repos, pull requests, and issues, synced from GitHub through a
+// fine-grained Personal Access Token. Read-only: no external:send capability
+// in D1 (D2's PR-review drafts stay local; posting is a later, separately
+// approval-gated capability).
+const devpilotCapabilities = [
+  capability("devpilot.repos", "Repos database and views", "database", [readAll("record"), writeAll("record")]),
+  capability("devpilot.pulls", "Pull Requests database and views", "database", [readAll("record"), writeAll("record")]),
+  capability("devpilot.issues", "Issues database and views", "database", [readAll("record"), writeAll("record")]),
+  capability(
+    "devpilot.syncGithub",
+    "Sync GitHub repos, pull requests, and issues",
+    "skill",
+    [{ resourceType: "external:fetch", action: "read", dataScope: "public", egress: true }],
+    [{ id: "github" }],
+  ),
+  capability(
+    "devpilot.tracker-agent",
+    "Dev tracker Agent",
+    "agent",
+    [readAll("record"), writeAll("record")],
+    [],
+    [{ manifestId: "devpilot.syncGithub", versionRange: "0.2.0" }],
+  ),
+  capability(
+    "devpilot.github-poll",
+    "GitHub tracker poll",
+    "automation",
+    [readPublic("external:fetch"), writeAll("record")],
+    [{ id: "github" }],
+    [
+      { manifestId: "devpilot.tracker-agent", versionRange: "0.2.0" },
+      { manifestId: "devpilot.syncGithub", versionRange: "0.2.0" },
+    ],
+  ),
+  capability("devpilot.github", "GitHub tracker intake", "integration", [readAll("external:fetch")], [{ id: "github" }]),
+];
 
 const taskManagerCapabilities = [
   capability("task-manager.tasks", "Tasks Database and Views", "database", [readAll("record"), writeAll("record")]),
@@ -1235,6 +1286,69 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       },
     },
   },
+  {
+    // External: the sync Skill reaches the internet (GitHub REST API) with
+    // egress, same computedRisk tier as DealPilot's sourcing.
+    computedRisk: "external",
+    manifest: {
+      name: "devpilot",
+      version: "0.1.0",
+      kind: "organization_definition",
+      summary: "Organizes a freelance engineer's code, issues, and work priorities.",
+      description:
+        "Tracks GitHub repos, pull requests, and issues in DevPilot-owned Databases, refreshed by a scheduled poll behind a fine-grained Personal Access Token. Read-only in this version: no capability may send or write back to GitHub.",
+      lineageManifestId: null,
+      dependencies: [],
+      capabilities: devpilotCapabilities,
+      contextProviders: [],
+      organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      module: {
+        displayName: "DevPilot",
+        route: "/module/devpilot/pulls",
+        pages: [
+          {
+            id: "pulls",
+            name: "Pull Requests",
+            route: "/module/devpilot/pulls",
+            databaseId: "devpilot.pulls",
+            capabilityId: "devpilot.pulls",
+          },
+          {
+            id: "issues",
+            name: "Issues",
+            route: "/module/devpilot/issues",
+            databaseId: "devpilot.issues",
+            capabilityId: "devpilot.issues",
+          },
+          {
+            id: "repos",
+            name: "Repos",
+            route: "/module/devpilot/repos",
+            databaseId: "devpilot.repos",
+            capabilityId: "devpilot.repos",
+          },
+        ],
+        agents: [{
+          id: "tracker-agent",
+          name: "Dev tracker Agent",
+          capabilityId: "devpilot.tracker-agent",
+          skillIds: ["devpilot.syncGithub"],
+          plane: "cloud",
+        }],
+        automations: [{
+          id: "github-poll",
+          name: "GitHub tracker poll",
+          capabilityId: "devpilot.github-poll",
+          agentId: "tracker-agent",
+          trigger: "Scheduled",
+          schedule: { kind: "schedule", everyMinutes: 15 },
+          procedure: "devpilot.syncGithub",
+          automationId: DEVPILOT_GITHUB_POLL_AUTOMATION_KEY,
+          runRoute: "/module/devpilot/pulls",
+        }],
+      },
+    },
+  },
 ];
 
 export function requireBuiltInModule(moduleName: string): BuiltInModule {
@@ -1448,8 +1562,12 @@ export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
       // Academics is the owner's own coursework — personal data, same reasoning.
       pkg.manifest.name !== "academics" &&
       // Events resolves speakers into the owner's own private People, same as
-      // Helpdesk's reasoning above (TASK-068, ADR-231).
-      pkg.manifest.name !== "events",
+      // Helpdesk's reasoning above (TASK-070, ADR-236).
+      pkg.manifest.name !== "events" &&
+      // DevPilot is excluded for the same class of reason as WhatsApp: reading
+      // the owner's own tracked GitHub repos through a personal token is not a
+      // generalized capability another Organization could safely install.
+      pkg.manifest.name !== "devpilot",
   ).map((pkg) => ({
     ...pkg,
     commons: {

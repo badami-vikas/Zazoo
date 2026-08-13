@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T12:54:54.810Z",
+  "generatedAt": "2026-08-13T16:52:03.437Z",
   "items": [
     {
       "id": "TASK-026",
@@ -642,7 +642,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 328,
+      "sourceLine": 329,
       "rank": 18
     },
     {
@@ -677,7 +677,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 342,
+      "sourceLine": 343,
       "rank": 19
     },
     {
@@ -712,7 +712,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 356,
+      "sourceLine": 357,
       "rank": 20
     },
     {
@@ -743,7 +743,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 369,
+      "sourceLine": 370,
       "rank": 21
     },
     {
@@ -780,7 +780,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 382,
+      "sourceLine": 383,
       "rank": 22
     },
     {
@@ -806,7 +806,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 395,
+      "sourceLine": 396,
       "rank": 23
     },
     {
@@ -841,7 +841,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 408,
+      "sourceLine": 409,
       "rank": 24
     },
     {
@@ -872,7 +872,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 422,
+      "sourceLine": 423,
       "rank": 25
     },
     {
@@ -904,14 +904,14 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 435,
+      "sourceLine": 436,
       "rank": 26
     },
     {
       "id": "TASK-027",
       "title": "TASK-027 — Screen-aware companion ask prototype (clicky parity)",
       "status": "completed",
-      "priority": "P2",
+      "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The desktop Avatar answers questions about what is on the user's screen the way the open-source clicky family does — global push-to-talk summon, one consented screenshot per ask to a cloud vision model (or a fully local text answer without one), typed on-screen pointing marks parsed from `[POINT:x,y:label]` tags, spoken answers via local TTS, and bounded ephemeral conversation memory — without weakening Local Plane residency, blink-tell capture honesty, or the un-spoofable typed annotation vocabulary.",
       "prototypeTest": "On a real desktop build with Screen Recording granted and GROQ_API_KEY configured, hold ⌘⇧Space, speak a question about a visible app, and watch the avatar expand, blink on capture, answer aloud, and spotlight the referenced screen locations with auto-clearing marks; uncheck screen sharing (or remove the key) and confirm the same ask answers locally with an honest \"cannot see your screen\" boundary and zero image egress; deny the mic and confirm typed asks still work end to end.",
@@ -924,14 +924,16 @@
         "72/72 desktop Rust tests, 106/106 web tests, web typecheck and production build pass. Live 2026-07-29 validation on the user's machine with real grants and key found and fixed six defects — dotted Tauri event names (`annotate.marks`/`sensor.capture` had NEVER delivered), reasoning-model `<think>` leakage and empty answers, the missing `annotate*` capability entry that denied the annotation webview `plugin:event|listen`, an SVG `calc()` frame plus an opacity-0 entrance animation that prevented painting, and an ordinary always-on-top annotate window that could not draw over a fullscreen app — then proved summon, consented capture, correct screen description, rendered yellow spotlight+callout marks over a fullscreen app, ~12s auto-clear, and push-to-talk Whisper transcription. Full record and screenshot evidence: outputs/2026-07-29-task-027-companion-clicky-parity.md"
       ],
       "requests": [
-        "R-041"
+        "R-041",
+        "user report 2026-08-13, verbatim: *\"One of the other repo owners has pulled the latest and using the bridge desktop app. For him the screenshoot and analyze is not working can you check that?\"*",
+        "follow-ups: *\"Also chief of staff and avatar model are different?\"*, *\"I dont see the screen share feature and research agent feature Can you pull the latest\"*, and *\"also talk the response is also not shown now\"*."
       ],
-      "approval": "none",
+      "approval": "AP-149 and AP-150 applied",
       "dependencies": [],
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 461,
+      "sourceLine": 462,
       "rank": 27
     },
     {
@@ -972,7 +974,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 476,
+      "sourceLine": 480,
       "rank": 28
     },
     {
@@ -1004,7 +1006,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 448,
+      "sourceLine": 449,
       "rank": 29
     },
     {
@@ -1050,7 +1052,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 490,
+      "sourceLine": 495,
       "rank": 30
     },
     {
@@ -1087,7 +1089,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 503,
+      "sourceLine": 508,
       "rank": 31
     },
     {
@@ -1118,7 +1120,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 520,
+      "sourceLine": 525,
       "rank": 32
     },
     {
@@ -1144,7 +1146,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 542,
+      "sourceLine": 547,
       "rank": 33
     },
     {
@@ -1175,7 +1177,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 570,
+      "sourceLine": 575,
       "rank": 34
     },
     {
@@ -1205,7 +1207,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 583,
+      "sourceLine": 588,
       "rank": 35
     },
     {
@@ -1232,7 +1234,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 596,
+      "sourceLine": 601,
       "rank": 36
     },
     {
@@ -1259,7 +1261,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 613,
+      "sourceLine": 618,
       "rank": 37
     },
     {
@@ -1284,7 +1286,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 556,
+      "sourceLine": 561,
       "rank": 38
     },
     {
@@ -1314,7 +1316,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1043,
+      "sourceLine": 1048,
       "rank": 39
     },
     {
@@ -1339,8 +1341,44 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1057,
+      "sourceLine": 1063,
       "rank": 40
+    },
+    {
+      "id": "TASK-067",
+      "title": "TASK-067 — DevPilot D0 — Module skeleton, dark behind a flight",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "`devpilot` is a real installed built-in Module — nav entry, three Pages (Pull Requests/Issues/Repos) rendering through the standard `<ModuleSurfaceLayout>` + `<DataViews>` shell, one Agent, one scheduled Automation — entirely invisible with `BRIDGE_DEVPILOT` off, and `devpilot.status` answers honestly regardless of the flight.",
+      "prototypeTest": "with `BRIDGE_DEVPILOT=1`, DevPilot appears in the rail and lands on Pull Requests with no nav code written for it (manifest-driven, per `moduleNavTarget`); with the flight off, every `devpilot.*` procedure except `status` throws `PRECONDITION_FAILED` and the module is absent from nav; `pnpm turbo run build test` is green across `@bridge/module-manifests`, `@bridge/api`, and `@bridge/web`.",
+      "scope": [
+        "`docs/raw/devpilot-module-plan-2026-08-13.md` (D0)",
+        "ADR-235",
+        "AP-153. New package `platform/modules/devpilot` (pure Table specs + domain types, no store)",
+        "manifest entry + capability rows + runtime ids in `platform/modules/manifests/src/index.ts`",
+        "Commons exclusion",
+        "`devpilot: t.router({...})` namespace + `assertDevpilotFlightEnabled` in `platform/apps/api/src/router.ts`",
+        "`BRIDGE_DEVPILOT` flight resolution + `devpilot`/`devpilotEnabled` Wiring fields in `platform/apps/api/src/wiring.ts`",
+        "`DevPilotPage.tsx` + manifest-derived routes in `platform/apps/web/src/app/routes.tsx`."
+      ],
+      "evidence": [
+        "`@bridge/devpilot` 6/6 tests",
+        "`@bridge/module-manifests` catalog tests green including the new DevPilot-specific assertions (Page ids, nav target, no `external:send` capability, Agent Plane present, Automation schedule present, Commons withholding)",
+        "`@bridge/api` full suite green (procedure-classification completeness gate closes `devpilot.` as Local-Plane-only, alongside `google.`)",
+        "`@bridge/web` full suite green (191 tests, `ui-conformance.test.mjs` unaffected — DevPilotPage needs no EXEMPT entry, it renders through the standard shell)."
+      ],
+      "requests": [
+        "user directive 2026-08-13, verbatim: *\"I want to build a Software Engineer Pilot module... see if you can make us of the Central AI Harness\"*",
+        "follow-up *\"Implement the devpilot plan now\"*."
+      ],
+      "approval": "AP-153 applied",
+      "dependencies": [],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1063,
+      "rank": 41
     },
     {
       "id": "TASK-068",
@@ -1366,8 +1404,46 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1070,
-      "rank": 41
+      "sourceLine": 1076,
+      "rank": 42
+    },
+    {
+      "id": "TASK-068",
+      "title": "TASK-068 — DevPilot D1 — GitHub tracker slice",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "a connected fine-grained GitHub Personal Access Token syncs the owner's repos, and tracked repos' pull requests and issues, into the DevPilot Databases — on a 15-minute scheduled Automation and on manual \"run sync now\" — idempotently (a re-run updates existing rows, never duplicates them) and with zero learning-specific code (the sync Skill's ledger attribution carries `moduleId:\"devpilot\"` for free via the existing K1 ledger miner).",
+      "prototypeTest": "paste a fine-grained PAT at `/integrations/github` → masked token metadata renders (never the raw value, never logged); track 1–2 repos → \"run sync now\" fills the Pull Requests/Issues DataViews; re-running the sync inserts zero duplicate rows (`(organization_id, source, source_id)` unique upsert); an item carrying GitHub's `pull_request` key on the `/issues` response never becomes a `devpilot_issues` row; disconnecting deletes the local token and the module renders an honest empty state.",
+      "scope": [
+        "`docs/raw/devpilot-module-plan-2026-08-13.md` (D1)",
+        "ADR-235",
+        "AP-153. New package `platform/packages/integrations-github` (contracts/gateway/gateway-live over `guardedFetch`/pat/intake/manifest)",
+        "`devpilot_repos`/`devpilot_pulls`/`devpilot_issues` tables + migration `0041` in `platform/packages/db/src/schema.ts`",
+        "`DrizzleDevpilotStore` (`platform/packages/db/src/devpilot-store.ts`)",
+        "`devpilot.syncGithub` governed Skill + `role-devpilot-tracker` Agent authority + `ensureDevpilotTrackerGovernance` in `platform/apps/api/src/wiring.ts` and `platform/packages/db/src/governance-stores.ts`",
+        "`devpilot.github.{connect,disconnect,status}`, `devpilot.{repos,pulls,issues}.list`, `devpilot.repos.setTracked`, `devpilot.sync.run` procedures in `platform/apps/api/src/router.ts`",
+        "`GithubIntegrationPanel.tsx` in `platform/apps/web`."
+      ],
+      "evidence": [
+        "`@bridge/integrations-github` 13/13 tests, 92.98% line coverage (incl. the GitHub-mixes-PRs-into-/issues fixture, PAT masking/never-logged, rate-limit + pagination parsing, a non-2xx status surfaced as a typed failure never silent-empty data)",
+        "`@bridge/db` 239/239 (drizzle-generate no-op drift gate rebased through migration `0041`)",
+        "`@bridge/api` full suite green (`procedure-classification.test.ts` closes `devpilot.` Local-Plane-only",
+        "the FK-constraint regression from a missing `agents` row for the new runtime Agent id was caught by the existing Task Manager governance test and fixed by adding `ensureDevpilotTrackerGovernance`, mirroring `ensureEgressAgentGovernance`)",
+        "`@bridge/web` full suite green."
+      ],
+      "requests": [
+        "user directive 2026-08-13 (see TASK-067)."
+      ],
+      "approval": "AP-153 applied",
+      "dependencies": [
+        "TASK-067"
+      ],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1076,
+      "rank": 43
     },
     {
       "id": "TASK-039",
@@ -1400,8 +1476,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 634,
-      "rank": 42
+      "sourceLine": 639,
+      "rank": 44
     },
     {
       "id": "TASK-040",
@@ -1434,8 +1510,8 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 649,
-      "rank": 43
+      "sourceLine": 654,
+      "rank": 45
     },
     {
       "id": "TASK-041",
@@ -1461,8 +1537,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 663,
-      "rank": 44
+      "sourceLine": 668,
+      "rank": 46
     },
     {
       "id": "TASK-042",
@@ -1492,13 +1568,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 708,
-      "rank": 45
+      "sourceLine": 713,
+      "rank": 47
     },
     {
       "id": "TASK-043",
       "title": "TASK-043 — Constitution enforcement mechanisms (ADR-176 adopt-list)",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "The five mechanisms adopted from the ADR-175 regeneration test exist as executable harness obligations rather than review conventions, so constitution conformance is provable per capability instead of asserted.",
@@ -1506,20 +1582,26 @@
       "scope": [],
       "evidence": [
         "ADR-176",
-        "`outputs/2026-08-04-regeneration-test-learning-agent.md`."
+        "`outputs/2026-08-04-regeneration-test-learning-agent.md`. DONE 2026-08-13 (ADR-234, AP-152): all five mechanisms landed with removal-fails tests — E1 `port-allowlist.json` + structural scanner over `core/learning`+`core/memory`",
+        "E2 `acceptance-audit.ts` (shown-text sha256 stamp, reviewed-vs-unverified audit query) wired into all three accept paths (`observation.ts`/`promotion.ts`/`claims.ts`)",
+        "E3+E4 share one `gateClaimProposal` checkpoint in `claims.ts` (red-content term families, amber \"Observed about...\" framing, raise-only tier join, evidence-required, compound-clause-per-clause refusal)",
+        "E5 `rejection-fingerprints.ts` (strike-not-duplicate, 30d→90d→permanent backoff, deletable-Memory un-suppress) wired via `router.ts`'s `withRejectionEmbedder`/`isSuppressedByRejectionsAnyTier`. Two real defects surfaced during verification and were fixed, not worked around: (a) `acceptance-audit.ts` originally used `node:crypto`'s `createHash`, which broke `@bridge/web`'s production build (Rollup cannot bind a named import from a Node builtin reached through core's barrel export, even for code never called client-side) — fixed via `globalThis.crypto.subtle`",
+        "(b) the live walk caught a genuine E5 tier-consistency gap (`isSuppressedByRejections` filters by embedder id before calling `embed()`, so a fingerprint written under the lexical fallback tier was invisible to a check that tried the semantic tier first and found nothing — never throwing, so the fallback path never ran) plus an adjacent real hash collision in the shared dim-128 lexical embedder (\"cet\"/\"ist\" landed in the same FNV1a bucket) that the fix's dual-tier check then exposed — resolved with a dual-tier suppression check plus a dedicated dim-4096 lexical embedder scoped to rejection fingerprints alone. `pnpm verify` 77/77",
+        "live durable-boot walk 11/11 including a real process RESTART proving both suppression and audit-stamp durability."
       ],
       "requests": [
-        "user directive 2026-08-04 (\"Incorporate the 6 ideas, if validated to be better\")."
+        "user directive 2026-08-04 (\"Incorporate the 6 ideas, if validated to be better\")",
+        "user directive 2026-08-13 (\"start on next tasks fr AI harness\")."
       ],
-      "approval": "AP-103 APPLIED",
+      "approval": "AP-103 APPLIED (adoption); AP-152 APPLIED (this slice)",
       "dependencies": [
-        "E5 depends on the semantic embedder (learning-agent LA5 open item). E1-E4 have none."
+        "E5 depends on the semantic embedder (learning-agent LA5 open item, shipped). E1-E4 have none."
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 722,
-      "rank": 46
+      "sourceLine": 727,
+      "rank": 48
     },
     {
       "id": "TASK-044",
@@ -1553,8 +1635,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 742,
-      "rank": 47
+      "sourceLine": 747,
+      "rank": 49
     },
     {
       "id": "TASK-045",
@@ -1587,8 +1669,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 757,
-      "rank": 48
+      "sourceLine": 762,
+      "rank": 50
     },
     {
       "id": "TASK-046",
@@ -1622,8 +1704,8 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 772,
-      "rank": 49
+      "sourceLine": 777,
+      "rank": 51
     },
     {
       "id": "TASK-047",
@@ -1657,8 +1739,8 @@
       "canonicalStatus": "done (2026-08-09, minimal cut per AP-136/ADR-216; deferred loops are named follow-ups below)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 786,
-      "rank": 50
+      "sourceLine": 791,
+      "rank": 52
     },
     {
       "id": "TASK-048",
@@ -1692,8 +1774,8 @@
       "canonicalStatus": "done (2026-08-10, ADR-220/AP-140)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 800,
-      "rank": 51
+      "sourceLine": 805,
+      "rank": 53
     },
     {
       "id": "TASK-049",
@@ -1729,8 +1811,8 @@
       "canonicalStatus": "done (2026-08-10)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 813,
-      "rank": 52
+      "sourceLine": 818,
+      "rank": 54
     },
     {
       "id": "TASK-050",
@@ -1771,8 +1853,8 @@
       "canonicalStatus": "done (2026-08-10)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 826,
-      "rank": 53
+      "sourceLine": 831,
+      "rank": 55
     },
     {
       "id": "TASK-051",
@@ -1806,8 +1888,8 @@
       "canonicalStatus": "done (2026-08-13, ADR-230, AP-148)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 839,
-      "rank": 54
+      "sourceLine": 844,
+      "rank": 56
     },
     {
       "id": "TASK-052",
@@ -1842,37 +1924,41 @@
       "canonicalStatus": "done (2026-08-11, ADR-227, AP-146)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 852,
-      "rank": 55
+      "sourceLine": 857,
+      "rank": 57
     },
     {
       "id": "TASK-053",
       "title": "TASK-053 — K9 — Builder ladder: rung 3 steps, rung 4 structures",
-      "status": "pending",
+      "status": "open",
       "priority": "P2",
       "horizon": "Core Modules",
       "outcome": "Rung 3 — the Capability Builder drafts automation STEPS from a promotion pattern + its ledger episodes, constrained to the existing skill registry + canonical step schema (constrained generation, not codegen; existing activation gates apply). Rung 4 — structure synthesis: the Builder proposes Databases/Views/Pages/blueprints from K3's entities and claims via the validated input-pack regeneration methodology (ADR-175/176/177; TASK-042 defines the per-class packs). Rung 5 (code-bearing skills via BA0 sandbox) is explicitly later, gated on rung 4 proving out.",
-      "prototypeTest": "rung 3 — given a real promotion pattern, the Builder proposes steps that reference only registered skills and validate against the step schema, and an out-of-registry step is refused; rung 4 — the north-star test: given only observation data from ETA-style work, the Builder proposes a Deals/Sources/Theses-shaped module without being told about DealPilot.",
+      "prototypeTest": "rung 3 — given a real promotion pattern, the Builder proposes steps that reference only registered skills and validate against the step schema, and an out-of-registry step is refused; rung 4 — the north-star test: given only observation data from ETA-style work, the Builder proposes a Deals/Sources/Theses-shaped module without being told about DealPilot. RUNG 3 PASSED — full path over real buildWiring (6 seeded ledger proposal+decision pairs → mined-shape signals → propose → accept → proposeSteps derives exactly the demonstrated step, validated by parseAutomationSteps, saved still-draft); out-of-registry skill refused with a structured reason, draft stays empty, empty draft cannot activate; live durable-boot walk 9/9 on real captured K7 focus data (rhythm pattern → structured pattern_not_skill_shaped refusal, stable across restart); real-browser drafts-card walk with the refusal rendered verbatim. Rung 4's north-star test remains unrun (blocked).",
       "scope": [
         "`docs/raw/ai-harness-plan-2026-08-09.md` K9. Safe by construction: the View/Page schema cannot hold code (ADR-194)."
       ],
       "evidence": [
         "ADR-175/176/177 regeneration methodology",
-        "TASK-042 pack definitions."
+        "TASK-042 pack definitions. Rung 3: ADR-231 — core `learning/builder.ts` (episodesForSkill payload-free envelope",
+        "draftStepsFromEpisodes modal-shape derivation, refusal-first), `learning.promotions.drafts.proposeSteps` lane, drafts-card \"Draft steps from my decisions\" control",
+        "core 6/6 + api 4/4, four mutations RED, verify 77/77. HONEST BLOCKER for rung 4: TASK-042 (per-class input packs) has never been executed — its Status is still ready",
+        "structure synthesis cannot honestly ship \"via the validated input-pack regeneration methodology\" until those packs exist and are validated."
       ],
       "requests": [
-        "user directive 2026-08-09 (\"start on AI harness\")"
+        "user directive 2026-08-09 (\"start on AI harness\")",
+        "user directive 2026-08-13 (\"start on next tasks fr AI harness\")"
       ],
-      "approval": "AP-131 APPLIED",
+      "approval": "AP-131 APPLIED; AP-151 APPLIED",
       "dependencies": [
-        "TASK-045 (rung 3)",
-        "TASK-047, TASK-042 (rung 4)"
+        "TASK-045 (rung 3, done)",
+        "TASK-047 (done), TASK-042 (rung 4 — OPEN)"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "blocked on TASK-042 (rung 3 DONE 2026-08-13, ADR-231/AP-151; rung 4 awaits the per-class input packs — see Evidence)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 866,
-      "rank": 56
+      "sourceLine": 871,
+      "rank": 58
     },
     {
       "id": "TASK-054",
@@ -1900,8 +1986,8 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 879,
-      "rank": 57
+      "sourceLine": 884,
+      "rank": 59
     },
     {
       "id": "TASK-055",
@@ -1934,8 +2020,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 900,
-      "rank": 58
+      "sourceLine": 905,
+      "rank": 60
     },
     {
       "id": "TASK-056",
@@ -1964,8 +2050,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 913,
-      "rank": 59
+      "sourceLine": 918,
+      "rank": 61
     },
     {
       "id": "TASK-057",
@@ -1993,8 +2079,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 926,
-      "rank": 60
+      "sourceLine": 931,
+      "rank": 62
     },
     {
       "id": "TASK-058",
@@ -2022,8 +2108,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 939,
-      "rank": 61
+      "sourceLine": 944,
+      "rank": 63
     },
     {
       "id": "TASK-059",
@@ -2050,8 +2136,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 952,
-      "rank": 62
+      "sourceLine": 957,
+      "rank": 64
     },
     {
       "id": "TASK-060",
@@ -2077,8 +2163,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 965,
-      "rank": 63
+      "sourceLine": 970,
+      "rank": 65
     },
     {
       "id": "TASK-061",
@@ -2108,8 +2194,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 978,
-      "rank": 64
+      "sourceLine": 983,
+      "rank": 66
     },
     {
       "id": "TASK-062",
@@ -2134,8 +2220,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 991,
-      "rank": 65
+      "sourceLine": 996,
+      "rank": 67
     },
     {
       "id": "TASK-063",
@@ -2160,8 +2246,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1004,
-      "rank": 66
+      "sourceLine": 1009,
+      "rank": 68
     },
     {
       "id": "TASK-064",
@@ -2188,8 +2274,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1017,
-      "rank": 67
+      "sourceLine": 1022,
+      "rank": 69
     },
     {
       "id": "TASK-065",
@@ -2214,8 +2300,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1030,
-      "rank": 68
+      "sourceLine": 1035,
+      "rank": 70
     }
   ]
 }

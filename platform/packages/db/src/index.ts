@@ -49,6 +49,7 @@ export {
   ensureLearningAgentGovernance,
   ensureOutreachAgentGovernance,
   ensureEgressAgentGovernance,
+  ensureDevpilotTrackerGovernance,
   ensureIntakeAgentGovernance,
   ensureDealPilotPrincipalGovernance,
   ensureCapabilityApprovalPrincipalGovernance,
@@ -142,6 +143,16 @@ export {
   type UpsertRelationInput,
 } from "./graph-store.js";
 export { DrizzleJobPilotStore, type JobRow, type ApplicationRow, type CreateJobInput } from "./jobpilot-store.js";
+export {
+  DrizzleDevpilotStore,
+  type DevpilotRepoRow,
+  type DevpilotPullRow,
+  type DevpilotIssueRow,
+  type UpsertRepoInput,
+  type UpsertPullInput,
+  type UpsertIssueInput,
+  type ListOpts as DevpilotListOpts,
+} from "./devpilot-store.js";
 export {
   DrizzleHelpdeskStore,
   type TicketRow,

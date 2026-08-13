@@ -1,0 +1,43 @@
+import type { GithubPullPayload } from "../../src/contracts.js";
+
+export const PULL_FIXTURES: GithubPullPayload[] = [
+  {
+    id: 2001,
+    number: 42,
+    title: "Add retry budget to the sync loop",
+    state: "open",
+    merged_at: null,
+    draft: false,
+    user: { login: "octocat" },
+    additions: 120,
+    deletions: 8,
+    updated_at: "2026-08-12T10:00:00Z",
+    html_url: "https://github.com/octocat/bridge-demo/pull/42",
+  },
+  {
+    id: 2002,
+    number: 41,
+    title: "Draft: experiment with cursor pagination",
+    state: "open",
+    merged_at: null,
+    draft: true,
+    user: { login: "octocat" },
+    additions: 30,
+    deletions: 2,
+    updated_at: "2026-08-11T08:00:00Z",
+    html_url: "https://github.com/octocat/bridge-demo/pull/41",
+  },
+  {
+    id: 2003,
+    number: 40,
+    title: "Fix flaky rate-limit test",
+    state: "closed",
+    merged_at: "2026-08-09T10:00:00Z",
+    draft: false,
+    user: { login: "hubot" },
+    additions: 12,
+    deletions: 3,
+    updated_at: "2026-08-09T10:00:00Z",
+    html_url: "https://github.com/octocat/bridge-demo/pull/40",
+  },
+];

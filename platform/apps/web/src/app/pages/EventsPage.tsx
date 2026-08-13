@@ -5,7 +5,6 @@ import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
-import { Input } from "../components/ui/input";
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow } from "../dataviews/types";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
@@ -44,7 +43,6 @@ function isoOrUndefined(value: unknown): string | undefined {
 export function EventsPage() {
   const [rows, setRows] = useState<DataRow[] | null>(null);
   const [total, setTotal] = useState(0);
-  const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [view, setView] = useState<ViewConfig>(defaultViewConfig(`${EVENTS_SPEC.id}:table`, "table"));
@@ -110,36 +108,19 @@ export function EventsPage() {
     setReload((value) => value + 1);
   }
 
-  const visibleRows = rows?.filter((row) => {
-    if (!search.trim()) return true;
-    const query = search.trim().toLowerCase();
-    return Object.values(row).some((value) => String(value ?? "").toLowerCase().includes(query));
-  }) ?? null;
-
   if (error) return <div className="p-4 sm:p-6 text-sm text-red-600 break-words">{error}</div>;
-  if (visibleRows === null) return <div className="p-4 sm:p-6 text-sm text-muted-foreground">Loading Events…</div>;
+  if (rows === null) return <div className="p-4 sm:p-6 text-sm text-muted-foreground">Loading Events…</div>;
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden w-full max-w-full" style={{ backgroundColor: "var(--color-background)" }}>
       <Header tabs={[{ id: "Events", icon: CalendarRange }]} activeTab="Events" onTabChange={() => {}} />
       <ModuleSurfaceLayout
-        above={
-          <div className="border-b px-4 py-3" style={{ borderColor: "var(--color-border)" }}>
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-8 max-w-sm"
-              placeholder="Search Events…"
-              aria-label="Search Events"
-            />
-          </div>
-        }
         table={
           <section aria-label="Events landing section" className="h-full">
             <DataViews
               spec={EVENTS_SPEC}
               view={view}
-              data={visibleRows}
+              data={rows}
               onViewChange={setView}
               onInsert={insertRecord}
               onUpdate={updateRecord}

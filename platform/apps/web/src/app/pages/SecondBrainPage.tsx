@@ -111,6 +111,8 @@ function ClaimsPanel({ onClaimsChanged }: { onClaimsChanged: () => void }) {
                     () => trpc.learning.claims.acceptClaim.mutate({
                       organizationId: PILOT_ORGANIZATION,
                       suggestionMemoryId: suggestion.memoryId,
+                      // K10 E2: the exact text this row rendered.
+                      shownText: suggestion.suggestedText,
                     }),
                     "Claim accepted and materialized through the governed pipeline.",
                   )}

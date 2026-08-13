@@ -50,6 +50,9 @@ const PRIYA_TIMEZONE = {
   field: "timezone",
   value: "CET",
   claimClass: "stated_fact" as const,
+  // K10 E4: every durable statement references >=1 evidence id — the gate
+  // refuses evidence-free proposals, so the fixture carries its source.
+  evidence: [{ kind: "memory" as const, id: "3f1c0000-0000-4000-8000-000000000001" }],
 };
 
 test("flight OFF: status reports disabled; every claims procedure fails closed", async () => {

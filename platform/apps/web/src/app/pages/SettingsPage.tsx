@@ -27,7 +27,11 @@ import { ExecutionLedger } from "../components/ExecutionLedger";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { tauriInvoke } from "../avatar/tauri-internals";
 import { AVATAR_COLOR_KEY, AVATAR_CURSOR_VISIBLE_KEY } from "../avatar/AnnotateApp";
-import { AVATAR_SHARE_SCREEN_KEY, AVATAR_SPEAK_ANSWERS_KEY } from "../avatar/CompanionAsk";
+import {
+  AVATAR_SHARE_SCREEN_KEY,
+  AVATAR_SPEAK_ANSWERS_KEY,
+  readAvatarShareScreenPreference,
+} from "../avatar/CompanionAsk";
 
 const navItems = [
   { id: "organization", label: "Organization", icon: Building2 },
@@ -526,8 +530,10 @@ function ObservedLearningCard() {
     refresh();
   }
 
-  async function accept(suggestionMemoryId: string) {
-    await trpc.learning.suggestions.accept.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId });
+  async function accept(suggestionMemoryId: string, shownText: string) {
+    // K10 E2: send the exact text this card rendered — the acceptance is
+    // stamped so the audit can tell reviewed from rubber-stamped.
+    await trpc.learning.suggestions.accept.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId, shownText });
     setMessage("Saved as a learned preference. It now informs agent context; you can delete it below at any time.");
     refresh();
   }
@@ -570,7 +576,7 @@ function ObservedLearningCard() {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => void accept(suggestion.memoryId)}
+                onClick={() => void accept(suggestion.memoryId, suggestion.suggestedText)}
                 className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white"
               >
                 Remember this
@@ -836,8 +842,9 @@ function AutomationDraftsCard() {
     refresh();
   }
 
-  async function acceptProposal(suggestionMemoryId: string) {
-    const result = await trpc.learning.promotions.accept.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId });
+  async function acceptProposal(suggestionMemoryId: string, shownText: string) {
+    // K10 E2: stamp the acceptance with the exact rendered text.
+    const result = await trpc.learning.promotions.accept.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId, shownText });
     setMessage(`Draft "${result.name}" created. It never runs until you give it steps and explicitly activate it.`);
     refresh();
   }
@@ -868,6 +875,28 @@ function AutomationDraftsCard() {
       setMessage("Step added. The draft still never runs until you activate it.");
     } catch (error) {
       setMessage(String(error)); // server refusal (unknown skill, invalid step) surfaced verbatim
+    }
+    refresh();
+  }
+
+  /** K9 rung 3 (TASK-053): ask the Builder to derive steps from the ledger
+   * evidence behind this draft's pattern. Structured refusals (a behavior
+   * rhythm with no skill to bind, an unregistered skill, no remaining
+   * episodes) render verbatim — the draft stays empty rather than guessing. */
+  async function proposeSteps(automationId: string) {
+    try {
+      const result = await trpc.learning.promotions.drafts.proposeSteps.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        automationId,
+      });
+      setMessage(
+        result.proposed
+          ? `Drafted ${result.steps.length} step${result.steps.length === 1 ? "" : "s"} from ${result.evidence.episodeCount} of your own decisions` +
+              `${result.evidence.distinctShapes > 1 ? " (evidence was mixed — the most common shape won; review closely)" : ""}. Still a draft; activation is yours.`
+          : `The Builder declined: ${result.detail}`,
+      );
+    } catch (error) {
+      setMessage(String(error));
     }
     refresh();
   }
@@ -913,7 +942,7 @@ function AutomationDraftsCard() {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => void acceptProposal(proposal.memoryId)}
+                onClick={() => void acceptProposal(proposal.memoryId, proposal.suggestedText)}
                 className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white"
               >
                 Draft an Automation
@@ -973,14 +1002,23 @@ function AutomationDraftsCard() {
                     Add step
                   </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void activate(draft.id)}
-                  disabled={draft.steps.length === 0}
-                  className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white disabled:opacity-40"
-                >
-                  Activate
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void proposeSteps(draft.id)}
+                    className="text-xs font-semibold px-3 py-2 rounded-lg border"
+                  >
+                    Draft steps from my decisions
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void activate(draft.id)}
+                    disabled={draft.steps.length === 0}
+                    className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white disabled:opacity-40"
+                  >
+                    Activate
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -1295,9 +1333,6 @@ function readStoredColor() {
 function readStoredCursorVisible() {
   try { return localStorage.getItem(AVATAR_CURSOR_VISIBLE_KEY) !== "false"; } catch { return true; }
 }
-function readStoredShareScreen() {
-  try { return localStorage.getItem(AVATAR_SHARE_SCREEN_KEY) !== "false"; } catch { return true; }
-}
 function readStoredSpeakAnswers() {
   try { return localStorage.getItem(AVATAR_SPEAK_ANSWERS_KEY) !== "false"; } catch { return true; }
 }
@@ -1399,7 +1434,7 @@ function DesktopSection() {
 function AvatarSection() {
   const [markColor, setMarkColor] = useState(readStoredColor);
   const [cursorVisible, setCursorVisible] = useState(readStoredCursorVisible);
-  const [shareScreen, setShareScreen] = useState(readStoredShareScreen);
+  const [shareScreen, setShareScreen] = useState(readAvatarShareScreenPreference);
   const [speakAnswers, setSpeakAnswers] = useState(readStoredSpeakAnswers);
 
   function handleColorChange(color: string) {
