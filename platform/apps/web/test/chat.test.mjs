@@ -15,9 +15,10 @@ const page = read("../src/app/pages/ChiefOfStaffPage.tsx");
 const overlay = read("../src/app/avatar/OverlayApp.tsx");
 const desktopNavigation = read("../src/app/lib/desktop-navigation.ts");
 const panelControl = read("../src/app/components/shared/PanelControl.tsx");
+const layout = read("../src/app/Layout.tsx");
 
 test("panel, Page, and Avatar render the same persistent Chat view", () => {
-  assert.match(panel, /<ChatView surface="chat_panel" compact \/>/);
+  assert.match(panel, /<ChatView surface="chat_panel" compact moduleId={moduleId} \/>/);
   assert.match(page, /<ChatView surface="chief_of_staff_page"/);
   assert.match(overlay, /surface="avatar_overlay"/);
   assert.match(overlay, /onOpenTask=/);
@@ -29,6 +30,25 @@ test("panel, Page, and Avatar render the same persistent Chat view", () => {
   assert.doesNotMatch(panel, /useState<.*Message/);
   assert.doesNotMatch(page, /useState<.*Message/);
   assert.doesNotMatch(overlay, /useState<.*Message/);
+});
+
+test("ADR-240: the Chat Panel scopes to the current route's Module and can attach another Module's session", () => {
+  // Layout resolves the active Module from the URL and threads its
+  // installation id into the Chat Panel — the source of "which Module's
+  // sessions does this surface default to".
+  assert.match(layout, /activeModuleId/);
+  assert.match(layout, /<AgentPanel moduleId={activeModuleId} \/>/);
+  assert.match(panel, /moduleId\?:\s*string \| undefined/);
+  // useChat scopes listing/creation by moduleId and resolves "default to
+  // last opened" from lastOpenedAt, not from localStorage, when scoped.
+  assert.match(hook, /export function useChat\(surfaceKind: ChatSurfaceKind, moduleId\?: string\)/);
+  assert.match(hook, /moduleId: moduleId \?\? null/);
+  assert.match(hook, /lastOpenedAt\.localeCompare/);
+  assert.match(hook, /trpc\.chat\.thread\.touchLastOpened/);
+  // The cross-Module attach picker reuses `chat.selectThread` — attaching a
+  // foreign session views/continues it without re-scoping it.
+  assert.match(view, /AttachModulePicker/);
+  assert.match(view, /onAttach={\(threadId\) => void chat\.selectThread\(threadId\)}/);
 });
 
 test("polling preserves paginated history and does not steal scroll position", () => {

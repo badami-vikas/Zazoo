@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T16:56:51.616Z",
+  "generatedAt": "2026-08-13T22:07:10.914Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1352,7 +1352,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1088,
+      "sourceLine": 1101,
       "rank": 40
     },
     {
@@ -1390,7 +1390,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1101,
+      "sourceLine": 1114,
       "rank": 41
     },
     {
@@ -1446,6 +1446,39 @@
       "rank": 43
     },
     {
+      "id": "TASK-071",
+      "title": "TASK-071 — Module-scoped Chat sessions — cross-Module attach + default-to-last-opened",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "each installed Module's Chat Panel (`AgentPanel`/`ChatView`) is scoped to its OWN set of Chat sessions — the existing `ChatThread` entity extended with nullable `moduleId` + `lastOpenedAt` (ADR-240), not a new store. Fresh navigation into a Module defaults its Chat Panel to that Module's most-recently-opened session (lazy first-session creation, never pre-seeded). A cross-Module \"attach\" picker in the switcher lets the user pick another installed Module and one of ITS sessions to view/continue from the current surface, without moving or re-scoping that session — the same \"attach a folder in Claude Code without leaving your current directory\" model the user described. The pre-existing unscoped global Avatar Chat (`moduleId: NULL`) is unchanged.",
+      "prototypeTest": "navigate into two different installed Modules (e.g. Relationship, Task Manager) — each Chat Panel shows only sessions created under that Module (never the other's, never the global thread); creating a second session under one Module and reopening the first makes the first the new default on next mount; the switcher's \"attach\" control lists another Module's sessions and selecting one loads it into the current panel while it still lists under its OWN Module afterward.",
+      "scope": [
+        "migration `platform/packages/db/migrations/0043_task071_chat_module_sessions.sql` + `schema.ts` (`chat_threads.module_id`/`last_opened_at` + index)",
+        "`@bridge/core` `chat-store.ts` (`ChatThread.moduleId`/`lastOpenedAt`, `ChatThreadQuery.moduleId`, new `ChatStore.touchLastOpened`, `InMemoryChatStore` impl)",
+        "`@bridge/db` `chat-store.ts` (Drizzle impl)",
+        "`apps/api/src/chat/residency-chat-store.ts` (routing impl)",
+        "`apps/api/src/router.ts` (`chat.thread.create`/`list` gain `moduleId`, new `chat.thread.touchLastOpened`)",
+        "`apps/api/src/deployment-boundary.ts` (classify the new procedure)",
+        "`apps/web/src/app/chat/useChat.ts` (moduleId param, last-opened-default resolution, moduleId-qualified lazy-create idempotency key)",
+        "`apps/web/src/app/chat/ChatView.tsx` (`AttachModulePicker`)",
+        "`apps/web/src/app/components/shared/AgentPanel.tsx` + `apps/web/src/app/Layout.tsx` (`activeModuleId` resolved from the route, threaded through)."
+      ],
+      "evidence": [
+        "`@bridge/core` `chat-store.test.ts` 6/6 (new ADR-240 test: moduleId isolation, last-opened resolution flip, cross-owner touch denial). `@bridge/db` `chat-store.test.ts` 6/6 against real Postgres (new: moduleId/lastOpenedAt persist across restart). `@bridge/api` `chat.test.ts` 20/20 + `procedure-classification.test.ts` 5/5 (new router-level test over real built-in Modules: unknown-moduleId create → NOT_FOUND, cross-Module list isolation, last-opened default flip via `touchLastOpened`). `@bridge/web` `chat.test.mjs` 6/6 (new source-shape assertions) + `ui-conformance.test.mjs` 13/13 unaffected (no EXEMPT entry — `AttachModulePicker` reuses the existing native-`<select>` switcher primitive) + `pnpm run typecheck` clean. `pnpm exec turbo run build` green across `@bridge/core`/`@bridge/db`/`@bridge/api`/`@bridge/web`."
+      ],
+      "requests": [
+        "user directive 2026-08-14, verbatim: *\"I want the right chat session to be associated with module. Again I can create multiple chats within a module and also select a chat session from another module via dropdown just the way I attach folders in claude code. I want the default session to be associated with the last opened session in the module.\"*"
+      ],
+      "approval": "AP-155 (2026-08-14) — recorded APPLIED",
+      "dependencies": [],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1088,
+      "rank": 44
+    },
+    {
       "id": "TASK-039",
       "title": "TASK-039 — Path-scoped Copilot instructions for developed Modules",
       "status": "completed",
@@ -1477,7 +1510,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 639,
-      "rank": 44
+      "rank": 45
     },
     {
       "id": "TASK-040",
@@ -1511,7 +1544,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 654,
-      "rank": 45
+      "rank": 46
     },
     {
       "id": "TASK-041",
@@ -1538,7 +1571,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 668,
-      "rank": 46
+      "rank": 47
     },
     {
       "id": "TASK-042",
@@ -1569,7 +1602,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 713,
-      "rank": 47
+      "rank": 48
     },
     {
       "id": "TASK-043",
@@ -1601,7 +1634,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 727,
-      "rank": 48
+      "rank": 49
     },
     {
       "id": "TASK-044",
@@ -1636,7 +1669,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 747,
-      "rank": 49
+      "rank": 50
     },
     {
       "id": "TASK-045",
@@ -1670,7 +1703,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 762,
-      "rank": 50
+      "rank": 51
     },
     {
       "id": "TASK-046",
@@ -1705,7 +1738,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 777,
-      "rank": 51
+      "rank": 52
     },
     {
       "id": "TASK-047",
@@ -1740,7 +1773,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 791,
-      "rank": 52
+      "rank": 53
     },
     {
       "id": "TASK-048",
@@ -1775,7 +1808,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 805,
-      "rank": 53
+      "rank": 54
     },
     {
       "id": "TASK-049",
@@ -1812,7 +1845,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 818,
-      "rank": 54
+      "rank": 55
     },
     {
       "id": "TASK-050",
@@ -1854,7 +1887,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 831,
-      "rank": 55
+      "rank": 56
     },
     {
       "id": "TASK-051",
@@ -1889,7 +1922,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 844,
-      "rank": 56
+      "rank": 57
     },
     {
       "id": "TASK-052",
@@ -1925,7 +1958,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 857,
-      "rank": 57
+      "rank": 58
     },
     {
       "id": "TASK-053",
@@ -1958,7 +1991,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 871,
-      "rank": 58
+      "rank": 59
     },
     {
       "id": "TASK-054",
@@ -1987,7 +2020,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 884,
-      "rank": 59
+      "rank": 60
     },
     {
       "id": "TASK-055",
@@ -2021,7 +2054,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 905,
-      "rank": 60
+      "rank": 61
     },
     {
       "id": "TASK-056",
@@ -2051,7 +2084,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 918,
-      "rank": 61
+      "rank": 62
     },
     {
       "id": "TASK-057",
@@ -2080,7 +2113,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 931,
-      "rank": 62
+      "rank": 63
     },
     {
       "id": "TASK-058",
@@ -2109,7 +2142,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 944,
-      "rank": 63
+      "rank": 64
     },
     {
       "id": "TASK-059",
@@ -2137,7 +2170,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 957,
-      "rank": 64
+      "rank": 65
     },
     {
       "id": "TASK-060",
@@ -2164,7 +2197,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 970,
-      "rank": 65
+      "rank": 66
     },
     {
       "id": "TASK-061",
@@ -2195,7 +2228,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 983,
-      "rank": 66
+      "rank": 67
     },
     {
       "id": "TASK-062",
@@ -2221,7 +2254,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 996,
-      "rank": 67
+      "rank": 68
     },
     {
       "id": "TASK-063",
@@ -2247,7 +2280,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1009,
-      "rank": 68
+      "rank": 69
     },
     {
       "id": "TASK-064",
@@ -2275,7 +2308,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1022,
-      "rank": 69
+      "rank": 70
     },
     {
       "id": "TASK-065",
@@ -2301,7 +2334,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1035,
-      "rank": 70
+      "rank": 71
     }
   ]
 }

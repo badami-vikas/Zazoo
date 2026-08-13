@@ -56,7 +56,10 @@ function persistActiveThread(id: string): void {
   }
 }
 
-export function useChat(surfaceKind: ChatSurfaceKind) {
+/** ADR-240: `moduleId` scopes the Chat surface to one installed Module's own
+ * sessions ("Module-scoped Chat"). Omitted = the global unscoped Avatar Chat
+ * (pre-ADR-240 behavior, unchanged below). */
+export function useChat(surfaceKind: ChatSurfaceKind, moduleId?: string) {
   const [view, setView] = useState<ChatThreadView | null>(null);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [model, setModel] = useState<ChatModelStatus | null>(null);
@@ -75,9 +78,25 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
     const result = await trpc.chat.thread.list.query({
       organizationId: PILOT_ORGANIZATION,
       status: "active",
+      // ADR-240: this Module's own sessions only — `null` for the unscoped
+      // global Chat, an installation id for a Module-scoped one.
+      moduleId: moduleId ?? null,
       limit: 100,
     });
     setThreads([...result.items]);
+    return result.items;
+  }, [moduleId]);
+
+  /** ADR-240 cross-Module attach: lists another Module's sessions on demand
+   * (e.g. for the "attach from another Module" picker) without changing
+   * which Module THIS surface is scoped to. */
+  const listModuleThreads = useCallback(async (otherModuleId: string) => {
+    const result = await trpc.chat.thread.list.query({
+      organizationId: PILOT_ORGANIZATION,
+      status: "active",
+      moduleId: otherModuleId,
+      limit: 100,
+    });
     return result.items;
   }, []);
 
@@ -128,6 +147,12 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
       activeIdRef.current = threadId;
       desiredIdRef.current = threadId;
       persistActiveThread(threadId);
+      // ADR-240 "default to last opened": fire-and-forget — a failed touch
+      // only means the NEXT mount's default-resolution runs on a slightly
+      // stale ordering, never that this open failed.
+      void trpc.chat.thread.touchLastOpened
+        .mutate({ organizationId: PILOT_ORGANIZATION, threadId })
+        .catch(() => undefined);
     }
     setView((current) =>
       mergeChatThreadViews(current, result, mode === "older" ? "older" : "latest"),
@@ -160,6 +185,7 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
       created = await trpc.chat.thread.create.mutate({
         organizationId: PILOT_ORGANIZATION,
         ...(plane ? { plane } : {}),
+        ...(moduleId ? { moduleId } : {}),
         clientRequestId,
       });
     } catch (cause) {
@@ -176,7 +202,7 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
     await refreshThreads();
     announce(created.thread.id, true);
     return created;
-  }, [announce, refreshThreads]);
+  }, [announce, moduleId, refreshThreads]);
 
   const selectThread = useCallback(async (threadId: string) => {
     const result = await loadThread(threadId);
@@ -190,12 +216,22 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
     void (async () => {
       const [listed] = await Promise.all([refreshThreads(), refreshModel()]);
       if (!active) return;
-      const stored = activeThreadId();
-      const selected = listed.find((thread) => thread.id === stored) ?? listed[0];
+      // ADR-240 "default to last opened": a Module-scoped surface picks the
+      // session with the greatest `lastOpenedAt` from ITS OWN list (already
+      // filtered to this moduleId by refreshThreads). The unscoped global
+      // Chat keeps its pre-ADR-240 behavior — the locally-remembered active
+      // thread, falling back to the most recently active one.
+      const selected = moduleId
+        ? [...listed].sort((a, b) => b.lastOpenedAt.localeCompare(a.lastOpenedAt))[0]
+        : listed.find((thread) => thread.id === activeThreadId()) ?? listed[0];
       if (selected) {
         await loadThread(selected.id);
       } else {
-        await newChat(undefined, "default");
+        // Lazy creation only, never pre-seeded — and the clientRequestId is
+        // moduleId-qualified so two Modules' first-ever sessions don't
+        // collide on the same idempotent thread id (AP: idempotentUuid keys
+        // on organizationId/owner/plane/clientRequestId, not moduleId).
+        await newChat(undefined, `default:${moduleId ?? "global"}`);
       }
     })()
       .catch((cause) => {
@@ -207,7 +243,7 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
     return () => {
       active = false;
     };
-  }, [loadThread, newChat, refreshModel, refreshThreads]);
+  }, [loadThread, moduleId, newChat, refreshModel, refreshThreads]);
 
   useEffect(() => {
     const handleChange = (threadId: string | undefined, select = false) => {
@@ -501,6 +537,7 @@ export function useChat(surfaceKind: ChatSurfaceKind) {
     cloudDisclosure,
     pendingCloudMessage: pendingCloudRequest?.message ?? null,
     selectThread,
+    listModuleThreads,
     loadOlder,
     newChat,
     send,

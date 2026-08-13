@@ -3,6 +3,7 @@ import {
   Archive,
   ArrowUp,
   Check,
+  Link2,
   Loader2,
   Mic,
   Paperclip,
@@ -15,9 +16,10 @@ import {
 import { Link } from "react-router";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 import { tauriInvoke, tauriInvokeJob, tauriInvokeStrict } from "../avatar/tauri-internals";
 import { isNearChatBottom } from "./chat-state.mjs";
-import { type ChatSurfaceKind, type ChatTurn, useChat } from "./useChat";
+import { type ChatSurfaceKind, type ChatThread, type ChatTurn, useChat } from "./useChat";
 
 /** Same capability shape `companion_capabilities` returns (see
  * `avatar/CompanionAsk.tsx`) — only the STT flag is read here. */
@@ -71,6 +73,8 @@ interface ChatViewProps {
   /** Sends `initialDraft` as soon as the thread is ready, once, instead of
    * leaving it in the composer for a second Enter press. */
   autoSend?: boolean;
+  /** ADR-240: scopes this surface's sessions to one installed Module. */
+  moduleId?: string | undefined;
 }
 
 /** A parent Task the server's deterministic matcher put forward, with the WHY
@@ -144,6 +148,113 @@ function taskDraftFromTurn(turn: ChatTurn): TaskDraft | null {
     parentCandidates: parentCandidatesFrom(candidate.parentCandidates),
     status: "proposed",
   };
+}
+
+/** ADR-240 cross-Module attach — "add another Module's session" the way
+ * Claude Code lets you attach a different directory's context without
+ * leaving your current working directory. Picking a session here loads it
+ * via `chat.selectThread`, which does not move or re-scope it: the thread
+ * keeps its own moduleId, this surface is just viewing/continuing it. */
+function AttachModulePicker({
+  onAttach,
+}: {
+  onAttach: (threadId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [modules, setModules] = useState<
+    { id: string; displayName: string }[] | null
+  >(null);
+  const [moduleId, setModuleId] = useState("");
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+
+  useEffect(() => {
+    if (!open || modules) return;
+    trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 100, offset: 0 })
+      .then((result) => {
+        setModules(
+          result.items
+            .filter((item) => item.state === "available" && item.status === "installed")
+            .map((item) => ({
+              id: item.id,
+              displayName: item.manifest?.module?.displayName ?? item.manifest?.name ?? item.moduleName,
+            })),
+        );
+      })
+      .catch(() => setModules([]));
+  }, [open, modules]);
+
+  useEffect(() => {
+    if (!moduleId) {
+      setThreads([]);
+      return;
+    }
+    let active = true;
+    trpc.chat.thread.list
+      .query({ organizationId: PILOT_ORGANIZATION, status: "active", moduleId, limit: 100 })
+      .then((result) => {
+        if (active) setThreads([...result.items]);
+      })
+      .catch(() => {
+        if (active) setThreads([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [moduleId]);
+
+  if (!open) {
+    return (
+      <Button
+        size="icon"
+        variant="ghost"
+        aria-label="Attach a session from another Module"
+        onClick={() => setOpen(true)}
+      >
+        <Link2 className="size-4" />
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1">
+      <select
+        aria-label="Module to attach from"
+        className="min-w-0 flex-1 rounded border bg-background px-2 py-1.5 text-xs"
+        value={moduleId}
+        onChange={(event) => setModuleId(event.target.value)}
+      >
+        <option value="">{modules === null ? "Loading Modules…" : "Choose a Module…"}</option>
+        {modules?.map((mod) => (
+          <option key={mod.id} value={mod.id}>{mod.displayName}</option>
+        ))}
+      </select>
+      <select
+        aria-label="Session to attach"
+        className="min-w-0 flex-1 rounded border bg-background px-2 py-1.5 text-xs"
+        value=""
+        disabled={!moduleId}
+        onChange={(event) => {
+          if (!event.target.value) return;
+          onAttach(event.target.value);
+          setOpen(false);
+          setModuleId("");
+        }}
+      >
+        <option value="">
+          {!moduleId ? "…" : threads.length === 0 ? "No sessions yet" : "Choose a session…"}
+        </option>
+        {threads.map((thread) => (
+          <option key={thread.id} value={thread.id}>
+            {thread.title ?? `Chat · ${new Date(thread.createdAt).toLocaleDateString()}`}
+          </option>
+        ))}
+      </select>
+      <Button size="icon" variant="ghost" aria-label="Cancel attach" onClick={() => setOpen(false)}>
+        <X className="size-4" />
+      </Button>
+    </div>
+  );
 }
 
 function ModelSetup({
@@ -434,8 +545,9 @@ export function ChatView({
   onOpenTask,
   initialDraft,
   autoSend = false,
+  moduleId,
 }: ChatViewProps) {
-  const chat = useChat(surface);
+  const chat = useChat(surface, moduleId);
   const [draft, setDraft] = useState(initialDraft ?? "");
   const listRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
@@ -633,6 +745,7 @@ export function ChatView({
         <Button size="icon" variant="ghost" aria-label="Delete chat" onClick={() => void chat.deleteChat()}>
           <Trash2 className="size-4" />
         </Button>
+        <AttachModulePicker onAttach={(threadId) => void chat.selectThread(threadId)} />
       </div>
 
       {localThread && (

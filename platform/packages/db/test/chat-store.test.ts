@@ -417,3 +417,53 @@ test("DrizzleChatStore atomically consumes exact-context cloud grants once", asy
     await close();
   }
 });
+
+test("ADR-240: DrizzleChatStore persists moduleId scoping and lastOpenedAt across restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bridge-chat-store-module-"));
+  const moduleId = "40000000-0000-4000-8000-000000000200";
+  const threadId = "30000000-0000-4000-8000-000000000200";
+  const globalThreadId = "30000000-0000-4000-8000-000000000201";
+  let local: Awaited<ReturnType<typeof createLocalDb>> | undefined;
+  try {
+    local = await createLocalDb({ dataDir: root });
+    await seedIdentity(local.db);
+    const store = new DrizzleChatStore(local.db);
+    const thread = await store.createThread(owner, {
+      id: threadId,
+      moduleId,
+      plane: "local",
+      dataScope: "private",
+      title: "Module session",
+    });
+    assert.equal(thread.moduleId, moduleId);
+    const globalThread = await store.createThread(owner, {
+      id: globalThreadId,
+      plane: "local",
+      dataScope: "private",
+    });
+    assert.equal(globalThread.moduleId, undefined);
+
+    const scoped = await store.listThreads(owner, { moduleId });
+    assert.deepEqual(scoped.items.map((item) => item.id), [threadId]);
+    const globalOnly = await store.listThreads(owner, { moduleId: null });
+    assert.deepEqual(globalOnly.items.map((item) => item.id), [globalThreadId]);
+
+    const beforeTouch = thread.lastOpenedAt;
+    const touched = await store.touchLastOpened(owner, threadId);
+    assert.ok(touched);
+    assert.ok(touched!.lastOpenedAt >= beforeTouch);
+    assert.equal(await store.touchLastOpened(otherOwner, threadId), null);
+
+    await local.close();
+    local = undefined;
+
+    local = await createLocalDb({ dataDir: root });
+    const reopened = new DrizzleChatStore(local.db);
+    const reloaded = await reopened.getThread(owner, threadId);
+    assert.equal(reloaded?.moduleId, moduleId);
+    assert.equal(reloaded?.lastOpenedAt, touched!.lastOpenedAt);
+  } finally {
+    await local?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

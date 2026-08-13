@@ -41,6 +41,7 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
   "chat.thread.create",
   "chat.thread.list",
   "chat.thread.get",
+  "chat.thread.touchLastOpened",
   "chat.thread.archive",
   "chat.thread.delete",
   "chat.turn.prepareCloud",

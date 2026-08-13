@@ -291,3 +291,78 @@ test("ChatStore cloud grants are owner-bound, exact-context, expiring, and singl
     /expired/,
   );
 });
+
+test("ADR-240: threads scope by moduleId, and touchLastOpened resolves the default session", async () => {
+  const store = new InMemoryChatStore(clock());
+  const moduleA = "40000000-0000-4000-8000-000000000001";
+  const moduleB = "40000000-0000-4000-8000-000000000002";
+
+  const global = await store.createThread(owner, {
+    id: "30000000-0000-4000-8000-000000000040",
+    plane: "local",
+    dataScope: "private",
+  });
+  assert.equal(global.moduleId, undefined);
+
+  const aFirst = await store.createThread(owner, {
+    id: "30000000-0000-4000-8000-000000000041",
+    moduleId: moduleA,
+    plane: "local",
+    dataScope: "private",
+    title: "Module A · first",
+  });
+  const aSecond = await store.createThread(owner, {
+    id: "30000000-0000-4000-8000-000000000042",
+    moduleId: moduleA,
+    plane: "local",
+    dataScope: "private",
+    title: "Module A · second",
+  });
+  const bThread = await store.createThread(owner, {
+    id: "30000000-0000-4000-8000-000000000043",
+    moduleId: moduleB,
+    plane: "local",
+    dataScope: "private",
+    title: "Module B",
+  });
+
+  // Listing a Module's own sessions never leaks the global thread or another
+  // Module's sessions — the exact cross-Module isolation the attach picker
+  // relies on to keep "this Module's list" and "the other Module's list" apart.
+  const onlyModuleA = await store.listThreads(owner, { moduleId: moduleA });
+  assert.deepEqual(onlyModuleA.items.map((t) => t.id).sort(), [aFirst.id, aSecond.id].sort());
+  assert.ok(onlyModuleA.items.every((t) => t.moduleId === moduleA));
+
+  const onlyGlobal = await store.listThreads(owner, { moduleId: null });
+  assert.deepEqual(onlyGlobal.items.map((t) => t.id), [global.id]);
+
+  const everything = await store.listThreads(owner);
+  assert.equal(everything.items.length, 4);
+
+  // Cross-Module attach: Module B's session is reachable from Module A's
+  // owner-scoped store even though it belongs to a different moduleId.
+  const attached = await store.getThread(owner, bThread.id);
+  assert.equal(attached?.moduleId, moduleB);
+
+  // "Default to last opened": lastOpenedAt starts at createdAt, so the most
+  // recently created session is the initial default...
+  assert.equal(aSecond.lastOpenedAt, aSecond.createdAt);
+  const beforeTouch = await store.listThreads(owner, { moduleId: moduleA });
+  const initialDefault = [...beforeTouch.items].sort((l, r) =>
+    r.lastOpenedAt.localeCompare(l.lastOpenedAt)
+  )[0];
+  assert.equal(initialDefault?.id, aSecond.id);
+
+  // ...but opening the OLDER session bumps its lastOpenedAt past the newer
+  // one, so it becomes the resolved default on the next mount.
+  const touched = await store.touchLastOpened(owner, aFirst.id);
+  assert.ok(touched);
+  assert.ok(touched!.lastOpenedAt > aSecond.lastOpenedAt);
+  const afterTouch = await store.listThreads(owner, { moduleId: moduleA });
+  const newDefault = [...afterTouch.items].sort((l, r) =>
+    r.lastOpenedAt.localeCompare(l.lastOpenedAt)
+  )[0];
+  assert.equal(newDefault?.id, aFirst.id);
+
+  assert.equal(await store.touchLastOpened(otherOwner, aFirst.id), null);
+});
