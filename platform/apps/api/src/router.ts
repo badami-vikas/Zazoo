@@ -269,6 +269,8 @@ import {
   generalizeLearnedPreferences,
   isLearningObservationEntry,
   listPromotionSuggestions,
+  draftStepsFromEpisodes,
+  episodesForSkill,
   rejectAutomationDraft,
   seedSuggestionsFromArchetypes,
   supportBandRank,
@@ -15272,6 +15274,85 @@ export const appRouter = t.router({
             }
             await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
             return { automationId: draft.id, steps: steps.length, status: "draft" as const };
+          }),
+
+        /** K9 rung 3 (TASK-053, ADR-231) — the Capability Builder drafts the
+         * STEPS for an accepted promotion. Constrained generation, not
+         * codegen — and not even a model call: the step is DERIVED from the
+         * ledger episodes behind the pattern (the governed shape the human
+         * demonstrably approved ≥6 times), constrained to the live skill
+         * registry and the canonical step schema. Refusals are structured
+         * and specific (a K7/K8 behavior rhythm has no skill to bind; an
+         * unregistered skill proposes nothing; zero remaining episodes
+         * proposes nothing). The draft STAYS a draft — the executor still
+         * cannot see it, and activation remains the explicit governed step
+         * above. */
+        proposeSteps: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              automationId: z.string().min(1),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            if (ctx.identity.type !== "user") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message: "Drafting steps is part of the Human review of a draft — only a user identity may request it",
+              });
+            }
+            const drafts = await ctx.wiring.automationRegistry.listByStatus(input.organizationId, "draft");
+            const draft = drafts.find((definition) => definition.id === input.automationId);
+            if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "draft not found" });
+
+            // The pattern lives on the ACCEPTED promotion suggestion whose
+            // deterministic automation id names this draft — the same
+            // derivation `accept` used, run in reverse by search.
+            const accepted = await listPromotionSuggestions(
+              ctx.wiring.memoryStore,
+              { organizationId: input.organizationId, userId: ctx.identity.id },
+              undefined,
+              "accepted",
+            );
+            const backing = accepted.find(
+              (suggestion) =>
+                deterministicUuid(
+                  `learning:promotion:automation:${input.organizationId}:${suggestion.moduleId}:${suggestion.pattern.action}:${suggestion.pattern.attributeKey}=${suggestion.pattern.attributeValue}`,
+                ) === input.automationId,
+            );
+            if (!backing) {
+              throw new TRPCError({
+                code: "NOT_FOUND",
+                message: "no accepted promotion pattern backs this draft — nothing to derive steps from",
+              });
+            }
+
+            const { items } = await ctx.wiring.ledger.listHistory(input.organizationId, {
+              limit: 200,
+              offset: 0,
+            });
+            const episodes = episodesForSkill(items, backing.pattern.attributeValue);
+            const result = draftStepsFromEpisodes(backing.pattern, episodes, (skillId) =>
+              Boolean(ctx.wiring.skillRegistry.get(skillId)),
+            );
+            if (!result.proposed) {
+              return { proposed: false as const, reason: result.reason, detail: result.detail };
+            }
+            // The canonical write-boundary validation every registry write
+            // gets — the Builder does not bypass it just because it derived
+            // the steps itself.
+            const steps = parseAutomationSteps(result.steps);
+            await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
+            return {
+              proposed: true as const,
+              automationId: draft.id,
+              steps,
+              evidence: result.evidence,
+              status: "draft" as const,
+            };
           }),
 
         activate: procedure

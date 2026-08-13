@@ -70,6 +70,7 @@ export * from "./learning/source-emitters.js";
 export * from "./learning/retrieval.js";
 export * from "./learning/archetype.js";
 export * from "./learning/promotion.js";
+export * from "./learning/builder.js";
 export * from "./learning/claims.js";
 export * from "./learning/commitments.js";
 export * from "./chat-store.js";

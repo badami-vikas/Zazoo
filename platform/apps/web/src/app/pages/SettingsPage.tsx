@@ -876,6 +876,28 @@ function AutomationDraftsCard() {
     refresh();
   }
 
+  /** K9 rung 3 (TASK-053): ask the Builder to derive steps from the ledger
+   * evidence behind this draft's pattern. Structured refusals (a behavior
+   * rhythm with no skill to bind, an unregistered skill, no remaining
+   * episodes) render verbatim — the draft stays empty rather than guessing. */
+  async function proposeSteps(automationId: string) {
+    try {
+      const result = await trpc.learning.promotions.drafts.proposeSteps.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        automationId,
+      });
+      setMessage(
+        result.proposed
+          ? `Drafted ${result.steps.length} step${result.steps.length === 1 ? "" : "s"} from ${result.evidence.episodeCount} of your own decisions` +
+              `${result.evidence.distinctShapes > 1 ? " (evidence was mixed — the most common shape won; review closely)" : ""}. Still a draft; activation is yours.`
+          : `The Builder declined: ${result.detail}`,
+      );
+    } catch (error) {
+      setMessage(String(error));
+    }
+    refresh();
+  }
+
   async function activate(automationId: string) {
     if (!window.confirm("Activate this Automation? It becomes startable and every run passes Bridge's governance gates.")) {
       return;
@@ -977,14 +999,23 @@ function AutomationDraftsCard() {
                     Add step
                   </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void activate(draft.id)}
-                  disabled={draft.steps.length === 0}
-                  className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white disabled:opacity-40"
-                >
-                  Activate
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void proposeSteps(draft.id)}
+                    className="text-xs font-semibold px-3 py-2 rounded-lg border"
+                  >
+                    Draft steps from my decisions
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void activate(draft.id)}
+                    disabled={draft.steps.length === 0}
+                    className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white disabled:opacity-40"
+                  >
+                    Activate
+                  </button>
+                </div>
               </div>
             ))}
           </div>

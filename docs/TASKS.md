@@ -869,16 +869,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K9 — Builder ladder: rung 3 steps, rung 4 structures
 - ID: TASK-053
-- Status: ready
+- Status: blocked on TASK-042 (rung 3 DONE 2026-08-13, ADR-231/AP-151; rung 4 awaits the per-class input packs — see Evidence)
 - Priority: P2
 - Horizon: Core Modules
 - Outcome: Rung 3 — the Capability Builder drafts automation STEPS from a promotion pattern + its ledger episodes, constrained to the existing skill registry + canonical step schema (constrained generation, not codegen; existing activation gates apply). Rung 4 — structure synthesis: the Builder proposes Databases/Views/Pages/blueprints from K3's entities and claims via the validated input-pack regeneration methodology (ADR-175/176/177; TASK-042 defines the per-class packs). Rung 5 (code-bearing skills via BA0 sandbox) is explicitly later, gated on rung 4 proving out.
-- Prototype test: rung 3 — given a real promotion pattern, the Builder proposes steps that reference only registered skills and validate against the step schema, and an out-of-registry step is refused; rung 4 — the north-star test: given only observation data from ETA-style work, the Builder proposes a Deals/Sources/Theses-shaped module without being told about DealPilot.
+- Prototype test: rung 3 — given a real promotion pattern, the Builder proposes steps that reference only registered skills and validate against the step schema, and an out-of-registry step is refused; rung 4 — the north-star test: given only observation data from ETA-style work, the Builder proposes a Deals/Sources/Theses-shaped module without being told about DealPilot. RUNG 3 PASSED — full path over real buildWiring (6 seeded ledger proposal+decision pairs → mined-shape signals → propose → accept → proposeSteps derives exactly the demonstrated step, validated by parseAutomationSteps, saved still-draft); out-of-registry skill refused with a structured reason, draft stays empty, empty draft cannot activate; live durable-boot walk 9/9 on real captured K7 focus data (rhythm pattern → structured pattern_not_skill_shaped refusal, stable across restart); real-browser drafts-card walk with the refusal rendered verbatim. Rung 4's north-star test remains unrun (blocked).
 - Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K9. Safe by construction: the View/Page schema cannot hold code (ADR-194).
-- Evidence: ADR-175/176/177 regeneration methodology; TASK-042 pack definitions.
-- Requests: user directive 2026-08-09 ("start on AI harness")
-- Approval: AP-131 APPLIED
-- Dependencies: TASK-045 (rung 3); TASK-047, TASK-042 (rung 4)
+- Evidence: ADR-175/176/177 regeneration methodology; TASK-042 pack definitions. Rung 3: ADR-231 — core `learning/builder.ts` (episodesForSkill payload-free envelope; draftStepsFromEpisodes modal-shape derivation, refusal-first), `learning.promotions.drafts.proposeSteps` lane, drafts-card "Draft steps from my decisions" control; core 6/6 + api 4/4, four mutations RED, verify 77/77. HONEST BLOCKER for rung 4: TASK-042 (per-class input packs) has never been executed — its Status is still ready; structure synthesis cannot honestly ship "via the validated input-pack regeneration methodology" until those packs exist and are validated.
+- Requests: user directive 2026-08-09 ("start on AI harness"); user directive 2026-08-13 ("start on next tasks fr AI harness")
+- Approval: AP-131 APPLIED; AP-151 APPLIED
+- Dependencies: TASK-045 (rung 3, done); TASK-047 (done), TASK-042 (rung 4 — OPEN)
 
 ## K11 — EG4 sensor tier: input, screen, ambient voice
 - ID: TASK-054
