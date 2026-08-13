@@ -323,6 +323,22 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  modules/devpilot:
+    dependencies:
+      '@bridge/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@bridge/tables':
+        specifier: workspace:*
+        version: link:../../packages/tables
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   modules/jobpilot:
     dependencies:
       '@bridge/capability-kit':
@@ -464,6 +480,22 @@ importers:
         version: 5.9.3
 
   packages/facts:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/integrations-github:
+    dependencies:
+      '@bridge/devpilot':
+        specifier: workspace:*
+        version: link:../../modules/devpilot
+      '@bridge/net-guard':
+        specifier: workspace:*
+        version: link:../net-guard
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

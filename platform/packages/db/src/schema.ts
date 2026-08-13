@@ -1249,6 +1249,93 @@ export const resources = pgTable(
   (t) => [index("resources_org_idx").on(t.organizationId, t.createdAt)],
 );
 
+/**
+ * DevPilot's own persistence (D1, TASK-068) — the `@bridge/devpilot` module
+ * (pure Table specs, domain types) is pure logic with no store of its own,
+ * mirroring the jobpilot_* precedent above. Shaped 1:1 with table.ts's
+ * TableSpecs so @bridge/tables' board/list Views bind directly. Each table's
+ * `(organization_id, source, source_id)` unique triple is the idempotent
+ * upsert key a re-run of the sync Skill relies on — a second sync of the
+ * same repo/PR/issue updates the existing row, never duplicates it.
+ */
+export const devpilotRepos = pgTable(
+  "devpilot_repos",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    source: text("source").notNull(), // github | jira (D3)
+    sourceId: text("source_id").notNull(),
+    fullName: text("full_name").notNull(),
+    private: boolean("private").notNull().default(false),
+    defaultBranch: text("default_branch").notNull(),
+    archived: boolean("archived").notNull().default(false),
+    // The one owner-editable column — which tracked repos the sync Skill polls.
+    tracked: boolean("tracked").notNull().default(false),
+    pushedAt: timestamp("pushed_at", { withTimezone: true }),
+    url: text("url").notNull(),
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: now(),
+  },
+  (t) => [
+    unique("devpilot_repos_org_source_uq").on(t.organizationId, t.source, t.sourceId),
+    index("devpilot_repos_org_tracked_idx").on(t.organizationId, t.tracked),
+  ],
+);
+
+export const devpilotPulls = pgTable(
+  "devpilot_pulls",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    source: text("source").notNull(),
+    sourceId: text("source_id").notNull(),
+    repoId: uuid("repo_id").references(() => devpilotRepos.id),
+    repoFullName: text("repo_full_name").notNull(),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    state: text("state").notNull(), // open | closed | merged
+    reviewState: text("review_state").notNull().default("pending"),
+    author: text("author"),
+    isDraft: boolean("is_draft").notNull().default(false),
+    additions: integer("additions"),
+    deletions: integer("deletions"),
+    url: text("url").notNull(),
+    externalUpdatedAt: timestamp("external_updated_at", { withTimezone: true }).notNull(),
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: now(),
+  },
+  (t) => [
+    unique("devpilot_pulls_org_source_uq").on(t.organizationId, t.source, t.sourceId),
+    index("devpilot_pulls_org_updated_idx").on(t.organizationId, t.externalUpdatedAt),
+  ],
+);
+
+export const devpilotIssues = pgTable(
+  "devpilot_issues",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    source: text("source").notNull(), // github | jira (D3)
+    sourceId: text("source_id").notNull(),
+    repoId: uuid("repo_id").references(() => devpilotRepos.id),
+    repoFullName: text("repo_full_name"),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    state: text("state").notNull(), // open | closed
+    labels: jsonb("labels").notNull().default([]),
+    assignee: text("assignee"),
+    priority: text("priority"),
+    url: text("url").notNull(),
+    externalUpdatedAt: timestamp("external_updated_at", { withTimezone: true }).notNull(),
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: now(),
+  },
+  (t) => [
+    unique("devpilot_issues_org_source_uq").on(t.organizationId, t.source, t.sourceId),
+    index("devpilot_issues_org_updated_idx").on(t.organizationId, t.externalUpdatedAt),
+  ],
+);
+
 // =====================================================================
 // LAYER 8 — CAPABILITY TRUST MODEL (vision pivot 2026-07-06,
 // docs/wiki/vision.md "Capability Trust Model" + "Promotion defaults")
