@@ -73,6 +73,7 @@ async function acceptPriyaClaim(caller: ReturnType<typeof makeCaller>) {
     field: "timezone",
     value: "CET",
     claimClass: "stated_fact",
+    evidence: [{ kind: "memory", id: "3f1c0000-0000-4000-8000-000000000001" }],
   });
   assert.ok(proposed.proposed);
   const accepted = await caller.learning.claims.acceptClaim({

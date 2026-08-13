@@ -165,3 +165,98 @@ test("claimsToMemorySnippets renders claim text with a claim source", () => {
   assert.match(snippets[0]!.text, /Priya Sharma: timezone is CET/);
   assert.equal(snippets[0]!.trustOrigin, "user_content");
 });
+
+// ── K10 E3+E4 (TASK-043): the content-tier and evidence gates ───────────────
+
+test("K10 E3: red CONTENT is refused under a proposable class — one fixture per never-propose family", async () => {
+  const { InMemoryMemoryStore } = await import("../src/memory/memory-store.js");
+  const { proposeClaimSuggestion, ClaimGateError, listClaimSuggestions } = await import("../src/learning/claims.js");
+  const store = new InMemoryMemoryStore();
+  const fixtures: Array<{ value: string; family: string }> = [
+    { value: "was diagnosed with cancer last spring", family: "health" },
+    { value: "is Muslim and votes for the opposition", family: "protected_characteristic" },
+    { value: "is a toxic narcissist and a difficult person", family: "psychological_conclusion" },
+    { value: "is basically bankrupt and behind on rent", family: "financial_distress" },
+  ];
+  for (const fixture of fixtures) {
+    await assert.rejects(
+      proposeClaimSuggestion(store, {
+        organizationId: ORG,
+        ownerUserId: OWNER,
+        claim: proposal({ field: "note", value: fixture.value }),
+        nextId,
+      }),
+      (error: unknown) =>
+        error instanceof ClaimGateError &&
+        error.reason === "red_content" &&
+        error.matchedClass === fixture.family,
+      `"${fixture.value}" must refuse as ${fixture.family}`,
+    );
+  }
+  // NOTHING landed: red fixtures never reach a proposal row.
+  assert.equal((await listClaimSuggestions(store, scope)).length, 0);
+});
+
+test("K10 E3: amber content lands as an OBSERVED fact with evidence shown; green keeps plain framing; raise-only join holds", async () => {
+  const { InMemoryMemoryStore } = await import("../src/memory/memory-store.js");
+  const { proposeClaimSuggestion, classifyClaimContent, raiseContentTier } = await import("../src/learning/claims.js");
+  const store = new InMemoryMemoryStore();
+
+  const amber = await proposeClaimSuggestion(store, {
+    organizationId: ORG,
+    ownerUserId: OWNER,
+    claim: proposal({ field: "meeting style", value: "dislikes early meetings" }),
+    nextId,
+  });
+  assert.ok(amber);
+  assert.match(amber.suggestedText, /^Observed about/);
+  assert.match(amber.suggestedText, /never as a conclusion/);
+  assert.match(amber.suggestedText, /1 evidence reference/);
+
+  const green = await proposeClaimSuggestion(store, {
+    organizationId: ORG,
+    ownerUserId: OWNER,
+    claim: proposal({ field: "timezone", value: "IST" }),
+    nextId,
+  });
+  assert.ok(green);
+  assert.match(green.suggestedText, /^Remember about/);
+
+  assert.equal(classifyClaimContent("note", "plays tennis on Sundays").tier, "green");
+  // Raise-only: a later scorer can raise, never lower.
+  assert.equal(raiseContentTier("green", "amber"), "amber");
+  assert.equal(raiseContentTier("amber", "red"), "red");
+  assert.equal(raiseContentTier("red", "green"), "red");
+});
+
+test("K10 E4: no evidence → refused; compound clauses → refused; noun-phrase 'and' survives", async () => {
+  const { InMemoryMemoryStore } = await import("../src/memory/memory-store.js");
+  const { proposeClaimSuggestion, ClaimGateError, splitStatementClauses } = await import("../src/learning/claims.js");
+  const store = new InMemoryMemoryStore();
+
+  await assert.rejects(
+    proposeClaimSuggestion(store, {
+      organizationId: ORG,
+      ownerUserId: OWNER,
+      claim: proposal({ evidence: [] }),
+      nextId,
+    }),
+    (error: unknown) => error instanceof ClaimGateError && error.reason === "no_evidence",
+  );
+
+  await assert.rejects(
+    proposeClaimSuggestion(store, {
+      organizationId: ORG,
+      ownerUserId: OWNER,
+      claim: proposal({ field: "role", value: "leads the platform team; owns hiring, and runs the on-call rotation" }),
+      nextId,
+    }),
+    (error: unknown) => error instanceof ClaimGateError && error.reason === "compound_statement",
+  );
+
+  // Clause splitting is deliberately narrow: a noun phrase stays ONE clause.
+  assert.deepEqual(splitStatementClauses("Head of Research and Development"), [
+    "Head of Research and Development",
+  ]);
+  assert.equal(splitStatementClauses("owns hiring; runs on-call, and mentors juniors").length, 3);
+});

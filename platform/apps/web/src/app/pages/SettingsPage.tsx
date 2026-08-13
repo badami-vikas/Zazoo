@@ -530,8 +530,10 @@ function ObservedLearningCard() {
     refresh();
   }
 
-  async function accept(suggestionMemoryId: string) {
-    await trpc.learning.suggestions.accept.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId });
+  async function accept(suggestionMemoryId: string, shownText: string) {
+    // K10 E2: send the exact text this card rendered — the acceptance is
+    // stamped so the audit can tell reviewed from rubber-stamped.
+    await trpc.learning.suggestions.accept.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId, shownText });
     setMessage("Saved as a learned preference. It now informs agent context; you can delete it below at any time.");
     refresh();
   }
@@ -574,7 +576,7 @@ function ObservedLearningCard() {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => void accept(suggestion.memoryId)}
+                onClick={() => void accept(suggestion.memoryId, suggestion.suggestedText)}
                 className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white"
               >
                 Remember this
@@ -840,8 +842,9 @@ function AutomationDraftsCard() {
     refresh();
   }
 
-  async function acceptProposal(suggestionMemoryId: string) {
-    const result = await trpc.learning.promotions.accept.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId });
+  async function acceptProposal(suggestionMemoryId: string, shownText: string) {
+    // K10 E2: stamp the acceptance with the exact rendered text.
+    const result = await trpc.learning.promotions.accept.mutate({ organizationId: PILOT_ORGANIZATION, suggestionMemoryId, shownText });
     setMessage(`Draft "${result.name}" created. It never runs until you give it steps and explicitly activate it.`);
     refresh();
   }
@@ -939,7 +942,7 @@ function AutomationDraftsCard() {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => void acceptProposal(proposal.memoryId)}
+                onClick={() => void acceptProposal(proposal.memoryId, proposal.suggestedText)}
                 className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white"
               >
                 Draft an Automation

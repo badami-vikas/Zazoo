@@ -269,6 +269,13 @@ import {
   generalizeLearnedPreferences,
   isLearningObservationEntry,
   listPromotionSuggestions,
+  auditAcceptances,
+  ClaimGateError,
+  hashingEmbed,
+  isSuppressedByRejections,
+  type RejectionSuppressionVerdict,
+  type TextEmbedder,
+  recordRejectionFingerprint,
   draftStepsFromEpisodes,
   episodesForSkill,
   rejectAutomationDraft,
@@ -501,6 +508,72 @@ async function readCaptureConsentState(
  * (@bridge/core learning/browser-capture). Local Plane by residency, like
  * the consent state it refines: which domains the owner's browser may
  * report on lives beside the consent that lets it report at all. */
+
+/** K10 E5's own lexical tier — deliberately NOT the shared
+ * `hashingTextEmbedder()` (dim 128, id "bridge-hashing-lexical-v1") that
+ * LA5 retrieval fusion already has vectors stored under. Reusing that id
+ * here would let two different-dimensional vector spaces collide under one
+ * id ("different spaces never mix" — retrieval.ts), and 128 buckets is
+ * collision-prone for the SHORT 2-3 token texts a rejected claim usually
+ * is (`hashingEmbed` genuinely maps "cet" and "ist" to the same bucket at
+ * dim 128 — a real collision, not a hypothetical one). A dedicated id and
+ * a much larger bucket count make an unrelated short claim colliding with
+ * a rejected one astronomically less likely, without touching fusion's
+ * existing vectors at all. */
+const REJECTION_LEXICAL_DIM = 4096;
+function rejectionLexicalEmbedder(): TextEmbedder {
+  return {
+    id: "bridge-rejection-lexical-v1",
+    embed: async (texts) => texts.map((text) => hashingEmbed(text, REJECTION_LEXICAL_DIM)),
+  };
+}
+
+/** K10 E5 — run a rejection-fingerprint operation with the semantic
+ * embedder when the LA5 lane has one, falling back to the always-available
+ * lexical hashing embedder when the semantic tier errors at runtime (e.g.
+ * Ollama down). A human's rejection must never fail because a model server
+ * is unreachable; the lexical tier still catches reworded repeats. */
+async function withRejectionEmbedder<T>(
+  wiring: Wiring,
+  run: (embedder: TextEmbedder) => Promise<T>,
+): Promise<T> {
+  const semantic = wiring.semanticEmbedder;
+  if (semantic) {
+    try {
+      return await run(semantic);
+    } catch {
+      // fall through to the lexical tier
+    }
+  }
+  return run(rejectionLexicalEmbedder());
+}
+
+/** K10 E5 — the suppression CHECK, unlike a single fingerprint write, must
+ * consult every tier a fingerprint could have been written under: a
+ * rejection recorded while Ollama was reachable lands under the semantic
+ * embedder's id, one recorded while it was down lands under the lexical
+ * hashing id, and the daemon can flap between the two rejections in a
+ * lineage's history. Checking only "today's" tier would let a same-session
+ * tier flip silently un-suppress an already-rejected idea — the lexical
+ * tier is always checked (it is always computable), and the semantic tier
+ * is checked in addition whenever it is actually reachable right now. */
+async function isSuppressedByRejectionsAnyTier(
+  wiring: Wiring,
+  text: string,
+  scope: { organizationId: string; userId: string },
+  nowISO: string,
+): Promise<RejectionSuppressionVerdict> {
+  const lexical = await isSuppressedByRejections(wiring.memoryStore, rejectionLexicalEmbedder(), text, scope, nowISO);
+  if (lexical.suppressed) return lexical;
+  const semantic = wiring.semanticEmbedder;
+  if (!semantic) return lexical;
+  try {
+    return await isSuppressedByRejections(wiring.memoryStore, semantic, text, scope, nowISO);
+  } catch {
+    return lexical;
+  }
+}
+
 const LEARNING_BROWSER_POLICY_NAMESPACE = "learning:browser-domain-policy";
 
 /** Read the current browser domain policy, failing CLOSED: a missing or
@@ -14557,18 +14630,48 @@ export const appRouter = t.router({
               instructionRisk: "data",
             }),
           };
-          const suggestion = await proposeClaimSuggestion(ctx.wiring.memoryStore, {
-            organizationId: input.organizationId,
-            ownerUserId: ctx.identity.id,
-            claim,
-            nextId: () => ctx.run.ids.next(),
-            // The persistent adapter's lineage column is uuid-typed — same
-            // mapping the preference digest uses (K0 regression class).
-            lineageIdFor: deterministicUuid,
-          });
-          return suggestion
-            ? { proposed: true as const, suggestion }
-            : { proposed: false as const, reason: "This exact claim already has a pending, accepted, or rejected proposal." };
+          // K10 E5: paraphrase-robust rejection suppression — checks every
+          // tier a fingerprint could have been written under (lexical
+          // hashing always, semantic in addition when reachable), never
+          // just whichever tier happens to be live for this one request.
+          const rejectionScope = { organizationId: input.organizationId, userId: ctx.identity.id };
+          const suppression = await isSuppressedByRejectionsAnyTier(
+            ctx.wiring,
+            `${input.field}: ${input.value}`,
+            rejectionScope,
+            new Date().toISOString(),
+          );
+          if (suppression.suppressed) {
+            return {
+              proposed: false as const,
+              refused: "rejected_similar" as const,
+              reason:
+                `too similar to something you already rejected ("${suppression.matchedText}"` +
+                `${suppression.permanent ? ", permanently suppressed" : ""}) — ` +
+                `delete that rejection fingerprint from Memory to propose it again`,
+            };
+          }
+          try {
+            const suggestion = await proposeClaimSuggestion(ctx.wiring.memoryStore, {
+              organizationId: input.organizationId,
+              ownerUserId: ctx.identity.id,
+              claim,
+              nextId: () => ctx.run.ids.next(),
+              // The persistent adapter's lineage column is uuid-typed — same
+              // mapping the preference digest uses (K0 regression class).
+              lineageIdFor: deterministicUuid,
+            });
+            return suggestion
+              ? { proposed: true as const, suggestion }
+              : { proposed: false as const, reason: "This exact claim already has a pending, accepted, or rejected proposal." };
+          } catch (error) {
+            // K10 E3+E4: the proposal gate's refusals are structured and
+            // specific — surfaced verbatim, never smoothed into success.
+            if (error instanceof ClaimGateError) {
+              return { proposed: false as const, refused: error.reason, reason: error.message };
+            }
+            throw error;
+          }
         }),
 
       suggestions: procedure
@@ -14598,7 +14701,14 @@ export const appRouter = t.router({
        * TASK-047 prototype test). Contradiction with a live same-(entity,
        * field) claim supersedes by lineage inside the store transaction. */
       acceptClaim: procedure
-        .input(z.object({ organizationId: z.string().min(1), suggestionMemoryId: z.string().min(1) }))
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            suggestionMemoryId: z.string().min(1),
+            /** K10 E2: the exact text the client rendered to the human. */
+            shownText: z.string().max(4000).optional(),
+          }),
+        )
         .mutation(async ({ input, ctx }) => {
           assertClaimFlightEnabled(ctx);
           assertPilotOrganization(input.organizationId);
@@ -14653,7 +14763,7 @@ export const appRouter = t.router({
           }
           const { claim } = await acceptClaimSuggestion(
             ctx.wiring.memoryStore, scope, input.suggestionMemoryId, ctx.identity.id,
-            () => ctx.run.ids.next(),
+            () => ctx.run.ids.next(), input.shownText,
           );
           const materialized = await ctx.wiring.claimStore.materializeClaim({
             organizationId: input.organizationId,
@@ -14681,6 +14791,18 @@ export const appRouter = t.router({
           const suggestion = await rejectClaimSuggestion(
             ctx.wiring.memoryStore, scope, input.suggestionMemoryId, ctx.identity.id,
             () => ctx.run.ids.next(),
+          );
+          // K10 E5: the rejection leaves a fingerprint so the same idea
+          // cannot come back merely reworded; strikes escalate 30d → 90d →
+          // permanent, and deleting the fingerprint Memory un-suppresses.
+          await withRejectionEmbedder(ctx.wiring, (embedder) =>
+            recordRejectionFingerprint(ctx.wiring.memoryStore, embedder, {
+              organizationId: input.organizationId,
+              ownerUserId: ctx.identity.id,
+              text: `${suggestion.claim.field}: ${suggestion.claim.value}`,
+              nowISO: new Date().toISOString(),
+              nextId: () => ctx.run.ids.next(),
+            }),
           );
           return { suggestion };
         }),
@@ -14919,7 +15041,14 @@ export const appRouter = t.router({
         }),
 
       accept: procedure
-        .input(z.object({ organizationId: z.string().min(1), suggestionMemoryId: z.string().min(1) }))
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            suggestionMemoryId: z.string().min(1),
+            /** K10 E2: the exact text the client rendered to the human. */
+            shownText: z.string().max(4000).optional(),
+          }),
+        )
         .mutation(async ({ input, ctx }) => {
           assertLearningFlightEnabled(ctx);
           assertPilotOrganization(input.organizationId);
@@ -14930,6 +15059,7 @@ export const appRouter = t.router({
               input.suggestionMemoryId,
               ctx.identity.id,
               () => ctx.run.ids.next(),
+              input.shownText,
             );
             return { suggestionMemoryId: suggestion.id, preferenceMemoryId: preference.id };
           } catch (error) {
@@ -15160,6 +15290,8 @@ export const appRouter = t.router({
           z.object({
             organizationId: z.string().min(1),
             suggestionMemoryId: z.string().min(1),
+            /** K10 E2: the exact text the client rendered to the human. */
+            shownText: z.string().max(4000).optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -15172,6 +15304,7 @@ export const appRouter = t.router({
               input.suggestionMemoryId,
               ctx.identity.id,
               () => ctx.run.ids.next(),
+              input.shownText,
             );
             // Deterministic id: the same accepted pattern always names the
             // same draft row (re-derivable on any instance).
@@ -15387,6 +15520,24 @@ export const appRouter = t.router({
           }),
       }),
     }),
+
+    /** K10 E2 (TASK-043) — the bulk-accept audit. Every accepted suggestion
+     * across the three suggestion kinds, classified by its shown-text stamp:
+     * "reviewed" (client sent the exact rendered text and it matched the
+     * canonical suggestion text) vs "unverified" (no stamp, or a mismatch —
+     * e.g. a stale tab accepted after the suggestion was superseded). The
+     * stamp never blocks an acceptance; it makes rubber-stamping visible. */
+    acceptanceAudit: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertLearningFlightEnabled(ctx);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return auditAcceptances(ctx.wiring.memoryStore, {
+          organizationId: input.organizationId,
+          userId: ctx.identity.id,
+        });
+      }),
 
     /** Retrieval quality read surface (ADR-174). `status` always answers so
      * clients hide the card honestly while the fusion flight is off; `evals`

@@ -725,7 +725,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Constitution enforcement mechanisms (ADR-176 adopt-list)
 - ID: TASK-043
-- Status: ready
+- Status: done
 - Priority: P2
 - Horizon: Convergence
 - Outcome: The five mechanisms adopted from the ADR-175 regeneration test exist as executable harness obligations rather than review conventions, so constitution conformance is provable per capability instead of asserted.
@@ -737,11 +737,11 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
   - **E4 — claim→evidence map (adopt, medium effort).** Every proposed durable statement references >=1 evidence/observation id, machine-checked before emission; multi-clause statements are checked per clause, not per record.
   - **E5 — paraphrase-robust rejection fingerprints (sequenced).** Semantic fingerprint with backoff-to-permanent, tested against a paraphrase corpus. BLOCKED on the semantic embedder (LA5 ships lexical hashing v1) — do not start before it lands.
   - Explicitly NOT in scope: restructuring the server-side shared net-guard into an out-of-process egress broker (ADR-176 rejected it as redundant; the desktop shell already holds the chokepoint).
-- Evidence: ADR-176; `outputs/2026-08-04-regeneration-test-learning-agent.md`.
-- Requests: user directive 2026-08-04 ("Incorporate the 6 ideas, if validated to be better").
-- Approval: AP-103 APPLIED
-- Dependencies: E5 depends on the semantic embedder (learning-agent LA5 open item). E1-E4 have none.
-- Harness mapping (2026-08-09, AP-131): this task IS phase K10 of `docs/raw/ai-harness-plan-2026-08-09.md`. Nothing in K11 (TASK-054) turns on until this lands.
+- Evidence: ADR-176; `outputs/2026-08-04-regeneration-test-learning-agent.md`. DONE 2026-08-13 (ADR-234, AP-152): all five mechanisms landed with removal-fails tests — E1 `port-allowlist.json` + structural scanner over `core/learning`+`core/memory`; E2 `acceptance-audit.ts` (shown-text sha256 stamp, reviewed-vs-unverified audit query) wired into all three accept paths (`observation.ts`/`promotion.ts`/`claims.ts`); E3+E4 share one `gateClaimProposal` checkpoint in `claims.ts` (red-content term families, amber "Observed about..." framing, raise-only tier join, evidence-required, compound-clause-per-clause refusal); E5 `rejection-fingerprints.ts` (strike-not-duplicate, 30d→90d→permanent backoff, deletable-Memory un-suppress) wired via `router.ts`'s `withRejectionEmbedder`/`isSuppressedByRejectionsAnyTier`. Two real defects surfaced during verification and were fixed, not worked around: (a) `acceptance-audit.ts` originally used `node:crypto`'s `createHash`, which broke `@bridge/web`'s production build (Rollup cannot bind a named import from a Node builtin reached through core's barrel export, even for code never called client-side) — fixed via `globalThis.crypto.subtle`; (b) the live walk caught a genuine E5 tier-consistency gap (`isSuppressedByRejections` filters by embedder id before calling `embed()`, so a fingerprint written under the lexical fallback tier was invisible to a check that tried the semantic tier first and found nothing — never throwing, so the fallback path never ran) plus an adjacent real hash collision in the shared dim-128 lexical embedder ("cet"/"ist" landed in the same FNV1a bucket) that the fix's dual-tier check then exposed — resolved with a dual-tier suppression check plus a dedicated dim-4096 lexical embedder scoped to rejection fingerprints alone. `pnpm verify` 77/77; live durable-boot walk 11/11 including a real process RESTART proving both suppression and audit-stamp durability.
+- Requests: user directive 2026-08-04 ("Incorporate the 6 ideas, if validated to be better"); user directive 2026-08-13 ("start on next tasks fr AI harness").
+- Approval: AP-103 APPLIED (adoption); AP-152 APPLIED (this slice)
+- Dependencies: E5 depends on the semantic embedder (learning-agent LA5 open item, shipped). E1-E4 have none.
+- Harness mapping (2026-08-09, AP-131): this task IS phase K10 of `docs/raw/ai-harness-plan-2026-08-09.md`. K11 (TASK-054) is next but remains blocked on the user's still-unmade keystroke content-vs-events decision.
 
 ## K0 — AI Harness spine: flights live for the pilot, one context door
 - ID: TASK-044
