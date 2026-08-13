@@ -27,7 +27,7 @@
  * On macOS the Rust window is an NSPanel configured for all Spaces and
  * fullscreen auxiliary presence.
  */
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ChatView } from "../chat/ChatView";
 import { CompanionAsk } from "./CompanionAsk";
 import { CompanionZazooFace } from "./zazoo/CompanionZazooFace";
@@ -157,6 +157,34 @@ export function OverlayApp() {
   // User-adjustable chat window size (logical px). Clamped to sane bounds.
   const [chatW, setChatW] = useState(WINDOW_SIZE.chat.w);
   const [chatH, setChatH] = useState(WINDOW_SIZE.chat.h);
+  // Resize drag state — tracks the pointer and window size at drag start.
+  const resizeDrag = useRef<{ edge: string; startX: number; startY: number; startW: number; startH: number } | null>(null);
+  const resizeRaf = useRef<number | null>(null);
+
+  const startResize = useCallback((edge: string, e: ReactPointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e.target as Element).setPointerCapture(e.pointerId);
+    resizeDrag.current = { edge, startX: e.clientX, startY: e.clientY, startW: chatW, startH: chatH };
+  }, [chatW, chatH]);
+
+  const onResizeMove = useCallback((e: ReactPointerEvent) => {
+    if (!resizeDrag.current) return;
+    const { edge, startX, startY, startW, startH } = resizeDrag.current;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    // Left edge → dragging left makes wider (mirror dx), right edge → normal.
+    // Top edge → dragging up makes taller (mirror dy), bottom → normal.
+    const newW = Math.round(Math.max(260, Math.min(700, edge.includes("left") ? startW - dx : edge.includes("right") ? startW + dx : startW)));
+    const newH = Math.round(Math.max(300, Math.min(900, edge.includes("top") ? startH - dy : edge.includes("bottom") ? startH + dy : startH)));
+    if (resizeRaf.current !== null) cancelAnimationFrame(resizeRaf.current);
+    resizeRaf.current = requestAnimationFrame(() => {
+      setChatW(newW);
+      setChatH(newH);
+    });
+  }, []);
+
+  const endResize = useCallback(() => { resizeDrag.current = null; }, []);
   // True while the global push-to-talk shortcut is held (drives CompanionAsk
   // recording).
   const [pttActive, setPttActive] = useState(false);
@@ -791,31 +819,34 @@ export function OverlayApp() {
             overflow: "hidden",
             background: "var(--color-background)",
             borderRadius: "var(--radius-card)",
+            position: "relative",
           }}
+          onPointerMove={onResizeMove}
+          onPointerUp={endResize}
+          onPointerLeave={endResize}
         >
+          {/* Edge drag handles for notch chat */}
+          <div onPointerDown={(e) => startResize("left", e)}  style={{ position:"absolute", left:0, top:8, bottom:8, width:6, cursor:"ew-resize", zIndex:10 }} />
+          <div onPointerDown={(e) => startResize("top", e)}   style={{ position:"absolute", top:0, left:8, right:8, height:6, cursor:"ns-resize", zIndex:10 }} />
+          <div onPointerDown={(e) => startResize("top-left", e)}  style={{ position:"absolute", top:0, left:0, width:10, height:10, cursor:"nwse-resize", zIndex:11 }} />
+          <div onPointerDown={(e) => startResize("top-right", e)} style={{ position:"absolute", top:0, right:0, width:10, height:10, cursor:"nesw-resize", zIndex:11 }} />
           <div
             className="flex items-center justify-between px-3 py-2 border-b"
             style={{ borderColor: "var(--color-border)" }}
           >
             <p className="font-medium text-[var(--color-navy)]">{name}</p>
-            <div className="flex items-center gap-1">
-              <button type="button" aria-label="Narrower" title="Narrower" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatW((w) => Math.max(260, w - 40))}>◀</button>
-              <button type="button" aria-label="Wider" title="Wider" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatW((w) => Math.min(600, w + 40))}>▶</button>
-              <button type="button" aria-label="Shorter" title="Shorter" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatH((h) => Math.max(300, h - 60))}>▲</button>
-              <button type="button" aria-label="Taller" title="Taller" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatH((h) => Math.min(800, h + 60))}>▼</button>
-              <button
-                type="button"
-                aria-label="Close chat"
-                className="text-muted-foreground hover:text-[var(--color-steel)] ml-1"
-                onClick={() => {
-                  setPanel("none");
-                  setChatSeed(null);
-                  setNotchPose("bed");
-                }}
-              >
-                ×
-              </button>
-            </div>
+            <button
+              type="button"
+              aria-label="Close chat"
+              className="text-muted-foreground hover:text-[var(--color-steel)]"
+              onClick={() => {
+                setPanel("none");
+                setChatSeed(null);
+                setNotchPose("bed");
+              }}
+            >
+              ×
+            </button>
           </div>
           <ChatView
             key={chatSeed?.nonce ?? "chat"}
@@ -979,29 +1010,29 @@ export function OverlayApp() {
           role="dialog"
           aria-label={`Chat with ${name}`}
           className="w-full mb-2 rounded-[var(--radius-card)] border border-border bg-background shadow-lg text-sm flex flex-col"
-          style={{ flex: "1 1 auto", minHeight: 0 }}
+          style={{ flex: "1 1 auto", minHeight: 0, position: "relative" }}
+          onPointerMove={onResizeMove}
+          onPointerUp={endResize}
+          onPointerLeave={endResize}
         >
+          {/* Edge drag handles — 6px hit area, ew-resize / ns-resize / nwse-resize cursors */}
+          <div onPointerDown={(e) => startResize("left", e)}  style={{ position:"absolute", left:0, top:8, bottom:8, width:6, cursor:"ew-resize", zIndex:10 }} />
+          <div onPointerDown={(e) => startResize("top", e)}   style={{ position:"absolute", top:0, left:8, right:8, height:6, cursor:"ns-resize", zIndex:10 }} />
+          <div onPointerDown={(e) => startResize("top-left", e)}  style={{ position:"absolute", top:0, left:0, width:10, height:10, cursor:"nwse-resize", zIndex:11 }} />
+          <div onPointerDown={(e) => startResize("top-right", e)} style={{ position:"absolute", top:0, right:0, width:10, height:10, cursor:"nesw-resize", zIndex:11 }} />
           <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: "var(--color-border)" }}>
             <p className="font-medium text-[var(--color-navy)]">{name}</p>
-            <div className="flex items-center gap-1">
-              {/* Width controls */}
-              <button type="button" aria-label="Narrow" title="Narrower" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatW((w) => Math.max(260, w - 40))}>◀</button>
-              <button type="button" aria-label="Wider" title="Wider" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatW((w) => Math.min(600, w + 40))}>▶</button>
-              {/* Height controls */}
-              <button type="button" aria-label="Shorter" title="Shorter" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatH((h) => Math.max(300, h - 60))}>▲</button>
-              <button type="button" aria-label="Taller" title="Taller" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatH((h) => Math.min(800, h + 60))}>▼</button>
-              <button
-                type="button"
-                aria-label="Close chat"
-                className="text-muted-foreground hover:text-[var(--color-steel)] ml-1"
-                onClick={() => {
-                  setPanel("none");
-                  setChatSeed(null);
-                }}
-              >
-                ×
-              </button>
-            </div>
+            <button
+              type="button"
+              aria-label="Close chat"
+              className="text-muted-foreground hover:text-[var(--color-steel)]"
+              onClick={() => {
+                setPanel("none");
+                setChatSeed(null);
+              }}
+            >
+              ×
+            </button>
           </div>
           <ChatView
             key={chatSeed?.nonce ?? "chat"}
