@@ -117,6 +117,18 @@ fn run_point(app: &AppHandle, monitor_index: usize, target: &str) -> Result<(), 
     })?;
     let model = vision_model(app);
 
+    if !sensor_bridge::screen_permission_granted() {
+        let _ = std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+            .spawn();
+        return Err(err(
+            "POINT_NO_SCREEN_PERMISSION",
+            "Screen Recording permission is needed to locate things on screen. \
+             System Settings → Privacy & Security → Screen Recording has been opened — \
+             enable Bridge Desktop there, then try again.",
+        ));
+    }
+
     let capture = sensor_bridge::capture_display_jpeg(app, monitor_index)
         .map_err(|error| err("POINT_CAPTURE_FAILED", error))?;
     let coarse_gridded = gridded_jpeg(&capture.jpeg_bytes, COARSE_COLS, COARSE_ROWS)
