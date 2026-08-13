@@ -6296,6 +6296,9 @@ export const appRouter = t.router({
       create: authenticatedProcedure
         .input(z.object({
           organizationId: z.string().uuid(),
+          /** ADR-240: anchors the new thread to one installed Module (its
+           * `module_installations.id`). Omitted = the global Avatar Chat. */
+          moduleId: z.string().uuid().optional(),
           plane: z.enum(["local", "cloud"]).optional(),
           title: z.string().trim().min(1).max(200).optional(),
           clientRequestId: z.string().trim().min(1).max(200).optional(),
@@ -6313,6 +6316,12 @@ export const appRouter = t.router({
               message: "The hosted web deployment cannot create Local Plane Chat threads",
             });
           }
+          if (input.moduleId) {
+            const installation = await ctx.wiring.moduleStore.get(input.moduleId);
+            if (!installation || installation.organizationId !== input.organizationId) {
+              throw new TRPCError({ code: "NOT_FOUND", message: `Module "${input.moduleId}" not found` });
+            }
+          }
           const plane = ctx.wiring.publicCloudOnly ? "cloud" : input.plane ?? "local";
           const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
           const thread = await ctx.wiring.chatStore.createThread(scope, {
@@ -6321,6 +6330,7 @@ export const appRouter = t.router({
                   `${input.organizationId}:${ctx.identity.id}:chat-thread:${plane}:${input.clientRequestId}`,
                 )
               : ctx.run.ids.next(),
+            ...(input.moduleId ? { moduleId: input.moduleId } : {}),
             plane,
             dataScope: plane === "local" ? "private" : "public",
             ...(input.title ? { title: input.title } : {}),
@@ -6331,6 +6341,10 @@ export const appRouter = t.router({
         .input(z.object({
           organizationId: z.string().uuid(),
           status: z.enum(["active", "archived"]).optional(),
+          /** ADR-240: scope to one Module's own sessions. Explicit `null`
+           * lists only the unscoped global Chat; omitted lists across every
+           * scope (used to render the cross-Module attach picker). */
+          moduleId: z.string().uuid().nullable().optional(),
           cursor: z.object({
             updatedAt: z.string().datetime(),
             id: z.string().uuid(),
@@ -6348,10 +6362,35 @@ export const appRouter = t.router({
             chatOwnerScope(input.organizationId, ctx.identity.id),
             {
               ...(input.status ? { status: input.status } : {}),
+              ...(input.moduleId !== undefined ? { moduleId: input.moduleId } : {}),
               ...(input.cursor ? { cursor: input.cursor } : {}),
               ...(input.limit ? { limit: input.limit } : {}),
             },
           );
+        }),
+      /** ADR-240 "default to last opened": called whenever a thread is
+       * selected/viewed (fresh mount or explicit switch), independent of
+       * whether a message is sent. */
+      touchLastOpened: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          threadId: z.string().uuid(),
+        }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const touched = await ctx.wiring.chatStore.touchLastOpened(
+            chatOwnerScope(input.organizationId, ctx.identity.id),
+            input.threadId,
+          );
+          if (!touched) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Chat thread not found" });
+          }
+          return touched;
         }),
       get: authenticatedProcedure
         .input(z.object({

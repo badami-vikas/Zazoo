@@ -55,12 +55,14 @@ function unpackThread(row: ChatThreadRow): ChatThread {
     id: row.id,
     organizationId: row.organizationId,
     ownerUserId: row.ownerUserId,
+    ...(row.moduleId !== null ? { moduleId: row.moduleId } : {}),
     plane: row.plane as ChatThread["plane"],
     dataScope: row.dataScope as ChatThread["dataScope"],
     status: row.status as ChatThreadStatus,
     ...(row.title !== null ? { title: row.title } : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    lastOpenedAt: row.lastOpenedAt.toISOString(),
   };
 }
 
@@ -163,6 +165,7 @@ async function lockChatThread(tx: Database, threadId: string): Promise<void> {
 
 function sameThreadCreate(existing: ChatThread, input: CreateChatThreadInput): boolean {
   return (
+    existing.moduleId === input.moduleId &&
     existing.plane === input.plane &&
     existing.dataScope === input.dataScope &&
     existing.title === normalizeOptionalText(input.title, "title")
@@ -194,12 +197,16 @@ export class DrizzleChatStore implements ChatStore {
     assertChatPlaneScope(input.plane, input.dataScope);
     const title = normalizeOptionalText(input.title, "title");
     return this.scoped(scope, async (tx) => {
+      const moduleId = input.moduleId
+        ? parseDatabaseUuid(input.moduleId, "moduleId")
+        : null;
       const inserted = await tx
         .insert(chatThreads)
         .values({
           id,
           organizationId: scope.organizationId,
           ownerUserId: scope.ownerUserId,
+          moduleId,
           plane: input.plane,
           dataScope: input.dataScope,
           title,
@@ -236,6 +243,21 @@ export class DrizzleChatStore implements ChatStore {
     });
   }
 
+  async touchLastOpened(
+    scope: ChatOwnerScope,
+    threadId: string,
+  ): Promise<ChatThread | null> {
+    const id = parseDatabaseUuid(threadId, "threadId");
+    return this.scoped(scope, async (tx) => {
+      const [saved] = await tx
+        .update(chatThreads)
+        .set({ lastOpenedAt: sql`GREATEST(${chatThreads.lastOpenedAt}, CURRENT_TIMESTAMP)` })
+        .where(ownerThreadWhere(scope, id))
+        .returning();
+      return saved ? unpackThread(saved) : null;
+    });
+  }
+
   async listThreads(
     scope: ChatOwnerScope,
     query: ChatThreadQuery = {},
@@ -247,6 +269,11 @@ export class DrizzleChatStore implements ChatStore {
         eq(chatThreads.ownerUserId, scope.ownerUserId),
       ];
       if (query.status) filters.push(eq(chatThreads.status, query.status));
+      if (query.moduleId === null) {
+        filters.push(isNull(chatThreads.moduleId));
+      } else if (query.moduleId !== undefined) {
+        filters.push(eq(chatThreads.moduleId, parseDatabaseUuid(query.moduleId, "moduleId")));
+      }
       if (query.cursor) {
         const updatedAt = parseCursorDate(query.cursor.updatedAt);
         const id = parseDatabaseUuid(query.cursor.id, "threadCursor.id");

@@ -443,6 +443,12 @@ export const chatThreads = pgTable(
     id: uuidPkV7(),
     organizationId: uuid("organization_id").notNull().references(() => organizations.id),
     ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    /** NULL = the global Avatar/companion Chat (unscoped, pre-ADR-240 behavior).
+     * Non-null anchors this thread to one installed Module (`module_installations.id`)
+     * — ADR-240's Module-scoped Chat session. No FK: a Module can be uninstalled
+     * while its historical threads stay readable, mirroring how `records` and
+     * other Module-associated Memory tolerate an unresolved owner. */
+    moduleId: uuid("module_id"),
     plane: text("plane").notNull(),
     dataScope: text("data_scope").notNull(),
     status: text("status").notNull().default("active"),
@@ -451,6 +457,11 @@ export const chatThreads = pgTable(
       .notNull()
       .defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+    /** ADR-240 "default to last opened": bumped on selection, independent of
+     * `updatedAt` (which tracks turn activity, not viewing). */
+    lastOpenedAt: timestamp("last_opened_at", { withTimezone: true, precision: 3 })
       .notNull()
       .defaultNow(),
   },
@@ -474,6 +485,12 @@ export const chatThreads = pgTable(
       t.status,
       t.updatedAt,
       t.id,
+    ),
+    index("chat_threads_owner_module_last_opened_idx").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.moduleId,
+      t.lastOpenedAt,
     ),
     unique("chat_threads_organization_owner_id_uq").on(
       t.organizationId,

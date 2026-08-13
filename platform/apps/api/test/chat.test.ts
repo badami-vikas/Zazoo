@@ -154,6 +154,95 @@ test("Chat threads are deterministic and exact send retries do not rerun the mod
   });
 });
 
+test("ADR-240: Module-scoped Chat sessions isolate by moduleId and default to the last opened one", async () => {
+  const local = new ChatModel(
+    "local",
+    () => JSON.stringify({ kind: "answer", text: "A durable answer." }),
+  );
+  await withChatWiring([local], async (wiring) => {
+    const caller = makeCaller(wiring);
+    const relationship = await wiring.moduleStore.getAvailable(PILOT_ORGANIZATION, "relationship");
+    assert.ok(relationship, "the built-in Relationship Module is installed by buildWiring");
+    const otherModule = await wiring.moduleStore.getAvailable(PILOT_ORGANIZATION, "task-manager");
+    assert.ok(otherModule);
+
+    await assert.rejects(
+      caller.chat.thread.create({
+        organizationId: PILOT_ORGANIZATION,
+        moduleId: "00000000-0000-4000-8000-000000000000",
+        clientRequestId: "unknown-module",
+      }),
+      /not found/,
+    );
+
+    const first = await caller.chat.thread.create({
+      organizationId: PILOT_ORGANIZATION,
+      moduleId: relationship.id,
+      title: "Relationship · first",
+      clientRequestId: "relationship-first",
+    });
+    assert.equal(first.thread.moduleId, relationship.id);
+    // Guarantees `second` is strictly newer than `first` at millisecond
+    // precision, so the "most recently created is the initial default"
+    // assertion below cannot flake on a same-tick collision.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = await caller.chat.thread.create({
+      organizationId: PILOT_ORGANIZATION,
+      moduleId: relationship.id,
+      title: "Relationship · second",
+      clientRequestId: "relationship-second",
+    });
+    const globalThread = await caller.chat.thread.create({
+      organizationId: PILOT_ORGANIZATION,
+      clientRequestId: "global",
+    });
+    assert.equal(globalThread.thread.moduleId, undefined);
+    const otherModuleThread = await caller.chat.thread.create({
+      organizationId: PILOT_ORGANIZATION,
+      moduleId: otherModule.id,
+      clientRequestId: "task-manager-thread",
+    });
+
+    // Cross-Module isolation: listing one Module's sessions never surfaces
+    // the global thread or another Module's session — the same isolation
+    // the "attach from another Module" picker relies on.
+    const scoped = await caller.chat.thread.list({
+      organizationId: PILOT_ORGANIZATION,
+      moduleId: relationship.id,
+    });
+    assert.deepEqual(
+      scoped.items.map((item) => item.id).sort(),
+      [first.thread.id, second.thread.id].sort(),
+    );
+    assert.ok(!scoped.items.some((item) => item.id === globalThread.thread.id));
+    assert.ok(!scoped.items.some((item) => item.id === otherModuleThread.thread.id));
+
+    // "Default to last opened": the most recently created session (`second`)
+    // is the default until an OLDER session (`first`) is explicitly opened,
+    // at which point it becomes the resolved default.
+    const initialByLastOpened = [...scoped.items].sort((left, right) =>
+      right.lastOpenedAt.localeCompare(left.lastOpenedAt)
+    );
+    assert.equal(initialByLastOpened[0]?.id, second.thread.id);
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const touched = await caller.chat.thread.touchLastOpened({
+      organizationId: PILOT_ORGANIZATION,
+      threadId: first.thread.id,
+    });
+    assert.equal(touched.id, first.thread.id);
+
+    const rescoped = await caller.chat.thread.list({
+      organizationId: PILOT_ORGANIZATION,
+      moduleId: relationship.id,
+    });
+    const afterTouch = [...rescoped.items].sort((left, right) =>
+      right.lastOpenedAt.localeCompare(left.lastOpenedAt)
+    );
+    assert.equal(afterTouch[0]?.id, first.thread.id);
+  });
+});
+
 test("Chat fails visibly when no eligible local model is configured", async () => {
   await withChatWiring([new EchoModelProvider()], async (wiring) => {
     const caller = makeCaller(wiring, 33);

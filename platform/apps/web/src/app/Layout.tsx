@@ -54,6 +54,10 @@ type NavModule = {
   icon: typeof Boxes;
   /** Set when this Module declares a nav parent (ADR-178) — it renders nested. */
   parentModule?: string | undefined;
+  /** `module_installations.id` — ADR-240's Chat scoping key. Undefined for a
+   * DEFAULT_MODULES fallback entry that has not resolved against modules.list
+   * yet (the Chat Panel falls back to its unscoped global session then). */
+  installationId?: string | undefined;
 };
 
 // TaskManager is a default Module: it always appears under Home regardless of
@@ -150,7 +154,7 @@ export default function Layout() {
   // TASK-001 VOCAB6: installed modules from modules.list (real API, not
   // hardcoded). Only `available` state modules appear in the nav.
   const [installedModules, setInstalledModules] = useState<
-    { moduleName: string; displayName: string; parentModule?: string | undefined }[] | null
+    { id: string; moduleName: string; displayName: string; parentModule?: string | undefined }[] | null
   >(null);
   const [expandedModules, setExpandedModules] = useState<string[]>(() => loadExpandedModules());
 
@@ -183,6 +187,7 @@ export default function Layout() {
               p.moduleAttachment === undefined,
           )
           .map((p) => ({
+            id: p.id,
             moduleName: p.moduleName,
             displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
             parentModule: p.manifest?.module?.parentModule,
@@ -308,6 +313,7 @@ export default function Layout() {
       base: nav?.base ?? "/home",
       icon: Boxes,
       parentModule: mod.parentModule,
+      installationId: mod.id,
     };
   });
   const navModules: NavModule[] = [
@@ -318,6 +324,14 @@ export default function Layout() {
   ];
   // ADR-178: roots first, sub-modules nested one level under their parent.
   const navTree = buildModuleNavTree(navModules);
+
+  // ADR-240: the Chat Panel scopes its sessions to whichever Module's Pages
+  // the user is currently on ("/home" and unmatched routes stay unscoped —
+  // the global Avatar Chat). Longest `base` match wins so a sub-module's more
+  // specific prefix is not shadowed by its parent's.
+  const activeModuleId = navModules
+    .filter((mod) => mod.installationId && isActive(mod.base))
+    .sort((left, right) => right.base.length - left.base.length)[0]?.installationId;
 
   // Rail nav item — TWO layouts sharing one active-state treatment.
   // Collapsed: icon + short label stacked/centered. Expanded: icon + full label in a row.
@@ -686,7 +700,7 @@ export default function Layout() {
       {/* Persistent AI chat — nav | content | AI chat (reference UI at bridge-ai-1ay.pages.dev).
           Hidden below sm: a 336px side panel doesn't fit alongside the mobile bottom tab bar. */}
       <div className="hidden sm:flex">
-        <AgentPanel />
+        <AgentPanel moduleId={activeModuleId} />
       </div>
       </div>
 
@@ -761,7 +775,7 @@ export default function Layout() {
             onClick={() => setMobileChatOpen(false)}
           />
           <div className="relative z-10 h-full">
-            <AgentPanel mobile onClose={() => setMobileChatOpen(false)} />
+            <AgentPanel mobile moduleId={activeModuleId} onClose={() => setMobileChatOpen(false)} />
           </div>
         </div>
       )}

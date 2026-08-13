@@ -147,6 +147,14 @@ export class ResidencyRoutingChatStore implements ChatStore {
     };
   }
 
+  async touchLastOpened(
+    scope: ChatOwnerScope,
+    threadId: string,
+  ): Promise<ChatThread | null> {
+    const located = await this.locate(scope, threadId);
+    return located.store.touchLastOpened(scope, threadId);
+  }
+
   async archiveThread(
     scope: ChatOwnerScope,
     threadId: string,

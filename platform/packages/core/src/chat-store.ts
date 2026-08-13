@@ -37,16 +37,21 @@ export interface ChatThread {
   id: string;
   organizationId: string;
   ownerUserId: string;
+  /** ADR-240: the installed Module (`module_installations.id`) this session
+   * belongs to. Undefined for the global Avatar/companion Chat. */
+  moduleId?: string;
   plane: Plane;
   dataScope: ChatDataScope;
   status: ChatThreadStatus;
   title?: string;
   createdAt: string;
   updatedAt: string;
+  lastOpenedAt: string;
 }
 
 export interface CreateChatThreadInput {
   id: string;
+  moduleId?: string;
   plane: Plane;
   dataScope: ChatDataScope;
   title?: string;
@@ -59,6 +64,10 @@ export interface ChatThreadCursor {
 
 export interface ChatThreadQuery {
   status?: ChatThreadStatus;
+  /** Scope to one Module's sessions. Pass `null` explicitly to list only the
+   * unscoped global Chat; omit to list across every scope (used by the
+   * cross-Module attach picker). */
+  moduleId?: string | null;
   cursor?: ChatThreadCursor;
   limit?: number;
 }
@@ -167,6 +176,9 @@ export interface ChatStore {
   createThread(scope: ChatOwnerScope, input: CreateChatThreadInput): Promise<ChatThread>;
   getThread(scope: ChatOwnerScope, threadId: string): Promise<ChatThread | null>;
   listThreads(scope: ChatOwnerScope, query?: ChatThreadQuery): Promise<ChatThreadPage>;
+  /** ADR-240 "default to last opened": bumps `lastOpenedAt` to now. Called on
+   * every select, distinct from `updatedAt` (turn activity). */
+  touchLastOpened(scope: ChatOwnerScope, threadId: string): Promise<ChatThread | null>;
   archiveThread(scope: ChatOwnerScope, threadId: string): Promise<ChatThread | null>;
   deleteThread(scope: ChatOwnerScope, threadId: string): Promise<boolean>;
   appendTurn(scope: ChatOwnerScope, input: AppendChatTurnInput): Promise<ChatTurn>;
@@ -442,12 +454,14 @@ export class InMemoryChatStore implements ChatStore {
       id: input.id,
       organizationId: scope.organizationId,
       ownerUserId: scope.ownerUserId,
+      ...(input.moduleId ? { moduleId: input.moduleId } : {}),
       plane: input.plane,
       dataScope: input.dataScope,
       status: "active",
       ...(title ? { title } : {}),
       createdAt,
       updatedAt: createdAt,
+      lastOpenedAt: createdAt,
     };
     this.threads.set(thread.id, thread);
     return cloneThread(thread);
@@ -458,6 +472,14 @@ export class InMemoryChatStore implements ChatStore {
     return thread && sameOwner(scope, thread) ? cloneThread(thread) : null;
   }
 
+  async touchLastOpened(scope: ChatOwnerScope, threadId: string): Promise<ChatThread | null> {
+    const thread = this.threads.get(threadId);
+    if (!thread || !sameOwner(scope, thread)) return null;
+    const touched = { ...thread, lastOpenedAt: this.now() };
+    this.threads.set(threadId, touched);
+    return cloneThread(touched);
+  }
+
   async listThreads(
     scope: ChatOwnerScope,
     query: ChatThreadQuery = {},
@@ -466,6 +488,13 @@ export class InMemoryChatStore implements ChatStore {
     const matching = [...this.threads.values()]
       .filter((thread) => sameOwner(scope, thread))
       .filter((thread) => query.status === undefined || thread.status === query.status)
+      .filter((thread) =>
+        query.moduleId === undefined
+          ? true
+          : query.moduleId === null
+            ? thread.moduleId === undefined
+            : thread.moduleId === query.moduleId,
+      )
       .filter((thread) => {
         if (!query.cursor) return true;
         return (

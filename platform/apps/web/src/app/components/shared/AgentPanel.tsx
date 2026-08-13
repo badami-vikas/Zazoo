@@ -25,7 +25,17 @@ const PANEL_MAX_WIDTH = 520;
 const WIDTH_KEY = `bridge.${PILOT_ORGANIZATION}.chatPanel.width.v3`;
 const COLLAPSE_KEY = `bridge.${PILOT_ORGANIZATION}.chatPanel.collapsed.v3`;
 
-export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onClose?: () => void }) {
+export function AgentPanel({
+  mobile = false,
+  onClose,
+  moduleId,
+}: {
+  mobile?: boolean;
+  onClose?: () => void;
+  /** ADR-240: scopes this Chat Panel's sessions to the installed Module the
+   * user is currently viewing. Undefined = the unscoped global Avatar Chat. */
+  moduleId?: string | undefined;
+}) {
   // §5b: shared usePanelControl — same semantics as the left sidebar but
   // continuous width (no snap), right-side drag direction.
   const panel = usePanelControl({
@@ -137,7 +147,7 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
         <div className="w-9" />
       </div>
 
-      <ChatView surface="chat_panel" compact />
+      <ChatView surface="chat_panel" compact moduleId={moduleId} />
     </aside>
   );
 }
