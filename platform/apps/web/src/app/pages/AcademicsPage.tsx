@@ -6,6 +6,7 @@ import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
+import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow } from "../dataviews/types";
@@ -90,7 +91,9 @@ const ASSIGNMENTS_SPEC = (subjectTitles: string[]): TableSpec => ({
       label: "Status",
       kind: "select",
       editable: true,
-      options: ["not_started", "in_progress", "submitted", "graded"],
+      // "draft" is a syllabus-intake row (TASK-069) awaiting review — never
+      // written by the create form, only by academics.syllabusIntake.
+      options: ["not_started", "in_progress", "submitted", "graded", "draft"],
       defaultValue: "not_started",
     },
     { id: "risk", label: "Risk", kind: "select", editable: true, options: ["red", "yellow", "green"], display: "rag" },
@@ -121,6 +124,11 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [syllabusPdfs, setSyllabusPdfs] = useState<string[]>([]);
+  const [syllabusFile, setSyllabusFile] = useState("");
+  const [syllabusSubjectId, setSyllabusSubjectId] = useState("");
+  const [syllabusBusy, setSyllabusBusy] = useState(false);
+  const [syllabusMessage, setSyllabusMessage] = useState<string | null>(null);
   const spec =
     kind === "subjects"
       ? SUBJECTS_SPEC
@@ -147,6 +155,54 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
       active = false;
     };
   }, [reload]);
+
+  // Syllabus intake (TASK-069) reads a PDF the owner already dropped into the
+  // Files Section below — this just lists candidates for the picker.
+  useEffect(() => {
+    if (kind !== "assignments") return;
+    let active = true;
+    trpc.modules.files
+      .query({ organizationId: PILOT_ORGANIZATION, moduleName: "academics" })
+      .then((inventory) => {
+        if (!active) return;
+        const pdfs = inventory.items.map((item) => item.path).filter((path) => path.toLowerCase().endsWith(".pdf"));
+        setSyllabusPdfs(pdfs);
+        setSyllabusFile((current) => (current && pdfs.includes(current) ? current : (pdfs[0] ?? "")));
+      })
+      .catch(() => {
+        // Supplementary listing for the picker — a failure just leaves it empty.
+      });
+    return () => {
+      active = false;
+    };
+  }, [kind, reload]);
+
+  useEffect(() => {
+    setSyllabusSubjectId((current) => (current && subjects.some((s) => s.id === current) ? current : (subjects[0]?.id ?? "")));
+  }, [subjects]);
+
+  async function runSyllabusIntake() {
+    if (!syllabusFile || !syllabusSubjectId) return;
+    setSyllabusBusy(true);
+    setSyllabusMessage(null);
+    try {
+      const result = await trpc.academics.syllabusIntake.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        subjectId: syllabusSubjectId,
+        fileName: syllabusFile,
+      });
+      setSyllabusMessage(
+        result.draftCount > 0
+          ? `Drafted ${result.draftCount} Assignment${result.draftCount === 1 ? "" : "s"} for review — filter Status = draft below.`
+          : "No assignment-shaped lines were found in that PDF.",
+      );
+      setReload((value) => value + 1);
+    } catch (cause) {
+      setSyllabusMessage(String(cause));
+    } finally {
+      setSyllabusBusy(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -338,6 +394,58 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
             <ModuleFilesSection moduleName="academics" />
           </div>
+          {kind === "assignments" ? (
+            <div className="rounded-xl border p-4 space-y-2" style={{ borderColor: "var(--color-border)" }}>
+              <div className="text-sm font-medium">Extract assignments from a syllabus</div>
+              <div className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                Reads a PDF already dropped in Files above and stages the assignments it finds as
+                draft rows for review — nothing is added to the live list until you approve it.
+              </div>
+              {syllabusPdfs.length === 0 ? (
+                <div className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                  Drop a syllabus PDF in Files above to enable this.
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    aria-label="Syllabus PDF"
+                    value={syllabusFile}
+                    onChange={(event) => setSyllabusFile(event.target.value)}
+                    className="h-8 rounded-md border px-2 text-sm"
+                    style={{ borderColor: "var(--color-border)" }}
+                  >
+                    {syllabusPdfs.map((path) => (
+                      <option key={path} value={path}>
+                        {path}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Subject"
+                    value={syllabusSubjectId}
+                    onChange={(event) => setSyllabusSubjectId(event.target.value)}
+                    className="h-8 rounded-md border px-2 text-sm"
+                    style={{ borderColor: "var(--color-border)" }}
+                  >
+                    {subjects.length === 0 && <option value="">Add a Subject first</option>}
+                    {subjects.map((subject) => (
+                      <option key={subject.id} value={subject.id}>
+                        {subject.title}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    size="sm"
+                    disabled={syllabusBusy || !syllabusFile || !syllabusSubjectId}
+                    onClick={() => void runSyllabusIntake()}
+                  >
+                    {syllabusBusy ? "Extracting…" : "Extract assignments"}
+                  </Button>
+                </div>
+              )}
+              {syllabusMessage ? <div className="text-xs">{syllabusMessage}</div> : null}
+            </div>
+          ) : null}
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
             <ModuleIntelligenceSection moduleName="academics" />
           </div>

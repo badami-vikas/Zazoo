@@ -1390,7 +1390,7 @@ export const academicsAssignments = pgTable(
     type: text("type"), // problem set | essay | project | exam | lab
     dueAt: timestamp("due_at", { withTimezone: true }),
     weight: integer("weight"), // 0..100, ColumnSpec `display: "meter"`
-    status: text("status").notNull().default("not_started"), // not_started | in_progress | submitted | graded
+    status: text("status").notNull().default("not_started"), // not_started | in_progress | submitted | graded | draft (TASK-069 syllabus-intake — a draft row is never auto-committed; a human flips status off "draft" via academics.updateAssignment)
     risk: text("risk"), // red | yellow | green — domain signal (AP-023), not a feedback flag
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     grade: text("grade"),

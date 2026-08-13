@@ -430,6 +430,8 @@ import {
   OrganizationFilesRecoveryError,
 } from "./module-files.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
+import { extractText, getDocumentProxy } from "unpdf";
+import { SYLLABUS_INTAKE_SKILL, type ExtractedAssignment } from "./academics-skills.js";
 
 // Syncs the groq key to companion.json so the Rust companion can use STT
 // without restart. Mirrors the boot-time sync in wiring.ts.
@@ -18221,7 +18223,11 @@ export const appRouter = t.router({
           type: z.enum(["problem_set", "essay", "project", "exam", "lab"]).optional(),
           dueAt: z.string().datetime().optional(),
           weight: z.number().int().min(0).max(100).optional(),
-          status: z.enum(["not_started", "in_progress", "submitted", "graded"]).optional(),
+          // "draft" is included so a human can flip a syllabus-intake row OFF it
+          // (the approval step, TASK-069) through this SAME mutation — no second
+          // approve/reject procedure. It is never a value this endpoint writes on
+          // its own; only `academics.syllabusIntake` (below) writes "draft".
+          status: z.enum(["not_started", "in_progress", "submitted", "graded", "draft"]).optional(),
           risk: z.enum(["red", "yellow", "green"]).optional(),
           submittedAt: z.string().datetime().optional(),
           grade: z.string().optional(),
@@ -18239,6 +18245,105 @@ export const appRouter = t.router({
           ...(input.submittedAt !== undefined ? { submittedAt: new Date(input.submittedAt) } : {}),
           ...(input.grade !== undefined ? { grade: input.grade } : {}),
         });
+      }),
+
+    /**
+     * academics.syllabusIntake (TASK-069, ADR-237) — reads a syllabus PDF the
+     * owner already dropped into the Academics Module Files folder (reuses
+     * `modules.addFile`; no second upload path), extracts candidate Assignment
+     * rows with the registered `academics.syllabusIntake` Skill, and writes
+     * them with `status: "draft"` through the SAME `createAssignment` store
+     * call every human-entered Assignment uses. A draft is never committed to
+     * the live toggle on its own — the owner reviews it like any other row and
+     * approves by editing it via `updateAssignment` (status off "draft").
+     *
+     * Local Plane only (`deployment-boundary.ts`): Module Files live under
+     * ~/Documents/Bridge and never reach the public-cloud shell.
+     */
+    syllabusIntake: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          subjectId: z.string().uuid(),
+          fileName: z.string().trim().min(1).max(255),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+
+        const installation = await ctx.wiring.moduleStore.getAvailable(input.organizationId, "academics");
+        if (!installation || installation.status !== "installed") {
+          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "academics" not found` });
+        }
+        const organizationName = await requireOrganizationNameForFiles(ctx.wiring, input.organizationId, ctx.identity.id);
+        const moduleDisplayName = installation.manifest.module?.displayName ?? installation.moduleName;
+
+        let file;
+        try {
+          file = await readModuleFileContent(
+            organizationName,
+            moduleDisplayName,
+            input.fileName,
+            ctx.wiring.moduleFilesBridgeRoot,
+          );
+        } catch (error) {
+          if (error instanceof ModuleFilesPathError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          }
+          throw error;
+        }
+        if (!file) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `"${input.fileName}" was not found in the Academics Local Files folder`,
+          });
+        }
+
+        let extracted: { text: string | string[] };
+        try {
+          const doc = await getDocumentProxy(new Uint8Array(file.content));
+          extracted = await extractText(doc, { mergePages: true });
+        } catch {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `"${input.fileName}" could not be read as a PDF` });
+        }
+        const text = Array.isArray(extracted.text) ? extracted.text.join("\n") : extracted.text;
+
+        // Untrusted external content — taint-label it at the point of
+        // extraction, before the (pure, non-model) extraction Skill sees it.
+        const fileTaint = labelAtSource("file_import", {
+          ref: `academics:${installation.id}:${input.fileName}`,
+          valueHash: hashTaintValue(text),
+          sensitivity: "private",
+          instructionRisk: "unknown",
+        });
+        const skill = ctx.wiring.skillRegistry.get(SYLLABUS_INTAKE_SKILL);
+        if (!skill) throw new Error("academics.syllabusIntake Skill is not registered");
+        const skillRun = await skill.run(
+          { text },
+          {
+            ...ctx.run,
+            taintLabel: ctx.run.taintLabel ? joinTaintLabels(ctx.run.taintLabel, fileTaint) : fileTaint,
+          },
+        );
+        const proposed = skillRun.proposedOutput as { assignments: ExtractedAssignment[] };
+
+        const created = [];
+        for (const item of proposed.assignments) {
+          created.push(
+            await ctx.wiring.academicsStore.createAssignment({
+              organizationId: input.organizationId,
+              subjectId: input.subjectId,
+              title: item.title,
+              status: "draft",
+              ...(item.type ? { type: item.type } : {}),
+              ...(item.dueAt ? { dueAt: new Date(item.dueAt) } : {}),
+              ...(item.weight != null ? { weight: item.weight } : {}),
+            }),
+          );
+        }
+
+        return { draftCount: created.length, assignments: created };
       }),
   }),
 

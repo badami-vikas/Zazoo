@@ -48,6 +48,10 @@ export interface CreateAssignmentInput {
   type?: string;
   dueAt?: Date;
   weight?: number;
+  /** Defaults to the column's "not_started". Syllabus intake (TASK-069) passes
+   * "draft" explicitly — a draft row is written by the same CRUD path as a
+   * human-entered one, never a second staging table (CLAUDE.md reuse bias). */
+  status?: string;
 }
 
 export class DrizzleAcademicsStore {
@@ -176,6 +180,7 @@ export class DrizzleAcademicsStore {
           ...(input.type ? { type: input.type } : {}),
           ...(input.dueAt ? { dueAt: input.dueAt } : {}),
           ...(input.weight != null ? { weight: input.weight } : {}),
+          ...(input.status ? { status: input.status } : {}),
         })
         .returning();
       return row!;
