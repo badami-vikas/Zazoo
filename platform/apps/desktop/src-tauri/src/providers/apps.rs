@@ -33,12 +33,19 @@ impl AppsProvider {
         let stop_flag_thread = stop_flag.clone();
 
         let handle = std::thread::spawn(move || {
-            let mut last_bundle_id: Option<String> = None;
+            // K7: the change key is (bundle id, window title) — switching
+            // documents/tabs inside one app is a focus change worth one
+            // emission, same grain as switching apps. The title is None
+            // whenever Accessibility is not granted or the AX read failed
+            // (fail-closed; the absence itself is the suppression marker).
+            let mut last_focus: Option<(String, Option<String>)> = None;
             while !stop_flag_thread.load(Ordering::Relaxed) {
-                if let Some((app_name, bundle_id)) = frontmost_app() {
-                    if last_bundle_id.as_deref() != Some(bundle_id.as_str()) {
-                        last_bundle_id = Some(bundle_id.clone());
-                        let emission = build_emission(&app_name, &bundle_id);
+                if let Some((app_name, bundle_id, pid)) = frontmost_app() {
+                    let title = crate::providers::accessibility::focused_window_title(pid);
+                    let key = (bundle_id.clone(), title.clone());
+                    if last_focus.as_ref() != Some(&key) {
+                        last_focus = Some(key);
+                        let emission = build_emission(&app_name, &bundle_id, title.as_deref());
                         // Receiver dropped (sensor_stop torn down the channel)
                         // just means: stop quietly, no panic.
                         if tx.send(emission).is_err() {
@@ -68,13 +75,14 @@ impl AppsProvider {
 /// (companion.rs uses it as the single lightweight context signal on the
 /// local ask path). Same derived-metadata-only contract as the provider.
 pub(crate) fn frontmost_app_once() -> Option<(String, String)> {
-    frontmost_app()
+    frontmost_app().map(|(name, bundle_id, _pid)| (name, bundle_id))
 }
 
 /// Reads NSWorkspace.shared.frontmostApplication, returning (localizedName,
-/// bundleIdentifier). Wrapped in an autorelease pool since this runs off the
-/// main thread on a fresh Cocoa call each poll tick.
-fn frontmost_app() -> Option<(String, String)> {
+/// bundleIdentifier, pid). Wrapped in an autorelease pool since this runs off
+/// the main thread on a fresh Cocoa call each poll tick. The pid feeds the
+/// K7 window-title read (accessibility::focused_window_title).
+fn frontmost_app() -> Option<(String, String, i32)> {
     autoreleasepool(|_| {
         let app_manager = NSWorkspace::sharedWorkspace();
         let app = app_manager.frontmostApplication()?;
@@ -86,14 +94,21 @@ fn frontmost_app() -> Option<(String, String)> {
             .bundleIdentifier()
             .map(|s| s.to_string())
             .unwrap_or_else(|| "unknown".to_string());
-        Some((name, bundle_id))
+        let pid = app.processIdentifier();
+        Some((name, bundle_id, pid))
     })
 }
 
-fn build_emission(app_name: &str, bundle_id: &str) -> CaptureEmission {
+fn build_emission(app_name: &str, bundle_id: &str, window_title: Option<&str>) -> CaptureEmission {
     let mut fields = serde_json::Map::new();
     fields.insert("app_name".to_string(), app_name.into());
     fields.insert("bundle_id".to_string(), bundle_id.into());
+    // Fail-closed contract: the key is ABSENT when the title was suppressed
+    // (no Accessibility grant / AX read failed) — absence is the marker the
+    // drain loop forwards as null; an empty title is a real value.
+    if let Some(title) = window_title {
+        fields.insert("window_title".to_string(), title.into());
+    }
 
     CaptureEmission {
         observation: Observation {
@@ -102,8 +117,34 @@ fn build_emission(app_name: &str, bundle_id: &str) -> CaptureEmission {
             fields,
         },
         // Focus events carry no raw payload beyond the observation itself —
-        // app name + bundle id ARE the whole capture, nothing more to keep
-        // in the ring buffer.
+        // app name + bundle id + title ARE the whole capture, nothing more
+        // to keep in the ring buffer.
         raw: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_emission;
+
+    #[test]
+    fn emission_includes_title_only_when_read() {
+        let with_title = build_emission("Xcode", "com.apple.dt.Xcode", Some("bridge — build"));
+        assert_eq!(with_title.observation.kind, "apps");
+        assert_eq!(
+            with_title.observation.fields.get("window_title"),
+            Some(&serde_json::Value::from("bridge — build")),
+        );
+
+        // Suppressed (no grant): the key is absent, not null/empty.
+        let suppressed = build_emission("Mail", "com.apple.mail", None);
+        assert!(!suppressed.observation.fields.contains_key("window_title"));
+
+        // An app that titled its window "" still carries the field.
+        let empty = build_emission("Mail", "com.apple.mail", Some(""));
+        assert_eq!(
+            empty.observation.fields.get("window_title"),
+            Some(&serde_json::Value::from("")),
+        );
     }
 }

@@ -27,6 +27,7 @@
  */
 import type { RetrievedMemorySnippet } from "../run-context.js";
 import type { TaintLabel } from "../taint.js";
+import { acceptanceStamp } from "./acceptance-audit.js";
 import type {
   MemoryAuthScope,
   MemoryEntry,
@@ -326,6 +327,8 @@ async function transitionSuggestion(
   toStatus: SuggestionStatus,
   actorUserId: string,
   nextId: () => string,
+  /** K10 E2: merged into the superseded row (e.g. the acceptance stamp). */
+  extraContent?: Record<string, unknown>,
 ): Promise<MemoryEntry> {
   const current = await store.get(suggestionMemoryId, scope);
   if (!current) throw new Error(`learning: unknown or unauthorized suggestion ${suggestionMemoryId}`);
@@ -362,7 +365,7 @@ async function transitionSuggestion(
       type: "semantic",
       subjectRecordId: current.subjectRecordId ?? null,
       scope: "private",
-      content: JSON.stringify({ ...content, anchor: { ...anchor, status: toStatus } }),
+      content: JSON.stringify({ ...content, ...(extraContent ?? {}), anchor: { ...anchor, status: toStatus } }),
       sourceRefType: current.sourceRefType ?? null,
       sourceRefId: current.sourceRefId ?? null,
       confidence: current.confidence,
@@ -385,6 +388,8 @@ export async function acceptSuggestion(
   suggestionMemoryId: string,
   actorUserId: string,
   nextId: () => string,
+  /** K10 E2: the exact text the client rendered; stamps the acceptance. */
+  shownText?: string,
 ): Promise<{ suggestion: MemoryEntry; preference: MemoryEntry }> {
   const current = await store.get(suggestionMemoryId, scope);
   if (!current) throw new Error(`learning: unknown or unauthorized suggestion ${suggestionMemoryId}`);
@@ -392,7 +397,11 @@ export async function acceptSuggestion(
   const pattern = content?.["pattern"] as DetectedPattern | undefined;
   const anchor = content?.["anchor"] as { moduleId?: unknown } | undefined;
   const moduleId = typeof anchor?.moduleId === "string" ? anchor.moduleId : "unknown";
-  const accepted = await transitionSuggestion(store, scope, suggestionMemoryId, "accepted", actorUserId, nextId);
+  const stamp = await acceptanceStamp(
+    shownText,
+    typeof content?.["suggestedText"] === "string" ? (content["suggestedText"] as string) : "",
+  );
+  const accepted = await transitionSuggestion(store, scope, suggestionMemoryId, "accepted", actorUserId, nextId, stamp ? { acceptance: stamp } : undefined);
   // A pattern with zero local observations (a Commons-archetype seed the
   // Human accepted) words the preference without a count — "seen 0 times"
   // would misstate how it was learned.

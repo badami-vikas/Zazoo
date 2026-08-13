@@ -38,6 +38,15 @@ extern "C" {
     /// CFStringRef key for the "prompt on check" option, exported by
     /// ApplicationServices itself (not CoreFoundation).
     static kAXTrustedCheckOptionPrompt: CoreFoundation::CFStringRef;
+    /// K7 (TASK-051) — the "concrete next step" the module doc flagged: not
+    /// a tree walker, just the two-attribute chain app → focused window →
+    /// title. Each Copy returns a +1 CFType we must release.
+    fn AXUIElementCreateApplication(pid: i32) -> CoreFoundation::CFTypeRef;
+    fn AXUIElementCopyAttributeValue(
+        element: CoreFoundation::CFTypeRef,
+        attribute: CoreFoundation::CFStringRef,
+        value: *mut CoreFoundation::CFTypeRef,
+    ) -> i32;
 }
 
 /// Minimal hand-bound CoreFoundation surface — only what
@@ -77,6 +86,110 @@ mod CoreFoundation {
         ) -> CFDictionaryRef;
 
         pub fn CFRelease(cf: CFTypeRef);
+
+        // K7 window-title read — the minimal CFString surface: create the
+        // two attribute-name keys, type-check the returned value, copy its
+        // UTF-8 bytes out. Nothing here outlives its function scope.
+        pub fn CFStringCreateWithBytes(
+            allocator: CFAllocatorRef,
+            bytes: *const u8,
+            num_bytes: CFIndex,
+            encoding: u32,
+            is_external_representation: bool,
+        ) -> CFStringRef;
+        pub fn CFStringGetLength(string: CFStringRef) -> CFIndex;
+        pub fn CFStringGetMaximumSizeForEncoding(length: CFIndex, encoding: u32) -> CFIndex;
+        pub fn CFStringGetCString(
+            string: CFStringRef,
+            buffer: *mut u8,
+            buffer_size: CFIndex,
+            encoding: u32,
+        ) -> bool;
+        pub fn CFGetTypeID(cf: CFTypeRef) -> usize;
+        pub fn CFStringGetTypeID() -> usize;
+    }
+
+    pub const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
+}
+
+/// Build a CFString from a Rust literal (caller releases). None on the
+/// (practically impossible) allocation failure — treated as "read failed",
+/// never a panic inside the capture path.
+#[cfg(target_os = "macos")]
+unsafe fn cf_string(value: &str) -> Option<CoreFoundation::CFStringRef> {
+    let created = CoreFoundation::CFStringCreateWithBytes(
+        std::ptr::null(),
+        value.as_ptr(),
+        value.len() as CoreFoundation::CFIndex,
+        CoreFoundation::K_CF_STRING_ENCODING_UTF8,
+        false,
+    );
+    if created.is_null() {
+        None
+    } else {
+        Some(created)
+    }
+}
+
+/// Copy a CFString's contents into a Rust String (does NOT release it).
+#[cfg(target_os = "macos")]
+unsafe fn cf_string_to_string(value: CoreFoundation::CFStringRef) -> Option<String> {
+    let length = CoreFoundation::CFStringGetLength(value);
+    let capacity = CoreFoundation::CFStringGetMaximumSizeForEncoding(
+        length,
+        CoreFoundation::K_CF_STRING_ENCODING_UTF8,
+    ) + 1;
+    let mut buffer = vec![0u8; capacity.max(1) as usize];
+    if !CoreFoundation::CFStringGetCString(
+        value,
+        buffer.as_mut_ptr(),
+        capacity,
+        CoreFoundation::K_CF_STRING_ENCODING_UTF8,
+    ) {
+        return None;
+    }
+    let end = buffer.iter().position(|b| *b == 0).unwrap_or(0);
+    String::from_utf8(buffer[..end].to_vec()).ok()
+}
+
+/// K7 (TASK-051): the frontmost window's title for one app, or None —
+/// FAIL-CLOSED on every branch: no Accessibility grant, AX error, missing
+/// window, missing/non-string title all read as "no title", never a guess.
+/// Written linearly (no early returns between a Copy and its CFRelease) so
+/// every +1 CFType is provably released on every path.
+#[cfg(target_os = "macos")]
+pub(crate) fn focused_window_title(pid: i32) -> Option<String> {
+    unsafe {
+        if !AXIsProcessTrusted() {
+            return None;
+        }
+        let app = AXUIElementCreateApplication(pid);
+        if app.is_null() {
+            return None;
+        }
+        let mut result: Option<String> = None;
+        if let Some(focused_key) = cf_string("AXFocusedWindow") {
+            let mut window: CoreFoundation::CFTypeRef = std::ptr::null();
+            let window_err = AXUIElementCopyAttributeValue(app, focused_key, &mut window);
+            CoreFoundation::CFRelease(focused_key);
+            if window_err == 0 && !window.is_null() {
+                if let Some(title_key) = cf_string("AXTitle") {
+                    let mut value: CoreFoundation::CFTypeRef = std::ptr::null();
+                    let title_err = AXUIElementCopyAttributeValue(window, title_key, &mut value);
+                    CoreFoundation::CFRelease(title_key);
+                    if title_err == 0 && !value.is_null() {
+                        if CoreFoundation::CFGetTypeID(value) == CoreFoundation::CFStringGetTypeID()
+                        {
+                            result = cf_string_to_string(value);
+                        }
+                        CoreFoundation::CFRelease(value);
+                    }
+                }
+                CoreFoundation::CFRelease(window);
+            }
+        }
+        CoreFoundation::CFRelease(app);
+        result
     }
 }
 

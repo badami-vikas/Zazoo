@@ -18,7 +18,12 @@ on the captured monitor only, 12 s auto-clear, animated entrance. No key or no c
 answers text-only + says it cannot see the screen. Voice = hold-to-record → Groq Whisper (typed fallback);
 answers spoken by local `say`, cancellable. `screen` sensor = REAL on-demand now (`screencapture` +
 CGPreflight/Request), every capture → observation + blink; overlay bridges `sensor.capture` → DOM blink.
-Live grant/vision/voice certification still pending an interactive run (see TASK-027).
+Right-click Observe seeds "What am I looking at?" into the same job; there is no capture-only path.
+Missing grant fails before capture (wallpaper-only macOS output refused); missing Groq vision key states
+the setup needed. Chief of Staff text routing differs by design: local Qwen3-4B or Groq gpt-oss-20b,
+versus Avatar Groq Llama-4 Scout vision.
+Repair gates pass; second-owner live retry remains external confirmation. No screenshot was sent to
+Groq during repair verification.
 
 **Annotation output exists**: one display-sized `annotate.rs` window per monitor; click-through from
 creation (`set_ignore_cursor_events(true)`). Typed highlight/arrow/callout/spotlight marks only.
@@ -31,10 +36,10 @@ previewed with synthetic marks; annotation multi-monitor GUI behavior still lack
 verified via a real unit test). Full AX-tree walking (AXUIElementRef creation, CFArray attribute
 reads, coordinate conversion) needs real CoreFoundation retain/release bookkeeping that wasn't hand-
 rolled without a live macOS session + granted permission to exercise it against — the same judgment
-call this codebase already made for the `screen` sensor (honest stub over a faked capture path).
+call this codebase made for the `screen` sensor before its narrower on-demand capture path shipped.
 `annotate_show` takes already-resolved rects, so whatever builds AX tree-walking next (or a manual
 walkthrough source) can drive the existing output half unchanged. 2 sensor providers live (`apps`,
-`clipboard`); `screen` = honest stub.
+`clipboard`); `screen` = real on-demand only, never ambient.
 
 **Small-model-first ramp (5 tiers via ModelProvider seam)**: T0 no-model deterministic (geometry/rules
 — WHERE IT STARTS) · T1 small local text SLM (Ollama ~1-3B) · T2 on-device VLM (Moondream2 ~1.9B /

@@ -104,15 +104,27 @@ test("registration creates a capability manifest with COMPUTED risk (built_in, d
   await hub.register(new FakeContextProvider("clip-1", "clipboard"));
   await hub.register(new FakeContextProvider("mail-1", "emails"));
 
+  // Rows are addressed by the (organization, name, version) natural key —
+  // the row id is store-shaped (a UUID on durable stores), while the
+  // logical `ctx-provider:<id>` lives inside the manifest JSON.
+  const clip = await capabilities.getManifestByNameVersion(
+    WS,
+    "Context provider: clipboard (clip-1)",
+    "0.1.0",
+  );
   // Read-only, no-egress capture sensor computes to informational.
-  const clip = await capabilities.getManifest("ctx-provider:clip-1");
   assert.equal(clip?.computedRisk, "informational");
   assert.equal(clip?.origin, "built_in");
-  const clipState = await capabilities.getState("ctx-provider:clip-1");
+  assert.equal((clip?.manifest as { id?: string }).id, "ctx-provider:clip-1");
+  const clipState = await capabilities.getState(clip!.id);
   assert.equal(clipState?.state, "draft"); // generation ≠ activation
 
   // Emails provider writes signal-shaped context → advisory (higher than clipboard).
-  const mail = await capabilities.getManifest("ctx-provider:mail-1");
+  const mail = await capabilities.getManifestByNameVersion(
+    WS,
+    "Context provider: emails (mail-1)",
+    "0.1.0",
+  );
   assert.equal(mail?.computedRisk, "advisory");
 });
 
@@ -156,7 +168,7 @@ test("registered providers form a listable, paginated capability inventory scope
   const page2 = await capabilities.listManifests(WS, { limit: 2, offset: 2 });
   assert.equal(page2.items.length, 1);
   assert.deepEqual(
-    new Set([...page1.items, ...page2.items].map((m) => m.id)),
+    new Set([...page1.items, ...page2.items].map((m) => (m.manifest as { id?: string }).id)),
     new Set(["ctx-provider:apps-1", "ctx-provider:clip-1", "ctx-provider:mail-1"]),
   );
   // A differently-scoped organization sees none of these manifests.
@@ -173,7 +185,7 @@ test("registered providers form a listable, paginated capability inventory scope
     "Context provider: emails (mail-1)",
     "0.1.0",
   );
-  assert.equal(byNameVersion?.id, "ctx-provider:mail-1");
+  assert.equal((byNameVersion?.manifest as { id?: string }).id, "ctx-provider:mail-1");
   assert.equal(
     await capabilities.getManifestByNameVersion(WS, "no such provider", "0.1.0"),
     null,
@@ -183,11 +195,15 @@ test("registered providers form a listable, paginated capability inventory scope
 test("capability store rejects a duplicate manifest id (append-only invariant the hub's own registration guard relies on)", async () => {
   const { hub, capabilities } = makeHub();
   await hub.register(new FakeContextProvider("dup-1", "clipboard"));
-  const existing = await capabilities.getManifest("ctx-provider:dup-1");
+  const existing = await capabilities.getManifestByNameVersion(
+    WS,
+    "Context provider: clipboard (dup-1)",
+    "0.1.0",
+  );
   assert.ok(existing);
   await assert.rejects(
     () => capabilities.createManifest({ ...existing, dependencies: [] }),
-    /duplicate id ctx-provider:dup-1/,
+    /duplicate id/,
   );
 });
 

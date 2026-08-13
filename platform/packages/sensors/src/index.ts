@@ -22,3 +22,4 @@ export {
 } from "./capture-ledger.js";
 export { SensorHub, permissionsForKind, type ContextConsumer, type SensorHubDeps } from "./hub.js";
 export { FakeContextProvider } from "./fake-provider.js";
+export { PushContextProvider } from "./push-provider.js";

@@ -15,8 +15,11 @@ test("built-in Module catalog has one manifest per Module name", () => {
     "job-pilot",
     "relationship",
     "helpdesk",
+    "academics",
+    "events",
     "whatsapp",
     "task-manager",
+    "devpilot",
   ]);
   assert.equal(new Set(names).size, names.length);
 });
@@ -150,6 +153,49 @@ test("WhatsApp is withheld from Commons", () => {
   const published = COMMONS_BUILT_IN_MODULES.map(({ manifest }) => manifest.name);
   assert.ok(!published.includes("whatsapp"));
   assert.ok(!published.includes("relationship"));
+});
+
+test("DevPilot is an installable Module with Pull Requests, Issues, and Repos Pages", () => {
+  const devpilot = requireBuiltInModule("devpilot").manifest;
+  assert.equal(devpilot.module?.displayName, "DevPilot");
+  assert.deepEqual(devpilot.module?.pages.map((page) => page.id), ["pulls", "issues", "repos"]);
+  assert.deepEqual(moduleNavTarget("devpilot"), {
+    landing: "/module/devpilot/pulls",
+    base: "/module/devpilot",
+  });
+  const normalized = parseModuleManifest({ module: devpilot });
+  assert.equal(
+    canonicalizeManifest(parseModuleManifest({ module: normalized })),
+    canonicalizeManifest(normalized),
+  );
+});
+
+test("DevPilot D1 declares no external:send capability — read-only until D2 is approved", () => {
+  const devpilot = requireBuiltInModule("devpilot").manifest;
+  for (const capability of devpilot.capabilities) {
+    for (const permission of capability.permissions) {
+      assert.notEqual(
+        permission.resourceType,
+        "external:send",
+        `${capability.id} must not declare external:send in D1`,
+      );
+    }
+  }
+});
+
+test("DevPilot's tracker Agent has a Plane and its poll Automation has a machine-readable schedule", () => {
+  const devpilot = requireBuiltInModule("devpilot").manifest;
+  assert.equal(devpilot.module?.agents.length, 1);
+  assert.equal(devpilot.module?.agents[0]?.plane, "cloud");
+  const automation = devpilot.module?.automations[0];
+  assert.ok(automation);
+  assert.equal(automation.schedule?.kind, "schedule");
+  assert.ok(automation.automationId, "the poll Automation must opt into the executable runtime");
+});
+
+test("DevPilot is withheld from Commons", () => {
+  const published = COMMONS_BUILT_IN_MODULES.map(({ manifest }) => manifest.name);
+  assert.ok(!published.includes("devpilot"));
 });
 
 // ---------------------------------------------------------------------

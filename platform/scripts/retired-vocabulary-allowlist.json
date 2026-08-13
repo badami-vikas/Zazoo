@@ -134,61 +134,67 @@
       "family": "tool",
       "pathPrefix": "apps/web/src/app/onboarding/questions.ts",
       "reason": "Generic English noun in user-facing onboarding copy: 'A ticketing tool' / 'A pipeline tool'. The retired Bridge 'Tool' was a product-noun for standalone Skills outside any Module; these strings describe third-party product categories (CRMs, ticketing systems) in plain English. Bridge does not own this usage.",
-      "reviewed": "AP-135 \u00b7 2026-08-09 \u00b7 TASK-036"
+      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "modules/whatsapp/src/tools.ts",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land \u2014 TASK-037 follow-up). The WhatsApp Module's 'Tools' tab is a module-scoped sub-page listing WhatsApp-specific capability panels (Contact Extractor, Annotations, etc.). Structurally different from the retired global Bridge Tools surface (a top-level nav entry hosting standalone Skills outside any Module); 'tool' here is scoped entirely within the WhatsApp Module manifest.",
-      "reviewed": "AP-135 \u00b7 2026-08-09 \u00b7 TASK-036"
+      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). The WhatsApp Module's 'Tools' tab is a module-scoped sub-page listing WhatsApp-specific capability panels (Contact Extractor, Annotations, etc.). Structurally different from the retired global Bridge Tools surface (a top-level nav entry hosting standalone Skills outside any Module); 'tool' here is scoped entirely within the WhatsApp Module manifest.",
+      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "modules/manifests/src/index.ts",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land \u2014 TASK-037 follow-up). WhatsApp Module manifest capability IDs (whatsapp.tool.* and whatsapp.page.tools) and the 'Tools' page display name. Same scope as modules/whatsapp/src/tools.ts \u2014 module-contained, not the retired global Tools surface. Renaming governed capability IDs during active branch work would require rebasing three WhatsApp branches simultaneously.",
-      "reviewed": "AP-135 \u00b7 2026-08-09 \u00b7 TASK-036"
+      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). WhatsApp Module manifest capability IDs (whatsapp.tool.* and whatsapp.page.tools) and the 'Tools' page display name. Same scope as modules/whatsapp/src/tools.ts — module-contained, not the retired global Tools surface. Renaming governed capability IDs during active branch work would require rebasing three WhatsApp branches simultaneously.",
+      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "modules/whatsapp/test/",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land \u2014 TASK-037 follow-up). Test fixtures for the WhatsApp Tools registry \u2014 they assert capability IDs and manifest entries already exempted at modules/manifests/src/index.ts and modules/whatsapp/src/tools.ts.",
-      "reviewed": "AP-135 \u00b7 2026-08-09 \u00b7 TASK-036"
+      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Test fixtures for the WhatsApp Tools registry — they assert capability IDs and manifest entries already exempted at modules/manifests/src/index.ts and modules/whatsapp/src/tools.ts.",
+      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "apps/web/src/app/pages/WhatsAppPage.tsx",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land \u2014 TASK-037 follow-up). Web surface for the WhatsApp Tools tab \u2014 renders the WHATSAPP_TOOLS registry and uses the tab label 'Tools'. Same exemption rationale as modules/whatsapp/src/tools.ts.",
-      "reviewed": "AP-135 \u00b7 2026-08-09 \u00b7 TASK-036"
+      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Web surface for the WhatsApp Tools tab — renders the WHATSAPP_TOOLS registry and uses the tab label 'Tools'. Same exemption rationale as modules/whatsapp/src/tools.ts.",
+      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "apps/web/src/app/routes.tsx",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land \u2014 TASK-037 follow-up). The route path 'module/whatsapp/tools' for the WhatsApp Tools page. Route is tied to the same WhatsApp-scoped capability registry already exempted at modules/manifests/src/index.ts.",
-      "reviewed": "AP-135 \u00b7 2026-08-09 \u00b7 TASK-036"
+      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). The route path 'module/whatsapp/tools' for the WhatsApp Tools page. Route is tied to the same WhatsApp-scoped capability registry already exempted at modules/manifests/src/index.ts.",
+      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "apps/web/src/app/pages/whatsapp/",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land \u2014 TASK-037 follow-up). WhatsApp-scoped UI panels referencing the WhatsApp Tools capability by name (e.g. 'Automation Rules Tool'). Same module-scoped exemption rationale as modules/whatsapp/src/tools.ts.",
-      "reviewed": "AP-135 \u00b7 2026-08-09 \u00b7 TASK-036"
+      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). WhatsApp-scoped UI panels referencing the WhatsApp Tools capability by name (e.g. 'Automation Rules Tool'). Same module-scoped exemption rationale as modules/whatsapp/src/tools.ts.",
+      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "modules/manifests/test/",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land \u2014 TASK-037 follow-up). Test fixtures for the WhatsApp Module manifest catalog \u2014 they assert the whatsapp.tool.* capability IDs and page names already exempted at modules/manifests/src/index.ts.",
-      "reviewed": "AP-135 \u00b7 2026-08-09 \u00b7 TASK-036"
+      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Test fixtures for the WhatsApp Module manifest catalog — they assert the whatsapp.tool.* capability IDs and page names already exempted at modules/manifests/src/index.ts.",
+      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
     },
     {
       "family": "tool",
       "pathPrefix": "modules/whatsapp/src/index.ts",
-      "reason": "TIME-BOXED (rename after active WhatsApp branches land \u2014 TASK-037 follow-up). Re-exports everything from tools.ts; the `tool` family reaches this path only because the export barrel re-surfaces the identifiers already exempted at modules/whatsapp/src/tools.ts.",
-      "reviewed": "AP-135 \u00b7 2026-08-09 \u00b7 TASK-036"
+      "reason": "TIME-BOXED (rename after active WhatsApp branches land — TASK-037 follow-up). Re-exports everything from tools.ts; the `tool` family reaches this path only because the export barrel re-surfaces the identifiers already exempted at modules/whatsapp/src/tools.ts.",
+      "reviewed": "AP-135 · 2026-08-09 · TASK-036"
     },
     {
       "family": "element",
       "pathPrefix": "apps/web/src/app/dataviews/views/TableView.tsx",
       "reason": "DOM and library API names, not the retired Bridge product noun. The occurrences are `HTMLDivElement`/`HTMLElement`/`HTMLInputElement`/`HTMLSelectElement` (TypeScript's built-in DOM lib types) and `getScrollElement` (the option key `@tanstack/react-virtual` requires on its options object, ADR-194). Renaming either would break the contract with TypeScript's DOM typings or with the virtualizer rather than migrate a Bridge identifier — the word is not ours to rename here.",
       "reviewed": "AP-114 · 2026-08-06 · ADR-194"
+    },
+    {
+      "family": "element",
+      "pathPrefix": "apps/desktop/src-tauri/src/providers/accessibility.rs",
+      "reason": "Apple Accessibility C ABI, not the retired Bridge product noun. The K7 focused-window-title read links against ApplicationServices' own exported symbols (AXUIElementCreateApplication, AXUIElementCopyAttributeValue) and their documented parameter names; renaming a foreign framework's linker symbols is impossible — the word is not ours to rename.",
+      "reviewed": "AP-148 · 2026-08-13 · TASK-051"
     }
   ]
 }

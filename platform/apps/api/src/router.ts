@@ -88,6 +88,7 @@ import {
   PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE,
   PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE,
   ledgerSignalId,
+  appFocusCaptureSignalId,
   browserCaptureSignalId,
   chatCaptureSignalId,
   googleCaptureSignalId,
@@ -246,6 +247,8 @@ import { WEB_RESEARCH_SKILL_ID } from "./web-research-skill.js";
 import type { ModelBinding } from "@bridge/capability-kit";
 import { createModelRouter, MANAGED_LLAMA_PROVIDER_ID } from "@bridge/models";
 import { authUrl, CALENDAR_SOURCE, GMAIL_SOURCE, type IntakeDirective } from "@bridge/integrations-google";
+import { classifyPatShape, maskPat } from "@bridge/integrations-github";
+import { reposTableSpec, pullsTableSpec, issuesTableSpec, pullsTriageBoardView, issuesUpdatedListView } from "@bridge/devpilot";
 import {
   routeHelpRequest,
   draftHelpOffer,
@@ -268,6 +271,15 @@ import {
   generalizeLearnedPreferences,
   isLearningObservationEntry,
   listPromotionSuggestions,
+  auditAcceptances,
+  ClaimGateError,
+  hashingEmbed,
+  isSuppressedByRejections,
+  type RejectionSuppressionVerdict,
+  type TextEmbedder,
+  recordRejectionFingerprint,
+  draftStepsFromEpisodes,
+  episodesForSkill,
   rejectAutomationDraft,
   seedSuggestionsFromArchetypes,
   supportBandRank,
@@ -382,6 +394,7 @@ import {
   COMMONS_BUILT_IN_MODULES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCE_AUTOMATION_ID,
+  DEVPILOT_GITHUB_POLL_AUTOMATION_ID,
   TASK_MANAGER_DRIFT_AUTOMATION_ID,
   TASK_MANAGER_SWEEP_AUTOMATION_ID,
   TASK_MANAGER_SCAN_AUTOMATION_ID,
@@ -498,6 +511,72 @@ async function readCaptureConsentState(
  * (@bridge/core learning/browser-capture). Local Plane by residency, like
  * the consent state it refines: which domains the owner's browser may
  * report on lives beside the consent that lets it report at all. */
+
+/** K10 E5's own lexical tier — deliberately NOT the shared
+ * `hashingTextEmbedder()` (dim 128, id "bridge-hashing-lexical-v1") that
+ * LA5 retrieval fusion already has vectors stored under. Reusing that id
+ * here would let two different-dimensional vector spaces collide under one
+ * id ("different spaces never mix" — retrieval.ts), and 128 buckets is
+ * collision-prone for the SHORT 2-3 token texts a rejected claim usually
+ * is (`hashingEmbed` genuinely maps "cet" and "ist" to the same bucket at
+ * dim 128 — a real collision, not a hypothetical one). A dedicated id and
+ * a much larger bucket count make an unrelated short claim colliding with
+ * a rejected one astronomically less likely, without touching fusion's
+ * existing vectors at all. */
+const REJECTION_LEXICAL_DIM = 4096;
+function rejectionLexicalEmbedder(): TextEmbedder {
+  return {
+    id: "bridge-rejection-lexical-v1",
+    embed: async (texts) => texts.map((text) => hashingEmbed(text, REJECTION_LEXICAL_DIM)),
+  };
+}
+
+/** K10 E5 — run a rejection-fingerprint operation with the semantic
+ * embedder when the LA5 lane has one, falling back to the always-available
+ * lexical hashing embedder when the semantic tier errors at runtime (e.g.
+ * Ollama down). A human's rejection must never fail because a model server
+ * is unreachable; the lexical tier still catches reworded repeats. */
+async function withRejectionEmbedder<T>(
+  wiring: Wiring,
+  run: (embedder: TextEmbedder) => Promise<T>,
+): Promise<T> {
+  const semantic = wiring.semanticEmbedder;
+  if (semantic) {
+    try {
+      return await run(semantic);
+    } catch {
+      // fall through to the lexical tier
+    }
+  }
+  return run(rejectionLexicalEmbedder());
+}
+
+/** K10 E5 — the suppression CHECK, unlike a single fingerprint write, must
+ * consult every tier a fingerprint could have been written under: a
+ * rejection recorded while Ollama was reachable lands under the semantic
+ * embedder's id, one recorded while it was down lands under the lexical
+ * hashing id, and the daemon can flap between the two rejections in a
+ * lineage's history. Checking only "today's" tier would let a same-session
+ * tier flip silently un-suppress an already-rejected idea — the lexical
+ * tier is always checked (it is always computable), and the semantic tier
+ * is checked in addition whenever it is actually reachable right now. */
+async function isSuppressedByRejectionsAnyTier(
+  wiring: Wiring,
+  text: string,
+  scope: { organizationId: string; userId: string },
+  nowISO: string,
+): Promise<RejectionSuppressionVerdict> {
+  const lexical = await isSuppressedByRejections(wiring.memoryStore, rejectionLexicalEmbedder(), text, scope, nowISO);
+  if (lexical.suppressed) return lexical;
+  const semantic = wiring.semanticEmbedder;
+  if (!semantic) return lexical;
+  try {
+    return await isSuppressedByRejections(wiring.memoryStore, semantic, text, scope, nowISO);
+  } catch {
+    return lexical;
+  }
+}
+
 const LEARNING_BROWSER_POLICY_NAMESPACE = "learning:browser-domain-policy";
 
 /** Read the current browser domain policy, failing CLOSED: a missing or
@@ -2323,6 +2402,16 @@ const dealpilotProcedure = procedure.use(async ({ ctx, next }) => {
     ctx.verifying || ctx.wiring.persistent || process.env.NODE_ENV === "production";
   if (authenticationRequired && !ctx.authenticated) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "authentication required for DealPilot" });
+  }
+  await assertMembership(ctx.wiring.organizationStore, PILOT_ORGANIZATION, ctx.identity.id);
+  return next();
+});
+
+const devpilotProcedure = procedure.use(async ({ ctx, next }) => {
+  const authenticationRequired =
+    ctx.verifying || ctx.wiring.persistent || process.env.NODE_ENV === "production";
+  if (authenticationRequired && !ctx.authenticated) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "authentication required for DevPilot" });
   }
   await assertMembership(ctx.wiring.organizationStore, PILOT_ORGANIZATION, ctx.identity.id);
   return next();
@@ -6010,6 +6099,15 @@ function assertLearningFlightEnabled(ctx: { wiring: Pick<Wiring, "learningObserv
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message: "learning observation flight is disabled (BRIDGE_LEARNING_OBSERVATION)",
+    });
+  }
+}
+
+function assertDevpilotFlightEnabled(ctx: { wiring: Pick<Wiring, "devpilotEnabled"> }): void {
+  if (!ctx.wiring.devpilotEnabled) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "DevPilot flight is disabled (BRIDGE_DEVPILOT)",
     });
   }
 }
@@ -13117,6 +13215,223 @@ export const appRouter = t.router({
    * facts + candidate list (capture ≠ commit). Thesis storage is basic get/set, in-memory
    * (wiring.ts) — no thesis-management UI yet, that's a separate future item.
    */
+  devpilot: t.router({
+    /** Table specs + default Views for the three Pages — mirrors JobPilot's
+     * `definition` procedure (apps/web has no build dependency on
+     * @bridge/devpilot, same as it has none on @bridge/dealpilot/@bridge/jobpilot). */
+    definitions: devpilotProcedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(({ input }) => {
+        assertPilotOrganization(input.organizationId);
+        return {
+          repos: reposTableSpec,
+          pulls: pullsTableSpec,
+          issues: issuesTableSpec,
+          pullsTriageBoardView: pullsTriageBoardView(),
+          issuesUpdatedListView: issuesUpdatedListView(),
+        };
+      }),
+
+    /** Always answerable (flight off included), like `learning.status`, so
+     * clients can honestly hide the surface instead of rendering dead
+     * controls. */
+    status: devpilotProcedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const githubIntegration = (await ctx.wiring.integrationStore.list(input.organizationId)).find(
+          (row) => row.provider === "github" && row.status === "active",
+        );
+        // 200 mirrors the sync Skill's own per-cycle tracked-repo bound — tracked
+        // repos are user-curated (toggled one at a time), never realistically
+        // more than that, so this stays an exact count without a dedicated
+        // COUNT query.
+        const trackedRepos = githubIntegration
+          ? await ctx.wiring.devpilot.store.listRepos(input.organizationId, { limit: 200, offset: 0 }, true)
+          : [];
+        // Every sync cycle upserts ALL repos (phase 1) before syncing pulls/issues
+        // for tracked ones (phase 2), so the max `syncedAt` among the tracked set
+        // is an honest "last synced" reading without a second, differently-
+        // ordered query (listRepos only orders by `pushedAt`, GitHub's own
+        // activity time — not when WE last synced).
+        const latestSyncedAt = trackedRepos.reduce<Date | null>(
+          (latest, repo) => (!latest || repo.syncedAt > latest ? repo.syncedAt : latest),
+          null,
+        );
+        const lastSyncAt = latestSyncedAt ? latestSyncedAt.toISOString() : null;
+        return {
+          enabled: ctx.wiring.devpilotEnabled,
+          githubConnected: Boolean(githubIntegration),
+          trackedRepoCount: trackedRepos.length,
+          lastSyncAt,
+        };
+      }),
+
+    github: t.router({
+      connect: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1), personalAccessToken: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          assertHumanIdentity(ctx, "Connecting a GitHub Personal Access Token");
+          if (ctx.wiring.publicCloudOnly) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "GitHub Personal Access Tokens require the Local Plane — connect from the desktop app",
+            });
+          }
+          const kind = classifyPatShape(input.personalAccessToken);
+          if (!kind) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Not a recognized GitHub Personal Access Token shape" });
+          }
+          const gateway = ctx.wiring.devpilot.gateways.forToken(input.personalAccessToken);
+          let viewer;
+          try {
+            viewer = await gateway.viewer();
+          } catch (error) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `GitHub rejected this token: ${error instanceof Error ? error.message : String(error)}`,
+            });
+          }
+          const existing = (await ctx.wiring.integrationStore.list(input.organizationId)).find(
+            (row) => row.provider === "github",
+          );
+          const integration = existing ?? (await ctx.wiring.integrationStore.connect(input.organizationId, "github", []));
+          await ctx.wiring.localPlane.secrets.putToken({
+            integrationId: integration.id,
+            organizationId: input.organizationId,
+            provider: "github",
+            accessToken: input.personalAccessToken,
+            // Fine-grained PATs carry no enumerable scope header (permissions
+            // are per-repository); classic PATs' scopes aren't requested here
+            // since D1 asks for read-only fine-grained tokens by convention.
+            scope: "",
+            tokenType: "pat",
+            updatedAt: new Date().toISOString(),
+          });
+          const masked = maskPat(input.personalAccessToken);
+          return { connected: true, login: viewer.login, kind: masked.kind, last4: masked.last4 };
+        }),
+
+      disconnect: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          assertHumanIdentity(ctx, "Disconnecting a GitHub Personal Access Token");
+          const existing = (await ctx.wiring.integrationStore.list(input.organizationId)).find(
+            (row) => row.provider === "github",
+          );
+          if (!existing) return { ok: true };
+          await ctx.wiring.localPlane.secrets.deleteToken(existing.id);
+          await ctx.wiring.integrationStore.disconnect(input.organizationId, existing.id);
+          return { ok: true };
+        }),
+
+      status: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const existing = (await ctx.wiring.integrationStore.list(input.organizationId)).find(
+            (row) => row.provider === "github" && row.status === "active",
+          );
+          if (!existing) return { connected: false as const };
+          const token = await ctx.wiring.localPlane.secrets.getToken(existing.id);
+          if (!token) return { connected: false as const };
+          const masked = maskPat(token.accessToken);
+          return { connected: true as const, kind: masked.kind, last4: masked.last4 };
+        }),
+    }),
+
+    repos: t.router({
+      list: devpilotProcedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            limit: z.number().int().min(1).max(200).default(100),
+            offset: z.number().int().min(0).default(0),
+            trackedOnly: z.boolean().default(false),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          return ctx.wiring.devpilot.store.listRepos(
+            input.organizationId,
+            { limit: input.limit, offset: input.offset },
+            input.trackedOnly,
+          );
+        }),
+
+      setTracked: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1), repoId: z.string().min(1), tracked: z.boolean() }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const row = await ctx.wiring.devpilot.store.setTracked(input.organizationId, input.repoId, input.tracked);
+          if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Repo not found" });
+          return row;
+        }),
+    }),
+
+    pulls: t.router({
+      list: devpilotProcedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            limit: z.number().int().min(1).max(200).default(100),
+            offset: z.number().int().min(0).default(0),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          return ctx.wiring.devpilot.store.listPulls(input.organizationId, { limit: input.limit, offset: input.offset });
+        }),
+    }),
+
+    issues: t.router({
+      list: devpilotProcedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            limit: z.number().int().min(1).max(200).default(100),
+            offset: z.number().int().min(0).default(0),
+          }),
+        )
+        .query(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          return ctx.wiring.devpilot.store.listIssues(input.organizationId, { limit: input.limit, offset: input.offset });
+        }),
+    }),
+
+    sync: t.router({
+      /** Manually re-runs the SAME governed Automation the 15-min scheduler
+       * triggers (DealPilot's discoverDeals precedent) — the manual path and
+       * the scheduled path share one attributable Agent Run shape, so a
+       * learning signal from either carries the same moduleId:"devpilot". */
+      run: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const result = await ctx.wiring.automationExecutor.runById(
+            {
+              organizationId: input.organizationId,
+              automationId: DEVPILOT_GITHUB_POLL_AUTOMATION_ID,
+              onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
+              params: { organizationId: input.organizationId },
+            },
+            withHumanInputTaint(ctx.run, `devpilot:sync:${ctx.identity.id}`, input),
+          );
+          const proposal = result.proposals[0];
+          if (!proposal) throw new Error("DevPilot GitHub sync Automation produced no proposal");
+          return proposal.output?.proposedOutput;
+        }),
+    }),
+  }),
+
   dealpilot: t.router({
     module: dealpilotProcedure
       .input(z.object({ organizationId: z.string().min(1) }))
@@ -14393,6 +14708,97 @@ export const appRouter = t.router({
             return { captured: true, verdict: "captured" as const };
           }),
       }),
+
+      /** K7 (TASK-051) — the desktop shell's app-focus capture lane. The
+       * "apps" consent source above answers WHETHER the shell may report
+       * focus events; the shell's own sensor is additionally stopped at
+       * the source while consent is off (the drain loop reconciles), so
+       * the gate here is defense in depth, not the only wall. What
+       * arrives is already derived — app name, bundle id, window title
+       * (null = suppressed fail-closed absent the Accessibility grant) —
+       * and flows through the @bridge/sensors hub's full capture
+       * contract: capability-manifested provider, inspectable ledger
+       * entry, "sensor.capture" blink DomainEvent, and the learning-loop
+       * consumer's one durable observed-signal Memory. */
+      appfocus: t.router({
+        /** Everything the shell's drain loop needs to run or go honestly
+         * dormant: flight, consent, kill switch. Always answerable, like
+         * `capture.status`. */
+        status: procedure
+          .input(z.object({ organizationId: z.string().min(1) }))
+          .query(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
+            return {
+              enabled: ctx.wiring.learningObservationEnabled,
+              capturing:
+                ctx.wiring.learningObservationEnabled && captureAllowed(consent, "apps"),
+              paused: consent.paused,
+            };
+          }),
+
+        /** One reported focus event. Never errors on a declined capture —
+         * the drain loop is a background caller, and a structured verdict
+         * must not become a retry loop. Idempotent per shell-minted
+         * focusId, so a re-drained report writes nothing twice. */
+        focus: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              focusId: z.string().uuid(),
+              appName: z.string().min(1).max(200),
+              bundleId: z.string().min(1).max(300),
+              windowTitle: z.string().max(500).nullable(),
+              focusedAt: z.string().datetime(),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            if (ctx.identity.type !== "user") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message:
+                  "App-focus events are behavior signals about a human — only that user's own identity may report them",
+              });
+            }
+            const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
+            if (!captureAllowed(consent, "apps")) {
+              return { captured: false, verdict: "consent_off" as const };
+            }
+            const appName = input.appName.trim();
+            const bundleId = input.bundleId.trim();
+            if (!appName || !bundleId) {
+              return { captured: false, verdict: "malformed" as const };
+            }
+            const signalId = appFocusCaptureSignalId(input.focusId);
+            const owner = { organizationId: input.organizationId, userId: ctx.identity.id };
+            if (await ctx.wiring.memoryStore.get(signalId, owner)) {
+              return { captured: false, verdict: "duplicate" as const };
+            }
+            const relayed = await ctx.wiring.appFocusSensor.report(ctx.identity.id, {
+              focusId: input.focusId,
+              appName,
+              bundleId,
+              // null stays null — suppression is a fact worth keeping,
+              // never repaired into an empty title.
+              windowTitle:
+                input.windowTitle === null ? null : input.windowTitle.trim().slice(0, 300),
+              focusedAt: input.focusedAt,
+            });
+            if (!relayed) {
+              // The lane's provider dropped it (stopped) — structurally
+              // possible, never expected under this wiring; surface loudly.
+              throw new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: "the app-focus sensor lane dropped a consented report",
+              });
+            }
+            return { captured: true, verdict: "captured" as const };
+          }),
+      }),
     }),
 
     /** K3 (TASK-047, ADR-215) — the knowledge substrate, minimal cut. One
@@ -14463,18 +14869,48 @@ export const appRouter = t.router({
               instructionRisk: "data",
             }),
           };
-          const suggestion = await proposeClaimSuggestion(ctx.wiring.memoryStore, {
-            organizationId: input.organizationId,
-            ownerUserId: ctx.identity.id,
-            claim,
-            nextId: () => ctx.run.ids.next(),
-            // The persistent adapter's lineage column is uuid-typed — same
-            // mapping the preference digest uses (K0 regression class).
-            lineageIdFor: deterministicUuid,
-          });
-          return suggestion
-            ? { proposed: true as const, suggestion }
-            : { proposed: false as const, reason: "This exact claim already has a pending, accepted, or rejected proposal." };
+          // K10 E5: paraphrase-robust rejection suppression — checks every
+          // tier a fingerprint could have been written under (lexical
+          // hashing always, semantic in addition when reachable), never
+          // just whichever tier happens to be live for this one request.
+          const rejectionScope = { organizationId: input.organizationId, userId: ctx.identity.id };
+          const suppression = await isSuppressedByRejectionsAnyTier(
+            ctx.wiring,
+            `${input.field}: ${input.value}`,
+            rejectionScope,
+            new Date().toISOString(),
+          );
+          if (suppression.suppressed) {
+            return {
+              proposed: false as const,
+              refused: "rejected_similar" as const,
+              reason:
+                `too similar to something you already rejected ("${suppression.matchedText}"` +
+                `${suppression.permanent ? ", permanently suppressed" : ""}) — ` +
+                `delete that rejection fingerprint from Memory to propose it again`,
+            };
+          }
+          try {
+            const suggestion = await proposeClaimSuggestion(ctx.wiring.memoryStore, {
+              organizationId: input.organizationId,
+              ownerUserId: ctx.identity.id,
+              claim,
+              nextId: () => ctx.run.ids.next(),
+              // The persistent adapter's lineage column is uuid-typed — same
+              // mapping the preference digest uses (K0 regression class).
+              lineageIdFor: deterministicUuid,
+            });
+            return suggestion
+              ? { proposed: true as const, suggestion }
+              : { proposed: false as const, reason: "This exact claim already has a pending, accepted, or rejected proposal." };
+          } catch (error) {
+            // K10 E3+E4: the proposal gate's refusals are structured and
+            // specific — surfaced verbatim, never smoothed into success.
+            if (error instanceof ClaimGateError) {
+              return { proposed: false as const, refused: error.reason, reason: error.message };
+            }
+            throw error;
+          }
         }),
 
       suggestions: procedure
@@ -14504,7 +14940,14 @@ export const appRouter = t.router({
        * TASK-047 prototype test). Contradiction with a live same-(entity,
        * field) claim supersedes by lineage inside the store transaction. */
       acceptClaim: procedure
-        .input(z.object({ organizationId: z.string().min(1), suggestionMemoryId: z.string().min(1) }))
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            suggestionMemoryId: z.string().min(1),
+            /** K10 E2: the exact text the client rendered to the human. */
+            shownText: z.string().max(4000).optional(),
+          }),
+        )
         .mutation(async ({ input, ctx }) => {
           assertClaimFlightEnabled(ctx);
           assertPilotOrganization(input.organizationId);
@@ -14559,7 +15002,7 @@ export const appRouter = t.router({
           }
           const { claim } = await acceptClaimSuggestion(
             ctx.wiring.memoryStore, scope, input.suggestionMemoryId, ctx.identity.id,
-            () => ctx.run.ids.next(),
+            () => ctx.run.ids.next(), input.shownText,
           );
           const materialized = await ctx.wiring.claimStore.materializeClaim({
             organizationId: input.organizationId,
@@ -14587,6 +15030,18 @@ export const appRouter = t.router({
           const suggestion = await rejectClaimSuggestion(
             ctx.wiring.memoryStore, scope, input.suggestionMemoryId, ctx.identity.id,
             () => ctx.run.ids.next(),
+          );
+          // K10 E5: the rejection leaves a fingerprint so the same idea
+          // cannot come back merely reworded; strikes escalate 30d → 90d →
+          // permanent, and deleting the fingerprint Memory un-suppresses.
+          await withRejectionEmbedder(ctx.wiring, (embedder) =>
+            recordRejectionFingerprint(ctx.wiring.memoryStore, embedder, {
+              organizationId: input.organizationId,
+              ownerUserId: ctx.identity.id,
+              text: `${suggestion.claim.field}: ${suggestion.claim.value}`,
+              nowISO: new Date().toISOString(),
+              nextId: () => ctx.run.ids.next(),
+            }),
           );
           return { suggestion };
         }),
@@ -14825,7 +15280,14 @@ export const appRouter = t.router({
         }),
 
       accept: procedure
-        .input(z.object({ organizationId: z.string().min(1), suggestionMemoryId: z.string().min(1) }))
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            suggestionMemoryId: z.string().min(1),
+            /** K10 E2: the exact text the client rendered to the human. */
+            shownText: z.string().max(4000).optional(),
+          }),
+        )
         .mutation(async ({ input, ctx }) => {
           assertLearningFlightEnabled(ctx);
           assertPilotOrganization(input.organizationId);
@@ -14836,6 +15298,7 @@ export const appRouter = t.router({
               input.suggestionMemoryId,
               ctx.identity.id,
               () => ctx.run.ids.next(),
+              input.shownText,
             );
             return { suggestionMemoryId: suggestion.id, preferenceMemoryId: preference.id };
           } catch (error) {
@@ -15066,6 +15529,8 @@ export const appRouter = t.router({
           z.object({
             organizationId: z.string().min(1),
             suggestionMemoryId: z.string().min(1),
+            /** K10 E2: the exact text the client rendered to the human. */
+            shownText: z.string().max(4000).optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -15078,6 +15543,7 @@ export const appRouter = t.router({
               input.suggestionMemoryId,
               ctx.identity.id,
               () => ctx.run.ids.next(),
+              input.shownText,
             );
             // Deterministic id: the same accepted pattern always names the
             // same draft row (re-derivable on any instance).
@@ -15182,6 +15648,85 @@ export const appRouter = t.router({
             return { automationId: draft.id, steps: steps.length, status: "draft" as const };
           }),
 
+        /** K9 rung 3 (TASK-053, ADR-231) — the Capability Builder drafts the
+         * STEPS for an accepted promotion. Constrained generation, not
+         * codegen — and not even a model call: the step is DERIVED from the
+         * ledger episodes behind the pattern (the governed shape the human
+         * demonstrably approved ≥6 times), constrained to the live skill
+         * registry and the canonical step schema. Refusals are structured
+         * and specific (a K7/K8 behavior rhythm has no skill to bind; an
+         * unregistered skill proposes nothing; zero remaining episodes
+         * proposes nothing). The draft STAYS a draft — the executor still
+         * cannot see it, and activation remains the explicit governed step
+         * above. */
+        proposeSteps: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              automationId: z.string().min(1),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            if (ctx.identity.type !== "user") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message: "Drafting steps is part of the Human review of a draft — only a user identity may request it",
+              });
+            }
+            const drafts = await ctx.wiring.automationRegistry.listByStatus(input.organizationId, "draft");
+            const draft = drafts.find((definition) => definition.id === input.automationId);
+            if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "draft not found" });
+
+            // The pattern lives on the ACCEPTED promotion suggestion whose
+            // deterministic automation id names this draft — the same
+            // derivation `accept` used, run in reverse by search.
+            const accepted = await listPromotionSuggestions(
+              ctx.wiring.memoryStore,
+              { organizationId: input.organizationId, userId: ctx.identity.id },
+              undefined,
+              "accepted",
+            );
+            const backing = accepted.find(
+              (suggestion) =>
+                deterministicUuid(
+                  `learning:promotion:automation:${input.organizationId}:${suggestion.moduleId}:${suggestion.pattern.action}:${suggestion.pattern.attributeKey}=${suggestion.pattern.attributeValue}`,
+                ) === input.automationId,
+            );
+            if (!backing) {
+              throw new TRPCError({
+                code: "NOT_FOUND",
+                message: "no accepted promotion pattern backs this draft — nothing to derive steps from",
+              });
+            }
+
+            const { items } = await ctx.wiring.ledger.listHistory(input.organizationId, {
+              limit: 200,
+              offset: 0,
+            });
+            const episodes = episodesForSkill(items, backing.pattern.attributeValue);
+            const result = draftStepsFromEpisodes(backing.pattern, episodes, (skillId) =>
+              Boolean(ctx.wiring.skillRegistry.get(skillId)),
+            );
+            if (!result.proposed) {
+              return { proposed: false as const, reason: result.reason, detail: result.detail };
+            }
+            // The canonical write-boundary validation every registry write
+            // gets — the Builder does not bypass it just because it derived
+            // the steps itself.
+            const steps = parseAutomationSteps(result.steps);
+            await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
+            return {
+              proposed: true as const,
+              automationId: draft.id,
+              steps,
+              evidence: result.evidence,
+              status: "draft" as const,
+            };
+          }),
+
         activate: procedure
           .input(
             z.object({
@@ -15214,6 +15759,24 @@ export const appRouter = t.router({
           }),
       }),
     }),
+
+    /** K10 E2 (TASK-043) — the bulk-accept audit. Every accepted suggestion
+     * across the three suggestion kinds, classified by its shown-text stamp:
+     * "reviewed" (client sent the exact rendered text and it matched the
+     * canonical suggestion text) vs "unverified" (no stamp, or a mismatch —
+     * e.g. a stale tab accepted after the suggestion was superseded). The
+     * stamp never blocks an acceptance; it makes rubber-stamping visible. */
+    acceptanceAudit: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertLearningFlightEnabled(ctx);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return auditAcceptances(ctx.wiring.memoryStore, {
+          organizationId: input.organizationId,
+          userId: ctx.identity.id,
+        });
+      }),
 
     /** Retrieval quality read surface (ADR-174). `status` always answers so
      * clients hide the card honestly while the fusion flight is off; `evals`
@@ -17489,6 +18052,262 @@ export const appRouter = t.router({
           offset: input.offset,
         });
         return { items, total, hasMore: input.offset + items.length < total };
+      }),
+  }),
+
+  /**
+   * Academics — Subjects / Lecture Sessions / Assignments vault (TASK-067,
+   * ADR-231). Plain authenticated CRUD, same tier as `resources` above.
+   */
+  academics: t.router({
+    createSubject: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          code: z.string().optional(),
+          title: z.string().min(1),
+          term: z.string().optional(),
+          instructor: z.string().optional(),
+          credits: z.number().int().positive().optional(),
+          targetGrade: z.string().optional(),
+        }),
+      )
+      .mutation(({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return ctx.wiring.academicsStore.createSubject({
+          organizationId: input.organizationId,
+          title: input.title,
+          ...(input.code ? { code: input.code } : {}),
+          ...(input.term ? { term: input.term } : {}),
+          ...(input.instructor ? { instructor: input.instructor } : {}),
+          ...(input.credits != null ? { credits: input.credits } : {}),
+          ...(input.targetGrade ? { targetGrade: input.targetGrade } : {}),
+        });
+      }),
+
+    listSubjects: procedure
+      .input(paginatedInput)
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const { items, total } = await ctx.wiring.academicsStore.listSubjects(input.organizationId, {
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    updateSubject: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          id: z.string().uuid(),
+          code: z.string().optional(),
+          title: z.string().optional(),
+          term: z.string().optional(),
+          instructor: z.string().optional(),
+          credits: z.number().int().positive().optional(),
+          status: z.enum(["planned", "active", "complete", "dropped"]).optional(),
+          grade: z.string().optional(),
+          targetGrade: z.string().optional(),
+        }),
+      )
+      .mutation(({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return ctx.wiring.academicsStore.updateSubject(input.id, input.organizationId, {
+          ...(input.code !== undefined ? { code: input.code } : {}),
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.term !== undefined ? { term: input.term } : {}),
+          ...(input.instructor !== undefined ? { instructor: input.instructor } : {}),
+          ...(input.credits !== undefined ? { credits: input.credits } : {}),
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          ...(input.grade !== undefined ? { grade: input.grade } : {}),
+          ...(input.targetGrade !== undefined ? { targetGrade: input.targetGrade } : {}),
+        });
+      }),
+
+    createLectureSession: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          subjectId: z.string().uuid(),
+          sessionDate: z.string().datetime().optional(),
+          topic: z.string().optional(),
+          myNotes: z.string().optional(),
+        }),
+      )
+      .mutation(({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return ctx.wiring.academicsStore.createLectureSession({
+          organizationId: input.organizationId,
+          subjectId: input.subjectId,
+          ...(input.sessionDate ? { sessionDate: new Date(input.sessionDate) } : {}),
+          ...(input.topic ? { topic: input.topic } : {}),
+          ...(input.myNotes ? { myNotes: input.myNotes } : {}),
+        });
+      }),
+
+    listLectureSessions: procedure
+      .input(paginatedInput)
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const { items, total } = await ctx.wiring.academicsStore.listLectureSessions(input.organizationId, {
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    updateLectureSession: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          id: z.string().uuid(),
+          sessionDate: z.string().datetime().optional(),
+          topic: z.string().optional(),
+          status: z.enum(["scheduled", "attended", "missed", "reviewed"]).optional(),
+          myNotes: z.string().optional(),
+        }),
+      )
+      .mutation(({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return ctx.wiring.academicsStore.updateLectureSession(input.id, input.organizationId, {
+          ...(input.sessionDate !== undefined ? { sessionDate: new Date(input.sessionDate) } : {}),
+          ...(input.topic !== undefined ? { topic: input.topic } : {}),
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          ...(input.myNotes !== undefined ? { myNotes: input.myNotes } : {}),
+        });
+      }),
+
+    createAssignment: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          subjectId: z.string().uuid(),
+          title: z.string().min(1),
+          type: z.enum(["problem_set", "essay", "project", "exam", "lab"]).optional(),
+          dueAt: z.string().datetime().optional(),
+          weight: z.number().int().min(0).max(100).optional(),
+        }),
+      )
+      .mutation(({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return ctx.wiring.academicsStore.createAssignment({
+          organizationId: input.organizationId,
+          subjectId: input.subjectId,
+          title: input.title,
+          ...(input.type ? { type: input.type } : {}),
+          ...(input.dueAt ? { dueAt: new Date(input.dueAt) } : {}),
+          ...(input.weight != null ? { weight: input.weight } : {}),
+        });
+      }),
+
+    listAssignments: procedure
+      .input(paginatedInput)
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const { items, total } = await ctx.wiring.academicsStore.listAssignments(input.organizationId, {
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    updateAssignment: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          id: z.string().uuid(),
+          title: z.string().optional(),
+          type: z.enum(["problem_set", "essay", "project", "exam", "lab"]).optional(),
+          dueAt: z.string().datetime().optional(),
+          weight: z.number().int().min(0).max(100).optional(),
+          status: z.enum(["not_started", "in_progress", "submitted", "graded"]).optional(),
+          risk: z.enum(["red", "yellow", "green"]).optional(),
+          submittedAt: z.string().datetime().optional(),
+          grade: z.string().optional(),
+        }),
+      )
+      .mutation(({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return ctx.wiring.academicsStore.updateAssignment(input.id, input.organizationId, {
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.type !== undefined ? { type: input.type } : {}),
+          ...(input.dueAt !== undefined ? { dueAt: new Date(input.dueAt) } : {}),
+          ...(input.weight !== undefined ? { weight: input.weight } : {}),
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          ...(input.risk !== undefined ? { risk: input.risk } : {}),
+          ...(input.submittedAt !== undefined ? { submittedAt: new Date(input.submittedAt) } : {}),
+          ...(input.grade !== undefined ? { grade: input.grade } : {}),
+        });
+      }),
+  }),
+
+  /**
+   * Events — NetworkManager's Events sub-module (TASK-068, ADR-231). Plain
+   * authenticated CRUD; speaker extraction is a later phase, not this router.
+   */
+  events: t.router({
+    create: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          name: z.string().min(1),
+          url: z.string().url().optional(),
+          type: z.enum(["conference", "meetup", "summit", "webinar"]).optional(),
+          startsAt: z.string().datetime().optional(),
+          endsAt: z.string().datetime().optional(),
+          location: z.string().optional(),
+        }),
+      )
+      .mutation(({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return ctx.wiring.eventsStore.create({
+          organizationId: input.organizationId,
+          name: input.name,
+          ...(input.url ? { url: input.url } : {}),
+          ...(input.type ? { type: input.type } : {}),
+          ...(input.startsAt ? { startsAt: new Date(input.startsAt) } : {}),
+          ...(input.endsAt ? { endsAt: new Date(input.endsAt) } : {}),
+          ...(input.location ? { location: input.location } : {}),
+        });
+      }),
+
+    list: procedure
+      .input(paginatedInput)
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const { items, total } = await ctx.wiring.eventsStore.list(input.organizationId, {
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    update: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          id: z.string().uuid(),
+          name: z.string().optional(),
+          url: z.string().url().optional(),
+          type: z.enum(["conference", "meetup", "summit", "webinar"]).optional(),
+          startsAt: z.string().datetime().optional(),
+          endsAt: z.string().datetime().optional(),
+          location: z.string().optional(),
+          status: z.enum(["watching", "registered", "attending", "attended"]).optional(),
+        }),
+      )
+      .mutation(({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return ctx.wiring.eventsStore.update(input.id, input.organizationId, {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.url !== undefined ? { url: input.url } : {}),
+          ...(input.type !== undefined ? { type: input.type } : {}),
+          ...(input.startsAt !== undefined ? { startsAt: new Date(input.startsAt) } : {}),
+          ...(input.endsAt !== undefined ? { endsAt: new Date(input.endsAt) } : {}),
+          ...(input.location !== undefined ? { location: input.location } : {}),
+          ...(input.status !== undefined ? { status: input.status } : {}),
+        });
       }),
   }),
 

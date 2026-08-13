@@ -16,11 +16,11 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-032 | in_progress | P2 | Deal Copilot learning observation loop (generic Egg baseline v1) | TASK-002 |
 | TASK-033 | in_progress | P2 | Universal Commons capability archetypes (roadmap-v2 Phase 4) | TASK-032 |
 | TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | TASK-007 |
+| TASK-069 | ready | P2 | Academics Module — Subjects/Lecture Sessions/Assignments vault | none |
+| TASK-070 | ready | P2 | Events sub-module (NetworkManager) — speaker extraction + LinkedIn outreach queue | none |
 | TASK-040 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 |
 | TASK-041 | ready | P2 | Pending Tests — live verification backlog | non-task gate (see TASKS.md) |
 | TASK-042 | ready | P2 | Input-pack regeneration tests for Skills, Modules, and Integrations | TASK-033 |
-| TASK-043 | ready | P2 | Constitution enforcement mechanisms (ADR-176 adopt-list) | non-task gate (see TASKS.md) |
-| TASK-053 | ready | P2 | K9 — Builder ladder: rung 3 steps, rung 4 structures | TASK-045, TASK-047, TASK-042 |
 | TASK-054 | blocked | P3 | K11 — EG4 sensor tier: input, screen, ambient voice | TASK-043, TASK-051 |
 | TASK-055 | ready | P3 | Companion trigger and capture parity — Fn hold, double-click listen, on-request recording | TASK-027 |
 | TASK-056 | ready | P2 | Multi-app automation for the background agent | TASK-028 |

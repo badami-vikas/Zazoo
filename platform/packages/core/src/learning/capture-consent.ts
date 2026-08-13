@@ -37,10 +37,13 @@
  * "browser" — the extension's domain/title visit capture, additionally gated
  * by the per-domain allowlist/denylist (browser-capture.ts): consent answers
  * WHETHER the browser may emit at all, the policy answers WHICH domains.
- * Later capture rungs (app-focus = K7) add members here — each new member is
- * a new consent surface by construction, because `defaultCaptureConsent`
- * starts it OFF. */
-export const CAPTURE_SOURCES = ["chat", "whatsapp", "google", "browser"] as const;
+ * K7 adds "apps" — the desktop shell's frontmost-app/window-title focus
+ * capture (the first ambient sensor, @bridge/sensors SensorHub): app name +
+ * bundle id + window title only, title fail-closed absent the Accessibility
+ * grant. Later capture rungs add members here — each new member is a new
+ * consent surface by construction, because `defaultCaptureConsent` starts
+ * it OFF. */
+export const CAPTURE_SOURCES = ["chat", "whatsapp", "google", "browser", "apps"] as const;
 export type CaptureSource = (typeof CAPTURE_SOURCES)[number];
 
 export function isCaptureSource(value: unknown): value is CaptureSource {

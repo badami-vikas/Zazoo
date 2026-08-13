@@ -105,6 +105,11 @@ export const TASK_MANAGER_STALE_REVIEW_AUTOMATION_KEY = "task-manager.stale-task
 export const TASK_MANAGER_PLANNING_AUTOMATION_KEY = "task-manager.planning-playbook";
 export const LEARNING_RECOMMENDATION_SKILL_ID = "stageLearningRecommendation";
 export const CITED_ROLE_MODEL_PRACTICE_VERSION = "1.0.1";
+/** DevPilot D0/D1 (TASK-067/TASK-068, ADR-235) — continuing the runtime-id
+ * sequence after Task Manager's routing Automation (…000108). */
+export const DEVPILOT_TRACKER_AGENT_ID = "b0000000-0000-4000-a000-000000000109";
+export const DEVPILOT_GITHUB_POLL_AUTOMATION_ID = "b0000000-0000-4000-a000-00000000010a";
+export const DEVPILOT_GITHUB_POLL_AUTOMATION_KEY = "devpilot.github-poll";
 
 export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAutomationId: string): string | undefined {
   if (moduleName === "deal-pilot" && manifestAutomationId === DEALPILOT_SOURCE_AUTOMATION_KEY) {
@@ -158,6 +163,9 @@ export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAut
   if (moduleName === "task-manager" && manifestAutomationId === TASK_MANAGER_ROUTING_AUTOMATION_KEY) {
     return TASK_MANAGER_ROUTING_AUTOMATION_ID;
   }
+  if (moduleName === "devpilot" && manifestAutomationId === DEVPILOT_GITHUB_POLL_AUTOMATION_KEY) {
+    return DEVPILOT_GITHUB_POLL_AUTOMATION_ID;
+  }
   return undefined;
 }
 
@@ -180,6 +188,7 @@ export function isModuleRuntimeAutomationId(automationId: string): boolean {
     TASK_MANAGER_REOPEN_AUTOMATION_ID,
     TASK_MANAGER_DEPENDENCY_AUTOMATION_ID,
     TASK_MANAGER_ROUTING_AUTOMATION_ID,
+    DEVPILOT_GITHUB_POLL_AUTOMATION_ID,
   ].includes(automationId);
 }
 
@@ -199,6 +208,9 @@ export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId:
   if (moduleName === "task-manager" && manifestAgentId === "chief-of-staff") {
     return CHIEF_OF_STAFF_AGENT_RUNTIME_ID;
   }
+  if (moduleName === "devpilot" && manifestAgentId === "tracker-agent") {
+    return DEVPILOT_TRACKER_AGENT_ID;
+  }
   return undefined;
 }
 
@@ -208,8 +220,11 @@ const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   "deal-pilot": "platform/modules/dealpilot/src/manifest.ts",
   "job-pilot": "platform/modules/jobpilot/src/manifest.ts",
   relationship: "platform/apps/web/src/app/pages/RelationshipPage.tsx",
+  academics: "platform/apps/web/src/app/pages/AcademicsPage.tsx",
+  events: "platform/apps/web/src/app/pages/EventsPage.tsx",
   "task-manager": "platform/packages/core/src/task-manager.ts",
   whatsapp: "platform/modules/whatsapp/src/index.ts",
+  devpilot: "platform/modules/devpilot/src/index.ts",
 };
 
 function builtInSourceRef(moduleName: string): string {
@@ -475,6 +490,47 @@ const relationshipCapabilities = [
 ];
 
 /**
+/**
+ * Academics Module capabilities (TASK-067, ADR-231). Three private
+ * database Pages over the owner's own coursework Records — no egress. The
+ * Study Steward Agent is declared with no `skillIds` yet: lecture-synthesis,
+ * syllabus-intake, recall-scheduler, reference-resolve, and workload-forecast
+ * are later phases of this same Task, not a separate Module version.
+ */
+const academicsCapabilities = [
+  capability("academics.page.subjects", "Subjects", "database", [readPrivate("record"), writePrivate("record")]),
+  capability("academics.page.lecture-sessions", "Lecture Sessions", "database", [
+    readPrivate("record"),
+    writePrivate("record"),
+  ]),
+  capability("academics.page.assignments", "Assignments", "database", [
+    readPrivate("record"),
+    writePrivate("record"),
+  ]),
+  capability("academics.agent.study-steward", "Study Steward", "agent", [
+    readPrivate("record"),
+    writePrivate("record"),
+  ]),
+];
+
+/**
+ * Events sub-module capabilities (TASK-068, ADR-231). Nested under
+ * NetworkManager for nav only (ADR-178) — nesting grants nothing, so this
+ * Module declares its own `person` permissions rather than relying on the
+ * parent's. Speaker extraction and the LinkedIn outreach-note drafting Skill
+ * are later phases of this same Task; there is no automated LinkedIn SEND
+ * capability declared here or anywhere else, deliberately — see ADR-231.
+ */
+const eventsCapabilities = [
+  capability("events.page.events", "Events", "database", [
+    readPrivate("record"),
+    writePrivate("record"),
+    readPrivate("person"),
+    writePrivate("person"),
+  ]),
+];
+
+/**
  * WhatsApp Module capabilities.
  *
  * Every permission here is `private` scope and NONE declares egress: v1 reads
@@ -623,6 +679,44 @@ const taskManagerAutomations = [
   // review, not because anything about it runs on its own.
   ["planning-playbook", "Internal Strategist"],
 ] as const;
+
+// DevPilot D0/D1 (TASK-067/TASK-068, ADR-235) — a freelance engineer's
+// tracked repos, pull requests, and issues, synced from GitHub through a
+// fine-grained Personal Access Token. Read-only: no external:send capability
+// in D1 (D2's PR-review drafts stay local; posting is a later, separately
+// approval-gated capability).
+const devpilotCapabilities = [
+  capability("devpilot.repos", "Repos database and views", "database", [readAll("record"), writeAll("record")]),
+  capability("devpilot.pulls", "Pull Requests database and views", "database", [readAll("record"), writeAll("record")]),
+  capability("devpilot.issues", "Issues database and views", "database", [readAll("record"), writeAll("record")]),
+  capability(
+    "devpilot.syncGithub",
+    "Sync GitHub repos, pull requests, and issues",
+    "skill",
+    [{ resourceType: "external:fetch", action: "read", dataScope: "public", egress: true }],
+    [{ id: "github" }],
+  ),
+  capability(
+    "devpilot.tracker-agent",
+    "Dev tracker Agent",
+    "agent",
+    [readAll("record"), writeAll("record")],
+    [],
+    [{ manifestId: "devpilot.syncGithub", versionRange: "0.2.0" }],
+  ),
+  capability(
+    "devpilot.github-poll",
+    "GitHub tracker poll",
+    "automation",
+    [readPublic("external:fetch"), writeAll("record")],
+    [{ id: "github" }],
+    [
+      { manifestId: "devpilot.tracker-agent", versionRange: "0.2.0" },
+      { manifestId: "devpilot.syncGithub", versionRange: "0.2.0" },
+    ],
+  ),
+  capability("devpilot.github", "GitHub tracker intake", "integration", [readAll("external:fetch")], [{ id: "github" }]),
+];
 
 const taskManagerCapabilities = [
   capability("task-manager.tasks", "Tasks Database and Views", "database", [readAll("record"), writeAll("record")]),
@@ -924,6 +1018,99 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     },
   },
   {
+    // Internal: personal coursework vault. No egress, no third-party session.
+    computedRisk: "operational",
+    manifest: {
+      name: "academics",
+      version: "0.1.0",
+      kind: "organization_definition",
+      summary: "Subjects, Lecture Sessions, and Assignments — the owner's coursework vault.",
+      description:
+        "Three sibling toggles over the owner's own coursework Records: Subjects, Lecture Sessions, Assignments. A Subject's Record Detail carries its own Sessions and Assignments as related Sections (ui-architecture-rules — toggles stay one level; nesting is a sub-module concern, not this Module's). Local Files land under `~/Documents/Bridge/<Organization>/Academics/`.",
+      lineageManifestId: null,
+      dependencies: [],
+      capabilities: academicsCapabilities,
+      contextProviders: [{ kind: "capture", required: false }],
+      organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      module: {
+        displayName: "Academics",
+        // Bare parent route — three Pages share this prefix, same convention
+        // as NetworkManager's own multi-Page `route: "/module/relationship"`
+        // (a single-Page sub-module like Helpdesk uses its own Page route).
+        route: "/module/academics",
+        pages: [
+          {
+            id: "subjects",
+            name: "Subjects",
+            route: "/module/academics/subjects",
+            databaseId: "academics.subjects",
+            capabilityId: "academics.page.subjects",
+          },
+          {
+            id: "sessions",
+            name: "Lecture Sessions",
+            route: "/module/academics/sessions",
+            databaseId: "academics.lecture-sessions",
+            capabilityId: "academics.page.lecture-sessions",
+          },
+          {
+            id: "assignments",
+            name: "Assignments",
+            route: "/module/academics/assignments",
+            databaseId: "academics.assignments",
+            capabilityId: "academics.page.assignments",
+          },
+        ],
+        agents: [
+          {
+            id: "study-steward",
+            name: "Study Steward",
+            capabilityId: "academics.agent.study-steward",
+            skillIds: [],
+            // Raw lecture capture (recording/transcript) stays Local by
+            // principle — the same reasoning WhatsApp's Agents carry.
+            plane: "local",
+          },
+        ],
+        automations: [],
+      },
+    },
+  },
+  {
+    // Internal: reads and writes NetworkManager's own private People through a
+    // capability this Module declares itself — nesting grants nothing (ADR-178).
+    computedRisk: "operational",
+    manifest: {
+      name: "events",
+      version: "0.1.0",
+      kind: "organization_definition",
+      summary: "Conference and event links, with speakers resolved into NetworkManager's People.",
+      description:
+        "A nested sub-module of NetworkManager for conference/event links. There is deliberately no separate Speakers table — the extraction pipeline (TASK-068, later phase) resolves speakers into the Module's existing People database under the same three-tier match gate NetworkManager already uses, and drafts an outreach note for a human to send manually. No automated LinkedIn send capability is declared here or anywhere in this codebase (ADR-231).",
+      lineageManifestId: null,
+      dependencies: [],
+      capabilities: eventsCapabilities,
+      contextProviders: [{ kind: "capture", required: false }],
+      organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      module: {
+        displayName: "Events",
+        parentModule: "relationship",
+        route: "/module/relationship/events",
+        pages: [
+          {
+            id: "events",
+            name: "Events",
+            route: "/module/relationship/events",
+            databaseId: "events.events",
+            capabilityId: "events.page.events",
+          },
+        ],
+        agents: [],
+        automations: [],
+      },
+    },
+  },
+  {
     // External: the Module renders a third-party site inside the desktop shell
     // and reads the owner's private contact graph out of it.
     computedRisk: "external",
@@ -1096,6 +1283,69 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
               : {}),
           };
         }),
+      },
+    },
+  },
+  {
+    // External: the sync Skill reaches the internet (GitHub REST API) with
+    // egress, same computedRisk tier as DealPilot's sourcing.
+    computedRisk: "external",
+    manifest: {
+      name: "devpilot",
+      version: "0.1.0",
+      kind: "organization_definition",
+      summary: "Organizes a freelance engineer's code, issues, and work priorities.",
+      description:
+        "Tracks GitHub repos, pull requests, and issues in DevPilot-owned Databases, refreshed by a scheduled poll behind a fine-grained Personal Access Token. Read-only in this version: no capability may send or write back to GitHub.",
+      lineageManifestId: null,
+      dependencies: [],
+      capabilities: devpilotCapabilities,
+      contextProviders: [],
+      organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      module: {
+        displayName: "DevPilot",
+        route: "/module/devpilot/pulls",
+        pages: [
+          {
+            id: "pulls",
+            name: "Pull Requests",
+            route: "/module/devpilot/pulls",
+            databaseId: "devpilot.pulls",
+            capabilityId: "devpilot.pulls",
+          },
+          {
+            id: "issues",
+            name: "Issues",
+            route: "/module/devpilot/issues",
+            databaseId: "devpilot.issues",
+            capabilityId: "devpilot.issues",
+          },
+          {
+            id: "repos",
+            name: "Repos",
+            route: "/module/devpilot/repos",
+            databaseId: "devpilot.repos",
+            capabilityId: "devpilot.repos",
+          },
+        ],
+        agents: [{
+          id: "tracker-agent",
+          name: "Dev tracker Agent",
+          capabilityId: "devpilot.tracker-agent",
+          skillIds: ["devpilot.syncGithub"],
+          plane: "cloud",
+        }],
+        automations: [{
+          id: "github-poll",
+          name: "GitHub tracker poll",
+          capabilityId: "devpilot.github-poll",
+          agentId: "tracker-agent",
+          trigger: "Scheduled",
+          schedule: { kind: "schedule", everyMinutes: 15 },
+          procedure: "devpilot.syncGithub",
+          automationId: DEVPILOT_GITHUB_POLL_AUTOMATION_KEY,
+          runRoute: "/module/devpilot/pulls",
+        }],
       },
     },
   },
@@ -1308,7 +1558,16 @@ export const COMMONS_BUILT_IN_MODULES: readonly CommonsBuiltInModule[] = [
       // Events are the owner's private relationship data, not a generalized
       // capability another Organization could install. Commons never carries
       // personal data.
-      pkg.manifest.name !== "helpdesk",
+      pkg.manifest.name !== "helpdesk" &&
+      // Academics is the owner's own coursework — personal data, same reasoning.
+      pkg.manifest.name !== "academics" &&
+      // Events resolves speakers into the owner's own private People, same as
+      // Helpdesk's reasoning above (TASK-070, ADR-236).
+      pkg.manifest.name !== "events" &&
+      // DevPilot is excluded for the same class of reason as WhatsApp: reading
+      // the owner's own tracked GitHub repos through a personal token is not a
+      // generalized capability another Organization could safely install.
+      pkg.manifest.name !== "devpilot",
   ).map((pkg) => ({
     ...pkg,
     commons: {

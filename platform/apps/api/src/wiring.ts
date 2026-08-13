@@ -114,6 +114,8 @@ import {
   uuidv7,
   hashTaintValue,
   labelAtSource,
+  appFocusCaptureSignal,
+  recordSignal,
   analyzeTaskImpactFit,
   findDuplicateTasks,
   proposeQueueSequence,
@@ -185,6 +187,8 @@ import {
   DrizzleJobPilotStore,
   DrizzleHelpdeskStore,
   DrizzleResourcesStore,
+  DrizzleAcademicsStore,
+  DrizzleEventsStore,
   DrizzleCapabilityStore,
   DrizzleEvalStore,
   DrizzlePolicyParamStore,
@@ -222,7 +226,9 @@ import {
   ensureCapabilityBuilderGovernance,
   ensureClaimUserGovernance,
   ensureRelationshipUserGovernance,
+  ensureDevpilotTrackerGovernance,
   type CanonicalIdentityStore,
+  DrizzleDevpilotStore,
 } from "@bridge/db";
 import {
   acquirePgliteDirectoryOwnership,
@@ -282,6 +288,14 @@ import {
   type SourceCredentialVault,
 } from "@bridge/dealpilot";
 import { DrizzleDealPilotStore, cloudRecordsDealPilotStore } from "./dealpilot-store.js";
+import {
+  LiveGithubGatewayFactory,
+  GITHUB_MANIFEST,
+  mapGithubIssue,
+  mapGithubPull,
+  mapGithubRepo,
+  type GithubGatewayFactory,
+} from "@bridge/integrations-github";
 import type { ModelBinding, QuarantinedCapture } from "@bridge/capability-kit";
 import {
   BUILT_IN_MODULES,
@@ -292,10 +306,16 @@ import {
   INTERNAL_STRATEGIST_AGENT_RUNTIME_ID,
   LEARNING_AGENT_RUNTIME_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
+  DEVPILOT_TRACKER_AGENT_ID,
   resolveModuleAgentRuntimeId,
   resolveModuleAutomationRuntimeId,
 } from "./built-in-modules.js";
 import { deterministicUuid } from "./deterministic-uuid.js";
+import {
+  InMemoryCaptureLedger,
+  PushContextProvider,
+  SensorHub,
+} from "@bridge/sensors";
 import {
   createOrganizationRenameLease,
   defaultBridgeFilesRoot,
@@ -324,6 +344,10 @@ const LEARNING_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c2";
 const INTAKE_AGENT = "b0000000-0000-4000-a000-0000000000e2";
 const INTAKE_ROLE = "b0000000-0000-4000-a000-0000000000f6";
 const INTAKE_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c8";
+// DevPilot D0/D1 (TASK-067/TASK-068) — a dedicated Agent identity rather than
+// reusing EGRESS_AGENT (see the wiring block below for why).
+const DEVPILOT_TRACKER_ROLE = "b0000000-0000-4000-a000-000000000110";
+const DEVPILOT_TRACKER_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-000000000111";
 // AGS0 (TASK-007) — Internal Strategist's physical governed-pipeline identity
 // (the id `AgentQuery`/the ledger key off of). Distinct from the chat-routing
 // `FoundationalAgentId` string "internal_strategist" (@bridge/core's agents.ts)
@@ -470,10 +494,24 @@ export interface Wiring {
   graphStore: DrizzleGraphStore;
   /** JobPilot's persistence (Phase 4 — @bridge/jobpilot is pure logic, no store). */
   jobpilotStore: DrizzleJobPilotStore;
+  /** Feature flight for the DevPilot Module (D0/D1, TASK-067/TASK-068). OFF by
+   * default; enabled via `BRIDGE_DEVPILOT=1` (or a test override). Disabled
+   * means every `devpilot.*` procedure except `status` fails closed. */
+  devpilotEnabled: boolean;
+  /** DevPilot's GitHub tracker surface — the store + gateway factory the
+   * `devpilot.syncGithub` Skill and tRPC namespace both use. */
+  devpilot: {
+    store: DrizzleDevpilotStore;
+    gateways: GithubGatewayFactory;
+  };
   /** Helpdesk tickets/messages, incl. the public token-authenticated submitter path. */
   helpdeskStore: DrizzleHelpdeskStore;
   /** Resources catalog (replaces the prototype's Supabase-direct read). */
   resourcesStore: DrizzleResourcesStore;
+  /** Academics Module — Subjects/Lecture Sessions/Assignments (TASK-067). */
+  academicsStore: DrizzleAcademicsStore;
+  /** NetworkManager's Events sub-module (TASK-068). */
+  eventsStore: DrizzleEventsStore;
   /** Capability Trust Model — capability_manifests + capability_states (docs/wiki/vision.md). */
   capabilityStore: CapabilityStore;
   /** P1 Organization Generator — organization_definitions (blueprint/version/status), the
@@ -567,6 +605,8 @@ export interface Wiring {
   cultureFetchAbortControllers: Map<string, AbortController>;
   /** Inspectable, correctable, deletable learned preferences. */
   memoryStore: MemoryStore;
+  /** K7 (TASK-051) — the app-focus sensor lane (see `AppFocusSensorLane`). */
+  appFocusSensor: AppFocusSensorLane;
   /** K3 (TASK-047) — entities + claims, the knowledge substrate's persisted
    * store. Same db as `memoryStore`; only `learning.claims.*` procedures
    * and the Second Brain projection read it, and only the governed
@@ -656,6 +696,9 @@ export interface BuildWiringOptions {
   /** Test/deployment override for the K3 knowledge-substrate flight. Omitted
    * means the environment decides (`BRIDGE_CLAIM_SUBSTRATE`), default OFF. */
   claimSubstrateEnabled?: boolean;
+  /** Test/deployment override for the DevPilot Module flight. Omitted means
+   * the environment decides (`BRIDGE_DEVPILOT`), default OFF. */
+  devpilotEnabled?: boolean;
   /** Explicit semantic embedder for the LA5 vector lane (tests/deployments).
    * Omitted means the wiring resolves one from the registered local
    * providers (Ollama when present); none found = lexical hashing fallback. */
@@ -890,6 +933,44 @@ export function googleCaptureSignalId(source: string, sourceRecordId: string): s
  * (network flake, worker restart) derives the same id and is skipped. */
 export function browserCaptureSignalId(visitId: string): string {
   return deterministicUuid(`learning:signal:browser:${visitId}`);
+}
+
+/** K7 (TASK-051): one signal per shell-minted focus id — a re-drained or
+ * retried focus report derives the same id and is skipped. */
+export function appFocusCaptureSignalId(focusId: string): string {
+  return deterministicUuid(`learning:signal:apps:${focusId}`);
+}
+
+/** The one app-focus provider id — the desktop shell's `apps` poller,
+ * relayed. Also the capability-manifest key (`ctx-provider:<id>`). */
+export const APP_FOCUS_PROVIDER_ID = "desktop-apps";
+
+/** One reported focus event, as the shell derived it. `windowTitle: null`
+ * is the FAIL-CLOSED state (no Accessibility grant / AX read failed) —
+ * distinct from an app that titled its window "". */
+export interface AppFocusReport {
+  focusId: string;
+  appName: string;
+  bundleId: string;
+  windowTitle: string | null;
+  focusedAt: string;
+}
+
+/** K7 (TASK-051) — the app-focus sensor lane: the @bridge/sensors
+ * SensorHub, wired. `report` relays one shell-drained focus event into the
+ * hub's full capture contract (capability-manifested provider → inspectable
+ * capture-ledger entry → "sensor.capture" blink DomainEvent → the
+ * learning-loop consumer, which writes the ONE durable observed-signal
+ * Memory for the capturing user). Consent and idempotency are the ROUTE's
+ * gates, checked before a report reaches this lane — by the time `report`
+ * runs, capture has been consented to and is not a duplicate. */
+export interface AppFocusSensorLane {
+  /** In-memory capture ledger behind every per-user hub (inspection seam;
+   * durable inspectability is the Memory row the consumer writes). */
+  ledger: InMemoryCaptureLedger;
+  /** Relay one focus event for the capturing user. Returns false only when
+   * the provider dropped it (stopped — fail-closed, never buffered). */
+  report(userId: string, focus: AppFocusReport): Promise<boolean>;
 }
 
 function createObservationDigestSkill(deps: {
@@ -3040,6 +3121,23 @@ export const RELATIONSHIP_HELP_OFFER_SKILL_MANIFEST = {
  */
 export const DEALPILOT_SOURCING_GOAL_TYPE = "dealpilot.sourcing";
 export const SOURCE_CANDIDATES_TASK_TYPE = "source_candidates";
+/** DevPilot D1 (TASK-068) — GitHub repo/PR/issue sync. Read-only external:fetch,
+ * mirroring dealpilot.source's manifest shape. */
+export const DEVPILOT_GITHUB_SYNC_GOAL_TYPE = "devpilot.tracking";
+export const DEVPILOT_GITHUB_SYNC_TASK_TYPE = "sync_github_tracker";
+export const DEVPILOT_SYNC_GITHUB_SKILL_MANIFEST = {
+  organizationId: PILOT_ORGANIZATION,
+  skillId: "devpilot.syncGithub",
+  version: "1.0.0",
+  goalTypes: [DEVPILOT_GITHUB_SYNC_GOAL_TYPE],
+  taskTypes: [DEVPILOT_GITHUB_SYNC_TASK_TYPE],
+  permissions: ["external:fetch:read"],
+  plane: "cloud",
+  dataScopes: ["public"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  defaultAgents: ["egress"],
+} as const;
 export const DEALPILOT_SOURCE_SKILL_MANIFEST = {
   organizationId: PILOT_ORGANIZATION,
   skillId: "dealpilot.source",
@@ -3907,6 +4005,7 @@ export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
   RELATIONSHIP_HELP_OFFER_SKILL_MANIFEST,
   OUTREACH_DRAFT_SKILL_MANIFEST,
   DEALPILOT_SOURCE_SKILL_MANIFEST,
+  DEVPILOT_SYNC_GITHUB_SKILL_MANIFEST,
   STAGE_CAPTURE_SKILL_MANIFEST,
   JOBPILOT_RESEARCH_CULTURE_SOURCE_SKILL_MANIFEST,
   JOBPILOT_SYNTHESIZE_CULTURE_PROFILE_SKILL_MANIFEST,
@@ -4149,6 +4248,19 @@ function seedGovernance(
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
   ]);
 
+  // DevPilot tracker agent (cloud) — SOURCES the internet (external:fetch read)
+  // for the owner's own tracked GitHub repos. Dedicated identity rather than
+  // reusing EGRESS_AGENT: every other Module (JobPilot, WhatsApp, Relationship,
+  // Task Manager) owns its own Agent identity, and DealPilot's sharing of
+  // EGRESS_AGENT is a historical accident of being first, not the pattern.
+  agents.assumed.set(DEVPILOT_TRACKER_AGENT_ID, "role-devpilot-tracker");
+  agents.scope.set(DEVPILOT_TRACKER_AGENT_ID, ["external:fetch:read"]);
+  agents.tiers.set(DEVPILOT_TRACKER_AGENT_ID, "public");
+  agents.skills.set(DEVPILOT_TRACKER_AGENT_ID, ["devpilot.syncGithub"]);
+  roles.roleGrants.set("role-devpilot-tracker", [
+    { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
+  ]);
+
   // The signed-in user the agents act on behalf of (delegation ∩ principal authority).
   roles.direct.set(`user:${pilotUserId}`, [
     { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
@@ -4212,6 +4324,9 @@ export interface ModePorts {
    * local pglite `localDb` — both are the same schema.ts tables. */
   graphStore: DrizzleGraphStore;
   jobpilotStore: DrizzleJobPilotStore;
+  /** DevPilot D1 (TASK-068) — same "Drizzle in both modes" shape as jobpilotStore
+   * above; binds to the real Postgres `db` or the local pglite `localDb`. */
+  devpilotStore: DrizzleDevpilotStore;
   /** DealPilot Deal/Source/Thesis Records + Relations backed by the Cloud Plane
    * (Supabase) — persistent mode only (ADR-151, AP-083). Undefined in in-memory
    * mode, where records stay on the Local-Plane `LocalDealPilotStore`. Composed
@@ -4221,6 +4336,8 @@ export interface ModePorts {
   dealPilotRecordStore?: DealPilotStore;
   helpdeskStore: DrizzleHelpdeskStore;
   resourcesStore: DrizzleResourcesStore;
+  academicsStore: DrizzleAcademicsStore;
+  eventsStore: DrizzleEventsStore;
   capabilityStore: CapabilityStore;
   /** VAR-1 tunable space (ADR-169) — Drizzle-backed in BOTH modes. Its consumer
    * is the promotion gate's resolveGates(); a defaults-only store silently
@@ -4293,6 +4410,7 @@ export interface ModePorts {
   /** Persistent-mode boot provisioning + verification for the server-owned Outreach Agent. */
   ensureOutreachGovernance?: () => Promise<void>;
   ensureEgressGovernance?: () => Promise<void>;
+  ensureDevpilotTrackerGovernance?: () => Promise<void>;
   ensureIntakeGovernance?: () => Promise<void>;
   ensureDealPilotPrincipalGovernance?: () => Promise<void>;
   /**
@@ -4358,9 +4476,12 @@ export function buildPersistentPorts(env: {
     organizationStore: ports.organizationStore,
     graphStore: new DrizzleGraphStore(db),
     jobpilotStore: new DrizzleJobPilotStore(db, PILOT_ORGANIZATION),
+    devpilotStore: new DrizzleDevpilotStore(db),
     dealPilotRecordStore: new DrizzleDealPilotStore(db),
     helpdeskStore: new DrizzleHelpdeskStore(db, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(db),
+    academicsStore: new DrizzleAcademicsStore(db),
+    eventsStore: new DrizzleEventsStore(db),
     capabilityStore: new DrizzleCapabilityStore(db, PILOT_ORGANIZATION),
     evalStore: new DrizzleEvalStore(db, PILOT_ORGANIZATION),
     policyParams: new DrizzlePolicyParamStore(db),
@@ -4400,6 +4521,14 @@ export function buildPersistentPorts(env: {
         agentId: EGRESS_AGENT,
         roleId: EGRESS_ROLE,
         permissionId: EGRESS_PRINCIPAL_PERMISSION,
+      }),
+    ensureDevpilotTrackerGovernance: () =>
+      ensureDevpilotTrackerGovernance(db, {
+        organizationId: PILOT_ORGANIZATION,
+        userId: pilotUserId,
+        agentId: DEVPILOT_TRACKER_AGENT_ID,
+        roleId: DEVPILOT_TRACKER_ROLE,
+        permissionId: DEVPILOT_TRACKER_PRINCIPAL_PERMISSION,
       }),
     ensureIntakeGovernance: () =>
       ensureIntakeAgentGovernance(db, {
@@ -4592,8 +4721,11 @@ export async function buildInMemoryPorts(env: {
     organizationStore: new DrizzleOrganizationStore(localDb, env.organizationRenameCoordinator),
     graphStore,
     jobpilotStore: new DrizzleJobPilotStore(localDb, PILOT_ORGANIZATION),
+    devpilotStore: new DrizzleDevpilotStore(localDb),
     helpdeskStore: new DrizzleHelpdeskStore(localDb, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(localDb),
+    academicsStore: new DrizzleAcademicsStore(localDb),
+    eventsStore: new DrizzleEventsStore(localDb),
     capabilityStore: new DrizzleCapabilityStore(localDb, PILOT_ORGANIZATION),
     evalStore: new DrizzleEvalStore(localDb, PILOT_ORGANIZATION),
     policyParams: new DrizzlePolicyParamStore(localDb),
@@ -4716,6 +4848,14 @@ export async function buildInMemoryPorts(env: {
               agentId: EGRESS_AGENT,
               roleId: EGRESS_ROLE,
               permissionId: EGRESS_PRINCIPAL_PERMISSION,
+            }),
+          ensureDevpilotTrackerGovernance: () =>
+            ensureDevpilotTrackerGovernance(localDb, {
+              organizationId: PILOT_ORGANIZATION,
+              userId: pilotUserId,
+              agentId: DEVPILOT_TRACKER_AGENT_ID,
+              roleId: DEVPILOT_TRACKER_ROLE,
+              permissionId: DEVPILOT_TRACKER_PRINCIPAL_PERMISSION,
             }),
           ensureIntakeGovernance: () =>
             ensureIntakeAgentGovernance(localDb, {
@@ -5195,6 +5335,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const claimSubstrateEnabled =
     options.claimSubstrateEnabled ??
     ["1", "true"].includes((process.env.BRIDGE_CLAIM_SUBSTRATE ?? "").trim().toLowerCase());
+  // DevPilot flight (D0, TASK-067) — same resolution, default OFF.
+  const devpilotEnabled =
+    options.devpilotEnabled ??
+    ["1", "true"].includes((process.env.BRIDGE_DEVPILOT ?? "").trim().toLowerCase());
   // LA5 semantic embedder — explicit override wins; otherwise the ONLY
   // provider trusted for real semantics today is Ollama (its embed hits a
   // genuine embedding model). The Echo double's pseudo-embed is a test
@@ -5377,8 +5521,11 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     organizationStore,
     graphStore,
     jobpilotStore,
+    devpilotStore,
     helpdeskStore,
     resourcesStore,
+    academicsStore,
+    eventsStore,
     capabilityStore,
     organizationDefinitionStore,
     moduleStore,
@@ -5794,6 +5941,130 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       }
     },
   });
+
+  // DevPilot D1 (TASK-068) — GitHub repo/PR/issue sync. Organization-authenticated
+  // direct write (jobpilotStore precedent), not a pipeline proposal: syncing
+  // metadata for repos the owner already chose to track has no external effect
+  // requiring approval. Always constructible — unlike Google's OAuth-app gateway,
+  // a PAT flow has no "client not configured" state.
+  const githubGatewayFactory: GithubGatewayFactory = new LiveGithubGatewayFactory();
+  const DEVPILOT_MAX_SYNC_WALL_CLOCK_MS = 4 * 60_000;
+  const DEVPILOT_MAX_TRACKED_REPOS_PER_CYCLE = 200;
+  skillRegistry.register({
+    name: "devpilot.syncGithub",
+    async run(inputs) {
+      const request = inputs as { organizationId?: unknown };
+      if (typeof request.organizationId !== "string") {
+        throw new Error("DevPilot GitHub sync requires organizationId");
+      }
+      const organizationId = request.organizationId;
+      const startedAt = Date.now();
+
+      const [githubIntegration] = (await integrationStore.list(organizationId)).filter(
+        (row) => row.provider === "github",
+      );
+      if (!githubIntegration) {
+        throw new Error(
+          "DevPilot GitHub sync requires a connected Personal Access Token — connect one at /integrations/github",
+        );
+      }
+      const token = await localPlane.secrets.getToken(githubIntegration.id);
+      if (!token) {
+        throw new Error(
+          "DevPilot GitHub sync: the connected Personal Access Token is missing from the Local Plane vault — reconnect at /integrations/github",
+        );
+      }
+      const gateway = githubGatewayFactory.forToken(token.accessToken);
+      try {
+        await gateway.viewer();
+      } catch (error) {
+        throw new Error(
+          `DevPilot GitHub sync: the connected token was rejected by GitHub — reconnect at /integrations/github (${(error as Error).message})`,
+        );
+      }
+
+      // Phase 1: always refresh the full repo list (page 1, most-recently-pushed
+      // first) so newly tracked repos are pickable without a separate discovery
+      // call. Bounded to one page — a freelancer's own account, not an org scan.
+      const { repos } = await gateway.fetchRepos({ perPage: 100 });
+      let reposSeen = 0;
+      for (const repoPayload of repos) {
+        await devpilotStore.upsertRepo({
+          organizationId,
+          source: "github",
+          ...mapGithubRepo(repoPayload),
+        });
+        reposSeen += 1;
+      }
+
+      // Phase 2: pulls + issues for TRACKED repos only — bounded API cost, and
+      // the owner's own choice of what to watch closely.
+      const tracked = await devpilotStore.listRepos(
+        organizationId,
+        { limit: DEVPILOT_MAX_TRACKED_REPOS_PER_CYCLE, offset: 0 },
+        true,
+      );
+      let pullsSynced = 0;
+      let issuesSynced = 0;
+      let rateBudgetExhausted = false;
+      let wallClockExhausted = false;
+      for (const repo of tracked) {
+        const remaining = gateway.rateLimitStatus();
+        if (remaining && remaining.limit > 0 && remaining.remaining / remaining.limit < 0.1) {
+          rateBudgetExhausted = true;
+          break;
+        }
+        if (Date.now() - startedAt > DEVPILOT_MAX_SYNC_WALL_CLOCK_MS) {
+          wallClockExhausted = true;
+          break;
+        }
+
+        const { pulls } = await gateway.fetchPulls(repo.fullName, { perPage: 100 });
+        for (const pullPayload of pulls) {
+          const reviews = await gateway.fetchPullReviews(repo.fullName, pullPayload.number);
+          const mapped = mapGithubPull(pullPayload, repo.fullName, reviews);
+          await devpilotStore.upsertPull({
+            organizationId,
+            source: "github",
+            repoSourceId: repo.sourceId,
+            ...mapped,
+          });
+          pullsSynced += 1;
+        }
+
+        const issuesCursorLane = `github:issues:${repo.sourceId}`;
+        const since = await devpilotStore.getCursor(githubIntegration.id, issuesCursorLane);
+        const { issues } = await gateway.fetchIssues(repo.fullName, { perPage: 100, ...(since ? { since } : {}) });
+        let maxUpdatedAt = since;
+        for (const issuePayload of issues) {
+          const mapped = mapGithubIssue(issuePayload, repo.fullName);
+          if (!mapped) continue; // a Pull Request disguised as an Issue — see domain.ts
+          await devpilotStore.upsertIssue({
+            organizationId,
+            source: "github",
+            repoSourceId: repo.sourceId,
+            priority: null,
+            ...mapped,
+          });
+          issuesSynced += 1;
+          if (!maxUpdatedAt || mapped.externalUpdatedAt > maxUpdatedAt) maxUpdatedAt = mapped.externalUpdatedAt;
+        }
+        if (maxUpdatedAt) await devpilotStore.setCursor(githubIntegration.id, issuesCursorLane, maxUpdatedAt);
+      }
+
+      return {
+        proposedOutput: {
+          reposSeen,
+          trackedRepoCount: tracked.length,
+          pullsSynced,
+          issuesSynced,
+          rateBudgetExhausted,
+          wallClockExhausted,
+        },
+      };
+    },
+  });
+
   // Idempotent bootstrap: the pilot organization/user are structural constants (not
   // migration seed data), but real DB writes FK-reference `organizations.id`/`users.id`
   // (e.g. `integration.connect` → `integrations.organization_id`, `organization.create` →
@@ -5824,6 +6095,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   await modePorts.ensureRelationshipUserGovernance?.();
   await modePorts.ensureClaimUserGovernance?.();
   await modePorts.ensureEgressGovernance?.();
+  await modePorts.ensureDevpilotTrackerGovernance?.();
   await modePorts.ensureIntakeGovernance?.();
   await modePorts.ensureDealPilotPrincipalGovernance?.();
   await modePorts.ensureCapabilityApprovalGovernance?.();
@@ -5924,6 +6196,122 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       });
     }
   }
+
+  // K7 (TASK-051) — the app-focus sensor lane: @bridge/sensors' SensorHub,
+  // wired into the composition root at last (it shipped kernel-side with a
+  // fake provider and no host). One hub per capturing user, built lazily on
+  // the first report: registration writes the provider's capability
+  // manifest (risk COMPUTED from its read-only context permission, never
+  // self-declared; re-registration over the durable store reuses the row),
+  // and the subscribed learning-loop consumer turns each derived
+  // observation into that user's ONE observed-signal Memory — the
+  // "Learning Agent consumes context, not screenshots" seam, exercised for
+  // real. The hub also appends the in-memory capture-ledger entry and emits
+  // the "sensor.capture" blink DomainEvent per ingest. The lane exists
+  // regardless of the learning flight: the ROUTE holds the flight, consent,
+  // and idempotency gates, so a lane report is by construction consented.
+  const appFocusLedger = new InMemoryCaptureLedger();
+  const appFocusProviders = new Map<string, Promise<PushContextProvider>>();
+  const appFocusSensor: AppFocusSensorLane = {
+    ledger: appFocusLedger,
+    report(userId, focus) {
+      let built = appFocusProviders.get(userId);
+      if (!built) {
+        built = (async () => {
+          const hub = new SensorHub({
+            capabilities: capabilityStore,
+            ledger: appFocusLedger,
+            events,
+            organizationId: PILOT_ORGANIZATION,
+            userId,
+            surface: "desktop",
+            ids: () => randomUUID(),
+            nowISO: () => new Date().toISOString(),
+          });
+          const provider = new PushContextProvider(APP_FOCUS_PROVIDER_ID, "apps");
+          await hub.register(provider);
+          hub.subscribe({
+            id: `learning-loop:${userId}`,
+            plane: "local",
+            async onObservation(observation) {
+              if (observation.kind !== "apps") return;
+              const payload = observation.payload as Partial<AppFocusReport>;
+              if (
+                typeof payload.focusId !== "string" ||
+                typeof payload.appName !== "string" ||
+                typeof payload.bundleId !== "string" ||
+                typeof payload.focusedAt !== "string"
+              ) {
+                return; // fail closed: a malformed relay writes nothing
+              }
+              const windowTitle =
+                typeof payload.windowTitle === "string" ? payload.windowTitle : null;
+              const signal = appFocusCaptureSignal(
+                {
+                  focusId: payload.focusId,
+                  appName: payload.appName,
+                  bundleId: payload.bundleId,
+                  windowTitle,
+                  focusedAt: payload.focusedAt,
+                  // Window titles are app-authored text about private work —
+                  // labeled untrusted at the capture boundary, like K8 titles.
+                  taintLabel: labelAtSource("sensor_capture", {
+                    ref: `apps:focus:${payload.focusId}`,
+                    valueHash: hashTaintValue({
+                      appName: payload.appName,
+                      bundleId: payload.bundleId,
+                      windowTitle,
+                    }),
+                    sensitivity: "private",
+                    instructionRisk: "instruction_like",
+                  }),
+                },
+                { organizationId: PILOT_ORGANIZATION, userId },
+                appFocusCaptureSignalId(payload.focusId),
+              );
+              if (signal) await recordSignal(memoryStore, signal);
+            },
+          });
+          await hub.start(APP_FOCUS_PROVIDER_ID);
+          return provider;
+        })();
+        appFocusProviders.set(userId, built);
+      }
+      return built.then((provider) =>
+        provider.push({
+          raw: {
+            id: `apps:focus:${focus.focusId}`,
+            providerId: APP_FOCUS_PROVIDER_ID,
+            kind: "apps",
+            occurredAt: focus.focusedAt,
+            // Focus events carry no raw payload beyond the derived fields —
+            // the shell already reduced them; nothing richer exists to keep.
+            rawPayload: {
+              appName: focus.appName,
+              bundleId: focus.bundleId,
+              windowTitle: focus.windowTitle,
+            },
+          },
+          observation: {
+            id: `apps:focus:${focus.focusId}:observation`,
+            providerId: APP_FOCUS_PROVIDER_ID,
+            kind: "apps",
+            occurredAt: focus.focusedAt,
+            summary:
+              focus.windowTitle === null || focus.windowTitle === ""
+                ? `Focused ${focus.appName}`
+                : `Focused ${focus.appName} — ${focus.windowTitle}`,
+            payload: { ...focus },
+            redactions:
+              focus.windowTitle === null
+                ? ["window title suppressed: Accessibility not granted"]
+                : [],
+            rawCaptureId: `apps:focus:${focus.focusId}`,
+          },
+        }),
+      );
+    },
+  };
 
   // TASK-032 — flight-gated scheduled observation digest. Registered ONLY
   // while the learning observation flight is on: the Skill goes into the
@@ -6124,6 +6512,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     retrievalFusionEnabled,
     commonsArchetypesEnabled,
     claimSubstrateEnabled,
+    devpilotEnabled,
+    devpilot: { store: devpilotStore, gateways: githubGatewayFactory },
     modelProviderKeys,
     ...(semanticEmbedder ? { semanticEmbedder } : {}),
     skillRegistry,
@@ -6146,6 +6536,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     jobpilotStore,
     helpdeskStore,
     resourcesStore,
+    academicsStore,
+    eventsStore,
     capabilityStore,
     organizationDefinitionStore,
     moduleStore,
@@ -6166,6 +6558,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     cultureLatestRunPointerStore,
     cultureFetchAbortControllers,
     memoryStore,
+    appFocusSensor,
     claimStore,
     evalStore,
     aqvSource,

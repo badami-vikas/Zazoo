@@ -49,6 +49,7 @@ export {
   ensureLearningAgentGovernance,
   ensureOutreachAgentGovernance,
   ensureEgressAgentGovernance,
+  ensureDevpilotTrackerGovernance,
   ensureIntakeAgentGovernance,
   ensureDealPilotPrincipalGovernance,
   ensureCapabilityApprovalPrincipalGovernance,
@@ -143,6 +144,16 @@ export {
 } from "./graph-store.js";
 export { DrizzleJobPilotStore, type JobRow, type ApplicationRow, type CreateJobInput } from "./jobpilot-store.js";
 export {
+  DrizzleDevpilotStore,
+  type DevpilotRepoRow,
+  type DevpilotPullRow,
+  type DevpilotIssueRow,
+  type UpsertRepoInput,
+  type UpsertPullInput,
+  type UpsertIssueInput,
+  type ListOpts as DevpilotListOpts,
+} from "./devpilot-store.js";
+export {
   DrizzleHelpdeskStore,
   type TicketRow,
   type InternalTicketRow,
@@ -150,6 +161,16 @@ export {
   type HelpdeskPage,
 } from "./helpdesk-store.js";
 export { DrizzleResourcesStore, type ResourceRow, type CreateResourceInput as CreateResourceStoreInput } from "./resources-store.js";
+export {
+  DrizzleAcademicsStore,
+  type SubjectRow,
+  type LectureSessionRow,
+  type AssignmentRow,
+  type CreateSubjectInput,
+  type CreateLectureSessionInput,
+  type CreateAssignmentInput,
+} from "./academics-store.js";
+export { DrizzleEventsStore, type ConferenceEventRow, type CreateConferenceEventInput } from "./events-store.js";
 export {
   DrizzleCapabilityStore,
   parseDependencies,

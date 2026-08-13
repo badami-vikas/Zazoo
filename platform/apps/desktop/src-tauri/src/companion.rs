@@ -1345,27 +1345,17 @@ fn run_ask(
         let capture = match sensor_bridge::capture_display_jpeg(app, monitor_index) {
             Ok(c) => c,
             Err(error) => {
-                if !sensor_bridge::screen_permission_granted() {
+                if error.code == "SCREEN_PERMISSION_REQUIRED" {
                     // Open System Settings at the Screen Recording page so the
                     // user can grant permission without hunting through menus.
                     let _ = std::process::Command::new("open")
                         .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
                         .spawn();
-                    return Err(err(
-                        "COMPANION_NO_SCREEN_PERMISSION",
-                        "Screen Recording permission is needed to share your screen. \
-                         System Settings → Privacy & Security → Screen Recording has been opened \
-                         — enable Bridge Desktop there, then try again.",
-                    ));
+                    return Err(err("COMPANION_NO_SCREEN_PERMISSION", error.message));
                 }
-                return Err(err("COMPANION_CAPTURE_FAILED", error));
+                return Err(err("COMPANION_CAPTURE_FAILED", error.message));
             }
         };
-        let capture_note = (!capture.permission_granted).then(|| {
-            "Screen Recording permission is not granted, so the screenshot may not include \
-             window contents (System Settings > Privacy & Security > Screen Recording)."
-                .to_string()
-        });
         // The answer image carries the drawn coarse grid: the model answers
         // AND reads off a cell number in one call, which keeps a pointing
         // ask at two provider calls (a free tier meters ~2,500 tokens per
@@ -1490,7 +1480,7 @@ fn run_ask(
                 screen_shared: true,
                 points: usize::from(!marks.is_empty()),
                 spoke: request.speak,
-                capture_note,
+                capture_note: None,
                 emotion,
             },
             marks,

@@ -660,7 +660,6 @@ pub fn run() {
             sensor_bridge::sensor_stop,
             sensor_bridge::sensor_drain,
             sensor_bridge::sensor_read_raw,
-            sensor_bridge::capture_screenshot_on_demand,
             overlay::overlay_start_dragging,
             overlay::overlay_resize,
             overlay::overlay_hide,

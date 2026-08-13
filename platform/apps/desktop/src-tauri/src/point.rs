@@ -117,20 +117,19 @@ fn run_point(app: &AppHandle, monitor_index: usize, target: &str) -> Result<(), 
     })?;
     let model = vision_model(app);
 
-    if !sensor_bridge::screen_permission_granted() {
-        let _ = std::process::Command::new("open")
-            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
-            .spawn();
-        return Err(err(
-            "POINT_NO_SCREEN_PERMISSION",
-            "Screen Recording permission is needed to locate things on screen. \
-             System Settings → Privacy & Security → Screen Recording has been opened — \
-             enable Bridge Desktop there, then try again.",
-        ));
-    }
-
-    let capture = sensor_bridge::capture_display_jpeg(app, monitor_index)
-        .map_err(|error| err("POINT_CAPTURE_FAILED", error))?;
+    let capture = sensor_bridge::capture_display_jpeg(app, monitor_index).map_err(|error| {
+        if error.code == "SCREEN_PERMISSION_REQUIRED" {
+            let _ = companion::open_privacy_settings("Privacy_ScreenCapture".to_string());
+            err(
+                "POINT_NO_SCREEN_PERMISSION",
+                "Screen Recording permission is needed to locate things on screen. \
+                 System Settings → Privacy & Security → Screen Recording has been opened — \
+                 enable Bridge Desktop there, then try again.",
+            )
+        } else {
+            err("POINT_CAPTURE_FAILED", error.message)
+        }
+    })?;
     let coarse_gridded = gridded_jpeg(&capture.jpeg_bytes, COARSE_COLS, COARSE_ROWS)
         .ok_or_else(|| err("POINT_IMAGE_DECODE_FAILED", "couldn't decode the screen capture"))?;
     let coarse_number = ask_grid_number(&key, &model, &coarse_gridded, target, COARSE_COLS, COARSE_ROWS)
