@@ -1057,3 +1057,29 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: none needed (defect repair; ADR-229 records the design decisions)
 - Dependencies: none
 - Invariants this task establishes — breaking either reopens the abort class: every window promoted with `to_panel` MUST be demoted with `panel.to_window()` before `destroy()`, and every native teardown path MUST stay inside `guard_native_teardown`.
+
+## DevPilot D0 — Module skeleton, dark behind a flight
+- ID: TASK-067
+- Status: done
+- Priority: P2
+- Horizon: Prototype
+- Outcome: `devpilot` is a real installed built-in Module — nav entry, three Pages (Pull Requests/Issues/Repos) rendering through the standard `<ModuleSurfaceLayout>` + `<DataViews>` shell, one Agent, one scheduled Automation — entirely invisible with `BRIDGE_DEVPILOT` off, and `devpilot.status` answers honestly regardless of the flight.
+- Prototype test: with `BRIDGE_DEVPILOT=1`, DevPilot appears in the rail and lands on Pull Requests with no nav code written for it (manifest-driven, per `moduleNavTarget`); with the flight off, every `devpilot.*` procedure except `status` throws `PRECONDITION_FAILED` and the module is absent from nav; `pnpm turbo run build test` is green across `@bridge/module-manifests`, `@bridge/api`, and `@bridge/web`.
+- Scope: `docs/raw/devpilot-module-plan-2026-08-13.md` (D0); ADR-235; AP-153. New package `platform/modules/devpilot` (pure Table specs + domain types, no store); manifest entry + capability rows + runtime ids in `platform/modules/manifests/src/index.ts`; Commons exclusion; `devpilot: t.router({...})` namespace + `assertDevpilotFlightEnabled` in `platform/apps/api/src/router.ts`; `BRIDGE_DEVPILOT` flight resolution + `devpilot`/`devpilotEnabled` Wiring fields in `platform/apps/api/src/wiring.ts`; `DevPilotPage.tsx` + manifest-derived routes in `platform/apps/web/src/app/routes.tsx`.
+- Evidence: `@bridge/devpilot` 6/6 tests; `@bridge/module-manifests` catalog tests green including the new DevPilot-specific assertions (Page ids, nav target, no `external:send` capability, Agent Plane present, Automation schedule present, Commons withholding); `@bridge/api` full suite green (procedure-classification completeness gate closes `devpilot.` as Local-Plane-only, alongside `google.`); `@bridge/web` full suite green (191 tests, `ui-conformance.test.mjs` unaffected — DevPilotPage needs no EXEMPT entry, it renders through the standard shell).
+- Requests: user directive 2026-08-13, verbatim: *"I want to build a Software Engineer Pilot module... see if you can make us of the Central AI Harness"*; follow-up *"Implement the devpilot plan now"*.
+- Approval: AP-153 applied
+- Dependencies: none
+
+## DevPilot D1 — GitHub tracker slice
+- ID: TASK-068
+- Status: done
+- Priority: P2
+- Horizon: Prototype
+- Outcome: a connected fine-grained GitHub Personal Access Token syncs the owner's repos, and tracked repos' pull requests and issues, into the DevPilot Databases — on a 15-minute scheduled Automation and on manual "run sync now" — idempotently (a re-run updates existing rows, never duplicates them) and with zero learning-specific code (the sync Skill's ledger attribution carries `moduleId:"devpilot"` for free via the existing K1 ledger miner).
+- Prototype test: paste a fine-grained PAT at `/integrations/github` → masked token metadata renders (never the raw value, never logged); track 1–2 repos → "run sync now" fills the Pull Requests/Issues DataViews; re-running the sync inserts zero duplicate rows (`(organization_id, source, source_id)` unique upsert); an item carrying GitHub's `pull_request` key on the `/issues` response never becomes a `devpilot_issues` row; disconnecting deletes the local token and the module renders an honest empty state.
+- Scope: `docs/raw/devpilot-module-plan-2026-08-13.md` (D1); ADR-235; AP-153. New package `platform/packages/integrations-github` (contracts/gateway/gateway-live over `guardedFetch`/pat/intake/manifest); `devpilot_repos`/`devpilot_pulls`/`devpilot_issues` tables + migration `0041` in `platform/packages/db/src/schema.ts`; `DrizzleDevpilotStore` (`platform/packages/db/src/devpilot-store.ts`); `devpilot.syncGithub` governed Skill + `role-devpilot-tracker` Agent authority + `ensureDevpilotTrackerGovernance` in `platform/apps/api/src/wiring.ts` and `platform/packages/db/src/governance-stores.ts`; `devpilot.github.{connect,disconnect,status}`, `devpilot.{repos,pulls,issues}.list`, `devpilot.repos.setTracked`, `devpilot.sync.run` procedures in `platform/apps/api/src/router.ts`; `GithubIntegrationPanel.tsx` in `platform/apps/web`.
+- Evidence: `@bridge/integrations-github` 13/13 tests, 92.98% line coverage (incl. the GitHub-mixes-PRs-into-/issues fixture, PAT masking/never-logged, rate-limit + pagination parsing, a non-2xx status surfaced as a typed failure never silent-empty data); `@bridge/db` 239/239 (drizzle-generate no-op drift gate rebased through migration `0041`); `@bridge/api` full suite green (`procedure-classification.test.ts` closes `devpilot.` Local-Plane-only; the FK-constraint regression from a missing `agents` row for the new runtime Agent id was caught by the existing Task Manager governance test and fixed by adding `ensureDevpilotTrackerGovernance`, mirroring `ensureEgressAgentGovernance`); `@bridge/web` full suite green.
+- Requests: user directive 2026-08-13 (see TASK-067).
+- Approval: AP-153 applied
+- Dependencies: TASK-067

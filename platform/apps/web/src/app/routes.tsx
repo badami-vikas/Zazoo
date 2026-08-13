@@ -19,6 +19,10 @@ import { IntelligencePage } from "./pages/IntelligencePage";
 import { ResearchRunsPage } from "./pages/ResearchRunsPage";
 // WhatsApp Module: the live session surface plus its Tool list.
 import { WhatsAppPage } from "./pages/WhatsAppPage";
+// DevPilot Module (D0/D1): Pull Requests/Issues/Repos Pages plus the GitHub
+// Personal Access Token connection panel.
+import { DevPilotPage } from "./pages/DevPilotPage";
+import { GithubIntegrationPanel } from "./pages/GithubIntegrationPanel";
 import { InstalledModuleBoundary } from "./components/InstalledModuleBoundary";
 import {
   RelationshipPage,
@@ -134,6 +138,13 @@ export const router = createBrowserRouter([
       { path: "module/whatsapp/chats", element: <WhatsAppPage page="chats" /> },
       { path: "module/whatsapp/tools", element: <WhatsAppPage page="tools" /> },
 
+      // DevPilot Module Pages (D0/D1). Lands on Pull Requests; /module/devpilot
+      // alone redirects there rather than showing the capability inventory.
+      { path: "module/devpilot", element: <Navigate to="/module/devpilot/pulls" replace /> },
+      { path: "module/devpilot/pulls", element: <DevPilotPage page="pulls" /> },
+      { path: "module/devpilot/issues", element: <DevPilotPage page="issues" /> },
+      { path: "module/devpilot/repos", element: <DevPilotPage page="repos" /> },
+
       // Module Detail was removed 2026-08-10 (user directive: "There is no
       // module detail page. Delete it. Ensure no trace of it remains."). The
       // PAGE is gone; the bare `/module/:name` PATH still resolves, as a pure
@@ -168,6 +179,7 @@ export const router = createBrowserRouter([
       { path: "approvals", Component: ApprovalsPage },
 
       { path: "integrations/google", Component: GoogleIntegrationPanel },
+      { path: "integrations/github", Component: GithubIntegrationPanel },
 
       {
         path: childPath(jobPilotModule.route),

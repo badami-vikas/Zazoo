@@ -50,6 +50,12 @@
     },
     {
       "path": "../../modules/whatsapp"
+    },
+    {
+      "path": "../../modules/devpilot"
+    },
+    {
+      "path": "../../packages/integrations-github"
     }
   ],
   "include": [

@@ -37,6 +37,7 @@ const read = (rel) => readFileSync(join(APP, "..", ...rel.replace(/^src\//, "").
  */
 const EXEMPT = {
   "GoogleIntegrationPanel.tsx": "Integration credential/consent panel — no Database rows.",
+  "GithubIntegrationPanel.tsx": "Integration credential/consent panel — no Database rows.",
   "HomePage.tsx": "Cross-Module landing surface; composes Module cards, owns no single Database.",
   "PublicHelpdesk.tsx": "Unauthenticated surface outside the authed nav shell entirely.",
   "SettingsPage.tsx": "Preferences form; not a Database view.",

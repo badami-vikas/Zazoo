@@ -105,7 +105,7 @@ export const TASK_MANAGER_STALE_REVIEW_AUTOMATION_KEY = "task-manager.stale-task
 export const TASK_MANAGER_PLANNING_AUTOMATION_KEY = "task-manager.planning-playbook";
 export const LEARNING_RECOMMENDATION_SKILL_ID = "stageLearningRecommendation";
 export const CITED_ROLE_MODEL_PRACTICE_VERSION = "1.0.1";
-/** DevPilot D0/D1 (TASK-067/TASK-068, ADR-234) — continuing the runtime-id
+/** DevPilot D0/D1 (TASK-067/TASK-068, ADR-235) — continuing the runtime-id
  * sequence after Task Manager's routing Automation (…000108). */
 export const DEVPILOT_TRACKER_AGENT_ID = "b0000000-0000-4000-a000-000000000109";
 export const DEVPILOT_GITHUB_POLL_AUTOMATION_ID = "b0000000-0000-4000-a000-00000000010a";
@@ -637,7 +637,7 @@ const taskManagerAutomations = [
   ["planning-playbook", "Internal Strategist"],
 ] as const;
 
-// DevPilot D0/D1 (TASK-067/TASK-068, ADR-234) — a freelance engineer's
+// DevPilot D0/D1 (TASK-067/TASK-068, ADR-235) — a freelance engineer's
 // tracked repos, pull requests, and issues, synced from GitHub through a
 // fine-grained Personal Access Token. Read-only: no external:send capability
 // in D1 (D2's PR-review drafts stay local; posting is a later, separately

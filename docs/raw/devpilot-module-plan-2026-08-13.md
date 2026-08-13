@@ -8,9 +8,9 @@ updated: 2026-08-13
 tags: [devpilot, module, ai-harness, github, jira, slack, gmail, triage, pr-review, integrations, work-brief]
 ---
 
-# DevPilot Module Plan (IN PROGRESS — draft, not approved)
+# DevPilot Module Plan (D0+D1 SHIPPED 2026-08-13 — ADR-235, AP-153, TASK-067/TASK-068; D2–D6 not started)
 
-Saved 2026-08-13 from Manish's planning session as work-in-progress. **No AP/ADR/TASK rows are claimed by this document** — proposed ids below are next-free estimates at write time and MUST be re-verified against `origin/main` high-water before any are written (K9 WIP in flight already claims ADR-231).
+Saved 2026-08-13 from Manish's planning session, then implemented the same day on the user's "Implement the devpilot plan now" directive. D0 (module skeleton) and D1 (GitHub tracker slice) below are DONE — see ADR-235 for the as-built decisions and TASK-067/TASK-068 for verification evidence. The proposed ids originally sketched in this doc were superseded by the actually-assigned ADR-234/AP-152/TASK-067-068 at implementation time, then renumbered to ADR-235/AP-153 at merge time when K10 (landed independently on `origin/main` the same day) turned out to have claimed the same ADR-234/AP-152 numbers first — the same renumbering-at-merge precedent as K9's ADR-229/232-233 collision. D2 onward remain future TASK rows, each starting only on its own explicit "start".
 
 ## Context
 

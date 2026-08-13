@@ -135,6 +135,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["dealpilot.reauthenticateCredential", "mutates the Source credential vault"],
   ["integration.", "credential broker + connection secrets are Local Plane"],
   ["google.", "OAuth tokens are held in the Local Plane vault"],
+  ["devpilot.", "GitHub Personal Access Tokens are held in the Local Plane vault; D1 has no public-cloud value without one"],
   ["chat.model.", "managed local model lifecycle is a desktop-only concern"],
   ["modelProviderKey.", "model-provider API keys are held in the Local Plane vault"],
 
