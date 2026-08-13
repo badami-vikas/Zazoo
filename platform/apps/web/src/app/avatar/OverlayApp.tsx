@@ -154,6 +154,9 @@ export function OverlayApp() {
   // "chat" = the hover chat bubble's compact inline chat.
   // "ask" = the screen-aware companion ask panel (TASK-027).
   const [panel, setPanel] = useState<"none" | "status" | "chat" | "ask">("none");
+  // User-adjustable chat window size (logical px). Clamped to sane bounds.
+  const [chatW, setChatW] = useState(WINDOW_SIZE.chat.w);
+  const [chatH, setChatH] = useState(WINDOW_SIZE.chat.h);
   // True while the global push-to-talk shortcut is held (drives CompanionAsk
   // recording).
   const [pttActive, setPttActive] = useState(false);
@@ -548,12 +551,12 @@ export function OverlayApp() {
       : panel === "ask"
         ? WINDOW_SIZE.ask
         : panel === "chat"
-          ? WINDOW_SIZE.chat
+          ? { w: chatW, h: chatH }
           : hovering || pinned
             ? WINDOW_SIZE.hover
             : WINDOW_SIZE.collapsed;
     void tauriInvoke("overlay_resize", { width: size.w, height: size.h });
-  }, [panel, hovering, pinned, menuOpen, home]);
+  }, [panel, hovering, pinned, menuOpen, home, chatW, chatH]);
 
   // Docked in the notch, the ask/chat panels replace NotchHome outright (see
   // the render below) rather than being a variant of it, so they need their
@@ -565,9 +568,9 @@ export function OverlayApp() {
   useEffect(() => {
     if (home !== "notch") return;
     if (panel !== "ask" && panel !== "chat") return;
-    const size = panel === "ask" ? WINDOW_SIZE.ask : WINDOW_SIZE.chat;
+    const size = panel === "ask" ? WINDOW_SIZE.ask : { w: chatW, h: chatH };
     void tauriInvoke("overlay_present_docked_panel", { width: size.w, height: size.h });
-  }, [home, panel]);
+  }, [home, panel, chatW, chatH]);
 
   // Close panel/unpin when the overlay window loses focus (user clicks elsewhere
   // on the desktop or another app). This is what "clicking elsewhere closes it" means
@@ -795,18 +798,24 @@ export function OverlayApp() {
             style={{ borderColor: "var(--color-border)" }}
           >
             <p className="font-medium text-[var(--color-navy)]">{name}</p>
-            <button
-              type="button"
-              aria-label="Close chat"
-              className="text-muted-foreground hover:text-[var(--color-steel)]"
-              onClick={() => {
-                setPanel("none");
-                setChatSeed(null);
-                setNotchPose("bed");
-              }}
-            >
-              ×
-            </button>
+            <div className="flex items-center gap-1">
+              <button type="button" aria-label="Narrower" title="Narrower" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatW((w) => Math.max(260, w - 40))}>◀</button>
+              <button type="button" aria-label="Wider" title="Wider" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatW((w) => Math.min(600, w + 40))}>▶</button>
+              <button type="button" aria-label="Shorter" title="Shorter" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatH((h) => Math.max(300, h - 60))}>▲</button>
+              <button type="button" aria-label="Taller" title="Taller" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatH((h) => Math.min(800, h + 60))}>▼</button>
+              <button
+                type="button"
+                aria-label="Close chat"
+                className="text-muted-foreground hover:text-[var(--color-steel)] ml-1"
+                onClick={() => {
+                  setPanel("none");
+                  setChatSeed(null);
+                  setNotchPose("bed");
+                }}
+              >
+                ×
+              </button>
+            </div>
           </div>
           <ChatView
             key={chatSeed?.nonce ?? "chat"}
@@ -974,17 +983,25 @@ export function OverlayApp() {
         >
           <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: "var(--color-border)" }}>
             <p className="font-medium text-[var(--color-navy)]">{name}</p>
-            <button
-              type="button"
-              aria-label="Close chat"
-              className="text-muted-foreground hover:text-[var(--color-steel)]"
-              onClick={() => {
-                setPanel("none");
-                setChatSeed(null);
-              }}
-            >
-              ×
-            </button>
+            <div className="flex items-center gap-1">
+              {/* Width controls */}
+              <button type="button" aria-label="Narrow" title="Narrower" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatW((w) => Math.max(260, w - 40))}>◀</button>
+              <button type="button" aria-label="Wider" title="Wider" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatW((w) => Math.min(600, w + 40))}>▶</button>
+              {/* Height controls */}
+              <button type="button" aria-label="Shorter" title="Shorter" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatH((h) => Math.max(300, h - 60))}>▲</button>
+              <button type="button" aria-label="Taller" title="Taller" className="text-muted-foreground hover:text-foreground px-1 text-xs" onClick={() => setChatH((h) => Math.min(800, h + 60))}>▼</button>
+              <button
+                type="button"
+                aria-label="Close chat"
+                className="text-muted-foreground hover:text-[var(--color-steel)] ml-1"
+                onClick={() => {
+                  setPanel("none");
+                  setChatSeed(null);
+                }}
+              >
+                ×
+              </button>
+            </div>
           </div>
           <ChatView
             key={chatSeed?.nonce ?? "chat"}
@@ -1102,6 +1119,11 @@ export function OverlayApp() {
               onPointerUp={endAvatarPointerGesture}
               onPointerCancel={endAvatarPointerGesture}
               onClick={activateAvatar}
+              onDoubleClick={() => {
+                if (suppressAvatarClick.current) return;
+                setPanel((prev) => (prev === "chat" ? "none" : "chat"));
+                setPinned(false);
+              }}
               aria-label={`${name}, ${label}`}
               title={`${label} — drag to move`}
               className="flex items-center justify-center focus:outline-none focus-visible:ring-2 rounded-md"

@@ -33,6 +33,10 @@ const RECORDER_MIME_PREFERENCE = ["audio/mp4", "audio/webm", "audio/ogg"];
 const CHASE_GAME_TRIGGER = /play (a |)game|catch me if you can/i;
 const CHASE_GAME_STOP_TRIGGER = /stop (the |)game|stop chasing|stop playing/i;
 
+/** "move your pointer" / "show me your pointer" etc. — fires the 15-second
+ * pointer demo immediately so the model doesn't have to explain it can't. */
+const POINTER_DEMO_TRIGGER = /\b(move|show|demo|wiggle|animate)\b.*\bpointer\b|\bpointer\b.*(visible|15|move|demo)/i;
+
 /** "point at/to the settings button" locates a named UI element on screen
  * (`point.rs` — same two-stage vision locator `companion_ask` uses) and both
  * spotlights it and glides the avatar there. Same standing Cloud Plane
@@ -582,6 +586,7 @@ export function ChatView({
     const pointMatch = POINT_AT_TRIGGER.exec(message);
     if (CHASE_GAME_STOP_TRIGGER.test(message)) void tauriInvoke("stop_chase_game");
     else if (CHASE_GAME_TRIGGER.test(message)) void tauriInvoke("start_chase_game");
+    else if (POINTER_DEMO_TRIGGER.test(message)) void tauriInvoke("companion_demo_pointer", { durationSecs: 15 });
     else if (pointMatch) {
       void tauriInvokeJob("point_at_start", "point_at_poll", { target: pointMatch[1].trim() }, {
         valueKey: "done",
@@ -686,9 +691,8 @@ export function ChatView({
             </div>
             {turn.role === "assistant" && (
               <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
-                <Badge variant="outline">{turn.state.replace(/_/g, " ")}</Badge>
-                {turn.refs.some((ref) => ref.kind === "model_receipt") && (
-                  <Badge variant="outline">model receipt</Badge>
+                {turn.state !== "completed" && (
+                  <Badge variant="outline">{turn.state.replace(/_/g, " ")}</Badge>
                 )}
                 {turn.refs.some((ref) => ref.kind === "automation_run") && (
                   <Badge variant="secondary">Agent Run</Badge>
