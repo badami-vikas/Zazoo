@@ -33,12 +33,16 @@ const RECORDER_MIME_PREFERENCE = ["audio/mp4", "audio/webm", "audio/ogg"];
 const CHASE_GAME_TRIGGER = /play (a |)game|catch me if you can/i;
 const CHASE_GAME_STOP_TRIGGER = /stop (the |)game|stop chasing|stop playing/i;
 
+/** "move your pointer" / "show me your pointer" etc. — fires the 15-second
+ * pointer demo immediately so the model doesn't have to explain it can't. */
+const POINTER_DEMO_TRIGGER = /\b(move|show|demo|wiggle|animate)\b.*\bpointer\b|\bpointer\b.*(visible|15|move|demo)/i;
+
 /** "point at/to the settings button" locates a named UI element on screen
  * (`point.rs` — same two-stage vision locator `companion_ask` uses) and both
  * spotlights it and glides the avatar there. Same standing Cloud Plane
  * consent as chat (AP-142/AP-143) — the screenshot goes out with no separate
  * prompt. */
-const POINT_AT_TRIGGER = /^point\s+(?:at|to|towards)\s+(.+)/i;
+const POINT_AT_TRIGGER = /\bpoint\s+(?:(?:at|to|towards|my|the|your|me to)\s+)*(.+)/i;
 
 async function blobToBase64(blob: Blob): Promise<string> {
   const buffer = await blob.arrayBuffer();
@@ -437,6 +441,7 @@ export function ChatView({
 }: ChatViewProps) {
   const chat = useChat(surface);
   const [draft, setDraft] = useState(initialDraft ?? "");
+  const [cmdStatus, setCmdStatus] = useState<{ text: string; kind: "info" | "error" } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -576,17 +581,32 @@ export function ChatView({
     const message = draft.trim();
     if (!message || chat.sending) return;
     restoreComposerFocusRef.current = true;
-    // Easter egg, not a governed action: no data touched, nothing to approve.
-    // Fires alongside the normal send — see chase.rs — and no-ops outside the
-    // desktop shell (tauriInvoke degrades silently in the browser).
+    // Desktop-shell commands — fire directly on Tauri and skip the model so
+    // it can't give contradictory advice. Degrade silently in the browser.
     const pointMatch = POINT_AT_TRIGGER.exec(message);
-    if (CHASE_GAME_STOP_TRIGGER.test(message)) void tauriInvoke("stop_chase_game");
-    else if (CHASE_GAME_TRIGGER.test(message)) void tauriInvoke("start_chase_game");
-    else if (pointMatch) {
-      void tauriInvokeJob("point_at_start", "point_at_poll", { target: pointMatch[1].trim() }, {
+    if (CHASE_GAME_STOP_TRIGGER.test(message)) {
+      void tauriInvoke("stop_chase_game");
+    } else if (CHASE_GAME_TRIGGER.test(message)) {
+      void tauriInvoke("start_chase_game");
+    } else if (POINTER_DEMO_TRIGGER.test(message)) {
+      setDraft("");
+      setCmdStatus({ text: "Moving pointer across your screen for 15 seconds…", kind: "info" });
+      void tauriInvoke("companion_demo_pointer", { durationSecs: 15 });
+      return;
+    } else if (pointMatch) {
+      const target = pointMatch[1].trim();
+      setDraft("");
+      setCmdStatus({ text: `Looking for "${target}" on your screen…`, kind: "info" });
+      tauriInvokeJob("point_at_start", "point_at_poll", { target }, {
         valueKey: "done",
         timeoutMs: 20_000,
-      }).catch((error: unknown) => console.error("[companion] point-at failed", error));
+      }).then(() => {
+        setCmdStatus(null);
+      }).catch((error: unknown) => {
+        const msg = error instanceof Error ? error.message : String(error);
+        setCmdStatus({ text: msg || `Couldn't find "${target}" on screen`, kind: "error" });
+      });
+      return;
     }
     const accepted = await chat.send(message);
     if (accepted) setDraft("");
@@ -686,9 +706,8 @@ export function ChatView({
             </div>
             {turn.role === "assistant" && (
               <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
-                <Badge variant="outline">{turn.state.replace(/_/g, " ")}</Badge>
-                {turn.refs.some((ref) => ref.kind === "model_receipt") && (
-                  <Badge variant="outline">model receipt</Badge>
+                {turn.state !== "completed" && (
+                  <Badge variant="outline">{turn.state.replace(/_/g, " ")}</Badge>
                 )}
                 {turn.refs.some((ref) => ref.kind === "automation_run") && (
                   <Badge variant="secondary">Agent Run</Badge>
@@ -788,6 +807,15 @@ export function ChatView({
               Cancel
             </Button>
           </div>
+        </div>
+      )}
+
+      {cmdStatus && (
+        <div
+          className={`px-3 pb-2 text-xs ${cmdStatus.kind === "error" ? "text-destructive" : "text-muted-foreground"}`}
+          role={cmdStatus.kind === "error" ? "alert" : "status"}
+        >
+          {cmdStatus.text}
         </div>
       )}
 

@@ -27,7 +27,7 @@
  * On macOS the Rust window is an NSPanel configured for all Spaces and
  * fullscreen auxiliary presence.
  */
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ChatView } from "../chat/ChatView";
 import { CompanionAsk } from "./CompanionAsk";
 import { CompanionZazooFace } from "./zazoo/CompanionZazooFace";
@@ -155,6 +155,37 @@ export function OverlayApp() {
   // "chat" = the hover chat bubble's compact inline chat.
   // "ask" = the screen-aware companion ask panel (TASK-027).
   const [panel, setPanel] = useState<"none" | "status" | "chat" | "ask">("none");
+  // User-adjustable chat window size (logical px). Clamped to sane bounds.
+  const [chatW, setChatW] = useState(WINDOW_SIZE.chat.w);
+  const [chatH, setChatH] = useState(WINDOW_SIZE.chat.h);
+  // Resize drag state — tracks the pointer and window size at drag start.
+  const resizeDrag = useRef<{ edge: string; startX: number; startY: number; startW: number; startH: number } | null>(null);
+  const resizeRaf = useRef<number | null>(null);
+
+  const startResize = useCallback((edge: string, e: ReactPointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e.target as Element).setPointerCapture(e.pointerId);
+    resizeDrag.current = { edge, startX: e.clientX, startY: e.clientY, startW: chatW, startH: chatH };
+  }, [chatW, chatH]);
+
+  const onResizeMove = useCallback((e: ReactPointerEvent) => {
+    if (!resizeDrag.current) return;
+    const { edge, startX, startY, startW, startH } = resizeDrag.current;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    // Left edge → dragging left makes wider (mirror dx), right edge → normal.
+    // Top edge → dragging up makes taller (mirror dy), bottom → normal.
+    const newW = Math.round(Math.max(260, Math.min(700, edge.includes("left") ? startW - dx : edge.includes("right") ? startW + dx : startW)));
+    const newH = Math.round(Math.max(300, Math.min(900, edge.includes("top") ? startH - dy : edge.includes("bottom") ? startH + dy : startH)));
+    if (resizeRaf.current !== null) cancelAnimationFrame(resizeRaf.current);
+    resizeRaf.current = requestAnimationFrame(() => {
+      setChatW(newW);
+      setChatH(newH);
+    });
+  }, []);
+
+  const endResize = useCallback(() => { resizeDrag.current = null; }, []);
   // True while the global push-to-talk shortcut is held (drives CompanionAsk
   // recording).
   const [pttActive, setPttActive] = useState(false);
@@ -550,12 +581,12 @@ export function OverlayApp() {
       : panel === "ask"
         ? WINDOW_SIZE.ask
         : panel === "chat"
-          ? WINDOW_SIZE.chat
+          ? { w: chatW, h: chatH }
           : hovering || pinned
             ? WINDOW_SIZE.hover
             : WINDOW_SIZE.collapsed;
     void tauriInvoke("overlay_resize", { width: size.w, height: size.h });
-  }, [panel, hovering, pinned, menuOpen, home]);
+  }, [panel, hovering, pinned, menuOpen, home, chatW, chatH]);
 
   // Docked in the notch, the ask/chat panels replace NotchHome outright (see
   // the render below) rather than being a variant of it, so they need their
@@ -567,9 +598,9 @@ export function OverlayApp() {
   useEffect(() => {
     if (home !== "notch") return;
     if (panel !== "ask" && panel !== "chat") return;
-    const size = panel === "ask" ? WINDOW_SIZE.ask : WINDOW_SIZE.chat;
+    const size = panel === "ask" ? WINDOW_SIZE.ask : { w: chatW, h: chatH };
     void tauriInvoke("overlay_present_docked_panel", { width: size.w, height: size.h });
-  }, [home, panel]);
+  }, [home, panel, chatW, chatH]);
 
   // Close panel/unpin when the overlay window loses focus (user clicks elsewhere
   // on the desktop or another app). This is what "clicking elsewhere closes it" means
@@ -793,8 +824,17 @@ export function OverlayApp() {
             overflow: "hidden",
             background: "var(--color-background)",
             borderRadius: "var(--radius-card)",
+            position: "relative",
           }}
+          onPointerMove={onResizeMove}
+          onPointerUp={endResize}
+          onPointerLeave={endResize}
         >
+          {/* Edge drag handles for notch chat */}
+          <div onPointerDown={(e) => startResize("left", e)}  style={{ position:"absolute", left:0, top:8, bottom:8, width:6, cursor:"ew-resize", zIndex:10 }} />
+          <div onPointerDown={(e) => startResize("top", e)}   style={{ position:"absolute", top:0, left:8, right:8, height:6, cursor:"ns-resize", zIndex:10 }} />
+          <div onPointerDown={(e) => startResize("top-left", e)}  style={{ position:"absolute", top:0, left:0, width:10, height:10, cursor:"nwse-resize", zIndex:11 }} />
+          <div onPointerDown={(e) => startResize("top-right", e)} style={{ position:"absolute", top:0, right:0, width:10, height:10, cursor:"nesw-resize", zIndex:11 }} />
           <div
             className="flex items-center justify-between px-3 py-2 border-b"
             style={{ borderColor: "var(--color-border)" }}
@@ -980,8 +1020,16 @@ export function OverlayApp() {
           role="dialog"
           aria-label={`Chat with ${name}`}
           className="w-full mb-2 rounded-[var(--radius-card)] border border-border bg-background shadow-lg text-sm flex flex-col"
-          style={{ flex: "1 1 auto", minHeight: 0 }}
+          style={{ flex: "1 1 auto", minHeight: 0, position: "relative" }}
+          onPointerMove={onResizeMove}
+          onPointerUp={endResize}
+          onPointerLeave={endResize}
         >
+          {/* Edge drag handles — 6px hit area, ew-resize / ns-resize / nwse-resize cursors */}
+          <div onPointerDown={(e) => startResize("left", e)}  style={{ position:"absolute", left:0, top:8, bottom:8, width:6, cursor:"ew-resize", zIndex:10 }} />
+          <div onPointerDown={(e) => startResize("top", e)}   style={{ position:"absolute", top:0, left:8, right:8, height:6, cursor:"ns-resize", zIndex:10 }} />
+          <div onPointerDown={(e) => startResize("top-left", e)}  style={{ position:"absolute", top:0, left:0, width:10, height:10, cursor:"nwse-resize", zIndex:11 }} />
+          <div onPointerDown={(e) => startResize("top-right", e)} style={{ position:"absolute", top:0, right:0, width:10, height:10, cursor:"nesw-resize", zIndex:11 }} />
           <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: "var(--color-border)" }}>
             <p className="font-medium text-[var(--color-navy)]">{name}</p>
             <button
@@ -1112,6 +1160,11 @@ export function OverlayApp() {
               onPointerUp={endAvatarPointerGesture}
               onPointerCancel={endAvatarPointerGesture}
               onClick={activateAvatar}
+              onDoubleClick={() => {
+                if (suppressAvatarClick.current) return;
+                setPanel((prev) => (prev === "chat" ? "none" : "chat"));
+                setPinned(false);
+              }}
               aria-label={`${name}, ${label}`}
               title={`${label} — drag to move`}
               className="flex items-center justify-center focus:outline-none focus-visible:ring-2 rounded-md"
