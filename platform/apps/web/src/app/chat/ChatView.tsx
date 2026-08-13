@@ -441,6 +441,7 @@ export function ChatView({
 }: ChatViewProps) {
   const chat = useChat(surface);
   const [draft, setDraft] = useState(initialDraft ?? "");
+  const [cmdStatus, setCmdStatus] = useState<{ text: string; kind: "info" | "error" } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -580,18 +581,32 @@ export function ChatView({
     const message = draft.trim();
     if (!message || chat.sending) return;
     restoreComposerFocusRef.current = true;
-    // Easter egg, not a governed action: no data touched, nothing to approve.
-    // Fires alongside the normal send — see chase.rs — and no-ops outside the
-    // desktop shell (tauriInvoke degrades silently in the browser).
+    // Desktop-shell commands — fire directly on Tauri and skip the model so
+    // it can't give contradictory advice. Degrade silently in the browser.
     const pointMatch = POINT_AT_TRIGGER.exec(message);
-    if (CHASE_GAME_STOP_TRIGGER.test(message)) void tauriInvoke("stop_chase_game");
-    else if (CHASE_GAME_TRIGGER.test(message)) void tauriInvoke("start_chase_game");
-    else if (POINTER_DEMO_TRIGGER.test(message)) void tauriInvoke("companion_demo_pointer", { durationSecs: 15 });
-    else if (pointMatch) {
-      void tauriInvokeJob("point_at_start", "point_at_poll", { target: pointMatch[1].trim() }, {
+    if (CHASE_GAME_STOP_TRIGGER.test(message)) {
+      void tauriInvoke("stop_chase_game");
+    } else if (CHASE_GAME_TRIGGER.test(message)) {
+      void tauriInvoke("start_chase_game");
+    } else if (POINTER_DEMO_TRIGGER.test(message)) {
+      setDraft("");
+      setCmdStatus({ text: "Moving pointer across your screen for 15 seconds…", kind: "info" });
+      void tauriInvoke("companion_demo_pointer", { durationSecs: 15 });
+      return;
+    } else if (pointMatch) {
+      const target = pointMatch[1].trim();
+      setDraft("");
+      setCmdStatus({ text: `Looking for "${target}" on your screen…`, kind: "info" });
+      tauriInvokeJob("point_at_start", "point_at_poll", { target }, {
         valueKey: "done",
         timeoutMs: 20_000,
-      }).catch((error: unknown) => console.error("[companion] point-at failed", error));
+      }).then(() => {
+        setCmdStatus(null);
+      }).catch((error: unknown) => {
+        const msg = error instanceof Error ? error.message : String(error);
+        setCmdStatus({ text: msg || `Couldn't find "${target}" on screen`, kind: "error" });
+      });
+      return;
     }
     const accepted = await chat.send(message);
     if (accepted) setDraft("");
@@ -792,6 +807,15 @@ export function ChatView({
               Cancel
             </Button>
           </div>
+        </div>
+      )}
+
+      {cmdStatus && (
+        <div
+          className={`px-3 pb-2 text-xs ${cmdStatus.kind === "error" ? "text-destructive" : "text-muted-foreground"}`}
+          role={cmdStatus.kind === "error" ? "alert" : "status"}
+        >
+          {cmdStatus.text}
         </div>
       )}
 
