@@ -2,6 +2,20 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **RESOLVED 2026-08-14 — `modules.addFile` base64 validation regex stack-overflows on real multi-MB local Files (attach: TASK-069, P2).**
+  Found while ingesting ~50 real PE Methods course PDFs into Academics via `modules.addFile`
+  (the same procedure the Files Section's Upload button calls) — 3 of 48 files (each 3.8–4.9MB,
+  base64-encoding to 5–6.5M characters) failed with `TRPCError: Maximum call stack size exceeded`,
+  every smaller file succeeded. Root cause: the input validator's regex
+  `/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/` nests a quantified capturing
+  group inside a top-level `*` — V8's backtracking engine blows its native call stack on inputs in
+  the multi-million-character range, well under the 10MB `MAX_MODULE_FILE_BYTES` limit the procedure
+  otherwise enforces, so a legitimate File within the documented size limit could never be added.
+  Fixed in `platform/apps/api/src/router.ts` (`modules.addFile`): replaced the nested-quantifier
+  regex with an equivalent flat charset check (`/^[A-Za-z0-9+/]*={0,2}$/`, no nested group) plus an
+  explicit `length % 4 === 0` padding check — same validation semantics, no stack ceiling. Re-ran the
+  same ingestion after the fix: all 3 previously-failing files (and the other 45) added successfully.
+
 - **OPEN 2026-08-13 — Hosted API readiness reports persistent-ledger failure while liveness stays healthy (attach: TASK-006, P1).**
   Found during post-deploy verification of unrelated desktop commit `b6c1df12`, not from a user report.
   GitHub deployments marked both Render services successful for that exact SHA; web `/` and API

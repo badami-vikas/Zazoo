@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { BookOpen, CalendarClock, ClipboardList, GraduationCap } from "lucide-react";
 import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
+import { ClassToolsSection } from "../components/shared/ClassToolsSection";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
@@ -394,6 +395,7 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
             <ModuleFilesSection moduleName="academics" />
           </div>
+          <ClassToolsSection moduleName="academics" />
           {kind === "assignments" ? (
             <div className="rounded-xl border p-4 space-y-2" style={{ borderColor: "var(--color-border)" }}>
               <div className="text-sm font-medium">Extract assignments from a syllabus</div>

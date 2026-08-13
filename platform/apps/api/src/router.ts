@@ -431,7 +431,16 @@ import {
 } from "./module-files.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 import { extractText, getDocumentProxy } from "unpdf";
-import { SYLLABUS_INTAKE_SKILL, type ExtractedAssignment } from "./academics-skills.js";
+import {
+  SYLLABUS_INTAKE_SKILL,
+  LECTURE_SYNTHESIS_SKILL,
+  REFERENCE_RESOLVE_SKILL,
+  WORKLOAD_FORECAST_SKILL,
+  type ExtractedAssignment,
+  type LectureSynthesisResult,
+  type ResolvedReference,
+  type WorkloadForecastWeek,
+} from "./academics-skills.js";
 
 // Syncs the groq key to companion.json so the Rust companion can use STT
 // without restart. Mirrors the boot-time sync in wiring.ts.
@@ -18345,6 +18354,167 @@ export const appRouter = t.router({
 
         return { draftCount: created.length, assignments: created };
       }),
+
+    /**
+     * academics.lectureSynthesis (TASK-069 follow-on) — reads a lecture
+     * material File already in Module Files, extracts its text (same
+     * `unpdf` path as syllabusIntake), and returns a deterministic
+     * key-point synthesis. Writes NOTHING (see academics-skills.ts's doc
+     * comment) — the caller reads or copies the result by hand.
+     */
+    lectureSynthesis: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          fileName: z.string().trim().min(1).max(255),
+        }),
+      )
+      .mutation(async ({ input, ctx }): Promise<LectureSynthesisResult & { sourceFileName: string }> => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+
+        const installation = await ctx.wiring.moduleStore.getAvailable(input.organizationId, "academics");
+        if (!installation || installation.status !== "installed") {
+          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "academics" not found` });
+        }
+        const organizationName = await requireOrganizationNameForFiles(ctx.wiring, input.organizationId, ctx.identity.id);
+        const moduleDisplayName = installation.manifest.module?.displayName ?? installation.moduleName;
+
+        let file;
+        try {
+          file = await readModuleFileContent(organizationName, moduleDisplayName, input.fileName, ctx.wiring.moduleFilesBridgeRoot);
+        } catch (error) {
+          if (error instanceof ModuleFilesPathError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          }
+          throw error;
+        }
+        if (!file) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `"${input.fileName}" was not found in the Academics Local Files folder` });
+        }
+
+        let text = "";
+        try {
+          const doc = await getDocumentProxy(new Uint8Array(file.content));
+          const extracted = await extractText(doc, { mergePages: true });
+          text = Array.isArray(extracted.text) ? extracted.text.join("\n") : extracted.text;
+        } catch {
+          // A scanned/image-only PDF unpdf cannot read text from — honest
+          // "could not extract" via an empty string, never a thrown error
+          // that would read as a system failure rather than the source's
+          // own limitation.
+        }
+
+        const fileTaint = labelAtSource("file_import", {
+          ref: `academics:${installation.id}:${input.fileName}`,
+          valueHash: hashTaintValue(text),
+          sensitivity: "private",
+          instructionRisk: "unknown",
+        });
+        const skill = ctx.wiring.skillRegistry.get(LECTURE_SYNTHESIS_SKILL);
+        if (!skill) throw new Error("academics.lectureSynthesis Skill is not registered");
+        const skillRun = await skill.run(
+          { text },
+          {
+            ...ctx.run,
+            taintLabel: ctx.run.taintLabel ? joinTaintLabels(ctx.run.taintLabel, fileTaint) : fileTaint,
+          },
+        );
+        const synthesis = skillRun.proposedOutput as LectureSynthesisResult;
+        return { ...synthesis, sourceFileName: input.fileName };
+      }),
+
+    /**
+     * academics.referenceResolve (TASK-069 follow-on) — same Module-File
+     * read path as lectureSynthesis, over the conservative citation-shape
+     * heuristic in academics-skills.ts. Returns the normalized list; writes
+     * nothing (no Reference table exists or is warranted for a v1 that is
+     * "read this material, show me what it cites").
+     */
+    referenceResolve: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          fileName: z.string().trim().min(1).max(255),
+        }),
+      )
+      .mutation(async ({ input, ctx }): Promise<{ references: ResolvedReference[]; sourceFileName: string }> => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+
+        const installation = await ctx.wiring.moduleStore.getAvailable(input.organizationId, "academics");
+        if (!installation || installation.status !== "installed") {
+          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "academics" not found` });
+        }
+        const organizationName = await requireOrganizationNameForFiles(ctx.wiring, input.organizationId, ctx.identity.id);
+        const moduleDisplayName = installation.manifest.module?.displayName ?? installation.moduleName;
+
+        let file;
+        try {
+          file = await readModuleFileContent(organizationName, moduleDisplayName, input.fileName, ctx.wiring.moduleFilesBridgeRoot);
+        } catch (error) {
+          if (error instanceof ModuleFilesPathError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          }
+          throw error;
+        }
+        if (!file) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `"${input.fileName}" was not found in the Academics Local Files folder` });
+        }
+
+        let text: string;
+        try {
+          const doc = await getDocumentProxy(new Uint8Array(file.content));
+          const extracted = await extractText(doc, { mergePages: true });
+          text = Array.isArray(extracted.text) ? extracted.text.join("\n") : extracted.text;
+        } catch {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `"${input.fileName}" could not be read as a PDF` });
+        }
+
+        const fileTaint = labelAtSource("file_import", {
+          ref: `academics:${installation.id}:${input.fileName}`,
+          valueHash: hashTaintValue(text),
+          sensitivity: "private",
+          instructionRisk: "unknown",
+        });
+        const skill = ctx.wiring.skillRegistry.get(REFERENCE_RESOLVE_SKILL);
+        if (!skill) throw new Error("academics.referenceResolve Skill is not registered");
+        const skillRun = await skill.run(
+          { text },
+          {
+            ...ctx.run,
+            taintLabel: ctx.run.taintLabel ? joinTaintLabels(ctx.run.taintLabel, fileTaint) : fileTaint,
+          },
+        );
+        const proposed = skillRun.proposedOutput as { references: ResolvedReference[] };
+        return { references: proposed.references, sourceFileName: input.fileName };
+      }),
+
+    /**
+     * academics.workloadForecast (TASK-069 follow-on) — pure aggregation
+     * over the existing `listAssignments` store call. No file read, no
+     * taint boundary; Cloud-Plane safe like the rest of the `academics.*`
+     * CRUD (see deployment-boundary.ts).
+     */
+    workloadForecast: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }): Promise<{ weeks: WorkloadForecastWeek[]; unscheduledCount: number }> => {
+        assertPilotOrganization(input.organizationId);
+        const { items } = await ctx.wiring.academicsStore.listAssignments(input.organizationId, { limit: 500, offset: 0 });
+        const skill = ctx.wiring.skillRegistry.get(WORKLOAD_FORECAST_SKILL);
+        if (!skill) throw new Error("academics.workloadForecast Skill is not registered");
+        const skillRun = await skill.run(
+          {
+            assignments: items.map((item) => ({
+              dueAt: item.dueAt ? item.dueAt.toISOString() : null,
+              weight: item.weight ?? null,
+              status: item.status,
+            })),
+          },
+          ctx.run,
+        );
+        return skillRun.proposedOutput as { weeks: WorkloadForecastWeek[]; unscheduledCount: number };
+      }),
   }),
 
   /**
@@ -18863,10 +19033,19 @@ export const appRouter = t.router({
         organizationId: z.string().min(1),
         moduleName: z.string().min(1),
         fileName: z.string().trim().min(1).max(255),
-        contentBase64: z.string().max(Math.ceil(MAX_MODULE_FILE_BYTES * 4 / 3) + 4).regex(
-          /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/,
-          "File content must be valid base64",
-        ),
+        // BUGS.md 2026-08-14: the original `/^(?:[A-Za-z0-9+/]{4})*(...)?$/`
+        // pattern nests a quantified group inside `*`, which blows V8's regex
+        // stack on real multi-MB PDFs (~5MB base64 -> ~6.5M chars) with
+        // "Maximum call stack size exceeded" -- a legitimate large local File
+        // could never be added. A flat, non-nested charset + explicit length
+        // check is equivalent for well-formed base64 and has no such ceiling.
+        contentBase64: z
+          .string()
+          .max(Math.ceil(MAX_MODULE_FILE_BYTES * 4 / 3) + 4)
+          .refine(
+            (value) => value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value),
+            "File content must be valid base64",
+          ),
       }))
       .mutation(async ({ input, ctx }) => {
         assertPilotOrganization(input.organizationId);
@@ -18907,6 +19086,45 @@ export const appRouter = t.router({
           }
           throw error;
         }
+      }),
+
+    /**
+     * getFileContent — read-only counterpart to `addFile` (ADR-238). A
+     * Module File never leaves the Local Plane over any OTHER channel than
+     * this: same organization/module-name resolution, same
+     * `readModuleFileContent` the syllabus-intake Skill already reads
+     * through, just returned to the caller instead of parsed server-side.
+     * Introduced so Class Tools (self-contained local HTML Files) can be
+     * opened in the browser without a second file-serving mechanism.
+     */
+    getFileContent: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().min(1),
+        moduleName: z.string().min(1),
+        fileName: z.string().trim().min(1).max(255),
+      }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const installation = await ctx.wiring.moduleStore.getAvailable(input.organizationId, input.moduleName);
+        if (!installation || installation.status !== "installed") {
+          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.moduleName}" not found` });
+        }
+        const organizationName = await requireOrganizationNameForFiles(ctx.wiring, input.organizationId, ctx.identity.id);
+        const moduleDisplayName = installation.manifest.module?.displayName ?? installation.moduleName;
+        let file;
+        try {
+          file = await readModuleFileContent(organizationName, moduleDisplayName, input.fileName, ctx.wiring.moduleFilesBridgeRoot);
+        } catch (error) {
+          if (error instanceof ModuleFilesPathError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          }
+          throw error;
+        }
+        if (!file) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `"${input.fileName}" was not found in the ${moduleDisplayName} Local Files folder` });
+        }
+        return { contentBase64: Buffer.from(file.content).toString("base64"), ...file.item };
       }),
 
     /** Register a module manifest. Always creates state=private, status=

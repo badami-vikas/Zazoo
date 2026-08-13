@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T18:44:24.769Z",
+  "generatedAt": "2026-08-13T22:06:46.874Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1352,7 +1352,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1088,
+      "sourceLine": 1090,
       "rank": 40
     },
     {
@@ -1390,7 +1390,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1101,
+      "sourceLine": 1103,
       "rank": 41
     },
     {
@@ -1412,9 +1412,9 @@
         "`apps/web` `npm run test` green (`ui-conformance.test.mjs` unaffected — the intake control reuses `Button`/native `<select>`, no new page-local primitive)."
       ],
       "requests": [
-        "user directive 2026-08-13, verbatim: *\"I want to create a new module called Academics. The main module should act like a vault where I have a toggle for Subjects inside which I can add and manage lecture sessions, then a toggle for assignments.\"* Syllabus intake specifically: user selected \"Syllabus/material intake Skill\" as the next explicitly-approved deferred phase of this Task via an in-conversation menu choice, 2026-08-13 — user's own words for the desired behavior: *\"parse a dropped syllabus PDF into draft Assignment rows (with dates/weights) staged for human review/approval — never auto-committed to the live Assignments toggle.\"*"
+        "user directive 2026-08-13, verbatim: *\"I want to create a new module called Academics. The main module should act like a vault where I have a toggle for Subjects inside which I can add and manage lecture sessions, then a toggle for assignments.\"* Syllabus intake specifically: user selected \"Syllabus/material intake Skill\" as the next explicitly-approved deferred phase of this Task via an in-conversation menu choice, 2026-08-13 — user's own words for the desired behavior: *\"parse a dropped syllabus PDF into draft Assignment rows (with dates/weights) staged for human review/approval — never auto-committed to the live Assignments toggle.\"* Class Tools specifically: user directive 2026-08-14, verbatim: *\"add 'PE Methods' as a Subject in Academics, and find/create a place for class-related tools and add the venture-return-calculator simulator there.\"*"
       ],
-      "approval": "AP-154 (2026-08-13) — recorded APPLIED. No new APPROVALS.md row for the syllabus-intake phase: it is a follow-on Skill on an already-approved Module (AP-154's own text anticipates exactly this — \"Skills… are follow-on tasks, not this one\"), not a change to canon (manifest shape, Task scope/order, or an ADR reversal).",
+      "approval": "AP-154 (2026-08-13) — recorded APPLIED. No new APPROVALS.md row for the syllabus-intake or Class Tools phases: both are follow-on work on an already-approved Module (AP-154's own text anticipates exactly this — \"Skills… are follow-on tasks, not this one\"), not a change to canon (manifest shape, Task scope/order, or an ADR reversal).",
       "dependencies": [],
       "canonicalStatus": "ready",
       "sourceType": "task",
@@ -1446,7 +1446,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1075,
+      "sourceLine": 1077,
       "rank": 43
     },
     {
