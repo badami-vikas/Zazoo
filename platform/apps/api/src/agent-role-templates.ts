@@ -73,6 +73,14 @@ const AGENT_ROLE_TEMPLATE_SEEDS: readonly AgentRoleTemplateSeed[] = [
     egressTier: "none",
   },
   {
+    id: "devpilot-tracker",
+    roleId: "role-devpilot-tracker",
+    organizationId: PILOT_ORGANIZATION,
+    allowedSkills: ["devpilot.syncGithub"],
+    dataScope: "public",
+    egressTier: "none",
+  },
+  {
     id: "intake",
     roleId: "role-intake",
     organizationId: PILOT_ORGANIZATION,

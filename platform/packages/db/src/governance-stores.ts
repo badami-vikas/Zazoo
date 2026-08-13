@@ -671,6 +671,23 @@ export async function ensureEgressAgentGovernance(
   });
 }
 
+export async function ensureDevpilotTrackerGovernance(
+  db: Database,
+  config: RuntimeAgentGovernanceConfig,
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    name: "Dev tracker Agent",
+    description: "May source the owner's own tracked GitHub repos, pull requests, and issues; never sends externally.",
+    goal: "Sync GitHub repo/PR/issue metadata into DevPilot Databases for review.",
+    resourceType: "external:fetch",
+    action: "read",
+    capabilityToken: "external:fetch:read",
+    allowedSkills: ["devpilot.syncGithub"],
+    dataScope: "public",
+  });
+}
+
 export async function ensureIntakeAgentGovernance(
   db: Database,
   config: RuntimeAgentGovernanceConfig,

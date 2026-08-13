@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T09:42:55.108Z",
+  "generatedAt": "2026-08-13T13:41:26.464Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1448,7 +1448,7 @@
     {
       "id": "TASK-043",
       "title": "TASK-043 — Constitution enforcement mechanisms (ADR-176 adopt-list)",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "The five mechanisms adopted from the ADR-175 regeneration test exist as executable harness obligations rather than review conventions, so constitution conformance is provable per capability instead of asserted.",
@@ -1456,16 +1456,22 @@
       "scope": [],
       "evidence": [
         "ADR-176",
-        "`outputs/2026-08-04-regeneration-test-learning-agent.md`."
+        "`outputs/2026-08-04-regeneration-test-learning-agent.md`. DONE 2026-08-13 (ADR-234, AP-152): all five mechanisms landed with removal-fails tests — E1 `port-allowlist.json` + structural scanner over `core/learning`+`core/memory`",
+        "E2 `acceptance-audit.ts` (shown-text sha256 stamp, reviewed-vs-unverified audit query) wired into all three accept paths (`observation.ts`/`promotion.ts`/`claims.ts`)",
+        "E3+E4 share one `gateClaimProposal` checkpoint in `claims.ts` (red-content term families, amber \"Observed about...\" framing, raise-only tier join, evidence-required, compound-clause-per-clause refusal)",
+        "E5 `rejection-fingerprints.ts` (strike-not-duplicate, 30d→90d→permanent backoff, deletable-Memory un-suppress) wired via `router.ts`'s `withRejectionEmbedder`/`isSuppressedByRejectionsAnyTier`. Two real defects surfaced during verification and were fixed, not worked around: (a) `acceptance-audit.ts` originally used `node:crypto`'s `createHash`, which broke `@bridge/web`'s production build (Rollup cannot bind a named import from a Node builtin reached through core's barrel export, even for code never called client-side) — fixed via `globalThis.crypto.subtle`",
+        "(b) the live walk caught a genuine E5 tier-consistency gap (`isSuppressedByRejections` filters by embedder id before calling `embed()`, so a fingerprint written under the lexical fallback tier was invisible to a check that tried the semantic tier first and found nothing — never throwing, so the fallback path never ran) plus an adjacent real hash collision in the shared dim-128 lexical embedder (\"cet\"/\"ist\" landed in the same FNV1a bucket) that the fix's dual-tier check then exposed — resolved with a dual-tier suppression check plus a dedicated dim-4096 lexical embedder scoped to rejection fingerprints alone. `pnpm verify` 77/77",
+        "live durable-boot walk 11/11 including a real process RESTART proving both suppression and audit-stamp durability."
       ],
       "requests": [
-        "user directive 2026-08-04 (\"Incorporate the 6 ideas, if validated to be better\")."
+        "user directive 2026-08-04 (\"Incorporate the 6 ideas, if validated to be better\")",
+        "user directive 2026-08-13 (\"start on next tasks fr AI harness\")."
       ],
-      "approval": "AP-103 APPLIED",
+      "approval": "AP-103 APPLIED (adoption); AP-152 APPLIED (this slice)",
       "dependencies": [
-        "E5 depends on the semantic embedder (learning-agent LA5 open item). E1-E4 have none."
+        "E5 depends on the semantic embedder (learning-agent LA5 open item, shipped). E1-E4 have none."
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 727,
@@ -2170,6 +2176,80 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1035,
       "rank": 66
+    },
+    {
+      "id": "TASK-067",
+      "title": "TASK-067 — DevPilot D0 — Module skeleton, dark behind a flight",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "`devpilot` is a real installed built-in Module — nav entry, three Pages (Pull Requests/Issues/Repos) rendering through the standard `<ModuleSurfaceLayout>` + `<DataViews>` shell, one Agent, one scheduled Automation — entirely invisible with `BRIDGE_DEVPILOT` off, and `devpilot.status` answers honestly regardless of the flight.",
+      "prototypeTest": "with `BRIDGE_DEVPILOT=1`, DevPilot appears in the rail and lands on Pull Requests with no nav code written for it (manifest-driven, per `moduleNavTarget`); with the flight off, every `devpilot.*` procedure except `status` throws `PRECONDITION_FAILED` and the module is absent from nav; `pnpm turbo run build test` is green across `@bridge/module-manifests`, `@bridge/api`, and `@bridge/web`.",
+      "scope": [
+        "`docs/raw/devpilot-module-plan-2026-08-13.md` (D0)",
+        "ADR-235",
+        "AP-153. New package `platform/modules/devpilot` (pure Table specs + domain types, no store)",
+        "manifest entry + capability rows + runtime ids in `platform/modules/manifests/src/index.ts`",
+        "Commons exclusion",
+        "`devpilot: t.router({...})` namespace + `assertDevpilotFlightEnabled` in `platform/apps/api/src/router.ts`",
+        "`BRIDGE_DEVPILOT` flight resolution + `devpilot`/`devpilotEnabled` Wiring fields in `platform/apps/api/src/wiring.ts`",
+        "`DevPilotPage.tsx` + manifest-derived routes in `platform/apps/web/src/app/routes.tsx`."
+      ],
+      "evidence": [
+        "`@bridge/devpilot` 6/6 tests",
+        "`@bridge/module-manifests` catalog tests green including the new DevPilot-specific assertions (Page ids, nav target, no `external:send` capability, Agent Plane present, Automation schedule present, Commons withholding)",
+        "`@bridge/api` full suite green (procedure-classification completeness gate closes `devpilot.` as Local-Plane-only, alongside `google.`)",
+        "`@bridge/web` full suite green (191 tests, `ui-conformance.test.mjs` unaffected — DevPilotPage needs no EXEMPT entry, it renders through the standard shell)."
+      ],
+      "requests": [
+        "user directive 2026-08-13, verbatim: *\"I want to build a Software Engineer Pilot module... see if you can make us of the Central AI Harness\"*",
+        "follow-up *\"Implement the devpilot plan now\"*."
+      ],
+      "approval": "AP-153 applied",
+      "dependencies": [],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1062,
+      "rank": 67
+    },
+    {
+      "id": "TASK-068",
+      "title": "TASK-068 — DevPilot D1 — GitHub tracker slice",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "a connected fine-grained GitHub Personal Access Token syncs the owner's repos, and tracked repos' pull requests and issues, into the DevPilot Databases — on a 15-minute scheduled Automation and on manual \"run sync now\" — idempotently (a re-run updates existing rows, never duplicates them) and with zero learning-specific code (the sync Skill's ledger attribution carries `moduleId:\"devpilot\"` for free via the existing K1 ledger miner).",
+      "prototypeTest": "paste a fine-grained PAT at `/integrations/github` → masked token metadata renders (never the raw value, never logged); track 1–2 repos → \"run sync now\" fills the Pull Requests/Issues DataViews; re-running the sync inserts zero duplicate rows (`(organization_id, source, source_id)` unique upsert); an item carrying GitHub's `pull_request` key on the `/issues` response never becomes a `devpilot_issues` row; disconnecting deletes the local token and the module renders an honest empty state.",
+      "scope": [
+        "`docs/raw/devpilot-module-plan-2026-08-13.md` (D1)",
+        "ADR-235",
+        "AP-153. New package `platform/packages/integrations-github` (contracts/gateway/gateway-live over `guardedFetch`/pat/intake/manifest)",
+        "`devpilot_repos`/`devpilot_pulls`/`devpilot_issues` tables + migration `0041` in `platform/packages/db/src/schema.ts`",
+        "`DrizzleDevpilotStore` (`platform/packages/db/src/devpilot-store.ts`)",
+        "`devpilot.syncGithub` governed Skill + `role-devpilot-tracker` Agent authority + `ensureDevpilotTrackerGovernance` in `platform/apps/api/src/wiring.ts` and `platform/packages/db/src/governance-stores.ts`",
+        "`devpilot.github.{connect,disconnect,status}`, `devpilot.{repos,pulls,issues}.list`, `devpilot.repos.setTracked`, `devpilot.sync.run` procedures in `platform/apps/api/src/router.ts`",
+        "`GithubIntegrationPanel.tsx` in `platform/apps/web`."
+      ],
+      "evidence": [
+        "`@bridge/integrations-github` 13/13 tests, 92.98% line coverage (incl. the GitHub-mixes-PRs-into-/issues fixture, PAT masking/never-logged, rate-limit + pagination parsing, a non-2xx status surfaced as a typed failure never silent-empty data)",
+        "`@bridge/db` 239/239 (drizzle-generate no-op drift gate rebased through migration `0041`)",
+        "`@bridge/api` full suite green (`procedure-classification.test.ts` closes `devpilot.` Local-Plane-only",
+        "the FK-constraint regression from a missing `agents` row for the new runtime Agent id was caught by the existing Task Manager governance test and fixed by adding `ensureDevpilotTrackerGovernance`, mirroring `ensureEgressAgentGovernance`)",
+        "`@bridge/web` full suite green."
+      ],
+      "requests": [
+        "user directive 2026-08-13 (see TASK-067)."
+      ],
+      "approval": "AP-153 applied",
+      "dependencies": [
+        "TASK-067"
+      ],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1075,
+      "rank": 68
     }
   ]
 }
