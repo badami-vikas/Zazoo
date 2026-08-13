@@ -655,6 +655,9 @@ fn grid_number_prompt(target: &str, cols: usize, rows: usize) -> String {
 }
 
 /// Ask which numbered cell of a DRAWN grid contains the target.
+/// Returns `Ok(None)` when the model can't identify the target (normal miss).
+/// Returns `Err` for hard failures (no model, provider down) so callers can
+/// surface an actionable message instead of a misleading "not found".
 pub(crate) fn ask_grid_number(
     key: &str,
     model: &str,
@@ -662,7 +665,7 @@ pub(crate) fn ask_grid_number(
     target: &str,
     cols: usize,
     rows: usize,
-) -> Option<usize> {
+) -> Result<Option<usize>, CompanionError> {
     let body = serde_json::json!({
         "model": model,
         "max_tokens": 12,
@@ -683,14 +686,15 @@ pub(crate) fn ask_grid_number(
         Ok(reply) => {
             let reply = strip_think_blocks(&reply);
             eprintln!("[bridge-desktop] companion fine-grid reply={reply:?}");
-            parse_cell_number(&reply, cols, rows)
+            Ok(parse_cell_number(&reply, cols, rows))
         }
+        Err(error) if error.code == "COMPANION_MODEL_NOT_FOUND" => Err(error),
         Err(error) => {
             eprintln!(
                 "[bridge-desktop] companion locator stage failed ({}): {}",
                 error.code, error.message
             );
-            None
+            Ok(None)
         }
     }
 }
@@ -749,8 +753,8 @@ pub(crate) fn refine_cell(
         return coarse;
     };
     match ask_grid_number(key, model, &gridded, &target.label, FINE_COLS, FINE_ROWS) {
-        Some(number) => numbered_cell_box(coarse, FINE_COLS, FINE_ROWS, number).unwrap_or(coarse),
-        None => coarse,
+        Ok(Some(number)) => numbered_cell_box(coarse, FINE_COLS, FINE_ROWS, number).unwrap_or(coarse),
+        Ok(None) | Err(_) => coarse,
     }
 }
 
@@ -1016,18 +1020,33 @@ pub(crate) fn post_chat_with_timeout(
         .set("Content-Type", "application/json")
         .send_json(body)
         .map_err(|error| match error {
-            ureq::Error::Status(status, response) => err(
-                "COMPANION_PROVIDER_STATUS",
-                format!(
-                    "model endpoint returned HTTP {status}: {}",
-                    response
-                        .into_string()
-                        .unwrap_or_default()
-                        .chars()
-                        .take(400)
-                        .collect::<String>()
-                ),
-            ),
+            ureq::Error::Status(status, response) => {
+                let body = response.into_string().unwrap_or_default();
+                // Detect model_not_found before emitting the raw HTTP blob.
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                    if json.pointer("/error/code").and_then(|v| v.as_str()) == Some("model_not_found") {
+                        let model = json.pointer("/error/message")
+                            .and_then(|v| v.as_str())
+                            .and_then(|m| m.split('`').nth(1))
+                            .unwrap_or("the configured vision model");
+                        return err(
+                            "COMPANION_MODEL_NOT_FOUND",
+                            format!(
+                                "Vision model \"{model}\" is not available on your Groq plan. \
+                                 Open Settings → API Keys and set a Groq key with vision access, \
+                                 or set BRIDGE_VISION_MODEL to a model your plan supports."
+                            ),
+                        );
+                    }
+                }
+                err(
+                    "COMPANION_PROVIDER_STATUS",
+                    format!(
+                        "model endpoint returned HTTP {status}: {}",
+                        body.chars().take(400).collect::<String>()
+                    ),
+                )
+            }
             ureq::Error::Transport(transport) => err(
                 "COMPANION_PROVIDER_UNREACHABLE",
                 format!("model endpoint unreachable: {transport}"),

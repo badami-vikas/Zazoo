@@ -479,15 +479,16 @@ fn locate_blocking(
                 "Could not draw the locator grid on the captured page",
             ));
         };
-        let Some(number) = companion::ask_grid_number(
+        let number = match companion::ask_grid_number(
             &key,
             &model,
             &gridded,
             &description,
             companion::COARSE_COLS,
             companion::COARSE_ROWS,
-        ) else {
-            return Ok(None);
+        ) {
+            Ok(Some(n)) => n,
+            Ok(None) | Err(_) => return Ok(None),
         };
         let target = companion::CellTarget {
             number,

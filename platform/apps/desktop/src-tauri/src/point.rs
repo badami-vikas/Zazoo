@@ -134,6 +134,7 @@ fn run_point(app: &AppHandle, monitor_index: usize, target: &str) -> Result<(), 
     let coarse_gridded = gridded_jpeg(&capture.jpeg_bytes, COARSE_COLS, COARSE_ROWS)
         .ok_or_else(|| err("POINT_IMAGE_DECODE_FAILED", "couldn't decode the screen capture"))?;
     let coarse_number = ask_grid_number(&key, &model, &coarse_gridded, target, COARSE_COLS, COARSE_ROWS)
+        .map_err(|e| err(e.code, e.message))?
         .ok_or_else(|| {
             err("POINT_NOT_FOUND", format!("couldn't find \"{target}\" on screen"))
         })?;
