@@ -42,7 +42,7 @@ const POINTER_DEMO_TRIGGER = /\b(move|show|demo|wiggle|animate)\b.*\bpointer\b|\
  * spotlights it and glides the avatar there. Same standing Cloud Plane
  * consent as chat (AP-142/AP-143) — the screenshot goes out with no separate
  * prompt. */
-const POINT_AT_TRIGGER = /^point\s+(?:at|to|towards)\s+(.+)/i;
+const POINT_AT_TRIGGER = /\bpoint\s+(?:(?:at|to|towards|my|the|your|me to)\s+)*(.+)/i;
 
 async function blobToBase64(blob: Blob): Promise<string> {
   const buffer = await blob.arrayBuffer();
