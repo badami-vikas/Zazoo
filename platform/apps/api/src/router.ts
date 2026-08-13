@@ -390,6 +390,12 @@ import {
   chatsLinkedToPerson as whatsAppChatsLinkedToPerson,
 } from "@bridge/whatsapp";
 import {
+  fetchAndExtractSpeakers,
+  resolveAndMatchSpeakers,
+  toInsertSpeakerDraftInputs,
+  draftOutreachNote,
+} from "./events-extraction-runtime.js";
+import {
   BUILT_IN_MODULES,
   COMMONS_BUILT_IN_MODULES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
@@ -18309,6 +18315,178 @@ export const appRouter = t.router({
           ...(input.status !== undefined ? { status: input.status } : {}),
         });
       }),
+
+    /**
+     * Speaker-extraction Automation (TASK-070 follow-on, ADR-239) — manual
+     * trigger only, no schedule. fetch (guardedFetch, via
+     * `events-extraction-runtime.ts`) -> extract -> OpenAlex resolve ->
+     * @bridge/dedupe's governed 3-tier gate -> staged draft rows. Nothing
+     * here writes a Person or an Event participation record — see
+     * `extraction.decide` below, which only runs on an explicit human
+     * approval, never on this run.
+     */
+    extraction: t.router({
+      run: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            eventId: z.string().uuid(),
+            eventUrl: z.string().url(),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const runId = uuidv7();
+          const speakers = await fetchAndExtractSpeakers(input.eventUrl);
+          const existingPeople = (await ctx.wiring.localPlane.graph.listPeople(input.organizationId))
+            .filter((person) => person.fullName)
+            .map((person) => ({ id: person.id, name: person.fullName! }));
+          const resolved = await resolveAndMatchSpeakers(speakers, existingPeople);
+          const staged = await ctx.wiring.eventExtractionStore.insertSpeakerDrafts(
+            toInsertSpeakerDraftInputs(input.organizationId, input.eventId, runId, resolved),
+          );
+          await ctx.wiring.eventsStore.update(input.eventId, input.organizationId, {
+            extractionStatus: "done",
+          });
+          return { runId, candidateCount: speakers.length, stagedCount: staged.length };
+        }),
+
+      drafts: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            eventId: z.string().uuid(),
+            status: z.enum(["pending", "approved", "rejected"]).optional(),
+          }),
+        )
+        .query(({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          return ctx.wiring.eventExtractionStore.listSpeakerDrafts(input.organizationId, input.eventId, input.status);
+        }),
+
+      /**
+       * The ONLY path from a draft to a real Person + Event participation
+       * record — never automatic, regardless of tier. `strong`/`moderate`/
+       * `flag` are advisory triage for the reviewer; every tier lands here
+       * pending, and only a human decision moves it. Rejecting leaves no
+       * trace beyond this row's own status.
+       */
+      decide: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            eventId: z.string().uuid(),
+            eventName: z.string().min(1),
+            draftId: z.string().uuid(),
+            decision: z.enum(["approve", "reject"]),
+            /** Reviewer override — e.g. picking a different existing Person than the suggested match. */
+            personId: z.string().uuid().optional(),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const draft = await ctx.wiring.eventExtractionStore.getSpeakerDraft(input.organizationId, input.draftId);
+          if (!draft || draft.eventId !== input.eventId) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Speaker draft not found" });
+          }
+          // A second decision on an already-decided draft must never re-run the
+          // side effects below (a double-click would otherwise mint a SECOND
+          // Person and a SECOND Event participation record for one speaker) —
+          // `decideSpeakerDraft`'s own WHERE clause already guards the row
+          // update, but the Person-create/commitEntity side effects happen
+          // BEFORE that update, so the guard has to be up front too.
+          if (draft.status !== "pending") {
+            throw new TRPCError({ code: "CONFLICT", message: `Speaker draft already ${draft.status}` });
+          }
+          const nowISO = new Date().toISOString();
+
+          if (input.decision === "reject") {
+            return ctx.wiring.eventExtractionStore.decideSpeakerDraft(
+              input.organizationId,
+              input.draftId,
+              "rejected",
+              undefined,
+              nowISO,
+            );
+          }
+
+          let resolvedPersonId = input.personId ?? draft.matchedPersonId ?? undefined;
+          if (!resolvedPersonId) {
+            const newPersonId = uuidv7();
+            await ctx.wiring.localPlane.graph.upsertPerson({
+              id: newPersonId,
+              organizationId: input.organizationId,
+              fullName: draft.name,
+              emails: [],
+            });
+            resolvedPersonId = newPersonId;
+          }
+
+          // The Event->Person edge: a local participation record, not a
+          // cloud-canonical graph edge — NetworkManager's Events capability
+          // declares private person/record permissions only (ADR-231), and
+          // `LocalGraphStore.commitEntity`'s "event" kind is the same
+          // interaction-record shape Google intake already uses for
+          // "counterparty attended/participated in X".
+          await ctx.wiring.localPlane.graph.commitEntity({
+            id: uuidv7(),
+            organizationId: input.organizationId,
+            kind: "event",
+            personId: resolvedPersonId,
+            payload: {
+              eventId: input.eventId,
+              role: "speaker",
+              name: draft.name,
+              affiliation: draft.affiliation,
+              talkTitle: draft.talkTitle,
+            },
+            source: "events",
+            sourceRecordId: `speaker:${draft.id}`,
+            createdAt: nowISO,
+          });
+
+          const updated = await ctx.wiring.eventExtractionStore.decideSpeakerDraft(
+            input.organizationId,
+            input.draftId,
+            "approved",
+            resolvedPersonId,
+            nowISO,
+          );
+
+          // Human-in-the-loop outreach draft — a note to copy and send
+          // manually. No send path exists anywhere in this codebase for it
+          // (ADR-231): LinkedIn exposes no invitation API and their User
+          // Agreement prohibits automated access.
+          await ctx.wiring.eventExtractionStore.insertOutreachDraft({
+            organizationId: input.organizationId,
+            eventId: input.eventId,
+            speakerDraftId: draft.id,
+            personId: resolvedPersonId,
+            noteText: draftOutreachNote({
+              speakerName: draft.name,
+              ...(draft.affiliation ? { affiliation: draft.affiliation } : {}),
+              eventName: input.eventName,
+              ...(draft.talkTitle ? { talkTitle: draft.talkTitle } : {}),
+            }),
+          });
+
+          return updated;
+        }),
+    }),
+
+    outreach: t.router({
+      list: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            eventId: z.string().uuid().optional(),
+          }),
+        )
+        .query(({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          return ctx.wiring.eventExtractionStore.listOutreachDrafts(input.organizationId, input.eventId);
+        }),
+    }),
   }),
 
   /**

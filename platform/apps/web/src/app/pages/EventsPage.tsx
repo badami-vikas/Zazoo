@@ -8,6 +8,7 @@ import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow } from "../dataviews/types";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
+import { EventSpeakerExtraction } from "./events/EventSpeakerExtraction";
 
 const EVENTS_SPEC: TableSpec = {
   id: "events.events",
@@ -137,6 +138,16 @@ export function EventsPage() {
         }
         below={
           <>
+            <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
+              <h3 className="text-sm font-medium mb-3">Speaker extraction</h3>
+              <EventSpeakerExtraction
+                events={rows.map((row) => ({
+                  id: String(row["id"]),
+                  name: String(row["name"] ?? ""),
+                  url: typeof row["url"] === "string" && row["url"] ? row["url"] : undefined,
+                }))}
+              />
+            </div>
             <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
               <ModuleFilesSection moduleName="events" />
             </div>

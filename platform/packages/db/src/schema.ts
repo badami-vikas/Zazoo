@@ -1423,6 +1423,73 @@ export const conferenceEvents = pgTable(
   (t) => [index("conference_events_org_idx").on(t.organizationId, t.createdAt)],
 );
 
+/**
+ * Speaker-extraction review queue (TASK-070 follow-on, ADR-239). NOT a
+ * "Speakers" domain table — a temporary staging row per extracted candidate
+ * that a human decides on. Deciding "approve" materializes (or links to) a
+ * Person in the Module's existing People database and files an Event
+ * participation record via `LocalGraphStore.commitEntity`; deciding "reject"
+ * leaves no trace beyond this row's own status. Never auto-approved — see
+ * `tier` (strong/moderate/flag/none, `@bridge/dedupe`'s governed tiers): the
+ * approval endpoint enforces the same never-auto-merge rule regardless of
+ * tier, tier is advisory triage for the reviewer, not an auto-commit signal.
+ */
+export const eventSpeakerDrafts = pgTable(
+  "event_speaker_drafts",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    eventId: uuid("event_id").notNull().references(() => conferenceEvents.id),
+    runId: text("run_id").notNull(),
+    name: text("name").notNull(),
+    affiliation: text("affiliation"),
+    talkTitle: text("talk_title"),
+    openAlexId: text("open_alex_id"),
+    orcid: text("orcid"),
+    tier: text("tier").notNull(), // strong | moderate | flag | none — @bridge/dedupe MatchTier
+    score: numeric("score", { precision: 5, scale: 4 }).notNull().default(sql`0`),
+    matchedPersonId: uuid("matched_person_id"), // dedupe's suggested existing Person, if any
+    status: text("status").notNull().default("pending"), // pending | approved | rejected
+    resolvedPersonId: uuid("resolved_person_id"), // set on approve — the Person actually linked
+    createdAt: now(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("event_speaker_drafts_event_idx").on(t.eventId, t.status),
+    // Idempotent re-run: the same run over the same event never double-stages a name.
+    unique("event_speaker_drafts_run_name_uq").on(t.eventId, t.runId, t.name),
+  ],
+);
+
+/**
+ * Outreach queue — one drafted LinkedIn connection note per APPROVED speaker
+ * (TASK-070 follow-on, ADR-239). There is no `sent` state and no send path:
+ * the owner copies this note and sends it manually. No LinkedIn API exposes
+ * automated invitations and their User Agreement prohibits automated access
+ * — see the Events manifest description and ADR-231. `status` only tracks the
+ * owner's own local bookkeeping (drafted vs dismissed), never a delivery
+ * state Bridge cannot honestly observe.
+ */
+export const eventOutreachDrafts = pgTable(
+  "event_outreach_drafts",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    eventId: uuid("event_id").notNull().references(() => conferenceEvents.id),
+    speakerDraftId: uuid("speaker_draft_id").notNull().references(() => eventSpeakerDrafts.id),
+    personId: uuid("person_id").notNull(),
+    noteText: text("note_text").notNull(),
+    status: text("status").notNull().default("drafted"), // drafted | dismissed
+    createdAt: now(),
+  },
+  (t) => [
+    index("event_outreach_drafts_event_idx").on(t.eventId, t.status),
+    // One outreach draft per approved speaker — re-approving (should never
+    // happen once approved, but idempotency is cheap insurance) never doubles it.
+    unique("event_outreach_drafts_speaker_uq").on(t.speakerDraftId),
+  ],
+);
+
 // =====================================================================
 // LAYER 8 — CAPABILITY TRUST MODEL (vision pivot 2026-07-06,
 // docs/wiki/vision.md "Capability Trust Model" + "Promotion defaults")

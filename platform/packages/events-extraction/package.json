@@ -1,0 +1,26 @@
+{
+  "name": "@bridge/events-extraction",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure speaker-row extraction from Event page HTML, plus a thin OpenAlex author-resolution wrapper (TASK-070 follow-on). No network I/O lives here — callers inject a fetchJson so this stays testable without a real fetch; apps/api supplies one built on @bridge/net-guard's guardedFetch.",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --test-reporter=dot --test dist/test/*.test.js",
+    "test:coverage": "node --experimental-test-coverage --test-coverage-include='dist/src/**' --test-coverage-exclude='**/test/**' --test-coverage-lines=80 --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "@bridge/dedupe": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}
