@@ -325,7 +325,12 @@ import {
   WEB_RESEARCH_SKILL_ID,
   createWebResearchSkill,
 } from "./web-research-skill.js";
-import { syllabusIntakeSkill } from "./academics-skills.js";
+import {
+  syllabusIntakeSkill,
+  lectureSynthesisSkill,
+  referenceResolveSkill,
+  workloadForecastSkill,
+} from "./academics-skills.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // organization + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -5240,7 +5245,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     .register(stageOutreachDraft)
     .register(createResearchCultureSourceSkill())
     .register(stagePreferenceAdjustmentProposal)
-    .register(syllabusIntakeSkill);
+    .register(syllabusIntakeSkill)
+    .register(lectureSynthesisSkill)
+    .register(referenceResolveSkill)
+    .register(workloadForecastSkill);
   // Assigned once `createModelRouter` runs further down, and read only inside
   // a Skill's `run()` — which happens per request, long after boot. Scoped to
   // THIS wiring rather than module-global so two wirings (a test's and a

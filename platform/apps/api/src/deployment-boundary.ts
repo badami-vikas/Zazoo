@@ -100,6 +100,7 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
   "academics.createAssignment",
   "academics.listAssignments",
   "academics.updateAssignment",
+  "academics.workloadForecast", // pure aggregation over listAssignments, no Module Files
 
   // Events (NetworkManager sub-module, TASK-068) — Cloud-Plane
   // (DrizzleEventsStore), organizationId-scoped. Speaker extraction is a
@@ -198,7 +199,10 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   // — Module/file surfaces + remaining reads that touch the Local Plane or non-public scope.
   ["modules.files", "Module Files live under ~/Documents/Bridge"],
   ["modules.addFile", "Module Files live under ~/Documents/Bridge"],
+  ["modules.getFileContent", "Module Files live under ~/Documents/Bridge (ADR-238 Class Tools launch)"],
   ["academics.syllabusIntake", "reads a dropped syllabus PDF from Module Files, which live under ~/Documents/Bridge"],
+  ["academics.lectureSynthesis", "reads a lecture material File from Module Files, which live under ~/Documents/Bridge"],
+  ["academics.referenceResolve", "reads a course material File from Module Files, which live under ~/Documents/Bridge"],
   ["modules.register", "Module registration is a governed install"],
   ["modules.install", "Module registration is a governed install"],
   ["modules.uninstall", "Module registration is a governed install"],

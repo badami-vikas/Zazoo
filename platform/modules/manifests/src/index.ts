@@ -491,12 +491,11 @@ const relationshipCapabilities = [
 
 /**
 /**
- * Academics Module capabilities (TASK-067/TASK-069, ADR-231/ADR-237). Three
- * private database Pages over the owner's own coursework Records — no
- * egress. The Study Steward Agent now carries its first Skill,
- * `academics.skill.syllabus-intake` (TASK-069): lecture-synthesis,
- * recall-scheduler, reference-resolve, and workload-forecast remain later
- * phases of this same Task, not a separate Module version.
+ * Academics Module capabilities (TASK-067/TASK-069, ADR-231/ADR-237/ADR-238).
+ * Three private database Pages over the owner's own coursework Records — no
+ * egress. The Study Steward Agent carries syllabus-intake, lecture-synthesis,
+ * reference-resolve, and workload-forecast; recall-scheduler and Canvas LMS
+ * sync remain later phases of this same Task, not a separate Module version.
  */
 const academicsCapabilities = [
   capability("academics.page.subjects", "Subjects", "database", [readPrivate("record"), writePrivate("record")]),
@@ -521,6 +520,15 @@ const academicsCapabilities = [
     readPrivate("record"),
     writePrivate("record"),
   ]),
+  // Reads a lecture material File (Local Plane) and returns a deterministic
+  // key-point synthesis. Writes NOTHING — readPrivate only.
+  capability("academics.skill.lecture-synthesis", "Lecture synthesis", "skill", [readPrivate("record")]),
+  // Reads a course material File (Local Plane) and returns a conservative
+  // citation-shape extraction. Writes NOTHING — readPrivate only.
+  capability("academics.skill.reference-resolve", "Reference resolve", "skill", [readPrivate("record")]),
+  // Pure aggregation over already-modeled Assignment rows — no Module Files,
+  // no write.
+  capability("academics.skill.workload-forecast", "Workload forecast", "skill", [readPrivate("record")]),
 ];
 
 /**
@@ -1076,15 +1084,19 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
             id: "study-steward",
             name: "Study Steward",
             capabilityId: "academics.agent.study-steward",
-            // TASK-069: syllabus-intake is the first Skill wired in. It runs
-            // directly from the `academics.syllabusIntake` procedure (no
-            // Automation yet, matching this Task's scope) rather than through
-            // a governed Agent Run — attributing a full Run to a local,
-            // no-model, no-egress heuristic parse is more machinery than a v1
-            // deterministic extractor needs. lecture-synthesis,
-            // recall-scheduler, reference-resolve, and workload-forecast
-            // remain later phases.
-            skillIds: ["academics.skill.syllabus-intake"],
+            // TASK-069: each Skill runs directly from its own
+            // `academics.*` procedure (no Automation yet, matching this
+            // Task's scope) rather than through a governed Agent Run —
+            // attributing a full Run to a local, no-model, no-egress
+            // heuristic parse is more machinery than these v1 deterministic
+            // Skills need. recall-scheduler and Canvas LMS sync remain
+            // later phases.
+            skillIds: [
+              "academics.skill.syllabus-intake",
+              "academics.skill.lecture-synthesis",
+              "academics.skill.reference-resolve",
+              "academics.skill.workload-forecast",
+            ],
             // Raw lecture capture (recording/transcript) stays Local by
             // principle — the same reasoning WhatsApp's Agents carry.
             plane: "local",
