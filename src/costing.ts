@@ -34,6 +34,45 @@ export function packetWeight(sampleWt: number, scalingConstant: number): number 
   return sampleWt * scalingConstant;
 }
 
+/**
+ * Every product weighs this much per packet unless its own scaling constant
+ * says otherwise. The scaling constant is the lab→shelf multiplier: a formula
+ * is written as a small sample (grams per ingredient in one trial batch), and
+ * the constant scales that sample up to a saleable packet. It exists because
+ * the source data (Notion `form.sample wt`) only ever recorded the sample, and
+ * guessing the multiplier per product would have written wrong weights into
+ * live costing. Expressing it as a packet weight instead of a bare multiplier
+ * is what AP-011 asks for — the user thinks in "this is a 100 g pack", not in
+ * "this formula is scaled 12.5×".
+ */
+export const DEFAULT_PACKET_WEIGHT_G = 100;
+
+/** Total grams one packet weighs at a given scaling constant. */
+export function totalPacketWeight(
+  formulaLines: readonly FormulaLine[],
+  scalingConstant: number,
+): number {
+  return formulaLines.reduce((s, l) => s + packetWeight(l.sampleWt, scalingConstant), 0);
+}
+
+/**
+ * The scaling constant to actually cost with: the product's own when set,
+ * otherwise whatever makes one packet weigh `DEFAULT_PACKET_WEIGHT_G`.
+ * `null` only when the formula is empty — with no lines there is no sample to
+ * scale, and no amount of default weight invents one.
+ */
+export function effectiveScalingConstant(
+  // Storage rows carry `null`, the domain type carries `undefined`; both mean
+  // "not set", and this is the one function that has to accept either.
+  product: { scalingConstant?: number | null },
+  formulaLines: readonly FormulaLine[],
+  defaultPacketWeightG: number = DEFAULT_PACKET_WEIGHT_G,
+): number | null {
+  if (product.scalingConstant != null) return product.scalingConstant;
+  const sampleTotal = formulaLines.reduce((s, l) => s + l.sampleWt, 0);
+  return sampleTotal > 0 ? defaultPacketWeightG / sampleTotal : null;
+}
+
 /** Cost of one formula line: its scaled weight priced at the material's rate.
  * The /1000 is the only place grams meet ₹/kg in this module — without it raw
  * cost came out 1000× high (a 500 g line of ₹800/kg material read ₹400000). */
