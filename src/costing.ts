@@ -27,18 +27,22 @@ export class UnknownRawMaterialError extends Error {
   }
 }
 
-/** The packet weight a formula line contributes, once scaled. */
+/** The packet weight in GRAMS a formula line contributes, once scaled.
+ * `sampleWt` is grams (see `FormulaLine`), so this is grams too — every
+ * consumer that needs kg divides by 1000 itself. */
 export function packetWeight(sampleWt: number, scalingConstant: number): number {
   return sampleWt * scalingConstant;
 }
 
-/** Cost of one formula line: its scaled weight priced at the material's rate. */
+/** Cost of one formula line: its scaled weight priced at the material's rate.
+ * The /1000 is the only place grams meet ₹/kg in this module — without it raw
+ * cost came out 1000× high (a 500 g line of ₹800/kg material read ₹400000). */
 export function lineCost(
   line: FormulaLine,
   material: RawMaterial,
   scalingConstant: number,
 ): number {
-  return packetWeight(line.sampleWt, scalingConstant) * material.pricePerKg;
+  return (packetWeight(line.sampleWt, scalingConstant) / 1000) * material.pricePerKg;
 }
 
 export interface RawCostBreakdownLine {
@@ -80,7 +84,7 @@ export function computeRawCost(
     const material = materialsById.get(line.rawMaterialId);
     if (!material) throw new UnknownRawMaterialError(line.rawMaterialId);
     const pktWt = packetWeight(line.sampleWt, scalingConstant);
-    const cost = pktWt * material.pricePerKg;
+    const cost = lineCost(line, material, scalingConstant);
     lines.push({
       rawMaterialId: material.id,
       rawMaterialName: material.name,

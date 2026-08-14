@@ -137,7 +137,14 @@ export function buildInvoiceSnapshot(input: BuildInvoiceSnapshotInput): InvoiceS
   };
 
   const transportCharge = orders.reduce((sum, o) => sum + o.transportCharge, 0);
-  const grandTotal = taxableValue + cgst + sgst + igst + transportCharge;
+  // TASK-031. Amounts sum across a multi-order invoice; the percentage is then
+  // re-derived from the summed amount rather than averaged, because two orders
+  // at different percentages have no meaningful average — only a combined
+  // effective rate, which is what the invoice should state.
+  const discountAmount = orders.reduce((sum, o) => sum + (o.discountAmount ?? 0), 0);
+  const beforeDiscount = taxableValue + cgst + sgst + igst + transportCharge;
+  const discountPct = beforeDiscount > 0 ? (discountAmount / beforeDiscount) * 100 : 0;
+  const grandTotal = beforeDiscount - discountAmount;
 
   return {
     orderNos: orders.map((o) => o.orderNo),
@@ -147,6 +154,8 @@ export function buildInvoiceSnapshot(input: BuildInvoiceSnapshotInput): InvoiceS
     ...(customer.stateCode !== undefined ? { placeOfSupplyState: customer.stateCode } : {}),
     lines,
     transportCharge,
+    discountPct,
+    discountAmount,
     taxSplit,
     grandTotal,
   };

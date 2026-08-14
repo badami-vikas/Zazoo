@@ -142,6 +142,10 @@ export interface Order {
   status: OrderStatus;
   placedAt: string;
   transportCharge: number;
+  /** TASK-031. Percentage is primary; the amount is stored alongside so a
+   * frozen invoice never re-derives a rounded figure. */
+  discountPct?: number;
+  discountAmount?: number;
   notes?: string;
 }
 
@@ -194,6 +198,10 @@ export interface InvoiceSnapshot {
   placeOfSupplyState?: string;
   lines: InvoiceSnapshotLine[];
   transportCharge: number;
+  /** TASK-031, frozen with everything else at issue time. Zero when no
+   * discount was applied, so the printed invoice can simply omit the line. */
+  discountPct: number;
+  discountAmount: number;
   taxSplit: TaxSplit;
   grandTotal: number;
 }

@@ -34,19 +34,29 @@ describe("computeRawCost", () => {
 
   it("uses the product's own scalingConstant over the default when both are present", () => {
     const materials = new Map([["m1", material("m1", 100)]]);
-    const lines: FormulaLine[] = [{ productId: "p1", rawMaterialId: "m1", sampleWt: 0.1 }];
+    const lines: FormulaLine[] = [{ productId: "p1", rawMaterialId: "m1", sampleWt: 100 }];
     const result = computeRawCost(product({ scalingConstant: 10 }), lines, materials, 999);
-    // pktWt = 0.1 * 10 = 1; cost = 1 * 100 = 100
+    // pktWt = 100 g * 10 = 1000 g = 1 kg; cost = 1 * 100 = 100
     expect(result.scalingConstant).toBe(10);
     expect(result.total).toBe(100);
   });
 
+  it("prices grams against a per-KILO rate", () => {
+    // The regression this pins: sampleWt is grams and pricePerKg is ₹/kg, so a
+    // 500 g line of ₹800/kg material costs ₹400 — not ₹400000.
+    const materials = new Map([["m1", material("m1", 800)]]);
+    const lines: FormulaLine[] = [{ productId: "p1", rawMaterialId: "m1", sampleWt: 500 }];
+    const result = computeRawCost(product({ scalingConstant: 1 }), lines, materials);
+    expect(result.lines[0]!.pktWt).toBe(500); // grams, for the ingredient list
+    expect(result.total).toBe(400);
+  });
+
   it("falls back to the supplied default when the product has none set", () => {
     const materials = new Map([["m1", material("m1", 100)]]);
-    const lines: FormulaLine[] = [{ productId: "p1", rawMaterialId: "m1", sampleWt: 0.1 }];
+    const lines: FormulaLine[] = [{ productId: "p1", rawMaterialId: "m1", sampleWt: 100 }];
     const result = computeRawCost(product(), lines, materials, 5);
     expect(result.scalingConstant).toBe(5);
-    expect(result.total).toBe(0.1 * 5 * 100);
+    expect(result.total).toBe((100 * 5) / 1000 * 100);
   });
 
   it("sums multiple formula lines and ignores lines for other products", () => {
@@ -55,18 +65,18 @@ describe("computeRawCost", () => {
       ["m2", material("m2", 200)],
     ]);
     const lines: FormulaLine[] = [
-      { productId: "p1", rawMaterialId: "m1", sampleWt: 0.1 },
-      { productId: "p1", rawMaterialId: "m2", sampleWt: 0.2 },
+      { productId: "p1", rawMaterialId: "m1", sampleWt: 100 },
+      { productId: "p1", rawMaterialId: "m2", sampleWt: 200 },
       { productId: "other", rawMaterialId: "m1", sampleWt: 999 },
     ];
     const result = computeRawCost(product({ scalingConstant: 10 }), lines, materials);
-    // m1: 0.1*10*100 = 100; m2: 0.2*10*200 = 400
+    // m1: 100g*10 = 1kg * 100 = 100; m2: 200g*10 = 2kg * 200 = 400
     expect(result.total).toBe(500);
     expect(result.lines).toHaveLength(2);
   });
 
   it("reprices automatically when a material's price changes — nothing is snapshotted", () => {
-    const lines: FormulaLine[] = [{ productId: "p1", rawMaterialId: "m1", sampleWt: 1 }];
+    const lines: FormulaLine[] = [{ productId: "p1", rawMaterialId: "m1", sampleWt: 1000 }];
     const before = computeRawCost(
       product({ scalingConstant: 1 }),
       lines,
