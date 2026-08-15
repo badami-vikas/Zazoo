@@ -32,6 +32,21 @@ export interface GithubPullPayload {
   deletions?: number;
   updated_at: string;
   html_url: string;
+  /** Free text the PR author wrote. UNTRUSTED EXTERNAL — never assumed to be
+   * instructions (D2, ADR-237). Absent on some list-endpoint responses. */
+  body?: string | null;
+}
+
+/** One changed file from a Pull Request's file list. `patch` is GitHub's own
+ * unified-diff snippet for the file, UNTRUSTED EXTERNAL, and absent for
+ * binary files or files GitHub judged too large to diff. */
+export interface GithubPullFilePayload {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;
 }
 
 export interface GithubReviewPayload {
@@ -52,6 +67,8 @@ export interface GithubIssuePayload {
   updated_at: string;
   html_url: string;
   pull_request?: unknown;
+  /** Free text the Issue author wrote. UNTRUSTED EXTERNAL (D2, ADR-237). */
+  body?: string | null;
 }
 
 export interface PageOpts {

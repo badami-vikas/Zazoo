@@ -11,6 +11,7 @@ import type {
   FetchPullsResult,
   FetchReposResult,
   GithubIssuePayload,
+  GithubPullFilePayload,
   GithubPullPayload,
   GithubRepoPayload,
   GithubReviewPayload,
@@ -139,6 +140,23 @@ export class GithubApiGateway implements GithubGateway {
       `${API_ORIGIN}/repos/${repoFullName}/issues?state=all&sort=updated&direction=desc&per_page=${opts.perPage ?? DEFAULT_PER_PAGE}${sinceParam}`;
     const { body, nextPageToken } = await this.#getJson<GithubIssuePayload[]>(url);
     return { issues: body, ...(nextPageToken ? { nextPageToken } : {}) };
+  }
+
+  async fetchPull(repoFullName: string, number: number): Promise<GithubPullPayload> {
+    const { body } = await this.#getJson<GithubPullPayload>(`${API_ORIGIN}/repos/${repoFullName}/pulls/${number}`);
+    return body;
+  }
+
+  async fetchPullFiles(repoFullName: string, number: number): Promise<GithubPullFilePayload[]> {
+    const { body } = await this.#getJson<GithubPullFilePayload[]>(
+      `${API_ORIGIN}/repos/${repoFullName}/pulls/${number}/files?per_page=100`,
+    );
+    return body;
+  }
+
+  async fetchIssue(repoFullName: string, number: number): Promise<GithubIssuePayload> {
+    const { body } = await this.#getJson<GithubIssuePayload>(`${API_ORIGIN}/repos/${repoFullName}/issues/${number}`);
+    return body;
   }
 }
 
