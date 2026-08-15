@@ -711,16 +711,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Input-pack regeneration tests for Skills, Modules, and Integrations
 - ID: TASK-042
-- Status: ready
+- Status: done
 - Priority: P2
 - Horizon: Convergence
 - Outcome: Each generated-artifact class (Skill, Module, Integration) has an empirically validated input-pack structure — constitution + contracts + mandate + harness layers sized by measured value — so the Builder Agent's growth substrate is defined by evidence, not opinion. Includes deciding per class whether a prescriptive structure is warranted at all or whether strong boundary conditions (harness-only) with autonomy inside them suffice, per the user's stated hypothesis.
 - Prototype test: for each class, an isolated no-repo-access agent given only the class's input pack produces a plan whose divergence triage (RULE-GAP / BLOAT / BETTER / WORSE) is recorded; the pack is amended until WORSE divergences attributable to missing pack layers reach zero or are explicitly accepted.
 - Scope: replicate the ADR-175 Learning Agent methodology (rubric pinned before output; divergences adopted on merit, never force-fit). Fix the pack gaps all three 2026-08-04 agents unanimously requested (concrete taint-label lattice, Proposal/Decision API shape, MemoryStore op signatures, consent-surface contract, budget primitives). Fold in the roster-wording cleanup: `foundational-agents.md` "5 Agents"/Internal Strategist wording vs canon 4 agents (AP-005/ADR-046, ADR-077). Constitution canonization itself is a separate APPROVALS gate, not this task.
 - Layers M and B are now canon (ADR-177) and part of every pack this task validates; the per-class question is whether each artifact class needs MORE than M+B+harness, or whether boundary conditions plus autonomy suffice.
-- Evidence: `outputs/2026-08-04-regeneration-test-learning-agent.md`; `outputs/2026-08-04-people-research-regeneration-method-budget.md`; ADR-175, ADR-177.
-- Requests: user directive 2026-08-04 ("If successful, add a task to repeat this for skills, capabilities, modules, etc so we have clarity on structure for each of these (if at all a structure is required, I believe a strong boundary conditions with autonomy within it might be better approach)").
-- Approval: AP-102 APPLIED
+- Evidence: `outputs/2026-08-04-regeneration-test-learning-agent.md`; `outputs/2026-08-04-people-research-regeneration-method-budget.md`; ADR-175, ADR-177. DONE 2026-08-14 (ADR-238, AP-156): eight isolated runs (two arms × three classes + two amendment reruns, 0 tool calls each), rubrics pinned before generation and preserved verbatim in `outputs/2026-08-14-regeneration-test-per-class-packs.md`, graded against shipped ground truth (TM3 Skills / WhatsApp Module / Google Integration). Prototype-test exit met by AMENDMENT, not acceptance: every round-1 WORSE traced to exactly one missing pack sentence (dynamic provider health; whose-consent in the send gate; trade-dress unnamed; ADR-159's key-space-lookup unstated) and one amendment round closed every gap — Integration needed none (10/10 round 1). Per-class verdicts canonized in `docs/raw/capability-input-packs-2026-08.md`: Skill = harness + contracts/registry suffice (the user's boundary-conditions hypothesis HOLDS at Skill scale); Module and Integration = the risk-naming mandate is LOAD-BEARING (the Integration harness-only arm produced a safety-perfect design that deleted the product by over-quarantining the metadata the learning lane mines). Ten adopt-candidates recorded in the report with repo-verified status, NOT enacted. Roster-cleanup scope line found already satisfied by ADR-176 (roster settled at five) — nothing redone. Honest disclosure: subagents inherit host-session instructions + memory index (proven when one rerun cited the K11 keystroke decision unprompted); neither contains ground-truth design content, verified by inspection.
+- Requests: user directive 2026-08-04 ("If successful, add a task to repeat this for skills, capabilities, modules, etc so we have clarity on structure for each of these (if at all a structure is required, I believe a strong boundary conditions with autonomy within it might be better approach)"); user directive 2026-08-14 ("start on next task for AI harness" → chose "Defer — do TASK-042 instead" over deciding K11's keystroke question).
+- Approval: AP-102 APPLIED (queueing); AP-156 APPLIED (this slice)
 - Dependencies: none (methodology and draft constitution exist; TASK-033 archetype work is adjacent, not blocking)
 
 ## Constitution enforcement mechanisms (ADR-176 adopt-list)
@@ -869,7 +869,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K9 — Builder ladder: rung 3 steps, rung 4 structures
 - ID: TASK-053
-- Status: blocked on TASK-042 (rung 3 DONE 2026-08-13, ADR-231/AP-151; rung 4 awaits the per-class input packs — see Evidence)
+- Status: ready (rung 3 DONE 2026-08-13, ADR-231/AP-151; rung 4 UNBLOCKED 2026-08-14 — TASK-042 done, ADR-238/AP-156: the per-class input packs now exist as validated canon in `docs/raw/capability-input-packs-2026-08.md`; rung 4 starts on its own explicit pull-forward per the K-ladder rhythm, not automatically)
 - Priority: P2
 - Horizon: Core Modules
 - Outcome: Rung 3 — the Capability Builder drafts automation STEPS from a promotion pattern + its ledger episodes, constrained to the existing skill registry + canonical step schema (constrained generation, not codegen; existing activation gates apply). Rung 4 — structure synthesis: the Builder proposes Databases/Views/Pages/blueprints from K3's entities and claims via the validated input-pack regeneration methodology (ADR-175/176/177; TASK-042 defines the per-class packs). Rung 5 (code-bearing skills via BA0 sandbox) is explicitly later, gated on rung 4 proving out.
@@ -882,16 +882,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## K11 — EG4 sensor tier: input, screen, ambient voice
 - ID: TASK-054
-- Status: blocked
+- Status: ready
 - Priority: P3
 - Horizon: Hardening
-- Outcome: Three senses on T0–T2 local tiers: (a) continuous input capture as semantic events ("clicked Send in Mail" — click + AX-tree target + typing), never a raw keylog, behind the full fail-closed input boundary (OS secure-input, field-role gate where unknown = sensitive, app/domain denylist, never-persist-raw, pattern redaction); (b) continuous screen (xcap; post-meeting action drafts); (c) system audio → ambient voice (cidre/wasapi/libpulse; EG5). Raw processed on-device; only distilled Memory persists; raw never leaves the Local Plane.
+- Outcome: Three senses on T0–T2 local tiers: (a) continuous input capture — clicks + AX-tree targets + typing as ACTUAL CHARACTER CONTENT (user decision 2026-08-14, AP-157, superseding the original event-only framing), behind the full fail-closed input boundary (OS secure-input, field-role gate where secure/password/undeterminable ⇒ characters suppressed — unknown = sensitive, app/domain denylist with private windows structurally excluded, never-persist-raw with on-device distillation, pattern redaction on the distilled layer); (b) continuous screen (xcap; post-meeting action drafts); (c) system audio → ambient voice (cidre/wasapi/libpulse; EG5). Raw processed on-device; only distilled Memory persists; raw never leaves the Local Plane.
 - Prototype test: a password-field keystroke fixture yields at most "typed in an unknown field" (never characters); a denylisted app yields nothing including clicks; raw stream bytes are absent from disk after distillation (asserted over the capture directory); every distilled event is inspectable, deletable Memory with the Avatar blink fired.
 - Scope: `docs/raw/ai-harness-plan-2026-08-09.md` K11 + "The input-capture boundary (K11a)". Rides ~80% on EG4's planned machinery (capture-core crates, permission model, AX-tree walker, capture→Memory+blink contract).
 - Evidence: EG4/EG5 roadmap slices; harness-plan input-capture boundary.
 - Requests: user directive 2026-08-09 ("start on AI harness")
-- Approval: AP-131 APPLIED. The keystroke content-vs-events decision (harness-plan open decision 1) is a further user gate before build.
-- Dependencies: TASK-043 (K10 gate), TASK-051; plus the open keystroke content-vs-events user decision
+- Approval: AP-131 APPLIED (queueing); AP-157 APPLIED 2026-08-14 (keystroke content-vs-events decision RESOLVED — full content capture behind the fail-closed boundary; build authorized).
+- Dependencies: TASK-043 (K10 gate, done), TASK-051 (done). The keystroke content-vs-events decision is resolved (AP-157) — no open user gate remains before build.
 
 <!-- The six rows below were authored on a parallel cloud branch as TASK-044..049
      (R-043/R-044, its own AP-117..119) and RENUMBERED to TASK-055..060 at merge

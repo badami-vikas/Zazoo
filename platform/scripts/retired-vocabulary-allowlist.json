@@ -195,6 +195,18 @@
       "pathPrefix": "apps/desktop/src-tauri/src/providers/accessibility.rs",
       "reason": "Apple Accessibility C ABI, not the retired Bridge product noun. The K7 focused-window-title read links against ApplicationServices' own exported symbols (AXUIElementCreateApplication, AXUIElementCopyAttributeValue) and their documented parameter names; renaming a foreign framework's linker symbols is impossible — the word is not ours to rename.",
       "reviewed": "AP-148 · 2026-08-13 · TASK-051"
+    },
+    {
+      "family": "project",
+      "pathPrefix": "apps/api/src/router.ts",
+      "reason": "Academic domain Record label, not the retired Bridge product noun. The two occurrences are the assignment-type enum literal in the Academics procedures' zod schemas — z.enum([\"problem_set\", \"essay\", \"project\", \"exam\", \"lab\"]) — where 'project' names a kind of school assignment alongside essays and labs. Domain Record labels never become kernel primitives (CLAUDE.md), and renaming the academic concept would misname the domain to dodge a product-vocabulary rule about a different noun. Found as a pre-existing main breakage by TASK-042's verify (the Academics merge landed without the gate re-running); absorbed per the TASK-036 blocker convention.",
+      "reviewed": "AP-155 · 2026-08-14 · TASK-036"
+    },
+    {
+      "family": "project",
+      "pathPrefix": "apps/web/src/app/pages/AcademicsPage.tsx",
+      "reason": "Same academic assignment-type domain label as the router.ts entry above — the page's options array for the assignment form mirrors the API enum and must match it exactly.",
+      "reviewed": "AP-155 · 2026-08-14 · TASK-036"
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T19:35:08.059Z",
+  "generatedAt": "2026-08-15T07:54:35.142Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1543,7 +1543,7 @@
     {
       "id": "TASK-042",
       "title": "TASK-042 — Input-pack regeneration tests for Skills, Modules, and Integrations",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "Each generated-artifact class (Skill, Module, Integration) has an empirically validated input-pack structure — constitution + contracts + mandate + harness layers sized by measured value — so the Builder Agent's growth substrate is defined by evidence, not opinion. Includes deciding per class whether a prescriptive structure is warranted at all or whether strong boundary conditions (harness-only) with autonomy inside them suffice, per the user's stated hypothesis.",
@@ -1555,17 +1555,23 @@
       "evidence": [
         "`outputs/2026-08-04-regeneration-test-learning-agent.md`",
         "`outputs/2026-08-04-people-research-regeneration-method-budget.md`",
-        "ADR-175, ADR-177."
+        "ADR-175, ADR-177. DONE 2026-08-14 (ADR-238, AP-156): eight isolated runs (two arms × three classes + two amendment reruns, 0 tool calls each), rubrics pinned before generation and preserved verbatim in `outputs/2026-08-14-regeneration-test-per-class-packs.md`, graded against shipped ground truth (TM3 Skills / WhatsApp Module / Google Integration). Prototype-test exit met by AMENDMENT, not acceptance: every round-1 WORSE traced to exactly one missing pack sentence (dynamic provider health",
+        "whose-consent in the send gate",
+        "trade-dress unnamed",
+        "ADR-159's key-space-lookup unstated) and one amendment round closed every gap — Integration needed none (10/10 round 1). Per-class verdicts canonized in `docs/raw/capability-input-packs-2026-08.md`: Skill = harness + contracts/registry suffice (the user's boundary-conditions hypothesis HOLDS at Skill scale)",
+        "Module and Integration = the risk-naming mandate is LOAD-BEARING (the Integration harness-only arm produced a safety-perfect design that deleted the product by over-quarantining the metadata the learning lane mines). Ten adopt-candidates recorded in the report with repo-verified status, NOT enacted. Roster-cleanup scope line found already satisfied by ADR-176 (roster settled at five) — nothing redone. Honest disclosure: subagents inherit host-session instructions + memory index (proven when one rerun cited the K11 keystroke decision unprompted)",
+        "neither contains ground-truth design content, verified by inspection."
       ],
       "requests": [
-        "user directive 2026-08-04 (\"If successful, add a task to repeat this for skills, capabilities, modules, etc so we have clarity on structure for each of these (if at all a structure is required, I believe a strong boundary conditions with autonomy within it might be better approach)\")."
+        "user directive 2026-08-04 (\"If successful, add a task to repeat this for skills, capabilities, modules, etc so we have clarity on structure for each of these (if at all a structure is required, I believe a strong boundary conditions with autonomy within it might be better approach)\")",
+        "user directive 2026-08-14 (\"start on next task for AI harness\" → chose \"Defer — do TASK-042 instead\" over deciding K11's keystroke question)."
       ],
-      "approval": "AP-102 APPLIED",
+      "approval": "AP-102 APPLIED (queueing); AP-156 APPLIED (this slice)",
       "dependencies": [
         "none (methodology and draft constitution exist",
         "TASK-033 archetype work is adjacent, not blocking)"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 713,
@@ -1954,7 +1960,7 @@
         "TASK-045 (rung 3, done)",
         "TASK-047 (done), TASK-042 (rung 4 — OPEN)"
       ],
-      "canonicalStatus": "blocked on TASK-042 (rung 3 DONE 2026-08-13, ADR-231/AP-151; rung 4 awaits the per-class input packs — see Evidence)",
+      "canonicalStatus": "ready (rung 3 DONE 2026-08-13, ADR-231/AP-151; rung 4 UNBLOCKED 2026-08-14 — TASK-042 done, ADR-238/AP-156: the per-class input packs now exist as validated canon in `docs/raw/capability-input-packs-2026-08.md`; rung 4 starts on its own explicit pull-forward per the K-ladder rhythm, not automatically)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 871,
@@ -1963,10 +1969,10 @@
     {
       "id": "TASK-054",
       "title": "TASK-054 — K11 — EG4 sensor tier: input, screen, ambient voice",
-      "status": "blocked",
+      "status": "pending",
       "priority": "P3",
       "horizon": "Hardening",
-      "outcome": "Three senses on T0–T2 local tiers: (a) continuous input capture as semantic events (\"clicked Send in Mail\" — click + AX-tree target + typing), never a raw keylog, behind the full fail-closed input boundary (OS secure-input, field-role gate where unknown = sensitive, app/domain denylist, never-persist-raw, pattern redaction); (b) continuous screen (xcap; post-meeting action drafts); (c) system audio → ambient voice (cidre/wasapi/libpulse; EG5). Raw processed on-device; only distilled Memory persists; raw never leaves the Local Plane.",
+      "outcome": "Three senses on T0–T2 local tiers: (a) continuous input capture — clicks + AX-tree targets + typing as ACTUAL CHARACTER CONTENT (user decision 2026-08-14, AP-157, superseding the original event-only framing), behind the full fail-closed input boundary (OS secure-input, field-role gate where secure/password/undeterminable ⇒ characters suppressed — unknown = sensitive, app/domain denylist with private windows structurally excluded, never-persist-raw with on-device distillation, pattern redaction on the distilled layer); (b) continuous screen (xcap; post-meeting action drafts); (c) system audio → ambient voice (cidre/wasapi/libpulse; EG5). Raw processed on-device; only distilled Memory persists; raw never leaves the Local Plane.",
       "prototypeTest": "a password-field keystroke fixture yields at most \"typed in an unknown field\" (never characters); a denylisted app yields nothing including clicks; raw stream bytes are absent from disk after distillation (asserted over the capture directory); every distilled event is inspectable, deletable Memory with the Avatar blink fired.",
       "scope": [
         "`docs/raw/ai-harness-plan-2026-08-09.md` K11 + \"The input-capture boundary (K11a)\". Rides ~80% on EG4's planned machinery (capture-core crates, permission model, AX-tree walker, capture→Memory+blink contract)."
@@ -1978,12 +1984,11 @@
       "requests": [
         "user directive 2026-08-09 (\"start on AI harness\")"
       ],
-      "approval": "AP-131 APPLIED. The keystroke content-vs-events decision (harness-plan open decision 1) is a further user gate before build.",
+      "approval": "AP-131 APPLIED (queueing); AP-157 APPLIED 2026-08-14 (keystroke content-vs-events decision RESOLVED — full content capture behind the fail-closed boundary; build authorized).",
       "dependencies": [
-        "TASK-043 (K10 gate), TASK-051",
-        "plus the open keystroke content-vs-events user decision"
+        "TASK-043 (K10 gate, done), TASK-051 (done). The keystroke content-vs-events decision is resolved (AP-157) — no open user gate remains before build."
       ],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 884,
