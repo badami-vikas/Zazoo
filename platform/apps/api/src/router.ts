@@ -395,6 +395,9 @@ import {
   CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCE_AUTOMATION_ID,
   DEVPILOT_GITHUB_POLL_AUTOMATION_ID,
+  DEVPILOT_REVIEW_PR_AUTOMATION_ID,
+  DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID,
+  DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID,
   TASK_MANAGER_DRIFT_AUTOMATION_ID,
   TASK_MANAGER_SWEEP_AUTOMATION_ID,
   TASK_MANAGER_SCAN_AUTOMATION_ID,
@@ -13388,6 +13391,53 @@ export const appRouter = t.router({
           assertPilotOrganization(input.organizationId);
           return ctx.wiring.devpilot.store.listPulls(input.organizationId, { limit: input.limit, offset: input.offset });
         }),
+
+      /**
+       * DevPilot D2 — drafts a code review from a tracked Pull Request's
+       * live diff. Runs the `devpilot.review-pr` governed Automation (same
+       * shape as Task Manager's planning Playbooks): the invocation gets an
+       * attributable reviewer-Agent Run and a proposal that halts for a
+       * Human's separate approve/edit/veto decision — nothing is posted to
+       * GitHub, ever, from this path.
+       */
+      reviewDraft: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1), pullId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const result = await ctx.wiring.automationExecutor.runById(
+            {
+              organizationId: input.organizationId,
+              automationId: DEVPILOT_REVIEW_PR_AUTOMATION_ID,
+              onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
+              params: { organizationId: input.organizationId, pullId: input.pullId },
+            },
+            withHumanInputTaint(ctx.run, `devpilot:review-pr:${ctx.identity.id}:${input.pullId}`, input),
+          );
+          const proposal = result.proposals[0];
+          if (!proposal) throw new Error("devpilot.reviewPr Automation produced no proposal");
+          return { proposalId: proposal.id, status: proposal.status, draft: proposal.output?.proposedOutput };
+        }),
+
+      /** DevPilot D2 — same shape as reviewDraft, best-practice focus. */
+      suggestPracticeDraft: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1), pullId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const result = await ctx.wiring.automationExecutor.runById(
+            {
+              organizationId: input.organizationId,
+              automationId: DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID,
+              onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
+              params: { organizationId: input.organizationId, pullId: input.pullId },
+            },
+            withHumanInputTaint(ctx.run, `devpilot:suggest-practice:${ctx.identity.id}:${input.pullId}`, input),
+          );
+          const proposal = result.proposals[0];
+          if (!proposal) throw new Error("devpilot.suggestPractice Automation produced no proposal");
+          return { proposalId: proposal.id, status: proposal.status, draft: proposal.output?.proposedOutput };
+        }),
     }),
 
     issues: t.router({
@@ -13403,6 +13453,27 @@ export const appRouter = t.router({
           assertDevpilotFlightEnabled(ctx);
           assertPilotOrganization(input.organizationId);
           return ctx.wiring.devpilot.store.listIssues(input.organizationId, { limit: input.limit, offset: input.offset });
+        }),
+
+      /** DevPilot D2 — drafts a triage analysis from a tracked Issue's live
+       * body. Same governed-Automation shape as pulls.reviewDraft. */
+      analyzeDraft: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1), issueId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const result = await ctx.wiring.automationExecutor.runById(
+            {
+              organizationId: input.organizationId,
+              automationId: DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID,
+              onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
+              params: { organizationId: input.organizationId, issueId: input.issueId },
+            },
+            withHumanInputTaint(ctx.run, `devpilot:analyze-issue:${ctx.identity.id}:${input.issueId}`, input),
+          );
+          const proposal = result.proposals[0];
+          if (!proposal) throw new Error("devpilot.analyzeIssue Automation produced no proposal");
+          return { proposalId: proposal.id, status: proposal.status, draft: proposal.output?.proposedOutput };
         }),
     }),
 

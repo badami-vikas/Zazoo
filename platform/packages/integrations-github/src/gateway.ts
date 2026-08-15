@@ -12,6 +12,9 @@ import type {
   FetchIssuesResult,
   FetchPullsResult,
   FetchReposResult,
+  GithubIssuePayload,
+  GithubPullFilePayload,
+  GithubPullPayload,
   GithubReviewPayload,
   GithubViewer,
   PageOpts,
@@ -25,6 +28,16 @@ export interface GithubGateway {
   fetchPulls(repoFullName: string, opts: PageOpts & { since?: string }): Promise<FetchPullsResult>;
   fetchPullReviews(repoFullName: string, number: number): Promise<GithubReviewPayload[]>;
   fetchIssues(repoFullName: string, opts: PageOpts & { since?: string }): Promise<FetchIssuesResult>;
+  /** Single-Pull fetch WITH body text — D2's review/practice-suggestion
+   * Skills read this fresh at draft time rather than from D1's stored
+   * metadata, which never persists body text. */
+  fetchPull(repoFullName: string, number: number): Promise<GithubPullPayload>;
+  /** Per-file unified-diff snippets for one Pull Request (D2). Bounded by the
+   * caller — GitHub itself caps `patch` per file and omits it for binary or
+   * oversized files. */
+  fetchPullFiles(repoFullName: string, number: number): Promise<GithubPullFilePayload[]>;
+  /** Single-Issue fetch WITH body text (D2). */
+  fetchIssue(repoFullName: string, number: number): Promise<GithubIssuePayload>;
   rateLimitStatus(): RateLimitStatus | undefined;
 }
 

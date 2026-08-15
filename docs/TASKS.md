@@ -1109,3 +1109,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-08-13 (see TASK-067).
 - Approval: AP-153 applied
 - Dependencies: TASK-067
+
+## DevPilot D2 — engineering-assist Skills (PR review, best-practice suggestions, Issue triage)
+- ID: TASK-071
+- Status: done
+- Priority: P2
+- Horizon: Prototype
+- Outcome: three governed Skills — `devpilot.reviewPr`, `devpilot.suggestPractice` (both over a tracked Pull Request's live diff), `devpilot.analyzeIssue` (over a tracked Issue's live body) — draft engineering-assist content through the existing pipeline-proposal/Approvals flow. Every draft is a proposal a Human must approve, edit, or veto; nothing is ever posted back to GitHub.
+- Prototype test: on the Pull Requests page, select a tracked PR and click "Draft review" or "Suggest practices" → a governed Automation runs the reviewer Agent, halts for review, and the drafted text renders inline with a link to Approvals; on the Issues page, select a tracked Issue and click "Analyze" → same shape. With no model configured, the draft returns an honest "not drafted" scaffold instead of guessing. Flight OFF: all three procedures throw `PRECONDITION_FAILED` same as D0/D1.
+- Scope: `docs/raw/devpilot-module-plan-2026-08-13.md` (D2); ADR-237; AP-155. New taint source `github_intake` in `platform/packages/core/src/taint.ts`; `fetchPull`/`fetchPullFiles`/`fetchIssue` on `GithubGateway` (`platform/packages/integrations-github`); `getPull`/`getIssue` by-id lookups on `DrizzleDevpilotStore`; `DEVPILOT_REVIEWER_AGENT_ID` + 3 Automation ids/keys + reviewer Agent/Automation manifest entries + module version bump `0.1.0`→`0.2.0` in `platform/modules/manifests/src/index.ts`; `ensureDevpilotReviewerGovernance` in `platform/packages/db/src/governance-stores.ts`; 3 SkillManifests + 3 Skill registrations + `resolveDevpilotReviewModel` in `platform/apps/api/src/wiring.ts`; `devpilot.pulls.reviewDraft`/`suggestPracticeDraft`, `devpilot.issues.analyzeDraft` procedures in `platform/apps/api/src/router.ts`; draft-trigger UI (Select + buttons + inline draft panel) in `platform/apps/web/src/app/pages/DevPilotPage.tsx`.
+- Evidence: `@bridge/integrations-github` 16/16 (3 new fetch tests incl. binary-file-no-patch); `@bridge/module-manifests` 25/25 (2 Agents each with a Plane, poll Automation still scheduled, 3 new Automations manual + runtime-opted-in, still zero `external:send`); `@bridge/api` full suite green (one pre-existing unrelated flake in `automation-scheduler.test.ts` reproduced identically on the unmodified D1 baseline via git stash — not a regression); `@bridge/web` typecheck clean, `ui-conformance.test.mjs` 13/13. Live walk: isolated demo server rebuild caught a real manifest-immutability bug (version not bumped despite new capabilities) — fixed; confirmed in a real browser that both pages render the new controls with correct disabled states and all `devpilot.*` calls return 200. The actual model-drafting path was not exercised live — no GitHub PAT or model provider key available in this environment (same honest limit D1's own live walk hit).
+- Requests: user directive 2026-08-14, verbatim: *"start on the next task"*; disambiguated via clarifying question to "DevPilot D2".
+- Approval: AP-155 applied
+- Dependencies: TASK-068

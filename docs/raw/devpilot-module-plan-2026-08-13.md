@@ -4,13 +4,13 @@ type: raw
 doc_kind: plan
 status: in-progress
 companions: [ai-harness-plan-2026-08-09.md, capability-module-format.md, capability-surface-taxonomy-2026-08.md, brd-dataengine-views-2026-07.md, day1-integrations-free-apis-2026-07.md, bridge-constitution-2026-08.md, decisions-log.md]
-updated: 2026-08-13
+updated: 2026-08-14
 tags: [devpilot, module, ai-harness, github, jira, slack, gmail, triage, pr-review, integrations, work-brief]
 ---
 
-# DevPilot Module Plan (D0+D1 SHIPPED 2026-08-13 — ADR-235, AP-153, TASK-067/TASK-068; D2–D6 not started)
+# DevPilot Module Plan (D0+D1+D2 SHIPPED — ADR-235/AP-153/TASK-067-068 (2026-08-13), ADR-237/AP-155/TASK-071 (2026-08-14); D3–D6 not started)
 
-Saved 2026-08-13 from Manish's planning session, then implemented the same day on the user's "Implement the devpilot plan now" directive. D0 (module skeleton) and D1 (GitHub tracker slice) below are DONE — see ADR-235 for the as-built decisions and TASK-067/TASK-068 for verification evidence. The proposed ids originally sketched in this doc were superseded by the actually-assigned ADR-234/AP-152/TASK-067-068 at implementation time, then renumbered to ADR-235/AP-153 at merge time when K10 (landed independently on `origin/main` the same day) turned out to have claimed the same ADR-234/AP-152 numbers first — the same renumbering-at-merge precedent as K9's ADR-229/232-233 collision. D2 onward remain future TASK rows, each starting only on its own explicit "start".
+Saved 2026-08-13 from Manish's planning session, then implemented the same day on the user's "Implement the devpilot plan now" directive. D0 (module skeleton) and D1 (GitHub tracker slice) below are DONE — see ADR-235 for the as-built decisions and TASK-067/TASK-068 for verification evidence. The proposed ids originally sketched in this doc were superseded by the actually-assigned ADR-234/AP-152/TASK-067-068 at implementation time, then renumbered to ADR-235/AP-153 at merge time when K10 (landed independently on `origin/main` the same day) turned out to have claimed the same ADR-234/AP-152 numbers first — the same renumbering-at-merge precedent as K9's ADR-229/232-233 collision. D2 (engineering-assist Skills) shipped 2026-08-14 on the user's "start on the next task" directive, disambiguated to D2 via a clarifying question — see ADR-237/TASK-071. D3 onward remain future TASK rows, each starting only on its own explicit "start".
 
 ## Context
 
@@ -31,7 +31,7 @@ DevPilot organizes a freelance software engineer's work and boosts efficiency: i
 |---|---|---|
 | **D0 — Skeleton + governance (dark)** | `devpilot` module installed end-to-end, invisible with flight OFF; AP/ADR/TASK rows landed | `seedBuiltInModules` (wiring.ts:4876), manifest-driven nav, WhatsApp skeleton precedent (AP-090, commits 20b35ee/27828d6) |
 | **D1 — GitHub tracker slice** | Repos/PRs/issues rows in DevPilot Databases, 15-min scheduled poll, PAT encrypted locally, idempotent re-sync | `integrations-google` package shape, `guardedFetch`, `SecretStore`, `integration_sync_state`, automation scheduler, DealPilot credential masking |
-| **D2 — Engineering skills** | `devpilot.reviewPr` / `devpilot.analyzeIssue` / `devpilot.suggestPractice` as **draft-only** pipeline proposals on PR/issue rows; posting a review = `external:send`, per-item approval, draft shown verbatim (Gmail egress pattern) — or stays deferred | Skill pipeline, `authority_bearing` executionClass, taint sinks, ModelRouter |
+| **D2 — Engineering skills SHIPPED 2026-08-14 (ADR-237, TASK-071)** | `devpilot.reviewPr` / `devpilot.suggestPractice` / `devpilot.analyzeIssue` as **draft-only** pipeline proposals — inline `spotlightUntrusted()`, not a second quarantine call, since output always halts for Human review; posting a review (`external:send`) stayed deferred, not built | Skill pipeline, `authority_bearing` executionClass, `github_intake` taint source, `resolveDevpilotReviewModel` |
 | **D3 — Jira connector** | Jira issues merged into the same `devpilot_issues` table (`source:"jira"`); API-token paste auth, JQL `updated >=` cursor | Everything D1 built — second consumer proves the connector seam |
 | **D4 — Comms triage** | Missed-reply detection (Gmail then Slack bot-token connector) emitting governed `task_change_proposals` reviewed in the existing Task Manager approval surface — **never direct task writes**; priority nudges also proposals | Google gateway, DealPilot `GmailFetchStateStore` restart-safe pagination, `task_change_proposals` (schema.ts:1505) |
 | **D5 — News/OSS radar** | Daily bounded rights-verified digest (HN Algolia, lobste.rs RSS, GitHub releases atom for tracked deps) into a Radar Database via a `DEVPILOT_RADAR_SOURCE_CATALOG` (modeled on jobpilot `CULTURE_SOURCE_CATALOG`); reads through `@bridge/research` quarantine (posting is RED). **LinkedIn: deferred indefinitely** — ToS-hostile, fails the rights catalog by construction | `@bridge/research`, SearchProvider router (wiring.ts:5122) |

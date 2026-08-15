@@ -170,7 +170,7 @@ test("DevPilot is an installable Module with Pull Requests, Issues, and Repos Pa
   );
 });
 
-test("DevPilot D1 declares no external:send capability — read-only until D2 is approved", () => {
+test("DevPilot declares no external:send capability — draft-only through D2, posting is a future capability", () => {
   const devpilot = requireBuiltInModule("devpilot").manifest;
   for (const capability of devpilot.capabilities) {
     for (const permission of capability.permissions) {
@@ -183,14 +183,27 @@ test("DevPilot D1 declares no external:send capability — read-only until D2 is
   }
 });
 
-test("DevPilot's tracker Agent has a Plane and its poll Automation has a machine-readable schedule", () => {
+test("DevPilot's Agents each have a Plane and the poll Automation has a machine-readable schedule", () => {
   const devpilot = requireBuiltInModule("devpilot").manifest;
-  assert.equal(devpilot.module?.agents.length, 1);
-  assert.equal(devpilot.module?.agents[0]?.plane, "cloud");
-  const automation = devpilot.module?.automations[0];
-  assert.ok(automation);
-  assert.equal(automation.schedule?.kind, "schedule");
-  assert.ok(automation.automationId, "the poll Automation must opt into the executable runtime");
+  assert.equal(devpilot.module?.agents.length, 2);
+  for (const agent of devpilot.module?.agents ?? []) {
+    assert.equal(agent.plane, "cloud");
+  }
+  const poll = devpilot.module?.automations[0];
+  assert.ok(poll);
+  assert.equal(poll.schedule?.kind, "schedule");
+  assert.ok(poll.automationId, "the poll Automation must opt into the executable runtime");
+});
+
+test("DevPilot D2's engineering-assist Automations are manual (no schedule) but opt into the executable runtime", () => {
+  const devpilot = requireBuiltInModule("devpilot").manifest;
+  const manual = (devpilot.module?.automations ?? []).filter((automation) => automation.id !== "github-poll");
+  assert.equal(manual.length, 3);
+  for (const automation of manual) {
+    assert.equal(automation.schedule, undefined, `${automation.id} is Human-triggered, not scheduled`);
+    assert.ok(automation.automationId, `${automation.id} must opt into the executable runtime`);
+    assert.equal(automation.agentId, "reviewer-agent");
+  }
 });
 
 test("DevPilot is withheld from Commons", () => {
