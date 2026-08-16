@@ -54,6 +54,9 @@ interface StoredSignal {
   anchor?: { kind?: string; moduleId?: string };
   recordId?: string;
   attributes?: Record<string, string>;
+  /** The redacted typed text (task #80 / AP-157). Absent on every suppressed
+   * burst and on every other capture lane's rows. */
+  content?: string;
 }
 
 async function inputRows(wiring: Wiring): Promise<{ raw: string; value: StoredSignal }[]> {
@@ -232,13 +235,18 @@ test("an undeterminable field fails closed — unknown is sensitive", async () =
     assert.equal(result.verdict, "suppressed");
     assert.equal(result.suppressionReason, "undeterminable_field");
     const rows = await inputRows(wiring);
+    // Before task #80 this passed vacuously — NOTHING was persisted, so no
+    // string could be found. Now that captured bursts really do store their
+    // text, this is a live guard: it proves the undeterminable-field verdict
+    // is what withholds it, not an absent feature.
     assert.ok(!rows[0]?.raw.includes("maybe-a-password"));
+    assert.equal(rows[0]?.value.content, undefined, "a suppressed burst stores no content key");
   } finally {
     await wiring.close();
   }
 });
 
-test("a clear field is captured, and the stored row still carries no typed text", async () => {
+test("a clear field persists its REDACTED prose — the card number never survives", async () => {
   const wiring = await buildWiring({ learningObservationEnabled: true });
   try {
     await enableInput(wiring);
@@ -258,11 +266,18 @@ test("a clear field is captured, and the stored row still carries no typed text"
     assert.ok(row);
     assert.equal(row.value.attributes?.disposition, "captured");
     assert.equal(row.value.attributes?.keyCount, "short", "counts are bucketed, never tallied");
-    // The signal is a FACET row: the card number cannot be there, and neither
-    // can the surrounding prose. See the ADR-239 note in TASKS.md — the
-    // redacted content has no persisted home today.
+    // Task #80 inverted this pair. The redacted prose now HAS a home (the
+    // signal body, `content`) — that is AP-157 delivered. What must never
+    // survive is the card number, and the two assertions together are the
+    // whole safety claim: we keep what you typed, minus what the redaction
+    // backstop strips. Asserting only the first would pass on a lane that
+    // stored nothing; asserting only the second would pass on a lane that
+    // stored everything.
     assert.ok(!row.raw.includes("4111111111111111"), "a card number never persists");
-    assert.ok(!row.raw.includes("pay with"), "typed prose is not in the signal row");
+    assert.ok(row.raw.includes("pay with"), "redacted prose IS persisted (AP-157)");
+    assert.equal(row.value.content, "pay with [redacted:card] today");
+    // And it is in the BODY, never a grouping facet the digest mines.
+    assert.ok(!JSON.stringify(row.value.attributes).includes("pay with"));
   } finally {
     await wiring.close();
   }

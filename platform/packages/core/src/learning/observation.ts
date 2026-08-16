@@ -51,6 +51,26 @@ export interface ObservedSignal {
   attributes: Record<string, string>;
   /** Optional verbatim user-stated reason (kept as data, never instructions). */
   reason?: string;
+  /** Optional captured content body — the ONLY field on this type that may
+   * carry text the user typed or wrote, and today only the K11 input lane
+   * fills it (AP-157 approved full-content keystroke capture; task #80).
+   *
+   * It is deliberately on the SHARED signal rather than input-only, which
+   * means the six metadata-only lanes (chat, whatsapp, gmail, calendar,
+   * browser, appFocus) can now *reach* a content channel their own ADRs
+   * promise never to use — "never the message text / page content / window
+   * contents". Two things keep that promise, and neither is this comment:
+   *   1. their ENVELOPE types admit no text field, so a lane cannot fill this
+   *      without first widening its own input shape (which its tests forbid);
+   *   2. a removal-fails guard in learning-capture.test.ts asserts all six
+   *      emitters leave this undefined.
+   * Whatever fills this must already be redacted — nothing downstream redacts
+   * it again, and it lands verbatim in a durable Memory row.
+   *
+   * Absent (not null, not "") whenever there is no content: the input lane's
+   * suppressed bursts omit the key entirely, so "we refused to read this" and
+   * "we read it and it was empty" stay distinguishable. */
+  content?: string;
   observedAt?: string;
   /** Taint label carried from the SOURCE interaction (K2 capture invariant:
    * "taint-labeled at source"). Ledger-mined signals omit it — their rows
@@ -118,6 +138,12 @@ export async function recordSignal(store: MemoryStore, signal: ObservedSignal): 
       recordId: signal.recordId,
       attributes: signal.attributes,
       ...(signal.reason ? { reason: signal.reason } : {}),
+      // Spread-if-present, not `?? null`: a lane that carries no content must
+      // produce a row with no `content` key, so the absence is structural
+      // rather than a null a later reader could mistake for empty content.
+      // `!== undefined` (not truthiness) — a captured burst of "" is still a
+      // capture and must not silently become "no content stored".
+      ...(signal.content !== undefined ? { content: signal.content } : {}),
       observedAt: signal.observedAt ?? null,
     }),
     sourceRefType: "feedback",

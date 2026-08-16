@@ -4,6 +4,7 @@ import { Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, 
 import { moduleNavTarget, buildModuleNavTree } from "@bridge/module-manifests";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { useAppFocusCapture } from "./lib/app-focus-capture";
+import { useInputCaptureDrain } from "./lib/input-capture-drain";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
 import {
@@ -89,6 +90,10 @@ export default function Layout() {
   // K7 (TASK-051): desktop-only, consent-driven app-focus drain loop —
   // feature-detected no-op in browser deploys.
   useAppFocusCapture();
+  // K11 (TASK-054): the same shape for the keystroke lane. Both are
+  // consent-driven at the SOURCE — the poller/tap is what stops, not just
+  // the API's willingness to accept what it produced.
+  useInputCaptureDrain();
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
   const [newOpen, setNewOpen] = useState(false);

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T19:52:46.629Z",
+  "generatedAt": "2026-08-16T21:24:22.137Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1316,7 +1316,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1054,
+      "sourceLine": 1056,
       "rank": 39
     },
     {
@@ -1352,7 +1352,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1094,
+      "sourceLine": 1096,
       "rank": 40
     },
     {
@@ -1390,7 +1390,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1107,
+      "sourceLine": 1109,
       "rank": 41
     },
     {
@@ -1415,7 +1415,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1068,
+      "sourceLine": 1070,
       "rank": 42
     },
     {
@@ -1442,7 +1442,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1081,
+      "sourceLine": 1083,
       "rank": 43
     },
     {
@@ -1464,14 +1464,14 @@
       "requests": [
         "user directive 2026-08-16, verbatim: *\"Bring in the governance section to all modules below the intelligence section where user can explicitly add whats allowed and whats not. In this, add Avilos specific rules for avilo module\"*"
       ],
-      "approval": "AP-159 APPLIED (ADR-248)",
+      "approval": "AP-163 APPLIED (ADR-248)",
       "dependencies": [
         "TASK-074"
       ],
       "canonicalStatus": "done (2026-08-16, live-verified)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1149,
+      "sourceLine": 1151,
       "rank": 44
     },
     {
@@ -1498,7 +1498,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1119,
+      "sourceLine": 1121,
       "rank": 45
     },
     {
@@ -1530,7 +1530,7 @@
       "canonicalStatus": "done (2026-08-16, live-verified)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1132,
+      "sourceLine": 1134,
       "rank": 46
     },
     {
@@ -2077,7 +2077,7 @@
       "requests": [
         "user directive 2026-08-09 (\"start on AI harness\")"
       ],
-      "approval": "AP-131 APPLIED (queueing); AP-157 APPLIED 2026-08-14 (keystroke content-vs-events decision RESOLVED — full content capture behind the fail-closed boundary; build authorized).",
+      "approval": "AP-131 APPLIED (queueing); AP-157 APPLIED 2026-08-14 (keystroke content-vs-events decision RESOLVED — full content capture behind the fail-closed boundary; build authorized); AP-159 APPLIED 2026-08-17 (content-persistence gap resolved by widening the shared `ObservedSignal` with an optional `content` field — AP-157 DELIVERED, not reversed).",
       "dependencies": [
         "TASK-043 (K10 gate, done), TASK-051 (done). The keystroke content-vs-events decision is resolved (AP-157) — no open user gate remains before build."
       ],
@@ -2118,7 +2118,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 911,
+      "sourceLine": 913,
       "rank": 63
     },
     {
@@ -2148,7 +2148,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 924,
+      "sourceLine": 926,
       "rank": 64
     },
     {
@@ -2177,7 +2177,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 937,
+      "sourceLine": 939,
       "rank": 65
     },
     {
@@ -2206,7 +2206,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 950,
+      "sourceLine": 952,
       "rank": 66
     },
     {
@@ -2234,7 +2234,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 963,
+      "sourceLine": 965,
       "rank": 67
     },
     {
@@ -2261,7 +2261,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 976,
+      "sourceLine": 978,
       "rank": 68
     },
     {
@@ -2292,7 +2292,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 989,
+      "sourceLine": 991,
       "rank": 69
     },
     {
@@ -2318,7 +2318,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1002,
+      "sourceLine": 1004,
       "rank": 70
     },
     {
@@ -2344,7 +2344,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1015,
+      "sourceLine": 1017,
       "rank": 71
     },
     {
@@ -2372,7 +2372,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1028,
+      "sourceLine": 1030,
       "rank": 72
     },
     {
@@ -2398,7 +2398,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1041,
+      "sourceLine": 1043,
       "rank": 73
     },
     {
@@ -2439,7 +2439,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1165,
+      "sourceLine": 1167,
       "rank": 74
     }
   ]
