@@ -71,8 +71,9 @@ export interface InputCaptureDenylist {
 }
 
 /** The seed denylist floor. These are denied even before the user edits the
- * list; the UI presents them as removable-with-a-warning, but the store starts
- * here so a fresh install never captures a password manager. */
+ * list, and are re-merged on every save — so the UI presents them as LOCKED
+ * rather than editable, because a control that accepts an edit and then
+ * silently discards it lies about the state of the system. */
 export const SEED_DENYLIST_APPS: readonly string[] = [
   "com.apple.keychainaccess",
   "com.1password.1password",

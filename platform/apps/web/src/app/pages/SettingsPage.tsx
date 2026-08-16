@@ -379,6 +379,18 @@ function CaptureConsentCard() {
           // of the others, so it carries a severity treatment and cannot be
           // switched on by the same single click.
           const isMostInvasive = source === "input";
+          // "Capturing" is a claim about LIVE BEHAVIOUR, not about consent, so
+          // it must not survive the kill switch: while paused this source is
+          // consented but not capturing, and saying otherwise is the same
+          // class of lie the whole boundary exists to avoid. "On" was safe
+          // here only because it described the switch rather than the sensor.
+          const toggleLabel = !row.enabled
+            ? "Off"
+            : status.paused
+              ? "Paused"
+              : isMostInvasive
+                ? "Capturing"
+                : "On";
           return (
             <div
               key={source}
@@ -434,10 +446,13 @@ function CaptureConsentCard() {
                 // confirm text promises "you can turn this off at any time",
                 // and a disabled off switch made that false while paused.
                 disabled={status.paused && !row.enabled}
-                aria-label={`${CAPTURE_SOURCE_COPY[source].label} capture`}
+                // The visible word must be inside the accessible name
+                // (WCAG 2.5.3 Label in Name) or voice control cannot address
+                // the control a sighted user is looking at.
+                aria-label={`${toggleLabel} — ${CAPTURE_SOURCE_COPY[source].label} capture`}
                 aria-pressed={row.enabled}
                 className={`text-xs font-semibold px-3 py-2 rounded-lg shrink-0 min-w-[64px] min-h-[44px] border ${
-                  row.enabled
+                  row.enabled && !status.paused
                     ? isMostInvasive
                       ? // The most invasive source must not read as a peer of
                         // the others when ARMED — the on-state is the only
@@ -447,7 +462,7 @@ function CaptureConsentCard() {
                     : "border-current"
                 } ${status.paused && !row.enabled ? "opacity-50" : ""}`}
               >
-                {row.enabled ? (isMostInvasive ? "Capturing" : "On") : "Off"}
+                {toggleLabel}
               </button>
             </div>
           );
@@ -458,7 +473,10 @@ function CaptureConsentCard() {
             and before this it only appeared AFTER consent — so they were asked
             to rely on exclusions they had never been shown. Review, then
             consent. */}
-        {!status.paused && <InputCaptureDenylistEditor enabled={status.sources.input.enabled} />}
+        {/* Rendered even while PAUSED: this is a policy editor, not a live
+            control, and hiding it removes the very review surface the consent
+            dialog points at. */}
+        <InputCaptureDenylistEditor enabled={status.sources.input.enabled} />
         {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
       </div>
     </Card>
@@ -499,11 +517,29 @@ function InputCaptureDenylistEditor({ enabled }: { enabled: boolean }) {
         setDomains(policy.domains.filter((entry) => !isSeedDomain(entry)).join(", "));
         setLoaded(true);
       })
-      .catch(() => setLoaded(false)); // unreachable API = render nothing dead
+      // A missing exclusion list must FAIL LOUD. Everywhere else in this page
+      // an unreachable API renders nothing rather than a dead control, but
+      // here silence is dangerous: the consent dialog tells the user capture
+      // happens "in apps you have not denied in the list below", so a list
+      // that quietly vanished would leave them consenting against exclusions
+      // they cannot see.
+      .catch((error: unknown) =>
+        setNote(
+          `The never-capture list could not be loaded (${
+            error instanceof Error ? error.message : String(error)
+          }). Do not turn typing capture on until it loads — its exclusions cannot be shown.`,
+        ),
+      );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!loaded) return null;
+  if (!loaded) {
+    return note ? (
+      <div className="ml-6 rounded-lg border border-l-4 border-l-amber-700 p-3">
+        <p className="text-xs text-[var(--color-navy-mid)]">{note}</p>
+      </div>
+    ) : null;
+  }
 
   const splitEntries = (value: string) =>
     value
@@ -554,8 +590,7 @@ function InputCaptureDenylistEditor({ enabled }: { enabled: boolean }) {
           {[...seedApps, ...seedDomains].map((entry) => (
             <li
               key={entry}
-              className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-mist)] text-[var(--color-navy-mid)]"
-              title="Seeded by Bridge and re-added on every save"
+              className="text-[11px] font-mono whitespace-nowrap px-1.5 py-0.5 rounded bg-[var(--color-line-soft)] text-[var(--color-navy-mid)]"
             >
               🔒 {entry}
             </li>

@@ -2741,6 +2741,11 @@ What each answer means:
   so the close is never observed fails with "timed out after 10s waiting for the server to observe the
   socket close"; restoring it passes. `--test-concurrency=4` was left in place.
 - Evidence: with `--test-concurrency=4`, `jobpilot-culture-research.test.ts` tests "cancelCultureSourceFetch aborts a real in-flight fetch..." and "agentOrchestration.childRun.cancel ... actually aborts the real in-flight socket" failed once ("the server should observe the aborted connection actually close", false !== true) during a run that shared the CPU with the full db suite (683s real vs 1537s user). Rerun alone on an idle machine: 57/57 clean. Interpretation: timing-sensitive real-socket assertions flake under heavy load, not a concurrency-safety defect. If CI shows the same signature, widen the socket-close wait in those two tests rather than re-pinning the whole suite to --test-concurrency=1 (that pin cost ~6 min/run and contradicted AP-019's own resolution).
+- Evidence 2026-08-16 (K11/TASK-054): a THIRD test in this class flaked — `chat-model-manager.test.ts` "managed model install persists
+  failure and permits a verified retry" asserted install state `downloading` and got `failed`, during a `turbo run` that shared the
+  CPU with a dev API sidecar, a Vite server and the full db suite (20m38s wall). Re-run isolated on the same machine: 6/6 clean three
+  times, and the whole `@bridge/api` suite 525/525 with 0 failures. Same interpretation as above — a timing-sensitive state assertion
+  losing a race under load, not a defect. Widen the wait in this test if CI reproduces it.
 
 ## OPEN 2026-08-08 — `check:vocabulary` is red on main, and the only remaining family is the WhatsApp Module's retired "Tool" primitive (TASK-036)
 - Task: TASK-036

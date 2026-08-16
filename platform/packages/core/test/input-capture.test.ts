@@ -121,11 +121,30 @@ test("denylisted browser host emits nothing (label-boundary suffix match)", () =
   assert.equal(event, null);
 });
 
-test("seed denylist floor denies password managers and banks out of the box", () => {
+// Named for what it actually asserts: the floor is password managers. Banks
+// are deliberately NOT seeded (see SEED_DENYLIST_DOMAINS) and no test name,
+// comment, or UI string may imply otherwise.
+test("seed denylist floor denies password managers out of the box", () => {
   assert.ok(isDenylisted(DENYLIST, "com.apple.keychainaccess"));
   assert.ok(isDenylisted(DENYLIST, "com.bitwarden.desktop"));
   assert.ok(isDenylisted(DENYLIST, "com.apple.Safari", "1password.com"));
   assert.ok(!isDenylisted(DENYLIST, "com.example.editor"));
+});
+
+test("the seed floor does NOT cover banks — the promise must match the list", () => {
+  // The card once told users "password managers and banking sites are always
+  // included" while this list held four password managers and no bank at all,
+  // so a user had no reason to add their own and was captured believing
+  // otherwise. Seeding banks was rejected (no bounded list of the world's
+  // banking domains exists, and a partial one gives false comfort to everyone
+  // missing from it), so the honest contract is: password managers only, and
+  // the UI must ask the user for their bank. Removal-fails: if someone seeds a
+  // bank here, this breaks and the copy has to be revisited with it.
+  const denylist = defaultInputCaptureDenylist();
+  assert.equal(isDenylisted(denylist, "com.apple.Safari", "chase.com"), false);
+  assert.equal(isDenylisted(denylist, "com.apple.Safari", "hsbc.co.uk"), false);
+  // …while the password-manager floor really is enforced.
+  assert.equal(isDenylisted(denylist, "com.apple.Safari", "1password.com"), true);
 });
 
 test("clear field in an allowed app captures the (redacted) content", () => {
