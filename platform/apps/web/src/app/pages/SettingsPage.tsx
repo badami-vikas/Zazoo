@@ -18,6 +18,7 @@
  */
 import { useEffect, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
+import { SEED_DENYLIST_APPS, SEED_DENYLIST_DOMAINS } from "@bridge/core";
 import {
   Settings, Users, CreditCard, Bell, Shield, Key, Building2, Sparkles, BookOpen, HelpCircle,
   MessageCircle, Keyboard, Zap, ExternalLink, Plus,
@@ -367,8 +368,9 @@ function CaptureConsentCard() {
           </button>
         </div>
         <p className="text-xs text-[var(--color-navy-mid)]">
-          Off by default. Each source is a separate consent; turning one on lets Bridge notice YOUR OWN rhythms in data
-          it already holds locally. Signals are envelope-only (never message text), private, Local Plane, and deletable.
+          Off by default. Each source is a separate consent. The first five let Bridge notice your own rhythms in data
+          it already holds locally, and their signals are envelope-only — never message text. Typing (desktop) is
+          different: it is new collection, and it stores text. Everything here is private, Local Plane, and deletable.
         </p>
         {(["chat", "whatsapp", "google", "browser", "apps", "input"] as const).map((source) => {
           const row = status.sources[source];
@@ -387,15 +389,27 @@ function CaptureConsentCard() {
               }`}
             >
               <div className="space-y-1">
-                <p className="text-sm font-medium flex items-center gap-2">
+                <p className="text-sm font-medium flex flex-wrap items-baseline gap-2">
                   {CAPTURE_SOURCE_COPY[source].label}
                   {isMostInvasive && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.08em] whitespace-nowrap px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">
                       Most invasive
                     </span>
                   )}
                 </p>
-                <p className="text-xs text-[var(--color-warm-gray)]">{CAPTURE_SOURCE_COPY[source].description}</p>
+                {/* The invasive row's disclosure carries every safety promise
+                    on this surface, so it does not get the decorative
+                    warm-gray the benign rows use — it was the lowest-contrast
+                    text on the page (~2:1). */}
+                <p
+                  className={
+                    isMostInvasive
+                      ? "text-xs text-[var(--color-navy-mid)]"
+                      : "text-xs text-[var(--color-warm-gray)]"
+                  }
+                >
+                  {CAPTURE_SOURCE_COPY[source].description}
+                </p>
                 {row.changedAt && (
                   <p className="text-xs text-[var(--color-warm-gray)]">
                     {row.enabled ? "Enabled" : "Disabled"} {new Date(row.changedAt).toLocaleString()} by {row.changedBy}
@@ -409,24 +423,42 @@ function CaptureConsentCard() {
                   // turning it OFF is always one click, never confirmed.
                   if (isMostInvasive && !row.enabled) {
                     const ok = window.confirm(
-                      "Turn on typing capture?\n\nBridge will store the text you type in ordinary text fields, in apps you have not denied.\n\nNever captured: password fields, any field Bridge cannot positively identify, and denied apps. Card numbers, SSNs and long tokens are stripped before storage. Raw keystrokes never touch disk and never leave this device.\n\nYou can turn this off at any time, and delete anything it stored.",
+                      "Turn on typing capture?\n\nBridge will store the text you type in ordinary text fields, in apps you have not denied in the list below this row.\n\nNever captured: password fields, any field Bridge cannot positively identify, and denied apps. Password managers are permanently excluded and cannot be removed. Banks are NOT excluded by default — add yours in the list below. Card numbers, national ID numbers and long tokens are stripped before storage. Raw keystrokes never touch disk and never leave this device.\n\nYou can turn this off at any time, and delete anything it stored.",
                     );
                     if (!ok) return;
                   }
                   void flipSource(source, !row.enabled);
                 }}
-                disabled={status.paused}
-                className={`text-xs font-semibold px-3 py-2 rounded-lg shrink-0 ${
-                  row.enabled ? "bg-[var(--color-steel)] text-white" : "border"
-                } ${status.paused ? "opacity-50" : ""}`}
+                // NEVER disable an off-ramp. "Pause all" may block turning a
+                // source ON, but a user must always be able to revoke — the
+                // confirm text promises "you can turn this off at any time",
+                // and a disabled off switch made that false while paused.
+                disabled={status.paused && !row.enabled}
+                aria-label={`${CAPTURE_SOURCE_COPY[source].label} capture`}
+                aria-pressed={row.enabled}
+                className={`text-xs font-semibold px-3 py-2 rounded-lg shrink-0 min-w-[64px] min-h-[44px] border ${
+                  row.enabled
+                    ? isMostInvasive
+                      ? // The most invasive source must not read as a peer of
+                        // the others when ARMED — the on-state is the only
+                        // element that says "this is capturing right now".
+                        "bg-amber-700 border-amber-700 text-white"
+                      : "bg-[var(--color-steel)] border-[var(--color-steel)] text-white"
+                    : "border-current"
+                } ${status.paused && !row.enabled ? "opacity-50" : ""}`}
               >
-                {row.enabled ? "On" : "Off"}
+                {row.enabled ? (isMostInvasive ? "Capturing" : "On") : "Off"}
               </button>
             </div>
           );
         })}
         {status.sources.browser.enabled && !status.paused && <BrowserDomainPolicyEditor />}
-        {status.sources.input.enabled && !status.paused && <InputCaptureDenylistEditor />}
+        {/* Rendered whether or not typing capture is on: the confirm dialog
+            tells the user capture happens "in apps you have not denied below",
+            and before this it only appeared AFTER consent — so they were asked
+            to rely on exclusions they had never been shown. Review, then
+            consent. */}
+        {!status.paused && <InputCaptureDenylistEditor enabled={status.sources.input.enabled} />}
         {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
       </div>
     </Card>
@@ -438,26 +470,37 @@ function CaptureConsentCard() {
  * Inverse shape to the browser policy above, deliberately: browser capture is
  * default-DENY (an empty allowlist captures nothing), while typing capture is
  * ambient across every app once consented, so the list here is what to
- * EXCLUDE. Password managers and banking sites are seeded and re-merged by
- * the server on every save — a human cannot edit their way into capturing a
- * password manager. Malformed entries are refused loudly with the offending
- * entry named.
+ * EXCLUDE. Password managers are seeded and re-merged by the server on every
+ * save — a human cannot edit their way into capturing a password manager, so
+ * those entries are shown LOCKED rather than as editable text that silently
+ * reappears. Banks are NOT seeded and the copy must not pretend otherwise
+ * (see SEED_DENYLIST_DOMAINS); the user is asked to add their own. Malformed
+ * entries are refused loudly with the offending entry named.
  */
-function InputCaptureDenylistEditor() {
+function InputCaptureDenylistEditor({ enabled }: { enabled: boolean }) {
   const [apps, setApps] = useState("");
   const [domains, setDomains] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
+  // The permanent floor, shown separately from what the user can edit.
+  const seedApps = SEED_DENYLIST_APPS.map((entry) => entry.toLowerCase());
+  const seedDomains = SEED_DENYLIST_DOMAINS.map((entry) => entry.toLowerCase());
+  const isSeedApp = (entry: string) => seedApps.includes(entry.trim().toLowerCase());
+  const isSeedDomain = (entry: string) => seedDomains.includes(entry.trim().toLowerCase());
+
   useEffect(() => {
     trpc.learning.capture.input.policy
       .query({ organizationId: PILOT_ORGANIZATION })
       .then((policy) => {
-        setApps(policy.apps.join(", "));
-        setDomains(policy.domains.join(", "));
+        // Only the user's OWN additions are editable; the seed floor is
+        // rendered as locked chips below.
+        setApps(policy.apps.filter((entry) => !isSeedApp(entry)).join(", "));
+        setDomains(policy.domains.filter((entry) => !isSeedDomain(entry)).join(", "));
         setLoaded(true);
       })
       .catch(() => setLoaded(false)); // unreachable API = render nothing dead
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!loaded) return null;
@@ -475,12 +518,12 @@ function InputCaptureDenylistEditor() {
         apps: splitEntries(apps),
         domains: splitEntries(domains),
       });
-      setApps(saved.apps.join(", "));
-      setDomains(saved.domains.join(", "));
+      setApps(saved.apps.filter((entry) => !isSeedApp(entry)).join(", "));
+      setDomains(saved.domains.filter((entry) => !isSeedDomain(entry)).join(", "));
       setNote(
         `Saved. ${saved.apps.length} app${saved.apps.length === 1 ? "" : "s"} and ${saved.domains.length} site${
           saved.domains.length === 1 ? "" : "s"
-        } are never captured. Password managers and banks stay on this list even if you remove them.`,
+        } are never captured, including the locked password managers.`,
       );
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error));
@@ -488,31 +531,61 @@ function InputCaptureDenylistEditor() {
   }
 
   return (
-    <div className="rounded-lg border border-amber-300 bg-amber-50/60 p-3 space-y-2">
+    // Indented and neutral-bordered: this is a CHILD of the typing row, not a
+    // seventh capture source. Amber is reserved for severity so it keeps
+    // meaning exactly one thing.
+    <div className="ml-6 rounded-lg border border-l-4 border-l-[var(--color-warm-gray)] p-3 space-y-2">
       <p className="text-sm font-medium">Never capture typing in…</p>
-      <p className="text-xs text-[var(--color-warm-gray)]">
+      <p className="text-xs text-[var(--color-navy-mid)]">
         Typing in these apps and sites is never captured — not the text, not even that typing
-        happened. Password managers and banking sites are always included. Separate entries with
-        commas.
+        happened.{" "}
+        {enabled
+          ? "Separate entries with commas."
+          : "Review this list before you turn typing capture on. Separate entries with commas."}
       </p>
+
+      {/* The seed floor is enforced server-side and re-merged on every save.
+          It used to render as ordinary editable text, so deleting an entry
+          appeared to work and then silently reverted — a control that accepts
+          an edit and discards it lies about the system's state. */}
+      <div className="space-y-1">
+        <p className="text-xs font-semibold">Always excluded — cannot be removed</p>
+        <ul className="flex flex-wrap gap-1">
+          {[...seedApps, ...seedDomains].map((entry) => (
+            <li
+              key={entry}
+              className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-mist)] text-[var(--color-navy-mid)]"
+              title="Seeded by Bridge and re-added on every save"
+            >
+              🔒 {entry}
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-[var(--color-navy-mid)]">
+          These are password managers. <strong>Banks are not on this list</strong> — there is no
+          reliable list of the world&rsquo;s banking sites, so Bridge will not claim to know yours.
+          Add it below.
+        </p>
+      </div>
+
       <label className="block text-xs font-semibold">
-        Apps
-        <input
-          type="text"
+        Your apps
+        <textarea
           value={apps}
           onChange={(event) => setApps(event.target.value)}
+          rows={2}
           placeholder="com.apple.mail, com.tinyspeck.slackmacgap"
-          className="mt-1 w-full rounded-lg border px-2 py-1.5 text-xs font-normal"
+          className="mt-1 w-full rounded-lg border px-2 py-1.5 text-xs font-normal font-mono focus-visible:ring-2 focus-visible:ring-[var(--color-steel)]"
         />
       </label>
       <label className="block text-xs font-semibold">
-        Sites
-        <input
-          type="text"
+        Your sites
+        <textarea
           value={domains}
           onChange={(event) => setDomains(event.target.value)}
-          placeholder="chase.com, myhealth.example"
-          className="mt-1 w-full rounded-lg border px-2 py-1.5 text-xs font-normal"
+          rows={2}
+          placeholder="yourbank.com, myhealth.example"
+          className="mt-1 w-full rounded-lg border px-2 py-1.5 text-xs font-normal font-mono focus-visible:ring-2 focus-visible:ring-[var(--color-steel)]"
         />
       </label>
       <button

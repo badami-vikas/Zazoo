@@ -57,7 +57,8 @@ const CONTENT_ALLOWED_ROLES: ReadonlySet<FieldRole> = new Set<FieldRole>(["conte
  * browser) that are NEVER captured — not the content, not even the fact that
  * typing happened. A DENYLIST (deny-specific, allow-the-rest) is the right
  * shape here because input capture is ambient across every app once consented;
- * the seed set below is the non-negotiable floor (password managers, banking),
+ * the seed set below is the non-negotiable floor (password managers ONLY —
+ * see the note on SEED_DENYLIST_DOMAINS about why banks are NOT seeded),
  * to which the user adds. Matching is case-insensitive and, for domains,
  * label-boundary suffix aware ("chase.com" denies "secure.chase.com" but not
  * "notchase.com"), the same discipline K8's browser policy uses.
@@ -71,7 +72,7 @@ export interface InputCaptureDenylist {
 
 /** The seed denylist floor. These are denied even before the user edits the
  * list; the UI presents them as removable-with-a-warning, but the store starts
- * here so a fresh install never captures a password manager or a bank. */
+ * here so a fresh install never captures a password manager. */
 export const SEED_DENYLIST_APPS: readonly string[] = [
   "com.apple.keychainaccess",
   "com.1password.1password",
@@ -84,6 +85,15 @@ export const SEED_DENYLIST_APPS: readonly string[] = [
   "com.keepassxc.keepassxc",
 ];
 
+/**
+ * Password-manager web vaults. **Banks are deliberately NOT seeded**, and the
+ * product must not claim they are: there is no bounded, maintainable list of
+ * the world's banking domains, and a partial list is worse than none — a user
+ * whose bank is missing reads "banks are always excluded" and trusts a promise
+ * we never kept. (Caught by the visual-critic pass: the copy claimed banking
+ * cover this list never had.) The seed floor promises exactly what it
+ * enforces; the UI asks the user to add their own bank and says why.
+ */
 export const SEED_DENYLIST_DOMAINS: readonly string[] = [
   "1password.com",
   "bitwarden.com",
@@ -113,7 +123,7 @@ export function isValidDenyDomain(value: string): boolean {
 /**
  * Parse a stored denylist, failing CLOSED to the SEED FLOOR: a missing or
  * malformed row is not "capture everything", it is the seed denylist (password
- * managers + banks still protected). Unknown/invalid entries are dropped, and
+ * managers still protected). Unknown/invalid entries are dropped, and
  * the seed floor is always merged in so a user cannot, by editing raw storage,
  * end up with a password manager capturable. Entries are normalized and
  * de-duplicated.
