@@ -20,6 +20,10 @@ pub mod clipboard;
 // fail-closed guarantees are testable on any host — the whole point of
 // building the boundary before the event tap (the K10 gate).
 pub mod input;
+// The macOS-only half: the listen-only CGEventTap + the AX focused-element
+// role read that feeds `input`'s pure classifier.
+#[cfg(target_os = "macos")]
+pub mod input_tap;
 
 use serde::Serialize;
 use std::collections::VecDeque;

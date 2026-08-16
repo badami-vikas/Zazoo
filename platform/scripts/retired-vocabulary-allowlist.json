@@ -213,6 +213,12 @@
       "pathPrefix": "apps/web/src/app/pages/AcademicsPage.tsx",
       "reason": "Same academic assignment-type domain label as the router.ts entry above — the page's options array for the assignment form mirrors the API enum and must match it exactly.",
       "reviewed": "AP-155 · 2026-08-14 · TASK-036"
+    },
+    {
+      "family": "element",
+      "pathPrefix": "apps/desktop/src-tauri/src/providers/input_tap.rs",
+      "reason": "Apple Accessibility C ABI, not the retired Bridge product noun — the same case AP-148 already reviewed for the sibling accessibility.rs. The K11 keystroke tap reads the focused element's role by linking against ApplicationServices' own exported symbols (AXUIElementCreateSystemWide, AXUIElementCopyAttributeValue, AXUIElementSetMessagingTimeout) and by passing Apple's documented attribute-key string \"AXFocusedUIElement\"; a linker symbol and a framework's attribute key are not ours to rename. Every identifier that WAS ours was renamed off the retired noun first (the shared parameter is `node`, not `element`), so this entry covers only the foreign contract.",
+      "reviewed": "AP-157 · 2026-08-17 · TASK-054 (precedent: AP-148 · accessibility.rs)"
     }
   ]
 }

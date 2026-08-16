@@ -715,6 +715,12 @@ pub fn run() {
             open_google_oauth,
             providers::accessibility::ax_permission_status,
             providers::accessibility::ax_request_permission,
+            // K11 (TASK-054): the second grant typing capture needs. Status
+            // is pollable; the request is user-action-only (see input_tap).
+            #[cfg(target_os = "macos")]
+            providers::input_tap::input_permission_status,
+            #[cfg(target_os = "macos")]
+            providers::input_tap::input_request_permission,
         ])
         .setup(|app| {
             // Register the companion push-to-talk shortcut (⌘⇧Space).
