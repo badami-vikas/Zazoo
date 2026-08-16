@@ -283,7 +283,7 @@ type RetrievalEvalList = Awaited<ReturnType<typeof trpc.learning.retrieval.evals
 type CaptureStatus = Awaited<ReturnType<typeof trpc.learning.capture.status.query>>;
 
 const CAPTURE_SOURCE_COPY: Record<
-  "chat" | "whatsapp" | "google" | "browser" | "apps",
+  "chat" | "whatsapp" | "google" | "browser" | "apps" | "input",
   { label: string; description: string }
 > = {
   chat: {
@@ -305,6 +305,10 @@ const CAPTURE_SOURCE_COPY: Record<
   apps: {
     label: "App focus (desktop)",
     description: "The Bridge desktop app notices which app is frontmost and its window title. Titles need the macOS Accessibility permission — without it, app names only. Never window contents, keystrokes, or screenshots.",
+  },
+  input: {
+    label: "Typing (desktop)",
+    description: "The most invasive option, and the only one that stores what you type. Bridge captures typed text ONLY in ordinary text fields, in apps you have not denied below. Password fields, and any field Bridge cannot positively identify, are never captured — not the characters, not even how many. Card numbers, SSNs and long tokens are stripped before anything is stored. Raw keystrokes never touch disk and never leave this device.",
   },
 };
 
@@ -330,7 +334,10 @@ function CaptureConsentCard() {
 
   if (!status?.enabled) return null;
 
-  async function flipSource(source: "chat" | "whatsapp" | "google" | "browser" | "apps", enabled: boolean) {
+  async function flipSource(
+    source: "chat" | "whatsapp" | "google" | "browser" | "apps" | "input",
+    enabled: boolean,
+  ) {
     await trpc.learning.capture.setSource.mutate({ organizationId: PILOT_ORGANIZATION, source, enabled });
     setMessage(
       enabled
@@ -363,12 +370,31 @@ function CaptureConsentCard() {
           Off by default. Each source is a separate consent; turning one on lets Bridge notice YOUR OWN rhythms in data
           it already holds locally. Signals are envelope-only (never message text), private, Local Plane, and deletable.
         </p>
-        {(["chat", "whatsapp", "google", "browser", "apps"] as const).map((source) => {
+        {(["chat", "whatsapp", "google", "browser", "apps", "input"] as const).map((source) => {
           const row = status.sources[source];
+          // K11: typing capture is the only source that stores what you
+          // WROTE rather than a metadata envelope. It must not read as a peer
+          // of the others, so it carries a severity treatment and cannot be
+          // switched on by the same single click.
+          const isMostInvasive = source === "input";
           return (
-            <div key={source} className="rounded-lg border p-3 flex items-start justify-between gap-3">
+            <div
+              key={source}
+              className={`rounded-lg border p-3 flex items-start justify-between gap-3 ${
+                isMostInvasive
+                  ? "border-amber-300 bg-amber-50/60"
+                  : ""
+              }`}
+            >
               <div className="space-y-1">
-                <p className="text-sm font-medium">{CAPTURE_SOURCE_COPY[source].label}</p>
+                <p className="text-sm font-medium flex items-center gap-2">
+                  {CAPTURE_SOURCE_COPY[source].label}
+                  {isMostInvasive && (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">
+                      Most invasive
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs text-[var(--color-warm-gray)]">{CAPTURE_SOURCE_COPY[source].description}</p>
                 {row.changedAt && (
                   <p className="text-xs text-[var(--color-warm-gray)]">
@@ -378,7 +404,17 @@ function CaptureConsentCard() {
               </div>
               <button
                 type="button"
-                onClick={() => void flipSource(source, !row.enabled)}
+                onClick={() => {
+                  // Turning typing capture ON is a deliberate, confirmed act;
+                  // turning it OFF is always one click, never confirmed.
+                  if (isMostInvasive && !row.enabled) {
+                    const ok = window.confirm(
+                      "Turn on typing capture?\n\nBridge will store the text you type in ordinary text fields, in apps you have not denied.\n\nNever captured: password fields, any field Bridge cannot positively identify, and denied apps. Card numbers, SSNs and long tokens are stripped before storage. Raw keystrokes never touch disk and never leave this device.\n\nYou can turn this off at any time, and delete anything it stored.",
+                    );
+                    if (!ok) return;
+                  }
+                  void flipSource(source, !row.enabled);
+                }}
                 disabled={status.paused}
                 className={`text-xs font-semibold px-3 py-2 rounded-lg shrink-0 ${
                   row.enabled ? "bg-[var(--color-steel)] text-white" : "border"
@@ -390,9 +426,104 @@ function CaptureConsentCard() {
           );
         })}
         {status.sources.browser.enabled && !status.paused && <BrowserDomainPolicyEditor />}
+        {status.sources.input.enabled && !status.paused && <InputCaptureDenylistEditor />}
         {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
       </div>
     </Card>
+  );
+}
+
+/**
+ * K11 (TASK-054) — which apps and sites are NEVER keystroke-captured.
+ * Inverse shape to the browser policy above, deliberately: browser capture is
+ * default-DENY (an empty allowlist captures nothing), while typing capture is
+ * ambient across every app once consented, so the list here is what to
+ * EXCLUDE. Password managers and banking sites are seeded and re-merged by
+ * the server on every save — a human cannot edit their way into capturing a
+ * password manager. Malformed entries are refused loudly with the offending
+ * entry named.
+ */
+function InputCaptureDenylistEditor() {
+  const [apps, setApps] = useState("");
+  const [domains, setDomains] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    trpc.learning.capture.input.policy
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then((policy) => {
+        setApps(policy.apps.join(", "));
+        setDomains(policy.domains.join(", "));
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(false)); // unreachable API = render nothing dead
+  }, []);
+
+  if (!loaded) return null;
+
+  const splitEntries = (value: string) =>
+    value
+      .split(/[\s,]+/)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+
+  async function save() {
+    try {
+      const saved = await trpc.learning.capture.input.setDenylist.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        apps: splitEntries(apps),
+        domains: splitEntries(domains),
+      });
+      setApps(saved.apps.join(", "));
+      setDomains(saved.domains.join(", "));
+      setNote(
+        `Saved. ${saved.apps.length} app${saved.apps.length === 1 ? "" : "s"} and ${saved.domains.length} site${
+          saved.domains.length === 1 ? "" : "s"
+        } are never captured. Password managers and banks stay on this list even if you remove them.`,
+      );
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50/60 p-3 space-y-2">
+      <p className="text-sm font-medium">Never capture typing in…</p>
+      <p className="text-xs text-[var(--color-warm-gray)]">
+        Typing in these apps and sites is never captured — not the text, not even that typing
+        happened. Password managers and banking sites are always included. Separate entries with
+        commas.
+      </p>
+      <label className="block text-xs font-semibold">
+        Apps
+        <input
+          type="text"
+          value={apps}
+          onChange={(event) => setApps(event.target.value)}
+          placeholder="com.apple.mail, com.tinyspeck.slackmacgap"
+          className="mt-1 w-full rounded-lg border px-2 py-1.5 text-xs font-normal"
+        />
+      </label>
+      <label className="block text-xs font-semibold">
+        Sites
+        <input
+          type="text"
+          value={domains}
+          onChange={(event) => setDomains(event.target.value)}
+          placeholder="chase.com, myhealth.example"
+          className="mt-1 w-full rounded-lg border px-2 py-1.5 text-xs font-normal"
+        />
+      </label>
+      <button
+        type="button"
+        onClick={() => void save()}
+        className="text-xs font-semibold px-3 py-2 rounded-lg border"
+      >
+        Save
+      </button>
+      {note && <p className="text-xs text-[var(--color-steel)]">{note}</p>}
+    </div>
   );
 }
 

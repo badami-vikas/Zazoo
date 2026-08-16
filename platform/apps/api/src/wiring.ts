@@ -954,6 +954,13 @@ export function appFocusCaptureSignalId(focusId: string): string {
   return deterministicUuid(`learning:signal:apps:${focusId}`);
 }
 
+/** K11 (TASK-054): one signal per shell-minted input burst id — a retried or
+ * re-drained burst derives the same id and is skipped, so the shell needs no
+ * cursor to be safe about the most invasive capture lane. */
+export function inputCaptureSignalId(burstId: string): string {
+  return deterministicUuid(`learning:signal:input:${burstId}`);
+}
+
 /** The one app-focus provider id — the desktop shell's `apps` poller,
  * relayed. Also the capability-manifest key (`ctx-provider:<id>`). */
 export const APP_FOCUS_PROVIDER_ID = "desktop-apps";

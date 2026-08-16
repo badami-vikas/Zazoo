@@ -92,6 +92,7 @@ import {
   browserCaptureSignalId,
   chatCaptureSignalId,
   googleCaptureSignalId,
+  inputCaptureSignalId,
   whatsAppCaptureSignalId,
   resolveLocalPlanningModel,
   type Wiring,
@@ -308,7 +309,13 @@ import {
   whatsAppMessageCaptureSignal,
   withCapturePaused,
   withSourceConsent,
+  distilKeystrokeBurst,
+  inputCaptureSignal,
+  readInputCaptureDenylist,
+  withInputCaptureDenylist,
   type CaptureConsentState,
+  type InputCaptureDenylist,
+  type FieldRole,
   acceptClaimSuggestion,
   claimsToMemorySnippets,
   CLAIM_ENTITY_KINDS,
@@ -514,6 +521,25 @@ async function readCaptureConsentState(
  * (@bridge/core learning/browser-capture). Local Plane by residency, like
  * the consent state it refines: which domains the owner's browser may
  * report on lives beside the consent that lets it report at all. */
+
+/** Local state-store namespace holding the K11 input-capture denylist
+ * (@bridge/core learning/input-capture). Local Plane by residency, like the
+ * consent it refines: which apps and domains are never keystroke-captured
+ * lives beside the consent that lets capture happen at all. */
+const LEARNING_INPUT_DENYLIST_NAMESPACE = "learning:input-capture-denylist";
+
+/** Read the current input-capture denylist, failing CLOSED to the SEED FLOOR:
+ * a missing or malformed row is not "capture everything", it is the seed
+ * denylist (password managers and banks still protected). The core parser
+ * owns that contract and is mutation-checked there. */
+async function readInputDenylistState(
+  wiring: Pick<Wiring, "localPlane">,
+  organizationId: string,
+): Promise<InputCaptureDenylist> {
+  return readInputCaptureDenylist(
+    await wiring.localPlane.state.read(organizationId, LEARNING_INPUT_DENYLIST_NAMESPACE),
+  );
+}
 
 /** K10 E5's own lexical tier — deliberately NOT the shared
  * `hashingTextEmbedder()` (dim 128, id "bridge-hashing-lexical-v1") that
@@ -14777,6 +14803,186 @@ export const appRouter = t.router({
             );
             if (signal) await recordCaptureSignal(ctx.wiring.memoryStore, signal);
             return { captured: true, verdict: "captured" as const };
+          }),
+      }),
+
+      /** K11 (TASK-054, AP-157) — continuous input capture, the most
+       * invasive sensor in the product and the reason K10's hardening had
+       * to land first. The user chose FULL CONTENT capture, so the promise
+       * is not "we never see sensitive text" — it is that the fail-closed
+       * boundary in `@bridge/core/learning/input-capture` decides, and it
+       * decides the same way on BOTH sides of the process boundary: the
+       * desktop provider distils in memory before anything is sent, and
+       * this lane re-distils what arrives (defense in depth against a
+       * stale, patched, or bypassed shell). A denylisted app emits nothing
+       * at all; a secure or UNDETERMINABLE field yields a marker with no
+       * characters and no count; captured text arrives already redacted and
+       * is redacted again here. Raw keystrokes have no field on the wire
+       * schema, so they cannot reach this endpoint even if a caller tried. */
+      input: t.router({
+        /** Everything the desktop shell needs to go honestly dormant or
+         * capture: flight, consent, kill switch, and the denylist. Always
+         * answerable, like `capture.status`. */
+        policy: procedure
+          .input(z.object({ organizationId: z.string().min(1) }))
+          .query(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
+            const denylist = await readInputDenylistState(ctx.wiring, input.organizationId);
+            return {
+              enabled: ctx.wiring.learningObservationEnabled,
+              capturing:
+                ctx.wiring.learningObservationEnabled && captureAllowed(consent, "input"),
+              paused: consent.paused,
+              apps: denylist.apps,
+              domains: denylist.domains,
+            };
+          }),
+
+        /** Editing the denylist is a Human decision, like consent itself.
+         * Invalid entries are refused LOUDLY with the offending entry
+         * named, and the seed floor (password managers, banks) is always
+         * re-merged by the core builder — a human cannot, by editing, end
+         * up with a password manager capturable. */
+        setDenylist: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              apps: z.array(z.string().min(1).max(253)).max(200),
+              domains: z.array(z.string().min(1).max(253)).max(200),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            if (ctx.identity.type !== "user") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message:
+                  "The input-capture denylist is a Human decision — only a user identity may change it",
+              });
+            }
+            const { denylist, rejected } = withInputCaptureDenylist({
+              apps: input.apps,
+              domains: input.domains,
+            });
+            if (rejected.length > 0) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `${rejected
+                  .map((entry) => `"${entry}"`)
+                  .join(", ")} — apps look like "com.apple.mail" and domains like "chase.com" (no scheme, path, or port)`,
+              });
+            }
+            await ctx.wiring.localPlane.state.update(
+              input.organizationId,
+              LEARNING_INPUT_DENYLIST_NAMESPACE,
+              null,
+              () => ({ state: denylist, result: denylist }),
+            );
+            return denylist;
+          }),
+
+        /** One distilled input burst from the desktop shell. Never errors on
+         * a declined capture — the shell is a background caller and a
+         * structured verdict must not become a retry loop. Idempotent per
+         * shell-minted burstId. NOTE the wire schema: there is no field for
+         * a raw keystroke stream, and `text` is the already-distilled,
+         * already-redacted content the provider produced; the server
+         * re-runs the SAME core gate over it regardless. */
+        burst: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              burstId: z.string().uuid(),
+              appName: z.string().min(1).max(200),
+              appBundleId: z.string().min(1).max(253),
+              host: z.string().max(253).optional(),
+              fieldRole: z.enum(["content_ok", "secure", "undeterminable"]),
+              /** Already distilled + redacted by the provider. Re-gated here. */
+              text: z.string().max(10_000),
+              keyCount: z.number().int().min(0).max(100_000),
+              typedAt: z.string().datetime(),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            if (ctx.identity.type !== "user") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message:
+                  "Input capture is a behavior signal about a human — only that user's own identity may report it",
+              });
+            }
+            const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
+            if (!captureAllowed(consent, "input")) {
+              return { captured: false, verdict: "consent_off" as const };
+            }
+            const denylist = await readInputDenylistState(ctx.wiring, input.organizationId);
+
+            // Re-distil server-side through the SAME core boundary the
+            // provider used. A shell that was patched, downgraded, or
+            // bypassed cannot widen what gets stored.
+            const distilled = distilKeystrokeBurst(
+              {
+                text: input.text,
+                keyCount: input.keyCount,
+                fieldRole: input.fieldRole as FieldRole,
+                appBundleId: input.appBundleId,
+                appName: input.appName,
+                ...(input.host !== undefined ? { host: input.host } : {}),
+              },
+              denylist,
+            );
+            if (distilled === null) {
+              return { captured: false, verdict: "denylisted" as const };
+            }
+
+            const signalId = inputCaptureSignalId(input.burstId);
+            const owner = { organizationId: input.organizationId, userId: ctx.identity.id };
+            if (await ctx.wiring.memoryStore.get(signalId, owner)) {
+              return { captured: false, verdict: "duplicate" as const };
+            }
+            const signal = inputCaptureSignal(
+              {
+                burstId: input.burstId,
+                appName: distilled.appName,
+                bundleId: distilled.appBundleId,
+                summary: distilled.summary,
+                ...(distilled.keyCount !== undefined ? { keyCount: distilled.keyCount } : {}),
+                ...(distilled.content !== undefined ? { content: distilled.content } : {}),
+                disposition: distilled.disposition,
+                ...(distilled.suppressionReason
+                  ? { suppressionReason: distilled.suppressionReason }
+                  : {}),
+                redactionCount: distilled.redactions.length,
+                typedAt: input.typedAt,
+                // Typed text is the user's own input, but it can contain
+                // anything they pasted — labeled untrusted/instruction-like
+                // at the capture boundary, like every other captured text.
+                taintLabel: labelAtSource("input_capture", {
+                  ref: `input:burst:${input.burstId}`,
+                  valueHash: hashTaintValue({
+                    app: distilled.appBundleId,
+                    disposition: distilled.disposition,
+                  }),
+                  sensitivity: "private",
+                  instructionRisk: "instruction_like",
+                }),
+              },
+              owner,
+              signalId,
+            );
+            if (signal) await recordCaptureSignal(ctx.wiring.memoryStore, signal);
+            return {
+              captured: true,
+              verdict: "captured" as const,
+              disposition: distilled.disposition,
+            };
           }),
       }),
 

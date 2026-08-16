@@ -40,10 +40,15 @@
  * K7 adds "apps" — the desktop shell's frontmost-app/window-title focus
  * capture (the first ambient sensor, @bridge/sensors SensorHub): app name +
  * bundle id + window title only, title fail-closed absent the Accessibility
- * grant. Later capture rungs add members here — each new member is a new
- * consent surface by construction, because `defaultCaptureConsent` starts
- * it OFF. */
-export const CAPTURE_SOURCES = ["chat", "whatsapp", "google", "browser", "apps"] as const;
+ * grant. K11 adds "input" — continuous keystroke/click capture (the most
+ * invasive sensor, gated behind the K10 hardening tests): the typed content
+ * itself is captured ONLY when the fail-closed field-role gate is clear
+ * (input-capture.ts) — a secure/password/undeterminable field or a
+ * denylisted app yields at most "typed in <field>", never characters, and
+ * raw keystrokes never leave the Local Plane or hit disk. Later capture
+ * rungs add members here — each new member is a new consent surface by
+ * construction, because `defaultCaptureConsent` starts it OFF. */
+export const CAPTURE_SOURCES = ["chat", "whatsapp", "google", "browser", "apps", "input"] as const;
 export type CaptureSource = (typeof CAPTURE_SOURCES)[number];
 
 export function isCaptureSource(value: unknown): value is CaptureSource {

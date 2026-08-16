@@ -20,7 +20,7 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-070 | ready | P2 | Events sub-module (NetworkManager) — speaker extraction + LinkedIn outreach queue | none |
 | TASK-040 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 |
 | TASK-041 | ready | P2 | Pending Tests — live verification backlog | non-task gate (see TASKS.md) |
-| TASK-054 | ready | P3 | K11 — EG4 sensor tier: input, screen, ambient voice | TASK-043, TASK-051 |
+| TASK-054 | in_progress | P3 | K11 — EG4 sensor tier: input, screen, ambient voice | TASK-043, TASK-051 |
 | TASK-055 | ready | P3 | Companion trigger and capture parity — Fn hold, double-click listen, on-request recording | TASK-027 |
 | TASK-056 | ready | P2 | Multi-app automation for the background agent | TASK-028 |
 | TASK-057 | ready | P2 | Companion-triggered integrations | TASK-026, TASK-027 |

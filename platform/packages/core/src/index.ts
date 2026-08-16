@@ -66,6 +66,7 @@ export * from "./learning/observation.js";
 export * from "./learning/ledger-miner.js";
 export * from "./learning/browser-capture.js";
 export * from "./learning/capture-consent.js";
+export * from "./learning/input-capture.js";
 export * from "./learning/source-emitters.js";
 export * from "./learning/retrieval.js";
 export * from "./learning/archetype.js";
