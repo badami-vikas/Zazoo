@@ -2,9 +2,9 @@
  * NotchHome — Zazoo living in the MacBook camera notch (roadmap Z1).
  *
  * Poses, in order of the user's gesture:
- *   concealed → (cursor enters the notch hot zone) → the bed slides down out
+ *   concealed → (cursor enters the notch hot zone) → the bed slides LEFT out
  *   of the cutout carrying a SLEEPING Zazoo, he wakes and stands up, and the
- *   bed slides back up out of sight → (click) → chat: the panel grows a
+ *   bed slides back right into the notch → (click) → chat: the panel grows a
  *   composer → (drag down) → drop: the window becomes a full-height column
  *   and Zazoo falls to the bottom of the screen with stretch, impact squash
  *   and an elastic settle, then hands off to the free-floating home.
@@ -30,6 +30,7 @@ import {
   dropColumnBox,
   fallProgress,
   glideCenterX,
+  notchBox,
   landedWindowRect,
   landingOffsetY,
   landingSquash,
@@ -62,7 +63,10 @@ const STAND_MS = 380;
  */
 const AVATAR_SIZE = 72;
 const AVATAR_DRAWN_HEIGHT = avatarDrawnHeight(AVATAR_SIZE);
-const AVATAR_TOP_GAP = 0;
+/** He stands BESIDE the cutout, so this is measured from the window top (the
+ * screen top) — a hair of drop so he reads as sitting just below the menu bar
+ * line rather than clipped by it. */
+const AVATAR_TOP_GAP = 4;
 /** Bed slab, tucked under his feet (his rig draws them at the very bottom of
  * its box, so the slab overlaps slightly rather than floating below them). */
 const BED_TOP_GAP = AVATAR_TOP_GAP + AVATAR_DRAWN_HEIGHT - 4;
@@ -161,10 +165,13 @@ export function NotchHome({
   const cutoutHeight = geometry.hasNotch ? geometry.height : 0;
   const box = dropping
     ? dropColumnBox(geometry)
-    : pose === "chat"
-      ? NOTCH_BOX_CHAT
-      : NOTCH_BOX_BED;
-  const avatarCenterX = avatarPeekCenterX(box.width, geometry);
+    : notchBox(pose === "chat" ? NOTCH_BOX_CHAT : NOTCH_BOX_BED, geometry);
+  // Docked he stands beside the cutout; falling, he starts on the notch's own
+  // centre line (the drop column is the whole screen, so window-local x and
+  // screen x are the same thing there).
+  const avatarCenterX = dropping
+    ? glideCenterX(0, geometry)
+    : avatarPeekCenterX(box.width, AVATAR_SIZE, geometry);
 
   // The box the OS window is sized to. During the drop the drop effect below
   // owns the sizing (it must know when the resize has actually landed before
@@ -276,10 +283,19 @@ export function NotchHome({
     };
   }, [dropping, geometry, cutoutHeight, onLanded, reducedMotion]);
 
-  // Entrance transforms. Everything starts tucked behind the cutout; the bed
-  // travels down with Zazoo, then back up on its own once he is standing.
+  // Entrance transforms. The window's right edge IS the cutout's right edge,
+  // so "tucked" is parked off that edge — behind the notch — and the entrance
+  // is a slide LEFT out of it (user directive), not a drop from above. While
+  // an element travels across the cutout's own width it is invisible (no
+  // display behind the hole), which is what makes him read as emerging from
+  // behind the notch rather than sliding in from nowhere.
+  const tuckedX = (restLeft: number) => box.width - restLeft + 8;
+  const bedRestLeft = avatarCenterX - 110;
+  const bedX = entrance === "sleeping" ? 0 : tuckedX(bedRestLeft);
+  const avatarTuckedX = tuckedX(avatarCenterX - AVATAR_SIZE / 2);
+  // The composer has no notch to hide behind — it lives at the far left — so
+  // it keeps its own vertical tuck.
   const tuckedY = -(cutoutHeight + AVATAR_DRAWN_HEIGHT + 60);
-  const bedY = entrance === "sleeping" ? 0 : tuckedY;
   const avatarOut = entrance !== "tucked";
   // He is already lying down while tucked, so sliding out is a pure
   // translation and the only rotation the eye sees is him standing up.
@@ -300,23 +316,20 @@ export function NotchHome({
     // his bounding box ~35px lower than it sits standing, so the lying pose
     // carries a matching upward offset — without it his legs are clipped off
     // the bottom of a panel sized for a standing avatar.
-    const restY = cutoutHeight + AVATAR_TOP_GAP;
-    const lieY = AVATAR_TOP_GAP;
-    const y = (lying ? lieY : restY) + (avatarOut ? 0 : tuckedY);
+    const y = AVATAR_TOP_GAP;
+    const x = avatarOut ? 0 : avatarTuckedX;
     return {
       left: avatarCenterX,
-      // Rotated CLOCKWISE, so his head lies toward the open middle of the
-      // panel. Counter-clockwise put it past the panel's left edge — he
-      // peeks out only ~60px from that edge, and his body is longer than
-      // that, so lying leftward simply cropped his head off.
-      transform: `translateY(${y}px)${lying ? " rotate(74deg)" : ""}`,
+      // Rotated COUNTER-clockwise, so his head leads the way out of the notch
+      // and lies toward the open strip beside it. Clockwise would lay him into
+      // the cutout, which is a hole in the display, not a place for a panda.
+      transform: `translate(${x}px, ${y}px)${lying ? " rotate(-74deg)" : ""}`,
       transformOrigin: "50% 100%",
       transition: lying ? slideTransition : standTransition,
     } as const;
   }, [
-    cutoutHeight,
     avatarOut,
-    tuckedY,
+    avatarTuckedX,
     lying,
     avatarCenterX,
     slideTransition,
@@ -386,18 +399,19 @@ export function NotchHome({
         }}
       />
 
-      {/* The bed: a rounded slab that carries Zazoo out of the cutout and then
-       * withdraws once he is on his feet. Rendered BEFORE the avatar so he
-       * always sits on top of it. */}
+      {/* The bed: a rounded slab that slides LEFT out of the cutout carrying
+       * Zazoo, then withdraws back into it once he is on his feet. Rendered
+       * BEFORE the avatar so he always sits on top of it. */}
       {!dropping && (
         <div
           aria-hidden="true"
           style={{
             position: "absolute",
-            top: cutoutHeight + BED_TOP_GAP,
-            // Offset right of the standing position: the slab has to be under
-            // the LYING body, which extends rightward from his feet.
-            left: avatarCenterX + 44,
+            top: BED_TOP_GAP,
+            // Offset left of the standing position: the slab has to be under
+            // the LYING body, which extends leftward from his feet (the only
+            // direction with drawable space — the cutout is to his right).
+            left: avatarCenterX - 44,
             marginLeft: -66,
             width: 132,
             height: BED_HEIGHT,
@@ -408,7 +422,7 @@ export function NotchHome({
               "linear-gradient(180deg, rgba(255,255,255,0.34), rgba(255,255,255,0.16))",
             boxShadow:
               "0 3px 12px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.25)",
-            transform: `translateY(${bedY}px)`,
+            transform: `translateX(${bedX}px)`,
             transition: slideTransition,
           }}
         />
@@ -480,9 +494,12 @@ export function NotchHome({
         <div
           style={{
             position: "absolute",
-            left: avatarCenterX + AVATAR_SIZE / 2 + 8,
-            right: 12,
-            top: cutoutHeight + 6,
+            // To the LEFT of Zazoo, who is himself left of the cutout: the
+            // strip beside the notch is the only drawable space up here, and
+            // the composer used to run rightward straight into the hole.
+            left: 12,
+            right: box.width - (avatarCenterX - AVATAR_SIZE / 2) + 8,
+            top: 6,
             display: "flex",
             gap: 6,
             opacity: composerReady ? 1 : 0,

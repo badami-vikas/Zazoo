@@ -724,8 +724,8 @@ fn set_panel_above_menu_bar(_window: &WebviewWindow, _above: bool) -> Result<(),
     Ok(())
 }
 
-/// Dock the companion window as a box horizontally centred on the notch with
-/// its top edge flush to the display top.
+/// Dock the companion window as a box whose RIGHT edge is flush with the
+/// notch's right edge and whose top edge is flush with the display top.
 ///
 /// The webview asks for a box size rather than a "state" because the same
 /// primitive serves every notch pose: the resting sliver, the hover bed, the
@@ -743,16 +743,22 @@ pub fn overlay_dock_notch(
     let geometry = crate::notch::interactive_geometry(&app)
         .ok_or_else(|| "notch geometry unavailable".to_string())?;
 
-    // Centre on the cutout when there is one; on a flat panel the roadmap's
-    // documented fallback is top-centre of the display.
-    let centre = if geometry.has_notch {
-        geometry.x + geometry.width / 2.0
+    // Right edge flush with the cutout's right edge, so the whole box except
+    // its last `geometry.width` points is real, drawable display to the LEFT
+    // of the notch — the strip Zazoo and his composer now live in (user
+    // directive: he should slide out to the left of the notch rather than
+    // hang below it). A box wider than the screen (the drop column) clamps to
+    // x=0, which is the full-screen placement that path already wanted.
+    // On a flat panel the roadmap's documented fallback is top-centre.
+    let ideal_left = if geometry.has_notch {
+        geometry.x + geometry.width - width
     } else {
-        geometry.screen_width / 2.0
+        geometry.screen_width / 2.0 - width / 2.0
     };
-    let left = (centre - width / 2.0).max(0.0).min(geometry.screen_width - width);
+    let left = ideal_left.max(0.0).min((geometry.screen_width - width).max(0.0));
     eprintln!(
-        "[bridge-desktop] notch dock: window rect x={left} y=0 w={width} h={height} (notch centre={centre})"
+        "[bridge-desktop] notch dock: window rect x={left} y=0 w={width} h={height} (notch x={} w={})",
+        geometry.x, geometry.width
     );
 
     app.state::<DisplayTopologyState>()

@@ -27,7 +27,14 @@
  * On macOS the Rust window is an NSPanel configured for all Spaces and
  * fullscreen auxiliary presence.
  */
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { ChatView } from "../chat/ChatView";
 import { CompanionAsk } from "./CompanionAsk";
 import { CompanionComposer } from "./CompanionComposer";
@@ -156,6 +163,78 @@ export function OverlayApp() {
   // "chat" = the hover chat bubble's compact inline chat.
   // "ask" = the screen-aware companion ask panel (TASK-027).
   const [panel, setPanel] = useState<"none" | "status" | "chat" | "ask">("none");
+  // User-adjustable chat window size (logical px). The window is undecorated,
+  // so the OS gives no resize border of its own — these invisible edge handles
+  // are the only way to stretch it, and the size they produce is what the
+  // `overlay_resize` effects below send to Rust.
+  const [chatW, setChatW] = useState(WINDOW_SIZE.chat.w);
+  const [chatH, setChatH] = useState(WINDOW_SIZE.chat.h);
+  const resizeDrag = useRef<
+    { edge: string; startX: number; startY: number; startW: number; startH: number } | null
+  >(null);
+  const resizeRaf = useRef<number | null>(null);
+
+  const startResize = useCallback(
+    (edge: string, event: ReactPointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      // Pointer capture keeps the drag live once the cursor leaves the window
+      // — which it does immediately, since dragging an edge outward moves the
+      // pointer outside the current bounds.
+      (event.target as Element).setPointerCapture(event.pointerId);
+      resizeDrag.current = {
+        edge,
+        startX: event.clientX,
+        startY: event.clientY,
+        startW: chatW,
+        startH: chatH,
+      };
+    },
+    [chatW, chatH],
+  );
+
+  const onResizeMove = useCallback((event: ReactPointerEvent) => {
+    const drag = resizeDrag.current;
+    if (!drag) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    // The window pins its bottom-right corner, so the left/top edges are the
+    // ones that grow it: dragging them outward (negative delta) means wider.
+    const w = Math.round(
+      Math.max(260, Math.min(700, drag.edge.includes("left") ? drag.startW - dx : drag.startW)),
+    );
+    const h = Math.round(
+      Math.max(300, Math.min(900, drag.edge.includes("top") ? drag.startH - dy : drag.startH)),
+    );
+    if (resizeRaf.current !== null) cancelAnimationFrame(resizeRaf.current);
+    resizeRaf.current = requestAnimationFrame(() => {
+      setChatW(w);
+      setChatH(h);
+    });
+  }, []);
+
+  const endResize = useCallback(() => {
+    resizeDrag.current = null;
+  }, []);
+
+  /** The invisible 6px drag edges, shared by both homes' chat panels. */
+  const resizeHandles = (
+    <>
+      <div
+        onPointerDown={(event) => startResize("left", event)}
+        style={{ position: "absolute", left: 0, top: 8, bottom: 8, width: 6, cursor: "ew-resize", zIndex: 10 }}
+      />
+      <div
+        onPointerDown={(event) => startResize("top", event)}
+        style={{ position: "absolute", top: 0, left: 8, right: 8, height: 6, cursor: "ns-resize", zIndex: 10 }}
+      />
+      <div
+        onPointerDown={(event) => startResize("top-left", event)}
+        style={{ position: "absolute", top: 0, left: 0, width: 12, height: 12, cursor: "nwse-resize", zIndex: 11 }}
+      />
+    </>
+  );
+
   // True while the global push-to-talk shortcut is held (drives CompanionAsk
   // recording).
   const [pttActive, setPttActive] = useState(false);
@@ -551,12 +630,12 @@ export function OverlayApp() {
       : panel === "ask"
         ? WINDOW_SIZE.ask
         : panel === "chat"
-          ? WINDOW_SIZE.chat
+          ? { w: chatW, h: chatH }
           : hovering || pinned
             ? WINDOW_SIZE.hover
             : WINDOW_SIZE.collapsed;
     void tauriInvoke("overlay_resize", { width: size.w, height: size.h });
-  }, [panel, hovering, pinned, menuOpen, home]);
+  }, [panel, hovering, pinned, menuOpen, home, chatW, chatH]);
 
   // Docked in the notch, the ask/chat panels replace NotchHome outright (see
   // the render below) rather than being a variant of it, so they need their
@@ -568,9 +647,9 @@ export function OverlayApp() {
   useEffect(() => {
     if (home !== "notch") return;
     if (panel !== "ask" && panel !== "chat") return;
-    const size = panel === "ask" ? WINDOW_SIZE.ask : WINDOW_SIZE.chat;
+    const size = panel === "ask" ? WINDOW_SIZE.ask : { w: chatW, h: chatH };
     void tauriInvoke("overlay_present_docked_panel", { width: size.w, height: size.h });
-  }, [home, panel]);
+  }, [home, panel, chatW, chatH]);
 
   // Close panel/unpin when the overlay window loses focus (user clicks elsewhere
   // on the desktop or another app). This is what "clicking elsewhere closes it" means
@@ -795,8 +874,13 @@ export function OverlayApp() {
             overflow: "hidden",
             background: "var(--color-background)",
             borderRadius: "var(--radius-card)",
+            position: "relative",
           }}
+          onPointerMove={onResizeMove}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
         >
+          {resizeHandles}
           <div
             className="flex items-center justify-between px-3 py-2 border-b"
             style={{ borderColor: "var(--color-border)" }}
@@ -980,8 +1064,12 @@ export function OverlayApp() {
           role="dialog"
           aria-label={`Chat with ${name}`}
           className="w-full mb-2 rounded-[var(--radius-card)] border border-border bg-background shadow-lg text-sm flex flex-col"
-          style={{ flex: "1 1 auto", minHeight: 0 }}
+          style={{ flex: "1 1 auto", minHeight: 0, position: "relative" }}
+          onPointerMove={onResizeMove}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
         >
+          {resizeHandles}
           <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: "var(--color-border)" }}>
             <p className="font-medium text-[var(--color-navy)]">{name}</p>
             <button

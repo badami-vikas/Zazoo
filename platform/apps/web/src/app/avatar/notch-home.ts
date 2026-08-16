@@ -39,10 +39,30 @@ export interface NotchBox {
   height: number;
 }
 
-/** Resting: the window is concealed entirely, so the desktop is untouched.
- * The cursor poll — not a hover target — is what wakes it. */
-export const NOTCH_BOX_BED: NotchBox = { width: 300, height: 136 };
-export const NOTCH_BOX_CHAT: NotchBox = { width: 400, height: 152 };
+/**
+ * The docked window sits BESIDE the cutout, not under it: its right edge is
+ * flush with the cutout's right edge (see `overlay_dock_notch`), so `side` is
+ * the usable strip to the LEFT of the notch that carries Zazoo and his
+ * composer. Everything drawn there is on real display, which is what lets him
+ * sit level with the notch instead of hanging below it (user report: "zazoo
+ * appears too low when hovered over notch").
+ */
+export const NOTCH_BOX_BED = { side: 272, height: 112 } as const;
+export const NOTCH_BOX_CHAT = { side: 372, height: 128 } as const;
+
+/** Total window box for a docked pose: the cutout's own width plus the strip. */
+export function notchBox(
+  box: { side: number; height: number },
+  geometry: NotchGeometry,
+): NotchBox {
+  return {
+    width: (geometry.hasNotch ? geometry.width : 0) + box.side,
+    height: box.height,
+  };
+}
+
+/** Gap kept between Zazoo's drawn box and the cutout's left edge. */
+export const AVATAR_NOTCH_GAP = 8;
 
 /**
  * Zazoo's rig draws on a 240×310 viewBox, so a requested WIDTH becomes a
@@ -92,24 +112,21 @@ export function dropColumnBox(geometry: NotchGeometry): NotchBox {
 }
 
 /**
- * Where Zazoo's centre sits horizontally, in WINDOW-local px, so he peeks out
- * to the left of the cutout rather than dead-centre under it — the original
- * roadmap framing ("peek HEAD-ONLY to the LEFT of the notch"), which user
- * feedback confirmed over centring.
+ * Where Zazoo's centre sits horizontally, in WINDOW-local px: entirely to the
+ * LEFT of the cutout, clear of it, so nothing of him is lost to the hole in
+ * the display and he can sit level with the notch rather than below it.
  *
- * The window itself stays centred on the notch (simplest for the Rust dock
- * command, and it leaves generous margin on both sides); only the avatar's
- * drawn position within that window shifts left, to hug the cutout's left
- * edge. On a flat panel (no cutout) there is no edge to hug, so he stays
- * centred in the fallback box instead.
+ * The window's right edge is flush with the cutout's right edge, so the
+ * cutout occupies the last `geometry.width` px of the box and everything else
+ * is drawable. On a flat panel there is no cutout, so he stays centred.
  */
-export function avatarPeekCenterX(boxWidth: number, geometry: NotchGeometry): number {
+export function avatarPeekCenterX(
+  boxWidth: number,
+  avatarWidth: number,
+  geometry: NotchGeometry,
+): number {
   if (!geometry.hasNotch) return boxWidth / 2;
-  // The window is centred on the notch, so the notch's own left edge, in
-  // window-local coordinates, is this expression — independent of screen
-  // position, which is why the window's absolute x never enters the formula.
-  const notchLocalLeft = boxWidth / 2 - geometry.width / 2;
-  return notchLocalLeft;
+  return boxWidth - geometry.width - AVATAR_NOTCH_GAP - avatarWidth / 2;
 }
 
 /** Clear space kept between the landed avatar/window and the Dock or screen edge. */

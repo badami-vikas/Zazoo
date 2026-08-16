@@ -151,21 +151,36 @@ test("landing offset keeps the avatar above the Dock, not merely above the scree
   );
 });
 
-test("Zazoo peeks left of the notch, not centred under it", async () => {
-  const { avatarPeekCenterX } = await loadNotchHome();
-  const boxWidth = 300;
-  const centerX = avatarPeekCenterX(boxWidth, GEOMETRY);
-  const windowCentre = boxWidth / 2;
-  assert.ok(centerX < windowCentre, "must sit left of the window's own centre");
-  // Should land on the cutout's own left edge, in window-local coordinates.
-  const notchLocalLeft = boxWidth / 2 - GEOMETRY.width / 2;
-  assert.ok(Math.abs(centerX - notchLocalLeft) < 0.01);
+test("Zazoo stands entirely clear of the cutout, to its left", async () => {
+  const { avatarPeekCenterX, notchBox, NOTCH_BOX_BED } = await loadNotchHome();
+  const avatarWidth = 72;
+  const boxWidth = notchBox(NOTCH_BOX_BED, GEOMETRY).width;
+  const centerX = avatarPeekCenterX(boxWidth, avatarWidth, GEOMETRY);
+  // The window's right edge IS the cutout's right edge, so the cutout owns
+  // the last `GEOMETRY.width` px. Nothing of him may reach into it — that is
+  // a hole in the display, and anything drawn there is simply deleted.
+  const notchLocalLeft = boxWidth - GEOMETRY.width;
+  assert.ok(
+    centerX + avatarWidth / 2 <= notchLocalLeft,
+    "his right edge must stop before the cutout starts",
+  );
+  // 8px of daylight between him and the hole, not flush against it.
+  assert.ok(Math.abs(centerX + avatarWidth / 2 - (notchLocalLeft - 8)) < 0.01);
 });
 
 test("on a flat panel with no cutout, Zazoo falls back to centred", async () => {
   const { avatarPeekCenterX } = await loadNotchHome();
   const flat = { ...GEOMETRY, hasNotch: false, width: 0 };
-  assert.equal(avatarPeekCenterX(300, flat), 150);
+  assert.equal(avatarPeekCenterX(300, 72, flat), 150);
+});
+
+test("the docked box is the cutout's width plus the drawable strip beside it", async () => {
+  const { notchBox, NOTCH_BOX_BED, NOTCH_BOX_CHAT } = await loadNotchHome();
+  assert.equal(notchBox(NOTCH_BOX_BED, GEOMETRY).width, GEOMETRY.width + NOTCH_BOX_BED.side);
+  assert.equal(notchBox(NOTCH_BOX_CHAT, GEOMETRY).height, NOTCH_BOX_CHAT.height);
+  // Flat panel: no cutout to reserve, so the strip is the whole box.
+  const flat = { ...GEOMETRY, hasNotch: false, width: 0 };
+  assert.equal(notchBox(NOTCH_BOX_BED, flat).width, NOTCH_BOX_BED.side);
 });
 
 test("FREE_BOX matches the collapsed free-mode window size — a correctness pin, not a style choice", async () => {
