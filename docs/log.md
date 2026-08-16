@@ -1,5 +1,32 @@
 # Change Log
 
+- **2026-08-17 — the companion chat stretches again, and Zazoo moves out from under the notch (user report)**:
+  Two user reports, both about the desktop companion. (1) *"the zazoo avatar chat window is no longer
+  stretchable or shrinkable"* — the chat panel had invisible edge-drag handles on
+  `claude/desktop-app-bridge-launch-fa1dff` (arrow buttons in `526639e8`, edge drags in `fd73e1f4`)
+  and that branch was NEVER merged, so no build off `main` ever carried them; nothing regressed, the
+  feature simply never landed. Restored on both homes: left/top/top-left handles, pointer capture so
+  the drag survives leaving the window, rAF-throttled, clamped 260-700 x 300-900, feeding
+  `overlay_resize` and `overlay_present_docked_panel`. An undecorated Tauri window has no OS resize
+  border, so these handles are the only affordance there is. (2) *"the zazoo appears too low when
+  hovered over notch… better, if it slides to the left of notch and chat appears there"* —
+  `overlay_dock_notch` centred the docked window ON the cutout, which left Zazoo hanging below the
+  hole and drew the composer straight across it (a hole in the display draws nothing). The window's
+  RIGHT edge is now flush with the cutout's right edge, so everything but the last `geometry.width`
+  points is drawable display beside the notch: Zazoo stands there with 8px of daylight, level with
+  the notch, composer further left, and the entrance became a slide LEFT out of the cutout — bed and
+  sleeping Zazoo start parked off the window's right edge, travel out, he stands, the bed withdraws
+  back in. **Canon housekeeping**: `main` landed its own **AP-159** (K11 content persistence) while
+  this branch held an AP-159 of its own, so the branch row renumbered **AP-159 → AP-163** (Governance
+  Section / ADR-248) following the same collision convention its neighbours already record, with the
+  three branch-side references updated; `main`'s row is untouched. **Verified**: web tests green (two
+  notch-geometry tests rewritten to the new contract and seen failing against the old formula first),
+  tsc clean, `cargo check` clean, and the entrance replayed in the browser lab
+  (`overlay.html?lab=1`, Mac14,2 geometry). **Honest limit**: `check:vocabulary` is RED on this
+  branch and was before this work — `ZazooAvatar.tsx` (avatar_lifecycle, last touched by `27aa0217`)
+  and `ModuleGovernanceSection.tsx` (package string, from the Stage-3 merge). Not introduced here,
+  not fixed here.
+
 - **2026-08-16 — Accounting and D2C become real, running, sqlite-backed Modules with enforced governance (TASK-074/TASK-072, ADR-246/247/248/249)**:
   Completes the merge started earlier the same day: Avilo Advisory becomes Bridge's **Accounting**
   Module, CV Naturals' Orders/Inventory domain becomes **D2C** (with Research and Notes as nested
