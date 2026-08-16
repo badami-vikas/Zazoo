@@ -15,6 +15,11 @@ pub mod accessibility;
 pub mod apps;
 #[cfg(target_os = "macos")]
 pub mod clipboard;
+// K11a (TASK-054): the keystroke burst accumulator and the AX role → field
+// role mapping. NOT cfg-gated: it is pure Rust with no OS dependency, so its
+// fail-closed guarantees are testable on any host — the whole point of
+// building the boundary before the event tap (the K10 gate).
+pub mod input;
 
 use serde::Serialize;
 use std::collections::VecDeque;
