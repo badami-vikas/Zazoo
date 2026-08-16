@@ -3535,3 +3535,30 @@ screenshot sent. TASK-027 returned done; second-owner retry remains external con
 **Two real defects, found by running the thing, not reading it.** `acceptance-audit.ts` originally hashed with `node:crypto`'s `createHash`. Nothing in its own test suite could catch what that broke: core's barrel export makes the module reachable from the web app's Vite bundle, and Rollup's binding step fails on a named import from a Node builtin even when nothing client-side ever calls it — `pnpm verify`'s web build step failed with a hard bundler error. Fixed by hashing through `globalThis.crypto.subtle`, standard in Node 19+ and every browser, so the module needs nothing Node-only at all. Separately, the live walk's reworded-rejection step failed: `isSuppressedByRejections` filters candidate fingerprints by embedder id BEFORE ever calling `embed()`, so when a rejection's write fell back from the (unreachable, in this environment) semantic embedder to the lexical one, a later check that tried the semantic tier FIRST found zero candidates under that id and returned "not suppressed" — successfully, without throwing, so the fallback-on-error logic that was supposed to catch this never ran. Fixing that (check every tier a fingerprint could have landed under, not just today's preferred one) then exposed a THIRD, adjacent bug: the shared lexical hashing embedder genuinely collides "cet" and "ist" into the same bucket at its default 128 dimensions — real, not hypothetical, verified by direct computation — which meant an already-rejected "timezone: CET" would falsely suppress a completely different "timezone: IST" proposal once the lexical tier was actually being exercised. Fixed with a dedicated, higher-dimension (4096), distinctly-id'd lexical embedder scoped to rejection fingerprints alone, isolated from the shared dim-128 space LA5 retrieval fusion already has vectors stored under.
 
 **Verified.** `pnpm verify` 77/77 (core: E1 full allowlist scan + independent pipeline-handle pin; E2 stamp mechanics + audit split; E3 per-family red refusal + raise-only framing; E4 no-evidence/compound refusals; E5 paraphrase corpus, backoff ladder, lexical reword-by-reordering, deletability). **Live durable-boot walk, 11/11, over the real server + pglite Local Plane**: red content refused with a structured reason; no-evidence and compound claims refused; amber lands as "Observed about..."; accept-with-shownText audits reviewed, accept-without audits unverified; a rejected claim's reworded repeat is suppressed while an unrelated claim stays proposable; a genuine process RESTART leaves both the rejection suppression and the acceptance-audit stamps durable. TASK-043 (K10) is done. K11 (TASK-054) is next but stays blocked on the user's still-unmade keystroke content-vs-events decision — not this session's call to make.
+- **2026-08-16 — Stage 1 of the Accounting/D2C module merge: canon only, no code moved (ADR-237/231/232, AP-155/149/150)**:
+  User directive to merge Avilo and CV Naturals into Bridge as the **Accounting** and **D2C** Modules,
+  with "all rules in avilo and CVN added as rules within all modules and beyond." Four conflicts were
+  surfaced explicitly and resolved by the user rather than assumed, and two of them dissolved on
+  inspection. **The `whatsapp` id collision was not real**: `diff -rq` on the two `src/` trees returned
+  nothing — all 16 files byte-identical — and CVN's own `package.json` says it is a clone of
+  `@bridge/whatsapp` with the manifest integration stripped, so `@bridge/whatsapp` survives and no code
+  is lost. **"D2C with sub-modules" needed no new vocabulary**: `parent` is an existing `ModuleManifest`
+  field (ADR-178) and is navigation-only by explicit declaration, so Orders/Inventory/Research/Production
+  nest without a glossary change. The user's *"keep the original avilo and cvn untouched, only optimize
+  bridge"* resolved the Electron-vs-Tauri shell problem for free: Avilo's v1.8.0 beta keeps shipping from
+  its own repo, no cutover gap, no orphaned installer, and its Electron-only rules stay where they are
+  true instead of becoming Bridge canon that is false at every point of use.
+  Ten Avilo/CVN rules promoted to all-Module canon in `CLAUDE.md`, compressed to three bullets — the test
+  was not "is this rule good" but "does it change what an agent does on a Module it did not come from."
+  The sharpest conflict — Avilo's "no model call without a button press" against Bridge's "adapt before
+  asking; learn before acting" — was resolved by the user into a third option neither side had: Bridge's
+  AI canon generalizes to Avilo, and Avilo's stricter posture becomes **declared per-Module policy** in a
+  new Governance Section under every Module's Intelligence Section. That is Avilo's own house rule applied
+  to Avilo's own rules — its AI posture was the one important thing it left in prose, and prose is exactly
+  where it failed (BUG-029…BUG-045).
+  Landed: `docs/raw/module-merge-accounting-d2c-2026-08-16.md` (plan of record, conflict register, id maps),
+  `CLAUDE.md` rule additions, AP-155/149/150, ADR-237/231/232 + wiki one-liners, TASK-071 (Stage 2, code)
+  and TASK-072 (Stage 3, Governance Section), INDEX pointer.
+  **No code moved and no donor repository was touched.** Two open items are recorded honestly rather than
+  assumed away: CVN's `packages/module-host` has `dist/` but no `src/`, and `packages/db` is Postgres-only,
+  so Stage 2 must confirm a Local-Plane path for a sqlite-dialect Module or record a blocker.

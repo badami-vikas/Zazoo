@@ -67,6 +67,20 @@ user approval remain universal. Never weaken a safety boundary to save tokens.
   condition.
 - Evidence: a test proves nothing until seen failing unfixed; "zero results" != "nothing to do"; a
   live process is not proof the right UI rendered. `pnpm verify` is the one gate list; CI runs it.
+  A fresh database is not a test - migration failures hide behind fresh installs, so test the
+  upgrade path against a copy of a real one. A task closes only when its outcome is true in the
+  running app, live-verified where observable or with an honest note saying why it was not.
+- **When about to encode knowledge in code, check whether it should be data** (ADR-238). Never
+  fabricate a figure: everything on screen traces to a stored fact, override, or formula, and
+  "unknown" is a first-class result. Generated UI **binds, never carries** - a component names an
+  id and has no field that can hold a value, so the rule holds by construction, not by policy.
+  Only a declared, compiling expression may introduce a new id; every other id is closed.
+- An author **declares which levers it changes and is held to it**: a diff touching anything
+  outside the declaration is refused whole, an omitted declaration refuses everything. Where the
+  server knows the truth, **the server speaks first** - a reply claiming a change that was not
+  made is withheld and replaced from the diff, never printed and rebutted. "Already configured"
+  is a distinct outcome, never a refusal. Blast-radius before finishing: callers, shared types,
+  the packaged app, the other surfaces.
 - Before building a capability resembling an existing source, run reuse intake. Prefer lawful
   import/wrap/adapt. For restricted license/contract/patent/trademark/data/access, follow the
   [clean-room protocol](docs/raw/clean-room-capability-research-protocol-2026-07.md): preserve source
@@ -82,6 +96,13 @@ user approval remain universal. Never weaken a safety boundary to save tokens.
 - [docs/glossary.md](docs/glossary.md) governs copy, identifiers, APIs, schema, Events, payloads, and
   tests. Domain Record labels never become kernel primitives. Legacy names need a time-boxed
   [migration](docs/raw/vocabulary-code-migration-plan-2026-07-14.md) with deletion criteria.
+- Every Module carries a **Governance Section** below its Intelligence Section (ADR-239): declared,
+  user-editable `allow`/`deny` policy from its `module.yaml`, read by the engine rather than stated
+  in a prompt. Intelligence is what a Module *can* do; Governance is what it is *allowed* to do.
+  Present-not-absent applies - an empty policy renders honestly, it is never filtered out.
+  Accounting (ex-Avilo) and D2C (ex-CV Naturals) are Modules on the Local Plane with sqlite; D2C's
+  Orders/Inventory/Research/Production declare `parent: d2c`. Plan:
+  [module merge](docs/raw/module-merge-accounting-d2c-2026-08-16.md).
 - Every installed Module is clickable with manifest-driven detail. Skills stay under consuming
   Agents; only an attributable allowed Agent invokes them. Automations start Agent Runs. Relationship
   toggles are Signals/People/Communities; Signal is a participant-linked Event. Retained data is
