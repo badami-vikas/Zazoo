@@ -1,5 +1,28 @@
 # Change Log
 
+- **2026-08-16 — Accounting and D2C become real, running, sqlite-backed Modules with enforced governance (TASK-071/TASK-072, ADR-237/238/239/240)**:
+  Completes the merge started earlier the same day: Avilo Advisory becomes Bridge's **Accounting**
+  Module, CV Naturals' Orders/Inventory domain becomes **D2C** (with Research and Notes as nested
+  sub-modules), both subtree-merged with donor history preserved, both opening their own
+  `better-sqlite3` file inside `ctx.wiring` — never `@bridge/db`/PGlite. This session finished the
+  part Stage 2/3 left open: `router.ts` gained real `accounting`/`d2c`/`d2cResearch`/`d2cNotes`
+  tRPC routers querying the imported Drizzle schemas (Clients, Reports, Orders, Inventory, Plant
+  Records, Notes); six Pages (`AccountingPage.tsx`, `D2CPage.tsx`, `D2CResearchPage.tsx`,
+  `D2CNotesPage.tsx`) follow the `ModuleSurfaceLayout`/`DataViews` shell with honest empty states
+  and route in via `requireBuiltInModule`; and `accounting.overrides.create` became TASK-072's
+  governed call site — a `"model"`-actor write is refused by the manifest's seeded
+  `books.write.model` deny rule (`assertModuleGovernance`/`ModuleGovernanceDenied`), a `"human"`
+  actor's succeeds. Live-verified in a running dev server: all six Pages render real (empty, since
+  the sqlite files are fresh) data with no console errors; Accounting's Governance Section shows
+  "Allowed 2 / Denied 3" with the seeded reasons; D2C's (no declared policy) shows "Allowed 0 /
+  Denied 0" with the honest "an empty policy is not a default-deny" copy rather than hiding the
+  section (present-not-absent, ADR-001). `pnpm verify`'s build/typecheck/test:coverage are green
+  across all 62 workspace packages except the two pre-existing failures already filed in BUGS.md
+  (empty vocabulary baseline, one un-awaited nested test in `packages/db`) — unchanged in kind,
+  not introduced by this work. P&L formulas, PDF import, WhatsApp order capture, GST invoicing and
+  the stock-costing engine stay explicitly out of scope; TASK-071/TASK-072 close on "real, running,
+  enforced" per their Prototype tests, not on feature parity with either donor app.
+
 - **2026-08-13 — DevPilot D0+D1 shipped: a new Module built on the AI Harness, dark behind BRIDGE_DEVPILOT (ADR-235/AP-153, TASK-067/TASK-068)**:
   User directive: *"I want to build a Software Engineer Pilot module... see if you can make us of the Central AI Harness"*, scoped in a planning turn to a skeleton + GitHub tracker slice (`docs/raw/devpilot-module-plan-2026-08-13.md`), then *"Implement the devpilot plan now"*. New `devpilot` built-in Module (3 Pages, 1 Agent, 1 scheduled Automation, no `external:send`) gets learning-loop coverage for free via the existing K1 ledger miner — no per-module hooks added, mirroring ADR-212's design goal. GitHub connects through a pasted fine-grained Personal Access Token (no OAuth app) stored in the existing Local-Plane `SecretStore`; `devpilot_repos`/`devpilot_pulls`/`devpilot_issues` are dedicated tables (migration 0041) exposed as `@bridge/tables` specs; `devpilot.syncGithub` is a direct-write Skill (JobPilot-tier CRUD) run by a dedicated `role-devpilot-tracker` Agent, not the shared DealPilot-doubling `EGRESS_AGENT`. Withheld from Commons (WhatsApp precedent). Verified: new `@bridge/devpilot` (6/6) and `@bridge/integrations-github` (13/13, 92.98% coverage, incl. a fixture proving GitHub's `/issues` PR-disguised-as-issue entries are filtered) packages; `@bridge/db` 239/239 (migration 0041 rebased cleanly, drizzle-generate no-op gate updated); `@bridge/module-manifests`, full `@bridge/api` (incl. the procedure-classification completeness gate closing `devpilot.` Local-Plane-only, and a governance-store fix — `ensureDevpilotTrackerGovernance` — for an FK violation the Task Manager test caught), and full `@bridge/web` suites green. D2 (PR-review/issue-analysis), D3 (Jira), D4 (comms triage), D5 (news radar), D6 (Work Brief) remain future TASK rows, unstarted.
 

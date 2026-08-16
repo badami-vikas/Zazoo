@@ -4,12 +4,21 @@
   "private": true,
   "type": "module",
   "description": "Accounting Module domain layer (imported from Avilo Advisory, ADR-237): schema, canonical accounts, period algebra, formula registry + engine, deterministic file classification, QuickBooks importers, derived checklist. No I/O, no framework. Opens its own sqlite inside the dataDir the host grants it, so it never touches @bridge/db or the PGlite Local Plane.",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./schema": "./src/schema.ts",
-    "./pdf": "./src/import/pdf.ts"
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./schema": {
+      "types": "./dist/src/schema.d.ts",
+      "default": "./dist/src/schema.js"
+    },
+    "./pdf": {
+      "types": "./dist/src/import/pdf.d.ts",
+      "default": "./dist/src/import/pdf.js"
+    }
   },
   "scripts": {
     "build": "tsc -b",

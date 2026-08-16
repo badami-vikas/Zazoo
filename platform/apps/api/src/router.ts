@@ -6,7 +6,7 @@
  * all governance lives in the pipeline, not here.
  */
 import { initTRPC, TRPCError } from "@trpc/server";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
@@ -102,7 +102,12 @@ import {
   resolveChatThreadTaskAnchor,
   type ChatTaskAnchorCandidate,
   type ParentCandidateTask,
+  assertModuleGovernance,
+  ModuleGovernanceDenied,
 } from "@bridge/core";
+import { eq, desc } from "drizzle-orm";
+import { schema as accountingSchema } from "@bridge/accounting";
+import { d2cSchema } from "./d2c-store.js";
 import type {
   Action,
   Actor,
@@ -6177,6 +6182,81 @@ function learningActionError(error: unknown): unknown {
   }
   return error;
 }
+
+/**
+ * TableSpecs for the Accounting/D2C Modules (TASK-071). Unlike JobPilot/
+ * DevPilot's specs — which live in their own domain packages — these are
+ * inline here: `@bridge/accounting`/`@bridge/d2c` are pure domain layers
+ * imported from their donor repos and were never given a `@bridge/tables`
+ * dependency (ADR-237 keeps them unrewritten). The shape only needs to
+ * structurally match `TableSpec`; tRPC infers it from the return value.
+ */
+const ACCOUNTING_CLIENTS_SPEC = {
+  id: "accounting.books",
+  columns: [
+    { id: "name", label: "Client", kind: "text" as const, editable: false },
+    { id: "legalName", label: "Legal name", kind: "text" as const, editable: false },
+    { id: "stage", label: "Stage", kind: "text" as const, editable: false },
+    { id: "industry", label: "Industry", kind: "text" as const, editable: false },
+    { id: "owner", label: "Owner", kind: "text" as const, editable: false },
+    { id: "createdAt", label: "Created", kind: "date" as const, editable: false },
+  ],
+};
+
+const ACCOUNTING_REPORTS_SPEC = {
+  id: "accounting.reports",
+  columns: [
+    { id: "label", label: "Metric", kind: "text" as const, editable: false },
+    { id: "unit", label: "Unit", kind: "text" as const, editable: false },
+    { id: "description", label: "Description", kind: "text" as const, editable: false },
+    { id: "version", label: "Version", kind: "number" as const, editable: false },
+    { id: "active", label: "Active", kind: "checkbox" as const, editable: false },
+  ],
+};
+
+const D2C_ORDERS_SPEC = {
+  id: "d2c.commerce.orders",
+  columns: [
+    { id: "orderNo", label: "Order #", kind: "text" as const, editable: false },
+    { id: "customerName", label: "Customer", kind: "text" as const, editable: false },
+    { id: "source", label: "Source", kind: "text" as const, editable: false },
+    { id: "status", label: "Status", kind: "text" as const, editable: false },
+    { id: "placedAt", label: "Placed", kind: "date" as const, editable: false },
+    { id: "transportCharge", label: "Transport", kind: "number" as const, editable: false },
+    { id: "discountAmount", label: "Discount", kind: "number" as const, editable: false },
+  ],
+};
+
+const D2C_INVENTORY_SPEC = {
+  id: "d2c.commerce.inventory",
+  columns: [
+    { id: "itemType", label: "Item type", kind: "text" as const, editable: false },
+    { id: "itemId", label: "Item", kind: "text" as const, editable: false },
+    { id: "batchNo", label: "Batch #", kind: "text" as const, editable: false },
+    { id: "quantityOnHand", label: "Qty on hand", kind: "number" as const, editable: false },
+    { id: "unitCost", label: "Unit cost", kind: "number" as const, editable: false },
+    { id: "mfgDate", label: "Mfg date", kind: "date" as const, editable: false },
+    { id: "expiryDate", label: "Expiry", kind: "date" as const, editable: false },
+  ],
+};
+
+const D2C_RESEARCH_SPEC = {
+  id: "d2c.research.plants",
+  columns: [
+    { id: "commonName", label: "Common name", kind: "text" as const, editable: false },
+    { id: "botanicalName", label: "Botanical name", kind: "text" as const, editable: false },
+    { id: "summary", label: "Summary", kind: "text" as const, editable: false },
+  ],
+};
+
+const D2C_NOTES_SPEC = {
+  id: "d2c.notes.documents",
+  columns: [
+    { id: "title", label: "Title", kind: "text" as const, editable: false },
+    { id: "createdAt", label: "Created", kind: "date" as const, editable: false },
+    { id: "updatedAt", label: "Updated", kind: "date" as const, editable: false },
+  ],
+};
 
 export const appRouter = t.router({
   chat: t.router({
@@ -18012,6 +18092,207 @@ export const appRouter = t.router({
           return { status: "available" as const, proposalId: input.proposalId, approvedAt: decision.createdAt, result, trustOrigin: proposal.trustOrigin ?? null };
         }),
     }),
+  }),
+
+  /**
+   * Accounting — wires the imported `@bridge/accounting` domain layer
+   * (ADR-237) to its own sqlite (`accounting-store.ts`) for the
+   * first time. TASK-071: minimum viable is a real Clients Page and a real
+   * Reports Page, both against `ctx.wiring.accountingDb` — not full P&L/
+   * formula-engine parity (that stays out of scope for this pass).
+   *
+   * `overrides.create` is TASK-072's governed call site: a model-originated
+   * write is refused by the manifest's own seeded `books.write.model` deny
+   * rule (ADR-239), proving governance is enforced, not just displayed.
+   */
+  accounting: t.router({
+    clientsDefinition: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(({ input }) => {
+        assertPilotOrganization(input.organizationId);
+        return ACCOUNTING_CLIENTS_SPEC;
+      }),
+
+    clientsList: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const items = await ctx.wiring.accountingDb
+          .select()
+          .from(accountingSchema.clients)
+          .orderBy(desc(accountingSchema.clients.updatedAt));
+        return { items, total: items.length };
+      }),
+
+    reportsDefinition: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(({ input }) => {
+        assertPilotOrganization(input.organizationId);
+        return ACCOUNTING_REPORTS_SPEC;
+      }),
+
+    /** Real data: the versioned formula registry (`seedReferenceData` in
+     * accounting-store.ts) — reference data, not a fabricated client figure. */
+    reportsList: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const items = await ctx.wiring.accountingDb
+          .select()
+          .from(accountingSchema.formulas)
+          .orderBy(accountingSchema.formulas.sortOrder);
+        return { items, total: items.length };
+      }),
+
+    overrides: t.router({
+      /** TASK-072's real governed call site. `actor.type: "model"` hits the
+       * manifest's seeded `books.write.model` deny rule and throws; `"human"`
+       * succeeds. The client id must already exist — no synthetic rows are
+       * created to make this call succeed. */
+      create: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            clientId: z.string().min(1),
+            period: z.string().min(1),
+            targetKind: z.enum(["account", "metric"]),
+            targetId: z.string().min(1),
+            value: z.number(),
+            reason: z.string().optional(),
+            actor: z.object({ type: z.enum(["human", "model"]), id: z.string().min(1) }),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const accountingManifest = BUILT_IN_MODULES.find((entry) => entry.manifest.name === "accounting")?.manifest;
+          const action = input.actor.type === "model" ? "books.write.model" : "books.write.human";
+          try {
+            assertModuleGovernance("accounting", accountingManifest?.governance, action);
+          } catch (error) {
+            if (error instanceof ModuleGovernanceDenied) {
+              throw new TRPCError({ code: "FORBIDDEN", message: error.message });
+            }
+            throw error;
+          }
+          const row = {
+            id: randomUUID(),
+            clientId: input.clientId,
+            period: input.period,
+            targetKind: input.targetKind,
+            targetId: input.targetId,
+            value: input.value,
+            author: input.actor.id,
+            ...(input.reason ? { reason: input.reason } : {}),
+          };
+          await ctx.wiring.accountingDb.insert(accountingSchema.overrides).values(row);
+          return row;
+        }),
+    }),
+  }),
+
+  /**
+   * D2C — wires the imported `@bridge/d2c` domain types (ADR-237)
+   * to their own sqlite (`d2c-store.ts`, `d2c-schema.ts`) for the first time.
+   * TASK-071: the two declared toggle Pages (Orders, Inventory) plus the two
+   * nested sub-modules (Research, Notes) get real, minimal queries — not the
+   * full costing/invoicing/WhatsApp-capture feature set CVN shipped.
+   */
+  d2c: t.router({
+    ordersDefinition: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(({ input }) => {
+        assertPilotOrganization(input.organizationId);
+        return D2C_ORDERS_SPEC;
+      }),
+
+    ordersList: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const orders = await ctx.wiring.d2cDb
+          .select()
+          .from(d2cSchema.orders)
+          .orderBy(desc(d2cSchema.orders.placedAt));
+        const customers = await ctx.wiring.d2cDb.select().from(d2cSchema.customers);
+        const customerById = new Map(customers.map((c) => [c.id, c]));
+        const items = orders.map((order) => ({
+          ...order,
+          customerName: customerById.get(order.customerId)?.name ?? order.customerId,
+        }));
+        return { items, total: items.length };
+      }),
+
+    inventoryDefinition: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(({ input }) => {
+        assertPilotOrganization(input.organizationId);
+        return D2C_INVENTORY_SPEC;
+      }),
+
+    /** One row per stock batch, with the ledger-derived quantity on hand
+     * (sum of `stockMoves.delta`) — never a mutated counter (schema comment,
+     * d2c-schema.ts). */
+    inventoryList: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const batches = await ctx.wiring.d2cDb.select().from(d2cSchema.stockBatches);
+        const moves = await ctx.wiring.d2cDb.select().from(d2cSchema.stockMoves);
+        const qtyByBatch = new Map<string, number>();
+        for (const move of moves) {
+          qtyByBatch.set(move.batchId, (qtyByBatch.get(move.batchId) ?? 0) + move.delta);
+        }
+        const items = batches.map((batch) => ({
+          ...batch,
+          quantityOnHand: qtyByBatch.get(batch.id) ?? 0,
+        }));
+        return { items, total: items.length };
+      }),
+  }),
+
+  /**
+   * D2C Research — Plant Records (TASK-071 sub-module, `d2c-research`
+   * manifest). One Page, one table: `plants`.
+   */
+  d2cResearch: t.router({
+    plantsDefinition: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(({ input }) => {
+        assertPilotOrganization(input.organizationId);
+        return D2C_RESEARCH_SPEC;
+      }),
+
+    plantsList: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const items = await ctx.wiring.d2cDb.select().from(d2cSchema.plants);
+        return { items, total: items.length };
+      }),
+  }),
+
+  /**
+   * D2C Notes — the owner's working notes (TASK-071 sub-module, `d2c-notes`
+   * manifest). One Page, one table: `noteDocuments`.
+   */
+  d2cNotes: t.router({
+    documentsDefinition: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(({ input }) => {
+        assertPilotOrganization(input.organizationId);
+        return D2C_NOTES_SPEC;
+      }),
+
+    documentsList: procedure
+      .input(z.object({ organizationId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const items = await ctx.wiring.d2cDb
+          .select()
+          .from(d2cSchema.noteDocuments)
+          .orderBy(desc(d2cSchema.noteDocuments.updatedAt));
+        return { items, total: items.length };
+      }),
   }),
 
   /**

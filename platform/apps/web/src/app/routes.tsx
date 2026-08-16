@@ -5,6 +5,10 @@ import { DealPilotPage } from "./pages/DealPilotPage";
 import { GoogleIntegrationPanel } from "./pages/GoogleIntegrationPanel";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { JobPilotPage } from "./pages/JobPilotPage";
+import { AccountingPage } from "./pages/AccountingPage";
+import { D2COrdersPage, D2CInventoryPage } from "./pages/D2CPage";
+import { D2CResearchPage } from "./pages/D2CResearchPage";
+import { D2CNotesPage } from "./pages/D2CNotesPage";
 import { PublicHelpdesk } from "./pages/PublicHelpdesk";
 import { OrganizationPage } from "./pages/OrganizationPage";
 import { ChiefOfStaffPage } from "./pages/ChiefOfStaffPage";
@@ -90,6 +94,10 @@ const jobPilotModule = requireBuiltInModule("job-pilot").manifest.module!;
 const relationshipModule = requireBuiltInModule("relationship").manifest.module!;
 const academicsModule = requireBuiltInModule("academics").manifest.module!;
 const eventsModule = requireBuiltInModule("events").manifest.module!;
+const accountingModule = requireBuiltInModule("accounting").manifest.module!;
+const d2cModule = requireBuiltInModule("d2c").manifest.module!;
+const d2cResearchModule = requireBuiltInModule("d2c-research").manifest.module!;
+const d2cNotesModule = requireBuiltInModule("d2c-notes").manifest.module!;
 const dealPilotRoot = parentRoute(dealPilotModule.route);
 const relationshipSignalsRoute = relationshipModule.pages.find((page) => page.id === "signals")!.route;
 
@@ -199,6 +207,19 @@ export const router = createBrowserRouter([
           </InstalledModuleBoundary>
         ),
       },
+
+      // Accounting Module (TASK-071, ADR-237) — Clients and Reports Pages,
+      // both real sqlite-backed (accounting-store.ts). `/module/accounting`
+      // alone resolves via the generic ModuleRootRedirect below.
+      { path: childPath(accountingModule.pages.find((p) => p.id === "clients")!.route), element: <AccountingPage page="clients" /> },
+      { path: childPath(accountingModule.pages.find((p) => p.id === "reports")!.route), element: <AccountingPage page="reports" /> },
+
+      // D2C Module (TASK-071, ADR-237) — Orders/Inventory toggle Pages plus
+      // the Research/Notes sub-modules, all real sqlite-backed (d2c-store.ts).
+      { path: childPath(d2cModule.pages.find((p) => p.id === "orders")!.route), element: <D2COrdersPage /> },
+      { path: childPath(d2cModule.pages.find((p) => p.id === "inventory")!.route), element: <D2CInventoryPage /> },
+      { path: childPath(d2cResearchModule.route), element: <D2CResearchPage /> },
+      { path: childPath(d2cNotesModule.route), element: <D2CNotesPage /> },
 
       { path: "organization", Component: OrganizationPage },
 

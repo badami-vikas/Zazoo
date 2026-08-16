@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T14:56:33.738Z",
+  "generatedAt": "2026-08-16T19:26:35.689Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1446,6 +1446,94 @@
       "rank": 43
     },
     {
+      "id": "TASK-071",
+      "title": "TASK-071 — Accounting and D2C land as Modules, on the Local Plane, with donor history preserved",
+      "status": "open",
+      "priority": "P1",
+      "horizon": "Prototype",
+      "outcome": "Avilo runs inside Bridge as the **Accounting** Module and CV Naturals as the **D2C** Module (with Orders/Inventory as D2C's own toggle Pages and Research/Notes as `parent: d2c` sub-modules), both on the Local Plane over better-sqlite3, both declaring a manifest, both reachable from Bridge's nav with manifest-driven detail. `@bridge/whatsapp` serves D2C; CVN's clone is not imported. Neither donor repository is modified.",
+      "prototypeTest": "from a clean Bridge checkout, `pnpm verify` is green with both Modules in the workspace; the Bridge desktop shell lists Accounting and D2C in nav, D2C expands to its four sub-modules, and opening Accounting renders a real imported client period from a sqlite database — not an empty state and not a fixture. `git log --follow` on an imported Avilo source file reaches that file's pre-merge commits. `git -C <each donor> status` is clean and its HEAD unmoved.",
+      "scope": [
+        "Stage 2 of [`docs/raw/module-merge-accounting-d2c-2026-08-16.md`](raw/module-merge-accounting-d2c-2026-08-16.md) §9. Subtree merges with `--allow-unrelated-histories`",
+        "module trees under `platform/modules/{accounting,d2c,d2c-orders,d2c-inventory,d2c-research,d2c-production}`",
+        "`module.yaml` per Module",
+        "whatsapp dedupe",
+        "the §8 id-renumbering map produced and landed as §8a of that doc."
+      ],
+      "evidence": [
+        "three-way id collision measured 2026-08-16 (Bridge ADR 006–229 / TASK 001–066 / AP 001–147",
+        "Avilo ADR 001–053 / BUG 001–047",
+        "CVN ADR 001–016 / TASK 001–040). `diff -rq` on the two whatsapp `src/` trees returned no differences — all 16 files byte-identical."
+      ],
+      "requests": [
+        "user directive 2026-08-16, verbatim: *\"Merge Avilo and CV Naturals as modules within relationship OS called Accounting and D2C respectively\"*",
+        "*\"Keep the original avilo and cvn untouched. Only optimize bridge\"*"
+      ],
+      "approval": "AP-155 APPLIED (ADR-237)",
+      "dependencies": [],
+      "canonicalStatus": "done (2026-08-16, live-verified)",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1126,
+      "rank": 44
+    },
+    {
+      "id": "TASK-072",
+      "title": "TASK-072 — Every Module declares what it is allowed to do, and the engine enforces it",
+      "status": "open",
+      "priority": "P1",
+      "horizon": "Prototype",
+      "outcome": "every Module carries a Governance Section directly below its Intelligence Section, showing the `allow`/`deny` policy declared in its `module.yaml`, editable by the user at runtime. Accounting is seeded with Avilo's AI posture. The policy is **read by the engine**, not merely displayed.",
+      "prototypeTest": "on Accounting, the Governance Section renders the seeded entries; the user adds a `deny` entry and an action that entry forbids is refused at runtime with the entry named as the reason — proven by attempting the action, not by reading the config back. On a Module with no entries the Section still renders with an honest empty state (present-not-absent). Both checked live in the running app.",
+      "scope": [
+        "Stage 3 of [`docs/raw/module-merge-accounting-d2c-2026-08-16.md`](raw/module-merge-accounting-d2c-2026-08-16.md) §6. New `ModuleGovernanceSection.tsx` in `ModuleSurfaceLayout`'s `below` slot after `ModuleIntelligenceSection`",
+        "`governance` block added to `ModuleManifest` and validated at the `apps/api` seam like every other manifest field",
+        "Accounting's seed per plan §7b."
+      ],
+      "evidence": [
+        "Avilo BUG-029 through BUG-045 — the assistant claiming work it had not done, repeatedly, under a rule that existed only in prose. Avilo ADR-045 records prompt text failing twice on the same defect before the approach changed."
+      ],
+      "requests": [
+        "user directive 2026-08-16, verbatim: *\"Bring in the governance section to all modules below the intelligence section where user can explicitly add whats allowed and whats not. In this, add Avilos specific rules for avilo module\"*"
+      ],
+      "approval": "AP-157 APPLIED (ADR-239)",
+      "dependencies": [
+        "TASK-071"
+      ],
+      "canonicalStatus": "done (2026-08-16, live-verified)",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1143,
+      "rank": 45
+    },
+    {
+      "id": "TASK-073",
+      "title": "TASK-073 — Retrofit the newly-adopted UI conventions against every pre-existing Module",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Hardening",
+      "outcome": "the eight UI rules adopted outright under ADR-240 (whole-row click target, double-click-edits-everywhere, revealed-not-resident destructive controls, gesture-handler focus, tooltip descriptions, Dropdown-not-Checkbox as default column type, the five ergonomics laws, no-dead-end pickers, bidirectional connections, write-on-Save) hold on Relationship, DealPilot, JobPilot, TaskManager, DevPilot, Academics and Events — the seven Modules that shipped before the rules were imported.",
+      "prototypeTest": "for each of the seven Modules, one page is walked live against each of the eight rules with the specific defect named where one is found (e.g. \"Products table: delete icon is resident, not hover-revealed — C-13 violation\"); `ui-conformance.test.mjs`'s ratchet is extended to check the newly-adopted rules and fails on a genuine regression rather than only on the pre-2026-08-16 rule set.",
+      "scope": [
+        "`docs/wiki/ui-architecture.md`'s 2026-08-16 addendum names the eight rules and the reconciliation",
+        "`docs/wiki/ui-conventions-cvn.md` has the full original text."
+      ],
+      "evidence": [
+        "none yet — this task exists because ADR-240 explicitly declined to claim the retrofit done."
+      ],
+      "requests": [
+        "user directive 2026-08-16, verbatim: *\"ensure the Ui rules from CVN is applied to all modules\"* — Accounting and D2C (the two Modules built in the same session) satisfy this by construction",
+        "this task covers the rest."
+      ],
+      "approval": "none needed (UI conformance work within already-approved canon)",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1113,
+      "rank": 46
+    },
+    {
       "id": "TASK-039",
       "title": "TASK-039 — Path-scoped Copilot instructions for developed Modules",
       "status": "completed",
@@ -1477,7 +1565,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 639,
-      "rank": 44
+      "rank": 47
     },
     {
       "id": "TASK-040",
@@ -1511,7 +1599,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 654,
-      "rank": 45
+      "rank": 48
     },
     {
       "id": "TASK-041",
@@ -1538,7 +1626,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 668,
-      "rank": 46
+      "rank": 49
     },
     {
       "id": "TASK-042",
@@ -1569,7 +1657,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 713,
-      "rank": 47
+      "rank": 50
     },
     {
       "id": "TASK-043",
@@ -1601,7 +1689,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 727,
-      "rank": 48
+      "rank": 51
     },
     {
       "id": "TASK-044",
@@ -1636,7 +1724,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 747,
-      "rank": 49
+      "rank": 52
     },
     {
       "id": "TASK-045",
@@ -1670,7 +1758,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 762,
-      "rank": 50
+      "rank": 53
     },
     {
       "id": "TASK-046",
@@ -1705,7 +1793,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 777,
-      "rank": 51
+      "rank": 54
     },
     {
       "id": "TASK-047",
@@ -1740,7 +1828,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 791,
-      "rank": 52
+      "rank": 55
     },
     {
       "id": "TASK-048",
@@ -1775,7 +1863,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 805,
-      "rank": 53
+      "rank": 56
     },
     {
       "id": "TASK-049",
@@ -1812,7 +1900,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 818,
-      "rank": 54
+      "rank": 57
     },
     {
       "id": "TASK-050",
@@ -1854,7 +1942,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 831,
-      "rank": 55
+      "rank": 58
     },
     {
       "id": "TASK-051",
@@ -1889,7 +1977,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 844,
-      "rank": 56
+      "rank": 59
     },
     {
       "id": "TASK-052",
@@ -1925,7 +2013,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 857,
-      "rank": 57
+      "rank": 60
     },
     {
       "id": "TASK-053",
@@ -1958,7 +2046,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 871,
-      "rank": 58
+      "rank": 61
     },
     {
       "id": "TASK-054",
@@ -1987,7 +2075,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 884,
-      "rank": 59
+      "rank": 62
     },
     {
       "id": "TASK-055",
@@ -2021,7 +2109,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 905,
-      "rank": 60
+      "rank": 63
     },
     {
       "id": "TASK-056",
@@ -2051,7 +2139,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 918,
-      "rank": 61
+      "rank": 64
     },
     {
       "id": "TASK-057",
@@ -2080,7 +2168,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 931,
-      "rank": 62
+      "rank": 65
     },
     {
       "id": "TASK-058",
@@ -2109,7 +2197,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 944,
-      "rank": 63
+      "rank": 66
     },
     {
       "id": "TASK-059",
@@ -2137,7 +2225,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 957,
-      "rank": 64
+      "rank": 67
     },
     {
       "id": "TASK-060",
@@ -2164,7 +2252,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 970,
-      "rank": 65
+      "rank": 68
     },
     {
       "id": "TASK-061",
@@ -2195,7 +2283,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 983,
-      "rank": 66
+      "rank": 69
     },
     {
       "id": "TASK-062",
@@ -2221,7 +2309,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 996,
-      "rank": 67
+      "rank": 70
     },
     {
       "id": "TASK-063",
@@ -2247,7 +2335,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1009,
-      "rank": 68
+      "rank": 71
     },
     {
       "id": "TASK-064",
@@ -2275,7 +2363,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1022,
-      "rank": 69
+      "rank": 72
     },
     {
       "id": "TASK-065",
@@ -2301,68 +2389,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1035,
-      "rank": 70
-    },
-    {
-      "id": "TASK-071",
-      "title": "TASK-071 — Accounting and D2C land as Modules, on the Local Plane, with donor history preserved",
-      "status": "pending",
-      "priority": "P1",
-      "horizon": "Prototype",
-      "outcome": "Avilo runs inside Bridge as the **Accounting** Module and CV Naturals as the **D2C** Module (with Orders/Inventory/Research/Production as `parent: d2c` sub-modules), both on the Local Plane over better-sqlite3, both declaring a `module.yaml`, both reachable from Bridge's nav with manifest-driven detail. `@bridge/whatsapp` serves D2C; CVN's clone is not imported. Neither donor repository is modified.",
-      "prototypeTest": "from a clean Bridge checkout, `pnpm verify` is green with both Modules in the workspace; the Bridge desktop shell lists Accounting and D2C in nav, D2C expands to its four sub-modules, and opening Accounting renders a real imported client period from a sqlite database — not an empty state and not a fixture. `git log --follow` on an imported Avilo source file reaches that file's pre-merge commits. `git -C <each donor> status` is clean and its HEAD unmoved.",
-      "scope": [
-        "Stage 2 of [`docs/raw/module-merge-accounting-d2c-2026-08-16.md`](raw/module-merge-accounting-d2c-2026-08-16.md) §9. Subtree merges with `--allow-unrelated-histories`",
-        "module trees under `platform/modules/{accounting,d2c,d2c-orders,d2c-inventory,d2c-research,d2c-production}`",
-        "`module.yaml` per Module",
-        "whatsapp dedupe",
-        "the §8 id-renumbering map produced and landed as §8a of that doc."
-      ],
-      "evidence": [
-        "three-way id collision measured 2026-08-16 (Bridge ADR 006–229 / TASK 001–066 / AP 001–147",
-        "Avilo ADR 001–053 / BUG 001–047",
-        "CVN ADR 001–016 / TASK 001–040). `diff -rq` on the two whatsapp `src/` trees returned no differences — all 16 files byte-identical."
-      ],
-      "requests": [
-        "user directive 2026-08-16, verbatim: *\"Merge Avilo and CV Naturals as modules within relationship OS called Accounting and D2C respectively\"*",
-        "*\"Keep the original avilo and cvn untouched. Only optimize bridge\"*"
-      ],
-      "approval": "AP-155 APPLIED (ADR-237)",
-      "dependencies": [],
-      "canonicalStatus": "ready",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1113,
-      "rank": 71
-    },
-    {
-      "id": "TASK-072",
-      "title": "TASK-072 — Every Module declares what it is allowed to do, and the engine enforces it",
-      "status": "pending",
-      "priority": "P1",
-      "horizon": "Prototype",
-      "outcome": "every Module carries a Governance Section directly below its Intelligence Section, showing the `allow`/`deny` policy declared in its `module.yaml`, editable by the user at runtime. Accounting is seeded with Avilo's AI posture. The policy is **read by the engine**, not merely displayed.",
-      "prototypeTest": "on Accounting, the Governance Section renders the seeded entries; the user adds a `deny` entry and an action that entry forbids is refused at runtime with the entry named as the reason — proven by attempting the action, not by reading the config back. On a Module with no entries the Section still renders with an honest empty state (present-not-absent). Both checked live in the running app.",
-      "scope": [
-        "Stage 3 of [`docs/raw/module-merge-accounting-d2c-2026-08-16.md`](raw/module-merge-accounting-d2c-2026-08-16.md) §6. New `ModuleGovernanceSection.tsx` in `ModuleSurfaceLayout`'s `below` slot after `ModuleIntelligenceSection`",
-        "`governance` block added to `ModuleManifest` and validated at the `apps/api` seam like every other manifest field",
-        "Accounting's seed per plan §7b."
-      ],
-      "evidence": [
-        "Avilo BUG-029 through BUG-045 — the assistant claiming work it had not done, repeatedly, under a rule that existed only in prose. Avilo ADR-045 records prompt text failing twice on the same defect before the approach changed."
-      ],
-      "requests": [
-        "user directive 2026-08-16, verbatim: *\"Bring in the governance section to all modules below the intelligence section where user can explicitly add whats allowed and whats not. In this, add Avilos specific rules for avilo module\"*"
-      ],
-      "approval": "AP-157 APPLIED (ADR-239)",
-      "dependencies": [
-        "TASK-071"
-      ],
-      "canonicalStatus": "ready",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1127,
-      "rank": 72
+      "rank": 73
     }
   ]
 }

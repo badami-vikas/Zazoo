@@ -23,6 +23,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@bridge/accounting':
+        specifier: workspace:*
+        version: link:../../modules/accounting
       '@bridge/capability-kit':
         specifier: workspace:*
         version: link:../../packages/capability-kit
@@ -32,6 +35,9 @@ importers:
       '@bridge/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@bridge/d2c':
+        specifier: workspace:*
+        version: link:../../modules/d2c
       '@bridge/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -83,9 +89,12 @@ importers:
       '@trpc/server':
         specifier: ^11.0.0
         version: 11.17.0(typescript@5.9.3)
+      better-sqlite3:
+        specifier: ^13.0.1
+        version: 13.0.3
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@electric-sql/pglite@0.2.17)(gel@2.2.0)(postgres@3.4.9)
+        version: 0.45.2(@electric-sql/pglite@0.2.17)(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3)(gel@2.2.0)(postgres@3.4.9)
       fastify:
         specifier: ^5.2.0
         version: 5.8.5
@@ -96,6 +105,9 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^7.6.12
+        version: 7.6.13
       '@types/node':
         specifier: ^22.10.0
         version: 22.19.19
@@ -290,7 +302,7 @@ importers:
     dependencies:
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@electric-sql/pglite@0.2.17)(gel@2.2.0)(postgres@3.4.9)
+        version: 0.45.2(@electric-sql/pglite@0.2.17)(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3)(gel@2.2.0)(postgres@3.4.9)
       mathjs:
         specifier: ^15.2.0
         version: 15.2.0
@@ -498,7 +510,7 @@ importers:
         version: 0.2.17
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@electric-sql/pglite@0.2.17)(gel@2.2.0)(postgres@3.4.9)
+        version: 0.45.2(@electric-sql/pglite@0.2.17)(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3)(gel@2.2.0)(postgres@3.4.9)
       postgres:
         specifier: ^3.4.5
         version: 3.4.9
@@ -2679,6 +2691,9 @@ packages:
   '@types/babel__traverse@7.28.0':
     resolution: {integrity: sha512-8PvcXf70gTDZBgt9ptxJ8elBeBjcLOAcOtoO/mPJjtji1+CdGbHgm77om1GrsPxsiE+uXIpNSK64UYaIwQXd4Q==}
 
+  '@types/better-sqlite3@7.6.13':
+    resolution: {integrity: sha512-NMv9ASNARoKksWtsq/SHakpYAYnhBrQgGD8zkLYk/jaK8jUGn08CfEdTRgYhMypUQAfzSP8W6gNLe0q19/t4VA==}
+
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
@@ -2910,6 +2925,10 @@ packages:
     resolution: {integrity: sha512-c/jurFrDLyui7o1J86yLkRu4LMsTYcBohveus7/I2Hzdn9KIP2bdJPTue/lR1KH46enoPbD77GKeSYNdyPoD3Q==}
     engines: {node: '>=6.0.0'}
     hasBin: true
+
+  better-sqlite3@13.0.3:
+    resolution: {integrity: sha512-RbOBxmLBG8uvFUc15X9+9SFemKcQ0WBuISBVkpuiaUB2qblC8UWlHEjdWVoZ8AdhSwmoEgsiXKfopX0CQxaACQ==}
+    engines: {node: '>=22'}
 
   bignumber.js@9.3.1:
     resolution: {integrity: sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==}
@@ -3831,6 +3850,10 @@ packages:
 
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
+
+  node-addon-api@8.9.2:
+    resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
+    engines: {node: ^18 || ^20 || >= 21}
 
   node-fetch@2.7.0:
     resolution: {integrity: sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==}
@@ -6083,6 +6106,10 @@ snapshots:
     dependencies:
       '@babel/types': 7.29.7
 
+  '@types/better-sqlite3@7.6.13':
+    dependencies:
+      '@types/node': 22.19.19
+
   '@types/chai@5.2.3':
     dependencies:
       '@types/deep-eql': 4.0.2
@@ -6359,6 +6386,10 @@ snapshots:
 
   baseline-browser-mapping@2.10.42: {}
 
+  better-sqlite3@13.0.3:
+    dependencies:
+      node-addon-api: 8.9.2
+
   bignumber.js@9.3.1: {}
 
   brace-expansion@1.1.15:
@@ -6508,9 +6539,11 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.1
 
-  drizzle-orm@0.45.2(@electric-sql/pglite@0.2.17)(gel@2.2.0)(postgres@3.4.9):
+  drizzle-orm@0.45.2(@electric-sql/pglite@0.2.17)(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3)(gel@2.2.0)(postgres@3.4.9):
     optionalDependencies:
       '@electric-sql/pglite': 0.2.17
+      '@types/better-sqlite3': 7.6.13
+      better-sqlite3: 13.0.3
       gel: 2.2.0
       postgres: 3.4.9
 
@@ -7237,6 +7270,8 @@ snapshots:
   nanoid@3.3.15: {}
 
   natural-compare@1.4.0: {}
+
+  node-addon-api@8.9.2: {}
 
   node-fetch@2.7.0:
     dependencies:

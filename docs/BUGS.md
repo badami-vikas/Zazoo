@@ -20,6 +20,12 @@
   `@bridge/module-manifests`, so the four Modules added by the merge are unreachable from it.
   Exit: baseline/allowlist the two vocabulary hits (or migrate the identifiers) and `await` the
   nested test — after which `pnpm verify` is green end to end and this merge's 90/92 becomes 92/92.
+  **Update 2026-08-16 (TASK-071 part 2):** now that `router.ts` carries real `accounting`/`d2c`
+  routers, the same empty-baseline bug also flags that file's pre-existing `project` ×2 (academics
+  enum literals, not new code) plus unrelated pre-existing hits in `ModuleGovernanceSection.tsx`
+  and the checked-in `dist-oldplatform/` avatar build output — same root cause, same fix, still
+  out of scope for this merge. `test:coverage` still fails only at the one known nested-`test()`
+  site (1 fail, 1 cancelled), nothing new.
 
 - **OPEN 2026-08-13 — Hosted API readiness reports persistent-ledger failure while liveness stays healthy (attach: TASK-006, P1).**
   Found during post-deploy verification of unrelated desktop commit `b6c1df12`, not from a user report.

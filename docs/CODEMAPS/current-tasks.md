@@ -18,6 +18,7 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | TASK-007 |
 | TASK-069 | ready | P2 | Academics Module — Subjects/Lecture Sessions/Assignments vault | none |
 | TASK-070 | ready | P2 | Events sub-module (NetworkManager) — speaker extraction + LinkedIn outreach queue | none |
+| TASK-073 | ready | P2 | Retrofit the newly-adopted UI conventions against every pre-existing Module | none |
 | TASK-040 | in_progress | P2 | LA3 Phase 2 — credentialed SearchProvider tier for the research lane | TASK-023 |
 | TASK-041 | ready | P2 | Pending Tests — live verification backlog | non-task gate (see TASKS.md) |
 | TASK-042 | ready | P2 | Input-pack regeneration tests for Skills, Modules, and Integrations | TASK-033 |
@@ -33,5 +34,3 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-063 | ready | P2 | Record metadata columns from the Event log | none |
 | TASK-064 | ready | P1 | Scoped share grants — wire the built Share panel to Views and Forms | TASK-062 |
 | TASK-065 | ready | P2 | Notes and Governance Sections on every Record | none |
-| TASK-071 | ready | P1 | Accounting and D2C land as Modules, on the Local Plane, with donor history preserved | none |
-| TASK-072 | ready | P1 | Every Module declares what it is allowed to do, and the engine enforces it | TASK-071 |

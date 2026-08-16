@@ -325,6 +325,8 @@ import {
   WEB_RESEARCH_SKILL_ID,
   createWebResearchSkill,
 } from "./web-research-skill.js";
+import { getAccountingDb, closeAccountingConnection, type AccountingDb } from "./accounting-store.js";
+import { getD2CDb, closeD2CConnection, type D2CDb } from "./d2c-store.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // organization + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -680,6 +682,10 @@ export interface Wiring {
     agents: InMemoryAgentStore;
     ephemeral: InMemoryEphemeralStore;
   };
+  /** The Accounting Module's own sqlite (ADR-237/238) — never `@bridge/db`/PGlite. */
+  accountingDb: AccountingDb;
+  /** The D2C Module's own sqlite (ADR-237/238) — never `@bridge/db`/PGlite. */
+  d2cDb: D2CDb;
   close(): Promise<void>;
 }
 
@@ -5230,6 +5236,11 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         ? { admission: FREE_CREDENTIALED_SEARCH_ADMISSION }
         : {},
     );
+  // Accounting/D2C: each Module owns its own sqlite file (ADR-237/238), never
+  // `@bridge/db`/PGlite. Opened eagerly like every other store below.
+  const accountingDb: AccountingDb = getAccountingDb();
+  const d2cDb: D2CDb = getD2CDb();
+
   const skillRegistry = new InMemorySkillRegistry()
     .register(stageMutation)
     .register(stageCapture)
@@ -5418,6 +5429,16 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     closePromise ??= (async () => {
       const errors: unknown[] = [];
       managedModelForCleanup?.close();
+      try {
+        closeAccountingConnection();
+      } catch (error) {
+        errors.push(error);
+      }
+      try {
+        closeD2CConnection();
+      } catch (error) {
+        errors.push(error);
+      }
       try {
         await localPlane.close();
       } catch (error) {
@@ -6517,6 +6538,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     modelProviderKeys,
     ...(semanticEmbedder ? { semanticEmbedder } : {}),
     skillRegistry,
+    accountingDb,
+    d2cDb,
     dealpilot: {
       integrationId: dealPilotIntegrationId,
       store: dealPilotRuntimeStore,
