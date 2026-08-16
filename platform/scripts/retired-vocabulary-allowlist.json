@@ -90,6 +90,12 @@
     },
     {
       "family": "tool",
+      "pathPrefix": "apps/web/src/app/chat/SessionHistoryView.tsx",
+      "reason": "The Chat panel's read-only research session transcript, rendering the same persisted step shape ResearchRunsPage and ResearchRun.tsx already display — `step.tool` is the model's own function-calling value carried through from packages/core/src/research-run.ts, not a Bridge product noun this surface could rename.",
+      "reviewed": "AP-158 · 2026-08-16 · TASK-058"
+    },
+    {
+      "family": "tool",
       "pathPrefix": "packages/db/test/rls.test.ts",
       "reason": "Inserts a research_run_steps fixture row, so it must supply the `tool` column value the CHECK constraint requires. Asserting RLS behaviour, not Bridge Tool vocabulary.",
       "reviewed": "AP-106 · 2026-08-05 · TASK-036"

@@ -16,6 +16,20 @@ import { Link } from "react-router";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { tauriInvoke, tauriInvokeJob, tauriInvokeStrict } from "../avatar/tauri-internals";
+import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
+import {
+  AskSessionView,
+  ResearchSessionView,
+  researchRunLabel,
+  type ResearchRunRow,
+} from "./SessionHistoryView";
+import {
+  ASK_HISTORY_EVENT,
+  askSessionLabel,
+  isAskHistoryStorageKey,
+  readAskSessions,
+  type AskHistorySession,
+} from "./ask-history";
 import { isNearChatBottom } from "./chat-state.mjs";
 import { type ChatSurfaceKind, type ChatTurn, useChat } from "./useChat";
 
@@ -437,6 +451,20 @@ export function ChatView({
 }: ChatViewProps) {
   const chat = useChat(surface);
   const [draft, setDraft] = useState(initialDraft ?? "");
+  // Past companion sessions listed alongside the Chat threads in the history
+  // dropdown (user directive 2026-08-16). Selecting one shows a read-only
+  // transcript instead of the conversation; `null` means a Chat thread is
+  // showing. Research Runs are already durable owner-scoped kernel records, so
+  // this is a read of history that exists, not a new store.
+  const [researchRuns, setResearchRuns] = useState<ResearchRunRow[]>([]);
+  // Ask sessions live on this device only (chat/ask-history.ts), so they are
+  // read from local storage rather than the API.
+  const [askSessions, setAskSessions] = useState<AskHistorySession[]>(() =>
+    typeof window === "undefined" ? [] : readAskSessions(),
+  );
+  const [openSession, setOpenSession] = useState<
+    { kind: "research" | "ask"; id: string } | null
+  >(null);
   const listRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -453,6 +481,41 @@ export function ChatView({
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // An ask answered in the floating companion has to show up in the Chat panel
+  // that is already open: same-webview writes announce themselves, and the
+  // browser's own storage event carries changes from the other window.
+  useEffect(() => {
+    const refresh = () => setAskSessions(readAskSessions());
+    const onStorage = (event: StorageEvent) => {
+      if (isAskHistoryStorageKey(event.key)) refresh();
+    };
+    refresh();
+    window.addEventListener(ASK_HISTORY_EVENT, refresh);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(ASK_HISTORY_EVENT, refresh);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  // Refreshed on mount and whenever the Chat thread list changes (the same
+  // moments the dropdown is rebuilt). Failure is silent and leaves the group
+  // out: a missing history list must never break the conversation itself.
+  useEffect(() => {
+    let active = true;
+    trpc.agentOrchestration.research.list
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then((rows) => {
+        if (active) setResearchRuns([...rows]);
+      })
+      .catch(() => {
+        if (active) setResearchRuns([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [chat.threads.length]);
 
   useEffect(() => {
     return () => {
@@ -601,6 +664,16 @@ export function ChatView({
     );
   }
 
+  // A selected read-only session, if any. Resolved from the list so a run that
+  // disappears (deleted, or the list failed to load) falls back to the Chat
+  // conversation rather than rendering an empty transcript.
+  const openRun = openSession?.kind === "research"
+    ? researchRuns.find((run) => run.id === openSession.id) ?? null
+    : null;
+  const openAsk = openSession?.kind === "ask"
+    ? askSessions.find((entry) => entry.id === openSession.id) ?? null
+    : null;
+  const openHistory = openRun ?? openAsk;
   const localThread = chat.view?.thread.plane === "local";
   const modelReady = !localThread || chat.model?.local.state === "ready";
 
@@ -610,32 +683,85 @@ export function ChatView({
         <select
           aria-label="Chat history"
           className="min-w-0 flex-1 rounded border bg-background px-2 py-1.5 text-xs"
-          value={chat.view?.thread.id ?? ""}
-          onChange={(event) => void chat.selectThread(event.target.value)}
+          value={
+            openSession
+              ? `${openSession.kind}:${openSession.id}`
+              : chat.view?.thread.id ?? ""
+          }
+          onChange={(event) => {
+            const value = event.target.value;
+            for (const kind of ["research", "ask"] as const) {
+              if (value.startsWith(`${kind}:`)) {
+                setOpenSession({ kind, id: value.slice(kind.length + 1) });
+                return;
+              }
+            }
+            setOpenSession(null);
+            void chat.selectThread(value);
+          }}
         >
-          {chat.threads.map((thread) => (
-            <option key={thread.id} value={thread.id}>
-              {thread.title ?? `Chat · ${new Date(thread.createdAt).toLocaleDateString()}`}
-            </option>
-          ))}
+          <optgroup label="Chat">
+            {/* With no thread to select — the conversation failed to load, or
+             * there are none yet — the select would otherwise fall back to
+             * DISPLAYING the first session in the list as chosen while the live
+             * chat is what is actually on screen. An explicit empty option
+             * keeps the label honest about what you are looking at. */}
+            {!chat.view && <option value="">No chat selected</option>}
+            {chat.threads.map((thread) => (
+              <option key={thread.id} value={thread.id}>
+                {thread.title ?? `Chat · ${new Date(thread.createdAt).toLocaleDateString()}`}
+              </option>
+            ))}
+          </optgroup>
+          {askSessions.length > 0 && (
+            <optgroup label="Ask">
+              {askSessions.map((session) => (
+                <option key={session.id} value={`ask:${session.id}`}>
+                  {askSessionLabel(session)}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {researchRuns.length > 0 && (
+            <optgroup label="Research">
+              {researchRuns.map((run) => (
+                <option key={run.id} value={`research:${run.id}`}>
+                  {researchRunLabel(run)}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
         <Button
           size="icon"
           variant="ghost"
           aria-label="New chat"
-          onClick={() => void chat.newChat(chat.view?.thread.plane)}
+          onClick={() => {
+            setOpenSession(null);
+            void chat.newChat(chat.view?.thread.plane);
+          }}
         >
           <Plus className="size-4" />
         </Button>
-        <Button size="icon" variant="ghost" aria-label="Archive chat" onClick={() => void chat.archive()}>
-          <Archive className="size-4" />
-        </Button>
-        <Button size="icon" variant="ghost" aria-label="Delete chat" onClick={() => void chat.deleteChat()}>
-          <Trash2 className="size-4" />
-        </Button>
+        {/* Archive and Delete act on the Chat thread. A read-only session
+         * transcript is not one, so they are absent rather than present and
+         * quietly destroying whichever thread happened to be selected. */}
+        {!openHistory && (
+          <>
+            <Button size="icon" variant="ghost" aria-label="Archive chat" onClick={() => void chat.archive()}>
+              <Archive className="size-4" />
+            </Button>
+            <Button size="icon" variant="ghost" aria-label="Delete chat" onClick={() => void chat.deleteChat()}>
+              <Trash2 className="size-4" />
+            </Button>
+          </>
+        )}
       </div>
 
-      {localThread && (
+      {openRun && <ResearchSessionView run={openRun} compact={compact} />}
+      {openAsk && <AskSessionView session={openAsk} compact={compact} />}
+
+      {!openHistory && localThread && (
         <ModelSetup
           state={chat.model}
           onInstall={() => void chat.installModel()}
@@ -644,6 +770,8 @@ export function ChatView({
         />
       )}
 
+      {!openHistory && (
+      <>
       <div
         ref={listRef}
         className={`flex-1 overflow-auto space-y-3 ${compact ? "p-3" : "p-4"}`}
@@ -908,6 +1036,8 @@ export function ChatView({
           </p>
         )}
       </form>
+      </>
+      )}
     </div>
   );
 }

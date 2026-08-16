@@ -2,6 +2,62 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **RESOLVED 2026-08-16 — Ask/Research as Chat-panel sessions was the wrong shape; they belong in the history dropdown, read-only (attach: TASK-058, P2; supersedes the session-strip entry below).**
+  User directive, verbatim: *"I dont want ask and research to be present there separate. I just want
+  their session to be visible under 'Chat' in the chat with date section dropdown. just for history of
+  prompts and results. It can be readonly"* The Chat | Ask | Research strip added earlier the same day
+  is removed, along with the `embedded`/`onResearchRequested` props on `CompanionAsk` and the seeded
+  `initialObjective` on `ResearchRun` that only the strip used — dead plumbing does not survive the
+  feature that needed it. The Chat history dropdown now carries two groups: Chat (threads, as before)
+  and Research (past Runs, labelled `Research · <objective> · <date>`). Selecting a Run replaces the
+  conversation with `SessionHistoryView`, a read-only transcript of objective, status, brief,
+  citations, engine-authored step summaries, and any blocked/injection-flagged steps — no composer, and
+  Archive/Delete are withheld while it is open, since those act on a Chat thread and a transcript is
+  not one. Nothing new is stored: Research Runs were already durable owner-scoped kernel records, so
+  this is a read of `agentOrchestration.research.list`/`.steps`. **Ask sessions are NOT listed** —
+  `companion.rs` never persists an ask ("recorded in the overlay panel. Never persisted here") and
+  `CompanionAsk` keeps only an idle-bounded in-memory history, so there is no ask history to read;
+  giving them one is a persistence/residency decision (ask answers can be screen-derived) that is
+  raised with the user rather than assumed. Web tests 212/212 with the regression rewritten to the new
+  shape; typecheck clean.
+
+- **RESOLVED 2026-08-16 — Ask and Research were reachable only from the Avatar, never from the Chat panel (attach: TASK-058, P2).**
+  User report, verbatim: *"Ask and research is still not coming up in the home chat. It can come in as
+  a separate session in the top of it."* Confirmed: `CompanionAsk` and `ResearchRun` were mounted only
+  by `OverlayApp`'s ask panel (right-click → Ask about my screen, Observe, or ⌘⇧Space), so the Home
+  Page's right-hand Chat panel and the Chief of Staff Page — the same `ChatView` component — offered
+  no way in. Fixed by giving `ChatView` a session strip at its top: Chat | Ask | Research. Chat is the
+  persisted thread; Ask renders `CompanionAsk` with `embedded` (its own Ask/Research toggle suppressed
+  so one surface never shows two mode switches) and Research renders `ResearchRun`, which now accepts a
+  seeded `initialObjective` and still waits for the human to press Start. An explicit "research …"
+  question typed in the embedded Ask hands off to the Research session instead of switching a mode the
+  host owns. The strip is desktop-shell only (`isDesktopShell`): both sessions run on shell commands
+  (`companion_ask_start`, `research_read_page`, `research_locate`) that a plain browser cannot answer,
+  so the web render offers nothing that would fail when pressed (AP-021). Neither session writes a Chat
+  turn, and both say so on screen. Verified in the browser lab (`overlay.html?lab=1`, which stubs the
+  shell) by walking all three sessions. Web tests 212/212 including a new regression that fails if the
+  strip, either surface, the `embedded` flag, or the desktop gate is removed; typecheck clean.
+
+- **RESOLVED 2026-08-16 — The Avatar presented three separate chat inputs and one of them was not a chat at all (attach: TASK-058, P2).**
+  User report, verbatim: *"I see that there are 3 different chat interfaces in avatar especially. And
+  also if you give a prompt it'll go to the chief of staff chat. I want all these 3 as one chat and
+  chatting in interface, should go to home page's chat interface."* Confirmed: `NotchHome` carried its
+  own dark three-line textarea, `OverlayApp`'s hover bar carried a separate light single-line
+  `<input>`, and `CompanionAsk` carried a third composer that is not the chat at all — it runs the
+  `companion_ask_start/poll` screen/voice pipeline with its own idle-bounded in-memory history and
+  never writes a Chat turn. The two chat composers had already drifted (Shift+Enter made a newline in
+  one and nothing in the other; Escape meant different things). The routing half of the report was not
+  a defect: both composers already seeded the shared `ChatView` (surface `avatar_overlay`), and
+  `useChat` shares one active thread id across every surface, so the Avatar, the Home Page's right
+  `AgentPanel`, and the Chief of Staff Page were already one conversation answered by the
+  `chief_of_staff` Agent — the three inputs were what made it read as three chats. Fixed by extracting
+  one `CompanionComposer` used by both homes, funnelling both through a single `openChatWith`, and
+  relabelling the screen/voice panel ("Screen & voice", "Ask about what's on your screen…", plus an
+  explicit "not saved to your chat" line) so it stops presenting itself as a chat. Verified in the
+  browser lab (`overlay.html?lab=1`): notch composer and hover composer each hand their text to the
+  full ChatView composer, and the screen/voice panel renders under its new labels. Web tests 211/211,
+  typecheck clean.
+
 - **OPEN 2026-08-13 — Hosted API readiness reports persistent-ledger failure while liveness stays healthy (attach: TASK-006, P1).**
   Found during post-deploy verification of unrelated desktop commit `b6c1df12`, not from a user report.
   GitHub deployments marked both Render services successful for that exact SHA; web `/` and API

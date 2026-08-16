@@ -26,6 +26,18 @@ const COMPANION_ASK_SOURCE = readFileSync(
   new URL("../src/app/avatar/CompanionAsk.tsx", import.meta.url),
   "utf8",
 );
+const CHAT_VIEW_SOURCE = readFileSync(
+  new URL("../src/app/chat/ChatView.tsx", import.meta.url),
+  "utf8",
+);
+const ASK_HISTORY_SOURCE = readFileSync(
+  new URL("../src/app/chat/ask-history.ts", import.meta.url),
+  "utf8",
+);
+const SESSION_HISTORY_SOURCE = readFileSync(
+  new URL("../src/app/chat/SessionHistoryView.tsx", import.meta.url),
+  "utf8",
+);
 const SETTINGS_SOURCE = readFileSync(
   new URL("../src/app/pages/SettingsPage.tsx", import.meta.url),
   "utf8",
@@ -196,6 +208,54 @@ test("the companion visibly exposes screen sharing and Research", () => {
   assert.ok(
     COMPANION_ASK_SOURCE.includes("aria-pressed={researchMode}"),
     "the visible Research mode does not expose its selected state",
+  );
+});
+
+test("past companion sessions are readable from the Chat history dropdown", () => {
+  // User directive 2026-08-16: "I just want their session to be visible under
+  // 'Chat' in the chat with date section dropdown. just for history of prompts
+  // and results. It can be readonly."
+  assert.ok(
+    CHAT_VIEW_SOURCE.includes('<optgroup label="Research">'),
+    "the Chat history dropdown does not group past Research sessions",
+  );
+  assert.ok(
+    CHAT_VIEW_SOURCE.includes("agentOrchestration.research.list"),
+    "the dropdown invents session history instead of reading the kernel records",
+  );
+  assert.ok(
+    CHAT_VIEW_SOURCE.includes("{openRun && <ResearchSessionView") &&
+      CHAT_VIEW_SOURCE.includes("{openAsk && <AskSessionView"),
+    "a selected session does not render its transcript",
+  );
+  assert.ok(
+    CHAT_VIEW_SOURCE.includes('<optgroup label="Ask">'),
+    "the Chat history dropdown does not group past Ask sessions",
+  );
+  // Ask history is Local Plane: recorded by the panel that received the answer,
+  // into this device's storage, never through the API.
+  assert.ok(
+    COMPANION_ASK_SOURCE.includes("appendAskTurn("),
+    "answered asks are not recorded, so their history cannot exist",
+  );
+  assert.ok(
+    !ASK_HISTORY_SOURCE.includes("trpc.") && ASK_HISTORY_SOURCE.includes("window.localStorage"),
+    "ask history left the Local Plane",
+  );
+  // Read-only means read-only: no composer, and none of the thread actions
+  // that would act on whichever Chat thread happened to be selected.
+  assert.ok(
+    CHAT_VIEW_SOURCE.includes("{!openHistory && (") &&
+      CHAT_VIEW_SOURCE.includes("{!openHistory && localThread &&"),
+    "the live composer still renders over a read-only session transcript",
+  );
+  assert.ok(
+    /\{!openHistory && \(\s*<>\s*<Button[^]{0,120}aria-label="Archive chat"/.test(CHAT_VIEW_SOURCE),
+    "Archive/Delete remain live while a read-only session is open",
+  );
+  assert.ok(
+    !SESSION_HISTORY_SOURCE.includes("<textarea") && !SESSION_HISTORY_SOURCE.includes("mutate("),
+    "the session transcript is not read-only",
   );
 });
 

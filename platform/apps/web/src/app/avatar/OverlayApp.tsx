@@ -30,6 +30,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ChatView } from "../chat/ChatView";
 import { CompanionAsk } from "./CompanionAsk";
+import { CompanionComposer } from "./CompanionComposer";
 import { CompanionZazooFace } from "./zazoo/CompanionZazooFace";
 import { ZazooDirector } from "./zazoo/director";
 import {
@@ -186,11 +187,11 @@ export function OverlayApp() {
   // Right-click menu (Hide / Meditate / Observe).
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Hover chat input (replaces the old hover status label — typing here and
+  // Hover chat input (replaces the old hover status label — typing there and
   // pressing Enter opens the full chat panel with the message already sent).
-  // `pinned` keeps the hover bar visible after a click even when the cursor
-  // leaves — clicked again (or panel opened) to unpin.
-  const [hoverDraft, setHoverDraft] = useState("");
+  // The input itself is the shared CompanionComposer, which owns its own
+  // draft. `pinned` keeps the hover bar visible after a click even when the
+  // cursor leaves — clicked again (or panel opened) to unpin.
   const [chatSeed, setChatSeed] = useState<{ text: string; nonce: number } | null>(null);
   const [askSeed, setAskSeed] = useState<{ text: string; nonce: number } | null>(null);
   const [pinned, setPinned] = useState(false);
@@ -670,11 +671,12 @@ export function OverlayApp() {
     );
   }
 
-  function submitHoverDraft() {
-    const text = hoverDraft.trim();
-    if (!text) return;
+  /** The single path from "typed at the companion" to "said in the chat".
+   * Both homes' composers land here, so a message from the notch and a
+   * message from the hover bar are the same act on the same thread — the one
+   * the app's side panel and the Chief of Staff Page are already showing. */
+  function openChatWith(text: string) {
     setChatSeed({ text, nonce: Date.now() });
-    setHoverDraft("");
     setPinned(false);
     setPanel("chat");
   }
@@ -740,7 +742,7 @@ export function OverlayApp() {
       return (
         <div
           role="dialog"
-          aria-label={`${name} companion panel`}
+          aria-label={`${name} — screen and voice`}
           style={{
             width: "100vw",
             height: "100vh",
@@ -755,7 +757,7 @@ export function OverlayApp() {
             className="flex items-center justify-between px-3 py-2 border-b"
             style={{ borderColor: "var(--color-border)" }}
           >
-            <p className="font-medium text-[var(--color-navy)]">{name} — Companion</p>
+            <p className="font-medium text-[var(--color-navy)]">{name} — Screen &amp; voice</p>
             <button
               type="button"
               aria-label="Close ask panel"
@@ -838,13 +840,11 @@ export function OverlayApp() {
         onDomHoverChange={setNotchDomHover}
         visible={notchVisible}
         name={name}
-        onSubmit={(text) => {
-          // Hand off to the real ChatView above instead of NotchHome's own
-          // inline textarea delivering nothing: `autoSend` fires this seeded
-          // draft as soon as that panel mounts.
-          setChatSeed({ text, nonce: Date.now() });
-          setPanel("chat");
-        }}
+        // Hand off to the real ChatView above — the same `openChatWith` the
+        // free-floating hover composer calls, so both homes send into one
+        // conversation. `autoSend` fires this seeded draft as soon as that
+        // panel mounts.
+        onSubmit={openChatWith}
         onLanded={() => {
           setHome("free");
           saveHome("free");
@@ -943,7 +943,7 @@ export function OverlayApp() {
       {!menuOpen && panel === "ask" && (
         <div
           role="dialog"
-          aria-label={`${name} companion panel`}
+          aria-label={`${name} — screen and voice`}
           className="w-full mb-2 rounded-[var(--radius-card)] border border-border bg-background shadow-lg text-sm flex flex-col"
           style={{ flex: "1 1 auto", minHeight: 0 }}
         >
@@ -951,7 +951,7 @@ export function OverlayApp() {
             className="flex items-center justify-between px-3 py-2 border-b"
             style={{ borderColor: "var(--color-border)" }}
           >
-            <p className="font-medium text-[var(--color-navy)]">{name} — Companion</p>
+            <p className="font-medium text-[var(--color-navy)]">{name} — Screen &amp; voice</p>
             <button
               type="button"
               aria-label="Close ask panel"
@@ -1031,32 +1031,16 @@ export function OverlayApp() {
                   ✨
                 </span>
               </button>
-              {/* Typing here and hitting Enter opens the chat panel with this
+              {/* The SAME composer the notch renders (CompanionComposer):
+               * typing here and hitting Enter opens the chat panel with this
                * message already sent (ChatView's autoSend). */}
-              <div className="relative min-w-0 flex-1">
-                <input
-                  type="text"
-                  value={hoverDraft}
-                  onChange={(event) => setHoverDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") submitHoverDraft();
-                    if (event.key === "Escape") { setHoverDraft(""); setPinned(false); }
-                  }}
-                  onFocus={() => setHovering(true)}
-                  placeholder={`Message ${name}…`}
-                  aria-label={`Message ${name}`}
-                  className="w-full rounded-[var(--radius-button)] border border-border bg-background shadow-md text-sm px-2 py-1.5 pr-7 focus:outline-none focus-visible:ring-2"
-                />
-                <button
-                  type="button"
-                  aria-label="Close"
-                  onClick={() => { setHoverDraft(""); setPinned(false); }}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground leading-none"
-                  style={{ fontSize: 14, lineHeight: 1 }}
-                >
-                  ×
-                </button>
-              </div>
+              <CompanionComposer
+                name={name}
+                variant="hover"
+                onSubmit={openChatWith}
+                onFocus={() => setHovering(true)}
+                onDismiss={() => setPinned(false)}
+              />
             </div>
           )}
           {/* Avatar button + drag handle wrapper.
