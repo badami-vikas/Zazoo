@@ -181,7 +181,7 @@ export function OverlayApp() {
       // Pointer capture keeps the drag live once the cursor leaves the window
       // — which it does immediately, since dragging an edge outward moves the
       // pointer outside the current bounds.
-      (event.target as Element).setPointerCapture(event.pointerId);
+      event.currentTarget.setPointerCapture(event.pointerId);
       resizeDrag.current = {
         edge,
         startX: event.clientX,
