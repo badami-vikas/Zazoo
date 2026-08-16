@@ -5536,3 +5536,52 @@ Placement under Intelligence is not decoration. `ModuleIntelligenceSection` alre
 **Rejected.** *Strict button-press globally* — the literal reading of the original directive; it would make Bridge's Automations, learning agent and proactive Avatar non-canon, which is to say it would delete the product. *Keeping Avilo's rule scoped to Accounting as prose* — cheapest, but leaves D2C uncovered, and D2C drafts WhatsApp messages to real customers, which is the same class of unattended-output risk the rule was written for. *A global constant with an engine exemption* — was offered and not chosen; it keeps the rule global and therefore keeps it a constant that some Modules quietly violate, which is worse than a per-Module policy that is honest about differing. *Governance as a Settings page rather than a Module Section* — separates a Module's limits from its capabilities and makes the limits something you go looking for rather than something you see.
 
 **Consequences.** Governance becomes inspectable per Module rather than asserted platform-wide, and differing postures between Accounting and D2C are now expressible instead of being a contradiction someone has to resolve. Present-not-absent (ADR-001) governs the empty case: a Module with no entries renders the Section with an honest empty state and is never filtered out of the layout. The engine must actually read the block for this to be worth anything — a Governance Section that only displays policy would reproduce exactly the prose-that-nobody-enforces failure this ADR exists to end, so TASK-072's exit test is enforcement, not rendering.
+
+## ADR-240 — CV Naturals' 34 UI conventions reconciled into Bridge's live-enforced UI canon, not appended blind (2026-08-16; attach: TASK-073; AP-158)
+
+**Context.** The user asked for CVN's UI rules ("C-1..C-34", `docs/wiki/ui-conventions.md`) to apply
+to all Modules. Bridge already has its own UI canon — `docs/wiki/ui-architecture.md` — and unlike
+CVN's, Bridge's is **live-enforced**: `platform/apps/web/test/ui-conformance.test.mjs` fails the
+build when a page reinvents a standard surface, with a ratchet that can only shrink. Appending
+CVN's 34 rules underneath Bridge's without checking for overlap or conflict would have produced two
+documents making competing claims about the same screens, which is the exact failure Bridge's own
+`§ENFORCEMENT` section describes as its reason for existing: "rules used to live only in docs → a
+doc rule is advisory → nothing failed when a page ignored them."
+
+**Decision.** Reconcile rule-by-rule rather than concatenate. Three outcomes, each recorded in
+`ui-architecture.md` rather than left implicit: (1) rules already covered by existing Bridge canon
+in different words — no action, cross-referenced; (2) rules genuinely new to Bridge — adopted
+outright, binding every Module immediately (C-10 whole-row click target, C-11 double-click-edits,
+C-13/C-23 revealed-not-resident destructive controls, C-14 gesture-handler focus, C-18 tooltip
+descriptions, C-19 Dropdown-not-Checkbox, C-25-29 the five ergonomics laws, C-31 no dead-end
+pickers, C-32 bidirectional connections, C-34 write-on-Save); (3) one apparent conflict, checked
+rather than picked. C-4/C-7 ("New is a button, never an inline row — clicking New opens the
+element page") reads directly against Bridge's own "Table stays visible even at zero rows… never
+replaced by a message box" (an inline add-row). Reading C-33 — CVN's OWN text, not an outside
+gloss — resolves it: "Where an element page shows nothing the columns don't already show… New
+opens a draft row inside the table… This is the exception to C-7, not a repeal of it." Bridge's
+inline-row behavior, shipped across DealPilot/JobPilot/TaskManager for a month before this rule was
+imported, is exactly C-33's table-shaped case. The two canons describe the same split in different
+vocabulary; no conflict survived the check.
+
+**Rationale.** A rule import is not a copy-paste operation when the destination already governs the
+same surfaces with its own enforcement mechanism. The reconciliation cost was small — 34 rules, most
+already covered — against the cost of two contradictory canons both claiming to bind the same
+pages, which is a worse failure mode than importing nothing at all: a developer who checks one
+document and ships would be wrong either way.
+
+**Rejected.** *Appending CVN's file wholesale as a second canon* — the two-contradictory-documents
+failure above. *Silently picking a side on C-4/C-7 without checking* — would have either reverted a
+month of shipped, tested behavior (picking CVN's reading) or discarded the user's explicit new
+directive (picking Bridge's), when the actual text of both canons, read together, needed neither.
+*Retrofitting the seven pre-existing Modules against the newly-adopted rules in the same pass* —
+real work, unbounded in this session's remaining scope; claiming it done here would be exactly the
+kind of unverified success claim `docs/BUGS.md`'s evidence discipline exists to catch. Tracked
+honestly as TASK-073 instead.
+
+**Consequences.** The eight newly-adopted rules are binding on every Module from this commit
+forward, including the two new ones (Accounting, D2C) built under this same merge, which satisfy
+them by construction through `ModuleSurfaceLayout`+`DataViews` rather than a page-local
+reimplementation. `ui-conformance.test.mjs`'s ratchet does not yet check the newly-adopted rules
+against the seven pre-existing Modules — TASK-073 is where that gap closes, or where a Module is
+found already conformant and the ratchet is updated to say so.

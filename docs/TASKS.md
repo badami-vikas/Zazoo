@@ -6,7 +6,7 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-066, TASK-067, TASK-068, TASK-069, TASK-070`
+IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-066, TASK-067, TASK-068, TASK-069, TASK-070, TASK-071, TASK-072, TASK-073`
 
 IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
 
@@ -1109,6 +1109,19 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-08-13 (see TASK-067).
 - Approval: AP-153 applied
 - Dependencies: TASK-067
+## Retrofit the newly-adopted UI conventions against every pre-existing Module
+- ID: TASK-073
+- Status: ready
+- Priority: P2
+- Horizon: Hardening
+- Outcome: the eight UI rules adopted outright under ADR-240 (whole-row click target, double-click-edits-everywhere, revealed-not-resident destructive controls, gesture-handler focus, tooltip descriptions, Dropdown-not-Checkbox as default column type, the five ergonomics laws, no-dead-end pickers, bidirectional connections, write-on-Save) hold on Relationship, DealPilot, JobPilot, TaskManager, DevPilot, Academics and Events — the seven Modules that shipped before the rules were imported.
+- Prototype test: for each of the seven Modules, one page is walked live against each of the eight rules with the specific defect named where one is found (e.g. "Products table: delete icon is resident, not hover-revealed — C-13 violation"); `ui-conformance.test.mjs`'s ratchet is extended to check the newly-adopted rules and fails on a genuine regression rather than only on the pre-2026-08-16 rule set.
+- Scope: `docs/wiki/ui-architecture.md`'s 2026-08-16 addendum names the eight rules and the reconciliation; `docs/wiki/ui-conventions-cvn.md` has the full original text.
+- Evidence: none yet — this task exists because ADR-240 explicitly declined to claim the retrofit done.
+- Requests: user directive 2026-08-16, verbatim: *"ensure the Ui rules from CVN is applied to all modules"* — Accounting and D2C (the two Modules built in the same session) satisfy this by construction; this task covers the rest.
+- Approval: none needed (UI conformance work within already-approved canon)
+- Dependencies: none
+
 ## Accounting and D2C land as Modules, on the Local Plane, with donor history preserved
 - ID: TASK-071
 - Status: in_progress (domain layers + manifests landed 2026-08-16; the runnable Module is NOT done — see Remaining)

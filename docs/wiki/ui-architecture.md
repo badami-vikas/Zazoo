@@ -68,3 +68,45 @@ disabled with a tooltip outside it; dictation fills the draft for review, never 
 **Still open elsewhere:** VOCAB4 local File watcher/hash index must connect Module Files to canonical File/Relation provenance (TASK-012). Legacy `/item/:name` Associations still consumes prototype network data (TASK-013). CoS smart grouping begins only after >20 real Files.
 
 **VOCAB6 residual closed 2026-07-20:** active ModuleStore drives nav/detail/full-Graph Module+Agent identity. Recent Runs durable. Edges open real source paths. Panels share 3-state control. Knowledge runtime zero. Final compatibility deletion still separate.
+
+**CV Naturals' C-1..C-34 promoted (2026-08-16, ADR-240/AP-158).** Full text:
+[ui-conventions-cvn.md](ui-conventions-cvn.md). Each rule was checked against this doc rather than
+appended blind — three outcomes:
+
+- **Already this canon, different words** (no action): C-1/C-24/C-30 ≈ the `h-14` shared-header /
+  Fitts's-Law rules above; C-2/C-3 ≈ "landing section internally scrollable… never a second line"
+  already implied by Page anatomy, now stated as its own rule below since it wasn't explicit; C-5/C-6
+  ≈ the existing toolbar 3-dots/right-aligned-cluster convention; C-8/C-9 ≈ the View Grammar registry
+  and `StandardColumnMenu`'s existing group-by; C-15 ≈ the `h-14` sticky-header rule; C-20/C-22 ≈
+  `StandardDropdown`'s pinned "+ Add" (§5e) — C-22's "present and disabled with a reason" is
+  present-not-absent (ADR-001), already this doc's own standing rule.
+- **New, adopted as canon outright** (binds every Module, not only Accounting/D2C): C-10 (whole row
+  is the click target, no dead cells), C-11 (double-click edits everywhere editable, never replacing
+  a click), C-13/C-23 (destructive controls reveal on hover/long-press, never resident; every delete
+  confirms and states what is lost), C-14 (focus moves inside the gesture handler — deferred/
+  `autoFocus` focus is a defect on iOS Safari, not a platform limit), C-18 (descriptions are tooltips,
+  a phrase not a sentence), C-19 (Dropdown, not Checkbox, as the default "Add column" type), C-25
+  through C-29 (Proximity, field-size-follows-answer, Hick's Law one-control-per-outcome, Jakob's
+  Law familiar-first, Miller's five-to-seven chunking), C-31 (a missing related record is never a
+  dead end — the picker's own "+ Add" makes it), C-32 (a connection is one fact, editable from
+  either end), C-34 (an element page writes nothing until Save).
+- **One open conflict, not silently resolved either way.** C-4/C-7 ("New is a button that opens the
+  element page, never an inline row") reads against this doc's own Page-anatomy rule ("Table stays
+  visible even at zero rows… never replaced by a message box," which keeps an inline New-row).
+  C-33 (CV Naturals' own text) already narrows this: a record with real detail beyond its columns
+  opens its element page (C-7); a record that is purely table-shaped writes inline (C-33, "the
+  exception to C-7, not a repeal of it"). Bridge's existing inline-row behavior is exactly C-33's
+  table-shaped case, shipped across DealPilot/JobPilot/TaskManager for a month before this rule
+  existed. Reading the two together: **no conflict survives** once C-33 is applied — the rules
+  describe the same split Bridge already has, in different words. Recorded here rather than silently
+  assumed, because two independently-registered canons agreeing by construction is worth being sure
+  of, not worth guessing at.
+
+Applied directly to the Accounting and D2C Pages built under TASK-071 (`AccountingPage.tsx`,
+`D2COrdersPage.tsx`, `D2CInventoryPage.tsx`, `D2CResearchPage.tsx`, `D2CNotesPage.tsx`) — they pass
+`ui-conformance.test.mjs` like every other data-shape Page, so C-10/C-11/C-19/C-25–29/C-31/C-32/C-34
+hold there by the SAME mechanism (`ModuleSurfaceLayout`+`DataViews`) that already enforces them
+elsewhere, not by a page-local reimplementation. **Retrofitting the newly-adopted rules against the
+seven Modules that existed before this promotion (Relationship, DealPilot, JobPilot, TaskManager,
+DevPilot, Academics, Events) is explicitly NOT done here** — it is real, separately-scoped work
+(TASK-073), tracked so it is not silently assumed complete.
