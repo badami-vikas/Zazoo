@@ -90,8 +90,13 @@ describe("findColumnMap", () => {
 });
 
 describe("parseProfitAndLoss", () => {
+  // Bridge's tsconfig.base.json sets exactOptionalPropertyTypes, which Avilo's did not:
+  // an explicit `onlyPeriods: undefined` is no longer the same as omitting the key.
   const parse = (resolver: LabelResolver = builtinResolver, onlyPeriods?: string[]) =>
-    parseProfitAndLoss(QBO_PL, { resolveLabel: resolver, onlyPeriods });
+    parseProfitAndLoss(QBO_PL, {
+      resolveLabel: resolver,
+      ...(onlyPeriods ? { onlyPeriods } : {}),
+    });
 
   // The headline v9 regression: "Total for Income" did not match a regex expecting
   // "Total Income", so revenue, COGS and overhead all came back empty.

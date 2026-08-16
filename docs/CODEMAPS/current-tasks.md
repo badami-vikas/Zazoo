@@ -33,3 +33,5 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-063 | ready | P2 | Record metadata columns from the Event log | none |
 | TASK-064 | ready | P1 | Scoped share grants — wire the built Share panel to Views and Forms | TASK-062 |
 | TASK-065 | ready | P2 | Notes and Governance Sections on every Record | none |
+| TASK-071 | ready | P1 | Accounting and D2C land as Modules, on the Local Plane, with donor history preserved | none |
+| TASK-072 | ready | P1 | Every Module declares what it is allowed to do, and the engine enforces it | TASK-071 |

@@ -2,6 +2,25 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **OPEN 2026-08-16 — `pnpm verify` is red on `main` for two reasons unrelated to any current work (attach: TASK-071, P2).**
+  Found while landing the Accounting/D2C module merge, not from a user report. Both were proven
+  pre-existing rather than assumed: the implicated files are **byte-identical to `main`** (`diff -q`
+  against `git show main:…`), and the failing package cannot reach the merge's changes.
+  (1) **`check:vocabulary` fails on `main`.** `scripts/retired-vocabulary-baseline.json` is empty
+  (`"families": {}`), so every occurrence anywhere reads as "changed from 0". It reports
+  `apps/api/src/router.ts` (`project` ×2) and `apps/web/src/app/pages/AcademicsPage.tsx` (`project`
+  ×1). Both files are untouched by the merge and identical to `main`. Left unfixed deliberately:
+  migrating those identifiers is a canon vocabulary decision (ADR-171/AP-096 territory), not
+  something to fold silently into an unrelated merge.
+  (2) **`@bridge/db#test:coverage` fails on `main`.** In `packages/db/test/local-store.test.ts:392`
+  a `test(...)` is nested **inside** another `test(...)` callback and never awaited, so the parent
+  finishes first and node's runner reports the subtest `cancelledByParent` →
+  *"test did not finish before its parent and was cancelled"*. Reproduces at
+  `--test-concurrency=1`, so it is not concurrency flake. `packages/db` declares no dependency on
+  `@bridge/module-manifests`, so the four Modules added by the merge are unreachable from it.
+  Exit: baseline/allowlist the two vocabulary hits (or migrate the identifiers) and `await` the
+  nested test — after which `pnpm verify` is green end to end and this merge's 90/92 becomes 92/92.
+
 - **OPEN 2026-08-13 — Hosted API readiness reports persistent-ledger failure while liveness stays healthy (attach: TASK-006, P1).**
   Found during post-deploy verification of unrelated desktop commit `b6c1df12`, not from a user report.
   GitHub deployments marked both Render services successful for that exact SHA; web `/` and API

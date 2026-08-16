@@ -17,6 +17,12 @@
   ],
   "entries": [
     {
+      "family": "package",
+      "pathPrefix": "modules/accounting/src/import/pdf.ts",
+      "reason": "npm's own filename and noun, not the retired Bridge product package. The line is `require.resolve(\"pdfjs-dist/package.json\")` — resolving pdf.js's shipped standard-fonts directory on disk so the importer works offline — plus a comment about the installed npm package around it. `package.json` is a literal filename in a third-party module layout; renaming it would break resolution rather than migrate a Bridge identifier.",
+      "reviewed": "AP-155 · 2026-08-16 · TASK-071 (ADR-237 import from Avilo)"
+    },
+    {
       "family": "tool",
       "pathPrefix": "packages/research/",
       "reason": "LLM tool-calling, not the retired Bridge product noun. The research planner prompts a model for {\"tool\":\"search\"|\"read\",\"argument\":...} and parses that response; `tool` here is the model provider's own function-calling vocabulary, shared with every LLM API. Renaming it would break the contract with the model rather than migrate a Bridge identifier — the word is not ours to rename.",

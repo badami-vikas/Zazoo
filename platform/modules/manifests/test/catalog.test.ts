@@ -20,6 +20,12 @@ test("built-in Module catalog has one manifest per Module name", () => {
     "whatsapp",
     "task-manager",
     "devpilot",
+    // Imported Modules (ADR-237). D2C's Orders/Inventory are toggle Pages of
+    // the parent, not sub-modules; Research and Notes nest below it.
+    "accounting",
+    "d2c",
+    "d2c-research",
+    "d2c-notes",
   ]);
   assert.equal(new Set(names).size, names.length);
 });

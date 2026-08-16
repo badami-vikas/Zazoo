@@ -1,9 +1,9 @@
 {
-  "name": "@avilo/module",
+  "name": "@bridge/accounting",
   "version": "1.10.1",
   "private": true,
   "type": "module",
-  "description": "Avilo Advisory module domain layer: schema, canonical accounts, period algebra, formula registry + engine, deterministic file classification, QuickBooks importers, derived checklist. No I/O, no framework \u2014 liftable into relationship-os platform/modules/avilo.",
+  "description": "Accounting Module domain layer (imported from Avilo Advisory, ADR-237): schema, canonical accounts, period algebra, formula registry + engine, deterministic file classification, QuickBooks importers, derived checklist. No I/O, no framework. Opens its own sqlite inside the dataDir the host grants it, so it never touches @bridge/db or the PGlite Local Plane.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -14,10 +14,10 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run"
   },
   "dependencies": {
-    "@avilo/tables": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "mathjs": "^15.2.0",
     "pdfjs-dist": "^6.1.200",

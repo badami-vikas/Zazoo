@@ -107,9 +107,21 @@ and the canon file layout is already `<Organization>/<Module>/<Sub-module>/`. Th
 > This is a NAVIGATION relation only. A sub-module is still a whole Module — no shared
 > credentials, no inherited permissions, no plane relaxation.
 
-So D2C is a Module; Orders, Inventory, Research and Production declare `parent: d2c`. No new
-kernel primitive, and no vocabulary approval needed. CV Naturals' own roadmap of eight modules
-(`ecosystem-proposal.md`) survives intact.
+So D2C is a Module and no new kernel primitive is needed. CV Naturals' own roadmap of eight
+modules (`ecosystem-proposal.md`) survives intact.
+
+**Corrected during Stage 2 against what CV Naturals actually ships.** Stage 1 named the four
+sub-modules as Orders/Inventory/Research/Production. Two things were wrong. **Production does not
+exist** — it is a *proposed* module in `ecosystem-proposal.md`, never built; **Notes does**, and
+Stage 1 missed it. CV Naturals' shipped pages are orders, inventory, research, notes, whatsapp,
+intelligence and settings. And the field is `parentModule`, not `parent`.
+
+The split between Page and sub-module then follows Bridge's own UI rule (AP-011: different
+columns → toggle Pages; loosely related → sub-module). **Orders and Inventory are the same
+commerce domain in different data shapes, so they are toggle Pages of D2C**; Research (plants)
+and Notes are loosely related and nest as sub-modules (`d2c-research`, `d2c-notes`). This was
+not only a taxonomy preference: `catalog.test.ts` enforces that every Module lands on a real data
+Page and never on its own capability-inventory overview, which a Pages-less parent would do.
 
 ### 4d. The `whatsapp` id collision — RESOLVED: there was never a conflict
 
@@ -234,10 +246,57 @@ collisions: **the later-arriving side renumbers.**
 - **Stage 3 — TASK-072.** `ModuleGovernanceSection.tsx`, the `governance` manifest block, the
   Accounting seed, live verification on the running app.
 
-## 10. Open items
+## 10. Open items — both resolved in Stage 2
 
-- Avilo's `platform/packages/module-host` in the CV Naturals checkout contains only `dist/` and
-  `node_modules/` — no `src/`. Stage 2 must confirm CV Naturals consumes Avilo's published
-  module-host rather than a divergent copy before either is imported.
-- Bridge's `packages/db` is Postgres-only. Stage 2 must confirm the Local Plane registration path
-  for a sqlite-dialect Module exists, or record an honest blocker.
+**(1) CV Naturals' `module-host` was dead weight.** It has no `package.json` and no `src/`, only a
+stale `dist/`, and nothing in the repository imports it. Not a divergent copy — an orphaned build
+artifact. Not imported. Avilo's is the real one, and it is already named `@bridge/module-host`
+upstream.
+
+**(2) The Local Plane speaks Postgres, and it does not matter.** Bridge has *no* sqlite anywhere:
+`packages/local` runs **PGlite** (`@electric-sql/pglite`), embedded Postgres in WASM. So "sqlite on
+the Local Plane" means a second embedded engine in the process, not slotting into an existing one —
+an assumption Stage 1 got wrong.
+
+It resolves without a kernel change because a Module already owns its own storage. From the
+imported `module.ts`:
+
+```ts
+dbPath: legacyDatabase() ?? join(context.dataDir, "avilo.sqlite")
+```
+
+The host grants a private `dataDir`; the Module opens whatever it likes inside it. That is what
+`module-host`'s `ModuleContext` was designed for. Accounting and D2C therefore never touch
+`packages/db` or PGlite, and no Local-Plane registration path had to be built. The real cost is
+honest and bounded: **two embedded database engines coexist in one process, and they never meet.**
+Converging them is not scheduled and is not required.
+
+## 11. Stage 2 result
+
+`pnpm verify` runs **90 of 92 tasks green**, including all three imported packages and every
+manifest guard. Accounting's 168 tests and D2C's 34 pass unchanged — the earned evidence survived
+the merge, which was the point of preserving history.
+
+Two failures remain and **both were proven pre-existing on `main`**, not caused by this merge:
+`check:vocabulary` (empty baseline; flags two files byte-identical to `main`) and
+`@bridge/db#test:coverage` (a nested un-awaited `test()` at `local-store.test.ts:392`; `packages/db`
+declares no dependency on `@bridge/module-manifests`, so the new Modules are unreachable from it).
+Recorded in `docs/BUGS.md` under 2026-08-16 rather than fixed here — one is a canon vocabulary
+decision and the other is someone else's test bug, and folding either into this merge would hide
+it.
+
+Four things the gate caught that are worth keeping:
+
+- **Bridge's `tsconfig.base.json` is stricter than Avilo's** (`exactOptionalPropertyTypes`). One
+  real error, fixed at the call site rather than by loosening Bridge's config.
+- **`pnpm verify` runs `test:coverage`, not `test`.** Neither imported module had that script, so
+  their tests would have been silently skipped by the gate — present in the repo, never run.
+- **Vitest is not in Bridge** (AP-013 chose `node --test` deliberately). The imported modules keep
+  vitest, so Bridge now has two test runners. Rewriting 202 defect-earned tests to change runner
+  would risk the exact evidence the merge exists to preserve. Convergence is follow-up, not now.
+- **The always-loaded context budget had 23 bytes of headroom.** `main` sat at 10217 against a
+  10240 limit, so the promoted rules did not fit. Paid for by compressing `AGENTS.md`, whose bulk
+  was a historical note about pre-pivot content removed in July — no instruction was lost. Two
+  rules (blast-radius, task-closes-when-true-in-app) were dropped from `CLAUDE.md` rather than
+  duplicated: Bridge canon already states both, in the tier-ownership rules and the TASKS
+  operating standard respectively.

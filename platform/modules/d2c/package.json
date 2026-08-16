@@ -1,9 +1,9 @@
 {
-  "name": "@cvn/orders",
+  "name": "@bridge/d2c",
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Orders + Inventory domain layer for CV Naturals. Schema, product-to-source mapping, formula costing, order lifecycle, invoice numbering, and the stock ledger. No I/O, no framework — the api app owns persistence and the WhatsApp/Notion boundaries.",
+  "description": "D2C Module domain layer (imported from CV Naturals, ADR-237): schema, product-to-source mapping, formula costing, order lifecycle, invoice numbering, and the stock ledger. Backs the Orders, Inventory, Research and Notes sub-modules. No I/O, no framework — the host app owns persistence and the WhatsApp boundary, which is served by @bridge/whatsapp.",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
@@ -13,7 +13,8 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --noEmit false",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
