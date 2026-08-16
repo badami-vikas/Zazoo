@@ -2,6 +2,24 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **OPEN 2026-08-16 — A sidecar stall under ordinary local load costs the whole Local Plane until the app is restarted (attach: TASK-018, P3).**
+  Found while running the app during development, not from a user report — but the user hit it:
+  *"currently the app is saying local plane not available"*. Evidence from two runs of `tauri dev`.
+  Run 1: sidecar healthy on `127.0.0.1:59732`, `/health` 200 repeatedly, then one batched tRPC POST
+  after which nothing was answered; supervisor tolerated 6s, restarted, and the child never reported a
+  bound port — `could not obtain the child-bound port: sidecar did not report its bound port before the
+  startup deadline` → `declaring Local Plane loss`. Run 2 reproduced the same stall with NO tRPC
+  traffic at all: only `/health` GETs, one of which arrived and went unanswered for ~8s. What both
+  share is machine load (a full test suite and typecheck alongside the app in run 1; cargo linking the
+  debug binary plus a second API booting in run 2), not any particular query — an initial reading that
+  blamed `agentOrchestration.research.list` for sitting in the first batch was disproved by run 2.
+  The supervisor did eventually recover on a later attempt, but only after the shell had already
+  declared loss to the UI. Exit: a stall that is only slowness must not be indistinguishable from a
+  dead child — widen or back off the 6s tolerance, and make the restart wait for the previous child's
+  port to free before declaring the transport unconfigurable. Related: the companion-readiness half of
+  this failure (a transient API error at mount hiding the Avatar for the whole session) is FIXED under
+  AP-158; this row is the shell-side half only.
+
 - **RESOLVED 2026-08-16 — Ask/Research as Chat-panel sessions was the wrong shape; they belong in the history dropdown, read-only (attach: TASK-058, P2; supersedes the session-strip entry below).**
   User directive, verbatim: *"I dont want ask and research to be present there separate. I just want
   their session to be visible under 'Chat' in the chat with date section dropdown. just for history of
