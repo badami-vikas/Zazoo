@@ -205,6 +205,13 @@ export type {
 export * from "./module/types.js";
 export { parseModuleManifest, ModuleManifestValidationError } from "./module/manifest.js";
 export { findOrganizationDataPaths } from "./module/privacy.js";
+export {
+  governanceVerdict,
+  governanceRuleMatches,
+  assertModuleGovernance,
+  ModuleGovernanceDenied,
+  type GovernanceVerdict,
+} from "./module/governance.js";
 export { computeModuleRisk, moduleHasLethalTrifecta, type ModuleRiskResult } from "./module/risk.js";
 export {
   InvalidModuleTransitionError,

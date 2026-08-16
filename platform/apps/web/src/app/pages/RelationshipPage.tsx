@@ -21,6 +21,7 @@ import {
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -540,6 +541,7 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
           </div>
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
             <ModuleIntelligenceSection moduleName="relationship" />
+            <ModuleGovernanceSection moduleName="relationship" />
           </div>
         </>
       }

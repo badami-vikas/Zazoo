@@ -1111,7 +1111,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: TASK-067
 ## Accounting and D2C land as Modules, on the Local Plane, with donor history preserved
 - ID: TASK-071
-- Status: ready
+- Status: in_progress (domain layers + manifests landed 2026-08-16; the runnable Module is NOT done — see Remaining)
 - Priority: P1
 - Horizon: Prototype
 - Outcome: Avilo runs inside Bridge as the **Accounting** Module and CV Naturals as the **D2C** Module (with Orders/Inventory/Research/Production as `parent: d2c` sub-modules), both on the Local Plane over better-sqlite3, both declaring a `module.yaml`, both reachable from Bridge's nav with manifest-driven detail. `@bridge/whatsapp` serves D2C; CVN's clone is not imported. Neither donor repository is modified.
@@ -1121,11 +1121,13 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-08-16, verbatim: *"Merge Avilo and CV Naturals as modules within relationship OS called Accounting and D2C respectively"*; *"Keep the original avilo and cvn untouched. Only optimize bridge"*
 - Approval: AP-155 APPLIED (ADR-237)
 - Dependencies: none
-- Blockers to resolve inside this task, not around it: CV Naturals' `platform/packages/module-host` checkout carries `dist/` and `node_modules/` but no `src/` — confirm it consumes Avilo's module-host rather than a divergent copy before importing either. `platform/packages/db` is Postgres-only — confirm the Local-Plane registration path for a sqlite-dialect Module exists, or record an honest blocker rather than widening scope to build one.
+- Both original blockers RESOLVED 2026-08-16. CVN's `module-host` is an orphaned `dist/` with no `package.json` and no importers — dead weight, not a divergent copy, not imported. And the Local Plane turned out to be **PGlite, not sqlite** (Bridge has no sqlite anywhere), which needs no kernel change: a Module opens its own database inside the host-granted `ModuleContext.dataDir`, exactly what that contract was designed for. Two embedded engines coexist and never meet.
+- Landed: `platform/modules/accounting` (35 donor commits), `platform/modules/d2c` (3), `platform/packages/module-host` (2); `@bridge/whatsapp` serves D2C and the byte-identical CVN clone was not imported; six manifests (Accounting, D2C, and D2C's Research/Notes sub-modules, with Orders/Inventory as D2C's toggle Pages per AP-011). Accounting's 168 tests and D2C's 34 pass. `pnpm verify` 90/92, the 2 failures pre-existing on `main` and filed in BUGS.md 2026-08-16.
+- **Remaining — the Prototype test above is NOT yet met.** Only the *domain layer* was imported. Avilo's tRPC router, `db.ts`, `paths.ts` and its `BridgeModule` wiring (`aviloModule`) still live in the donor's `apps/api` and were not brought across, so Accounting is a domain package plus a manifest, not a running Module: there are no React pages, no routes in `app/routes.tsx`, and nothing registers either Module with `createHost`. Nothing opens a sqlite file yet. Closing this task means importing that wiring, mounting both Modules on the host, building the Pages the manifests already declare, and only then running the live check.
 
 ## Every Module declares what it is allowed to do, and the engine enforces it
 - ID: TASK-072
-- Status: ready
+- Status: in_progress (mechanism + policy + UI landed 2026-08-16; not live-verified, no governed call site yet — see Remaining)
 - Priority: P1
 - Horizon: Prototype
 - Outcome: every Module carries a Governance Section directly below its Intelligence Section, showing the `allow`/`deny` policy declared in its `module.yaml`, editable by the user at runtime. Accounting is seeded with Avilo's AI posture. The policy is **read by the engine**, not merely displayed.
@@ -1136,3 +1138,5 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: AP-157 APPLIED (ADR-239)
 - Dependencies: TASK-071
 - The exit test is enforcement, not rendering. A Governance Section that only displays policy reproduces exactly the prose-nobody-enforces failure ADR-239 exists to end, and would close this task falsely.
+- Landed 2026-08-16: `governance` block on `ModuleManifest` with loud validation (a rule with no `reason` is rejected — a rule that cannot explain itself cannot be audited, and "empty" is the *permissive* state so a corrupt policy must never install as empty); `governanceVerdict`/`assertModuleGovernance` in `@bridge/core` with deny-always-wins and segment-prefix matching (`model` matches `model.call`, never `models.list`; regex rejected outright); Accounting seeded with Avilo's posture as data; `ModuleGovernanceSection.tsx` wired below Intelligence at all 10 call sites. 8/8 new tests pass.
+- **Remaining — the Prototype test is NOT yet met, and this task must not close until it is.** The verdict function is tested but **nothing calls it before a real action yet**, so the enforcement half is a primitive, not an enforced boundary. There is also nothing to live-verify against: TASK-071 has not yet produced a running Accounting surface, so the seeded policy has never been rendered in a browser. Closing this means one governed call site refusing a real action with the rule quoted, plus the live walk on Accounting and on a policy-less Module (honest empty state).

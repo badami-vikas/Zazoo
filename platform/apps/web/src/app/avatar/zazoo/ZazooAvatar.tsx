@@ -16,6 +16,23 @@ import { useEffect, useRef } from "react";
 import { ZazooDirector, type ZazooFrame } from "./director";
 import { MOUTH_PARTS, MOUTH_SHAPES, BROW_PARTS, BROW_SHAPES, LOOP_N, type Loop } from "./parts";
 import { DEFAULT_SPECIES, type ZazooSpecies } from "./species";
+import pandaEgg from "./assets/panda/egg.webp";
+import pandaShirt from "./assets/panda/shirt.webp";
+import pandaTie from "./assets/panda/tie.webp";
+import pandaSuit from "./assets/panda/suit.webp";
+import pandaEar from "./assets/panda/ear.webp";
+import pandaPatch from "./assets/panda/patch.webp";
+import pandaEye from "./assets/panda/eye.webp";
+import pandaPupil from "./assets/panda/pupil.webp";
+import pandaBrow from "./assets/panda/brow.webp";
+import pandaSnout from "./assets/panda/snout.webp";
+import pandaMouthDefault from "./assets/panda/mouth-default.webp";
+import pandaMouthSmile from "./assets/panda/mouth-smile.webp";
+import pandaMouthExcited from "./assets/panda/mouth-excited.webp";
+import pandaMouthHappy from "./assets/panda/mouth-happy.webp";
+import pandaMouthTalking from "./assets/panda/mouth-talking.webp";
+import pandaMouthOpen from "./assets/panda/mouth-open.webp";
+import pandaArm from "./assets/panda/arm.webp";
 
 export interface ZazooAppearance {
   /** Base felt color of the panda's fur. */
@@ -38,26 +55,52 @@ export const DEFAULT_APPEARANCE: ZazooAppearance = {
 };
 
 /**
- * Anatomy anchors in viewBox units, measured off `Avatar/Panda main front.png`
- * and carried through the same transform as the painted layers.
+ * PAINTED PANDA — the artist's layer stack, registered on the shared 3840²
+ * canvas by pixel-matching every part against `A1 final main panda.png` and
+ * `front with hands.png` (the newest composites). Rects are CANVAS pixels;
+ * `CANVAS` maps that space into the viewBox, solved from the egg's bbox
+ * against BODY_PATH's bbox (agree to 0.1 viewBox units on both axes).
+ */
+const CANVAS = "translate(6.82 59.57) scale(0.06405)";
+const P = {
+  egg: [521, 251, 2489, 3314],
+  shirt: [394, 1206, 2616, 2359],
+  tie: [1603, 1667, 295, 1001],
+  suit: [512, 1198, 2511, 2376],
+  ear: [740, 292, 792, 740], earRx: 2004,
+  patch: [1130, 871, 333, 317], patchRx: 2073,
+  eye: [1132, 878, 324, 309], eyeRx: 2081.5,
+  pupil: [1148, 880, 305, 290], pupilRx: 2084.1,
+  brow: [1205.2, 722.8, 216.7, 95.9], browR: [2061.4, 723, 211, 93.4],
+  snout: [1591.8, 994, 350, 234],
+  // mouths hang from the lip line; the expression sheets share one scale,
+  // anchored so each part's width matches its traced twin in parts.ts
+  mouths: {
+    default: [1578.9, 1254.9, 374.6, 96.5],
+    smile: [1664.5, 1255, 203.1, 78.8],
+    excited: [1591.3, 1255, 349.5, 292.6],
+    happy: [1607.6, 1255, 316.7, 219.5],
+    talking: [1669.6, 1255, 192.9, 294.4],
+    open: [1606.2, 1255, 319.7, 268.1],
+  },
+  // rest rotation (-38°) and scale are baked into the export, so the rect
+  // is axis-aligned and the rig only adds the shoulder swing on top
+  arm: [338.5, 1896.7, 1280.4, 1247.5],
+  axis: 119.87,
+} as const;
+
+/**
+ * Anatomy anchors in viewBox units — the same registration carried through
+ * the CANVAS transform, so raster layers and anchors agree by construction.
  */
 const RIG = {
-  // ear box solved by fitting the extended-ear sheet against the reference
-  // composite (IoU 0.98); the right ear is the same box mirrored about x=120
-  ear: { lx: 53.83, rx: 135.35, y: 78.12, w: 50.83, h: 47.5, pivotLx: 93, pivotRx: 147, pivotY: 111 },
-  // painted eye patch (`eye out.png`) dropped straight onto the bbox the same
-  // shape occupies in the reference composite — the art's tilt comes with it,
-  // so nothing here has to guess an angle. Right patch = mirrored about x=120.
-  patch: { lx: 79.32, rx: 141.4, y: 115.49, w: 19.28, h: 19.86 },
-  // the glossy eye sits UP AND INWARD of the patch centre, where the source
-  // art puts it; dead-centred pupils read as a doll's stare
-  eye: { lx: 92.05, rx: 147.95, y: 124.8, rx_: 3.9, ry_: 5.2, tilt: 20 },
-  // brow anchor; the shape itself comes from the sheet, already scaled so the
-  // default `arch` matches the reference's 9.48 × 4.87
-  brow: { lx: 91, rx: 149, y: 106.4 },
-  snout: { y: 130.7, w: 17.81, aspect: 1.499 },
-  // the lip line the sheet's mouth parts hang from
-  mouth: { y: 140.3 },
+  ear: { pivotLx: 79.58, pivotRx: 160.54, pivotY: 118.56 },
+  // measured centre of the painted eye layer; the whole eye unit (ball +
+  // baked catchlights) travels as the pupil
+  eye: { lx: 89.72, rx: 150.53, y: 125.7, rx_: 4.1, ry_: 4.65 },
+  brow: { lx: 90.95, rx: 145.79, y: 108.94 },
+  // the lip line the mouth parts hang from
+  mouth: { y: 139.95 },
   // high and inboard, so the blush lands on cheek fur and stays clear of the
   // collar even at full head-drop
   cheek: { lx: 76, rx: 164, y: 143 },
@@ -283,27 +326,31 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
       r.sparkleL.current!.setAttribute("opacity", (0.5 + f.sparkle * 0.5).toFixed(2));
       r.sparkleR.current!.setAttribute("opacity", (0.5 + f.sparkle * 0.5).toFixed(2));
 
-      // BROWS come from the sheet — the artist drew arch / perk / wave, and
-      // the director picks between them. The rig only stretches the chosen
-      // part (raised brows lengthen, furrowed ones shorten) and moves it;
-      // it no longer invents a curve.
+      // BROWS. Painted species carry the artist's drawn brow and act with
+      // transforms alone (raise/furrow/sorrow become translate/rotate/scale
+      // about the brow anchor); vector species still blend the sheet's
+      // traced parts into a path.
       const by = RIG.brow.y;
       const braise = -f.browRaise * 4;
       const furrowIn = f.browFurrow * 1.8;
       const bsx = 1 + f.browRaise * 0.2 - f.browFurrow * 0.18;
       const bsy = 1 + f.browRaise * 0.12 + f.browSorrow * 0.1;
-      r.browL.current!.setAttribute("d", blendPath(browLoops, f.browW, browBuf, RIG.brow.lx, by, bsx, bsy));
+      if (!painted) {
+        r.browL.current!.setAttribute("d", blendPath(browLoops, f.browW, browBuf, RIG.brow.lx, by, bsx, bsy));
+        r.browR.current!.setAttribute("d", blendPath(browLoops, f.browW, browBuf, RIG.brow.rx, by, -bsx, bsy * 0.97));
+      }
+      const browScaleL = painted ? ` translate(${RIG.brow.lx} ${by}) scale(${bsx.toFixed(3)} ${bsy.toFixed(3)}) translate(${-RIG.brow.lx} ${-by})` : "";
+      const browScaleR = painted ? ` translate(${RIG.brow.rx} ${by}) scale(${bsx.toFixed(3)} ${(bsy * 0.97).toFixed(3)}) translate(${-RIG.brow.rx} ${-by})` : "";
       // the right brow is the same part mirrored — but NOT to the pixel. It
       // raises 94% as far and drifts a fraction of a degree with the breath:
       // perfect symmetry is the strongest "printed on" tell a face can give.
-      r.browR.current!.setAttribute("d", blendPath(browLoops, f.browW, browBuf, RIG.brow.rx, by, -bsx, bsy * 0.97));
       r.browL.current!.setAttribute(
         "transform",
-        `translate(${furrowIn.toFixed(2)} ${braise.toFixed(2)}) rotate(${(f.browSorrow * 16 - f.browFurrow * 13).toFixed(2)} ${RIG.brow.lx} ${by})`,
+        `translate(${furrowIn.toFixed(2)} ${braise.toFixed(2)}) rotate(${(f.browSorrow * 16 - f.browFurrow * 13).toFixed(2)} ${RIG.brow.lx} ${by})${browScaleL}`,
       );
       r.browR.current!.setAttribute(
         "transform",
-        `translate(${(-furrowIn).toFixed(2)} ${(braise * 0.94 + f.breath * 0.22).toFixed(2)}) rotate(${(-f.browSorrow * 16 + f.browFurrow * 13 + f.breath * 0.6).toFixed(2)} ${RIG.brow.rx} ${by})`,
+        `translate(${(-furrowIn).toFixed(2)} ${(braise * 0.94 + f.breath * 0.22).toFixed(2)}) rotate(${(-f.browSorrow * 16 + f.browFurrow * 13 + f.breath * 0.6).toFixed(2)} ${RIG.brow.rx} ${by})${browScaleR}`,
       );
 
       r.specs.current?.setAttribute("transform", `translate(${(f.specJiggle * 0.6).toFixed(2)} ${(Math.abs(f.specJiggle) * 0.5 + f.pawLift * 1.5).toFixed(2)})`);
@@ -326,6 +373,19 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
         r.beakUpper.current!.setAttribute(
           "transform",
           `rotate(${(-drop * 6).toFixed(2)} 120 124.5) translate(120 128) scale(${ms.toFixed(3)}) translate(-120 -128)`,
+        );
+      }
+      // Painted mouth: the artist's drawn mouths crossfade by the same
+      // weights the vector morph uses — the traced parts each have a painted
+      // twin (tongues come baked in) — while the jaw stretches the whole
+      // stack about the lip line.
+      if (r.mouthG.current) {
+        const w = f.mouthW;
+        const o = [w[1] + w[2] + w[3], w[0], w[4], w[5], w[6], w[7]]; // default · smile · excited · happy · talking · open
+        for (let i = 0; i < 6; i++) mouthImgRefs.current[i]?.setAttribute("opacity", Math.max(0, Math.min(1, o[i])).toFixed(3));
+        r.mouthG.current.setAttribute(
+          "transform",
+          `translate(120 ${RIG.mouth.y}) scale(${ms.toFixed(3)} ${(ms * jaw).toFixed(3)}) translate(-120 ${-RIG.mouth.y})`,
         );
       }
       if (r.mouth.current) {

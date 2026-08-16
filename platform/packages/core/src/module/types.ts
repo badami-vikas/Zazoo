@@ -200,6 +200,47 @@ export interface ModuleManifest {
    * `capabilities[]` is empty and this field carries the real payload. Signed
    * as part of the manifest (PKG-2) — canonicalizeManifest includes it. */
   blueprint?: OrganizationBlueprint;
+  /** Per-Module governance policy (ADR-239): what this Module is ALLOWED to do,
+   * as declared data the engine reads — never as prose in a prompt.
+   *
+   * This exists because the strictest rule in the imported Accounting Module
+   * was also its least enforceable one. Avilo's "no model call without an
+   * explicit user action" lived in `docs/`, and BUG-029…BUG-045 are all the
+   * assistant claiming work it had not done under exactly that rule; ADR-045
+   * records prompt text failing TWICE on the same defect before the approach
+   * changed. So the rule moves out of prose into a declaration — the same move
+   * Avilo itself made turning row-label regexes into `label_mappings`.
+   *
+   * Absent or empty is legal and means "nothing declared", rendered honestly by
+   * the Governance Section rather than filtered out (present-not-absent). An
+   * empty policy denies nothing; it is not a default-deny. */
+  governance?: ModuleGovernancePolicy;
+}
+
+/**
+ * One declared governance rule. `action` is a dotted selector scoped to the
+ * Module (`model.call`, `books.write`), or `*` for everything it can do, so a
+ * single deny entry can quarantine a Module outright.
+ */
+export interface ModuleGovernanceRule {
+  /** Dotted selector or `*`. Segment-prefix matching, never regex — a regex in
+   * a security decision is a second language to get wrong. */
+  action: string;
+  /** Shown in the Governance Section and quoted back as the reason when this
+   * rule is what refused an action. A rule that cannot explain itself is a rule
+   * the user cannot audit. */
+  reason: string;
+}
+
+export interface ModuleGovernancePolicy {
+  allow: ModuleGovernanceRule[];
+  /** Deny wins over allow, always — the same precedence the browser-capture
+   * domain policy uses (ADR-227). A boundary that can be out-voted is not one. */
+  deny: ModuleGovernanceRule[];
+  /** True once the user has edited this policy away from its seeded state. Purely
+   * informational, so the Section can say "seeded" vs "edited by you" without a
+   * second store. */
+  userEdited?: boolean;
 }
 
 /** Single-live-version states (format doc §3, Zapier model). */

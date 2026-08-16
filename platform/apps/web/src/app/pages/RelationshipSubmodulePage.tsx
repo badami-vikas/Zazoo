@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { Button } from "../components/ui/button";
 
 type RelationshipSubmodule = "relations" | "interactions" | "introductions" | "sources";
@@ -75,6 +76,7 @@ export function RelationshipSubmodulePage({ submodule }: { submodule: Relationsh
         <ModuleFilesSection moduleName="relationship" />
         <div className="mt-6">
           <ModuleIntelligenceSection moduleName="relationship" />
+          <ModuleGovernanceSection moduleName="relationship" />
         </div>
       </div>
     </div>

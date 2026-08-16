@@ -4,6 +4,7 @@ import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tabl
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow } from "../dataviews/types";
@@ -142,6 +143,7 @@ export function EventsPage() {
             </div>
             <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
               <ModuleIntelligenceSection moduleName="events" />
+              <ModuleGovernanceSection moduleName="events" />
             </div>
           </>
         }

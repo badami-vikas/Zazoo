@@ -13,6 +13,7 @@ import { Header } from "../components/shared/Header";
 import { DashboardRow, type DashboardMetric } from "../components/shared/DashboardRow";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { Button } from "../components/ui/button";
 import { DataViews } from "../dataviews/DataViews";
@@ -195,6 +196,7 @@ export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
           <>
             <ModuleFilesSection moduleName="relationship" />
             <ModuleIntelligenceSection moduleName="relationship" />
+            <ModuleGovernanceSection moduleName="relationship" />
           </>
         }
       />

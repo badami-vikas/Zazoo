@@ -5,6 +5,7 @@ import { Button } from "../components/ui/button";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { collectAllPages } from "../lib/pagination";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 
@@ -97,6 +98,7 @@ export function RelationshipHelpdeskPage() {
         <ModuleFilesSection moduleName="relationship" />
         <div className="mt-6">
           <ModuleIntelligenceSection moduleName="relationship" />
+          <ModuleGovernanceSection moduleName="relationship" />
         </div>
       </div>
     </div>

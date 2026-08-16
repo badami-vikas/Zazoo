@@ -5,6 +5,7 @@ import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { DashboardRow } from "../components/shared/DashboardRow";
 import { RedFlagControl } from "../components/shared/RedFlagControl";
@@ -179,6 +180,7 @@ export function JobPilotPage() {
             )}
             <ModuleFilesSection moduleName="job-pilot" />
             <ModuleIntelligenceSection moduleName="job-pilot" />
+            <ModuleGovernanceSection moduleName="job-pilot" />
           </>
         }
       />

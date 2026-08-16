@@ -19,6 +19,8 @@ import type {
   ModuleKind,
   ModuleManifest,
   ModuleOrganizationVocab,
+  ModuleGovernancePolicy,
+  ModuleGovernanceRule,
 } from "./types.js";
 import type { CapabilityExecutionSpec, CapabilityManifest, SandboxIsolationLevel } from "../capability/types.js";
 import { parseOrganizationBlueprint } from "../blueprint.js";
@@ -439,6 +441,8 @@ export function parseModuleManifest(raw: unknown): ModuleManifest {
     : undefined;
   const isBlueprintModule = kind === "organization_definition" && blueprint !== undefined;
 
+  const governance = parseGovernance(manifestRoot.governance);
+
   const dependenciesRaw = manifestRoot.dependencies ?? [];
   if (!Array.isArray(dependenciesRaw)) fail("module.dependencies must be an array");
   const dependencies = dependenciesRaw.map(parseDependency);
@@ -489,5 +493,47 @@ export function parseModuleManifest(raw: unknown): ModuleManifest {
     organizationVocab,
     ...(module ? { module } : {}),
     ...(blueprint ? { blueprint } : {}),
+    ...(governance ? { governance } : {}),
+  };
+}
+
+/**
+ * Per-Module governance policy (ADR-239). Absent is legal and means "nothing
+ * declared"; present-but-malformed is not, and fails loudly here for the same
+ * reason every other field does — a corrupt policy must never install as if it
+ * were empty, because "empty" is the permissive state.
+ */
+function parseGovernance(raw: unknown): ModuleGovernancePolicy | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isPlainObject(raw)) fail("module.governance must be an object");
+
+  const rules = (value: unknown, field: string): ModuleGovernanceRule[] => {
+    const list = value ?? [];
+    if (!Array.isArray(list)) fail(`module.governance.${field} must be an array`);
+    return list.map((entry, i) => {
+      if (!isPlainObject(entry)) fail(`module.governance.${field}[${i}] must be an object`);
+      const action = entry.action;
+      if (typeof action !== "string" || action.length === 0) {
+        fail(`module.governance.${field}[${i}].action must be a non-empty string`);
+      }
+      // A rule that cannot explain itself is a rule the user cannot audit, and
+      // the refusal message quotes this text back to them verbatim.
+      const reason = entry.reason;
+      if (typeof reason !== "string" || reason.length === 0) {
+        fail(`module.governance.${field}[${i}].reason must be a non-empty string — a rule must say why`);
+      }
+      return { action, reason };
+    });
+  };
+
+  const userEdited = raw.userEdited ?? raw.user_edited;
+  if (userEdited !== undefined && typeof userEdited !== "boolean") {
+    fail("module.governance.userEdited must be a boolean");
+  }
+
+  return {
+    allow: rules(raw.allow, "allow"),
+    deny: rules(raw.deny, "deny"),
+    ...(typeof userEdited === "boolean" ? { userEdited } : {}),
   };
 }

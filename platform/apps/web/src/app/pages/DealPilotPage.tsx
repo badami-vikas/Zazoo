@@ -15,6 +15,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { DashboardRow } from "../components/shared/DashboardRow";
 import { DataViews } from "../dataviews/DataViews";
@@ -680,6 +681,7 @@ export function DealPilotPage() {
               <>
                 <ModuleFilesSection moduleName="deal-pilot" />
                 <ModuleIntelligenceSection moduleName="deal-pilot" />
+                <ModuleGovernanceSection moduleName="deal-pilot" />
               </>
             }
           />
@@ -1048,6 +1050,7 @@ function RecordDetailSurface({
       <ModuleFilesSection moduleName="deal-pilot" />
       <div className="mt-6">
         <ModuleIntelligenceSection moduleName="deal-pilot" />
+        <ModuleGovernanceSection moduleName="deal-pilot" />
       </div>
     </div>
   );

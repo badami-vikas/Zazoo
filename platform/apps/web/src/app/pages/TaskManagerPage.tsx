@@ -7,6 +7,7 @@ import { DashboardRow } from "../components/shared/DashboardRow";
 import { Button } from "../components/ui/button";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { DataViews } from "../dataviews/DataViews";
 import { computeEligibleKinds, viewConfigForKind } from "../dataviews/eligibility";
@@ -278,6 +279,7 @@ export function TaskManagerPage() {
           <>
             <ModuleFilesSection moduleName="task-manager" />
             <ModuleIntelligenceSection moduleName="task-manager" />
+            <ModuleGovernanceSection moduleName="task-manager" />
           </>
         }
       />

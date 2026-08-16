@@ -5,6 +5,7 @@ import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tabl
 import { Header } from "../components/shared/Header";
 import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { ModuleIntelligenceSection } from "../components/shared/ModuleIntelligenceSection";
+import { ModuleGovernanceSection } from "../components/shared/ModuleGovernanceSection";
 import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { Input } from "../components/ui/input";
 import { DataViews } from "../dataviews/DataViews";
@@ -340,6 +341,7 @@ function AcademicsRecordListPage({ kind }: { kind: AcademicsPageId }) {
           </div>
           <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
             <ModuleIntelligenceSection moduleName="academics" />
+            <ModuleGovernanceSection moduleName="academics" />
           </div>
         </>
       }

@@ -1386,6 +1386,37 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       ],
       contextProviders: [],
       organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      // Avilo's AI posture, moved out of prose and into declared data (ADR-239).
+      // It was correct for a year and enforced by nothing: BUG-029…BUG-045 are
+      // all the assistant claiming work it had not done under exactly these
+      // rules, and ADR-045 records prompt text failing twice on the same defect.
+      // The user can edit these in the Governance Section; deny always wins.
+      governance: {
+        allow: [
+          {
+            action: "model.call.requested",
+            reason: "Suggest, Generate, the Assistant panel and Test connection each run on an explicit button press.",
+          },
+          {
+            action: "books.read",
+            reason: "The Assistant sees the open client's imported periods and accounts, read-only, from the same queries the report view runs.",
+          },
+        ],
+        deny: [
+          {
+            action: "model.call.unattended",
+            reason: "No model call without an explicit user action — nothing calls out on upload, render, navigation or a timer. The app works fully with no model configured.",
+          },
+          {
+            action: "books.write.model",
+            reason: "A model may choose, never invent. It reads facts; it cannot write one. A hallucinated id degrades to skip.",
+          },
+          {
+            action: "external.agent.books",
+            reason: "An external agent reaches configuration, never the books — enforced by the module import graph, not by this rule alone.",
+          },
+        ],
+      },
       module: {
         displayName: "Accounting",
         route: "/module/accounting",
