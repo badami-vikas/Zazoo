@@ -1,0 +1,23 @@
+{
+  "name": "@cvn/orders",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Orders + Inventory domain layer for CV Naturals. Schema, product-to-source mapping, formula costing, order lifecycle, invoice numbering, and the stock ledger. No I/O, no framework — the api app owns persistence and the WhatsApp/Notion boundaries.",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}
