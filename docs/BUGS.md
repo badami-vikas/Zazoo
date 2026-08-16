@@ -2865,7 +2865,41 @@ What each answer means:
 - Repro: `cd platform && node scripts/check-retired-vocabulary.mjs` (exit 1). Everything else in `pnpm verify` is
   green as of 2026-08-08: `turbo run typecheck test:coverage build` is 72/72 and `check:agent-context` exits 0.
 
-## OPEN 2026-08-16 — K11 input capture stores NO typed text, so the approved full-content decision (AP-157) is not delivered (TASK-054, ADR-239/ADR-240)
+## RESOLVED 2026-08-17 — K11 input capture stores NO typed text, so the approved full-content decision (AP-157) is not delivered (TASK-054, ADR-239/ADR-240)
+
+- **Resolution (2026-08-17, ADR-246 / AP-159)**: the user chose, from three presented options, to widen the shared
+  primitive — `ObservedSignal` gains an optional `content?: string`, `recordSignal` persists it spread-if-present,
+  and `inputCaptureSignal` maps the distilled redacted text onto the signal BODY (never `attributes`). This was
+  chosen over the session's own recommendation of a dedicated input-only record kind; the accepted trade and the
+  rejected alternative are both recorded in ADR-246. The "why this session did not fix it" paragraph below is
+  therefore answered rather than wrong: it correctly refused to make a cross-lane privacy call unilaterally, and
+  the call was then made by the user. The mitigations built inside that choice: the six metadata-only lanes'
+  envelope types still admit no text field, and a removal-fails guard in `learning-capture.test.ts` asserts all six
+  leave `content` undefined — performed, seen red by making the chat lane populate it.
+- **The pinned test was inverted as this evidence required**: `!row.raw.includes("pay with")` is now
+  `row.raw.includes("pay with")` plus an exact-value assertion, while `!row.raw.includes("4111111111111111")`
+  stands unchanged — together they are the whole safety claim. The suppressed-burst assertion
+  `!raw.includes("maybe-a-password")` was **vacuously true** before (nothing persisted at all) and is now a live guard.
+- **Knock-on resolved**: the Settings copy "the only one that stores what you type" is now true as written. It was
+  never edited — the capture moved to meet the promise, which is the direction AP-157 required.
+- **Found only by fixing it** — filed and fixed in the same commit, see the entry immediately below.
+
+## RESOLVED 2026-08-17 — the redaction backstop silently ate the character after a card number (TASK-054, ADR-246)
+
+- **What was wrong**: `DIGIT_GROUP_RE = /\b(?:\d[ -]?){13,19}\b/g` allowed the optional separator to follow the
+  FINAL digit, so it consumed the space after the match. `"pay with 4111111111111111 today"` redacted to
+  `"pay with [redacted:card]today"`.
+- **Direction of the defect**: fail-SAFE — it removes more than intended, never less. Filed anyway because the
+  product now stores and shows this text back to the user, so mangling their own prose is a real quality defect,
+  and a redaction that quietly deletes an adjacent character is not one anybody should trust to be precise.
+- **Why it survived**: all three existing redaction tests asserted only that the placeholder APPEARED
+  (`text.includes("[redacted:card]")`), never what surrounded it — including one whose fixture,
+  `"my card is 4111 1111 1111 1111 ok"`, was mangled by the very bug it was meant to cover. It was also completely
+  unobservable for as long as the lane persisted nothing: the corruption had no surface to show up on.
+- **Fix**: `/\b\d(?:[ -]?\d){12,18}\b/g` — separators strictly between digits, same 13–19 digit span, same Luhn and
+  spaced/dashed coverage. Pinned by a new test asserting exact output strings for the plain, spaced and dashed forms.
+
+## (was OPEN, see resolution above) 2026-08-16 — K11 input capture stores NO typed text (TASK-054, ADR-239/ADR-240)
 
 - **What is wrong**: AP-157 recorded the user's explicit choice of FULL CONTENT keystroke capture over the harness
   plan's recommended event-only shape, and authorized the build on that basis. The shipped lane does not store any
@@ -2893,3 +2927,20 @@ What each answer means:
   stores what you type", which is currently false. It is unchanged on purpose — rewriting it to describe
   facets-only would quietly reverse AP-157, which needs an APPROVALS row; completing the capture makes it true
   again. Whichever way the user decides, one of the two must move.
+
+## EVIDENCE 2026-08-17 — `jobpilot-culture-research` socket-cancel test fails under full-suite CPU contention (flake, not a regression; TASK-036)
+
+- **Observed**: `pnpm verify` run 2026-08-17 finished 82/83 with `@bridge/api#test:coverage` failing on
+  "agentOrchestration.childRun.cancel … actually aborts the real in-flight socket". Error:
+  `timed out after 120s waiting for the server to observe the socket close`. The test itself ran for
+  **123.47s** against a hard 120s deadline. Total suite time 13m48s, on a machine simultaneously running
+  this session's core/web test runs and a parallel session's build.
+- **Not a regression**: re-run in isolation three times, 57/57 green each time. The changes in that
+  verify run (`ObservedSignal.content`, the redaction regex, the input drain) touch nothing in the
+  agent-orchestration cancel path.
+- **Why it is filed rather than dismissed**: this is the SAME class of defect ADR-245 had just fixed one
+  layer down — a wall-clock deadline that in practice measures machine load rather than the property it
+  claims to test. A 120s socket-close budget passes on an idle machine and fails on a busy one, so the
+  test is load-sensitive by construction, and "re-run it" is the current mitigation rather than a fix.
+- **Second occurrence of this shape**: a `chat-model-manager` expectation ('downloading' vs 'failed') flaked
+  the same way on 2026-08-16 under the same conditions and was likewise clean in isolation.

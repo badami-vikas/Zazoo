@@ -226,8 +226,54 @@ test("message text is structurally inexpressible: neither envelope type admits a
       !JSON.stringify(signal).includes(SECRET),
       "no signal field can carry message text",
     );
-    // The only free-text-capable field on ObservedSignal stays absent.
+    // Both free-text-capable fields on ObservedSignal stay absent. `content`
+    // was added for the input lane (task #80 / AP-157) and is deliberately
+    // shared rather than input-only, so THIS is the assertion standing between
+    // that field and a future lane quietly filling it.
     assert.equal(signal.reason, undefined);
+    assert.equal(signal.content, undefined);
+  }
+});
+
+test("the shared `content` field is reachable by ONE lane — every other emitter leaves it unset", () => {
+  // ObservedSignal.content exists so the input lane can persist redacted typed
+  // text (AP-157). The other six emitters' ADRs promise metadata only — "never
+  // the message text / page content / window contents" — and after widening,
+  // nothing but this test enforces that. It is a removal-fails guard: delete
+  // any lane's restraint and this goes red.
+  //
+  // Note the envelopes are the deeper defence: none of these six envelope
+  // TYPES admits a text field, so a lane cannot fill `content` without first
+  // widening its own input shape (which its own test above forbids). This
+  // asserts the outcome that layering is supposed to produce.
+  const signals = [
+    chatTurnCaptureSignal({ turnId: "t", threadId: "th", plane: "local", surface: "web", sentAt: AT }, SCOPE, "g-1"),
+    whatsAppMessageCaptureSignal(
+      { messageId: "m", chatId: "c", direction: "outbound", isGroup: false, sentAt: AT, capturedAt: AT },
+      SCOPE,
+      "g-2",
+    ),
+    gmailThreadCaptureSignal(
+      { threadId: "th", subject: "s", counterpartyEmail: "a@b.com", lastMessageAt: AT },
+      SCOPE,
+      "g-3",
+    ),
+    calendarEventCaptureSignal(
+      { eventId: "e", summary: "s", attendeeEmails: ["a@b.com"], startsAt: AT },
+      SCOPE,
+      "g-4",
+    ),
+    browserVisitCaptureSignal({ visitId: "v", domain: "example.com", title: "Example", visitedAt: AT }, SCOPE, "g-5"),
+    appFocusCaptureSignal(
+      { focusId: "f", appName: "Editor", bundleId: "com.example.editor", windowTitle: "notes.md", focusedAt: AT },
+      SCOPE,
+      "g-6",
+    ),
+  ];
+  for (const signal of signals) {
+    assert.ok(signal, "fixture should produce a signal");
+    assert.equal(signal.content, undefined);
+    assert.equal(Object.prototype.hasOwnProperty.call(signal, "content"), false);
   }
 });
 

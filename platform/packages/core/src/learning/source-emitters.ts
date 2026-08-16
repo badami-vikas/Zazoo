@@ -376,6 +376,13 @@ export function inputCaptureSignal(
       ...(envelope.redactionCount > 0 ? { redacted: "true" } : {}),
       timeOfDay: timeOfDayBucket(envelope.typedAt),
     },
+    // The redacted typed text, and the one place it lives: the signal BODY,
+    // never `attributes`. Attributes are grouping facets the digest mines and
+    // fans out to rhythm detection — putting prose there would make the text
+    // a pattern key. Present only for a captured burst; `distilKeystrokeBurst`
+    // omits it entirely for a suppressed one, and that absence is carried
+    // through rather than normalized to "" (AP-157, task #80).
+    ...(envelope.content !== undefined ? { content: envelope.content } : {}),
     observedAt: envelope.typedAt,
     ...(envelope.taintLabel ? { taintLabel: envelope.taintLabel } : {}),
   };

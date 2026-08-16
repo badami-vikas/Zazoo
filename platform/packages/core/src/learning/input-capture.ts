@@ -284,7 +284,13 @@ function passesLuhn(digits: string): boolean {
 // long-digit-run so the specific label wins; the high-entropy token rule runs
 // last on what remains.
 const SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/g;
-const DIGIT_GROUP_RE = /\b(?:\d[ -]?){13,19}\b/g; // spaced/dashed card-like groups
+// Spaced/dashed card-like groups. The separator is written as strictly
+// BETWEEN digits (`\d(?:[ -]?\d){12,18}`) rather than trailing each digit
+// (`(?:\d[ -]?){13,19}`): the trailing form also consumed the space AFTER the
+// final digit, so "pay with 4111111111111111 today" redacted to
+// "pay with [redacted:card]today". Harmless while nothing was persisted —
+// visible corruption of the user's own words now that it is (task #80).
+const DIGIT_GROUP_RE = /\b\d(?:[ -]?\d){12,18}\b/g;
 const LONG_DIGIT_RE = /\b\d{9,}\b/g;
 const HIGH_ENTROPY_RE = /\b(?=[A-Za-z0-9+/_-]*[A-Za-z])(?=[A-Za-z0-9+/_-]*\d)[A-Za-z0-9+/_-]{20,}\b/g;
 

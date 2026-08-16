@@ -53,6 +53,40 @@ async function seedRepeatedDismissals(store: InMemoryMemoryStore, count: number)
   }
 }
 
+test("recordSignal persists optional content, and omits the key when absent", async () => {
+  // Task #80 / AP-157: the input lane distils redacted typed text and needs a
+  // durable home for it. `content` is OPTIONAL and every other lane leaves it
+  // unset — so a signal without it must serialize with no `content` key at
+  // all, not `"content": null`. A null would read as "we looked and there was
+  // nothing", which is a different claim from "this lane does not carry text".
+  const store = new InMemoryMemoryStore();
+
+  const withText = await recordSignal(store, {
+    ...dismissSignal(1, { industry: "hvac" }),
+    content: "buy milk and call the plumber",
+  });
+  const parsedWith = JSON.parse(withText.content) as Record<string, unknown>;
+  assert.equal(parsedWith["content"], "buy milk and call the plumber");
+
+  const withoutText = await recordSignal(store, dismissSignal(2, { industry: "hvac" }));
+  const parsedWithout = JSON.parse(withoutText.content) as Record<string, unknown>;
+  assert.equal(Object.prototype.hasOwnProperty.call(parsedWithout, "content"), false);
+
+  // And it survives a round-trip through the store, not just the write call.
+  const reread = await store.get(withText.id, SCOPE);
+  assert.ok(reread);
+  assert.equal((JSON.parse(reread.content) as Record<string, unknown>)["content"], "buy milk and call the plumber");
+
+  // THE guard that keeps captured text out of model prompts. Retrieval fusion
+  // (`retrieval-fusion.ts`, `retrieval-eval.ts`, and the router's memory
+  // search) all filter with `!isLearningObservationEntry(entry)` — learning
+  // machinery rows are EXCLUDED from what reaches a prompt. Adding `content`
+  // gave these rows a prose body for the first time, so that exclusion is now
+  // load-bearing for privacy and not merely for relevance: a content-carrying
+  // signal row must still classify as machinery.
+  assert.equal(isLearningObservationEntry(reread), true);
+});
+
 test("digest proposes a suggestion for a repeated pattern and writes NO preference", async () => {
   const store = new InMemoryMemoryStore();
   await seedRepeatedDismissals(store, 3);

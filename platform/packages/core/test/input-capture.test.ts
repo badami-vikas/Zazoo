@@ -161,6 +161,28 @@ test("redaction strips a card number even from a capturable field", () => {
   assert.equal(redactions.some((r) => r.kind === "card_number"), true);
 });
 
+test("redaction replaces ONLY the secret — surrounding words keep their spacing", () => {
+  // Regression (task #80): DIGIT_GROUP_RE allowed a separator after the final
+  // digit, so it ate the following space and "pay with 4111... today" became
+  // "pay with [redacted:card]today". Invisible while no content was stored;
+  // now the user reads this text back, so mangling their prose is a real
+  // defect. The assertions above this one all passed on the broken output
+  // because they only checked that the placeholder APPEARED.
+  assert.equal(
+    redactSensitivePatterns("pay with 4111111111111111 today").text,
+    "pay with [redacted:card] today",
+  );
+  // The spaced/dashed forms still redact, and still leave their neighbours alone.
+  assert.equal(
+    redactSensitivePatterns("my card is 4111 1111 1111 1111 ok").text,
+    "my card is [redacted:card] ok",
+  );
+  assert.equal(
+    redactSensitivePatterns("card 4111-1111-1111-1111, thanks").text,
+    "card [redacted:card], thanks",
+  );
+});
+
 test("redaction strips SSNs, long digit runs, and high-entropy tokens", () => {
   const ssn = redactSensitivePatterns("ssn 123-45-6789 here");
   assert.ok(!ssn.text.includes("123-45-6789"));
@@ -233,6 +255,53 @@ test("the signal row carries NO typed content — only bucketed facets", () => {
   assert.ok(!attrs.includes("buy milk")); // removal-fails: no content facet
   assert.equal(signal.attributes["keyCount"], "brief"); // bucketed, not a tally
   assert.equal(signal.attributes["disposition"], "captured");
+});
+
+test("a captured burst carries its redacted text in the signal BODY (AP-157)", () => {
+  // The other half of the test above: attributes must not carry the text, but
+  // the signal must carry it *somewhere* or AP-157's approved full-content
+  // capture is undelivered — which is exactly the state this closes (task #80).
+  const signal = inputCaptureSignal(
+    {
+      burstId: "b3",
+      appName: "Editor",
+      bundleId: "com.example.editor",
+      summary: "Typed in Editor: buy milk",
+      keyCount: 9,
+      content: "buy milk",
+      disposition: "captured",
+      redactionCount: 0,
+      typedAt: "2026-08-16T10:00:00.000Z",
+    },
+    { organizationId: "org", userId: "user" },
+    "sig-3",
+  );
+  assert.ok(signal);
+  assert.equal(signal.content, "buy milk");
+  // Still absent from the grouping facets — the body/attributes split holds.
+  assert.ok(!JSON.stringify(signal.attributes).includes("buy milk"));
+});
+
+test("a suppressed burst has NO content field at all — not an empty string", () => {
+  // Structural absence, not a falsy value: `content: ""` would still be a
+  // content channel a later reader could treat as "captured, but empty".
+  const signal = inputCaptureSignal(
+    {
+      burstId: "b4",
+      appName: "Mail",
+      bundleId: "com.apple.mail",
+      summary: "Typed in a secure field in Mail",
+      disposition: "suppressed",
+      suppressionReason: "secure_field",
+      redactionCount: 0,
+      typedAt: "2026-08-16T22:00:00.000Z",
+    },
+    { organizationId: "org", userId: "user" },
+    "sig-4",
+  );
+  assert.ok(signal);
+  assert.equal(signal.content, undefined);
+  assert.ok(!Object.prototype.hasOwnProperty.call(signal, "content"));
 });
 
 test("suppressed bursts signal the reason and never the text", () => {
