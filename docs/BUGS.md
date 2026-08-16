@@ -2774,3 +2774,32 @@ What each answer means:
   a rename the Module's owner has to undo.
 - Repro: `cd platform && node scripts/check-retired-vocabulary.mjs` (exit 1). Everything else in `pnpm verify` is
   green as of 2026-08-08: `turbo run typecheck test:coverage build` is 72/72 and `check:agent-context` exits 0.
+
+## OPEN 2026-08-16 — K11 input capture stores NO typed text, so the approved full-content decision (AP-157) is not delivered (TASK-054, ADR-239/ADR-240)
+
+- **What is wrong**: AP-157 recorded the user's explicit choice of FULL CONTENT keystroke capture over the harness
+  plan's recommended event-only shape, and authorized the build on that basis. The shipped lane does not store any
+  typed characters. `inputCaptureSignal()` (`packages/core/src/learning/source-emitters.ts`) builds an
+  `ObservedSignal`, and `recordSignal()` (`packages/core/src/learning/observation.ts:108`) persists only
+  `{ anchor, recordKind, recordId, attributes, observedAt }`. There is no body field, so the distilled and redacted
+  `content` and `summary` are computed by `distilKeystrokeBurst()`, passed into the envelope, and dropped. What
+  persists for a CAPTURED burst is app name, bundle id, a bucketed keyCount, a disposition and a time-of-day
+  bucket — functionally the event-only design the user rejected.
+- **Direction of the defect**: fail-SAFE, not leaky. Nothing is exposed that should not be. This is recorded as a
+  bug because it silently delivers the option the user did not choose, not because it risks data.
+- **Repro / evidence**: live walk 2026-08-16 over a persistent Local Plane on an inherited-fd sidecar. A burst of
+  `pay with 4111111111111111 today` in a `content_ok` field returns `{ captured: true, recorded: true }`, and a
+  sweep of the entire `BRIDGE_LOCAL_DIR` finds zero occurrences of that string — and zero occurrences of the
+  surrounding prose. Pinned by `apps/api/test/input-capture-lane.test.ts`, "a clear field is captured, and the
+  stored row still carries no typed text", which asserts `!row.raw.includes("pay with")`. That test documents
+  current reality and must be inverted when this is fixed.
+- **Why this session did not fix it**: giving redacted content a persisted home means widening
+  `ObservedSignal`/`recordSignal`, which every capture lane shares — chat, WhatsApp, Google, browser and app focus,
+  whose own ADRs promise metadata only ("never the message text", "never page content", "never window contents").
+  Adding a content-bearing field to that shared primitive opens a content path for five lanes that promised not to
+  have one. That is a cross-plane privacy decision needing its own ADR and the user's call, and the safe direction
+  is the current state, so it was not widened unilaterally.
+- **Knock-on, deliberately left**: the Settings card copy reads "The most invasive option, and the only one that
+  stores what you type", which is currently false. It is unchanged on purpose — rewriting it to describe
+  facets-only would quietly reverse AP-157, which needs an APPROVALS row; completing the capture makes it true
+  again. Whichever way the user decides, one of the two must move.

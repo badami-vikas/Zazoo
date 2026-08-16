@@ -14920,7 +14920,7 @@ export const appRouter = t.router({
             }
             const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
             if (!captureAllowed(consent, "input")) {
-              return { captured: false, verdict: "consent_off" as const };
+              return { captured: false, recorded: false, verdict: "consent_off" as const };
             }
             const denylist = await readInputDenylistState(ctx.wiring, input.organizationId);
 
@@ -14939,13 +14939,13 @@ export const appRouter = t.router({
               denylist,
             );
             if (distilled === null) {
-              return { captured: false, verdict: "denylisted" as const };
+              return { captured: false, recorded: false, verdict: "denylisted" as const };
             }
 
             const signalId = inputCaptureSignalId(input.burstId);
             const owner = { organizationId: input.organizationId, userId: ctx.identity.id };
             if (await ctx.wiring.memoryStore.get(signalId, owner)) {
-              return { captured: false, verdict: "duplicate" as const };
+              return { captured: false, recorded: false, verdict: "duplicate" as const };
             }
             const signal = inputCaptureSignal(
               {
@@ -14978,10 +14978,20 @@ export const appRouter = t.router({
               signalId,
             );
             if (signal) await recordCaptureSignal(ctx.wiring.memoryStore, signal);
+            // `captured` means CONTENT was stored; `recorded` means a Memory
+            // row exists. A suppressed burst records a no-content marker, so
+            // the two differ — and conflating them would make this lane lie
+            // about the one thing it exists to be honest about. Reporting
+            // `captured: true` for a secure field is exactly the claim the
+            // boundary is built to never make.
+            const captured = distilled.disposition === "captured";
             return {
-              captured: true,
-              verdict: "captured" as const,
-              disposition: distilled.disposition,
+              captured,
+              recorded: true,
+              verdict: captured ? ("captured" as const) : ("suppressed" as const),
+              ...(distilled.suppressionReason
+                ? { suppressionReason: distilled.suppressionReason }
+                : {}),
             };
           }),
       }),
