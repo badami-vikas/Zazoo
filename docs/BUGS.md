@@ -2,7 +2,7 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
-- **OPEN 2026-08-16 — A sidecar stall under ordinary local load costs the whole Local Plane until the app is restarted (attach: TASK-018, P3).**
+- **RESOLVED 2026-08-17 — A sidecar stall under ordinary local load costs the whole Local Plane until the app is restarted (attach: TASK-018, P3; ADR-245).**
   Found while running the app during development, not from a user report — but the user hit it:
   *"currently the app is saying local plane not available"*. Evidence from two runs of `tauri dev`.
   Run 1: sidecar healthy on `127.0.0.1:59732`, `/health` 200 repeatedly, then one batched tRPC POST
@@ -19,6 +19,17 @@
   port to free before declaring the transport unconfigurable. Related: the companion-readiness half of
   this failure (a transient API error at mount hiding the Avatar for the whole session) is FIXED under
   AP-158; this row is the shell-side half only.
+  **Fixed 2026-08-17 (ADR-245)**: the supervisor now asks whether the child EXITED rather than whether
+  it answered — an exited child recovers at once, a living-but-silent one is tolerated 45s instead of
+  6s, and an unanswerable `try_wait` counts as alive. Two further defects were found while fixing it:
+  `restart` took the whole `SpawnedApi` out of the state before the respawn was known to work, so one
+  failed attempt dropped the retained port reservation and made every later attempt fail at the `take`
+  (the advertised budget of 3 was really 1), and the monitor broke out of its loop on the first failed
+  attempt instead of spending the rest. Respawn deadlines widened (90s port report, 30s readiness),
+  since a respawn only ever runs on a machine already too loaded to answer a probe. cargo 183/183 with
+  four new tests, each seen RED under a mutation; the app survived a full `pnpm verify` on the same
+  machine with zero supervisor events and 96 consecutive health 200s. The stall itself did not
+  reproduce during that run, so the tolerance path is covered by unit tests rather than live evidence.
 
 - **RESOLVED 2026-08-16 — Ask/Research as Chat-panel sessions was the wrong shape; they belong in the history dropdown, read-only (attach: TASK-058, P2; supersedes the session-strip entry below).**
   User directive, verbatim: *"I dont want ask and research to be present there separate. I just want

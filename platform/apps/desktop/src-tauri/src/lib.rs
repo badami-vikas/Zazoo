@@ -383,7 +383,21 @@ const HEALTH_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// count of failed probes. A count silently shortens as the probe gets slower
 /// or the interval shorter — the reason a ~2.3s hiccup used to brick the app
 /// permanently while the sidecar was still answering 200 to every request.
-const HEALTH_LOSS_AFTER: std::time::Duration = std::time::Duration::from_secs(6);
+///
+/// Time alone was still not enough. A child that is merely STARVED — an
+/// ordinary `cargo` build or test run on the same machine — stops answering
+/// probes while being perfectly healthy, and 6s of that was indistinguishable
+/// from a crash: the shell killed a working sidecar and, when the replacement
+/// was itself slow to boot on the same loaded machine, declared the Local
+/// Plane lost (BUGS 2026-08-16). So the question asked is now "has the child
+/// EXITED", with unreachability as the fallback signal for a hung-but-alive
+/// process on a much longer fuse.
+const HEALTH_STALL_WARN_AFTER: std::time::Duration = std::time::Duration::from_secs(6);
+/// How long an ALIVE child may stay unreachable before it is treated as hung.
+/// Long on purpose: every second here is only ever spent on a machine already
+/// too loaded to answer a loopback probe, and the cost of being wrong is
+/// killing a sidecar that was about to answer.
+const HEALTH_LOSS_AFTER_ALIVE: std::time::Duration = std::time::Duration::from_secs(45);
 
 /// Recovery budget for a crashed sidecar. Bounded on purpose: a sidecar that
 /// dies repeatedly is a real fault and must surface as one, not as an endless
@@ -394,21 +408,44 @@ const HEALTH_RESTART_BUDGET: u32 = 3;
 /// them as one is how a long-lived app ends up permanently unrecoverable.
 const HEALTH_RESTART_BUDGET_WINDOW: std::time::Duration = std::time::Duration::from_secs(600);
 
-/// One liveness observation. Returns `true` only when the sidecar has been
-/// unreachable for a continuous `HEALTH_LOSS_AFTER`; any single success clears
-/// the streak. Split out from the polling thread so the verdict is testable
-/// without a socket.
+/// What one liveness observation asks the supervisor to do. Split out from the
+/// polling thread so the verdict is testable without a socket or a process.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Liveness {
+    /// Answering. Nothing to do.
+    Healthy,
+    /// Not answering yet, and not for long enough to act on.
+    Stalling,
+    /// Replace the child: it exited, or it has been unreachable so long while
+    /// alive that "hung" is the better explanation than "busy".
+    Recover { exited: bool },
+}
+
+/// `child_exited` is the shell's answer to "is the process still there";
+/// `None` means the question could not be answered, which is treated as
+/// ALIVE — never kill a working sidecar because a `try_wait` failed.
 fn liveness_step(
     healthy: bool,
+    child_exited: Option<bool>,
     now: std::time::Instant,
     unreachable_since: &mut Option<std::time::Instant>,
-) -> bool {
+) -> Liveness {
     if healthy {
         *unreachable_since = None;
-        return false;
+        return Liveness::Healthy;
+    }
+    // A gone child is not a slow child: recover at once rather than making the
+    // user wait out a patience window for a process that cannot come back.
+    if child_exited == Some(true) {
+        *unreachable_since = None;
+        return Liveness::Recover { exited: true };
     }
     let since = *unreachable_since.get_or_insert(now);
-    now.duration_since(since) >= HEALTH_LOSS_AFTER
+    if now.duration_since(since) >= HEALTH_LOSS_AFTER_ALIVE {
+        *unreachable_since = None;
+        return Liveness::Recover { exited: false };
+    }
+    Liveness::Stalling
 }
 
 /// Whether a recovery attempt is still owed, and the budget state that follows.
@@ -442,50 +479,78 @@ fn monitor_sidecar(app: tauri::AppHandle, port: u16, token: String) {
                 std::thread::sleep(HEALTH_PROBE_INTERVAL);
                 let healthy = api_sidecar::health_ok(port, &token, HEALTH_PROBE_TIMEOUT);
                 let was_unreachable = unreachable_since.is_some();
-                if !liveness_step(healthy, std::time::Instant::now(), &mut unreachable_since) {
-                    // Keep a transient stall visible without acting on it —
-                    // silently absorbing it is how the tolerance regressed.
-                    if !healthy && !was_unreachable {
-                        eprintln!(
-                            "[bridge-desktop] api sidecar unreachable — tolerating for up to {}s",
-                            HEALTH_LOSS_AFTER.as_secs()
-                        );
-                    } else if healthy && was_unreachable {
-                        eprintln!("[bridge-desktop] api sidecar reachable again");
-                    }
-                    continue;
-                }
-                // Sustained unreachability is a dead child, not a stall. Put an
-                // identical one back on the retained socket before spending the
-                // user's whole session: the replacement reuses the same port and
-                // token, so the already-scripted webviews keep working and the
-                // Local Plane never has to be declared lost at all.
-                let (may_restart, next_used, next_first) =
-                    restart_budget_step(std::time::Instant::now(), restarts_used, first_restart_at);
-                if may_restart {
-                    restarts_used = next_used;
-                    first_restart_at = next_first;
-                    eprintln!(
-                        "[bridge-desktop] api sidecar unreachable for {}s — restarting it \
-                         (attempt {restarts_used}/{HEALTH_RESTART_BUDGET})",
-                        HEALTH_LOSS_AFTER.as_secs()
-                    );
-                    if api_sidecar::restart(&app.state::<api_sidecar::ApiSidecarState>()) {
-                        unreachable_since = None;
+                let exited = api_sidecar::child_exited(&app.state::<api_sidecar::ApiSidecarState>());
+                let verdict = liveness_step(
+                    healthy,
+                    exited,
+                    std::time::Instant::now(),
+                    &mut unreachable_since,
+                );
+                match verdict {
+                    Liveness::Healthy => {
+                        if was_unreachable {
+                            eprintln!("[bridge-desktop] api sidecar reachable again");
+                        }
                         continue;
                     }
-                    eprintln!("[bridge-desktop] api sidecar restart failed");
-                } else {
-                    eprintln!(
-                        "[bridge-desktop] api sidecar exhausted its restart budget \
-                         ({HEALTH_RESTART_BUDGET} in {}s)",
-                        HEALTH_RESTART_BUDGET_WINDOW.as_secs()
-                    );
+                    Liveness::Stalling => {
+                        // Keep a transient stall visible without acting on it —
+                        // silently absorbing it is how the tolerance regressed.
+                        if !was_unreachable {
+                            eprintln!(
+                                "[bridge-desktop] api sidecar not answering — the child is alive, \
+                                 tolerating for up to {}s",
+                                HEALTH_LOSS_AFTER_ALIVE.as_secs()
+                            );
+                        }
+                        continue;
+                    }
+                    Liveness::Recover { exited } => {
+                        let (may_restart, next_used, next_first) = restart_budget_step(
+                            std::time::Instant::now(),
+                            restarts_used,
+                            first_restart_at,
+                        );
+                        if may_restart {
+                            restarts_used = next_used;
+                            first_restart_at = next_first;
+                            eprintln!(
+                                "[bridge-desktop] api sidecar {} — restarting it \
+                                 (attempt {restarts_used}/{HEALTH_RESTART_BUDGET})",
+                                if exited {
+                                    "child exited".to_string()
+                                } else {
+                                    format!(
+                                        "unreachable for {}s while alive",
+                                        HEALTH_LOSS_AFTER_ALIVE.as_secs()
+                                    )
+                                }
+                            );
+                            if api_sidecar::restart(&app.state::<api_sidecar::ApiSidecarState>()) {
+                                unreachable_since = None;
+                                continue;
+                            }
+                            // A failed attempt is NOT the end of the road: the
+                            // reservation and respawn plan survive it now, so the
+                            // remaining budget is real and gets spent on the next
+                            // ticks instead of the session ending here.
+                            eprintln!(
+                                "[bridge-desktop] api sidecar restart failed; {} attempt(s) left",
+                                HEALTH_RESTART_BUDGET.saturating_sub(restarts_used)
+                            );
+                            if restarts_used < HEALTH_RESTART_BUDGET {
+                                continue;
+                            }
+                        } else {
+                            eprintln!(
+                                "[bridge-desktop] api sidecar exhausted its restart budget \
+                                 ({HEALTH_RESTART_BUDGET} in {}s)",
+                                HEALTH_RESTART_BUDGET_WINDOW.as_secs()
+                            );
+                        }
+                    }
                 }
-                eprintln!(
-                    "[bridge-desktop] api sidecar unreachable for {}s — declaring Local Plane loss",
-                    HEALTH_LOSS_AFTER.as_secs()
-                );
+                eprintln!("[bridge-desktop] api sidecar unrecoverable — declaring Local Plane loss");
                 if let Err(error) =
                     sensor_bridge::shutdown(&app.state::<sensor_bridge::SensorHubState>())
                 {
@@ -818,6 +883,9 @@ pub fn run() {
 mod security_tests {
     use super::*;
 
+    const ALIVE: Option<bool> = Some(false);
+    const GONE: Option<bool> = Some(true);
+
     /// The regression this replaces: loss was a *count* of 3 failed probes, so
     /// a stall barely longer than 3 probe timeouts permanently bricked the app
     /// while the sidecar was still answering 200 to every request.
@@ -827,57 +895,123 @@ mod security_tests {
         let mut unreachable_since = None;
 
         // A stall well past the old 3-failure threshold must be tolerated.
-        assert!(!liveness_step(false, start, &mut unreachable_since));
-        assert!(!liveness_step(
-            false,
-            start + std::time::Duration::from_secs(1),
-            &mut unreachable_since
-        ));
-        assert!(!liveness_step(
-            false,
-            start + std::time::Duration::from_secs(4),
-            &mut unreachable_since
-        ));
+        for seconds in [0, 1, 4] {
+            assert_eq!(
+                liveness_step(
+                    false,
+                    ALIVE,
+                    start + std::time::Duration::from_secs(seconds),
+                    &mut unreachable_since
+                ),
+                Liveness::Stalling
+            );
+        }
 
         // One success clears the streak, so a later failure starts over.
-        assert!(!liveness_step(
-            true,
-            start + std::time::Duration::from_secs(5),
-            &mut unreachable_since
-        ));
+        assert_eq!(
+            liveness_step(
+                true,
+                ALIVE,
+                start + std::time::Duration::from_secs(5),
+                &mut unreachable_since
+            ),
+            Liveness::Healthy
+        );
         assert!(unreachable_since.is_none());
-        assert!(!liveness_step(
-            false,
-            start + std::time::Duration::from_secs(6),
-            &mut unreachable_since
-        ));
+        assert_eq!(
+            liveness_step(
+                false,
+                ALIVE,
+                start + std::time::Duration::from_secs(6),
+                &mut unreachable_since
+            ),
+            Liveness::Stalling
+        );
     }
 
+    /// The defect this pins (BUGS 2026-08-16): an ordinary local build or test
+    /// run starves the sidecar past the old 6s window while the process is
+    /// perfectly alive. Killing it there is what turned a stall into a declared
+    /// Local Plane loss, so a LIVE child must survive well past that mark.
     #[test]
-    fn continuous_unreachability_still_declares_loss() {
+    fn a_starved_but_living_child_is_not_killed_at_the_old_threshold() {
         let start = std::time::Instant::now();
         let mut unreachable_since = None;
 
-        assert!(!liveness_step(false, start, &mut unreachable_since));
-        assert!(!liveness_step(
-            false,
-            start + HEALTH_LOSS_AFTER - std::time::Duration::from_millis(1),
-            &mut unreachable_since
-        ));
-        // Fail-closed is preserved: a genuinely dead sidecar is still reported.
-        assert!(liveness_step(
-            false,
-            start + HEALTH_LOSS_AFTER,
-            &mut unreachable_since
-        ));
+        assert_eq!(
+            liveness_step(false, ALIVE, start, &mut unreachable_since),
+            Liveness::Stalling
+        );
+        assert_eq!(
+            liveness_step(
+                false,
+                ALIVE,
+                start + HEALTH_STALL_WARN_AFTER + std::time::Duration::from_secs(1),
+                &mut unreachable_since
+            ),
+            Liveness::Stalling,
+            "a live child was recovered at the stall-warning mark, which is the reported bug"
+        );
+        // It recovers eventually — hung is still a real state.
+        assert_eq!(
+            liveness_step(
+                false,
+                ALIVE,
+                start + HEALTH_LOSS_AFTER_ALIVE,
+                &mut unreachable_since
+            ),
+            Liveness::Recover { exited: false }
+        );
+    }
+
+    /// The other half: a child that actually exited must not wait out the
+    /// patience window that exists for slow ones.
+    #[test]
+    fn an_exited_child_is_recovered_immediately() {
+        let start = std::time::Instant::now();
+        let mut unreachable_since = None;
+
+        assert_eq!(
+            liveness_step(false, GONE, start, &mut unreachable_since),
+            Liveness::Recover { exited: true }
+        );
+        assert!(
+            unreachable_since.is_none(),
+            "the streak must reset so the next attempt gets its own full window"
+        );
+    }
+
+    /// `try_wait` failing is not evidence of death. Unknown must behave like
+    /// alive, or a failed question could kill a working sidecar.
+    #[test]
+    fn an_unanswerable_liveness_question_is_treated_as_alive() {
+        let start = std::time::Instant::now();
+        let mut unreachable_since = None;
+
+        assert_eq!(
+            liveness_step(false, None, start, &mut unreachable_since),
+            Liveness::Stalling
+        );
+        assert_eq!(
+            liveness_step(
+                false,
+                None,
+                start + HEALTH_STALL_WARN_AFTER + std::time::Duration::from_secs(1),
+                &mut unreachable_since
+            ),
+            Liveness::Stalling
+        );
     }
 
     #[test]
     fn probe_timeout_fits_inside_the_loss_window() {
         // A single probe must never be able to consume the whole tolerance
         // window on its own, or loss would again hinge on one slow read.
-        assert!(HEALTH_PROBE_TIMEOUT < HEALTH_LOSS_AFTER);
-        assert!(HEALTH_PROBE_INTERVAL < HEALTH_LOSS_AFTER);
+        assert!(HEALTH_PROBE_TIMEOUT < HEALTH_STALL_WARN_AFTER);
+        assert!(HEALTH_PROBE_INTERVAL < HEALTH_STALL_WARN_AFTER);
+        // And the patience for a living child must be meaningfully longer than
+        // the mark where we merely start warning, or the two collapse together.
+        assert!(HEALTH_LOSS_AFTER_ALIVE > HEALTH_STALL_WARN_AFTER * 4);
     }
 
     #[test]

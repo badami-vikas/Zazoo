@@ -3630,3 +3630,13 @@ The last decision is about honesty in the UI. This lane needs two separate grant
 Compiled and tested in a clean `git worktree` at HEAD: a parallel session had `lib.rs` mid-refactor and non-compiling in the shared checkout, so the shared tree could not build through no fault of this slice. Only this slice's own six-line hunk of `lib.rs` was staged. 180/180.
 
 Still honest about what is not done: no JS drain path posts these bursts to `learning.capture.input.burst`, so nothing reaches the API yet, and the walk that would prove real capture needs a signed build plus the user granting both permissions and typing real keys.
+
+### 2026-08-17 — The sidecar supervisor stops mistaking a busy child for a dead one (ADR-245, TASK-018)
+
+A user hit "local plane not available" while nothing was wrong except that the machine was busy — an ordinary build and test run beside the app. The shell's own log told the story twice: healthy sidecar, health probes going unanswered for a few seconds, one restart attempt, and a declared Local Plane loss that only an app restart could undo.
+
+The interesting part is that the supervisor already knew the difference between a stall and a crash in principle — its comments say so — but the code only ever measured "did the probe answer". A `cargo` build starving a Node process for eight seconds looks identical to a segfault through that lens. It now asks the child directly whether it exited, recovers instantly when it did, and gives a living-but-silent child 45 seconds instead of 6.
+
+Underneath that was a worse bug and a quieter one. `restart` moved the whole sidecar record out of the state before it knew the replacement would start, so a single failed attempt dropped the retained port reservation — the one thing that makes recovery possible at all, since the webviews were handed that port at creation and cannot be re-scripted. Every subsequent attempt then returned false immediately. The monitor advertised three attempts and had one. Both halves are fixed, and both are pinned by tests that were watched failing against the old behaviour.
+
+I also got the diagnosis wrong first, in public, and the ADR records that: a tRPC batch happened to sit next to the first stall, I named it as the cause, and the second reproduction — same failure, no tRPC traffic at all — disproved it.
