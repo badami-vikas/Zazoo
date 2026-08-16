@@ -62,10 +62,12 @@ const RIG = {
   // collar even at full head-drop
   cheek: { lx: 76, rx: 164, y: 143 },
   head: { x: 120, y: 152 },
-  // mitts rest LOW and quiet at the belly — the reference art is a clean egg,
-  // so at rest the hands stay out of the statement; every gesture channel
-  // LIFTS them from here into one meaningful stage position and back
-  paw: { lx: 99, rx: 141, y: 212, w: 24, aspect: 1.133, tilt: 16 },
+  // painted arm off `Avatar/single arm front.png`: a fat sleeve capsule
+  // rooted at the body's outer edge, hanging down-and-inward with the cream
+  // paw at the inner tip — exactly the `front with hands.png` reference.
+  // The wide rounded OUTER end is the pivot, so every gesture is a swing
+  // about the shoulder, the way a real limb moves.
+  arm: { shoulderLx: 60, shoulderRx: 180, shoulderY: 199, tipLx: 82, tipRx: 158, tipY: 247, w: 34 },
   suit: { x: 40.54, y: 137.17, w: 159.05, h: 150.64 },
   // lifted off the same 3840² canvas as the suit, so it drops back into the
   // collar with no alignment of its own
@@ -382,33 +384,33 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
         r.whiskerR.current!.setAttribute("transform", `rotate(${(-tipsUp).toFixed(2)} 142 138)`);
       }
 
-      // HAND CHOREOGRAPHY — every channel is a weighted offset from the quiet
-      // rest pose, summed rather than switched. Channels are springed in the
-      // director, so mid-transition the paws draw a real arc between stages
-      // instead of teleporting when a priority ladder flips. At rest only the
-      // breath moves them (a hand that is pixel-frozen reads as painted on).
-      let rx = 0, ry = f.breath * 0.9, rrot = 0, lx = 0, ly = f.breath * 0.9, lrot = 0;
-      const stage = (w: number, dxr: number, dyr: number, rr: number, dxl: number, dyl: number, rl: number) => {
+      // ARM CHOREOGRAPHY — the arm pivots at its OUTER end, where the sleeve
+      // roots into the body edge, so every gesture is a swing about the
+      // shoulder the way a real limb moves. Positive degrees carry the RIGHT
+      // paw inward-and-up (mirrored for the left); channels are springed in
+      // the director, so mid-transition the paw draws a real arc. At rest
+      // only the breath stirs them (a pixel-frozen hand reads as painted on).
+      let rrot = f.breath * 1.4, lrot = -f.breath * 1.4;
+      let rx = 0, ry = f.breath * 0.5, lx = 0, ly = f.breath * 0.5;
+      const swing = (w: number, rr: number, rl: number) => {
         if (w < 0.005) return;
-        rx += dxr * w; ry += dyr * w; rrot += rr * w;
-        lx += dxl * w; ly += dyl * w; lrot += rl * w;
+        rrot += rr * w; lrot += rl * w;
       };
-      stage(f.pawChin, -12, -60, -26, -2, -4, -4); // right paw to the chin; left barely stirs
-      stage(f.pawFold, -14, -28, -30, 14, -28, 30); // both meet at the chest
-      stage(f.pawOpen, 8, -22, 44, -8, -22, -44); // palms turned out, offering
-      stage(f.pawUp, 15, -68, 40, -15, -68, -40); // held celebration, cheek-high
-      stage(f.pawDroop, 7, 8, -14, -7, 8, 14); // sleepy weight
-      stage(f.pawMeditate, 8, 3, -12, -8, 3, 12);
-      stage(f.pawChest, -5, -9, -24, 0, 0, 0);
-      stage(f.armsUp, 12, -34, 34, -12, -34, -34); // hop throws them higher still
-      stage(f.pawLift, -5, -26, -20, 0, 0, 0); // spectacle adjust
-      stage(f.wave, 11, -48, 30, 0, -3, 0); // greeting…
-      rrot += f.wave * f.waveOsc * 17; // …and the wave itself
+      swing(f.pawChin, 74, -5); // right paw swings up to the chin; left barely stirs
+      swing(f.pawFold, 44, -44); // both meet at the chest
+      swing(f.pawOpen, -22, 22); // turned out toward the viewer, offering
+      swing(f.pawUp, -148, 148); // held celebration — arms thrown up and OUT
+      swing(f.pawDroop, -13, 13); // sleepy weight hangs them outward
+      swing(f.pawMeditate, 12, -12); // settled in the lap
+      swing(f.pawChest, 32, 0);
+      swing(f.armsUp, -118, 118); // hop throws them higher still
+      swing(f.pawLift, 60, 0); // spectacle adjust
+      swing(f.wave, -138, 4); // greeting: the whole arm sweeps up and OUT…
+      rrot += f.wave * f.waveOsc * 17; // …and waves from the shoulder
       ry += f.pawTap; // thinking: the chin paw taps
       rx += f.fidgetX; lx -= f.fidgetX; // unsure: folded paws rub
-      const shoulderY = (RIG.paw.y - 20).toFixed(1);
-      r.pawR.current!.setAttribute("transform", `translate(${rx.toFixed(2)} ${ry.toFixed(2)}) rotate(${rrot.toFixed(2)} ${RIG.paw.rx + 10} ${shoulderY})`);
-      r.pawL.current!.setAttribute("transform", `translate(${lx.toFixed(2)} ${ly.toFixed(2)}) rotate(${lrot.toFixed(2)} ${RIG.paw.lx - 10} ${shoulderY})`);
+      r.pawR.current!.setAttribute("transform", `translate(${rx.toFixed(2)} ${ry.toFixed(2)}) rotate(${rrot.toFixed(2)} ${RIG.arm.shoulderRx} ${RIG.arm.shoulderY})`);
+      r.pawL.current!.setAttribute("transform", `translate(${lx.toFixed(2)} ${ly.toFixed(2)}) rotate(${lrot.toFixed(2)} ${RIG.arm.shoulderLx} ${RIG.arm.shoulderY})`);
 
       r.zzz.current!.setAttribute("opacity", f.zzz ? (0.35 + 0.3 * Math.sin(f.tailWagPhase * 0.5)).toFixed(2) : "0");
     };
@@ -589,10 +591,6 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
           <stop offset="0%" stopColor={shade(suit, 0.14)} />
           <stop offset="55%" stopColor={suit} />
           <stop offset="100%" stopColor={shade(suit, -0.28)} />
-        </radialGradient>
-        <radialGradient id="zz-mittg" cx="0.38" cy="0.28" r="0.95">
-          <stop offset="0%" stopColor="#34353E" />
-          <stop offset="100%" stopColor="#17181D" />
         </radialGradient>
       </defs>
 
@@ -1011,20 +1009,27 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
               )}
             </g>
 
-            {/* vector felt mitts — rounded mitten + thumb bump at the same
-                anchors and tilts the painted limb used; the bevel filter is
-                what keeps charcoal readable on charcoal */}
+            {/* painted-style arms off `single arm front.png` — one capsule
+                stroked shoulder→tip: ink rim, cream paw underneath, charcoal
+                sleeve over the top so the cream only peeks past the sleeve's
+                edge as the paw. The wide rounded end at the body's outer edge
+                is the pivot the choreography swings about; the bevel filter
+                keeps the charcoal sleeve readable on the charcoal suit. */}
             {([
-              [RIG.paw.lx, -1, refs.pawL],
-              [RIG.paw.rx, 1, refs.pawR],
-            ] as const).map(([px, dir, pawRef], i) => (
-              <g key={i} ref={pawRef} data-layer="paws" filter="url(#zz-mitt)">
-                <g transform={`rotate(${dir * RIG.paw.tilt} ${px} ${RIG.paw.y})`}>
-                  <ellipse cx={px} cy={RIG.paw.y} rx={9.8} ry={10.3} fill="url(#zz-mittg)" />
-                  <ellipse cx={px + dir * 6.8} cy={RIG.paw.y - 5.2} rx={3.8} ry={4.6} fill="url(#zz-mittg)" transform={`rotate(${dir * 24} ${px + dir * 6.8} ${RIG.paw.y - 5.2})`} />
+              [RIG.arm.shoulderLx, RIG.arm.tipLx, refs.pawL],
+              [RIG.arm.shoulderRx, RIG.arm.tipRx, refs.pawR],
+            ] as const).map(([sx0, tx, pawRef], i) => {
+              const sy0 = RIG.arm.shoulderY, ty = RIG.arm.tipY, w = RIG.arm.w;
+              const mx = (sx0 + (tx - sx0) * 0.74).toFixed(1);
+              const my = (sy0 + (ty - sy0) * 0.74).toFixed(1);
+              return (
+                <g key={i} ref={pawRef} data-layer="paws" filter="url(#zz-mitt)" strokeLinecap="round" fill="none">
+                  <path d={`M ${sx0},${sy0} L ${tx},${ty}`} stroke={ink} strokeWidth={w + 2.6} />
+                  <path d={`M ${sx0},${sy0} L ${tx},${ty}`} stroke={body} strokeWidth={w} />
+                  <path d={`M ${sx0},${sy0} L ${mx},${my}`} stroke={shade(suit, -0.1)} strokeWidth={w} />
                 </g>
-              </g>
-            ))}
+              );
+            })}
           </g>
 
           <text ref={refs.zzz} x="182" y="86" fontSize="20" fontFamily="Georgia, serif" fill="#9DB0C2" opacity="0">
