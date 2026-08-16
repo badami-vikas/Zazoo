@@ -20,6 +20,7 @@ const BODY_COLORS = ["#FAF1E7", "#F0DFC2", "#D8DCE4", "#CFE0D2", "#F2C9B0", "#D6
 // colour the cloth reads as; the near-black one is the source art untinted.
 const SUIT_COLORS = ["#7E2732", "#15151A", "#3E5A7E", "#4A4E5A", "#7E937E", "#2F4A44"];
 const TIE_COLORS = ["#E8B93C", "#B8323C", "#2E5E8C", "#D9D5CC", "#4F7F5A"];
+const SHIRT_COLORS = ["#F4EEE2", "#FFFFFF", "#CFE0EA", "#E6D9C3", "#D9C9D9"];
 const ACCESSORIES = ["tie", "bowtie", "scarf", "none"] as const;
 
 const S: Record<string, React.CSSProperties> = {
@@ -392,6 +393,15 @@ export function ZazooLab() {
           <div style={S.swatchRow}>
             {TIE_COLORS.map((c) => (
               <div key={c} style={swatchStyle(c, appearance.tie === c)} onClick={() => setAppearance({ ...appearance, tie: c })} />
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ ...S.label, marginBottom: 7 }}>Shirt</div>
+          <div style={S.swatchRow}>
+            {SHIRT_COLORS.map((c) => (
+              <div key={c} style={swatchStyle(c, appearance.shirt === c)} onClick={() => setAppearance({ ...appearance, shirt: c })} />
             ))}
           </div>
         </div>
