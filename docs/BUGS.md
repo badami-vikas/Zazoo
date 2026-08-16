@@ -2,7 +2,7 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
-- **OPEN 2026-08-16 — `pnpm verify` is red on `main` for two reasons unrelated to any current work (attach: TASK-071, P2).**
+- **OPEN 2026-08-16 — `pnpm verify` is red on `main` for two reasons unrelated to any current work (attach: TASK-074, P2).**
   Found while landing the Accounting/D2C module merge, not from a user report. Both were proven
   pre-existing rather than assumed: the implicated files are **byte-identical to `main`** (`diff -q`
   against `git show main:…`), and the failing package cannot reach the merge's changes.
@@ -20,12 +20,96 @@
   `@bridge/module-manifests`, so the four Modules added by the merge are unreachable from it.
   Exit: baseline/allowlist the two vocabulary hits (or migrate the identifiers) and `await` the
   nested test — after which `pnpm verify` is green end to end and this merge's 90/92 becomes 92/92.
-  **Update 2026-08-16 (TASK-071 part 2):** now that `router.ts` carries real `accounting`/`d2c`
+  **Update 2026-08-16 (TASK-074 part 2):** now that `router.ts` carries real `accounting`/`d2c`
   routers, the same empty-baseline bug also flags that file's pre-existing `project` ×2 (academics
   enum literals, not new code) plus unrelated pre-existing hits in `ModuleGovernanceSection.tsx`
   and the checked-in `dist-oldplatform/` avatar build output — same root cause, same fix, still
   out of scope for this merge. `test:coverage` still fails only at the one known nested-`test()`
   site (1 fail, 1 cancelled), nothing new.
+- **RESOLVED 2026-08-17 — A sidecar stall under ordinary local load costs the whole Local Plane until the app is restarted (attach: TASK-018, P3; ADR-245).**
+  Found while running the app during development, not from a user report — but the user hit it:
+  *"currently the app is saying local plane not available"*. Evidence from two runs of `tauri dev`.
+  Run 1: sidecar healthy on `127.0.0.1:59732`, `/health` 200 repeatedly, then one batched tRPC POST
+  after which nothing was answered; supervisor tolerated 6s, restarted, and the child never reported a
+  bound port — `could not obtain the child-bound port: sidecar did not report its bound port before the
+  startup deadline` → `declaring Local Plane loss`. Run 2 reproduced the same stall with NO tRPC
+  traffic at all: only `/health` GETs, one of which arrived and went unanswered for ~8s. What both
+  share is machine load (a full test suite and typecheck alongside the app in run 1; cargo linking the
+  debug binary plus a second API booting in run 2), not any particular query — an initial reading that
+  blamed `agentOrchestration.research.list` for sitting in the first batch was disproved by run 2.
+  The supervisor did eventually recover on a later attempt, but only after the shell had already
+  declared loss to the UI. Exit: a stall that is only slowness must not be indistinguishable from a
+  dead child — widen or back off the 6s tolerance, and make the restart wait for the previous child's
+  port to free before declaring the transport unconfigurable. Related: the companion-readiness half of
+  this failure (a transient API error at mount hiding the Avatar for the whole session) is FIXED under
+  AP-158; this row is the shell-side half only.
+  **Fixed 2026-08-17 (ADR-245)**: the supervisor now asks whether the child EXITED rather than whether
+  it answered — an exited child recovers at once, a living-but-silent one is tolerated 45s instead of
+  6s, and an unanswerable `try_wait` counts as alive. Two further defects were found while fixing it:
+  `restart` took the whole `SpawnedApi` out of the state before the respawn was known to work, so one
+  failed attempt dropped the retained port reservation and made every later attempt fail at the `take`
+  (the advertised budget of 3 was really 1), and the monitor broke out of its loop on the first failed
+  attempt instead of spending the rest. Respawn deadlines widened (90s port report, 30s readiness),
+  since a respawn only ever runs on a machine already too loaded to answer a probe. cargo 183/183 with
+  four new tests, each seen RED under a mutation; the app survived a full `pnpm verify` on the same
+  machine with zero supervisor events and 96 consecutive health 200s. The stall itself did not
+  reproduce during that run, so the tolerance path is covered by unit tests rather than live evidence.
+
+- **RESOLVED 2026-08-16 — Ask/Research as Chat-panel sessions was the wrong shape; they belong in the history dropdown, read-only (attach: TASK-058, P2; supersedes the session-strip entry below).**
+  User directive, verbatim: *"I dont want ask and research to be present there separate. I just want
+  their session to be visible under 'Chat' in the chat with date section dropdown. just for history of
+  prompts and results. It can be readonly"* The Chat | Ask | Research strip added earlier the same day
+  is removed, along with the `embedded`/`onResearchRequested` props on `CompanionAsk` and the seeded
+  `initialObjective` on `ResearchRun` that only the strip used — dead plumbing does not survive the
+  feature that needed it. The Chat history dropdown now carries two groups: Chat (threads, as before)
+  and Research (past Runs, labelled `Research · <objective> · <date>`). Selecting a Run replaces the
+  conversation with `SessionHistoryView`, a read-only transcript of objective, status, brief,
+  citations, engine-authored step summaries, and any blocked/injection-flagged steps — no composer, and
+  Archive/Delete are withheld while it is open, since those act on a Chat thread and a transcript is
+  not one. Nothing new is stored: Research Runs were already durable owner-scoped kernel records, so
+  this is a read of `agentOrchestration.research.list`/`.steps`. **Ask sessions are NOT listed** —
+  `companion.rs` never persists an ask ("recorded in the overlay panel. Never persisted here") and
+  `CompanionAsk` keeps only an idle-bounded in-memory history, so there is no ask history to read;
+  giving them one is a persistence/residency decision (ask answers can be screen-derived) that is
+  raised with the user rather than assumed. Web tests 212/212 with the regression rewritten to the new
+  shape; typecheck clean.
+
+- **RESOLVED 2026-08-16 — Ask and Research were reachable only from the Avatar, never from the Chat panel (attach: TASK-058, P2).**
+  User report, verbatim: *"Ask and research is still not coming up in the home chat. It can come in as
+  a separate session in the top of it."* Confirmed: `CompanionAsk` and `ResearchRun` were mounted only
+  by `OverlayApp`'s ask panel (right-click → Ask about my screen, Observe, or ⌘⇧Space), so the Home
+  Page's right-hand Chat panel and the Chief of Staff Page — the same `ChatView` component — offered
+  no way in. Fixed by giving `ChatView` a session strip at its top: Chat | Ask | Research. Chat is the
+  persisted thread; Ask renders `CompanionAsk` with `embedded` (its own Ask/Research toggle suppressed
+  so one surface never shows two mode switches) and Research renders `ResearchRun`, which now accepts a
+  seeded `initialObjective` and still waits for the human to press Start. An explicit "research …"
+  question typed in the embedded Ask hands off to the Research session instead of switching a mode the
+  host owns. The strip is desktop-shell only (`isDesktopShell`): both sessions run on shell commands
+  (`companion_ask_start`, `research_read_page`, `research_locate`) that a plain browser cannot answer,
+  so the web render offers nothing that would fail when pressed (AP-021). Neither session writes a Chat
+  turn, and both say so on screen. Verified in the browser lab (`overlay.html?lab=1`, which stubs the
+  shell) by walking all three sessions. Web tests 212/212 including a new regression that fails if the
+  strip, either surface, the `embedded` flag, or the desktop gate is removed; typecheck clean.
+
+- **RESOLVED 2026-08-16 — The Avatar presented three separate chat inputs and one of them was not a chat at all (attach: TASK-058, P2).**
+  User report, verbatim: *"I see that there are 3 different chat interfaces in avatar especially. And
+  also if you give a prompt it'll go to the chief of staff chat. I want all these 3 as one chat and
+  chatting in interface, should go to home page's chat interface."* Confirmed: `NotchHome` carried its
+  own dark three-line textarea, `OverlayApp`'s hover bar carried a separate light single-line
+  `<input>`, and `CompanionAsk` carried a third composer that is not the chat at all — it runs the
+  `companion_ask_start/poll` screen/voice pipeline with its own idle-bounded in-memory history and
+  never writes a Chat turn. The two chat composers had already drifted (Shift+Enter made a newline in
+  one and nothing in the other; Escape meant different things). The routing half of the report was not
+  a defect: both composers already seeded the shared `ChatView` (surface `avatar_overlay`), and
+  `useChat` shares one active thread id across every surface, so the Avatar, the Home Page's right
+  `AgentPanel`, and the Chief of Staff Page were already one conversation answered by the
+  `chief_of_staff` Agent — the three inputs were what made it read as three chats. Fixed by extracting
+  one `CompanionComposer` used by both homes, funnelling both through a single `openChatWith`, and
+  relabelling the screen/voice panel ("Screen & voice", "Ask about what's on your screen…", plus an
+  explicit "not saved to your chat" line) so it stops presenting itself as a chat. Verified in the
+  browser lab (`overlay.html?lab=1`): notch composer and hover composer each hand their text to the
+  full ChatView composer, and the screen/voice panel renders under its new labels. Web tests 211/211,
+  typecheck clean.
 
 - **OPEN 2026-08-13 — Hosted API readiness reports persistent-ledger failure while liveness stays healthy (attach: TASK-006, P1).**
   Found during post-deploy verification of unrelated desktop commit `b6c1df12`, not from a user report.
@@ -2766,6 +2850,11 @@ What each answer means:
   so the close is never observed fails with "timed out after 10s waiting for the server to observe the
   socket close"; restoring it passes. `--test-concurrency=4` was left in place.
 - Evidence: with `--test-concurrency=4`, `jobpilot-culture-research.test.ts` tests "cancelCultureSourceFetch aborts a real in-flight fetch..." and "agentOrchestration.childRun.cancel ... actually aborts the real in-flight socket" failed once ("the server should observe the aborted connection actually close", false !== true) during a run that shared the CPU with the full db suite (683s real vs 1537s user). Rerun alone on an idle machine: 57/57 clean. Interpretation: timing-sensitive real-socket assertions flake under heavy load, not a concurrency-safety defect. If CI shows the same signature, widen the socket-close wait in those two tests rather than re-pinning the whole suite to --test-concurrency=1 (that pin cost ~6 min/run and contradicted AP-019's own resolution).
+- Evidence 2026-08-16 (K11/TASK-054): a THIRD test in this class flaked — `chat-model-manager.test.ts` "managed model install persists
+  failure and permits a verified retry" asserted install state `downloading` and got `failed`, during a `turbo run` that shared the
+  CPU with a dev API sidecar, a Vite server and the full db suite (20m38s wall). Re-run isolated on the same machine: 6/6 clean three
+  times, and the whole `@bridge/api` suite 525/525 with 0 failures. Same interpretation as above — a timing-sensitive state assertion
+  losing a race under load, not a defect. Widen the wait in this test if CI reproduces it.
 
 ## OPEN 2026-08-08 — `check:vocabulary` is red on main, and the only remaining family is the WhatsApp Module's retired "Tool" primitive (TASK-036)
 - Task: TASK-036
@@ -2799,3 +2888,32 @@ What each answer means:
   a rename the Module's owner has to undo.
 - Repro: `cd platform && node scripts/check-retired-vocabulary.mjs` (exit 1). Everything else in `pnpm verify` is
   green as of 2026-08-08: `turbo run typecheck test:coverage build` is 72/72 and `check:agent-context` exits 0.
+
+## OPEN 2026-08-16 — K11 input capture stores NO typed text, so the approved full-content decision (AP-157) is not delivered (TASK-054, ADR-239/ADR-240)
+
+- **What is wrong**: AP-157 recorded the user's explicit choice of FULL CONTENT keystroke capture over the harness
+  plan's recommended event-only shape, and authorized the build on that basis. The shipped lane does not store any
+  typed characters. `inputCaptureSignal()` (`packages/core/src/learning/source-emitters.ts`) builds an
+  `ObservedSignal`, and `recordSignal()` (`packages/core/src/learning/observation.ts:108`) persists only
+  `{ anchor, recordKind, recordId, attributes, observedAt }`. There is no body field, so the distilled and redacted
+  `content` and `summary` are computed by `distilKeystrokeBurst()`, passed into the envelope, and dropped. What
+  persists for a CAPTURED burst is app name, bundle id, a bucketed keyCount, a disposition and a time-of-day
+  bucket — functionally the event-only design the user rejected.
+- **Direction of the defect**: fail-SAFE, not leaky. Nothing is exposed that should not be. This is recorded as a
+  bug because it silently delivers the option the user did not choose, not because it risks data.
+- **Repro / evidence**: live walk 2026-08-16 over a persistent Local Plane on an inherited-fd sidecar. A burst of
+  `pay with 4111111111111111 today` in a `content_ok` field returns `{ captured: true, recorded: true }`, and a
+  sweep of the entire `BRIDGE_LOCAL_DIR` finds zero occurrences of that string — and zero occurrences of the
+  surrounding prose. Pinned by `apps/api/test/input-capture-lane.test.ts`, "a clear field is captured, and the
+  stored row still carries no typed text", which asserts `!row.raw.includes("pay with")`. That test documents
+  current reality and must be inverted when this is fixed.
+- **Why this session did not fix it**: giving redacted content a persisted home means widening
+  `ObservedSignal`/`recordSignal`, which every capture lane shares — chat, WhatsApp, Google, browser and app focus,
+  whose own ADRs promise metadata only ("never the message text", "never page content", "never window contents").
+  Adding a content-bearing field to that shared primitive opens a content path for five lanes that promised not to
+  have one. That is a cross-plane privacy decision needing its own ADR and the user's call, and the safe direction
+  is the current state, so it was not widened unilaterally.
+- **Knock-on, deliberately left**: the Settings card copy reads "The most invasive option, and the only one that
+  stores what you type", which is currently false. It is unchanged on purpose — rewriting it to describe
+  facets-only would quietly reverse AP-157, which needs an APPROVALS row; completing the capture makes it true
+  again. Whichever way the user decides, one of the two must move.

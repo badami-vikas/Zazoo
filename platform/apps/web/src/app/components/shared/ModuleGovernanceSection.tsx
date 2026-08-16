@@ -1,6 +1,6 @@
 /**
  * ModuleGovernanceSection — the standard per-Module "Governance" section
- * (ADR-239, AP-157). Sits directly BELOW the Intelligence Section on every
+ * (ADR-248, AP-159). Sits directly BELOW the Intelligence Section on every
  * Module surface and shows the `allow`/`deny` policy declared in that Module's
  * manifest.
  *

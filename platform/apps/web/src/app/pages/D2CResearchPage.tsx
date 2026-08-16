@@ -11,7 +11,7 @@ import { InstalledModuleBoundary } from "../components/InstalledModuleBoundary";
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow } from "../dataviews/types";
 
-/** D2C sub-module: Plant Records (TASK-071). Real, possibly-empty `plants`
+/** D2C sub-module: Plant Records (TASK-074). Real, possibly-empty `plants`
  * rows from `ctx.wiring.d2cDb`. */
 export function D2CResearchPage() {
   const [spec, setSpec] = useState<TableSpec | null>(null);

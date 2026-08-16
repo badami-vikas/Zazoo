@@ -1,5 +1,5 @@
 /**
- * Per-Module governance verdicts (ADR-239).
+ * Per-Module governance verdicts (ADR-248).
  *
  * The Governance Section shows a Module's declared `allow`/`deny` policy. This
  * file is the half that makes the Section worth having: the engine asks

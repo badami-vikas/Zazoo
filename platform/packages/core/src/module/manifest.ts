@@ -498,7 +498,7 @@ export function parseModuleManifest(raw: unknown): ModuleManifest {
 }
 
 /**
- * Per-Module governance policy (ADR-239). Absent is legal and means "nothing
+ * Per-Module governance policy (ADR-248). Absent is legal and means "nothing
  * declared"; present-but-malformed is not, and fails loudly here for the same
  * reason every other field does — a corrupt policy must never install as if it
  * were empty, because "empty" is the permissive state.

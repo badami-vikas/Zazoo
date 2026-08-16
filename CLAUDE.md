@@ -68,7 +68,7 @@ user approval remain universal. Never weaken a safety boundary to save tokens.
 - Evidence: a test proves nothing until seen failing unfixed; "zero results" != "nothing to do"; a
   live process is not proof the right UI rendered. `pnpm verify` is the one gate list; CI runs it.
   A fresh database is not a test - migration bugs hide behind fresh installs.
-- **Encode knowledge as data** (ADR-238). Never fabricate a figure; "unknown" is first-class.
+- **Encode knowledge as data** (ADR-247). Never fabricate a figure; "unknown" is first-class.
   Generated UI binds ids, never carries values. An author declares the levers it changes and is
   refused outside them. The server has the last word on what changed. "Already configured" is
   not a refusal.
@@ -88,7 +88,7 @@ user approval remain universal. Never weaken a safety boundary to save tokens.
   tests. Domain Record labels never become kernel primitives. Legacy names need a time-boxed
   [migration](docs/raw/vocabulary-code-migration-plan-2026-07-14.md) with deletion criteria.
 - Every Module shows a **Governance Section** below Intelligence: `module.yaml` `allow`/`deny`,
-  engine-read, user-editable. Accounting and D2C are Local-Plane sqlite (ADR-237/239).
+  engine-read, user-editable. Accounting and D2C are Local-Plane sqlite (ADR-246/248).
 - Every installed Module is clickable with manifest-driven detail. Skills stay under consuming
   Agents; only an attributable allowed Agent invokes them. Automations start Agent Runs. Relationship
   toggles are Signals/People/Communities; Signal is a participant-linked Event. Retained data is

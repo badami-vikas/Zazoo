@@ -211,6 +211,19 @@ export class DrizzleDevpilotStore {
     });
   }
 
+  /** Single-row lookup (D2): resolves the stored repoFullName/number a
+   * review/analysis Skill needs to fetch fresh content from GitHub. */
+  async getPull(organizationId: string, id: string): Promise<DevpilotPullRow | null> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(devpilotPulls)
+        .where(and(eq(devpilotPulls.organizationId, organizationId), eq(devpilotPulls.id, id)))
+        .limit(1);
+      return rows[0] ?? null;
+    });
+  }
+
   async listPulls(organizationId: string, opts: ListOpts): Promise<DevpilotPullRow[]> {
     return withOrganizationOnly(this.#db, organizationId, async (tx) =>
       tx
@@ -263,6 +276,18 @@ export class DrizzleDevpilotStore {
       }
       const [row] = await tx.insert(devpilotIssues).values({ id: randomUUID(), ...values }).returning();
       return row!;
+    });
+  }
+
+  /** Single-row lookup (D2) — see getPull. */
+  async getIssue(organizationId: string, id: string): Promise<DevpilotIssueRow | null> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(devpilotIssues)
+        .where(and(eq(devpilotIssues.organizationId, organizationId), eq(devpilotIssues.id, id)))
+        .limit(1);
+      return rows[0] ?? null;
     });
   }
 

@@ -20,7 +20,7 @@
       "family": "package",
       "pathPrefix": "modules/accounting/src/import/pdf.ts",
       "reason": "npm's own filename and noun, not the retired Bridge product package. The line is `require.resolve(\"pdfjs-dist/package.json\")` — resolving pdf.js's shipped standard-fonts directory on disk so the importer works offline — plus a comment about the installed npm package around it. `package.json` is a literal filename in a third-party module layout; renaming it would break resolution rather than migrate a Bridge identifier.",
-      "reviewed": "AP-155 · 2026-08-16 · TASK-071 (ADR-237 import from Avilo)"
+      "reviewed": "AP-162 · 2026-08-16 · TASK-074 (ADR-246 import from Avilo)"
     },
     {
       "family": "tool",
@@ -93,6 +93,12 @@
       "pathPrefix": "apps/web/src/app/avatar/ResearchRun.tsx",
       "reason": "The overlay's research step readout, same model tool-calling vocabulary as ResearchRunsPage — it displays the model's chosen function name.",
       "reviewed": "AP-106 · 2026-08-05 · TASK-036"
+    },
+    {
+      "family": "tool",
+      "pathPrefix": "apps/web/src/app/chat/SessionHistoryView.tsx",
+      "reason": "The Chat panel's read-only research session transcript, rendering the same persisted step shape ResearchRunsPage and ResearchRun.tsx already display — `step.tool` is the model's own function-calling value carried through from packages/core/src/research-run.ts, not a Bridge product noun this surface could rename.",
+      "reviewed": "AP-158 · 2026-08-16 · TASK-058"
     },
     {
       "family": "tool",
@@ -201,6 +207,24 @@
       "pathPrefix": "apps/desktop/src-tauri/src/providers/accessibility.rs",
       "reason": "Apple Accessibility C ABI, not the retired Bridge product noun. The K7 focused-window-title read links against ApplicationServices' own exported symbols (AXUIElementCreateApplication, AXUIElementCopyAttributeValue) and their documented parameter names; renaming a foreign framework's linker symbols is impossible — the word is not ours to rename.",
       "reviewed": "AP-148 · 2026-08-13 · TASK-051"
+    },
+    {
+      "family": "project",
+      "pathPrefix": "apps/api/src/router.ts",
+      "reason": "Academic domain Record label, not the retired Bridge product noun. The two occurrences are the assignment-type enum literal in the Academics procedures' zod schemas — z.enum([\"problem_set\", \"essay\", \"project\", \"exam\", \"lab\"]) — where 'project' names a kind of school assignment alongside essays and labs. Domain Record labels never become kernel primitives (CLAUDE.md), and renaming the academic concept would misname the domain to dodge a product-vocabulary rule about a different noun. Found as a pre-existing main breakage by TASK-042's verify (the Academics merge landed without the gate re-running); absorbed per the TASK-036 blocker convention.",
+      "reviewed": "AP-155 · 2026-08-14 · TASK-036"
+    },
+    {
+      "family": "project",
+      "pathPrefix": "apps/web/src/app/pages/AcademicsPage.tsx",
+      "reason": "Same academic assignment-type domain label as the router.ts entry above — the page's options array for the assignment form mirrors the API enum and must match it exactly.",
+      "reviewed": "AP-155 · 2026-08-14 · TASK-036"
+    },
+    {
+      "family": "element",
+      "pathPrefix": "apps/desktop/src-tauri/src/providers/input_tap.rs",
+      "reason": "Apple Accessibility C ABI, not the retired Bridge product noun — the same case AP-148 already reviewed for the sibling accessibility.rs. The K11 keystroke tap reads the focused element's role by linking against ApplicationServices' own exported symbols (AXUIElementCreateSystemWide, AXUIElementCopyAttributeValue, AXUIElementSetMessagingTimeout) and by passing Apple's documented attribute-key string \"AXFocusedUIElement\"; a linker symbol and a framework's attribute key are not ours to rename. Every identifier that WAS ours was renamed off the retired noun first (the shared parameter is `node`, not `element`), so this entry covers only the foreign contract.",
+      "reviewed": "AP-157 · 2026-08-17 · TASK-054 (precedent: AP-148 · accessibility.rs)"
     }
   ]
 }

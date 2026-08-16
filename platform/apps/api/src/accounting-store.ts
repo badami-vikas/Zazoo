@@ -1,5 +1,5 @@
 /**
- * The Accounting Module's own SQLite database (ADR-237/238).
+ * The Accounting Module's own SQLite database (ADR-246/238).
  *
  * Deliberately NOT `@bridge/db` and NOT the PGlite Local Plane. The merge that
  * brought this Module in (ADR-230/AP-148) approved keeping it on its own
@@ -7,7 +7,7 @@
  * than proof of a port. A Module owns its own storage inside the host-granted
  * files root — this file is that grant, hand-rolled rather than through
  * `@bridge/module-host` (which nothing in this repo actually mounts; see
- * ADR-237 §"open items", "module-host was dead weight").
+ * ADR-246 §"open items", "module-host was dead weight").
  *
  * `seedReferenceData` below is Avilo's own function, carried across verbatim
  * (not re-derived): it exists because "a fresh database is not a test" —
@@ -53,7 +53,7 @@ function dbPath(): string {
  * the built-in QuickBooks label dialects.
  *
  * This is not demo data. No client, no fact, and no figure is created here — the
- * application starts empty and shows honest empty states (ADR-238).
+ * application starts empty and shows honest empty states (ADR-247).
  */
 function seedReferenceData(db: AccountingDb): void {
   db.transaction((tx) => {

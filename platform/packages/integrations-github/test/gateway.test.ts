@@ -86,3 +86,48 @@ test("MissingGithubGatewayFactory fails closed with no fake data", async () => {
     /no Personal Access Token connected/,
   );
 });
+
+test("GithubApiGateway.fetchPull returns the single-Pull payload including body text", async () => {
+  let capturedUrl: string | undefined;
+  const gateway = new GithubApiGateway("ghp_test", {
+    fetchImpl: async (url) => {
+      capturedUrl = url;
+      return fakeResult({ id: 1, number: 7, title: "Fix bug", state: "open", body: "Fixes the thing." });
+    },
+  });
+  const pull = await gateway.fetchPull("octo/repo", 7);
+  assert.equal(pull.body, "Fixes the thing.");
+  assert.equal(capturedUrl, "https://api.github.com/repos/octo/repo/pulls/7");
+});
+
+test("GithubApiGateway.fetchPullFiles returns per-file unified-diff patches", async () => {
+  const files = [
+    { filename: "src/a.ts", status: "modified", additions: 3, deletions: 1, changes: 4, patch: "@@ -1,1 +1,3 @@" },
+    { filename: "assets/logo.png", status: "modified", additions: 0, deletions: 0, changes: 0 },
+  ];
+  let capturedUrl: string | undefined;
+  const gateway = new GithubApiGateway("ghp_test", {
+    fetchImpl: async (url) => {
+      capturedUrl = url;
+      return fakeResult(files);
+    },
+  });
+  const result = await gateway.fetchPullFiles("octo/repo", 7);
+  assert.equal(result.length, 2);
+  assert.equal(result[0]?.patch, "@@ -1,1 +1,3 @@");
+  assert.equal(result[1]?.patch, undefined, "a binary file has no patch");
+  assert.equal(capturedUrl, "https://api.github.com/repos/octo/repo/pulls/7/files?per_page=100");
+});
+
+test("GithubApiGateway.fetchIssue returns the single-Issue payload including body text", async () => {
+  let capturedUrl: string | undefined;
+  const gateway = new GithubApiGateway("ghp_test", {
+    fetchImpl: async (url) => {
+      capturedUrl = url;
+      return fakeResult({ id: 1, number: 9, title: "Crash on save", state: "open", body: "Steps to reproduce..." });
+    },
+  });
+  const issue = await gateway.fetchIssue("octo/repo", 9);
+  assert.equal(issue.body, "Steps to reproduce...");
+  assert.equal(capturedUrl, "https://api.github.com/repos/octo/repo/issues/9");
+});

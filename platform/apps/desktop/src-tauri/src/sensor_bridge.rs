@@ -27,7 +27,9 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager as _, State};
 
 #[cfg(target_os = "macos")]
-use crate::providers::{apps::AppsProvider, clipboard::ClipboardProvider};
+use crate::providers::{
+    apps::AppsProvider, clipboard::ClipboardProvider, input_tap::InputProvider,
+};
 
 /// Error shape every sensor command returns on failure. Typed (code +
 /// message) so the TS side can branch on `code` instead of string-matching.
@@ -79,6 +81,11 @@ enum RunningProvider {
     Apps(AppsProvider),
     #[cfg(target_os = "macos")]
     Clipboard(ClipboardProvider),
+    /// K11 (TASK-054): the listen-only keystroke tap. Started only when the
+    /// JS side has confirmed "input" capture consent — this hub does not
+    /// know about consent, and must never be the only thing that does.
+    #[cfg(target_os = "macos")]
+    Input(InputProvider),
 }
 
 /// Shared sensor-hub state: which providers are running, the pending
@@ -128,6 +135,7 @@ pub fn shutdown(state: &SensorHubState) -> Result<(), String> {
         match provider {
             RunningProvider::Apps(provider) => provider.stop(),
             RunningProvider::Clipboard(provider) => provider.stop(),
+            RunningProvider::Input(provider) => provider.stop(),
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -147,17 +155,31 @@ fn pump_channel(inner: &mut SensorHubInner) {
     // `receiver` is only briefly `None` during construction races that don't
     // occur in practice (state is built once via `Default`), so this is a
     // straightforward best-effort drain.
+    // Collect first, then mutate: `raw_ring` and `queue` are separate fields
+    // and the ring's assigned id has to reach the observation that owns it.
+    let mut pending = Vec::new();
     if let Some(receiver) = inner.receiver.as_ref() {
         while let Ok(emission) = receiver.try_recv() {
-            if let Some(raw) = emission.raw {
-                inner.raw_ring.push(&emission.observation.kind, raw);
-            }
-            inner.queue.push(emission.observation);
+            pending.push(emission);
         }
+    }
+    for emission in pending {
+        let mut observation = emission.observation;
+        if let Some(raw) = emission.raw {
+            // K11: the raw id is how a consumer reaches the payload at all.
+            // Without it a drained observation announcing a captured burst
+            // would be unusable — the text sits in the ring with no handle,
+            // so the lane would look alive and deliver nothing.
+            let id = inner.raw_ring.push(&observation.kind, raw);
+            observation
+                .fields
+                .insert("raw_id".to_string(), serde_json::Value::from(id));
+        }
+        inner.queue.push(observation);
     }
 }
 
-const KNOWN_SENSOR_IDS: &[&str] = &["apps", "clipboard", "screen"];
+const KNOWN_SENSOR_IDS: &[&str] = &["apps", "clipboard", "screen", "input"];
 
 /// List the context providers this shell can offer, each with honest
 /// capability + permission-state reporting.
@@ -217,6 +239,43 @@ pub fn sensor_list() -> Result<Vec<SensorDescriptor>, SensorBridgeError> {
                     )
                 },
             },
+            SensorDescriptor {
+                id: "input".to_string(),
+                kind: "input".to_string(),
+                // K11 (TASK-054). TWO grants gate this one, and the honest
+                // answer differs by which is missing. Without Input
+                // Monitoring macOS delivers no keystrokes at all, so the
+                // provider refuses to start rather than run deaf. WITH it but
+                // without Accessibility we receive keys and can identify no
+                // field — which fails closed to "undeterminable", so every
+                // burst is suppressed and nothing is stored. That is a
+                // usable-but-useless state, and saying so plainly is the
+                // point of this field.
+                availability: if crate::providers::input_tap::input_permission_granted() {
+                    "available"
+                } else {
+                    "needs_permission"
+                },
+                permission_note: Some(
+                    match (
+                        crate::providers::input_tap::input_permission_granted(),
+                        crate::providers::accessibility::ax_permission_status(),
+                    ) {
+                        (false, _) => "Input Monitoring permission required (System Settings > \
+                             Privacy & Security > Input Monitoring); typing capture cannot start \
+                             without it"
+                            .to_string(),
+                        (true, false) => "Accessibility permission also required (System Settings \
+                             > Privacy & Security > Accessibility): without it no field can be \
+                             identified, so every keystroke is suppressed and nothing is stored"
+                            .to_string(),
+                        (true, true) => "typed text is captured ONLY in positively identified \
+                             ordinary text fields — never password or unidentifiable fields, \
+                             never denied apps"
+                            .to_string(),
+                    },
+                ),
+            },
         ])
     }
     #[cfg(not(target_os = "macos"))]
@@ -266,6 +325,19 @@ pub fn sensor_start(
         let running = match sensor_id.as_str() {
             "apps" => RunningProvider::Apps(AppsProvider::start(tx)),
             "clipboard" => RunningProvider::Clipboard(ClipboardProvider::start(tx)),
+            "input" => match InputProvider::start(tx) {
+                Ok(provider) => RunningProvider::Input(provider),
+                // Honest refusal rather than a tap that silently receives
+                // nothing: without Input Monitoring macOS delivers no keys,
+                // and a lane that looks running but is deaf is exactly the
+                // dishonest state this workstream keeps refusing to ship.
+                Err(message) => {
+                    return Err(SensorBridgeError {
+                        code: "SENSOR_PERMISSION_REQUIRED",
+                        message,
+                    })
+                }
+            },
             "screen" => {
                 return Err(not_implemented(
                     "sensor_start(screen)",
@@ -304,6 +376,7 @@ pub fn sensor_stop(
             match provider {
                 RunningProvider::Apps(p) => p.stop(),
                 RunningProvider::Clipboard(p) => p.stop(),
+                RunningProvider::Input(p) => p.stop(),
             }
         }
         Ok(())

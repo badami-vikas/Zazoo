@@ -69,7 +69,7 @@ disabled with a tooltip outside it; dictation fills the draft for review, never 
 
 **VOCAB6 residual closed 2026-07-20:** active ModuleStore drives nav/detail/full-Graph Module+Agent identity. Recent Runs durable. Edges open real source paths. Panels share 3-state control. Knowledge runtime zero. Final compatibility deletion still separate.
 
-**CV Naturals' C-1..C-34 promoted (2026-08-16, ADR-240/AP-158).** Full text:
+**CV Naturals' C-1..C-34 promoted (2026-08-16, ADR-249/AP-161).** Full text:
 [ui-conventions-cvn.md](ui-conventions-cvn.md). Each rule was checked against this doc rather than
 appended blind — three outcomes:
 
@@ -102,7 +102,7 @@ appended blind — three outcomes:
   assumed, because two independently-registered canons agreeing by construction is worth being sure
   of, not worth guessing at.
 
-Applied directly to the Accounting and D2C Pages built under TASK-071 (`AccountingPage.tsx`,
+Applied directly to the Accounting and D2C Pages built under TASK-074 (`AccountingPage.tsx`,
 `D2COrdersPage.tsx`, `D2CInventoryPage.tsx`, `D2CResearchPage.tsx`, `D2CNotesPage.tsx`) — they pass
 `ui-conformance.test.mjs` like every other data-shape Page, so C-10/C-11/C-19/C-25–29/C-31/C-32/C-34
 hold there by the SAME mechanism (`ModuleSurfaceLayout`+`DataViews`) that already enforces them

@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "D2C Module domain layer (imported from CV Naturals, ADR-237): schema, product-to-source mapping, formula costing, order lifecycle, invoice numbering, and the stock ledger. Backs the Orders, Inventory, Research and Notes sub-modules. No I/O, no framework — the host app owns persistence and the WhatsApp boundary, which is served by @bridge/whatsapp.",
+  "description": "D2C Module domain layer (imported from CV Naturals, ADR-246): schema, product-to-source mapping, formula costing, order lifecycle, invoice numbering, and the stock ledger. Backs the Orders, Inventory, Research and Notes sub-modules. No I/O, no framework — the host app owns persistence and the WhatsApp boundary, which is served by @bridge/whatsapp.",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",

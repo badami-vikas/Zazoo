@@ -48,6 +48,7 @@ export const WHATSAPP_CAPTURE_MODULE_ID = "whatsapp";
 export const GOOGLE_CAPTURE_MODULE_ID = "google";
 export const BROWSER_CAPTURE_MODULE_ID = "browser";
 export const APP_FOCUS_CAPTURE_MODULE_ID = "apps";
+export const INPUT_CAPTURE_MODULE_ID = "input";
 
 export type TimeOfDayBucket = "morning" | "afternoon" | "evening" | "night";
 
@@ -60,6 +61,20 @@ export function timeOfDayBucket(iso: string, hourOverride?: number): TimeOfDayBu
   if (hour >= 12 && hour < 17) return "afternoon";
   if (hour >= 17 && hour < 22) return "evening";
   return "night";
+}
+
+export type KeyCountBucket = "brief" | "short" | "medium" | "long";
+
+/** Bucket a keystroke count into coarse volume bands, for the same reason
+ * `timeOfDayBucket` exists: the rhythm lane wants "was this a quick reply or
+ * a long compose", not a keystroke tally. An exact per-burst count is a
+ * higher-resolution behavioural fact than any consumer needs, and coarse
+ * bands are what actually pattern at digest thresholds. */
+export function keyCountBucket(keyCount: number): KeyCountBucket {
+  if (keyCount <= 10) return "brief";
+  if (keyCount <= 60) return "short";
+  if (keyCount <= 300) return "medium";
+  return "long";
 }
 
 /** The slice of a user chat turn capture may see. `content` is structurally
@@ -289,6 +304,79 @@ export function appFocusCaptureSignal(
       timeOfDay: timeOfDayBucket(envelope.focusedAt),
     },
     observedAt: envelope.focusedAt,
+    ...(envelope.taintLabel ? { taintLabel: envelope.taintLabel } : {}),
+  };
+}
+
+/**
+ * K11 (TASK-054, AP-157) — the desktop shell's continuous input capture, the
+ * most invasive sensor in the product. The envelope carries what the Rust
+ * `input` provider has ALREADY DISTILLED through the fail-closed boundary
+ * (`input-capture.ts`): a summary, the key count, and — only when the
+ * field-role gate returned "content" and pattern redaction has run — the
+ * redacted typed text.
+ *
+ * Structurally inexpressible here, by design: the RAW keystroke stream. There
+ * is no field for it, so no code path can carry raw keys into a signal row,
+ * exactly as K7's envelope cannot carry window content. `content` is present
+ * only for a captured (non-suppressed, non-denylisted) burst and is already
+ * redacted before it reaches this type — the distiller is the only producer.
+ * A suppressed burst arrives with `content` absent and its reason set, so the
+ * stored Memory says honestly that typing happened and why the text was
+ * withheld. A denylisted burst never reaches here at all (the distiller
+ * returns null and the provider emits nothing).
+ */
+export interface InputCaptureEnvelope {
+  /** Shell-minted id for this burst; the idempotency anchor. */
+  burstId: string;
+  appName: string;
+  bundleId: string;
+  /** One-line human-inspectable summary (already distilled). */
+  summary: string;
+  /** Present ONLY for a captured burst. Absent when suppressed: the count of
+   * characters typed into a secure/undeterminable field is itself sensitive
+   * (it publishes a password's length), so the distiller withholds it and
+   * this envelope cannot carry it either. */
+  keyCount?: number;
+  /** Present ONLY for a captured burst; already redacted. Absent = suppressed. */
+  content?: string;
+  disposition: "captured" | "suppressed";
+  suppressionReason?: "secure_field" | "undeterminable_field" | "denylisted";
+  /** How many redactions the backstop applied to `content`. */
+  redactionCount: number;
+  typedAt: string;
+  taintLabel?: TaintLabel;
+}
+
+export function inputCaptureSignal(
+  envelope: InputCaptureEnvelope,
+  scope: CaptureScope,
+  signalId: string,
+): ObservedSignal | null {
+  return {
+    id: signalId,
+    organizationId: scope.organizationId,
+    ownerUserId: scope.userId,
+    moduleId: INPUT_CAPTURE_MODULE_ID,
+    recordKind: "input",
+    recordId: envelope.burstId,
+    action: "type",
+    attributes: {
+      appName: envelope.appName,
+      bundleId: envelope.bundleId,
+      // Attributes are string-valued facets (the digest groups on them), so
+      // counts are bucketed rather than raw: an exact keystroke count is a
+      // higher-resolution behavioural fact than the rhythm lane needs. Absent
+      // entirely for a suppressed burst — see the envelope's `keyCount`.
+      ...(envelope.keyCount === undefined
+        ? {}
+        : { keyCount: keyCountBucket(envelope.keyCount) }),
+      disposition: envelope.disposition,
+      ...(envelope.suppressionReason ? { suppressionReason: envelope.suppressionReason } : {}),
+      ...(envelope.redactionCount > 0 ? { redacted: "true" } : {}),
+      timeOfDay: timeOfDayBucket(envelope.typedAt),
+    },
+    observedAt: envelope.typedAt,
     ...(envelope.taintLabel ? { taintLabel: envelope.taintLabel } : {}),
   };
 }

@@ -297,6 +297,15 @@ pub fn spawn_api(
 
 const LISTENING_PREFIX: &str = "bridge-api listening at http://127.0.0.1:";
 
+/// How long a REPLACEMENT child gets to report its bound port. Deliberately
+/// generous, and deliberately longer than the first-boot deadline: a respawn
+/// only ever happens on a machine that has already proven it is slow enough to
+/// starve the sidecar's health probes, and a child killed here takes the
+/// retained port reservation's usefulness with it for the rest of the session.
+const RESPAWN_PORT_REPORT_TIMEOUT: Duration = Duration::from_secs(90);
+/// Same reasoning for the authenticated-readiness wait that follows it.
+const READINESS_HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
+
 fn reported_port(line: &str) -> Option<u16> {
     line.trim()
         .strip_prefix(LISTENING_PREFIX)?
@@ -548,7 +557,7 @@ fn verify_child_on_reserved_port(
             return false;
         }
     }
-    match wait_child_healthy(child, reserved_port, token, Duration::from_secs(10)) {
+    match wait_child_healthy(child, reserved_port, token, READINESS_HEALTH_TIMEOUT) {
         Ok(true) => {}
         Ok(false) => {
             eprintln!(
@@ -610,29 +619,32 @@ pub fn restart(state: &ApiSidecarState) -> bool {
         eprintln!("[bridge-desktop] api sidecar: lifecycle state is poisoned; cannot restart");
         return false;
     };
-    let Some(previous) = guard.take() else {
+    // MUTATED IN PLACE, never taken. `guard.take()` used to move the whole
+    // SpawnedApi out before the respawn was known to work, so ONE failed
+    // attempt dropped the retained loopback reservation and the respawn plan
+    // with it: every later call returned false at this very line, and the
+    // monitor's remaining restart budget could not be spent on anything.
+    // A failed attempt must leave the shell exactly as able to retry as it was
+    // before (BUGS 2026-08-16, sidecar stall under local load).
+    let Some(entry) = guard.as_mut() else {
         return false;
     };
-    let SpawnedApi {
-        port,
-        mut child,
-        token,
-        listener_reservation,
-        respawn,
-    } = previous;
     // Reap whatever is left of the old child before rebinding, so the inherited
     // descriptor is not shared with a process that is still exiting.
-    match child.try_wait() {
+    match entry.child.try_wait() {
         Ok(Some(_)) => {}
         _ => {
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = entry.child.kill();
+            let _ = entry.child.wait();
         }
     }
     if state.stopping.load(Ordering::SeqCst) {
         return false;
     }
-    let Some(listener) = listener_reservation else {
+    let port = entry.port;
+    let token = entry.token.clone();
+    let respawn = entry.respawn.clone();
+    let Some(listener) = entry.listener_reservation.as_ref() else {
         eprintln!(
             "[bridge-desktop] api sidecar: the loopback reservation was released; refusing to \
              rebind a credential-bearing port"
@@ -645,7 +657,7 @@ pub fn restart(state: &ApiSidecarState) -> bool {
         &respawn.local_dir,
         &token,
         respawn.native_keyring.as_deref(),
-        Some(&listener),
+        Some(listener),
     ) {
         Ok(child) => child,
         Err(error) => {
@@ -653,18 +665,29 @@ pub fn restart(state: &ApiSidecarState) -> bool {
             return false;
         }
     };
-    if !verify_child_on_reserved_port(&mut replacement, port, &token, Duration::from_secs(30)) {
+    // A replacement that is merely SLOW must not be killed as if it were
+    // broken: this deadline is spent on a machine that is, by definition,
+    // already struggling — the sidecar just missed its health probes. The old
+    // 30s/10s pair timed out under an ordinary local build, which is how a
+    // recoverable stall turned into a declared Local Plane loss.
+    if !verify_child_on_reserved_port(&mut replacement, port, &token, RESPAWN_PORT_REPORT_TIMEOUT) {
         return false;
     }
     println!("[bridge-desktop] api sidecar recovered on http://127.0.0.1:{port}");
-    *guard = Some(SpawnedApi {
-        port,
-        child: replacement,
-        token,
-        listener_reservation: Some(listener),
-        respawn,
-    });
+    entry.child = replacement;
     true
+}
+
+/// Whether the managed child has exited. `None` when there is nothing to ask
+/// (dev mode, no sidecar) or the answer cannot be obtained — the caller must
+/// treat unknown as "still alive" rather than kill on a failed question.
+pub fn child_exited(state: &ApiSidecarState) -> Option<bool> {
+    let mut guard = state.inner.lock().ok()?;
+    let entry = guard.as_mut()?;
+    match entry.child.try_wait() {
+        Ok(status) => Some(status.is_some()),
+        Err(_) => None,
+    }
 }
 
 fn request_http_stop(port: u16, token: &str, timeout: Duration) -> std::io::Result<()> {
@@ -1059,6 +1082,73 @@ mod tests {
             None
         );
         assert_eq!(reported_port("untrusted prefix 4123"), None);
+    }
+
+    /// BUGS 2026-08-16: `restart` used to `take()` the whole SpawnedApi before
+    /// the respawn was known to work, so ONE failed attempt dropped the retained
+    /// loopback reservation and the respawn plan. Every later attempt then
+    /// returned false immediately — the monitor's remaining budget was spent on
+    /// a state that could no longer restart anything, and the session ended in
+    /// declared Local Plane loss. A failed attempt must be survivable.
+    #[test]
+    fn a_failed_restart_leaves_the_shell_able_to_try_again() {
+        let listener = reserve_sidecar_listener().expect("loopback reservation should bind");
+        let port = listener.local_addr().expect("reserved addr").port();
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "exit 0"]);
+            command
+        };
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", "exit 0"]);
+            command
+        };
+        let child = command.spawn().expect("placeholder child should spawn");
+
+        let state = ApiSidecarState::default();
+        *state.inner.lock().expect("fresh state is unpoisoned") = Some(SpawnedApi {
+            port,
+            child,
+            token: "test-token".to_string(),
+            listener_reservation: Some(listener),
+            respawn: RespawnPlan {
+                // A node binary that cannot exist, so the respawn fails at spawn
+                // time — the cheapest way to reach the failure path.
+                node: PathBuf::from("/nonexistent/bridge-node-for-test"),
+                entry: PathBuf::from("/nonexistent/server.js"),
+                local_dir: std::env::temp_dir().join("bridge-restart-test"),
+                native_keyring: None,
+            },
+        });
+
+        assert!(!restart(&state), "a respawn with no runtime cannot succeed");
+        {
+            let guard = state.inner.lock().expect("state is unpoisoned");
+            let entry = guard
+                .as_ref()
+                .expect("a failed restart must not empty the sidecar state");
+            assert_eq!(entry.port, port, "the reserved port must survive");
+            assert!(
+                entry.listener_reservation.is_some(),
+                "the loopback reservation must survive a failed restart, or the port \
+                 can never be reused and recovery is over"
+            );
+        }
+        // The decisive half: a second attempt still REACHES the respawn instead
+        // of bailing out at an emptied state.
+        assert!(!restart(&state), "the second attempt fails for the same reason");
+        assert!(
+            state
+                .inner
+                .lock()
+                .expect("state is unpoisoned")
+                .as_ref()
+                .is_some_and(|entry| entry.listener_reservation.is_some()),
+            "repeated failures must stay recoverable"
+        );
     }
 
     #[test]

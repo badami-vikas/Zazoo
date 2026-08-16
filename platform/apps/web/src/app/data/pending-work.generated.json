@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T19:26:35.689Z",
+  "generatedAt": "2026-08-16T19:45:17.015Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1316,7 +1316,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1048,
+      "sourceLine": 1054,
       "rank": 39
     },
     {
@@ -1352,7 +1352,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1088,
+      "sourceLine": 1094,
       "rank": 40
     },
     {
@@ -1390,7 +1390,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1101,
+      "sourceLine": 1107,
       "rank": 41
     },
     {
@@ -1415,7 +1415,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1062,
+      "sourceLine": 1068,
       "rank": 42
     },
     {
@@ -1442,12 +1442,68 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1075,
+      "sourceLine": 1081,
       "rank": 43
     },
     {
-      "id": "TASK-071",
-      "title": "TASK-071 — Accounting and D2C land as Modules, on the Local Plane, with donor history preserved",
+      "id": "TASK-072",
+      "title": "TASK-072 — Every Module declares what it is allowed to do, and the engine enforces it",
+      "status": "open",
+      "priority": "P1",
+      "horizon": "Prototype",
+      "outcome": "every Module carries a Governance Section directly below its Intelligence Section, showing the `allow`/`deny` policy declared in its `module.yaml`, editable by the user at runtime. Accounting is seeded with Avilo's AI posture. The policy is **read by the engine**, not merely displayed.",
+      "prototypeTest": "on Accounting, the Governance Section renders the seeded entries; the user adds a `deny` entry and an action that entry forbids is refused at runtime with the entry named as the reason — proven by attempting the action, not by reading the config back. On a Module with no entries the Section still renders with an honest empty state (present-not-absent). Both checked live in the running app.",
+      "scope": [
+        "Stage 3 of [`docs/raw/module-merge-accounting-d2c-2026-08-16.md`](raw/module-merge-accounting-d2c-2026-08-16.md) §6. New `ModuleGovernanceSection.tsx` in `ModuleSurfaceLayout`'s `below` slot after `ModuleIntelligenceSection`",
+        "`governance` block added to `ModuleManifest` and validated at the `apps/api` seam like every other manifest field",
+        "Accounting's seed per plan §7b."
+      ],
+      "evidence": [
+        "Avilo BUG-029 through BUG-045 — the assistant claiming work it had not done, repeatedly, under a rule that existed only in prose. Avilo ADR-045 records prompt text failing twice on the same defect before the approach changed."
+      ],
+      "requests": [
+        "user directive 2026-08-16, verbatim: *\"Bring in the governance section to all modules below the intelligence section where user can explicitly add whats allowed and whats not. In this, add Avilos specific rules for avilo module\"*"
+      ],
+      "approval": "AP-159 APPLIED (ADR-248)",
+      "dependencies": [
+        "TASK-074"
+      ],
+      "canonicalStatus": "done (2026-08-16, live-verified)",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1149,
+      "rank": 44
+    },
+    {
+      "id": "TASK-073",
+      "title": "TASK-073 — Retrofit the newly-adopted UI conventions against every pre-existing Module",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Hardening",
+      "outcome": "the eight UI rules adopted outright under ADR-249 (whole-row click target, double-click-edits-everywhere, revealed-not-resident destructive controls, gesture-handler focus, tooltip descriptions, Dropdown-not-Checkbox as default column type, the five ergonomics laws, no-dead-end pickers, bidirectional connections, write-on-Save) hold on Relationship, DealPilot, JobPilot, TaskManager, DevPilot, Academics and Events — the seven Modules that shipped before the rules were imported.",
+      "prototypeTest": "for each of the seven Modules, one page is walked live against each of the eight rules with the specific defect named where one is found (e.g. \"Products table: delete icon is resident, not hover-revealed — C-13 violation\"); `ui-conformance.test.mjs`'s ratchet is extended to check the newly-adopted rules and fails on a genuine regression rather than only on the pre-2026-08-16 rule set.",
+      "scope": [
+        "`docs/wiki/ui-architecture.md`'s 2026-08-16 addendum names the eight rules and the reconciliation",
+        "`docs/wiki/ui-conventions-cvn.md` has the full original text."
+      ],
+      "evidence": [
+        "none yet — this task exists because ADR-249 explicitly declined to claim the retrofit done."
+      ],
+      "requests": [
+        "user directive 2026-08-16, verbatim: *\"ensure the Ui rules from CVN is applied to all modules\"* — Accounting and D2C (the two Modules built in the same session) satisfy this by construction",
+        "this task covers the rest."
+      ],
+      "approval": "none needed (UI conformance work within already-approved canon)",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1119,
+      "rank": 45
+    },
+    {
+      "id": "TASK-074",
+      "title": "TASK-074 — Accounting and D2C land as Modules, on the Local Plane, with donor history preserved",
       "status": "open",
       "priority": "P1",
       "horizon": "Prototype",
@@ -1469,68 +1525,12 @@
         "user directive 2026-08-16, verbatim: *\"Merge Avilo and CV Naturals as modules within relationship OS called Accounting and D2C respectively\"*",
         "*\"Keep the original avilo and cvn untouched. Only optimize bridge\"*"
       ],
-      "approval": "AP-155 APPLIED (ADR-237)",
+      "approval": "AP-162 APPLIED (ADR-246)",
       "dependencies": [],
       "canonicalStatus": "done (2026-08-16, live-verified)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1126,
-      "rank": 44
-    },
-    {
-      "id": "TASK-072",
-      "title": "TASK-072 — Every Module declares what it is allowed to do, and the engine enforces it",
-      "status": "open",
-      "priority": "P1",
-      "horizon": "Prototype",
-      "outcome": "every Module carries a Governance Section directly below its Intelligence Section, showing the `allow`/`deny` policy declared in its `module.yaml`, editable by the user at runtime. Accounting is seeded with Avilo's AI posture. The policy is **read by the engine**, not merely displayed.",
-      "prototypeTest": "on Accounting, the Governance Section renders the seeded entries; the user adds a `deny` entry and an action that entry forbids is refused at runtime with the entry named as the reason — proven by attempting the action, not by reading the config back. On a Module with no entries the Section still renders with an honest empty state (present-not-absent). Both checked live in the running app.",
-      "scope": [
-        "Stage 3 of [`docs/raw/module-merge-accounting-d2c-2026-08-16.md`](raw/module-merge-accounting-d2c-2026-08-16.md) §6. New `ModuleGovernanceSection.tsx` in `ModuleSurfaceLayout`'s `below` slot after `ModuleIntelligenceSection`",
-        "`governance` block added to `ModuleManifest` and validated at the `apps/api` seam like every other manifest field",
-        "Accounting's seed per plan §7b."
-      ],
-      "evidence": [
-        "Avilo BUG-029 through BUG-045 — the assistant claiming work it had not done, repeatedly, under a rule that existed only in prose. Avilo ADR-045 records prompt text failing twice on the same defect before the approach changed."
-      ],
-      "requests": [
-        "user directive 2026-08-16, verbatim: *\"Bring in the governance section to all modules below the intelligence section where user can explicitly add whats allowed and whats not. In this, add Avilos specific rules for avilo module\"*"
-      ],
-      "approval": "AP-157 APPLIED (ADR-239)",
-      "dependencies": [
-        "TASK-071"
-      ],
-      "canonicalStatus": "done (2026-08-16, live-verified)",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1143,
-      "rank": 45
-    },
-    {
-      "id": "TASK-073",
-      "title": "TASK-073 — Retrofit the newly-adopted UI conventions against every pre-existing Module",
-      "status": "pending",
-      "priority": "P2",
-      "horizon": "Hardening",
-      "outcome": "the eight UI rules adopted outright under ADR-240 (whole-row click target, double-click-edits-everywhere, revealed-not-resident destructive controls, gesture-handler focus, tooltip descriptions, Dropdown-not-Checkbox as default column type, the five ergonomics laws, no-dead-end pickers, bidirectional connections, write-on-Save) hold on Relationship, DealPilot, JobPilot, TaskManager, DevPilot, Academics and Events — the seven Modules that shipped before the rules were imported.",
-      "prototypeTest": "for each of the seven Modules, one page is walked live against each of the eight rules with the specific defect named where one is found (e.g. \"Products table: delete icon is resident, not hover-revealed — C-13 violation\"); `ui-conformance.test.mjs`'s ratchet is extended to check the newly-adopted rules and fails on a genuine regression rather than only on the pre-2026-08-16 rule set.",
-      "scope": [
-        "`docs/wiki/ui-architecture.md`'s 2026-08-16 addendum names the eight rules and the reconciliation",
-        "`docs/wiki/ui-conventions-cvn.md` has the full original text."
-      ],
-      "evidence": [
-        "none yet — this task exists because ADR-240 explicitly declined to claim the retrofit done."
-      ],
-      "requests": [
-        "user directive 2026-08-16, verbatim: *\"ensure the Ui rules from CVN is applied to all modules\"* — Accounting and D2C (the two Modules built in the same session) satisfy this by construction",
-        "this task covers the rest."
-      ],
-      "approval": "none needed (UI conformance work within already-approved canon)",
-      "dependencies": [],
-      "canonicalStatus": "ready",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1113,
+      "sourceLine": 1132,
       "rank": 46
     },
     {
@@ -1631,7 +1631,7 @@
     {
       "id": "TASK-042",
       "title": "TASK-042 — Input-pack regeneration tests for Skills, Modules, and Integrations",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "Each generated-artifact class (Skill, Module, Integration) has an empirically validated input-pack structure — constitution + contracts + mandate + harness layers sized by measured value — so the Builder Agent's growth substrate is defined by evidence, not opinion. Includes deciding per class whether a prescriptive structure is warranted at all or whether strong boundary conditions (harness-only) with autonomy inside them suffice, per the user's stated hypothesis.",
@@ -1643,17 +1643,23 @@
       "evidence": [
         "`outputs/2026-08-04-regeneration-test-learning-agent.md`",
         "`outputs/2026-08-04-people-research-regeneration-method-budget.md`",
-        "ADR-175, ADR-177."
+        "ADR-175, ADR-177. DONE 2026-08-14 (ADR-238, AP-156): eight isolated runs (two arms × three classes + two amendment reruns, 0 tool calls each), rubrics pinned before generation and preserved verbatim in `outputs/2026-08-14-regeneration-test-per-class-packs.md`, graded against shipped ground truth (TM3 Skills / WhatsApp Module / Google Integration). Prototype-test exit met by AMENDMENT, not acceptance: every round-1 WORSE traced to exactly one missing pack sentence (dynamic provider health",
+        "whose-consent in the send gate",
+        "trade-dress unnamed",
+        "ADR-159's key-space-lookup unstated) and one amendment round closed every gap — Integration needed none (10/10 round 1). Per-class verdicts canonized in `docs/raw/capability-input-packs-2026-08.md`: Skill = harness + contracts/registry suffice (the user's boundary-conditions hypothesis HOLDS at Skill scale)",
+        "Module and Integration = the risk-naming mandate is LOAD-BEARING (the Integration harness-only arm produced a safety-perfect design that deleted the product by over-quarantining the metadata the learning lane mines). Ten adopt-candidates recorded in the report with repo-verified status, NOT enacted. Roster-cleanup scope line found already satisfied by ADR-176 (roster settled at five) — nothing redone. Honest disclosure: subagents inherit host-session instructions + memory index (proven when one rerun cited the K11 keystroke decision unprompted)",
+        "neither contains ground-truth design content, verified by inspection."
       ],
       "requests": [
-        "user directive 2026-08-04 (\"If successful, add a task to repeat this for skills, capabilities, modules, etc so we have clarity on structure for each of these (if at all a structure is required, I believe a strong boundary conditions with autonomy within it might be better approach)\")."
+        "user directive 2026-08-04 (\"If successful, add a task to repeat this for skills, capabilities, modules, etc so we have clarity on structure for each of these (if at all a structure is required, I believe a strong boundary conditions with autonomy within it might be better approach)\")",
+        "user directive 2026-08-14 (\"start on next task for AI harness\" → chose \"Defer — do TASK-042 instead\" over deciding K11's keystroke question)."
       ],
-      "approval": "AP-102 APPLIED",
+      "approval": "AP-102 APPLIED (queueing); AP-156 APPLIED (this slice)",
       "dependencies": [
         "none (methodology and draft constitution exist",
         "TASK-033 archetype work is adjacent, not blocking)"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 713,
@@ -2042,7 +2048,7 @@
         "TASK-045 (rung 3, done)",
         "TASK-047 (done), TASK-042 (rung 4 — OPEN)"
       ],
-      "canonicalStatus": "blocked on TASK-042 (rung 3 DONE 2026-08-13, ADR-231/AP-151; rung 4 awaits the per-class input packs — see Evidence)",
+      "canonicalStatus": "ready (rung 3 DONE 2026-08-13, ADR-231/AP-151; rung 4 UNBLOCKED 2026-08-14 — TASK-042 done, ADR-238/AP-156: the per-class input packs now exist as validated canon in `docs/raw/capability-input-packs-2026-08.md`; rung 4 starts on its own explicit pull-forward per the K-ladder rhythm, not automatically)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 871,
@@ -2051,27 +2057,31 @@
     {
       "id": "TASK-054",
       "title": "TASK-054 — K11 — EG4 sensor tier: input, screen, ambient voice",
-      "status": "blocked",
+      "status": "in-progress",
       "priority": "P3",
       "horizon": "Hardening",
-      "outcome": "Three senses on T0–T2 local tiers: (a) continuous input capture as semantic events (\"clicked Send in Mail\" — click + AX-tree target + typing), never a raw keylog, behind the full fail-closed input boundary (OS secure-input, field-role gate where unknown = sensitive, app/domain denylist, never-persist-raw, pattern redaction); (b) continuous screen (xcap; post-meeting action drafts); (c) system audio → ambient voice (cidre/wasapi/libpulse; EG5). Raw processed on-device; only distilled Memory persists; raw never leaves the Local Plane.",
+      "outcome": "Three senses on T0–T2 local tiers: (a) continuous input capture — clicks + AX-tree targets + typing as ACTUAL CHARACTER CONTENT (user decision 2026-08-14, AP-157, superseding the original event-only framing), behind the full fail-closed input boundary (OS secure-input, field-role gate where secure/password/undeterminable ⇒ characters suppressed — unknown = sensitive, app/domain denylist with private windows structurally excluded, never-persist-raw with on-device distillation, pattern redaction on the distilled layer); (b) continuous screen (xcap; post-meeting action drafts); (c) system audio → ambient voice (cidre/wasapi/libpulse; EG5). Raw processed on-device; only distilled Memory persists; raw never leaves the Local Plane.",
       "prototypeTest": "a password-field keystroke fixture yields at most \"typed in an unknown field\" (never characters); a denylisted app yields nothing including clicks; raw stream bytes are absent from disk after distillation (asserted over the capture directory); every distilled event is inspectable, deletable Memory with the Avatar blink fired.",
       "scope": [
         "`docs/raw/ai-harness-plan-2026-08-09.md` K11 + \"The input-capture boundary (K11a)\". Rides ~80% on EG4's planned machinery (capture-core crates, permission model, AX-tree walker, capture→Memory+blink contract)."
       ],
       "evidence": [
         "EG4/EG5 roadmap slices",
-        "harness-plan input-capture boundary."
+        "harness-plan input-capture boundary. **K11a BOUNDARY SLICE DONE 2026-08-16 (ADR-239, under AP-157)** — the fail-closed distillation boundary, its API lane, and its consent surface exist and are provable",
+        "NOTHING captures yet (no event tap — see the honest blocker below). Shipped: `packages/core/src/learning/input-capture.ts` (one pure module owning the field-role gate with `undeterminable` failing closed structurally, the seed-floor denylist, the distiller, and the pattern-redaction backstop)",
+        "the `input` capture source on unchanged K2 machinery (default OFF, kill switch, Human-only)",
+        "`learning.capture.input.{policy,setDenylist,burst}` where `burst` RE-DISTILS server-side through the same core gate so a patched shell cannot widen what is stored, and the wire schema has no raw-keystroke field",
+        "`inputCaptureSignal` carrying a bucketed keyCount + disposition and never the text",
+        "a Settings card with a severity treatment and confirm-to-enable that the other five sources do not have. A REAL LEAK was found by the adversarial pass, not by review: the suppressed summary published the exact password LENGTH (\"Typed 8 characters in a secure field\") into a durable Memory row — now suppressed bursts carry no count at all, and two different-length secrets distil byte-identically. Verified: core 37/37 (contract suite + `input-capture.redteam.test.ts`, every safety test removal-fails), `@bridge/api` suite green over the real composition root, `pnpm verify` green."
       ],
       "requests": [
         "user directive 2026-08-09 (\"start on AI harness\")"
       ],
-      "approval": "AP-131 APPLIED. The keystroke content-vs-events decision (harness-plan open decision 1) is a further user gate before build.",
+      "approval": "AP-131 APPLIED (queueing); AP-157 APPLIED 2026-08-14 (keystroke content-vs-events decision RESOLVED — full content capture behind the fail-closed boundary; build authorized).",
       "dependencies": [
-        "TASK-043 (K10 gate), TASK-051",
-        "plus the open keystroke content-vs-events user decision"
+        "TASK-043 (K10 gate, done), TASK-051 (done). The keystroke content-vs-events decision is resolved (AP-157) — no open user gate remains before build."
       ],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 884,
@@ -2108,7 +2118,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 905,
+      "sourceLine": 911,
       "rank": 63
     },
     {
@@ -2138,7 +2148,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 918,
+      "sourceLine": 924,
       "rank": 64
     },
     {
@@ -2167,7 +2177,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 931,
+      "sourceLine": 937,
       "rank": 65
     },
     {
@@ -2196,7 +2206,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 944,
+      "sourceLine": 950,
       "rank": 66
     },
     {
@@ -2224,7 +2234,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 957,
+      "sourceLine": 963,
       "rank": 67
     },
     {
@@ -2251,7 +2261,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 970,
+      "sourceLine": 976,
       "rank": 68
     },
     {
@@ -2282,7 +2292,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 983,
+      "sourceLine": 989,
       "rank": 69
     },
     {
@@ -2308,7 +2318,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 996,
+      "sourceLine": 1002,
       "rank": 70
     },
     {
@@ -2334,7 +2344,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1009,
+      "sourceLine": 1015,
       "rank": 71
     },
     {
@@ -2362,7 +2372,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1022,
+      "sourceLine": 1028,
       "rank": 72
     },
     {
@@ -2388,8 +2398,49 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1035,
+      "sourceLine": 1041,
       "rank": 73
+    },
+    {
+      "id": "TASK-071",
+      "title": "TASK-071 — DevPilot D2 — engineering-assist Skills (PR review, best-practice suggestions, Issue triage)",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Prototype",
+      "outcome": "three governed Skills — `devpilot.reviewPr`, `devpilot.suggestPractice` (both over a tracked Pull Request's live diff), `devpilot.analyzeIssue` (over a tracked Issue's live body) — draft engineering-assist content through the existing pipeline-proposal/Approvals flow. Every draft is a proposal a Human must approve, edit, or veto; nothing is ever posted back to GitHub.",
+      "prototypeTest": "on the Pull Requests page, select a tracked PR and click \"Draft review\" or \"Suggest practices\" → a governed Automation runs the reviewer Agent, halts for review, and the drafted text renders inline with a link to Approvals; on the Issues page, select a tracked Issue and click \"Analyze\" → same shape. With no model configured, the draft returns an honest \"not drafted\" scaffold instead of guessing. Flight OFF: all three procedures throw `PRECONDITION_FAILED` same as D0/D1.",
+      "scope": [
+        "`docs/raw/devpilot-module-plan-2026-08-13.md` (D2)",
+        "ADR-237",
+        "AP-155. New taint source `github_intake` in `platform/packages/core/src/taint.ts`",
+        "`fetchPull`/`fetchPullFiles`/`fetchIssue` on `GithubGateway` (`platform/packages/integrations-github`)",
+        "`getPull`/`getIssue` by-id lookups on `DrizzleDevpilotStore`",
+        "`DEVPILOT_REVIEWER_AGENT_ID` + 3 Automation ids/keys + reviewer Agent/Automation manifest entries + module version bump `0.1.0`→`0.2.0` in `platform/modules/manifests/src/index.ts`",
+        "`ensureDevpilotReviewerGovernance` in `platform/packages/db/src/governance-stores.ts`",
+        "3 SkillManifests + 3 Skill registrations + `resolveDevpilotReviewModel` in `platform/apps/api/src/wiring.ts`",
+        "`devpilot.pulls.reviewDraft`/`suggestPracticeDraft`, `devpilot.issues.analyzeDraft` procedures in `platform/apps/api/src/router.ts`",
+        "draft-trigger UI (Select + buttons + inline draft panel) in `platform/apps/web/src/app/pages/DevPilotPage.tsx`."
+      ],
+      "evidence": [
+        "`@bridge/integrations-github` 16/16 (3 new fetch tests incl. binary-file-no-patch)",
+        "`@bridge/module-manifests` 25/25 (2 Agents each with a Plane, poll Automation still scheduled, 3 new Automations manual + runtime-opted-in, still zero `external:send`)",
+        "`@bridge/api` full suite green (one pre-existing unrelated flake in `automation-scheduler.test.ts` reproduced identically on the unmodified D1 baseline via git stash — not a regression)",
+        "`@bridge/web` typecheck clean, `ui-conformance.test.mjs` 13/13. Live walk: isolated demo server rebuild caught a real manifest-immutability bug (version not bumped despite new capabilities) — fixed",
+        "confirmed in a real browser that both pages render the new controls with correct disabled states and all `devpilot.*` calls return 200. The actual model-drafting path was not exercised live — no GitHub PAT or model provider key available in this environment (same honest limit D1's own live walk hit)."
+      ],
+      "requests": [
+        "user directive 2026-08-14, verbatim: *\"start on the next task\"*",
+        "disambiguated via clarifying question to \"DevPilot D2\"."
+      ],
+      "approval": "AP-155 applied",
+      "dependencies": [
+        "TASK-068"
+      ],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1165,
+      "rank": 74
     }
   ]
 }

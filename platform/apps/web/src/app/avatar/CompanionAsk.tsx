@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dispatchCaptureEvent, setAvatarStatus } from "./avatar-store";
 import { tauriInvoke, tauriInvokeJob, tauriInvokeStrict } from "./tauri-internals";
+import { appendAskTurn } from "../chat/ask-history";
 import { ResearchRun } from "./ResearchRun";
 
 export const AVATAR_SHARE_SCREEN_KEY = "bridge:avatar:share_screen";
@@ -129,6 +130,13 @@ export function CompanionAsk({
   const [recording, setRecording] = useState(false);
   const historyRef = useRef<HistoryTurn[]>([]);
   const lastAskAtRef = useRef(0);
+  /** The device-local history session these asks are filed under. Reset by the
+   * same idle gap that clears `historyRef`, so a recorded session is exactly
+   * what the model treated as one conversation. */
+  const sessionRef = useRef<{ id: string; startedAt: string } | null>(null);
+  /** History is a convenience, but a silent failure to keep it is not: say so
+   * once rather than letting the user believe an answer was filed. */
+  const [historyNote, setHistoryNote] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const busyRef = useRef(false);
@@ -179,6 +187,13 @@ export function CompanionAsk({
       // ask, mirroring the jobs-table purge-on-start discipline.
       if (Date.now() - lastAskAtRef.current > HISTORY_IDLE_TTL_MS) {
         historyRef.current = [];
+        sessionRef.current = null;
+      }
+      if (!sessionRef.current) {
+        sessionRef.current = {
+          id: crypto.randomUUID(),
+          startedAt: new Date().toISOString(),
+        };
       }
       lastAskAtRef.current = Date.now();
       setBusy(sharing ? "capturing" : "thinking");
@@ -205,6 +220,19 @@ export function CompanionAsk({
           // keeps that provenance when the turn rides along on a later ask.
           { role: "assistant", content: result.text, screenDerived: result.screenShared },
         ];
+        // Filed on this device only (see chat/ask-history.ts) so the Chat
+        // panel's history dropdown can read the session back.
+        const session = sessionRef.current;
+        if (session) {
+          const kept = appendAskTurn(session, {
+            question: trimmed,
+            answer: result.text,
+            provider: result.provider,
+            screenShared: result.screenShared,
+            at: new Date().toISOString(),
+          });
+          setHistoryNote(kept ? null : "This answer could not be saved to your local history.");
+        }
         onAnswered?.(result.text, result.emotion ?? undefined, result.spoke);
         setAnswer(result);
         setQuestion("");
@@ -385,6 +413,13 @@ export function CompanionAsk({
     <div className="flex flex-col gap-2 text-sm" style={{ minHeight: 0, overflowY: "auto" }}>
       {modeControls}
       <div className="flex flex-col gap-2 p-3">
+      {/* Says plainly what this surface is, so it stops reading as a second
+       * chat: a one-shot screen/voice question on its own pipeline, whose
+       * memory is this session only and never reaches the chat thread. */}
+      <p className="text-xs text-muted-foreground">
+        Screen-and-voice mode — one question at a time. Not part of your chat;
+        kept on this device only, readable from the chat history dropdown.
+      </p>
       {capabilities && canSeeScreen && !capabilities.screenPermission && (
         <p className="text-xs text-muted-foreground">
           macOS Screen Recording permission is not granted yet. Bridge will refuse a
@@ -454,7 +489,11 @@ export function CompanionAsk({
         placeholder={
           recording
             ? "Listening… release Fn to ask"
-            : "Ask anything… (Enter to send)"
+            : // Deliberately NOT "Ask anything" — this is the screen-and-voice
+              // mode, not the chat. Chat is the composer on the avatar itself,
+              // and only that one writes to the conversation (user report
+              // 2026-08-16: "3 different chat interfaces in avatar").
+              "Ask about what's on your screen… (Enter to send)"
         }
         rows={2}
         disabled={busy !== "idle"}
@@ -481,6 +520,7 @@ export function CompanionAsk({
         </button>
       </div>
       {micNote && <p className="text-xs text-muted-foreground">{micNote}</p>}
+      {historyNote && <p className="text-xs text-muted-foreground">{historyNote}</p>}
       {busyLabel && <p className="text-xs text-[var(--color-navy-mid)]">{busyLabel}</p>}
 
       {error && (

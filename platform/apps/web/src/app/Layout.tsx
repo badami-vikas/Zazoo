@@ -247,8 +247,18 @@ export default function Layout() {
         setAvatarPrefs(resolvedPrefs);
       })
       .catch(() => {
-        // Honest no-op: if the check itself fails (e.g. API unreachable), don't
-        // force the modal open on top of an already-broken app shell.
+        // Don't force the onboarding modal open on top of an already-broken app
+        // shell — but DO give the companion its preferences anyway. This effect
+        // runs once per mount, so leaving `avatarPrefs` null here left
+        // `desktopAvatarSessionReady` false for the rest of the session:
+        // `overlay_set_session_ready(false)` concealed the overlay, OverlayApp
+        // rendered nothing, and no later recovery of the API brought it back —
+        // only a window reload did. One transient API failure at startup
+        // (2026-08-16: the sidecar stalled under load and the shell declared
+        // Local Plane loss) therefore cost the user their avatar for the whole
+        // session, against the standing directive that the companion appears
+        // irrespective of onboarding.
+        setAvatarPrefs(loadAvatarPrefs(false));
       })
       .finally(() => setCheckedOnboarding(true));
 

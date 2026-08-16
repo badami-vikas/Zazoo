@@ -16,8 +16,8 @@ import type { DataRow } from "../dataviews/types";
  * D2C — Orders and Inventory, the two toggle Pages of the parent Module
  * (manifest comment: same commerce domain, different data shapes — AP-011).
  * Real, possibly-empty data from `ctx.wiring.d2cDb` (the imported CV Naturals
- * sqlite, ADR-237). GST invoicing/WhatsApp capture/costing stay out of this
- * pass — TASK-071's bar is real persistence rendering, not feature parity.
+ * sqlite, ADR-246). GST invoicing/WhatsApp capture/costing stay out of this
+ * pass — TASK-074's bar is real persistence rendering, not feature parity.
  */
 type D2CPageId = "orders" | "inventory";
 type OrderRow = Awaited<ReturnType<typeof trpc.d2c.ordersList.query>>["items"][number];

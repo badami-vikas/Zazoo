@@ -16,6 +16,7 @@
  * Drawing Zazoo any higher would simply delete him.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CompanionComposer } from "./CompanionComposer";
 import { ZazooAvatar } from "./zazoo/ZazooAvatar";
 import type { ZazooDirector } from "./zazoo/director";
 import { usePrefersReducedMotion } from "./zazoo/CompanionZazooFace";
@@ -107,12 +108,10 @@ export function NotchHome({
   name: string;
 }) {
   const reducedMotion = usePrefersReducedMotion();
-  const [draft, setDraft] = useState("");
   const [dropping, setDropping] = useState(false);
   const droppingRef = useRef(false);
   const avatarRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{ y: number; pointerId: number } | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   // Debounces the pose-toggle click against a double-click: without this, a
   // double-click's two leading `click` events would flip the composer open
   // then shut before `runDrop` ever fires, a flicker on the way out the door.
@@ -174,10 +173,6 @@ export function NotchHome({
     if (dropping) return;
     void tauriInvoke("overlay_dock_notch", { width: box.width, height: box.height });
   }, [box.width, box.height, dropping]);
-
-  useEffect(() => {
-    if (pose === "chat" && entrance === "awake") inputRef.current?.focus();
-  }, [pose, entrance]);
 
   // Asleep on the bed, then awake. Meditating is the resting pose once he is
   // on his feet; opening the eyes is what the composer buys you.
@@ -352,13 +347,6 @@ export function NotchHome({
     dragStart.current = null;
   }
 
-  function submit() {
-    const text = draft.trim();
-    if (!text) return;
-    setDraft("");
-    onSubmit(text);
-  }
-
   return (
     <div
       // The entrance is a timed multi-phase performance in a webview that
@@ -484,7 +472,10 @@ export function NotchHome({
        * visible while docked, not gated behind a click (user directive:
        * "I dont see a chatbox in notch next to avatar"). It arrives once
        * Zazoo is on his feet, so the entrance reads as one performance.
-       * Three lines tall (user directive) — enough to see a whole thought. */}
+       *
+       * The input itself is the SHARED CompanionComposer, the same one the
+       * free-floating hover bar renders: one composer, one behaviour, one
+       * chat thread behind it, in whichever home Zazoo happens to live. */}
       {!dropping && (
         <div
           style={{
@@ -501,35 +492,13 @@ export function NotchHome({
               : `${slideTransition}, opacity 200ms linear`,
           }}
         >
-          <textarea
-            ref={inputRef}
-            rows={3}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+          <CompanionComposer
+            name={name}
+            variant="notch"
+            focused={pose === "chat" && entrance === "awake"}
+            onSubmit={onSubmit}
             onFocus={() => onPose("chat")}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                submit();
-              }
-              if (event.key === "Escape") onPose("bed");
-            }}
-            placeholder={`Message ${name}…`}
-            aria-label={`Message ${name}`}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              resize: "none",
-              borderRadius: 14,
-              border: "1px solid rgba(255,255,255,0.22)",
-              background: "rgba(255,255,255,0.10)",
-              color: "#fff",
-              fontSize: 12,
-              lineHeight: "16px",
-              fontFamily: "inherit",
-              padding: "8px 12px",
-              outline: "none",
-            }}
+            onDismiss={() => onPose("bed")}
           />
         </div>
       )}

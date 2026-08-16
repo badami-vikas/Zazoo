@@ -11,8 +11,8 @@ tags: [modules, merge, governance, accounting, d2c, avilo, cvn]
 
 # Merging Avilo and CV Naturals into Bridge
 
-Plan of record for AP-155/149/150 and ADR-237/231/232. Stage 1 (this document plus the
-canon edits it describes) is docs-only. Stages 2 and 3 are TASK-071 and TASK-072.
+Plan of record for AP-162/149/150 and ADR-246/231/232. Stage 1 (this document plus the
+canon edits it describes) is docs-only. Stages 2 and 3 are TASK-074 and TASK-072.
 
 ## 1. Directive
 
@@ -241,7 +241,7 @@ collisions: **the later-arriving side renumbers.**
 
 - **Stage 1 — canon (this document).** APPROVALS rows, ADRs, wiki one-liners, CLAUDE.md rule
   additions, TASKS rows for the following stages, log entry. No code moves.
-- **Stage 2 — TASK-071.** Subtree merges, module trees, `module.yaml` manifests, whatsapp
+- **Stage 2 — TASK-074.** Subtree merges, module trees, `module.yaml` manifests, whatsapp
   dedupe, id renumbering map, `pnpm verify` green.
 - **Stage 3 — TASK-072.** `ModuleGovernanceSection.tsx`, the `governance` manifest block, the
   Accounting seed, live verification on the running app.

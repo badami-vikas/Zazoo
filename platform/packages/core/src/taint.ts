@@ -26,6 +26,7 @@ export const TAINT_SOURCES = [
   "memory",
   "cache",
   "queue",
+  "github",
   "mixed",
   "unknown",
 ] as const;
@@ -544,6 +545,8 @@ export const TAINT_SOURCE_IDS = [
   "browser_capture",
   "mcp_result",
   "file_import",
+  "github_intake",
+  "input_capture",
 ] as const;
 export type TaintSourceId = (typeof TAINT_SOURCE_IDS)[number];
 
@@ -575,6 +578,17 @@ export const TAINT_SOURCE_REGISTRY: Readonly<
   browser_capture: { source: "web", defaultTrust: "untrusted" },
   mcp_result: { source: "mcp", defaultTrust: "untrusted" },
   file_import: { source: "file_import", defaultTrust: "untrusted" },
+  // DevPilot D2 (TASK-071, ADR-237) — PR diffs and Issue bodies are
+  // page-authored by whoever opened them, same untrusted-external tier as
+  // Gmail's email_google_intake.
+  github_intake: { source: "github", defaultTrust: "untrusted" },
+  // K11 (TASK-054, AP-157) — continuous keystroke capture. The typed text is
+  // the OWNER's own input, but it routinely contains pasted external content,
+  // so it carries the same untrusted/instruction-like tier as every other
+  // captured text rather than the authenticated_human tier the owner's
+  // deliberate chat turns get. `sensor` is the source: this is the desktop
+  // shell's sensor tier, alongside sensor_capture's focus events.
+  input_capture: { source: "sensor", defaultTrust: "untrusted" },
 });
 
 export const TAINT_SINK_REGISTRY: Readonly<

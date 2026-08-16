@@ -1,5 +1,5 @@
 /**
- * The D2C Module's own SQLite database (ADR-237/238).
+ * The D2C Module's own SQLite database (ADR-246/238).
  *
  * Same shape as `accounting-store.ts` for the same reason: its own sqlite,
  * inside the host-granted files root, never `@bridge/db`/PGlite. D2C's

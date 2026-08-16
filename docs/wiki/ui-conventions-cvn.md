@@ -1,7 +1,7 @@
 # CV Naturals' UI conventions (C-1..C-34), imported verbatim
 
 Source: CV Naturals `docs/wiki/ui-conventions.md`, registered there 2026-08-14 (AP-008/AP-012,
-ADR-005/ADR-009/ADR-010). Imported into Bridge canon 2026-08-16 (ADR-240/AP-158) as part of the
+ADR-005/ADR-009/ADR-010). Imported into Bridge canon 2026-08-16 (ADR-249/AP-161) as part of the
 Accounting/D2C module merge. Reconciliation against Bridge's own `ui-architecture.md` — what's
 duplicate, what's newly adopted, and the one apparent conflict that turned out not to be one — is
 recorded there, not here. This file preserves CV Naturals' original wording unedited.

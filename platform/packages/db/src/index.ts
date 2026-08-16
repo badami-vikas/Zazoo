@@ -50,6 +50,7 @@ export {
   ensureOutreachAgentGovernance,
   ensureEgressAgentGovernance,
   ensureDevpilotTrackerGovernance,
+  ensureDevpilotReviewerGovernance,
   ensureIntakeAgentGovernance,
   ensureDealPilotPrincipalGovernance,
   ensureCapabilityApprovalPrincipalGovernance,

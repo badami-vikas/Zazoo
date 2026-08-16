@@ -11,7 +11,7 @@ import { InstalledModuleBoundary } from "../components/InstalledModuleBoundary";
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow } from "../dataviews/types";
 
-/** D2C sub-module: Notes (TASK-071). Real, possibly-empty `noteDocuments`
+/** D2C sub-module: Notes (TASK-074). Real, possibly-empty `noteDocuments`
  * rows from `ctx.wiring.d2cDb`. The per-document block editor is a later
  * pass — this Page is the document list. */
 export function D2CNotesPage() {

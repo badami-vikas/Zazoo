@@ -110,6 +110,20 @@ export const CITED_ROLE_MODEL_PRACTICE_VERSION = "1.0.1";
 export const DEVPILOT_TRACKER_AGENT_ID = "b0000000-0000-4000-a000-000000000109";
 export const DEVPILOT_GITHUB_POLL_AUTOMATION_ID = "b0000000-0000-4000-a000-00000000010a";
 export const DEVPILOT_GITHUB_POLL_AUTOMATION_KEY = "devpilot.github-poll";
+/** DevPilot D2 (TASK-071, ADR-237) — engineering-assist Skills that call a
+ * model over quarantined GitHub content. A separate Agent identity from the
+ * tracker (…109): the tracker's authority is `external:fetch:read` alone,
+ * the reviewer additionally needs model-calling + `record:write` to draft a
+ * proposal, and least-privilege keeps those scopes on separate identities
+ * rather than widening the tracker's. Continuing the id sequence after the
+ * tracker poll Automation (…10a). */
+export const DEVPILOT_REVIEWER_AGENT_ID = "b0000000-0000-4000-a000-00000000010b";
+export const DEVPILOT_REVIEW_PR_AUTOMATION_ID = "b0000000-0000-4000-a000-00000000010c";
+export const DEVPILOT_REVIEW_PR_AUTOMATION_KEY = "devpilot.review-pr";
+export const DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID = "b0000000-0000-4000-a000-00000000010d";
+export const DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_KEY = "devpilot.suggest-practice";
+export const DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID = "b0000000-0000-4000-a000-00000000010e";
+export const DEVPILOT_ANALYZE_ISSUE_AUTOMATION_KEY = "devpilot.analyze-issue";
 
 export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAutomationId: string): string | undefined {
   if (moduleName === "deal-pilot" && manifestAutomationId === DEALPILOT_SOURCE_AUTOMATION_KEY) {
@@ -166,6 +180,15 @@ export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAut
   if (moduleName === "devpilot" && manifestAutomationId === DEVPILOT_GITHUB_POLL_AUTOMATION_KEY) {
     return DEVPILOT_GITHUB_POLL_AUTOMATION_ID;
   }
+  if (moduleName === "devpilot" && manifestAutomationId === DEVPILOT_REVIEW_PR_AUTOMATION_KEY) {
+    return DEVPILOT_REVIEW_PR_AUTOMATION_ID;
+  }
+  if (moduleName === "devpilot" && manifestAutomationId === DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_KEY) {
+    return DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID;
+  }
+  if (moduleName === "devpilot" && manifestAutomationId === DEVPILOT_ANALYZE_ISSUE_AUTOMATION_KEY) {
+    return DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID;
+  }
   return undefined;
 }
 
@@ -189,6 +212,9 @@ export function isModuleRuntimeAutomationId(automationId: string): boolean {
     TASK_MANAGER_DEPENDENCY_AUTOMATION_ID,
     TASK_MANAGER_ROUTING_AUTOMATION_ID,
     DEVPILOT_GITHUB_POLL_AUTOMATION_ID,
+    DEVPILOT_REVIEW_PR_AUTOMATION_ID,
+    DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID,
+    DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID,
   ].includes(automationId);
 }
 
@@ -211,6 +237,9 @@ export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId:
   if (moduleName === "devpilot" && manifestAgentId === "tracker-agent") {
     return DEVPILOT_TRACKER_AGENT_ID;
   }
+  if (moduleName === "devpilot" && manifestAgentId === "reviewer-agent") {
+    return DEVPILOT_REVIEWER_AGENT_ID;
+  }
   return undefined;
 }
 
@@ -225,7 +254,7 @@ const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   "task-manager": "platform/packages/core/src/task-manager.ts",
   whatsapp: "platform/modules/whatsapp/src/index.ts",
   devpilot: "platform/modules/devpilot/src/index.ts",
-  // Imported Modules (ADR-237). The source ref points at the domain layer that
+  // Imported Modules (ADR-246). The source ref points at the domain layer that
   // came across in the subtree merge, not at the donor repository: the donors
   // are read-only sources and are not modified by the merge, so this repo is
   // where the inspected code actually lives.
@@ -724,6 +753,77 @@ const devpilotCapabilities = [
     ],
   ),
   capability("devpilot.github", "GitHub tracker intake", "integration", [readAll("external:fetch")], [{ id: "github" }]),
+  // DevPilot D2 (TASK-071, ADR-237) — draft-only engineering-assist Skills.
+  // Each reads quarantined PR/Issue content (untrusted_external, GitHub's
+  // own private-repo dataScope) and writes a governed proposal a Human must
+  // approve; none may send or write back to GitHub — no external:send here,
+  // same posture D1 declared for the tracker.
+  capability(
+    "devpilot.reviewPr",
+    "Draft a code review from a Pull Request's diff",
+    "skill",
+    [{ resourceType: "external:fetch", action: "read", dataScope: "private", egress: true }, readAll("record"), writeAll("record")],
+    [{ id: "github" }],
+  ),
+  capability(
+    "devpilot.suggestPractice",
+    "Draft best-practice suggestions from a Pull Request's diff",
+    "skill",
+    [{ resourceType: "external:fetch", action: "read", dataScope: "private", egress: true }, readAll("record"), writeAll("record")],
+    [{ id: "github" }],
+  ),
+  capability(
+    "devpilot.analyzeIssue",
+    "Draft a triage analysis from an Issue's body",
+    "skill",
+    [{ resourceType: "external:fetch", action: "read", dataScope: "private", egress: true }, readAll("record"), writeAll("record")],
+    [{ id: "github" }],
+  ),
+  capability(
+    "devpilot.reviewer-agent",
+    "Dev reviewer Agent",
+    "agent",
+    [readAll("record"), writeAll("record")],
+    [],
+    [
+      { manifestId: "devpilot.reviewPr", versionRange: "0.2.0" },
+      { manifestId: "devpilot.suggestPractice", versionRange: "0.2.0" },
+      { manifestId: "devpilot.analyzeIssue", versionRange: "0.2.0" },
+    ],
+  ),
+  capability(
+    "devpilot.review-pr-automation",
+    "Draft PR review (manual)",
+    "automation",
+    [readPrivate("external:fetch"), readAll("record"), writeAll("record")],
+    [{ id: "github" }],
+    [
+      { manifestId: "devpilot.reviewer-agent", versionRange: "0.2.0" },
+      { manifestId: "devpilot.reviewPr", versionRange: "0.2.0" },
+    ],
+  ),
+  capability(
+    "devpilot.suggest-practice-automation",
+    "Draft best-practice suggestions (manual)",
+    "automation",
+    [readPrivate("external:fetch"), readAll("record"), writeAll("record")],
+    [{ id: "github" }],
+    [
+      { manifestId: "devpilot.reviewer-agent", versionRange: "0.2.0" },
+      { manifestId: "devpilot.suggestPractice", versionRange: "0.2.0" },
+    ],
+  ),
+  capability(
+    "devpilot.analyze-issue-automation",
+    "Draft issue analysis (manual)",
+    "automation",
+    [readPrivate("external:fetch"), readAll("record"), writeAll("record")],
+    [{ id: "github" }],
+    [
+      { manifestId: "devpilot.reviewer-agent", versionRange: "0.2.0" },
+      { manifestId: "devpilot.analyzeIssue", versionRange: "0.2.0" },
+    ],
+  ),
 ];
 
 const taskManagerCapabilities = [
@@ -1300,11 +1400,11 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
     computedRisk: "external",
     manifest: {
       name: "devpilot",
-      version: "0.1.0",
+      version: "0.2.0",
       kind: "organization_definition",
       summary: "Organizes a freelance engineer's code, issues, and work priorities.",
       description:
-        "Tracks GitHub repos, pull requests, and issues in DevPilot-owned Databases, refreshed by a scheduled poll behind a fine-grained Personal Access Token. Read-only in this version: no capability may send or write back to GitHub.",
+        "Tracks GitHub repos, pull requests, and issues in DevPilot-owned Databases, refreshed by a scheduled poll behind a fine-grained Personal Access Token. Drafts PR reviews, best-practice suggestions, and Issue triage on request — always a proposal a Human approves, never posted back to GitHub. No capability may send to GitHub in this version.",
       lineageManifestId: null,
       dependencies: [],
       capabilities: devpilotCapabilities,
@@ -1336,31 +1436,77 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
             capabilityId: "devpilot.repos",
           },
         ],
-        agents: [{
-          id: "tracker-agent",
-          name: "Dev tracker Agent",
-          capabilityId: "devpilot.tracker-agent",
-          skillIds: ["devpilot.syncGithub"],
-          plane: "cloud",
-        }],
-        automations: [{
-          id: "github-poll",
-          name: "GitHub tracker poll",
-          capabilityId: "devpilot.github-poll",
-          agentId: "tracker-agent",
-          trigger: "Scheduled",
-          schedule: { kind: "schedule", everyMinutes: 15 },
-          procedure: "devpilot.syncGithub",
-          automationId: DEVPILOT_GITHUB_POLL_AUTOMATION_KEY,
-          runRoute: "/module/devpilot/pulls",
-        }],
+        agents: [
+          {
+            id: "tracker-agent",
+            name: "Dev tracker Agent",
+            capabilityId: "devpilot.tracker-agent",
+            skillIds: ["devpilot.syncGithub"],
+            plane: "cloud",
+          },
+          {
+            id: "reviewer-agent",
+            name: "Dev reviewer Agent",
+            capabilityId: "devpilot.reviewer-agent",
+            skillIds: ["devpilot.reviewPr", "devpilot.suggestPractice", "devpilot.analyzeIssue"],
+            plane: "cloud",
+          },
+        ],
+        automations: [
+          {
+            id: "github-poll",
+            name: "GitHub tracker poll",
+            capabilityId: "devpilot.github-poll",
+            agentId: "tracker-agent",
+            trigger: "Scheduled",
+            schedule: { kind: "schedule", everyMinutes: 15 },
+            procedure: "devpilot.syncGithub",
+            automationId: DEVPILOT_GITHUB_POLL_AUTOMATION_KEY,
+            runRoute: "/module/devpilot/pulls",
+          },
+          {
+            id: "review-pr",
+            name: "Draft PR review",
+            capabilityId: "devpilot.review-pr-automation",
+            agentId: "reviewer-agent",
+            // Human-triggered rather than scheduled or Event-fired, same
+            // reasoning as Task Manager's planning-playbook Automation: this
+            // answers a question someone asked ("review this PR"), so no
+            // `schedule` — an Automation still gives the invocation an
+            // attributable Agent Run and a proposal that halts for review.
+            trigger: "Manual — 'Draft review' on a tracked Pull Request",
+            procedure: "devpilot.reviewPr",
+            automationId: DEVPILOT_REVIEW_PR_AUTOMATION_KEY,
+            runRoute: "/module/devpilot/pulls",
+          },
+          {
+            id: "suggest-practice",
+            name: "Draft best-practice suggestions",
+            capabilityId: "devpilot.suggest-practice-automation",
+            agentId: "reviewer-agent",
+            trigger: "Manual — 'Suggest practices' on a tracked Pull Request",
+            procedure: "devpilot.suggestPractice",
+            automationId: DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_KEY,
+            runRoute: "/module/devpilot/pulls",
+          },
+          {
+            id: "analyze-issue",
+            name: "Draft issue analysis",
+            capabilityId: "devpilot.analyze-issue-automation",
+            agentId: "reviewer-agent",
+            trigger: "Manual — 'Analyze' on a tracked Issue",
+            procedure: "devpilot.analyzeIssue",
+            automationId: DEVPILOT_ANALYZE_ISSUE_AUTOMATION_KEY,
+            runRoute: "/module/devpilot/issues",
+          },
+        ],
       },
     },
   },
   {
     // Internal: the advisor's own imported books. Nothing egresses — the
     // Module opens its own sqlite inside the dataDir the host grants it
-    // (ADR-237) and never reaches @bridge/db or the PGlite Local Plane.
+    // (ADR-246) and never reaches @bridge/db or the PGlite Local Plane.
     computedRisk: "operational",
     manifest: {
       name: "accounting",
@@ -1371,7 +1517,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       kind: "organization_definition",
       summary: "QuickBooks exports become a month-end report, a dashboard, and a PDF.",
       description:
-        "Imported from Avilo Advisory (ADR-237). Facts are keyed by (client, period, account) so any range is a WHERE clause; row labels resolve through persisted, user-correctable mappings; metrics are versioned formulas evaluated at runtime; corrections are overrides with full history. Every figure on screen traces to an imported fact, a stored override, or a formula — 'unknown' is a first-class result (ADR-238).",
+        "Imported from Avilo Advisory (ADR-246). Facts are keyed by (client, period, account) so any range is a WHERE clause; row labels resolve through persisted, user-correctable mappings; metrics are versioned formulas evaluated at runtime; corrections are overrides with full history. Every figure on screen traces to an imported fact, a stored override, or a formula — 'unknown' is a first-class result (ADR-247).",
       lineageManifestId: null,
       dependencies: [],
       capabilities: [
@@ -1386,7 +1532,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       ],
       contextProviders: [],
       organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
-      // Avilo's AI posture, moved out of prose and into declared data (ADR-239).
+      // Avilo's AI posture, moved out of prose and into declared data (ADR-248).
       // It was correct for a year and enforced by nothing: BUG-029…BUG-045 are
       // all the assistant claiming work it had not done under exactly these
       // rules, and ADR-045 records prompt text failing twice on the same defect.
@@ -1452,7 +1598,7 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
       kind: "organization_definition",
       summary: "Orders, inventory and research for a direct-to-consumer herbal business.",
       description:
-        "Imported from CV Naturals (ADR-237). The parent Module for four sub-modules — Orders, Inventory, Research and Notes — over one domain layer covering order lifecycle, GST invoice numbering, product-to-source mapping, formula costing and the stock ledger. Opens its own sqlite in the host-granted dataDir; never touches the PGlite Local Plane.",
+        "Imported from CV Naturals (ADR-246). The parent Module for four sub-modules — Orders, Inventory, Research and Notes — over one domain layer covering order lifecycle, GST invoice numbering, product-to-source mapping, formula costing and the stock ledger. Opens its own sqlite in the host-granted dataDir; never touches the PGlite Local Plane.",
       lineageManifestId: null,
       dependencies: [],
       capabilities: [

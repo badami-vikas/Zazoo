@@ -92,6 +92,7 @@ import {
   browserCaptureSignalId,
   chatCaptureSignalId,
   googleCaptureSignalId,
+  inputCaptureSignalId,
   whatsAppCaptureSignalId,
   resolveLocalPlanningModel,
   type Wiring,
@@ -313,7 +314,13 @@ import {
   whatsAppMessageCaptureSignal,
   withCapturePaused,
   withSourceConsent,
+  distilKeystrokeBurst,
+  inputCaptureSignal,
+  readInputCaptureDenylist,
+  withInputCaptureDenylist,
   type CaptureConsentState,
+  type InputCaptureDenylist,
+  type FieldRole,
   acceptClaimSuggestion,
   claimsToMemorySnippets,
   CLAIM_ENTITY_KINDS,
@@ -400,6 +407,9 @@ import {
   CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCE_AUTOMATION_ID,
   DEVPILOT_GITHUB_POLL_AUTOMATION_ID,
+  DEVPILOT_REVIEW_PR_AUTOMATION_ID,
+  DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID,
+  DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID,
   TASK_MANAGER_DRIFT_AUTOMATION_ID,
   TASK_MANAGER_SWEEP_AUTOMATION_ID,
   TASK_MANAGER_SCAN_AUTOMATION_ID,
@@ -516,6 +526,25 @@ async function readCaptureConsentState(
  * (@bridge/core learning/browser-capture). Local Plane by residency, like
  * the consent state it refines: which domains the owner's browser may
  * report on lives beside the consent that lets it report at all. */
+
+/** Local state-store namespace holding the K11 input-capture denylist
+ * (@bridge/core learning/input-capture). Local Plane by residency, like the
+ * consent it refines: which apps and domains are never keystroke-captured
+ * lives beside the consent that lets capture happen at all. */
+const LEARNING_INPUT_DENYLIST_NAMESPACE = "learning:input-capture-denylist";
+
+/** Read the current input-capture denylist, failing CLOSED to the SEED FLOOR:
+ * a missing or malformed row is not "capture everything", it is the seed
+ * denylist (password managers and banks still protected). The core parser
+ * owns that contract and is mutation-checked there. */
+async function readInputDenylistState(
+  wiring: Pick<Wiring, "localPlane">,
+  organizationId: string,
+): Promise<InputCaptureDenylist> {
+  return readInputCaptureDenylist(
+    await wiring.localPlane.state.read(organizationId, LEARNING_INPUT_DENYLIST_NAMESPACE),
+  );
+}
 
 /** K10 E5's own lexical tier — deliberately NOT the shared
  * `hashingTextEmbedder()` (dim 128, id "bridge-hashing-lexical-v1") that
@@ -6184,11 +6213,11 @@ function learningActionError(error: unknown): unknown {
 }
 
 /**
- * TableSpecs for the Accounting/D2C Modules (TASK-071). Unlike JobPilot/
+ * TableSpecs for the Accounting/D2C Modules (TASK-074). Unlike JobPilot/
  * DevPilot's specs — which live in their own domain packages — these are
  * inline here: `@bridge/accounting`/`@bridge/d2c` are pure domain layers
  * imported from their donor repos and were never given a `@bridge/tables`
- * dependency (ADR-237 keeps them unrewritten). The shape only needs to
+ * dependency (ADR-246 keeps them unrewritten). The shape only needs to
  * structurally match `TableSpec`; tRPC infers it from the return value.
  */
 const ACCOUNTING_CLIENTS_SPEC = {
@@ -13468,6 +13497,53 @@ export const appRouter = t.router({
           assertPilotOrganization(input.organizationId);
           return ctx.wiring.devpilot.store.listPulls(input.organizationId, { limit: input.limit, offset: input.offset });
         }),
+
+      /**
+       * DevPilot D2 — drafts a code review from a tracked Pull Request's
+       * live diff. Runs the `devpilot.review-pr` governed Automation (same
+       * shape as Task Manager's planning Playbooks): the invocation gets an
+       * attributable reviewer-Agent Run and a proposal that halts for a
+       * Human's separate approve/edit/veto decision — nothing is posted to
+       * GitHub, ever, from this path.
+       */
+      reviewDraft: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1), pullId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const result = await ctx.wiring.automationExecutor.runById(
+            {
+              organizationId: input.organizationId,
+              automationId: DEVPILOT_REVIEW_PR_AUTOMATION_ID,
+              onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
+              params: { organizationId: input.organizationId, pullId: input.pullId },
+            },
+            withHumanInputTaint(ctx.run, `devpilot:review-pr:${ctx.identity.id}:${input.pullId}`, input),
+          );
+          const proposal = result.proposals[0];
+          if (!proposal) throw new Error("devpilot.reviewPr Automation produced no proposal");
+          return { proposalId: proposal.id, status: proposal.status, draft: proposal.output?.proposedOutput };
+        }),
+
+      /** DevPilot D2 — same shape as reviewDraft, best-practice focus. */
+      suggestPracticeDraft: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1), pullId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const result = await ctx.wiring.automationExecutor.runById(
+            {
+              organizationId: input.organizationId,
+              automationId: DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID,
+              onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
+              params: { organizationId: input.organizationId, pullId: input.pullId },
+            },
+            withHumanInputTaint(ctx.run, `devpilot:suggest-practice:${ctx.identity.id}:${input.pullId}`, input),
+          );
+          const proposal = result.proposals[0];
+          if (!proposal) throw new Error("devpilot.suggestPractice Automation produced no proposal");
+          return { proposalId: proposal.id, status: proposal.status, draft: proposal.output?.proposedOutput };
+        }),
     }),
 
     issues: t.router({
@@ -13483,6 +13559,27 @@ export const appRouter = t.router({
           assertDevpilotFlightEnabled(ctx);
           assertPilotOrganization(input.organizationId);
           return ctx.wiring.devpilot.store.listIssues(input.organizationId, { limit: input.limit, offset: input.offset });
+        }),
+
+      /** DevPilot D2 — drafts a triage analysis from a tracked Issue's live
+       * body. Same governed-Automation shape as pulls.reviewDraft. */
+      analyzeDraft: devpilotProcedure
+        .input(z.object({ organizationId: z.string().min(1), issueId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertDevpilotFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          const result = await ctx.wiring.automationExecutor.runById(
+            {
+              organizationId: input.organizationId,
+              automationId: DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID,
+              onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
+              params: { organizationId: input.organizationId, issueId: input.issueId },
+            },
+            withHumanInputTaint(ctx.run, `devpilot:analyze-issue:${ctx.identity.id}:${input.issueId}`, input),
+          );
+          const proposal = result.proposals[0];
+          if (!proposal) throw new Error("devpilot.analyzeIssue Automation produced no proposal");
+          return { proposalId: proposal.id, status: proposal.status, draft: proposal.output?.proposedOutput };
         }),
     }),
 
@@ -14786,6 +14883,196 @@ export const appRouter = t.router({
             );
             if (signal) await recordCaptureSignal(ctx.wiring.memoryStore, signal);
             return { captured: true, verdict: "captured" as const };
+          }),
+      }),
+
+      /** K11 (TASK-054, AP-157) — continuous input capture, the most
+       * invasive sensor in the product and the reason K10's hardening had
+       * to land first. The user chose FULL CONTENT capture, so the promise
+       * is not "we never see sensitive text" — it is that the fail-closed
+       * boundary in `@bridge/core/learning/input-capture` decides, and it
+       * decides the same way on BOTH sides of the process boundary: the
+       * desktop provider distils in memory before anything is sent, and
+       * this lane re-distils what arrives (defense in depth against a
+       * stale, patched, or bypassed shell). A denylisted app emits nothing
+       * at all; a secure or UNDETERMINABLE field yields a marker with no
+       * characters and no count; captured text arrives already redacted and
+       * is redacted again here. Raw keystrokes have no field on the wire
+       * schema, so they cannot reach this endpoint even if a caller tried. */
+      input: t.router({
+        /** Everything the desktop shell needs to go honestly dormant or
+         * capture: flight, consent, kill switch, and the denylist. Always
+         * answerable, like `capture.status`. */
+        policy: procedure
+          .input(z.object({ organizationId: z.string().min(1) }))
+          .query(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
+            const denylist = await readInputDenylistState(ctx.wiring, input.organizationId);
+            return {
+              enabled: ctx.wiring.learningObservationEnabled,
+              capturing:
+                ctx.wiring.learningObservationEnabled && captureAllowed(consent, "input"),
+              paused: consent.paused,
+              apps: denylist.apps,
+              domains: denylist.domains,
+            };
+          }),
+
+        /** Editing the denylist is a Human decision, like consent itself.
+         * Invalid entries are refused LOUDLY with the offending entry
+         * named, and the seed floor (password managers, banks) is always
+         * re-merged by the core builder — a human cannot, by editing, end
+         * up with a password manager capturable. */
+        setDenylist: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              apps: z.array(z.string().min(1).max(253)).max(200),
+              domains: z.array(z.string().min(1).max(253)).max(200),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            if (ctx.identity.type !== "user") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message:
+                  "The input-capture denylist is a Human decision — only a user identity may change it",
+              });
+            }
+            const { denylist, rejected } = withInputCaptureDenylist({
+              apps: input.apps,
+              domains: input.domains,
+            });
+            if (rejected.length > 0) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `${rejected
+                  .map((entry) => `"${entry}"`)
+                  .join(", ")} — apps look like "com.apple.mail" and domains like "chase.com" (no scheme, path, or port)`,
+              });
+            }
+            await ctx.wiring.localPlane.state.update(
+              input.organizationId,
+              LEARNING_INPUT_DENYLIST_NAMESPACE,
+              null,
+              () => ({ state: denylist, result: denylist }),
+            );
+            return denylist;
+          }),
+
+        /** One distilled input burst from the desktop shell. Never errors on
+         * a declined capture — the shell is a background caller and a
+         * structured verdict must not become a retry loop. Idempotent per
+         * shell-minted burstId. NOTE the wire schema: there is no field for
+         * a raw keystroke stream, and `text` is the already-distilled,
+         * already-redacted content the provider produced; the server
+         * re-runs the SAME core gate over it regardless. */
+        burst: procedure
+          .input(
+            z.object({
+              organizationId: z.string().min(1),
+              burstId: z.string().uuid(),
+              appName: z.string().min(1).max(200),
+              appBundleId: z.string().min(1).max(253),
+              host: z.string().max(253).optional(),
+              fieldRole: z.enum(["content_ok", "secure", "undeterminable"]),
+              /** Already distilled + redacted by the provider. Re-gated here. */
+              text: z.string().max(10_000),
+              keyCount: z.number().int().min(0).max(100_000),
+              typedAt: z.string().datetime(),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            assertLearningFlightEnabled(ctx);
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+            if (ctx.identity.type !== "user") {
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message:
+                  "Input capture is a behavior signal about a human — only that user's own identity may report it",
+              });
+            }
+            const consent = await readCaptureConsentState(ctx.wiring, input.organizationId);
+            if (!captureAllowed(consent, "input")) {
+              return { captured: false, recorded: false, verdict: "consent_off" as const };
+            }
+            const denylist = await readInputDenylistState(ctx.wiring, input.organizationId);
+
+            // Re-distil server-side through the SAME core boundary the
+            // provider used. A shell that was patched, downgraded, or
+            // bypassed cannot widen what gets stored.
+            const distilled = distilKeystrokeBurst(
+              {
+                text: input.text,
+                keyCount: input.keyCount,
+                fieldRole: input.fieldRole as FieldRole,
+                appBundleId: input.appBundleId,
+                appName: input.appName,
+                ...(input.host !== undefined ? { host: input.host } : {}),
+              },
+              denylist,
+            );
+            if (distilled === null) {
+              return { captured: false, recorded: false, verdict: "denylisted" as const };
+            }
+
+            const signalId = inputCaptureSignalId(input.burstId);
+            const owner = { organizationId: input.organizationId, userId: ctx.identity.id };
+            if (await ctx.wiring.memoryStore.get(signalId, owner)) {
+              return { captured: false, recorded: false, verdict: "duplicate" as const };
+            }
+            const signal = inputCaptureSignal(
+              {
+                burstId: input.burstId,
+                appName: distilled.appName,
+                bundleId: distilled.appBundleId,
+                summary: distilled.summary,
+                ...(distilled.keyCount !== undefined ? { keyCount: distilled.keyCount } : {}),
+                ...(distilled.content !== undefined ? { content: distilled.content } : {}),
+                disposition: distilled.disposition,
+                ...(distilled.suppressionReason
+                  ? { suppressionReason: distilled.suppressionReason }
+                  : {}),
+                redactionCount: distilled.redactions.length,
+                typedAt: input.typedAt,
+                // Typed text is the user's own input, but it can contain
+                // anything they pasted — labeled untrusted/instruction-like
+                // at the capture boundary, like every other captured text.
+                taintLabel: labelAtSource("input_capture", {
+                  ref: `input:burst:${input.burstId}`,
+                  valueHash: hashTaintValue({
+                    app: distilled.appBundleId,
+                    disposition: distilled.disposition,
+                  }),
+                  sensitivity: "private",
+                  instructionRisk: "instruction_like",
+                }),
+              },
+              owner,
+              signalId,
+            );
+            if (signal) await recordCaptureSignal(ctx.wiring.memoryStore, signal);
+            // `captured` means CONTENT was stored; `recorded` means a Memory
+            // row exists. A suppressed burst records a no-content marker, so
+            // the two differ — and conflating them would make this lane lie
+            // about the one thing it exists to be honest about. Reporting
+            // `captured: true` for a secure field is exactly the claim the
+            // boundary is built to never make.
+            const captured = distilled.disposition === "captured";
+            return {
+              captured,
+              recorded: true,
+              verdict: captured ? ("captured" as const) : ("suppressed" as const),
+              ...(distilled.suppressionReason
+                ? { suppressionReason: distilled.suppressionReason }
+                : {}),
+            };
           }),
       }),
 
@@ -18096,14 +18383,14 @@ export const appRouter = t.router({
 
   /**
    * Accounting — wires the imported `@bridge/accounting` domain layer
-   * (ADR-237) to its own sqlite (`accounting-store.ts`) for the
-   * first time. TASK-071: minimum viable is a real Clients Page and a real
+   * (ADR-246) to its own sqlite (`accounting-store.ts`) for the
+   * first time. TASK-074: minimum viable is a real Clients Page and a real
    * Reports Page, both against `ctx.wiring.accountingDb` — not full P&L/
    * formula-engine parity (that stays out of scope for this pass).
    *
    * `overrides.create` is TASK-072's governed call site: a model-originated
    * write is refused by the manifest's own seeded `books.write.model` deny
-   * rule (ADR-239), proving governance is enforced, not just displayed.
+   * rule (ADR-248), proving governance is enforced, not just displayed.
    */
   accounting: t.router({
     clientsDefinition: procedure
@@ -18191,9 +18478,9 @@ export const appRouter = t.router({
   }),
 
   /**
-   * D2C — wires the imported `@bridge/d2c` domain types (ADR-237)
+   * D2C — wires the imported `@bridge/d2c` domain types (ADR-246)
    * to their own sqlite (`d2c-store.ts`, `d2c-schema.ts`) for the first time.
-   * TASK-071: the two declared toggle Pages (Orders, Inventory) plus the two
+   * TASK-074: the two declared toggle Pages (Orders, Inventory) plus the two
    * nested sub-modules (Research, Notes) get real, minimal queries — not the
    * full costing/invoicing/WhatsApp-capture feature set CVN shipped.
    */
@@ -18251,7 +18538,7 @@ export const appRouter = t.router({
   }),
 
   /**
-   * D2C Research — Plant Records (TASK-071 sub-module, `d2c-research`
+   * D2C Research — Plant Records (TASK-074 sub-module, `d2c-research`
    * manifest). One Page, one table: `plants`.
    */
   d2cResearch: t.router({
@@ -18272,7 +18559,7 @@ export const appRouter = t.router({
   }),
 
   /**
-   * D2C Notes — the owner's working notes (TASK-071 sub-module, `d2c-notes`
+   * D2C Notes — the owner's working notes (TASK-074 sub-module, `d2c-notes`
    * manifest). One Page, one table: `noteDocuments`.
    */
   d2cNotes: t.router({

@@ -688,6 +688,32 @@ export async function ensureDevpilotTrackerGovernance(
   });
 }
 
+/** DevPilot D2 (TASK-071) — a separate Agent identity from the tracker: the
+ * tracker only ever reads GitHub metadata, but the reviewer additionally
+ * writes governed proposals (a Human must still approve each one), so it
+ * carries `record:write` the tracker never needed. */
+export async function ensureDevpilotReviewerGovernance(
+  db: Database,
+  config: RuntimeAgentGovernanceConfig,
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    name: "Dev reviewer Agent",
+    description:
+      "May draft PR reviews, best-practice suggestions, and Issue triage from the owner's own tracked GitHub content, as a proposal a Human must approve; never posts back to GitHub.",
+    goal: "Draft engineering-assist proposals from tracked Pull Requests and Issues for Human review.",
+    resourceType: "external:fetch",
+    action: "read",
+    capabilityToken: "external:fetch:read",
+    additionalGrants: [
+      { resourceType: "record", action: "read", capabilityToken: "record:read" },
+      { resourceType: "record", action: "write", capabilityToken: "record:write" },
+    ],
+    allowedSkills: ["devpilot.reviewPr", "devpilot.suggestPractice", "devpilot.analyzeIssue"],
+    dataScope: "private",
+  });
+}
+
 export async function ensureIntakeAgentGovernance(
   db: Database,
   config: RuntimeAgentGovernanceConfig,

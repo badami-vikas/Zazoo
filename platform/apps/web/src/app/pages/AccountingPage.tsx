@@ -13,9 +13,9 @@ import { DataViews } from "../dataviews/DataViews";
 import type { DataRow } from "../dataviews/types";
 
 /**
- * Accounting — Clients and Reports Pages (TASK-071). Real, possibly-empty
+ * Accounting — Clients and Reports Pages (TASK-074). Real, possibly-empty
  * data from `ctx.wiring.accountingDb` (the imported Avilo Advisory sqlite,
- * ADR-237). Formula-engine/P&L computation stays out of this pass — Reports
+ * ADR-246). Formula-engine/P&L computation stays out of this pass — Reports
  * shows the versioned formula registry itself, not computed figures.
  */
 type AccountingPageId = "clients" | "reports";

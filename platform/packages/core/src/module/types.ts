@@ -200,7 +200,7 @@ export interface ModuleManifest {
    * `capabilities[]` is empty and this field carries the real payload. Signed
    * as part of the manifest (PKG-2) — canonicalizeManifest includes it. */
   blueprint?: OrganizationBlueprint;
-  /** Per-Module governance policy (ADR-239): what this Module is ALLOWED to do,
+  /** Per-Module governance policy (ADR-248): what this Module is ALLOWED to do,
    * as declared data the engine reads — never as prose in a prompt.
    *
    * This exists because the strictest rule in the imported Accounting Module

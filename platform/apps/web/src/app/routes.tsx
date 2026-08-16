@@ -208,13 +208,13 @@ export const router = createBrowserRouter([
         ),
       },
 
-      // Accounting Module (TASK-071, ADR-237) — Clients and Reports Pages,
+      // Accounting Module (TASK-074, ADR-246) — Clients and Reports Pages,
       // both real sqlite-backed (accounting-store.ts). `/module/accounting`
       // alone resolves via the generic ModuleRootRedirect below.
       { path: childPath(accountingModule.pages.find((p) => p.id === "clients")!.route), element: <AccountingPage page="clients" /> },
       { path: childPath(accountingModule.pages.find((p) => p.id === "reports")!.route), element: <AccountingPage page="reports" /> },
 
-      // D2C Module (TASK-071, ADR-237) — Orders/Inventory toggle Pages plus
+      // D2C Module (TASK-074, ADR-246) — Orders/Inventory toggle Pages plus
       // the Research/Notes sub-modules, all real sqlite-backed (d2c-store.ts).
       { path: childPath(d2cModule.pages.find((p) => p.id === "orders")!.route), element: <D2COrdersPage /> },
       { path: childPath(d2cModule.pages.find((p) => p.id === "inventory")!.route), element: <D2CInventoryPage /> },
