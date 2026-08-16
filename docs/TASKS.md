@@ -6,7 +6,7 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-066`
+IDs for cross-reference: `TASK-026, TASK-025, TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-066, TASK-067, TASK-068`
 
 IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
 
@@ -1052,3 +1052,31 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: none needed (defect repair; ADR-229 records the design decisions)
 - Dependencies: none
 - Invariants this task establishes — breaking either reopens the abort class: every window promoted with `to_panel` MUST be demoted with `panel.to_window()` before `destroy()`, and every native teardown path MUST stay inside `guard_native_teardown`.
+
+## Accounting and D2C land as Modules, on the Local Plane, with donor history preserved
+- ID: TASK-067
+- Status: ready
+- Priority: P1
+- Horizon: Prototype
+- Outcome: Avilo runs inside Bridge as the **Accounting** Module and CV Naturals as the **D2C** Module (with Orders/Inventory/Research/Production as `parent: d2c` sub-modules), both on the Local Plane over better-sqlite3, both declaring a `module.yaml`, both reachable from Bridge's nav with manifest-driven detail. `@bridge/whatsapp` serves D2C; CVN's clone is not imported. Neither donor repository is modified.
+- Prototype test: from a clean Bridge checkout, `pnpm verify` is green with both Modules in the workspace; the Bridge desktop shell lists Accounting and D2C in nav, D2C expands to its four sub-modules, and opening Accounting renders a real imported client period from a sqlite database — not an empty state and not a fixture. `git log --follow` on an imported Avilo source file reaches that file's pre-merge commits. `git -C <each donor> status` is clean and its HEAD unmoved.
+- Scope: Stage 2 of [`docs/raw/module-merge-accounting-d2c-2026-08-16.md`](raw/module-merge-accounting-d2c-2026-08-16.md) §9. Subtree merges with `--allow-unrelated-histories`; module trees under `platform/modules/{accounting,d2c,d2c-orders,d2c-inventory,d2c-research,d2c-production}`; `module.yaml` per Module; whatsapp dedupe; the §8 id-renumbering map produced and landed as §8a of that doc.
+- Evidence: three-way id collision measured 2026-08-16 (Bridge ADR 006–229 / TASK 001–066 / AP 001–147; Avilo ADR 001–053 / BUG 001–047; CVN ADR 001–016 / TASK 001–040). `diff -rq` on the two whatsapp `src/` trees returned no differences — all 16 files byte-identical.
+- Requests: user directive 2026-08-16, verbatim: *"Merge Avilo and CV Naturals as modules within relationship OS called Accounting and D2C respectively"*; *"Keep the original avilo and cvn untouched. Only optimize bridge"*
+- Approval: AP-148 APPLIED (ADR-230)
+- Dependencies: none
+- Blockers to resolve inside this task, not around it: CV Naturals' `platform/packages/module-host` checkout carries `dist/` and `node_modules/` but no `src/` — confirm it consumes Avilo's module-host rather than a divergent copy before importing either. `platform/packages/db` is Postgres-only — confirm the Local-Plane registration path for a sqlite-dialect Module exists, or record an honest blocker rather than widening scope to build one.
+
+## Every Module declares what it is allowed to do, and the engine enforces it
+- ID: TASK-068
+- Status: ready
+- Priority: P1
+- Horizon: Prototype
+- Outcome: every Module carries a Governance Section directly below its Intelligence Section, showing the `allow`/`deny` policy declared in its `module.yaml`, editable by the user at runtime. Accounting is seeded with Avilo's AI posture. The policy is **read by the engine**, not merely displayed.
+- Prototype test: on Accounting, the Governance Section renders the seeded entries; the user adds a `deny` entry and an action that entry forbids is refused at runtime with the entry named as the reason — proven by attempting the action, not by reading the config back. On a Module with no entries the Section still renders with an honest empty state (present-not-absent). Both checked live in the running app.
+- Scope: Stage 3 of [`docs/raw/module-merge-accounting-d2c-2026-08-16.md`](raw/module-merge-accounting-d2c-2026-08-16.md) §6. New `ModuleGovernanceSection.tsx` in `ModuleSurfaceLayout`'s `below` slot after `ModuleIntelligenceSection`; `governance` block added to `ModuleManifest` and validated at the `apps/api` seam like every other manifest field; Accounting's seed per plan §7b.
+- Evidence: Avilo BUG-029 through BUG-045 — the assistant claiming work it had not done, repeatedly, under a rule that existed only in prose. Avilo ADR-045 records prompt text failing twice on the same defect before the approach changed.
+- Requests: user directive 2026-08-16, verbatim: *"Bring in the governance section to all modules below the intelligence section where user can explicitly add whats allowed and whats not. In this, add Avilos specific rules for avilo module"*
+- Approval: AP-150 APPLIED (ADR-232)
+- Dependencies: TASK-067
+- The exit test is enforcement, not rendering. A Governance Section that only displays policy reproduces exactly the prose-nobody-enforces failure ADR-232 exists to end, and would close this task falsely.

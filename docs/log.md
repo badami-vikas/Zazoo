@@ -3480,3 +3480,31 @@ Verified: check:vocabulary OK, web typecheck clean, web tests 173/173, manifests
 **Told the user the local model was not the cause.** They offered to remove it; it was not the culprit, and its SHA-256 stall had already been fixed upstream on 2026-07-31.
 
 Verified: 3 launches with 0 aborts (pre-fix aborted deterministically ~35 s in); `kill -9` on the sidecar → `restarting it (attempt 1/3)` → `recovered on http://127.0.0.1:62708`, same port, new child PID, shell alive at 22.5 MB; a REAL transient caught in an ordinary session (`tolerating for up to 6s` → `reachable again`) — the exact moment that used to brick the app; notch docking at `x=705.5 w=300` on a 1710 pt display, centre 855.5 = dead centre. cargo test 160 passed (9 new), clippy no new warnings, fmt clean on all changed code, web 166 passed, tsc + ESLint clean.
+
+- **2026-08-16 — Stage 1 of the Accounting/D2C module merge: canon only, no code moved (ADR-230/231/232, AP-148/149/150)**:
+  User directive to merge Avilo and CV Naturals into Bridge as the **Accounting** and **D2C** Modules,
+  with "all rules in avilo and CVN added as rules within all modules and beyond." Four conflicts were
+  surfaced explicitly and resolved by the user rather than assumed, and two of them dissolved on
+  inspection. **The `whatsapp` id collision was not real**: `diff -rq` on the two `src/` trees returned
+  nothing — all 16 files byte-identical — and CVN's own `package.json` says it is a clone of
+  `@bridge/whatsapp` with the manifest integration stripped, so `@bridge/whatsapp` survives and no code
+  is lost. **"D2C with sub-modules" needed no new vocabulary**: `parent` is an existing `ModuleManifest`
+  field (ADR-178) and is navigation-only by explicit declaration, so Orders/Inventory/Research/Production
+  nest without a glossary change. The user's *"keep the original avilo and cvn untouched, only optimize
+  bridge"* resolved the Electron-vs-Tauri shell problem for free: Avilo's v1.8.0 beta keeps shipping from
+  its own repo, no cutover gap, no orphaned installer, and its Electron-only rules stay where they are
+  true instead of becoming Bridge canon that is false at every point of use.
+  Ten Avilo/CVN rules promoted to all-Module canon in `CLAUDE.md`, compressed to three bullets — the test
+  was not "is this rule good" but "does it change what an agent does on a Module it did not come from."
+  The sharpest conflict — Avilo's "no model call without a button press" against Bridge's "adapt before
+  asking; learn before acting" — was resolved by the user into a third option neither side had: Bridge's
+  AI canon generalizes to Avilo, and Avilo's stricter posture becomes **declared per-Module policy** in a
+  new Governance Section under every Module's Intelligence Section. That is Avilo's own house rule applied
+  to Avilo's own rules — its AI posture was the one important thing it left in prose, and prose is exactly
+  where it failed (BUG-029…BUG-045).
+  Landed: `docs/raw/module-merge-accounting-d2c-2026-08-16.md` (plan of record, conflict register, id maps),
+  `CLAUDE.md` rule additions, AP-148/149/150, ADR-230/231/232 + wiki one-liners, TASK-067 (Stage 2, code)
+  and TASK-068 (Stage 3, Governance Section), INDEX pointer.
+  **No code moved and no donor repository was touched.** Two open items are recorded honestly rather than
+  assumed away: CVN's `packages/module-host` has `dist/` but no `src/`, and `packages/db` is Postgres-only,
+  so Stage 2 must confirm a Local-Plane path for a sqlite-dialect Module or record a blocker.
