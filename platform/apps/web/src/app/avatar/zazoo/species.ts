@@ -65,7 +65,7 @@ const base = {
 };
 
 export const SPECIES: ZazooSpecies[] = [
-  { ...base, id: "zazoo", name: "Zazoo", kind: "panda", ears: "cap", eye: "dark", patches: true, nose: "painted", noseColor: "#1B1C21", earInner: "#2F3038", tail: "stub", body: "#FAF1E7" },
+  { ...base, id: "zazoo", name: "Zazoo", kind: "panda", ears: "cap", eye: "dark", patches: true, nose: "painted", noseColor: "#1B1C21", earInner: "#2F3038", hair: false, tail: "none", body: "#FAF1E7" },
   { ...base, id: "mia", name: "Mia", kind: "cat", ears: "point", whiskers: true, eyeTilt: 6, pupilAspect: 1.6, nose: "tri", noseColor: "#E8899B", earInner: "#E9AEB6", tail: "curl", body: "#F0DFC2" },
   { ...base, id: "clover", name: "Clover", kind: "rabbit", ears: "tall", whiskers: true, eyeScale: 1.08, nose: "tri", noseColor: "#E39AA8", earInner: "#EDBCC6", tail: "puff", body: "#E6E8ED" },
   { ...base, id: "freya", name: "Freya", kind: "fox", ears: "point", whiskers: true, eyeTilt: 9, pupilSize: 0.95, nose: "tri", noseColor: "#463629", earInner: "#4A3A30", tail: "curl", body: "#D99A66" },
