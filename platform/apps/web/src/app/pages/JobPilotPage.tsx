@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Briefcase } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { Briefcase, ChevronDown, ChevronUp, Upload } from "lucide-react";
 import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
@@ -10,8 +10,203 @@ import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { DashboardRow } from "../components/shared/DashboardRow";
 import { RedFlagControl } from "../components/shared/RedFlagControl";
 import { RedFlagProvider } from "../components/shared/RedFlagProvider";
+import { Button } from "../components/ui/button";
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow } from "../dataviews/types";
+
+type OnboardingState = Awaited<ReturnType<typeof trpc.jobpilot.onboarding.get.query>>;
+
+function fileBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("The resume could not be read."));
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("The resume could not be encoded."));
+        return;
+      }
+      const separator = reader.result.indexOf(",");
+      resolve(separator >= 0 ? reader.result.slice(separator + 1) : reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * TASK-076 — JobPilot's onboarding: upload resume, select interested job
+ * functions, then rank them. Three steps, in that order, and the wizard
+ * never shows again once step 3 submits (`completedAt` is the gate).
+ */
+function JobPilotOnboarding({ onComplete }: { onComplete: () => void }) {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [resumeFileName, setResumeFileName] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [ranked, setRanked] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [availableFunctions, setAvailableFunctions] = useState<readonly string[]>([]);
+
+  useEffect(() => {
+    void trpc.jobpilot.onboarding.get
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then((state) => setAvailableFunctions(state.availableFunctions))
+      .catch((cause) => setError(String(cause)));
+  }, []);
+
+  async function uploadResume(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      await trpc.modules.addFile.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        moduleName: "job-pilot",
+        fileName: file.name,
+        contentBase64: await fileBase64(file),
+      });
+      await trpc.jobpilot.onboarding.saveResume.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        resumeFileName: file.name,
+      });
+      setResumeFileName(file.name);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function toggleFunction(name: string) {
+    setSelected((current) =>
+      current.includes(name) ? current.filter((entry) => entry !== name) : [...current, name],
+    );
+  }
+
+  function moveRank(index: number, direction: -1 | 1) {
+    setRanked((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target]!, next[index]!];
+      return next;
+    });
+  }
+
+  async function finish() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await trpc.jobpilot.onboarding.complete.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        selectedFunctions: ranked,
+      });
+      onComplete();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto flex h-full max-w-lg flex-1 flex-col items-center justify-center gap-6 p-6">
+      <div className="w-full space-y-6 rounded-lg border p-6" style={{ borderColor: "var(--color-border)" }}>
+        <div className="space-y-1">
+          <h1 className="text-lg font-semibold" style={{ color: "var(--color-navy)" }}>
+            Set up JobPilot
+          </h1>
+          <p className="text-sm" style={{ color: "var(--color-navy-mid)" }}>
+            Step {step} of 3
+          </p>
+        </div>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
+        {step === 1 && (
+          <div className="space-y-4">
+            <p className="text-sm" style={{ color: "var(--color-navy-mid)" }}>
+              Upload your resume to get started.
+            </p>
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed p-6 text-sm" style={{ borderColor: "var(--color-border)", color: "var(--color-navy-mid)" }}>
+              <Upload className="size-4" />
+              {resumeFileName ?? (uploading ? "Uploading…" : "Choose a resume file")}
+              <input type="file" className="hidden" onChange={uploadResume} disabled={uploading} />
+            </label>
+            <Button className="w-full" disabled={!resumeFileName} onClick={() => setStep(2)}>
+              Continue
+            </Button>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="space-y-4">
+            <p className="text-sm" style={{ color: "var(--color-navy-mid)" }}>
+              Which job functions are you interested in?
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {availableFunctions.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => toggleFunction(name)}
+                  className="rounded-full border px-3 py-1 text-sm"
+                  style={
+                    selected.includes(name)
+                      ? { backgroundColor: "var(--color-navy)", color: "white", borderColor: "var(--color-navy)" }
+                      : { borderColor: "var(--color-border)", color: "var(--color-navy-mid)" }
+                  }
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+            <Button
+              className="w-full"
+              disabled={selected.length === 0}
+              onClick={() => {
+                setRanked(selected);
+                setStep(3);
+              }}
+            >
+              Continue
+            </Button>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="space-y-4">
+            <p className="text-sm" style={{ color: "var(--color-navy-mid)" }}>
+              Rank them by priority — top is most important.
+            </p>
+            <ol className="space-y-2">
+              {ranked.map((name, index) => (
+                <li key={name} className="flex items-center justify-between rounded-md border p-2 text-sm" style={{ borderColor: "var(--color-border)" }}>
+                  <span>
+                    {index + 1}. {name}
+                  </span>
+                  <span className="flex gap-1">
+                    <button type="button" aria-label={`Move ${name} up`} disabled={index === 0} onClick={() => moveRank(index, -1)} className="disabled:opacity-30">
+                      <ChevronUp className="size-4" />
+                    </button>
+                    <button type="button" aria-label={`Move ${name} down`} disabled={index === ranked.length - 1} onClick={() => moveRank(index, 1)} className="disabled:opacity-30">
+                      <ChevronDown className="size-4" />
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <Button className="w-full" disabled={submitting} onClick={() => void finish()}>
+              {submitting ? "Finishing…" : "Finish"}
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type JobPilotList = Awaited<ReturnType<typeof trpc.jobpilot.list.query>>;
 type JobPilotDefinition = Awaited<ReturnType<typeof trpc.jobpilot.definition.query>>;
@@ -62,10 +257,18 @@ function FitSignalBullets({ applicationId, stage, flag, fitScore }: { applicatio
 }
 
 export function JobPilotPage() {
+  const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [page, setPage] = useState<JobPilotList | null>(null);
   const [definition, setDefinition] = useState<JobPilotDefinition | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewConfig>(() => defaultViewConfig(`${JOBPILOT_DATABASE_ID}:table`));
+
+  useEffect(() => {
+    void trpc.jobpilot.onboarding.get
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then(setOnboarding)
+      .catch((cause) => setError(String(cause)));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -117,6 +320,16 @@ export function JobPilotPage() {
   }
 
   if (error) return <div className="p-6 text-sm text-red-600">{error}</div>;
+  if (!onboarding) return <div className="p-6 text-sm text-muted-foreground">Loading JobPilot…</div>;
+  if (!onboarding.profile?.completedAt) {
+    return (
+      <JobPilotOnboarding
+        onComplete={() => {
+          void trpc.jobpilot.onboarding.get.query({ organizationId: PILOT_ORGANIZATION }).then(setOnboarding);
+        }}
+      />
+    );
+  }
   if (!page || !definition) return <div className="p-6 text-sm text-muted-foreground">Loading Job records…</div>;
 
   return (

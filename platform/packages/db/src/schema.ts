@@ -1193,6 +1193,23 @@ export const jobpilotApplications = pgTable(
   ],
 );
 
+/** JobPilot onboarding (TASK-076) — one row per Organization, capturing the
+ * resume upload, selected job functions, and their rank order. `completedAt`
+ * is the onboarding gate: null means the wizard shows again on next entry. */
+export const jobpilotCandidateProfiles = pgTable(
+  "jobpilot_candidate_profiles",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id).unique(),
+    resumeFileName: text("resume_file_name"),
+    // Ranked job functions, index 0 = highest priority (vision doc F2).
+    selectedFunctions: jsonb("selected_functions").notNull().default([]),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: now(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+);
+
 /** Helpdesk — the one organization-scoped tool with a public/unauthenticated
  * submitter side. `accessToken` (opaque, unguessable) is the submitter's ONLY
  * credential: knowing it proves ownership of the ticket, the same trust model as

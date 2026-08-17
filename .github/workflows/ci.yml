@@ -206,8 +206,20 @@ jobs:
     # automatically when the platform signing secrets are configured; without them the
     # build still succeeds and emits UNSIGNED installers. That signed/notarized half of
     # the DONE-WHEN unblocks the moment the certs land as repo secrets — no YAML change.
+    # TASK-077: on an actual tag push (not manual dispatch — that has no
+    # release to attach to) the macOS leg also publishes the dmg + the
+    # updater's signed .app.tar.gz + latest.json to a GitHub Release, which
+    # IS the auto-update channel `tauri.conf.json`'s `plugins.updater`
+    # points at. Requires TAURI_SIGNING_PRIVATE_KEY[_PASSWORD] to be a real
+    # secret — without it Tauri skips updater-artifact generation and the
+    # publish step has nothing matching `fail_on_unmatched_files: false`
+    # tolerates that instead of failing the whole release.
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
+    # Only the release-publish step (macOS, tag push) needs this; the default
+    # token is read-only otherwise and this job never touches anything else.
+    permissions:
+      contents: write
     strategy:
       # Independent per-OS signals.
       fail-fast: false
@@ -297,9 +309,34 @@ jobs:
           path: |
             platform/apps/desktop/src-tauri/target/release/bundle/**/*.dmg
             platform/apps/desktop/src-tauri/target/release/bundle/**/*.app.tar.gz
+            platform/apps/desktop/src-tauri/target/release/bundle/**/*.app.tar.gz.sig
             platform/apps/desktop/src-tauri/target/release/bundle/**/*.AppImage
             platform/apps/desktop/src-tauri/target/release/bundle/**/*.deb
+            platform/apps/desktop/src-tauri/target/release/bundle/latest.json
           if-no-files-found: warn
+      # TASK-077 — the Mac auto-updater's endpoint IS a GitHub Release: the
+      # plugin polls `releases/latest/download/latest.json`
+      # (tauri.conf.json's `plugins.updater.endpoints`), so a tag build must
+      # publish one, not just upload a CI artifact nobody's app can reach.
+      # macOS only (matches the task scope — "an installer for mac"); Linux's
+      # own `latest.json` entry is a separate, unrequested follow-up, so its
+      # leg keeps uploading via actions/upload-artifact only, same as before.
+      # `latest.json` is produced ONLY when `createUpdaterArtifacts` is set
+      # AND TAURI_SIGNING_PRIVATE_KEY was present at build time — without
+      # real signing secrets configured, this step has nothing to publish
+      # and is skipped rather than publishing an unsigned, non-functional
+      # update channel.
+      - name: Publish macOS installer + updater manifest to the GitHub Release
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          fail_on_unmatched_files: false
+          files: |
+            platform/apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            platform/apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+            platform/apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
+            platform/apps/desktop/src-tauri/target/release/bundle/latest.json
 
   prototype:
     name: prototype (typecheck + build)

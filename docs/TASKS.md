@@ -1177,6 +1177,31 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: AP-155 applied
 - Dependencies: TASK-068
 
+## JobPilot onboarding — resume upload, job interests, ranked job functions
+- ID: TASK-076
+- Status: done
+- Priority: P2
+- Horizon: Prototype
+- Outcome: first entry into JobPilot (no `completedAt` on its `jobpilot_candidate_profiles` row) shows a three-step wizard — upload resume, select interested job functions, rank them — instead of the Jobs table. Finishing persists the ranked list and gates the wizard shut for good; re-entry goes straight to the normal page.
+- Prototype test: open JobPilot with no profile → step 1 uploads a resume through the existing Module Files path (`modules.addFile`, so it lands under `~/Documents/Bridge/<Organization>/JobManager/`) and records the filename via `jobpilot.onboarding.saveResume`; step 2 offers a fixed chip list of job functions (`JOB_FUNCTIONS` in `@bridge/jobpilot`); step 3 reorders the selection with up/down controls (not drag — no drag library in this repo, and the existing native-HTML5-DnD precedent in `TreeView.tsx` was heavier than the job) and `jobpilot.onboarding.complete` sets `completedAt`. Skipping a step is structurally impossible (Continue is disabled until that step has a selection) rather than allowed-then-silently-fabricated.
+- Scope: `platform/packages/db/src/schema.ts` (`jobpilotCandidateProfiles`, migration `0043_task075_jobpilot_onboarding`); `platform/packages/db/src/jobpilot-store.ts` (`getCandidateProfile`/`saveOnboardingResume`/`completeOnboarding`); `platform/modules/jobpilot/src/job-functions.ts`; `platform/apps/api/src/router.ts` (`jobpilot.onboarding.get`/`saveResume`/`complete`); `platform/apps/web/src/app/pages/JobPilotPage.tsx` (`JobPilotOnboarding`, gates the page on `onboarding.profile?.completedAt`)
+- Evidence: `@bridge/jobpilot` 125/125 (unchanged, `JOB_FUNCTIONS` export only); `@bridge/db` migration-metadata rebased through 0043, `jobpilot-store.test.ts` and the full `@bridge/db` suite 237/238 (the one failure, `local-store.test.js`'s Egress/Intake governance test, reproduces identically on the unmodified pre-TASK-076 tree — not a regression); `@bridge/api` typecheck clean, `jobpilot-culture-research.test.ts` 57/57 (unaffected by the new `onboarding` sub-router); `@bridge/web` typecheck clean, `ui-conformance.test.mjs` 12/13 (the one failure, `AgentDetailPage.tsx`, reproduces identically on the unmodified tree — unrelated to JobPilot). NOT live-verified: no local Postgres/API env is configured in this environment, so the wizard was not clicked through in a real browser — this is an honest gap, not a claimed pass.
+- Requests: user directive 2026-08-17 (R-045)
+- Dependencies: none
+
+## Mac auto-updating installer for the desktop shell
+- ID: TASK-077
+- Status: done
+- Priority: P1
+- Horizon: Prototype
+- Outcome: the Tauri desktop shell checks for a newer published build on every release-mode launch, downloads and signature-verifies it, installs it, and relaunches — no button, no prompt. The channel is a GitHub Release, not a new service.
+- Prototype test: bump `tauri.conf.json`'s `version`, push a `v*` tag, let `desktop-bundle` publish the release; an installed older build launched afterward finds it, installs it, and relaunches on the new version within one background check. Offline, no-release-yet, and bad-signature all degrade to "stay on current build," never a crash or a user-facing error.
+- Scope: `platform/apps/desktop/src-tauri/{Cargo.toml,tauri.conf.json,src/lib.rs,src/updater.rs}`; `.github/workflows/ci.yml` (`desktop-bundle` job's release-publish step)
+- Evidence: ADR-255 has the full design + rejected-alternatives record. `cargo check`/`cargo test` on `bridge-desktop` green (183/183, zero new warnings — diffed against the unmodified tree via `git stash`); `tauri info` resolves `tauri-plugin-updater`/`tauri-plugin-process` and parses the new `plugins.updater` block without a schema error; `test:bundle` (8/8) unaffected; `.github/workflows/ci.yml` YAML parses. NOT verified: a real end-to-end update across two published releases — needs the user's Apple Developer + `TAURI_SIGNING_PRIVATE_KEY` secrets landed in GitHub first, which this session cannot do on the user's behalf (secret values were generated and handed to the user, not entered anywhere by the assistant).
+- Requests: user directive 2026-08-18 (R-046)
+- Approval: AP-165 applied
+- Dependencies: none
+
 ## DealPilot deal-source crawling — 20 broker Sources behind a robots-obeying gate
 
 - ID: TASK-075
