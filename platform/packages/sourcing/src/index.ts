@@ -6,3 +6,16 @@ export type { ApiClientConfig } from "./connectors/api-client.js";
 export { createApiClientConnector } from "./connectors/api-client.js";
 export type { EmailAlertConfig } from "./connectors/email-alert.js";
 export { createEmailAlertConnector } from "./connectors/email-alert.js";
+export type { RobotsRule, RobotsGroup, RobotsTxt, RobotsDecision } from "./robots.js";
+export { parseRobotsTxt, isPathAllowed, selectRobotsGroup, EMPTY_ROBOTS } from "./robots.js";
+export type {
+  CrawlResponse,
+  PageFetcher,
+  ListingExtractor,
+  ListingCrawlerConfig,
+  CrawlSkip,
+  CrawlSkipReason,
+  CrawlSummary,
+  ListingCrawlerConnector,
+} from "./connectors/listing-crawler.js";
+export { createListingCrawlerConnector, robotsRefusalFor } from "./connectors/listing-crawler.js";

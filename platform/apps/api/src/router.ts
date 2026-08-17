@@ -268,6 +268,9 @@ import {
   proposeThesisSourceDiscovery,
   scoreThesisFit,
   type ThesisSourceDiscoveryProposal,
+  runSourceDiscovery,
+  type SourceRecord,
+  type ThesisProfile,
 } from "@bridge/dealpilot";
 import {
   acceptAutomationDraft,
@@ -13834,6 +13837,78 @@ export const appRouter = t.router({
           }
           throw error;
         }
+      }),
+
+    /**
+     * Crawls every eligible Source once and returns what was found, ranked by Thesis fit.
+     *
+     * Read-mostly by design: the only writes are each Source's `spendToDate` and `lastCheckedAt`,
+     * settled from what the run actually consumed. Nothing becomes a Deal here — listings are
+     * returned for review, and promoting one is a separate, explicit act. The per-Source gate
+     * (rights attested, not paused, inside spend cap) runs inside `runSourceDiscovery` before any
+     * request goes out, so an unchecked or unattested Source is refused rather than crawled.
+     */
+    runDiscovery: dealpilotProcedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          /** Optional ranking profile. Omitted means "return what was found, unranked". */
+          thesis: z
+            .object({
+              industries: z.array(z.string().trim().min(1)).max(50).default([]),
+              geo: z.array(z.string().trim().min(1)).max(50).default([]),
+              sdeMin: z.number().nonnegative().optional(),
+              sdeMax: z.number().nonnegative().optional(),
+              revenueMin: z.number().nonnegative().optional(),
+              revenueMax: z.number().nonnegative().optional(),
+            })
+            .optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const sources: SourceRecord[] = [];
+        let offset = 0;
+        do {
+          const page = await ctx.wiring.dealpilot.store.list("sources", input.organizationId, {
+            limit: 200,
+            offset,
+          });
+          sources.push(...page.items.filter((r): r is SourceRecord => r.kind === "source"));
+          offset += page.items.length;
+          if (!page.hasMore || page.items.length === 0) break;
+        } while (true);
+
+        // Built key-by-key: `exactOptionalPropertyTypes` will not accept Zod's
+        // `number | undefined` where ThesisProfile declares `sdeMin?: number`, and omitting the
+        // key is the correct way to say "this bound was not set".
+        let thesis: ThesisProfile | undefined;
+        if (input.thesis) {
+          thesis = { industries: input.thesis.industries, geo: input.thesis.geo };
+          if (input.thesis.sdeMin !== undefined) thesis.sdeMin = input.thesis.sdeMin;
+          if (input.thesis.sdeMax !== undefined) thesis.sdeMax = input.thesis.sdeMax;
+          if (input.thesis.revenueMin !== undefined) thesis.revenueMin = input.thesis.revenueMin;
+          if (input.thesis.revenueMax !== undefined) thesis.revenueMax = input.thesis.revenueMax;
+        }
+        const result = await runSourceDiscovery({
+          organizationId: input.organizationId,
+          sources,
+          connectorFor: (source) => ctx.wiring.dealpilot.listingCrawlerFor(source),
+          ...(thesis ? { thesis } : {}),
+        });
+
+        // Settle what the run actually spent. A Source that was refused spent nothing and is not
+        // touched, so a paused Source's lastCheckedAt does not drift forward as if it had run.
+        const checkedAt = new Date().toISOString();
+        for (const [sourceId, spend] of Object.entries(result.spendBySourceId)) {
+          const source = sources.find((candidate) => candidate.id === sourceId);
+          if (!source) continue;
+          await ctx.wiring.dealpilot.store.updateSource(sourceId, input.organizationId, {
+            spendToDate: source.spendToDate + spend,
+            lastCheckedAt: checkedAt,
+          });
+        }
+        return result;
       }),
 
     createThesis: dealpilotProcedure

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T18:45:43.893Z",
+  "generatedAt": "2026-08-17T18:50:43.084Z",
   "items": [
     {
       "id": "TASK-026",
@@ -13,7 +13,11 @@
         "docs/raw/governed-chat-panel-plan-2026-07.md"
       ],
       "evidence": [
-        "RESOLVED TASK-026 portions of BUGS P1 Chief of Staff v1 / approval cards items 3 and 5",
+        "`@bridge/sourcing` 38/38 (18 robots + 13 crawler new)",
+        "`@bridge/dealpilot` 140/140 (15 catalog + 18 extraction + 12 discovery new",
+        "the 22 pre-existing connector tests still green after the `text-fields.ts` extraction)",
+        "`@bridge/api` dealpilot + public-cloud-boundary 16/16",
+        "monorepo `pnpm -r typecheck` clean (0 errors). **`pnpm verify` is NOT green on this commit, and was not made green by it**: `origin/main` was already red on two gates before this work merged — `check:vocabulary` (9 failures in `ZazooAvatar.tsx` / `ModuleGovernanceSection.tsx`) and `procedure-classification` (13 unclassified `accounting.*` / `d2c*` procedures). Both were verified pre-existing by stashing this change and re-running on clean main: identical failure sets, and this change adds ZERO new failures to either (`dealpilot.runDiscovery` is classified). Those two reds belong to the parallel session's Accounting/D2C/Zazoo work and are theirs to clear. RESOLVED TASK-026 portions of BUGS P1 Chief of Staff v1 / approval cards items 3 and 5",
         "outputs/2026-07-26-right-chat-panel-completion.md",
         "the three volatile React conversations, hardcoded CHIEF_OF_STAFF_REGISTRY, generic stageMutation routing, missing local-model setup, incomplete inline lifecycle, all focused release-review defects, and the production owner-migration rollout incident are closed by durable shared Chat, governed dispatch, exact released migration hashes, and regression/live-production coverage"
       ],
@@ -1316,7 +1320,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1056,
+      "sourceLine": 1057,
       "rank": 39
     },
     {
@@ -1352,7 +1356,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1096,
+      "sourceLine": 1097,
       "rank": 40
     },
     {
@@ -1390,7 +1394,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1109,
+      "sourceLine": 1110,
       "rank": 41
     },
     {
@@ -1415,7 +1419,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1070,
+      "sourceLine": 1071,
       "rank": 42
     },
     {
@@ -1442,7 +1446,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1083,
+      "sourceLine": 1084,
       "rank": 43
     },
     {
@@ -1471,7 +1475,7 @@
       "canonicalStatus": "done (2026-08-16, live-verified)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1151,
+      "sourceLine": 1152,
       "rank": 44
     },
     {
@@ -1498,7 +1502,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1121,
+      "sourceLine": 1122,
       "rank": 45
     },
     {
@@ -1530,7 +1534,7 @@
       "canonicalStatus": "done (2026-08-16, live-verified)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1134,
+      "sourceLine": 1135,
       "rank": 46
     },
     {
@@ -2118,7 +2122,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 913,
+      "sourceLine": 914,
       "rank": 63
     },
     {
@@ -2148,7 +2152,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 926,
+      "sourceLine": 927,
       "rank": 64
     },
     {
@@ -2177,7 +2181,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 939,
+      "sourceLine": 940,
       "rank": 65
     },
     {
@@ -2206,7 +2210,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 952,
+      "sourceLine": 953,
       "rank": 66
     },
     {
@@ -2234,7 +2238,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 965,
+      "sourceLine": 966,
       "rank": 67
     },
     {
@@ -2261,7 +2265,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 978,
+      "sourceLine": 979,
       "rank": 68
     },
     {
@@ -2292,7 +2296,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 991,
+      "sourceLine": 992,
       "rank": 69
     },
     {
@@ -2318,7 +2322,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1004,
+      "sourceLine": 1005,
       "rank": 70
     },
     {
@@ -2344,7 +2348,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1017,
+      "sourceLine": 1018,
       "rank": 71
     },
     {
@@ -2372,7 +2376,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1030,
+      "sourceLine": 1031,
       "rank": 72
     },
     {
@@ -2398,7 +2402,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1043,
+      "sourceLine": 1044,
       "rank": 73
     },
     {
@@ -2439,7 +2443,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1167,
+      "sourceLine": 1168,
       "rank": 74
     },
     {
@@ -2470,7 +2474,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1180,
+      "sourceLine": 1181,
       "rank": 75
     },
     {
@@ -2499,8 +2503,49 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1192,
+      "sourceLine": 1193,
       "rank": 76
+    },
+    {
+      "id": "TASK-075",
+      "title": "TASK-075 — DealPilot deal-source crawling — 20 broker Sources behind a robots-obeying gate",
+      "status": "completed",
+      "priority": "P1",
+      "horizon": "Prototype",
+      "outcome": "DealPilot reads current deals from the investor's own 20 broker/marketplace Sources. A governed listing crawler obeys each site's robots.txt before every request, the per-Source rights/pause/spend gate runs before any connector is touched, findings are ranked by Thesis fit, and each Source can be switched on or off from the Sources page.",
+      "prototypeTest": "on the Sources page all 20 Sources are listed with an \"On\" checkbox; the three bot-protected Sources (BizBuySell, Premier Business Brokers, Sunbelt) render blocked and unchecked with spendCap 0, and the two account-gated ones (APS, Kumo) render paused. Unchecking a Source pauses it and `dealpilot.runDiscovery` then reports it skipped with reason `source_paused` rather than crawling it. A Source left `unattested` is skipped with `rights_required`. Adding a new Source through the existing create Form and attesting it makes it eligible on the next run.",
+      "scope": [
+        "ADR-254",
+        "AP-164. New `platform/packages/sourcing/src/robots.ts` (RFC 9309 parser + `isPathAllowed`) and `src/connectors/listing-crawler.ts` (`createListingCrawlerConnector`, `robotsRefusalFor`)",
+        "new `platform/modules/dealpilot/src/source-catalog.ts` (20 Sources with per-site robots evidence + `stripTrackingParams`), `src/listing-extract.ts` (JSON-LD then card heuristic), `src/discovery.ts` (`runSourceDiscovery`), `src/text-fields.ts` (helpers lifted out of `connectors.ts`, behaviour unchanged)",
+        "virtual `enabled` column on the sources page manifest in `src/domain.ts`",
+        "catalog seeding + `createDealPilotListingCrawler` over `guardedFetch` in `platform/apps/api/src/wiring.ts`",
+        "`dealpilot.runDiscovery` in `platform/apps/api/src/router.ts`",
+        "`dealpilot.runDiscovery` classified Local-Plane-only in `src/deployment-boundary.ts`",
+        "enable checkbox wiring in `platform/apps/web/src/app/pages/DealPilotPage.tsx`."
+      ],
+      "evidence": [
+        "`@bridge/sourcing` 38/38 (18 robots + 13 crawler new)",
+        "`@bridge/dealpilot` 140/140 (15 catalog + 18 extraction + 12 discovery new",
+        "the 22 pre-existing connector tests still green after the `text-fields.ts` extraction)",
+        "`@bridge/api` 521/521 incl. `procedure-classification` and `public-cloud-boundary`",
+        "monorepo `pnpm -r typecheck` clean. Removal-fails PERFORMED and seen red on 11 behaviours across robots matching, refusal semantics, crawl pacing, the trust tag, the discovery gate, and both extraction fabrication guards. robots.txt for all 20 domains fetched and read 2026-08-17",
+        "postures recorded per entry in `source-catalog.ts`. LIMIT: no live crawl has been run from the running app — the capability is proven by test, not by a real fetch against a real broker site."
+      ],
+      "requests": [
+        "user directive 2026-08-16/17, verbatim: *\"I want you to integrate a crawler or whatever to go through these links for deal pilot for the investor to know about the current deals going on and suggest the best ones. SOme might need login, Bridge should ask for login for the user to get the details and also he should have an option to check or uncheck any of these sources or even add new ones\"* plus a 20-row source table",
+        "continued on *\"continue\"*",
+        "shipped on *\"Push and merge all the changes\"*."
+      ],
+      "approval": "AP-164 applied",
+      "dependencies": [
+        "TASK-032"
+      ],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1207,
+      "rank": 77
     }
   ]
 }

@@ -1,6 +1,7 @@
 import type { CaptureEnvelope, SourceConnector, SourceQuery } from "@bridge/sourcing";
 import { createApiClientConnector, createEmailAlertConnector } from "@bridge/sourcing";
 import type { GoogleGatewayFactory } from "@bridge/integrations-google";
+import { findLocation, labeledField, parseMoney, stripHtml } from "./text-fields.js";
 
 // The two P0 connectors named in the plan (BizBuySell email-alerts, BusinessBroker.net) — proof
 // implementations only, built on @bridge/sourcing's shared connector shapes, never a bespoke
@@ -18,43 +19,11 @@ import type { GoogleGatewayFactory } from "@bridge/integrations-google";
 // therefore composes the ONE governed Google integration (createGmailFetchMessages below) rather
 // rather than owning any OAuth/HTTP client; credential ownership stays with the Integration.
 
-const MONEY_RE = /\$\s?([\d,]+(?:\.\d+)?)\s*([kKmM])?/;
-const LOCATION_RE = /\b([A-Z][a-zA-Z.\s]+,\s*[A-Z]{2})\b/;
 const BIZBUYSELL_URL_RE = /https?:\/\/(?:www\.)?bizbuysell\.com\/[^\s"'<>)]+/i;
 const SUBJECT_PREFIX_RE = /^(new listing alert|business alert|saved search alert|listing alert)\s*[:\-]\s*/i;
 
-function stripHtml(input: string): string {
-  return input
-    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|li)>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/[ \t]+/g, " ")
-    .trim();
-}
 
-function parseMoney(text: string): number | undefined {
-  const m = text.match(MONEY_RE);
-  if (!m) return undefined;
-  let value = Number.parseFloat(m[1]!.replace(/,/g, ""));
-  if (Number.isNaN(value)) return undefined;
-  const suffix = m[2]?.toLowerCase();
-  if (suffix === "k") value *= 1_000;
-  if (suffix === "m") value *= 1_000_000;
-  return value;
-}
 
-/** Pull the value following a labeled field like "Asking Price: $850,000" (case-insensitive, tolerant of colon/dash separators). */
-function labeledField(body: string, ...labels: string[]): string | undefined {
-  for (const label of labels) {
-    const re = new RegExp(`${label}\\s*[:\\-]\\s*([^\\n]+)`, "i");
-    const m = body.match(re);
-    if (m) return m[1]!.trim();
-  }
-  return undefined;
-}
 
 /**
  * Real parser for BizBuySell saved-search alert emails. Extracts the fields DealPilot's pipeline
@@ -75,7 +44,7 @@ export function parseBizBuySellAlert(message: { subject: string; body: string })
 
   const industry = labeledField(body, "industry", "business type", "category");
   const locationField = labeledField(body, "location");
-  const geo = locationField ?? body.match(LOCATION_RE)?.[1]?.trim();
+  const geo = locationField ?? findLocation(body);
 
   const askPriceField = labeledField(body, "asking price", "price");
   const askPrice = askPriceField ? parseMoney(askPriceField) : undefined;

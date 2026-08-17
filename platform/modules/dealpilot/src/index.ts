@@ -126,3 +126,33 @@ export {
   LocalDealPilotStore,
   reconcileCredentialOperations,
 } from "./runtime-store.js";
+export type { CrawlPosture, DealSourceCatalogEntry } from "./source-catalog.js";
+export {
+  DEAL_SOURCE_CATALOG,
+  SOURCE_CATALOG_CHECKED_ON,
+  catalogEntryById,
+  catalogEntryToSourceInput,
+  crawlableCatalogEntries,
+  stripTrackingParams,
+} from "./source-catalog.js";
+export type { ListingPayload, ExtractionResult } from "./listing-extract.js";
+export {
+  extractListings,
+  extractFromJsonLd,
+  extractFromCards,
+  readJsonLdNodes,
+  listingExtractor,
+} from "./listing-extract.js";
+export { stripHtml, parseMoney, labeledField, findLocation } from "./text-fields.js";
+export type {
+  DiscoverySkipReason,
+  DiscoverySkip,
+  DiscoveredListing,
+  DiscoveryRunResult,
+  DiscoveryRunInput,
+} from "./discovery.js";
+export { runSourceDiscovery } from "./discovery.js";
+// Re-exported so apps/api can build DealPilot's crawl seam without taking a direct dependency on
+// the generic sourcing engine — the API consumes DealPilot's capability, not @bridge/sourcing's.
+export type { CrawlResponse, CrawlSummary, CrawlSkip, ListingCrawlerConnector } from "@bridge/sourcing";
+export { createListingCrawlerConnector } from "@bridge/sourcing";

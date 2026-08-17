@@ -225,6 +225,18 @@
       "pathPrefix": "apps/desktop/src-tauri/src/providers/input_tap.rs",
       "reason": "Apple Accessibility C ABI, not the retired Bridge product noun — the same case AP-148 already reviewed for the sibling accessibility.rs. The K11 keystroke tap reads the focused element's role by linking against ApplicationServices' own exported symbols (AXUIElementCreateSystemWide, AXUIElementCopyAttributeValue, AXUIElementSetMessagingTimeout) and by passing Apple's documented attribute-key string \"AXFocusedUIElement\"; a linker symbol and a framework's attribute key are not ours to rename. Every identifier that WAS ours was renamed off the retired noun first (the shared parameter is `node`, not `element`), so this entry covers only the foreign contract.",
       "reviewed": "AP-157 · 2026-08-17 · TASK-054 (precedent: AP-148 · accessibility.rs)"
+    },
+    {
+      "family": "element",
+      "pathPrefix": "modules/dealpilot/src/listing-extract.ts",
+      "reason": "schema.org's `itemListElement`, not the retired Bridge product noun. The extractor reads JSON-LD that broker sites publish for machines; the key name is defined by schema.org and appears verbatim in their markup. Renaming it would stop the parser matching real pages rather than migrate a Bridge identifier — the word is not ours to rename.",
+      "reviewed": "AP-164 · 2026-08-17 · TASK-075"
+    },
+    {
+      "family": "element",
+      "pathPrefix": "modules/dealpilot/test/listing-extract.test.ts",
+      "reason": "Same schema.org `itemListElement` key, appearing in the JSON-LD fixtures the extractor is tested against. The fixtures mirror what these sites actually serve; changing the key would make them fixtures of nothing.",
+      "reviewed": "AP-164 · 2026-08-17 · TASK-075"
     }
   ]
 }

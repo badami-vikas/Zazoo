@@ -211,6 +211,10 @@ function buildTableSpec(
         : {}),
       ...(column.id === "connectionType" ? { defaultValue: "url" } : {}),
       ...(column.id === "rightsAttested" ? { defaultValue: false } : {}),
+      // `enabled` is editable inline (that is the whole point of the checkbox) but stays out of
+      // the create Form: `createSource` has no `health` field, so offering it at creation would
+      // present a control the write path silently drops.
+      ...(column.id === "enabled" ? { editable: true, hiddenInForm: true } : {}),
     };
   });
   if (pageId === "deals") {
@@ -386,6 +390,9 @@ export function DealPilotPage() {
       if (record.kind === "source") {
         row["userId"] = displayValue(record, "userId");
         row["password"] = displayValue(record, "password");
+        // Derived view onto `health` — unchecking a Source pauses it, which is what the
+        // discovery gate reads. A degraded Source is still enabled; only paused is "off".
+        row["enabled"] = record.health !== "paused";
       }
       if (record.kind === "deal") {
         // Derived, read-only presentation column (ADR-155) — never persisted.
@@ -523,12 +530,23 @@ export function DealPilotPage() {
             }
           : {}),
         ...(patch["spendCap"] !== undefined ? { spendCap: Number(patch["spendCap"]) } : {}),
+        // The `enabled` checkbox writes through to `health`. An explicit `health` edit still wins
+        // when both arrive, so the select on Record Detail is not overridden by the derived column.
+        ...(patch["enabled"] !== undefined && patch["health"] === undefined
+          ? { health: (patch["enabled"] === true ? "ready" : "paused") as "ready" | "paused" }
+          : {}),
         ...(patch["health"] !== undefined
           ? { health: String(patch["health"]) as "ready" | "degraded" | "paused" }
           : {}),
       });
       await load();
-      setRouteNotice("Source updated.");
+      setRouteNotice(
+        patch["enabled"] === false
+          ? "Source paused — it will be skipped by discovery."
+          : patch["enabled"] === true
+            ? "Source enabled."
+            : "Source updated.",
+      );
       return;
     }
     // Theses are create-only in the domain contract (no updateThesis).

@@ -2891,11 +2891,11 @@ What each answer means:
 
 ## RESOLVED 2026-08-17 — K11 input capture stores NO typed text, so the approved full-content decision (AP-157) is not delivered (TASK-054, ADR-239/ADR-240)
 
-- **Resolution (2026-08-17, ADR-246 / AP-159)**: the user chose, from three presented options, to widen the shared
+- **Resolution (2026-08-17, ADR-251 / AP-159)**: the user chose, from three presented options, to widen the shared
   primitive — `ObservedSignal` gains an optional `content?: string`, `recordSignal` persists it spread-if-present,
   and `inputCaptureSignal` maps the distilled redacted text onto the signal BODY (never `attributes`). This was
   chosen over the session's own recommendation of a dedicated input-only record kind; the accepted trade and the
-  rejected alternative are both recorded in ADR-246. The "why this session did not fix it" paragraph below is
+  rejected alternative are both recorded in ADR-251. The "why this session did not fix it" paragraph below is
   therefore answered rather than wrong: it correctly refused to make a cross-lane privacy call unilaterally, and
   the call was then made by the user. The mitigations built inside that choice: the six metadata-only lanes'
   envelope types still admit no text field, and a removal-fails guard in `learning-capture.test.ts` asserts all six
@@ -2908,7 +2908,7 @@ What each answer means:
   never edited — the capture moved to meet the promise, which is the direction AP-157 required.
 - **Found only by fixing it** — filed and fixed in the same commit, see the entry immediately below.
 
-## RESOLVED 2026-08-17 — the redaction backstop silently ate the character after a card number (TASK-054, ADR-246)
+## RESOLVED 2026-08-17 — the redaction backstop silently ate the character after a card number (TASK-054, ADR-251)
 
 - **What was wrong**: `DIGIT_GROUP_RE = /\b(?:\d[ -]?){13,19}\b/g` allowed the optional separator to follow the
   FINAL digit, so it consumed the space after the match. `"pay with 4111111111111111 today"` redacted to
@@ -2968,3 +2968,16 @@ What each answer means:
   test is load-sensitive by construction, and "re-run it" is the current mitigation rather than a fix.
 - **Second occurrence of this shape**: a `chat-model-manager` expectation ('downloading' vs 'failed') flaked
   the same way on 2026-08-16 under the same conditions and was likewise clean in isolation.
+
+## OPEN 2026-08-17 — `main` fails its own `check:vocabulary` gate after PR #69 (TASK-036)
+
+- **What is wrong**: `pnpm verify` cannot pass on `main`. `node scripts/check-retired-vocabulary.mjs` exits 1 with 9 findings, 8 in
+  `apps/web/src/app/avatar/zazoo/ZazooAvatar.tsx` and 1 in `apps/web/src/app/components/shared/ModuleGovernanceSection.tsx`.
+- **Not caused by the K11 work, measured**: the gate was run twice in a clean worktree at `origin/main` — once with the K11b/K11c
+  boundary files present and once with them stashed away. Same exit code, same 9 findings, none naming `screen-capture.ts` or
+  `audio-capture.ts`. The failure is in files that arrived with the Accounting/D2C/Zazoo merge (45f3de79).
+- **Not fixed here, deliberately**: the retired-vocabulary gate wants an identifier/copy migration or a reviewed allowlist entry, and
+  BUGS.md already records the precedent that guessing a Module's noun ships a rename its owner has to undo. These are that branch's
+  surfaces; its author should pick the replacement term.
+- **Consequence**: any session running the full gate on `main` will see red that is not theirs. Check the finding paths before
+  attributing a `check:vocabulary` failure to your own change.

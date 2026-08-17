@@ -3717,7 +3717,7 @@ Underneath that was a worse bug and a quieter one. `restart` moved the whole sid
 
 I also got the diagnosis wrong first, in public, and the ADR records that: a tRPC batch happened to sit next to the first stall, I named it as the cause, and the second reproduction — same failure, no tRPC traffic at all — disproved it.
 
-## 2026-08-17 — the capture that didn't capture (TASK-054, ADR-246, AP-159)
+## 2026-08-17 — the capture that didn't capture (TASK-054, ADR-251, AP-159)
 
 AP-157 approved full-content keystroke capture three days ago. The boundary shipped, twice, with two red-team passes and two visual-critic passes on top of it — and it stored nothing you typed. The distiller computed the redacted text on every captured burst and handed it to an envelope, and `recordSignal` had nowhere to put it, so it went on the floor. Every test passed. The lane was, functionally, the event-only design the user had been asked about and had explicitly rejected.
 
@@ -3733,7 +3733,7 @@ The second is the one I'd have preferred to notice on purpose. Retrieval fusion,
 
 The through-line for the whole K11 lane, four passes in: every one of these was invisible to a green suite. A length leak in a summary, a `captured: true` on a suppressed burst, a sentence above the toggle promising bank coverage that never existed, and now a feature that was approved, built, documented, and never actually connected. Tests tell you the code does what it says. They don't tell you it says the right thing.
 
-## 2026-08-17 — connecting the tap to the boundary (TASK-054, ADR-247)
+## 2026-08-17 — connecting the tap to the boundary (TASK-054, ADR-252)
 
 The tap had been producing into a buffer nothing drained. That's the whole slice: a reconcile loop that starts and stops the sensor to match consent, and a drain loop that posts each burst.
 
@@ -3750,3 +3750,41 @@ The lane is now connected end to end in code. It still has not captured a single
 Zazoo got a Module that is a room instead of a table, and the Agents tab stopped being a list of names. The part worth remembering is what was NOT built: no Phaser, no tileset, no new character art. The painted sheets turned out to be species-agnostic all along — 29 characters had been falling through to a cheaper vector path because one boolean was gated on the panda's nose. And the back view is just the front with the face and hands switched off, which is why all 30 species got one at once.
 
 Breath came down globally (rate x0.55, depth x0.5): tuned at 340px in the lab, it read as panting everywhere else. The notch composer's focus was a one-way door — it pinned the overlay open forever — so an empty blur now releases it while a draft in progress still holds the window.
+
+## 2026-08-17 — two more senses, and one that has to say what it can't do (TASK-054, ADR-253)
+
+Screen and ambient audio, boundaries only, built the way K11a was: the gate first, tested, before anything can produce a byte.
+
+Screen was the easier one to think about but not the obvious one to build. A keystroke burst has a natural sensitive unit — the password field. A screen frame doesn't; everything visible arrives at once, including windows belonging to apps you never consented for. So the gate keys on the window rather than the screen, and the window has to positively say it's capturable. macOS already has the right signal: an app can set `NSWindowSharingNone`, which is exactly what password managers do, and that's the same shape as the secure-input flag K11a leans on. Incognito windows suppress even when the window server says they're shareable, because K8's extension already refuses incognito and it would be absurd to build the back door around our own refusal in the next sensor over. And a suppressed frame carries no window title — "Q3 layoffs.xlsx" in a window we declined to look at is the password-length leak from ADR-239 in a different costume.
+
+Audio is the one I can't make honest by being careful. Every other sensor here protects you from over-capture of your own activity: you consent, and the boundary's job is to hold that consent to its promises. Audio breaks it, because the person speaking may not be the person who consented. A colleague on a call agreed to nothing. Several jurisdictions require everyone on a recording to agree. There is no clever gate that obtains a stranger's permission, and writing a careful comment about it would just be a comment.
+
+So the boundary refuses instead. Ambient audio isn't ambient — it needs an explicit arm per session, checked before the code even characterises who's present, because an unarmed session isn't one we're entitled to describe. A multi-party session stores nothing unless someone asserts all-party consent, and that assertion is a user id rather than a boolean: a boolean can be satisfied by a stale default, an identity can be asked "who claimed this?" later. It travels with the stored event for that reason. System-audio loopback is literally the far side of a call, so it can never reach the solo path, and that's a test rather than a note asking providers to behave.
+
+I left the content question open on both. "Post-meeting action drafts" means deriving text from your screen, and transcripts are the audio equivalent — that's the same question AP-157 answered for keystrokes, and the plan records no decision for either of these. Rather than presume, both default to metadata-only behind opt-in allowlists, and a permissive content mode is not a gate bypass: a suppressed frame stores nothing regardless. Whichever way you decide, it's one value, not a rewrite.
+
+The bug worth recording: my audio default denylist denied nothing. It copied the seed array raw, while matching lowercases what it's given — so every seed with a capital letter in it, `com.apple.FaceTime` included, sat in the list matching nothing at all. The edited path worked fine, because merging normalises. Only the default was broken, which is precisely the path a user who never opens the editor gets. Screen had the same defect latently, and its tests passed only because I'd happened to pick all-lowercase seeds for the assertions. Both go through one construction path now, with a mixed-case test in each. I checked the shipped keystroke lane for it too — safe, but by luck of its seeds rather than by design.
+
+Both senses are inert. No consent source, no producer, no UI. That's the K10 gate ordering and it's deliberate.
+
+## 2026-08-17 — the crawler that reads robots.txt first
+
+Twenty broker sites, pasted in as a table with two notes on it ("Good", "Just CA"). The ask was a crawler that reads what is for sale, ranks it, asks for a login where one is needed, and lets sources be switched on and off.
+
+Most of that turned out to already exist. DealPilot had Sources with rights state, spend caps and health; a credential vault sitting on the OS keyring with re-authentication and an audit sink; a thesis-fit scorer; and `guardedFetch`, the DNS-pinned SSRF guard, as the one sanctioned way out to the network. What was missing was the thing in the middle: nothing in DealPilot fetched anything. The BizBuySell connector reads alert emails, and the BusinessBroker.net connector has a comment explaining that it deliberately never fetches because that site's robots.txt disallows the paths it would need. Somebody had already made the right call once and written down why.
+
+So before writing any code I fetched robots.txt for all twenty domains. That was the most useful hour of the day. Fifteen are plainly crawlable. Three — BizBuySell, Premier Business Brokers, Sunbelt — return 403 or a Cloudflare challenge *for robots.txt itself*. Two are login portals that no robots file has an opinion about.
+
+That third group forced the only decision here I actually thought hard about. RFC 9309 says a crawler may treat a 4xx robots.txt as "no restrictions". Read literally, a 403 from Akamai becomes permission to crawl the whole site. That reading is obviously wrong in the direction that matters: a server refusing automated clients is the opposite of a server with no opinion. So the crawler refuses on 401/403/429 and on anything 5xx, and only lets 404 and 410 through as genuine "nobody published rules here". Stricter than the standard requires, and the standard is a floor.
+
+The other decision worth recording: the rights gate runs before the connector is touched, not around its results. It is tempting to crawl and then filter, because the code reads more simply. But the cost of a request — the bytes, the log line on someone else's server, the terms-of-service exposure — is incurred when the request goes out, not when the results come back. I broke the gate deliberately to check the tests noticed: five of twelve went red.
+
+I wrote the robots tests against the real robots.txt bodies these sites serve rather than invented ones. Testing a robots parser against files you made up proves you can parse your own fiction. Then I mutated the implementation eleven times across both packages — dropped longest-match precedence, dropped the Allow-wins tie-break, let the wildcard group shadow a named one, stopped escaping patterns so they behaved as regexes, made 403 mean permission, skipped the crawl-delay, dropped the untrusted tag, removed both guards that stop the extractor inventing a listing. Every one turned something red. One of them never ran: a two-minute command timeout killed the shell mid-mutation and left the file mutated. I restored it, diffed against the backup to confirm, and did not claim the result I had not seen.
+
+I flagged the terms-of-service question once at the start and then built anyway, which is the right order. robots.txt is a machine-readable signal and I can encode it; a site's written terms are a judgement, and the mechanism for that judgement already existed — nothing crawls until a human attests rights on that specific Source. Twenty sources seeded, none of them pre-attested. Seeding them as attested because they arrived in a chat message would have put the rights gate on the wrong side of its own rule.
+
+Two things I did not build. The login flow for APS and Kumo: the vault would hold those credentials safely, but authenticated scraping of a members-only deal portal is a different exposure from reading a public page, and those are precisely the terms most likely to forbid it. And a browser-agent tier for the three bot-protected sites — the tier exists, it would work, and using it would mean this platform's answer to "this site is refusing bots" is "use a better bot".
+
+Still not proven live. Every behaviour here is proven by test; not one real broker page has been fetched from the running app.
+
+The shared-checkout tax landed three more times today. A background task of mine died with exit 101 while a second Claude session was mid-`build:tauri` on this same checkout, contending for one cargo target directory. My first `pnpm verify` failed because I appended a task row without a section header and it collided with TASK-071's section. And at push time local main turned out to be 58 commits stale, with ADR-248, AP-160 and TASK-072 all taken out from under me — renumbered to 254/164/075 at merge. That is the second time this exact renumbering has happened (ADR-238 was the first). The fix is a worktree per session. Writing it down a third time is not the fix.
