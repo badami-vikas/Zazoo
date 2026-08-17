@@ -340,6 +340,7 @@ import {
   InvalidTransitionError,
   classifyCultureSource,
   MAX_CULTURE_SOURCES_PER_RUN,
+  JOB_FUNCTIONS,
   type ApplicationStage,
   type CandidateProfile,
   type JobProfile,
@@ -17708,6 +17709,48 @@ export const appRouter = t.router({
         const updated = await ctx.wiring.jobpilotStore.updateApplication(application.id, { stage: input.to });
         return updated;
       }),
+
+    /**
+     * TASK-076 — onboarding: upload resume, select interested jobs, rank-order
+     * job functions, then the wizard is done for good. The resume file itself
+     * goes through the existing `modules.addFile` Module File path (same
+     * storage every other Module upload uses); these procedures only track
+     * which file was chosen and the ranked selection.
+     */
+    onboarding: t.router({
+      get: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const profile = await ctx.wiring.jobpilotStore.getCandidateProfile(input.organizationId);
+          return { profile, availableFunctions: JOB_FUNCTIONS };
+        }),
+
+      saveResume: procedure
+        .input(z.object({ organizationId: z.string().min(1), resumeFileName: z.string().min(1) }))
+        .mutation(({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          return ctx.wiring.jobpilotStore.saveOnboardingResume(input.organizationId, input.resumeFileName);
+        }),
+
+      /** Step 3 — index 0 of `selectedFunctions` is the top-ranked function.
+       * Persisting this is the end of onboarding (`completedAt` is set here). */
+      complete: procedure
+        .input(z.object({
+          organizationId: z.string().min(1),
+          selectedFunctions: z
+            .array(z.string())
+            .min(1)
+            .refine(
+              (values) => values.every((value) => (JOB_FUNCTIONS as readonly string[]).includes(value)),
+              "unknown job function",
+            ),
+        }))
+        .mutation(({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          return ctx.wiring.jobpilotStore.completeOnboarding(input.organizationId, input.selectedFunctions);
+        }),
+    }),
 
     /**
      * JP3B (TASK-011) — cited company-culture research, TWO-PHASE (remediated

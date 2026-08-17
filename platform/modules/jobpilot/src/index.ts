@@ -29,6 +29,8 @@ export type { AnswerSource, AnswerRecord, AnswerBank } from "./answer-bank.js";
 export { NeedsHuman, normalizeQuestion, isSensitiveQuestion, createAnswerBank, FUZZY_THRESHOLD } from "./answer-bank.js";
 export type { OnboardingInput } from "./onboarding.js";
 export { extractSkills, proposeCategories, buildCandidateProfile } from "./onboarding.js";
+export type { JobFunction } from "./job-functions.js";
+export { JOB_FUNCTIONS } from "./job-functions.js";
 export type { EmailMessage, ApplicationRef, Classification, EmailClassifier, EmailDisposition, RouteResult } from "./gmail-router.js";
 export { routeEmail } from "./gmail-router.js";
 export type { FormField, FormMapping, ApplyOutcome, DispatchAction } from "./apply.js";

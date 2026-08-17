@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, count } from "drizzle-orm";
 import { normalizeLegacyFitFlag } from "@bridge/jobpilot";
 import type { Database } from "./client.js";
-import { jobpilotJobs, jobpilotApplications } from "./schema.js";
+import { jobpilotJobs, jobpilotApplications, jobpilotCandidateProfiles } from "./schema.js";
 import {
   withDefaultOrganization,
   withOrganizationOnly,
@@ -31,6 +31,7 @@ export interface Page<T> {
 
 export type JobRow = typeof jobpilotJobs.$inferSelect;
 export type ApplicationRow = typeof jobpilotApplications.$inferSelect;
+export type CandidateProfileRow = typeof jobpilotCandidateProfiles.$inferSelect;
 
 export interface CreateJobInput {
   organizationId: string;
@@ -144,6 +145,50 @@ export class DrizzleJobPilotStore {
       .where(and(eq(jobpilotApplications.id, applicationId), eq(jobpilotApplications.organizationId, organizationId)))
       .limit(1);
     return rows[0] ? normalizeApplicationRow(rows[0]) : null;
+    });
+  }
+
+  /** TASK-076 — the onboarding gate: null means the wizard shows on next entry. */
+  async getCandidateProfile(organizationId: string): Promise<CandidateProfileRow | null> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(jobpilotCandidateProfiles)
+        .where(eq(jobpilotCandidateProfiles.organizationId, organizationId))
+        .limit(1);
+      return rows[0] ?? null;
+    });
+  }
+
+  /** Records which resume the onboarding step 1 upload produced — the file itself
+   * already lives under Module Files via saveModuleFile, this just remembers the name. */
+  async saveOnboardingResume(organizationId: string, resumeFileName: string): Promise<CandidateProfileRow> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const [row] = await tx
+        .insert(jobpilotCandidateProfiles)
+        .values({ id: randomUUID(), organizationId, resumeFileName })
+        .onConflictDoUpdate({
+          target: jobpilotCandidateProfiles.organizationId,
+          set: { resumeFileName, updatedAt: new Date() },
+        })
+        .returning();
+      return row!;
+    });
+  }
+
+  /** Step 3 — persists the ranked selection and ends onboarding (TASK-076: "Thats
+   * the end of jobpilot onboarding"). Index 0 of `selectedFunctions` is the top rank. */
+  async completeOnboarding(organizationId: string, selectedFunctions: string[]): Promise<CandidateProfileRow> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const [row] = await tx
+        .insert(jobpilotCandidateProfiles)
+        .values({ id: randomUUID(), organizationId, selectedFunctions, completedAt: new Date() })
+        .onConflictDoUpdate({
+          target: jobpilotCandidateProfiles.organizationId,
+          set: { selectedFunctions, completedAt: new Date(), updatedAt: new Date() },
+        })
+        .returning();
+      return row!;
     });
   }
 }
