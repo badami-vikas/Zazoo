@@ -19,6 +19,7 @@ import { TaskRecordDetailPage } from "./pages/TaskRecordDetailPage";
 import { HomePage } from "./pages/HomePage";
 // AP-086 / ADR-154: Intelligence is its own top-level cross-Module capability page.
 import { IntelligencePage } from "./pages/IntelligencePage";
+import { AgentDetailPage } from "./pages/AgentDetailPage";
 // TASK-028: background Research Run timeline/interrupt Page (plan §5).
 import { ResearchRunsPage } from "./pages/ResearchRunsPage";
 // WhatsApp Module: the live session surface plus its Tool list.
@@ -191,6 +192,8 @@ export const router = createBrowserRouter([
       { path: "second-brain", element: <Navigate to="/intelligence" replace /> },
       { path: "research", Component: ResearchRunsPage },
       { path: "intelligence", Component: IntelligencePage },
+      // Agent Detail is reached from its card on Intelligence (ADR-250).
+      { path: "agent/:moduleName/:agentId", Component: AgentDetailPage },
       { path: "task-manager", Component: TaskManagerPage },
       { path: "task-manager/:taskId", Component: TaskRecordDetailPage },
 

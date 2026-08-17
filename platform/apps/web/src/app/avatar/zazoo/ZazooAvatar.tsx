@@ -194,9 +194,9 @@ function rgb01(hex: string): [number, number, number] {
  * tie stay swatch-pickable: the artist's own shading (folds, highlights,
  * the fabric's grain) is preserved as luminance, only the hue changes.
  */
-function DuotoneFilter({ id, color }: { id: string; color: string }) {
-  const [dr, dg, db] = rgb01(shade(color, -0.55));
-  const [lr, lg, lb] = rgb01(shade(color, 0.4));
+function DuotoneFilter({ id, color, lo = -0.55, hi = 0.4 }: { id: string; color: string; lo?: number; hi?: number }) {
+  const [dr, dg, db] = rgb01(shade(color, lo));
+  const [lr, lg, lb] = rgb01(shade(color, hi));
   return (
     <filter id={id} x="-10%" y="-10%" width="120%" height="120%" colorInterpolationFilters="sRGB">
       <feColorMatrix type="matrix" values="0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0 0 0 1 0" />
@@ -215,12 +215,25 @@ interface Props {
   appearance?: ZazooAppearance;
   /** Which character is on the rig — a small delta on the shared baseline. */
   species?: ZazooSpecies;
+  /**
+   * Which way the rig faces. "back" is the working pose: same egg, same
+   * suit, no face and no hands — exactly what you see of someone bent over
+   * a monitor. It hides layers rather than adding art, so every species
+   * gets a back view for free.
+   */
+  facing?: "front" | "back";
 }
 
-export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEARANCE, species = DEFAULT_SPECIES }: Props) {
-  // The panda is rendered from the artist's registered layer stack; every
-  // other species is a vector delta on the shared rig.
-  const painted = species.nose === "painted";
+export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEARANCE, species = DEFAULT_SPECIES, facing = "front" }: Props) {
+  // The artist's registered layer stack IS the baseline: egg body, suit,
+  // shirt, tie, brows, mouths and arms are wardrobe and anatomy every
+  // species shares, so every species renders from it (the egg is duotoned
+  // into the species' own felt colour, the way the suit already was).
+  // `pandaArt` gates only the sheets that are panda anatomy — the ear caps,
+  // the eye patches, the snout, the dark eye.
+  const pandaArt = species.nose === "painted";
+  const painted: boolean = true;
+  const back = facing === "back";
   const mouthImgRefs = useRef<(SVGImageElement | null)[]>([]);
   const refs = {
     root: useRef<SVGGElement>(null),
@@ -737,6 +750,8 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
         {painted && <DuotoneFilter id="zz-suit-tint" color={suit} />}
         {painted && <DuotoneFilter id="zz-tie-tint" color={tie} />}
         {painted && <DuotoneFilter id="zz-shirt-tint" color={shirt} />}
+        {back && <DuotoneFilter id="zz-back-tint" color={suit} lo={-0.55} hi={-0.15} />}
+        {!pandaArt && <DuotoneFilter id="zz-body-tint" color={body} lo={-0.5} hi={0.06} />}
       </defs>
 
       <g ref={refs.root}>
@@ -887,7 +902,10 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 grows past the silhouette the suit was registered against */}
             {painted ? (
               <g transform={CANVAS} data-layer="body">
-                <image href={pandaEgg} x={P.egg[0]} y={P.egg[1]} width={P.egg[2]} height={P.egg[3]} />
+                <image
+                  href={pandaEgg} x={P.egg[0]} y={P.egg[1]} width={P.egg[2]} height={P.egg[3]}
+                  filter={pandaArt ? undefined : "url(#zz-body-tint)"}
+                />
               </g>
             ) : (
               <>
@@ -907,7 +925,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 the cheeks puff past the chin line the collar has to cover them.
                 Painted over the fabric they read as a stain on the jacket. They
                 still ride the head, so `apply` gives them the face transform. */}
-            <g ref={refs.cheekFace}>
+            <g ref={refs.cheekFace} opacity={back ? 0 : 1}>
               <g ref={refs.cheekG} data-layer="cheeks" opacity="0.4">
                 <ellipse ref={refs.cheekL} cx={RIG.cheek.lx} cy={RIG.cheek.y} rx="7" ry="5" fill="#F2C7C0" />
                 <ellipse ref={refs.cheekR} cx={RIG.cheek.rx} cy={RIG.cheek.y} rx="7" ry="5" fill="#F2C7C0" />
@@ -921,8 +939,11 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
             {painted && (
               <g data-layer="suit" clipPath="url(#zz-bodyclip)">
                 <g transform={CANVAS}>
-                  <image href={pandaShirt} x={P.shirt[0]} y={P.shirt[1]} width={P.shirt[2]} height={P.shirt[3]} filter="url(#zz-shirt-tint)" />
-                  {accessory === "tie" && (
+                  <image
+                    href={pandaShirt} x={P.shirt[0]} y={P.shirt[1]} width={P.shirt[2]} height={P.shirt[3]}
+                    filter={back ? "url(#zz-back-tint)" : "url(#zz-shirt-tint)"}
+                  />
+                  {accessory === "tie" && !back && (
                     <image href={pandaTie} x={P.tie[0]} y={P.tie[1]} width={P.tie[2]} height={P.tie[3]} filter="url(#zz-tie-tint)" />
                   )}
                   <image href={pandaSuit} x={P.suit[0]} y={P.suit[1]} width={P.suit[2]} height={P.suit[3]} filter="url(#zz-suit-tint)" />
@@ -987,8 +1008,17 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
               </g>
             )}
 
+            {/* the back of the jacket: one centre seam and a collar arc, so
+                the turned-away silhouette reads as tailoring, not a blank egg */}
+            {back && (
+              <g data-layer="suit" clipPath="url(#zz-bodyclip)" opacity="0.45" fill="none" stroke={shade(suit, -0.42)}>
+                <path d="M 120,172 L 120,286" strokeWidth="1.6" />
+                <path d="M 92,150 Q 120,172 148,150" strokeWidth="1.8" />
+              </g>
+            )}
+
             {/* face */}
-            <g ref={refs.face} data-layer="face">
+            <g ref={refs.face} data-layer="face" opacity={back ? 0 : 1}>
               {/* hair — a three-strand felt cowlick on the crown; rides the
                   head, skipped where headgear (crest/wool/quills) lives */}
               {(species.hair ?? true) && (
@@ -1004,7 +1034,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
               {/* painted eye patches — panda anatomy, they never blink. The
                   artist's own layer carries the tilt, ink rim and gloss, so
                   there is no angle left for the rig to approximate. */}
-              {species.patches && (painted ? (
+              {species.patches && (pandaArt ? (
                 <g transform={CANVAS} data-layer="face">
                   <image href={pandaPatch} x={P.patch[0]} y={P.patch[1]} width={P.patch[2]} height={P.patch[3]} />
                   <g transform={`translate(${P.patchRx + P.patch[2]} ${P.patch[1]}) scale(-1 1)`}>
@@ -1239,7 +1269,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                 outer end at the body edge as the swing pivot. Vector species
                 keep the felt mitts. */}
             {painted ? (
-              <>
+              <g opacity={back ? 0 : 1}>
                 <g ref={refs.pawL} data-layer="paws">
                   <g transform={CANVAS}>
                     <image href={pandaArm} x={P.arm[0]} y={P.arm[1]} width={P.arm[2]} height={P.arm[3]} />
@@ -1253,7 +1283,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
                     </g>
                   </g>
                 </g>
-              </>
+              </g>
             ) : (
               ([
                 [RIG.paw.lx, -1, refs.pawL],

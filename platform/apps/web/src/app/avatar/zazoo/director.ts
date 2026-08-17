@@ -183,6 +183,10 @@ const CALM: Pose = {
   squash: 0, hide: 0,
   levitate: 0, gazeBiasX: 0, gazeBiasY: 0,
 };
+/** Global breath damping — see the note at the application site. */
+const BREATH_RATE_DAMP = 0.55;
+const BREATH_DEPTH_DAMP = 0.5;
+
 const CALM_B: Behavior = {
   mouth: "smileTwin", brow: "arch",
   breathRate: 0.22, breathDepth: 0.6, blinkEvery: 4.2, blinkSpeed: 1,
@@ -410,6 +414,14 @@ export class ZazooDirector {
     target.posture += (this.confidence - 0.5) * 0.4;
     target.headDrop += (0.5 - this.confidence) * 3;
     beh.breathRate *= 0.75 + this.energy * 0.6;
+    // Breath is the "is this thing alive" tell, and a tell only works while
+    // you have to look for it. Every emotion's rate/depth was tuned against a
+    // 340px lab rig; at real sizes it read as panting. Damped globally so the
+    // EMOTIONAL differences between calm and excited survive intact — only the
+    // absolute amount comes down (user report 2026-08-17: "breathing too fast,
+    // not subtly").
+    beh.breathRate *= BREATH_RATE_DAMP;
+    beh.breathDepth *= BREATH_DEPTH_DAMP;
     beh.saccadeAmp *= 0.6 + this.energy * 0.8;
 
     let giggle = beh.giggle;

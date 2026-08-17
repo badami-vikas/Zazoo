@@ -6,9 +6,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ZazooLab } from "./app/avatar/zazoo/ZazooLab";
+import { ZazooWorld } from "./app/avatar/zazoo/ZazooWorld";
+
+// zazoo.html#world → the Zazoo Module's 2.5D room view; default → the rig lab.
+const World = location.hash === "#world";
 
 createRoot(document.getElementById("zazoo-root")!).render(
-  <StrictMode>
-    <ZazooLab />
-  </StrictMode>,
+  <StrictMode>{World ? <ZazooWorld /> : <ZazooLab />}</StrictMode>,
 );

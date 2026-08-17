@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { Bot, Cable, ExternalLink, Network, Sparkles, Wrench, Zap } from "lucide-react";
 import { Header } from "../components/shared/Header";
+import { AgentRoom } from "../avatar/zazoo/AgentZazoo";
 import { SecondBrainPage } from "./SecondBrainPage";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
@@ -189,29 +190,44 @@ export function IntelligencePage() {
           agents.length === 0 ? (
             <EmptyNote text="No attributable Agent bindings are declared by the installed Modules." />
           ) : (
-            <Rows>
+            /* Agents are the one capability with a face: each card carries the
+               live companion rig cast for that Agent, and the whole card opens
+               Agent Detail. The other three tabs stay rows — they are
+               inventory, not characters. */
+            <ul className="grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3">
               {agents.map((agent) => (
-                <Row
-                  key={`${agent.mod.moduleName}:${agent.id}`}
-                  icon={Bot}
-                  title={agent.name}
-                  // `plane` is optional in the manifest schema — several
-                  // built-ins omit it, so never render "undefined plane".
-                  subtitle={[
-                    `${agent.skillIds.length} ${agent.skillIds.length === 1 ? "Skill" : "Skills"}`,
-                    agent.plane ? `${agent.plane} plane` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                  source={agent.mod}
-                  // ADR-180: an Agent's Run surface is reached through the
-                  // Agent, from its manifest-declared run_route. This is how
-                  // Research Runs are reached now that /research is no longer a
-                  // left-nav entry.
-                  action={agent.runRoute ? { to: agent.runRoute, label: "Runs" } : undefined}
-                />
+                <li key={`${agent.mod.moduleName}:${agent.id}`}>
+                  <Link
+                    to={`/agent/${encodeURIComponent(agent.mod.moduleName)}/${encodeURIComponent(agent.id)}`}
+                    className="flex h-full flex-col overflow-hidden rounded-lg border no-underline hover:bg-[var(--color-surface)]"
+                    style={{ borderColor: "var(--color-border)" }}
+                  >
+                    {/* the Agent at its own desk — the card IS the workspace */}
+                    <div className="flex justify-center overflow-hidden" style={{ background: "#EFE7DA" }} aria-hidden>
+                      <AgentRoom agentId={agent.id} pose="working" scale={0.3} />
+                    </div>
+                    <div className="min-w-0 flex-1 p-3">
+                      <p className="truncate text-sm font-medium" style={{ color: "var(--color-navy)" }}>
+                        {agent.name}
+                      </p>
+                      {/* `plane` is optional in the manifest schema — several
+                          built-ins omit it, so never render "undefined plane". */}
+                      <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                        {[
+                          `${agent.skillIds.length} ${agent.skillIds.length === 1 ? "Skill" : "Skills"}`,
+                          agent.plane ? `${agent.plane} plane` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                      <p className="mt-1.5 truncate text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                        {agent.mod.displayName}
+                      </p>
+                    </div>
+                  </Link>
+                </li>
               ))}
-            </Rows>
+            </ul>
           )
         ) : tab === "Automations" ? (
           automations.length === 0 ? (
