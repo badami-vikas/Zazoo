@@ -135,6 +135,9 @@ const BASE_COLUMNS: Record<DealPilotPageId, DealPilotColumn[]> = {
     { id: "theses", label: "Theses", kind: "relation" },
   ],
   sources: [
+    // Virtual: `enabled` is a view onto `health` (paused = unchecked), not a stored column. One
+    // question, one source of truth — the discovery gate already refuses a paused Source.
+    { id: "enabled", label: "On", kind: "checkbox", virtual: true },
     { id: "name", label: "Source", kind: "text" },
     { id: "link", label: "Link", kind: "url" },
     { id: "connectionType", label: "Connection type", kind: "select" },

@@ -279,18 +279,28 @@ import {
   EncryptedFileSourceCredentialVault,
   HumanReauthentication,
   KeyringSourceCredentialVault,
+  DEAL_SOURCE_CATALOG,
   LocalDealPilotStore,
   SourceCredentialService,
   assertSourceDiscoveryAllowed,
+  catalogEntryToSourceInput,
   createBizBuySellAlertConnector,
   createGmailFetchMessages,
+  createListingCrawlerConnector,
+  listingExtractor,
   reconcileCredentialOperations,
+  runSourceDiscovery,
+  stripTrackingParams,
+  type CrawlResponse,
+  type DiscoveryRunResult,
+  type ListingCrawlerConnector,
   type CredentialAuditSink,
   type DealPilotBindings,
   type DealRecord,
   type DealPilotRuntimeStore,
   type DealPilotStore,
   type SourceCredentialVault,
+  type SourceRecord,
 } from "@bridge/dealpilot";
 import { DrizzleDealPilotStore, cloudRecordsDealPilotStore } from "./dealpilot-store.js";
 import {
@@ -686,6 +696,12 @@ export interface Wiring {
       organizationId: string,
       sourceId: string,
     ): Promise<void>;
+    /**
+     * The listing crawler for a Source, or null when this Source has no crawl path (email-alert
+     * and account Sources). Every request it makes goes through `guardedFetch`, so a broker link
+     * that redirects to a private address is refused by the same SSRF guard as any other fetch.
+     */
+    listingCrawlerFor(source: SourceRecord): ListingCrawlerConnector | null;
   };
   /** Local-plane social Integration and permission records. */
   integrationStore: DrizzleIntegrationStore;
@@ -1243,6 +1259,59 @@ const MAX_CULTURE_EXCERPT_CHARS = 6_000;
  * default, kept explicit here so this call site's bound is self-documenting. */
 const MAX_CULTURE_FETCH_BYTES = 500_000;
 const CULTURE_FETCH_TIMEOUT_MS = 8_000;
+
+// ---------------------------------------------------------------------------------------------
+// DealPilot listing crawler — the ONE place a broker listing page is fetched.
+// ---------------------------------------------------------------------------------------------
+//
+// The user agent is honest about what this is and who it is for: a site owner who wants to refuse
+// it can name it in robots.txt and this crawler will obey (see @bridge/sourcing's robots gate).
+// Presenting as a browser to slip past a bot rule is exactly what this code will not do.
+const DEALPILOT_CRAWLER_USER_AGENT =
+  "BridgeDealPilot/0.1 (+deal sourcing for one investor; obeys robots.txt)";
+const MAX_LISTING_FETCH_BYTES = 2_000_000;
+const LISTING_FETCH_TIMEOUT_MS = 15_000;
+/** Politeness floor between requests to one origin when robots.txt names no Crawl-delay. */
+const LISTING_DEFAULT_CRAWL_DELAY_MS = 2_000;
+/** Pages per Source per run. Listing index pages only — this crawler does not walk detail pages. */
+const LISTING_MAX_PAGES_PER_RUN = 3;
+
+async function guardedCrawlFetch(url: string): Promise<CrawlResponse> {
+  const response = await guardedFetch(url, {
+    headers: { "user-agent": DEALPILOT_CRAWLER_USER_AGENT },
+    timeoutMs: LISTING_FETCH_TIMEOUT_MS,
+    maxBytes: MAX_LISTING_FETCH_BYTES,
+  });
+  return {
+    status: response.status,
+    body: response.body.toString("utf8"),
+    url: response.finalUrl,
+  };
+}
+
+/**
+ * Builds the crawler for one Source. Returns null for connection types with no crawl path:
+ * `email_alert` is served by the BizBuySell alert connector, and `account` Sources sit behind a
+ * login this crawler deliberately does not attempt to drive.
+ */
+function createDealPilotListingCrawler(source: SourceRecord): ListingCrawlerConnector | null {
+  if (source.connectionType !== "url" && source.connectionType !== "api") return null;
+  const entry = DEAL_SOURCE_CATALOG.find(
+    (candidate) => stripTrackingParams(candidate.listingUrl) === source.link,
+  );
+  return createListingCrawlerConnector({
+    id: `dealpilot-listing:${source.id}`,
+    startUrls: [source.link],
+    userAgent: DEALPILOT_CRAWLER_USER_AGENT,
+    fetchPage: guardedCrawlFetch,
+    fetchRobots: guardedCrawlFetch,
+    extract: listingExtractor,
+    maxPages: LISTING_MAX_PAGES_PER_RUN,
+    defaultCrawlDelayMs: entry?.crawlDelaySeconds
+      ? entry.crawlDelaySeconds * 1_000
+      : LISTING_DEFAULT_CRAWL_DELAY_MS,
+  });
+}
 /** TASK-011 remediation (2026-07-19 coordinator distributed-defects review,
  * issue 3) — how long a materialize call's lease on a source-fetch intent is
  * valid before another attempt may reclaim it as orphaned (e.g. the process
@@ -5230,26 +5299,36 @@ async function seedPilotDemoData(
     if (company === "Northwind Traders") northwind = current;
   }
 
-  // Sources + Theses + one Relation seed once, on a fresh Sources table.
-  const sources = await dealpilot.list("sources", PILOT_ORGANIZATION, { limit: 1, offset: 0 });
-  if (sources.total === 0) {
-    const bizbuysell = await dealpilot.createSource({
-      organizationId: PILOT_ORGANIZATION,
-      name: "BizBuySell Weekly Alert",
-      link: "https://www.bizbuysell.com/",
-      connectionType: "email_alert",
-      spendCap: 100,
-      rightsState: "attested",
-      rightsAttestedBy: PILOT_USER,
-    });
-    await dealpilot.createSource({
-      organizationId: PILOT_ORGANIZATION,
-      name: "Axial Deal Network",
-      link: "https://www.axial.net/",
-      connectionType: "account",
-      spendCap: 250,
-      rightsState: "unattested",
-    });
+  // (see createDealPilotListingCrawler below for the crawl seam these Sources use)
+
+  // The deal-source catalog installs ONCE per Organization. The guard is "does this Organization
+  // already carry any catalog link" rather than "is the Sources table empty": an investor who
+  // unchecks or deletes a broker they do not want must not have it resurrected on the next
+  // restart. A Source the user removed is a decision, not missing data.
+  const existingSources = await dealpilot.list("sources", PILOT_ORGANIZATION, { limit: 200, offset: 0 });
+  const existingLinks = new Set(
+    existingSources.items
+      .filter((record): record is SourceRecord => record.kind === "source")
+      .map((record) => record.link),
+  );
+  const catalogLinks = DEAL_SOURCE_CATALOG.map((entry) => stripTrackingParams(entry.listingUrl));
+  const catalogInstalled = catalogLinks.some((link) => existingLinks.has(link));
+  let bizbuysell: SourceRecord | undefined;
+  if (!catalogInstalled) {
+    for (const entry of DEAL_SOURCE_CATALOG) {
+      const { input, health } = catalogEntryToSourceInput(entry, PILOT_ORGANIZATION);
+      const created = await dealpilot.createSource(input);
+      // `health` is not a creation field; a paused catalog entry is paused immediately after.
+      if (health === "paused") {
+        await dealpilot.updateSource(created.id, PILOT_ORGANIZATION, { health: "paused" });
+      }
+      if (entry.id === "bizbuysell") bizbuysell = created;
+    }
+  }
+
+  // Theses seed on their own emptiness — they are unrelated to whether the Source catalog installed.
+  const theses = await dealpilot.list("theses", PILOT_ORGANIZATION, { limit: 1, offset: 0 });
+  if (theses.total === 0) {
     await dealpilot.createThesis({
       organizationId: PILOT_ORGANIZATION,
       name: "Lower-Middle-Market Logistics",
@@ -5268,7 +5347,10 @@ async function seedPilotDemoData(
       exclusions: ["Single-provider practices", "Pending litigation"],
       sourcingStrategy: "Thesis-led sourcing via authorized inventory",
     });
-    if (northwind) {
+    // Only linkable when this same start installed the catalog; on an Organization that already
+    // had Sources there is no seeded BizBuySell row to point at, and inventing one would be worse
+    // than leaving the demo Deal unlinked.
+    if (northwind && bizbuysell) {
       await dealpilot.link({
         organizationId: PILOT_ORGANIZATION,
         kind: "deal_source",
@@ -6919,6 +7001,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       async validateSourceDiscovery(organizationId, sourceId) {
         await validateDealPilotSourceDiscovery(organizationId, sourceId);
       },
+      listingCrawlerFor: (source) => createDealPilotListingCrawler(source),
     },
     integrationStore,
     automationRegistry,

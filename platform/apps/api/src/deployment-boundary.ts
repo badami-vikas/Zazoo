@@ -149,6 +149,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["dealpilot.captures", "raw capture bodies never leave the device"],
   ["dealpilot.commit", "commits raw captures"],
   ["dealpilot.discoverDeals", "drives Source credentials"],
+  ["dealpilot.runDiscovery", "crawls broker Sources and returns raw listing bodies"],
   ["dealpilot.list", "enumerates Source credentials"],
   ["dealpilot.accessCredential", "reads a Source credential from the vault"],
   ["dealpilot.clearCredential", "mutates the Source credential vault"],
