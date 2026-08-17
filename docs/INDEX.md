@@ -27,6 +27,8 @@ One production codebase: `platform/` (pnpm + Turbo monorepo). Pre-cleanup legacy
 | Gated intake seam (manifest→quarantine→commit) | `platform/packages/capability-kit` | only DealPilot wired |
 | Sourcing/dedupe/facts/tables shared engines | `platform/packages/{sourcing,dedupe,facts,tables}` | |
 | DealPilot / JobPilot Modules | `platform/modules/{dealpilot,jobpilot}` | `src/index.ts`, `src/manifest.ts` |
+| Accounting / D2C Modules (donor apps ported via subtree merge) | `platform/modules/{accounting,d2c}` | `accounting/src/schema.ts`, `d2c/src/{orders,inventory}.ts` |
+| DevPilot Module (GitHub tracker + review/triage Skills, behind `BRIDGE_DEVPILOT`) | `platform/modules/devpilot` | `src/index.ts`, `src/domain.ts` |
 | Sourcing/recording Engine packages | `platform/tools/*` | internal workspace packages pending physical vocabulary convergence |
 | Web client (three-client Notion model) | `platform/apps/web` | `src/Layout.tsx` (ADR-023 shell) |
 | Tauri desktop shell + capture core | `platform/apps/desktop` (Rust `sensor_bridge`) | CSP + capture stubs → BUGS.md |
