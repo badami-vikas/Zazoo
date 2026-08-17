@@ -70,6 +70,13 @@ export function CompanionComposer({
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onFocus={onFocus}
+        // Focus was a one-way door: the notch sets pose="chat" on focus, and
+        // pose "chat" pins the overlay open, so once you clicked the composer
+        // the companion never concealed again however far the cursor went
+        // (user report 2026-08-17). Blurring an EMPTY composer releases that
+        // pin; a draft in progress still holds the window open, because
+        // vanishing mid-sentence would be the worse bug.
+        onBlur={() => { if (!draft.trim()) onDismiss?.(); }}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
