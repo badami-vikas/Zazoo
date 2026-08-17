@@ -29,6 +29,14 @@ tauri = { version = "2", features = ["macos-private-api", "webview-data-url"] }
 # plugin is registered Rust-side only — no webview capability entries — so a
 # compromised webview cannot re-bind or intercept the shortcut.
 tauri-plugin-global-shortcut = "2"
+# Mac installer auto-update (TASK-077). Registered Rust-side only, same
+# reasoning as global-shortcut above: the update check/download/install
+# sequence is shell-level infra, not something the web content should be
+# able to trigger, so it carries no webview capability entry.
+tauri-plugin-updater = "2"
+# Only used for the post-install relaunch (`app.restart()`) the updater
+# needs to apply a downloaded update.
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 getrandom = "0.3"

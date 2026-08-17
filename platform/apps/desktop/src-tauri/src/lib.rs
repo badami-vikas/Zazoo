@@ -36,6 +36,7 @@ mod overlay;
 mod point;
 mod providers;
 mod research_webview;
+mod updater;
 mod whatsapp_send;
 mod whatsapp_message_ops;
 mod whatsapp_webview;
@@ -692,6 +693,11 @@ pub fn run() {
         .manage(BootstrapWindowState::default());
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
+    // Mac installer auto-update (TASK-077). `process` supplies the
+    // post-install relaunch the updater needs to apply what it downloaded.
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
     // Companion push-to-talk summon (TASK-027). Registered Rust-side only:
     // the webview has no capability to (re)bind shortcuts, it merely receives
     // the pressed/released events. Failure to register (e.g. the combo is
@@ -788,6 +794,10 @@ pub fn run() {
             providers::input_tap::input_request_permission,
         ])
         .setup(|app| {
+            // Mac installer auto-update (TASK-077). Release builds only —
+            // see updater::spawn_background_check's own debug_assertions
+            // guard for why.
+            updater::spawn_background_check(app.handle().clone());
             // Register the companion push-to-talk shortcut (⌘⇧Space).
             // Additive: a taken combo must never block the shell.
             {
