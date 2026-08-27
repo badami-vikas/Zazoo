@@ -2981,3 +2981,15 @@ What each answer means:
   surfaces; its author should pick the replacement term.
 - **Consequence**: any session running the full gate on `main` will see red that is not theirs. Check the finding paths before
   attributing a `check:vocabulary` failure to your own change.
+
+## OPEN 2026-08-27 — TASK-077's auto-updater can never reach its endpoint while the repo is private
+
+- **What is wrong**: `plugins.updater.endpoints` points at `github.com/manishsbhoopalam8498/relationship-os/releases/latest/download/latest.json`, and `tauri-plugin-updater` fetches it unauthenticated. The repository is private, so GitHub answers 404 — every release launch logs "update check failed (continuing on current build)" and no install will ever auto-update until the repo (or at least its releases) is public, or the endpoint moves somewhere reachable.
+- **Observed live 2026-08-27** on the first release-mode launch of a locally built bundle (TASK-078's fresh-machine run). Graceful degradation held: launch continues on the current build.
+- **Left for the updater's owner**: the fix is a product/distribution decision (public releases vs. an authenticated update host), not a code patch this session should pick.
+
+## OPEN 2026-08-27 — desktop API logs SEC-1 "NO verifier configured" although the sidecar token is the desktop auth path
+
+- **What is wrong**: on every desktop launch the API logs `identity: NO verifier configured on a persistent/production deploy — every mutation will be REJECTED with 401 (SEC-1 fail-closed). Set SUPABASE_JWT_SECRET or SUPABASE_URL to enable auth.` The claim is false on desktop: the webview authenticates via the sidecar token and mutations succeed (verified live — `chat.thread.create` returned 200 while the warning stood in the same log).
+- **Why it matters**: a first responder reading a desktop log will chase a scary identity failure that is not happening; the warning should either be silenced for `BRIDGE_LOCAL_RESIDENCY=desktop-local` or reworded to say which deploys it applies to.
+- **Left for the identity workstream**: the correct residency condition is theirs to pick.

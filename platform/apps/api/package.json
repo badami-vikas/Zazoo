@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Fastify 5 + tRPC 11 surface over the Universal Action Pipeline.",
   "files": [
-    "dist"
+    "dist",
+    "migrations-accounting"
   ],
   "exports": {
     ".": {

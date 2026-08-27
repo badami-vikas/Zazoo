@@ -38,7 +38,8 @@
     "macOS": {
       "minimumSystemVersion": "14.0",
       "frameworks": [
-        "generated/native/bridge-keyring.dylib"
+        "generated/native/bridge-keyring.dylib",
+        "generated/native/bridge-sqlite3.dylib"
       ],
       "entitlements": "Bridge.entitlements"
     },

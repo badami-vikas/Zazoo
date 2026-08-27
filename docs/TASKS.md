@@ -1215,3 +1215,12 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-08-16/17, verbatim: *"I want you to integrate a crawler or whatever to go through these links for deal pilot for the investor to know about the current deals going on and suggest the best ones. SOme might need login, Bridge should ask for login for the user to get the details and also he should have an option to check or uncheck any of these sources or even add new ones"* plus a 20-row source table; continued on *"continue"*; shipped on *"Push and merge all the changes"*.
 - Approval: AP-164 applied
 - Dependencies: TASK-032
+
+## Fresh-machine reproduction — the desktop bundle could not build or boot from a clean clone
+
+- [x] TASK-078 — Reproduce the colleague's fresh-install failure and repair the desktop bundle (2026-08-27; ADR-256, AP-166)
+  - Wiped the machine to a colleague-equivalent state: app + all data/caches removed (user data backed up to session scratchpad first), `main` pulled to 4881f600, every `node_modules`, the 11GB cargo `target`, `dist` and `generated` deleted.
+  - Found three independent fresh-build breakages, in the order a fresh machine hits them: (1) `prepare:bundle` refuses better-sqlite3's prebuilds + @napi-rs/canvas's skia `.node` in Resources (in since ac6de169); (2) the build then exits 1 demanding the CI-only `TAURI_SIGNING_PRIVATE_KEY` (in since TASK-077); (3) the built app boots a dead API — `migrations-accounting/` missing from the deploy because of `apps/api`'s `files` whitelist, sidecar dies before reporting its port.
+  - Fixed: keyring-pattern Framework + dlopen loader for better-sqlite3 (`BRIDGE_SQLITE3_NATIVE_LIBRARY`, fail-closed in release), canvas pruned (optional by design, text-only pdf use), `updaterArtifactsConfig()` skips updater artifacts when the private key is absent, `migrations-accounting` added to the `files` whitelist + `verifyInputs` requiredPaths.
+  - Evidence: bundle policy tests 11/11 (3 new, each seen red first); `pnpm build:tauri` exit 0 from the scratch state; in-bundle positive/negative sqlite loader proof (`{"x":42}` / named fail-closed error); 0 `.node` in Resources; fresh launch → `api sidecar healthy`, accounting migrations ran, webview mutation 200, three windows up. `cargo test api_sidecar` green (see ADR-256 verified block for the count).
+  - Not verified: first-run model download had not begun within the observation window; window contents not screenshotted (user was actively working in another Space).
