@@ -69,6 +69,36 @@ export function bearerToken(authHeader: string | undefined): string | null {
  * production-env assertion) need the same answer as a pure predicate. Kept in lockstep
  * with the resolver's own `verifying` computation (same two env vars).
  */
+/** SEC-1 boot posture line for a deploy with no identity verifier. On the
+ * managed desktop sidecar (BRIDGE_SIDECAR_TOKEN present) the launch token —
+ * enforced on every request before routing — is the auth path, so the
+ * "every mutation will be REJECTED" warning would be FALSE there and sent a
+ * first responder chasing an identity failure that is not happening (found
+ * live 2026-08-27, TASK-079). Say what is true per deploy shape instead. */
+export function missingVerifierNotice(input: {
+  verifierConfigured: boolean;
+  persistent: boolean;
+  production: boolean;
+  sidecarToken: string | undefined;
+}): { level: "warn" | "info"; message: string } | null {
+  if (input.verifierConfigured) return null;
+  if (!input.persistent && !input.production) return null;
+  if (input.sidecarToken) {
+    return {
+      level: "info",
+      message:
+        "identity: no Supabase verifier, and none needed — the desktop sidecar token " +
+        "authenticates every request on this loopback API (SEC-1).",
+    };
+  }
+  return {
+    level: "warn",
+    message:
+      "identity: NO verifier configured on a persistent/production deploy — every mutation will be " +
+      "REJECTED with 401 (SEC-1 fail-closed). Set SUPABASE_JWT_SECRET or SUPABASE_URL to enable auth.",
+  };
+}
+
 export function isVerifierConfigured(): boolean {
   return Boolean(process.env.SUPABASE_JWT_SECRET || process.env.SUPABASE_URL);
 }

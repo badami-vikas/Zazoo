@@ -16,7 +16,7 @@ import { useEffect, useRef } from "react";
 import { ZazooDirector, type ZazooFrame } from "./director";
 import { MOUTH_PARTS, MOUTH_SHAPES, BROW_PARTS, BROW_SHAPES, LOOP_N, type Loop } from "./parts";
 import { DEFAULT_SPECIES, type ZazooSpecies } from "./species";
-import pandaEgg from "./assets/panda/egg.webp";
+import pandaShell from "./assets/panda/shell.webp";
 import pandaShirt from "./assets/panda/shirt.webp";
 import pandaTie from "./assets/panda/tie.webp";
 import pandaSuit from "./assets/panda/suit.webp";
@@ -66,7 +66,7 @@ export const DEFAULT_APPEARANCE: ZazooAppearance = {
  */
 const CANVAS = "translate(6.82 59.57) scale(0.06405)";
 const P = {
-  egg: [521, 251, 2489, 3314],
+  shell: [521, 251, 2489, 3314],
   shirt: [394, 1206, 2616, 2359],
   tie: [1603, 1667, 295, 1001],
   suit: [512, 1198, 2511, 2376],
@@ -903,7 +903,7 @@ export function ZazooAvatar({ director, width = 340, appearance = DEFAULT_APPEAR
             {painted ? (
               <g transform={CANVAS} data-layer="body">
                 <image
-                  href={pandaEgg} x={P.egg[0]} y={P.egg[1]} width={P.egg[2]} height={P.egg[3]}
+                  href={pandaShell} x={P.shell[0]} y={P.shell[1]} width={P.shell[2]} height={P.shell[3]}
                   filter={pandaArt ? undefined : "url(#zz-body-tint)"}
                 />
               </g>

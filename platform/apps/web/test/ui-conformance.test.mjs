@@ -46,6 +46,8 @@ const EXEMPT = {
   "ChiefOfStaffPage.tsx": "Agent conversation surface, not a Database page.",
   "WhatsAppPage.tsx": "Live session surface driven by the WhatsApp engine, not a table.",
   "RelationshipHelpdeskPage.tsx": "Ticket thread surface; Record Detail shape (§3b).",
+  "AgentDetailPage.tsx":
+    "One Agent's manifest-sourced, read-only detail with the ADR-250 Zazoo room rig — no Database rows, like IntelligencePage it reads modules.list.",
 };
 
 /**

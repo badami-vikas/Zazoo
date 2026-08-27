@@ -11,7 +11,7 @@ import rateLimit from "@fastify/rate-limit";
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from "@trpc/server/adapters/fastify";
 import { appRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
-import { isVerifierConfigured } from "./identity.js";
+import { isVerifierConfigured, missingVerifierNotice } from "./identity.js";
 import { buildWiring, PILOT_ORGANIZATION } from "./wiring.js";
 import { indexMemoryEmbeddings } from "./retrieval-fusion.js";
 import { runUsageRetrievalEval } from "./retrieval-eval.js";
@@ -452,12 +452,13 @@ export async function buildServer() {
     `identity: verifier ${verifierConfigured ? "CONFIGURED" : "not configured (pilot fallback for tokenless requests)"}; ` +
       `stores ${wiring.persistent ? "persistent" : "in-memory"}`,
   );
-  if (!verifierConfigured && (wiring.persistent || process.env.NODE_ENV === "production")) {
-    app.log.warn(
-      "identity: NO verifier configured on a persistent/production deploy — every mutation will be " +
-        "REJECTED with 401 (SEC-1 fail-closed). Set SUPABASE_JWT_SECRET or SUPABASE_URL to enable auth.",
-    );
-  }
+  const verifierNotice = missingVerifierNotice({
+    verifierConfigured,
+    persistent: wiring.persistent,
+    production: process.env.NODE_ENV === "production",
+    sidecarToken: process.env.BRIDGE_SIDECAR_TOKEN,
+  });
+  if (verifierNotice) app.log[verifierNotice.level](verifierNotice.message);
 
   // SEC-2: bound request rates per client IP. A global cap plus a much tighter,
   // independently-counted cap on sensitive procedures (cost/quota-spending mutations,

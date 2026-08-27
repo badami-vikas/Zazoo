@@ -60,7 +60,7 @@ export function localMacSigningConfig(platform, signingIdentity, localIdentity =
  * the private key, which turned every local `pnpm build:tauri` red. Without
  * the key the build skips updater artifacts instead of demanding a secret a
  * developer machine should never hold. */
-export function updaterArtifactsConfig(environment = process.env) {
+export function updaterBundleConfig(environment = process.env) {
   return environment.TAURI_SIGNING_PRIVATE_KEY?.trim()
     ? null
     : { bundle: { createUpdaterArtifacts: false } };
@@ -88,10 +88,10 @@ function build() {
         : `[build-tauri] signing with "${signingIdentity}" — stable designated requirement, TCC grants survive rebuilds`,
     );
   }
-  const updaterConfig = updaterArtifactsConfig();
+  const updaterConfig = updaterBundleConfig();
   if (updaterConfig) {
     console.log(
-      "[build-tauri] no TAURI_SIGNING_PRIVATE_KEY — skipping updater artifacts (CI publishes those)",
+      "[build-tauri] no TAURI_SIGNING_PRIVATE_KEY — skipping the signed updater bundle (CI publishes it)",
     );
   }
   const mergedConfig =

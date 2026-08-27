@@ -21,7 +21,7 @@ import { firstCodesignIdentity } from "./import-macos-certificate.mjs";
 import {
   detectLocalSigningIdentity,
   localMacSigningConfig,
-  updaterArtifactsConfig,
+  updaterBundleConfig,
 } from "./build-tauri.mjs";
 
 const modelRuntimeManifest = JSON.parse(
@@ -262,15 +262,15 @@ test("every native Node addon ships as a signed Framework in the macOS bundle", 
   ]);
 });
 
-test("local builds without the updater private key skip updater artifacts while CI keeps them", () => {
-  assert.deepEqual(updaterArtifactsConfig({}), {
+test("local builds without the updater private key skip the signed updater bundle while CI keeps it", () => {
+  assert.deepEqual(updaterBundleConfig({}), {
     bundle: { createUpdaterArtifacts: false },
   });
-  assert.deepEqual(updaterArtifactsConfig({ TAURI_SIGNING_PRIVATE_KEY: "  " }), {
+  assert.deepEqual(updaterBundleConfig({ TAURI_SIGNING_PRIVATE_KEY: "  " }), {
     bundle: { createUpdaterArtifacts: false },
   });
   assert.equal(
-    updaterArtifactsConfig({ TAURI_SIGNING_PRIVATE_KEY: "dW50cnVzdGVk" }),
+    updaterBundleConfig({ TAURI_SIGNING_PRIVATE_KEY: "dW50cnVzdGVk" }),
     null,
   );
 });

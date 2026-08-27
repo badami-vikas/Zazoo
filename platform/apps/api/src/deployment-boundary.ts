@@ -74,6 +74,13 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
   "jobpilot.definition",
   "jobpilot.create",
   "jobpilot.transition",
+  // TASK-076 onboarding: tracks the chosen resume file NAME and ranked job
+  // functions in the same Cloud-Plane jobpilot store (jobpilot_candidate_profiles,
+  // migration 0043); the resume FILE itself rides the modules.addFile path,
+  // which keeps its own classification.
+  "jobpilot.onboarding.get",
+  "jobpilot.onboarding.saveResume",
+  "jobpilot.onboarding.complete",
 
   // DealPilot — Cloud-Plane RECORD half (DrizzleDealPilotStore via the
   // cloudRecordsDealPilotStore composite). Record read/create/update only;
@@ -181,6 +188,15 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["onboarding.", "onboarding profile + learning state are Local Plane"],
   ["redFlag.", "red-flag Memory is private, owner-scoped, Local"],
   ["chiefOfStaff.", "routes to Local-Plane skills and Memory"],
+
+  // — Accounting / D2C Modules: both stores open per-user sqlite files under the
+  //   user's home Documents (accounting-store.ts / d2c-store.ts dbPath), by their
+  //   own design comments "inside the host-granted files root, never @bridge/db".
+  //   A public cloud instance has no such per-user filesystem to serve.
+  ["accounting.", "the Accounting store is per-user sqlite under the user's Documents"],
+  ["d2c.", "the D2C store is per-user sqlite under the user's Documents"],
+  ["d2cNotes.", "D2C notes live in the same per-user sqlite as the D2C store"],
+  ["d2cResearch.", "D2C research lives in the same per-user sqlite as the D2C store"],
 
   // — Agent execution: a public shell may PROPOSE and DECIDE (both allowed above), but
   //   never drive Runs, Goals/Tasks, or Skills directly.

@@ -2969,7 +2969,7 @@ What each answer means:
 - **Second occurrence of this shape**: a `chat-model-manager` expectation ('downloading' vs 'failed') flaked
   the same way on 2026-08-16 under the same conditions and was likewise clean in isolation.
 
-## OPEN 2026-08-17 — `main` fails its own `check:vocabulary` gate after PR #69 (TASK-036)
+## RESOLVED 2026-08-17 — `main` fails its own `check:vocabulary` gate after PR #69 (TASK-036) (resolved 2026-08-27: TASK-079; ADR-257)
 
 - **What is wrong**: `pnpm verify` cannot pass on `main`. `node scripts/check-retired-vocabulary.mjs` exits 1 with 9 findings, 8 in
   `apps/web/src/app/avatar/zazoo/ZazooAvatar.tsx` and 1 in `apps/web/src/app/components/shared/ModuleGovernanceSection.tsx`.
@@ -2981,15 +2981,18 @@ What each answer means:
   surfaces; its author should pick the replacement term.
 - **Consequence**: any session running the full gate on `main` will see red that is not theirs. Check the finding paths before
   attributing a `check:vocabulary` failure to your own change.
+- **Resolution (2026-08-27, TASK-079, under the user's blanket fix-all directive)**: ZazooAvatar's 8 `egg` findings renamed to `shell` (identifiers + `git mv` of egg.webp; the scanner never reads comments, which keep describing the art); ModuleGovernanceSection's copy reworded to drop the retired noun. TASK-078's own 9 fresh `artifact` findings were also caught and fixed here — renames everywhere except Tauri's schema key `createUpdaterArtifacts`, which got two reviewed AP-167 allowlist entries as a foreign contract. `check:vocabulary` exits 0 with the baseline matching.
 
-## OPEN 2026-08-27 — TASK-077's auto-updater can never reach its endpoint while the repo is private
+## RESOLVED 2026-08-27 — TASK-077's auto-updater can never reach its endpoint while the repo is private (attach: TASK-079; ADR-257)
 
 - **What is wrong**: `plugins.updater.endpoints` points at `github.com/manishsbhoopalam8498/relationship-os/releases/latest/download/latest.json`, and `tauri-plugin-updater` fetches it unauthenticated. The repository is private, so GitHub answers 404 — every release launch logs "update check failed (continuing on current build)" and no install will ever auto-update until the repo (or at least its releases) is public, or the endpoint moves somewhere reachable.
 - **Observed live 2026-08-27** on the first release-mode launch of a locally built bundle (TASK-078's fresh-machine run). Graceful degradation held: launch continues on the current build.
 - **Left for the updater's owner**: the fix is a product/distribution decision (public releases vs. an authenticated update host), not a code patch this session should pick.
+- **Resolution (2026-08-27, TASK-079)**: the user chose "Disable updater for now" from the offered options. `spawn_background_check` returns early with one honest log line unless `BRIDGE_UPDATER=1`; keys, CI publishing, and endpoints are kept so re-enabling is trivial once a reachable distribution exists.
 
-## OPEN 2026-08-27 — desktop API logs SEC-1 "NO verifier configured" although the sidecar token is the desktop auth path
+## RESOLVED 2026-08-27 — desktop API logs SEC-1 "NO verifier configured" although the sidecar token is the desktop auth path (attach: TASK-079; ADR-257)
 
 - **What is wrong**: on every desktop launch the API logs `identity: NO verifier configured on a persistent/production deploy — every mutation will be REJECTED with 401 (SEC-1 fail-closed). Set SUPABASE_JWT_SECRET or SUPABASE_URL to enable auth.` The claim is false on desktop: the webview authenticates via the sidecar token and mutations succeed (verified live — `chat.thread.create` returned 200 while the warning stood in the same log).
 - **Why it matters**: a first responder reading a desktop log will chase a scary identity failure that is not happening; the warning should either be silenced for `BRIDGE_LOCAL_RESIDENCY=desktop-local` or reworded to say which deploys it applies to.
 - **Left for the identity workstream**: the correct residency condition is theirs to pick.
+- **Resolution (2026-08-27, TASK-079)**: `missingVerifierNotice()` in identity.ts (unit-tested, seen red-first) — the loud warning fires only when genuinely fail-closed (persistent/production, no verifier, no sidecar token); the managed desktop sidecar gets an accurate info line naming the token as the auth path; a configured verifier stays silent. The chosen signal is `BRIDGE_SIDECAR_TOKEN`, the same one `serverHostConfig()` already treats as the managed-desktop marker.

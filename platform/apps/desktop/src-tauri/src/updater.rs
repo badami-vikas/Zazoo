@@ -22,6 +22,18 @@ pub fn spawn_background_check(app: AppHandle) {
     if cfg!(debug_assertions) {
         return;
     }
+    // Disabled until a reachable distribution endpoint exists (user decision
+    // 2026-08-27, ADR-257): the configured endpoint is this repo's GitHub
+    // Releases, which is private, so the unauthenticated updater fetch can
+    // only ever 404 — the check was pure launch noise. BRIDGE_UPDATER=1
+    // re-enables for testing once releases are actually reachable.
+    if std::env::var("BRIDGE_UPDATER").as_deref() != Ok("1") {
+        eprintln!(
+            "[bridge-desktop] updater disabled: no reachable release endpoint while the \
+             repository is private (set BRIDGE_UPDATER=1 to re-enable)"
+        );
+        return;
+    }
     tauri::async_runtime::spawn(async move {
         let updater = match app.updater() {
             Ok(updater) => updater,

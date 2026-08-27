@@ -158,7 +158,7 @@ export function ModuleGovernanceSection({
           </p>
         ) : pkg === null ? (
           <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
-            This Module has no installed package yet, so it declares no governance policy.
+            This Module has nothing installed yet, so it declares no governance policy.
           </p>
         ) : !declared ? (
           // Present-not-absent: say what is true rather than hiding the Section.
