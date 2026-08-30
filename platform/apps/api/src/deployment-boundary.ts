@@ -179,6 +179,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["automation.", "Automation authoring grants a trigger the right to start Runs"],
   ["commons.", "Commons publication is an External-band action"],
   ["moduleGovernance.", "the per-Module governance overlay (TASK-088) is Local-Plane state, and editing what a Module is allowed to do moves the trust boundary"],
+  ["tableSchema.", "the column overlay (TASK-084) is Local-Plane state, and reshaping a Database — or editing a formula that every client's dashboard reads — is a governed, desktop-only authoring action"],
   ["organization.create", "Organization lifecycle is not a public-shell action"],
   ["organization.rename", "Organization lifecycle is not a public-shell action"],
   ["organization.inviteMember", "membership changes are not a public-shell action"],

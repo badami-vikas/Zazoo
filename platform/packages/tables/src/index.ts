@@ -8,8 +8,14 @@ export type {
   ViewKind,
   GraphScope,
   ViewConfig,
+  ColumnOverlay,
 } from "./types.js";
-export { VIEW_KINDS, defaultViewConfig, normalizeViewKind } from "./types.js";
+export {
+  VIEW_KINDS,
+  defaultViewConfig,
+  normalizeViewKind,
+  applyColumnOverlay,
+} from "./types.js";
 export type { PersistencePort } from "./persistence-port.js";
 export { createLocalStoragePort, createMemoryPort } from "./persistence-port.js";
 export { applyFilters, applySorts, groupBy } from "./engine.js";

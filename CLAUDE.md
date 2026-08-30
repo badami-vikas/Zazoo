@@ -81,16 +81,16 @@ user approval remain universal. Never weaken a safety boundary to save tokens.
 
 ## Product canon
 
-- UI Page/nav/View work follows [UI Rulebook](docs/raw/ui-rulebook.md): data-shape surfaces,
-  landing/related/Files Sections, standard Views including Form, shared menus, Control Panel in
-  3-dots, and local files under `~/Documents/Bridge/<Organization>/<Module>/<Sub-module>/`.
+- UI Page/nav/View work follows the [UI Rulebook](docs/raw/ui-rulebook.md), the single canon; local
+  files sit under `~/Documents/Bridge/<Organization>/<Module>/<Sub-module>/`.
 - [docs/glossary.md](docs/glossary.md) governs copy, identifiers, APIs, schema, Events, payloads, and
   tests. Domain Record labels never become kernel primitives. Legacy names need a time-boxed
   [migration](docs/raw/vocabulary-code-migration-plan-2026-07-14.md) with deletion criteria.
 - Every Module shows a **Governance Section** below Intelligence: the manifest's `governance`
-  `allow`/`deny` (`platform/modules/manifests`), engine-read. A Module declaring none renders an
-  honest empty state; an empty policy is not a default-deny. Editing is not built yet (BUGS 2026-08-29). Accounting and D2C are Local-Plane sqlite (ADR-246/248).
-- Every installed Module is clickable with manifest-driven detail. Skills stay under consuming
+  `allow`/`deny` (`platform/modules/manifests`), engine-read, edited as an Organization overlay
+  replacing it (ADR-263); an empty policy is not a default-deny. Accounting and D2C are Local-Plane
+  sqlite (ADR-246/248).
+- Every installed Module is clickable. Skills stay under consuming
   Agents; only an attributable allowed Agent invokes them. Automations start Agent Runs. Relationship
   toggles are Signals/People/Communities; Signal is a participant-linked Event. Retained data is
   Module-associated Memory. Second Brain is cross-Module graph UI, not Engine vocabulary. Both side

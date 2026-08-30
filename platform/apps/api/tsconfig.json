@@ -61,6 +61,9 @@
       "path": "../../modules/accounting"
     },
     {
+      "path": "../../packages/tables"
+    },
+    {
       "path": "../../modules/d2c"
     }
   ],

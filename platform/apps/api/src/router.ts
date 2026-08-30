@@ -109,7 +109,22 @@ import {
   resolveModuleGovernance,
 } from "@bridge/core";
 import { eq, desc } from "drizzle-orm";
-import { schema as accountingSchema } from "@bridge/accounting";
+import { schema as accountingSchema, validateExpression } from "@bridge/accounting";
+import { applyColumnOverlay } from "@bridge/tables";
+import type { ColumnKind, ColumnOverlay, TableSpec } from "@bridge/tables";
+import {
+  TABLE_SCHEMA_NAMESPACE_PREFIX,
+  applyColumnOp,
+  automationDependencies,
+  formulaDependencies,
+  formulaDependentIds,
+  hasOverlay,
+  readStoredTableSchema,
+  relationDependencies,
+  skillDependencies,
+  viewDependencies,
+  type ColumnDependencyPreview,
+} from "./table-schema.js";
 import { d2cSchema } from "./d2c-store.js";
 import type {
   Action,
@@ -2900,6 +2915,42 @@ async function proposeRelationshipMutation(
     proposal,
     materialization: { status: "applied" as const, value },
   };
+}
+
+/**
+ * Archive ONE Relationship Record — the single-Record form, and the only one.
+ *
+ * TASK-086's constraint: a bulk action obeys the same governance as its
+ * single-Record form, never a second thinner write path. Rather than assert
+ * that by hand, `archivePerson`, `archiveCommunity` and the bulk
+ * `archiveRecords` all call THIS: the ownership check and the governed proposal
+ * are written once, so N Records in a bulk call produce N ledger decisions
+ * indistinguishable from N separate single calls. There is no batch write for a
+ * batch to drift onto.
+ */
+async function archiveRelationshipRecord(
+  ctx: Pick<ApiContext, "wiring" | "identity" | "run">,
+  organizationId: string,
+  recordType: "person" | "community",
+  id: string,
+) {
+  const record =
+    recordType === "person"
+      ? await ctx.wiring.graphStore.getPerson(organizationId, ctx.identity.id, id)
+      : await ctx.wiring.graphStore.getCommunity(organizationId, ctx.identity.id, id);
+  if (!record?.isOwner) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: recordType === "person" ? "Person not found" : "Community not found",
+    });
+  }
+  const payload = relationshipMutationPayloadSchema.parse({
+    kind: "relationship_record_mutation",
+    recordType,
+    operation: "archive",
+    recordId: id,
+  });
+  return proposeRelationshipMutation(ctx, organizationId, payload);
 }
 
 async function materializeApprovedCapture(
@@ -6248,6 +6299,21 @@ const ACCOUNTING_REPORTS_SPEC = {
   id: "accounting.reports",
   columns: [
     { id: "label", label: "Metric", kind: "text" as const, editable: false },
+    /**
+     * TASK-084's formula column. The cell's own field holds the computed VALUE
+     * (unknown until facts are imported — `null`, never a fabricated figure),
+     * and `expressionField` names the field holding the EXPRESSION the fx
+     * affordance toggles to. This is a real formula, stored in
+     * `accountingSchema.formulas.expression` and evaluated by the Module's own
+     * engine — not a demonstration column.
+     */
+    {
+      id: "value",
+      label: "Value",
+      kind: "formula" as const,
+      expressionField: "expression",
+      editable: true,
+    },
     { id: "unit", label: "Unit", kind: "text" as const, editable: false },
     { id: "description", label: "Description", kind: "text" as const, editable: false },
     { id: "version", label: "Version", kind: "number" as const, editable: false },
@@ -6298,6 +6364,76 @@ const D2C_NOTES_SPEC = {
     { id: "updatedAt", label: "Updated", kind: "date" as const, editable: false },
   ],
 };
+
+// ── Governed schema mutation: the shipped specs it knows (TASK-084) ──────────
+//
+// The capability is only offered for a table whose SHIPPED spec this process
+// holds, because a rename has to be validated against the real column list and
+// a dependency preview has to read the real column. Every other table reports
+// the capability unavailable with that reason, and its column menu disables
+// against that answer instead of shipping items that fail at the server
+// (ADR-001 keeps them visible; ADR-247 keeps them honest).
+const SCHEMA_MUTABLE_SPECS: Record<string, TableSpec> = Object.fromEntries(
+  [
+    ACCOUNTING_CLIENTS_SPEC,
+    ACCOUNTING_REPORTS_SPEC,
+    D2C_ORDERS_SPEC,
+    D2C_INVENTORY_SPEC,
+    D2C_RESEARCH_SPEC,
+    D2C_NOTES_SPEC,
+  ].map((spec) => [spec.id, spec as TableSpec]),
+);
+
+/** Mirrors `ColumnKind` in @bridge/tables. Listed rather than derived because a
+ * Zod enum needs the literals; the typecheck below fails if the two drift. */
+const COLUMN_KINDS = [
+  "text",
+  "number",
+  "select",
+  "multiselect",
+  "date",
+  "checkbox",
+  "url",
+  "relation",
+  "formula",
+  "skill",
+  "location",
+] as const satisfies readonly ColumnKind[];
+
+/** The shipped spec, the user's overlay, and the spec the surface should render
+ * — plus whether the capability exists here at all. */
+async function readTableSchemaCapability(
+  wiring: Pick<Wiring, "localPlane">,
+  organizationId: string,
+  specId: string,
+): Promise<{
+  available: boolean;
+  reason: string | null;
+  spec: TableSpec | null;
+  overlay: ColumnOverlay | null;
+  canUndo: boolean;
+}> {
+  const base = SCHEMA_MUTABLE_SPECS[specId];
+  if (!base) {
+    return {
+      available: false,
+      reason: `Unavailable: no governed schema-mutation capability is installed for ${specId}`,
+      spec: null,
+      overlay: null,
+      canUndo: false,
+    };
+  }
+  const stored = readStoredTableSchema(
+    await wiring.localPlane.state.read(organizationId, `${TABLE_SCHEMA_NAMESPACE_PREFIX}${specId}`),
+  );
+  return {
+    available: true,
+    reason: null,
+    spec: applyColumnOverlay(base, stored.overlay),
+    overlay: hasOverlay(stored.overlay) ? stored.overlay : null,
+    canUndo: stored.previous !== null,
+  };
+}
 
 // ── Module governance overlay (TASK-088, ADR-248/ADR-178) ────────────────────
 //
@@ -11891,21 +12027,7 @@ export const appRouter = t.router({
       .mutation(async ({ input, ctx }) => {
         assertPilotOrganization(input.organizationId);
         await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        const person = await ctx.wiring.graphStore.getPerson(
-          input.organizationId,
-          ctx.identity.id,
-          input.id,
-        );
-        if (!person?.isOwner) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Person not found" });
-        }
-        const payload = relationshipMutationPayloadSchema.parse({
-          kind: "relationship_record_mutation",
-          recordType: "person",
-          operation: "archive",
-          recordId: input.id,
-        });
-        return proposeRelationshipMutation(ctx, input.organizationId, payload);
+        return archiveRelationshipRecord(ctx, input.organizationId, "person", input.id);
       }),
 
     listCommunities: authenticatedProcedure
@@ -11984,21 +12106,65 @@ export const appRouter = t.router({
       .mutation(async ({ input, ctx }) => {
         assertPilotOrganization(input.organizationId);
         await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
-        const community = await ctx.wiring.graphStore.getCommunity(
-          input.organizationId,
-          ctx.identity.id,
-          input.id,
-        );
-        if (!community?.isOwner) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Community not found" });
+        return archiveRelationshipRecord(ctx, input.organizationId, "community", input.id);
+      }),
+
+    /**
+     * The bulk form of the two procedures above — TASK-086's table multi-select.
+     *
+     * IT IS A LOOP, DELIBERATELY. Every id goes through
+     * `archiveRelationshipRecord`, the same function `archivePerson` and
+     * `archiveCommunity` call, so three Records produce three proposals and
+     * three ledger decisions, each naming the Record it archived. There is no
+     * batch write for a batch to be governed more thinly than a single delete —
+     * which is the whole constraint. Sequential rather than `Promise.all` so
+     * ledger append order stays deterministic and one failure cannot race the
+     * others.
+     *
+     * A per-id failure is REPORTED, not thrown: a partial bulk that reported
+     * nothing would leave the user unable to tell which Records survived.
+     */
+    archiveRecords: authenticatedProcedure
+      .input(z.object({
+        organizationId: databaseUuidSchema,
+        recordType: z.enum(["person", "community"]),
+        // Bounded: an unbounded list is an unbounded number of governed
+        // proposals in one request.
+        ids: z.array(databaseUuidSchema).min(1).max(50),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const results: Array<{
+          id: string;
+          proposalId: string | null;
+          materialization: { status: string } | null;
+          error: string | null;
+        }> = [];
+        for (const id of new Set(input.ids)) {
+          try {
+            const outcome = await archiveRelationshipRecord(
+              ctx,
+              input.organizationId,
+              input.recordType,
+              id,
+            );
+            results.push({
+              id,
+              proposalId: outcome.proposal.id,
+              materialization: { status: outcome.materialization.status },
+              error: null,
+            });
+          } catch (caught) {
+            results.push({
+              id,
+              proposalId: null,
+              materialization: null,
+              error: caught instanceof TRPCError ? caught.message : "Archive failed",
+            });
+          }
         }
-        const payload = relationshipMutationPayloadSchema.parse({
-          kind: "relationship_record_mutation",
-          recordType: "community",
-          operation: "archive",
-          recordId: input.id,
-        });
-        return proposeRelationshipMutation(ctx, input.organizationId, payload);
+        return { results };
       }),
 
     createInteraction: authenticatedProcedure
@@ -18767,6 +18933,234 @@ export const appRouter = t.router({
           () => ({ state: null, result: null }),
         );
         return readResolvedModuleGovernance(ctx.wiring, input.organizationId, input.moduleName);
+      }),
+  }),
+
+  // ── Governed schema mutation (TASK-084, ADR-258 under AP-168) ──────────────
+  //
+  // ONE CONTIGUOUS BLOCK on purpose — TASK-086 is editing this file at the same
+  // time. The rules live in `table-schema.ts`; only the seam is here.
+  //
+  // The capability is REPORTED, never assumed. `get` answers `available: false`
+  // with a reason for a table whose shipped spec this process does not hold, and
+  // the column menu disables against that answer — which is the whole dependency
+  // note of TASK-084: a menu item enabled against a capability that is not there
+  // fails at the server, and ADR-247 forbids claiming what is not true.
+  tableSchema: t.router({
+    get: procedure
+      .input(z.object({ organizationId: z.string().min(1), specId: z.string().trim().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return readTableSchemaCapability(ctx.wiring, input.organizationId, input.specId);
+      }),
+
+    /**
+     * What breaks if this column goes. Every source states whether it was
+     * INSPECTED — an empty list from a source nobody looked at reads exactly
+     * like "nothing breaks", and that is the lie ADR-247 forbids.
+     *
+     * A read-only question about an identifier, so it does not require the
+     * identifier to be a current column: "what depends on this name" is
+     * answerable either way, and refusing would make the preview useless for
+     * exactly the case a user wants it.
+     */
+    preview: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          specId: z.string().trim().min(1),
+          columnId: z.string().trim().min(1),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        const capability = await readTableSchemaCapability(
+          ctx.wiring,
+          input.organizationId,
+          input.specId,
+        );
+        if (!capability.spec) {
+          throw new TRPCError({ code: "NOT_FOUND", message: capability.reason ?? input.specId });
+        }
+        const formulas = await ctx.wiring.accountingDb.select().from(accountingSchema.formulas);
+        const preview: ColumnDependencyPreview = {
+          specId: input.specId,
+          columnId: input.columnId,
+          views: viewDependencies(),
+          automations: automationDependencies(),
+          skills: skillDependencies(capability.spec, input.columnId),
+          formulas: formulaDependencies(formulas, input.columnId),
+          relations: relationDependencies(capability.spec, input.columnId),
+        };
+        return preview;
+      }),
+
+    mutate: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          specId: z.string().trim().min(1),
+          op: z.discriminatedUnion("kind", [
+            z.object({
+              kind: z.literal("rename"),
+              columnId: z.string().trim().min(1),
+              label: z.string().trim().min(1).max(120),
+            }),
+            z.object({
+              kind: z.literal("setKind"),
+              columnId: z.string().trim().min(1),
+              columnKind: z.enum(COLUMN_KINDS),
+            }),
+            z.object({
+              kind: z.literal("setLocked"),
+              columnId: z.string().trim().min(1),
+              locked: z.boolean(),
+            }),
+            z.object({ kind: z.literal("delete"), columnId: z.string().trim().min(1) }),
+          ]),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        // A schema an Agent can rewrite is not a schema. Same floor as every
+        // other authority change in this router.
+        assertHumanIdentity(ctx, "Changing a Database's columns");
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const capability = await readTableSchemaCapability(
+          ctx.wiring,
+          input.organizationId,
+          input.specId,
+        );
+        if (!capability.spec) {
+          throw new TRPCError({ code: "NOT_FOUND", message: capability.reason ?? input.specId });
+        }
+        // A command against a column that is not there would be stored where
+        // nothing reads it, and the user would believe they had changed
+        // something. Say so instead.
+        if (!capability.spec.columns.some((column) => column.id === input.op.columnId)) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `${input.specId} has no column ${input.op.columnId}`,
+          });
+        }
+        const updatedAt = ctx.run.clock.nowISO();
+        await ctx.wiring.localPlane.state.update(
+          input.organizationId,
+          `${TABLE_SCHEMA_NAMESPACE_PREFIX}${input.specId}`,
+          null,
+          (current) => {
+            const stored = readStoredTableSchema(current);
+            return {
+              state: {
+                overlay: applyColumnOp(stored.overlay, input.op, updatedAt),
+                previous: stored.overlay,
+              },
+              result: null,
+            };
+          },
+        );
+        // Re-read rather than echoing the input: the server has the last word on
+        // what changed (ADR-247).
+        return readTableSchemaCapability(ctx.wiring, input.organizationId, input.specId);
+      }),
+
+    undo: procedure
+      .input(z.object({ organizationId: z.string().min(1), specId: z.string().trim().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        assertHumanIdentity(ctx, "Undoing a Database schema change");
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        await ctx.wiring.localPlane.state.update(
+          input.organizationId,
+          `${TABLE_SCHEMA_NAMESPACE_PREFIX}${input.specId}`,
+          null,
+          (current) => {
+            const stored = readStoredTableSchema(current);
+            return { state: { overlay: stored.previous ?? {}, previous: null }, result: null };
+          },
+        );
+        return readTableSchemaCapability(ctx.wiring, input.organizationId, input.specId);
+      }),
+
+    /**
+     * The fx affordance's commit path: edit a formula column's EXPRESSION
+     * rather than its value.
+     *
+     * `validateExpression` (engine.ts) is the seam — the one place an expression
+     * is understood — and it runs BEFORE the write, so a bad edit is refused
+     * rather than breaking every client's dashboard. Editing a formula is global
+     * and retroactive by the Module's own locked decision, which is exactly why
+     * it is human-only and governed like `overrides.create`.
+     */
+    setFormulaExpression: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          formulaId: z.string().trim().min(1),
+          expression: z.string().trim().min(1).max(2000),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        assertHumanIdentity(ctx, "Editing a formula's expression");
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+
+        const { resolved } = await readResolvedModuleGovernance(
+          ctx.wiring,
+          input.organizationId,
+          "accounting",
+        );
+        try {
+          assertModuleGovernance("accounting", resolved ?? undefined, "books.write.human");
+        } catch (error) {
+          if (error instanceof ModuleGovernanceDenied) {
+            throw new TRPCError({ code: "FORBIDDEN", message: error.message });
+          }
+          throw error;
+        }
+
+        const stored = await ctx.wiring.accountingDb.select().from(accountingSchema.formulas);
+        const target = stored.find((formula) => formula.id === input.formulaId);
+        if (!target) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `No formula ${input.formulaId}` });
+        }
+        const accounts = await ctx.wiring.accountingDb.select().from(accountingSchema.accounts);
+        const verdict = validateExpression(
+          input.expression,
+          input.formulaId,
+          stored,
+          accounts.map((account) => account.id),
+        );
+        if (!verdict.ok) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: verdict.error ?? `Unknown reference: ${verdict.unknownReferences.join(", ")}`,
+          });
+        }
+
+        await ctx.wiring.accountingDb
+          .update(accountingSchema.formulas)
+          .set({
+            expression: input.expression,
+            version: target.version + 1,
+            updatedAt: ctx.run.clock.nowISO(),
+          })
+          .where(eq(accountingSchema.formulas.id, input.formulaId));
+
+        // What recomputes, derived from the graph the edit produced — never
+        // hand-maintained, and named so the caller can refresh exactly those
+        // cells instead of claiming "everything is up to date".
+        const after = stored.map((formula) =>
+          formula.id === input.formulaId ? { ...formula, expression: input.expression } : formula,
+        );
+        const dependents = formulaDependentIds(after, input.formulaId) ?? [];
+        return {
+          id: input.formulaId,
+          expression: input.expression,
+          version: target.version + 1,
+          dependencies: verdict.dependencies,
+          dependents,
+        };
       }),
   }),
 

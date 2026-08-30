@@ -37,8 +37,19 @@ import { Check, ChevronDown, Plus } from "lucide-react";
 import { Button } from "../../components/ui/button.js";
 import { StandardColumnMenu } from "../../components/shared/StandardColumnMenu.js";
 import { StandardRowMenu } from "../../components/shared/StandardRowMenu.js";
+import { TableSelectionBar } from "../../components/shared/TableSelectionBar.js";
+import { Checkbox } from "../../components/ui/checkbox.js";
+import {
+  EMPTY_SELECTION,
+  LONG_PRESS_MOVE_TOLERANCE_PX,
+  LONG_PRESS_MS,
+  isSelecting,
+  reduceSelection,
+  type SelectionEvent,
+} from "../selection.js";
 import { RedFlagControl } from "../../components/shared/RedFlagControl.js";
 import { StandardCellMenu } from "../../components/shared/StandardCellMenu.js";
+import { FormulaCellEditor } from "../../components/shared/FormulaCellEditor.js";
 import { RedFlagProvider, useOptionalRedFlagContext } from "../../components/shared/RedFlagProvider.js";
 import {
   isFlaggableValue,
@@ -123,6 +134,9 @@ export function TableView({
   onPin,
   onRequestFilter,
   onHideColumn,
+  onDeleteRows,
+  deleteDisabledReason,
+  columnSchema,
 }: DataViewProps) {
   const filtered = useMemo(
     () => applyFilters(data, view.rowFilters, view.filterMatch),
@@ -157,6 +171,69 @@ export function TableView({
    *  a control that vanishes. Pages that know the real reason pass it. */
   const insertReason =
     insertDisabledReason ?? "This Database has no create path wired yet, so Records cannot be added by hand here.";
+
+  /**
+   * MULTI-SELECT (C-12). The state is a value, not a set of booleans scattered
+   * across handlers — every transition goes through `reduceSelection`, which is
+   * where the finger-lift swallow lives and the only part of this that a
+   * headless test can drive.
+   */
+  const [selection, setSelection] = useState(EMPTY_SELECTION);
+  const selecting = isSelecting(selection);
+  /**
+   * Dispatch, and report whether the caller should still open the Record.
+   *
+   * A ref mirror rather than `setSelection(updater)`: React does not run a
+   * functional updater synchronously, so the outcome could not be read back in
+   * the same handler — and the long-press timer fires ~500ms after the render
+   * whose `selection` its closure captured, which is long enough for that
+   * closure to be stale.
+   */
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  const dispatchSelection = useCallback((event: SelectionEvent): boolean => {
+    const outcome = reduceSelection(selectionRef.current, event);
+    selectionRef.current = outcome.state;
+    setSelection(outcome.state);
+    return outcome.open;
+  }, []);
+  // Escape clears, on every table (C-12: "Escape-to-clear behave identically on
+  // every surface"). Bound to the document rather than the table so it works
+  // while focus sits in the action bar.
+  useEffect(() => {
+    if (!selecting) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelection(EMPTY_SELECTION);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selecting]);
+
+  /** The in-flight hold: its timer, and where the finger started, so a scroll
+   *  cancels it rather than selecting a row the user was swiping past. */
+  const longPress = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    x: number;
+    y: number;
+  } | null>(null);
+  const cancelLongPress = useCallback(() => {
+    if (longPress.current === null) return;
+    clearTimeout(longPress.current.timer);
+    longPress.current = null;
+  }, []);
+  useEffect(() => cancelLongPress, [cancelLongPress]);
+
+  /**
+   * The ONE delete path. The row caret's Delete, the cell menu's Delete row and
+   * the action bar's "Delete N" all land here with a list of ids — there is no
+   * single-Record variant to drift from the bulk one, which is what the
+   * Constraint on this work asks for. The server issues one governed decision
+   * per id (see `relationship.archiveRecords`).
+   */
+  const deleteRows = useMemo(
+    () => (onDeleteRows ? (ids: string[]) => onDeleteRows(ids) : undefined),
+    [onDeleteRows],
+  );
 
   // A pending row-open, held back long enough for a second click to cancel it.
   const pendingOpen = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,10 +294,24 @@ export function TableView({
       ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1]!.end
       : 0;
 
-  const colSpan = columns.length + 1;
+  // +2: the leading selection checkbox column and the trailing row-actions
+  // column. Both are part of the table's SHAPE (§3a) — the checkbox column is a
+  // table capability, not a page opt-in, so it is always there and pointer users
+  // enter multi-select through it.
+  const colSpan = columns.length + 2;
   const canEditRow = (row: DataRow) => Boolean(onUpdate) && (!canUpdateRow || canUpdateRow(row));
 
   const table = (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      {/* Shared chrome (C-12): the bar is rendered by the ONE table renderer, so
+          every table in the app gets the same count, Cancel and confirmation.
+          It renders nothing at zero selected — C-13 forbids a resident delete. */}
+      <TableSelectionBar
+        count={selection.selected.length}
+        onClear={() => setSelection(EMPTY_SELECTION)}
+        {...(deleteRows ? { onDelete: () => deleteRows([...selection.selected]) } : {})}
+        {...(deleteDisabledReason ? { deleteDisabledReason } : {})}
+      />
     <div
       ref={setScrollEl}
       /* max-h-full, NOT h-full: the box is as tall as the table and no taller,
@@ -244,6 +335,17 @@ export function TableView({
               underneath it, which is a real visual bug, not a cosmetic
               difference — so this one stays solid. */}
           <tr style={{ background: "var(--color-line-soft)" }}>
+            <th
+              scope="col"
+              className="w-px whitespace-nowrap px-2"
+              style={{
+                height: HEADER_HEIGHT,
+                background: "var(--color-line-soft)",
+                borderBottom: "1px solid var(--color-border)",
+              }}
+            >
+              <span className="sr-only">Select rows</span>
+            </th>
             {columns.map((col) => {
               const activeSort = view.sorts.find((sort) => sort.id === col.id);
               const numeric = isNumericColumn(col);
@@ -277,6 +379,36 @@ export function TableView({
                         onViewChange({ ...view, sorts: [{ id: col.id, dir: direction }] })
                       }
                       onHide={onHideColumn ? () => onHideColumn(col.id) : undefined}
+                      // TASK-084: the schema commands, routed to whatever the
+                      // server said this surface may do. Absent `columnSchema`
+                      // leaves every one of them visible and disabled with the
+                      // menu's own stated reason.
+                      columnId={col.id}
+                      columnKind={col.kind}
+                      locked={col.locked}
+                      capability={columnSchema?.capability ?? null}
+                      onRename={
+                        columnSchema?.rename
+                          ? (label) => columnSchema.rename!(col.id, label)
+                          : undefined
+                      }
+                      onChangeType={
+                        columnSchema?.changeType
+                          ? (kind) => columnSchema.changeType!(col.id, kind)
+                          : undefined
+                      }
+                      onSetLocked={
+                        columnSchema?.setLocked
+                          ? (next) => columnSchema.setLocked!(col.id, next)
+                          : undefined
+                      }
+                      onDelete={
+                        columnSchema?.remove ? () => columnSchema.remove!(col.id) : undefined
+                      }
+                      onPreviewDelete={
+                        columnSchema?.preview ? () => columnSchema.preview!(col.id) : undefined
+                      }
+                      onUndo={columnSchema?.undo}
                     />
                     {activeSort && (
                       <>
@@ -331,10 +463,54 @@ export function TableView({
                 : null;
             const key = stableRecordId ?? String(index);
             const rowEditable = canEditRow(row);
+            // Selection is keyed by the STABLE id for the same reason the red
+            // flag anchor is: a sorted array index means nothing once the table
+            // re-sorts, and a bulk delete keyed on one would delete the wrong
+            // Records. A row without a stable id simply is not selectable.
+            const selectable = stableRecordId !== null;
+            const selected = selectable && selection.selected.includes(stableRecordId);
 
             return (
               <tr
                 key={key}
+                data-selected={selected ? "true" : undefined}
+                // Long-press (C-12). The hold is cancelled by lift, by a drift
+                // past the tolerance (that gesture is a scroll), and by the
+                // browser stealing the touch — otherwise a scroll that happens
+                // to pause selects whatever it started on.
+                onTouchStart={
+                  selectable
+                    ? (event) => {
+                        const touch = event.touches[0];
+                        if (!touch) return;
+                        cancelLongPress();
+                        longPress.current = {
+                          x: touch.clientX,
+                          y: touch.clientY,
+                          timer: setTimeout(() => {
+                            longPress.current = null;
+                            // A hold is never also an open: cancel the pending
+                            // single-click open the same gesture scheduled.
+                            cancelPendingOpen();
+                            dispatchSelection({ type: "longPress", key: stableRecordId });
+                          }, LONG_PRESS_MS),
+                        };
+                      }
+                    : undefined
+                }
+                onTouchMove={(event) => {
+                  const touch = event.touches[0];
+                  const start = longPress.current;
+                  if (!touch || !start) return;
+                  if (
+                    Math.abs(touch.clientX - start.x) > LONG_PRESS_MOVE_TOLERANCE_PX ||
+                    Math.abs(touch.clientY - start.y) > LONG_PRESS_MOVE_TOLERANCE_PX
+                  ) {
+                    cancelLongPress();
+                  }
+                }}
+                onTouchEnd={cancelLongPress}
+                onTouchCancel={cancelLongPress}
                 // h-10 is ROW_HEIGHT, declared rather than emerged. The row used
                 // to be sized by its tallest cell, which made it 52px — the
                 // shared row-menu Button is 34px, and vertical padding on top of
@@ -346,8 +522,31 @@ export function TableView({
                   height: ROW_HEIGHT,
                   borderBottom:
                     index === sorted.length - 1 ? undefined : "1px solid var(--color-line-soft)",
+                  // iOS raises its own text-selection callout on a long press,
+                  // which would fight the selection gesture for the same hold.
+                  // This property is touch-only, so desktop text selection and
+                  // copy are untouched.
+                  WebkitTouchCallout: "none",
+                  ...(selected ? { background: "var(--color-row-hover)" } : {}),
                 }}
               >
+                <td data-stop className="w-px whitespace-nowrap px-2 align-middle">
+                  <Checkbox
+                    checked={selected}
+                    disabled={!selectable}
+                    aria-label={selected ? "Deselect row" : "Select row"}
+                    title={
+                      selectable
+                        ? undefined
+                        : "Unavailable: this row has no stable Record id, so it cannot be selected"
+                    }
+                    onCheckedChange={() => {
+                      if (!stableRecordId) return;
+                      cancelPendingOpen();
+                      dispatchSelection({ type: "checkbox", key: stableRecordId });
+                    }}
+                  />
+                </td>
                 {columns.map((col) => {
                   const value = row[col.id];
                   const numeric = isNumericColumn(col);
@@ -369,17 +568,37 @@ export function TableView({
                         paddingLeft: CELL_PAD_X,
                         paddingRight: CELL_PAD_X,
                       }}
+                      // Every tap on a row's cells goes through the reducer,
+                      // not straight to open: it decides whether this click is
+                      // the finger-lift artefact of a long-press (swallow), a
+                      // toggle (multi-select is active), or a genuine open.
                       onClick={
-                        onOpenRecord && !isEditing
-                          ? (event) => {
+                        isEditing
+                          ? undefined
+                          : (event) => {
                               if ((event.target as HTMLElement).closest("[data-stop]")) return;
                               cancelPendingOpen();
+                              if (!selectable) {
+                                // Nothing to toggle, and opening a row mid-selection
+                                // would leave the selection behind on a surface the
+                                // user has navigated away from.
+                                if (selecting || !onOpenRecord) return;
+                                pendingOpen.current = setTimeout(() => {
+                                  pendingOpen.current = null;
+                                  onOpenRecord(row);
+                                }, DOUBLE_CLICK_GRACE_MS);
+                                return;
+                              }
+                              const shouldOpen = dispatchSelection({
+                                type: "activate",
+                                key: stableRecordId,
+                              });
+                              if (!shouldOpen || !onOpenRecord) return;
                               pendingOpen.current = setTimeout(() => {
                                 pendingOpen.current = null;
                                 onOpenRecord(row);
                               }, DOUBLE_CLICK_GRACE_MS);
                             }
-                          : undefined
                       }
                       onDoubleClick={(event) => {
                         event.stopPropagation();
@@ -408,7 +627,22 @@ export function TableView({
                         });
                       }}
                     >
-                      {isEditing && stableRecordId ? (
+                      {/* TASK-084: a formula cell holds a computed VALUE and the
+                          EXPRESSION that produced it, and fx toggles between
+                          them. Only this branch is new — every other cell keeps
+                          the InlineEditor it already had. */}
+                      {isEditing && stableRecordId && col.kind === "formula" && col.expressionField ? (
+                        <FormulaCellEditor
+                          value={text}
+                          expression={String(row[col.expressionField] ?? "")}
+                          onCommitExpression={async (next) => {
+                            // Throws on the validator's refusal, which the
+                            // editor shows while staying open.
+                            await onUpdate?.(stableRecordId, { [col.expressionField!]: next });
+                          }}
+                          onCancel={() => setEditing(null)}
+                        />
+                      ) : isEditing && stableRecordId ? (
                         <InlineEditor
                           initial={value === null || value === undefined ? "" : String(value)}
                           align={numeric ? "right" : "left"}
@@ -458,6 +692,11 @@ export function TableView({
                       onEditRecord={onEditRecord}
                       onDuplicate={onDuplicate}
                       onPin={onPin}
+                      // The single-Record form of delete IS the bulk path with a
+                      // one-element list — never a second, thinner write path.
+                      {...(deleteRows && stableRecordId
+                        ? { onDelete: () => deleteRows([stableRecordId]) }
+                        : {})}
                     />
                   </div>
                 </td>
@@ -606,8 +845,15 @@ export function TableView({
           onPin={onPin}
           onEditCell={() => setEditing({ key: cellMenu.key, col: cellMenu.columnId })}
           onUpdate={onUpdate}
+          {...(deleteRows && cellMenu.stableRecordId
+            ? {
+                onDeleteRow: () => deleteRows([cellMenu.stableRecordId as string]),
+                onDelete: () => deleteRows([cellMenu.stableRecordId as string]),
+              }
+            : {})}
         />
       )}
+    </div>
     </div>
   );
 
@@ -659,6 +905,9 @@ function CellMenu({
   onEditRecord?: DataViewProps["onEditRecord"];
   onDuplicate?: DataViewProps["onDuplicate"];
   onPin?: DataViewProps["onPin"];
+  /** Row-scoped delete, in both places the menu offers it. Same path, one id. */
+  onDelete?: (row: DataRow) => void | Promise<void>;
+  onDeleteRow?: () => void | Promise<void>;
 }) {
   const flags = useOptionalRedFlagContext();
   const anchor =
