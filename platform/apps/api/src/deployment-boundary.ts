@@ -165,6 +165,11 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["google.", "OAuth tokens are held in the Local Plane vault"],
   ["devpilot.", "GitHub Personal Access Tokens are held in the Local Plane vault; D1 has no public-cloud value without one"],
   ["chat.model.", "managed local model lifecycle is a desktop-only concern"],
+  // TASK-082: a microphone recording is raw capture. It is forwarded to the
+  // STT provider and never stored, but routing a user's microphone through a
+  // shared public shell is exactly the boundary "raw capture stays Local"
+  // draws. `chat.model.status.composer.voice` states this on the control.
+  ["chat.voice.", "a microphone recording is raw capture and stays on the Local Plane"],
   ["modelProviderKey.", "model-provider API keys are held in the Local Plane vault"],
 
   // — Governance/authoring surfaces: writing capability or authority state from a public
@@ -173,6 +178,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["agent.", "Agent authoring changes who may act"],
   ["automation.", "Automation authoring grants a trigger the right to start Runs"],
   ["commons.", "Commons publication is an External-band action"],
+  ["moduleGovernance.", "the per-Module governance overlay (TASK-088) is Local-Plane state, and editing what a Module is allowed to do moves the trust boundary"],
   ["organization.create", "Organization lifecycle is not a public-shell action"],
   ["organization.rename", "Organization lifecycle is not a public-shell action"],
   ["organization.inviteMember", "membership changes are not a public-shell action"],

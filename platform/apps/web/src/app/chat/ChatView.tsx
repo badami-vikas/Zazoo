@@ -15,7 +15,7 @@ import {
 import { Link } from "react-router";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { tauriInvoke, tauriInvokeJob, tauriInvokeStrict } from "../avatar/tauri-internals";
+import { tauriInvoke, tauriInvokeJob } from "../avatar/tauri-internals";
 import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 import {
   AskSessionView,
@@ -33,13 +33,17 @@ import {
 import { isNearChatBottom } from "./chat-state.mjs";
 import { type ChatSurfaceKind, type ChatTurn, useChat } from "./useChat";
 
-/** Same capability shape `companion_capabilities` returns (see
- * `avatar/CompanionAsk.tsx`) — only the STT flag is read here. */
-interface VoiceCapabilities {
-  cloudStt: boolean;
-}
-
 const RECORDER_MIME_PREFERENCE = ["audio/mp4", "audio/webm", "audio/ogg"];
+
+/** Chat attachments ride `modules.addFile` — the one Module File path — into
+ * Chief of Staff's own Module, landing under
+ * `~/Documents/Bridge/<Organization>/TaskManager/` (ADR-125/178). Mirrors
+ * `CHAT_ATTACHMENT_MODULE` in the API router. */
+const ATTACHMENT_MODULE = "task-manager";
+
+/** The same 10 MB ceiling `modules.addFile` enforces server-side, checked here
+ * so a too-large file is refused before it is base64-encoded. */
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 /** "let's play a game" / "catch me if you can" starts the chase game
  * (`chase.rs`) — the companion's own on-screen pointer flees the real
@@ -63,15 +67,6 @@ async function blobToBase64(blob: Blob): Promise<string> {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
   return btoa(binary);
-}
-
-/** True only inside the Tauri desktop shell, where `companion_transcribe`
- * (Groq Whisper STT, same command the companion's push-to-talk uses) is
- * registered as a real app-wide command. Plain-browser web renders of
- * ChatView have no such command to call, so the mic honestly disables there
- * instead of pretending to capture audio (AP-021). */
-function isDesktopShell(): boolean {
-  return typeof window !== "undefined" && Boolean(window.__TAURI_INTERNALS__?.invoke);
 }
 
 interface ChatViewProps {
@@ -473,14 +468,16 @@ export function ChatView({
   const autoSentRef = useRef(false);
   const lastTurn = chat.view?.turns.at(-1);
 
-  // ---- voice input (desktop shell only, real Groq Whisper STT — see the
-  // `isDesktopShell` doc comment above) --------------------------------
-  const desktopShell = useMemo(() => isDesktopShell(), []);
+  // ---- voice input (every surface — `chat.voice.transcribe` is a server
+  // procedure, so there is no desktop-only branch left; TASK-082) --------
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
-  const [voiceNote, setVoiceNote] = useState<string | null>(null);
+  const [composerNote, setComposerNote] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // ---- attachments (TASK-082) ----------------------------------------
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
 
   // An ask answered in the floating companion has to show up in the Chat panel
   // that is already open: same-webview writes announce themselves, and the
@@ -526,16 +523,9 @@ export function ChatView({
   }, []);
 
   const startRecording = async () => {
-    if (!desktopShell || recording || transcribing) return;
-    const capabilities = (await tauriInvoke("companion_capabilities")) as
-      | VoiceCapabilities
-      | undefined;
-    if (!capabilities?.cloudStt) {
-      setVoiceNote("Voice input needs a configured Groq key (Settings → API Keys).");
-      return;
-    }
+    if (recording || transcribing) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setVoiceNote("Microphone capture is unavailable here — type instead.");
+      setComposerNote("Microphone capture is unavailable here — type instead.");
       return;
     }
     try {
@@ -562,10 +552,11 @@ export function ChatView({
         setTranscribing(true);
         void (async () => {
           try {
-            const base64 = await blobToBase64(blob);
-            const transcript = (await tauriInvokeStrict("companion_transcribe", {
-              request: { audioBase64: base64, mime: blobType },
-            })) as string;
+            const { text: transcript } = await trpc.chat.voice.transcribe.mutate({
+              organizationId: PILOT_ORGANIZATION,
+              audioBase64: await blobToBase64(blob),
+              mime: blobType,
+            });
             // Dictation fills the composer rather than auto-sending — a Chat
             // turn can trigger governed Task proposals, so the human still
             // reviews the text before it becomes a message (AP-021/AP-105).
@@ -574,7 +565,7 @@ export function ChatView({
               inputRef.current?.focus();
             }
           } catch (raised) {
-            setVoiceNote(raised instanceof Error ? raised.message : String(raised));
+            setComposerNote(raised instanceof Error ? raised.message : String(raised));
           } finally {
             setTranscribing(false);
           }
@@ -582,14 +573,14 @@ export function ChatView({
       };
       recorderRef.current = recorder;
       recorder.start();
-      setVoiceNote(null);
+      setComposerNote(null);
       setRecording(true);
     } catch {
       if (streamRef.current) {
         for (const track of streamRef.current.getTracks()) track.stop();
         streamRef.current = null;
       }
-      setVoiceNote("Microphone permission was declined — type instead.");
+      setComposerNote("Microphone permission was declined — type instead.");
     }
   };
 
@@ -602,9 +593,50 @@ export function ChatView({
     }
   };
 
-  const voiceUnavailableReason = !desktopShell
-    ? "Voice input is available in the Bridge desktop app"
-    : null;
+  // Both composer controls stay VISIBLE and state their own reason when they
+  // cannot act (ADR-001, rulebook §3a). The reason is the SERVER's — a missing
+  // Groq key, or a public-cloud shell with no local File tree — so the control
+  // never has to guess from the shell it happens to be running in.
+  const voiceUnavailableReason = chat.model
+    ? chat.model.composer.voice.reason
+    : "Checking whether voice input is available…";
+  const attachmentUnavailableReason = chat.model
+    ? chat.model.composer.attachments.reason
+    : "Checking whether attachments can be saved…";
+
+  /** One attachment, through the one Module File path. The saved path is
+   * appended to the draft so the message the user sends carries the reference
+   * — the Chat turn is plain text, so the reference lives in the text rather
+   * than in a second attachment store. */
+  const attachFiles = async (chosen: readonly File[]) => {
+    if (chosen.length === 0) return;
+    setUploading(true);
+    setComposerNote(null);
+    try {
+      const saved: string[] = [];
+      for (const file of chosen) {
+        if (file.size > MAX_ATTACHMENT_BYTES) {
+          throw new Error(`${file.name} exceeds the 10 MB local File limit.`);
+        }
+        const stored = await trpc.modules.addFile.mutate({
+          organizationId: PILOT_ORGANIZATION,
+          moduleName: ATTACHMENT_MODULE,
+          fileName: file.name,
+          contentBase64: await blobToBase64(file),
+        });
+        saved.push(stored.path);
+      }
+      const reference = saved
+        .map((path) => `[Attachment: Bridge/TaskManager/${path}]`)
+        .join(" ");
+      setDraft((current) => (current ? `${current} ${reference}` : reference));
+      inputRef.current?.focus();
+    } catch (raised) {
+      setComposerNote(raised instanceof Error ? raised.message : String(raised));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   useEffect(() => {
     const list = listRef.current;
@@ -961,16 +993,32 @@ export function ChatView({
           />
           <div className="flex items-center justify-between gap-1">
             <div className="flex min-w-0 items-center gap-1">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  const chosen = [...(event.currentTarget.files ?? [])];
+                  event.currentTarget.value = "";
+                  void attachFiles(chosen);
+                }}
+              />
               <Button
                 type="button"
                 size="icon"
                 variant="ghost"
                 className={compact ? "size-7" : "size-8"}
                 aria-label="Add attachment"
-                title="Attachments aren't supported yet — this Chat doesn't have an upload pipeline"
-                disabled
+                title={attachmentUnavailableReason ?? "Add attachment"}
+                disabled={Boolean(attachmentUnavailableReason) || uploading || chat.sending}
+                onClick={() => fileInputRef.current?.click()}
               >
-                <Paperclip className={compact ? "size-3.5" : "size-4"} />
+                {uploading ? (
+                  <Loader2 className={`${compact ? "size-3.5" : "size-4"} animate-spin`} />
+                ) : (
+                  <Paperclip className={compact ? "size-3.5" : "size-4"} />
+                )}
               </Button>
               <select
                 aria-label="Chat model"
@@ -1030,9 +1078,9 @@ export function ChatView({
             </div>
           </div>
         </div>
-        {voiceNote && (
+        {composerNote && (
           <p className="mt-1 px-1 text-xs text-[var(--color-navy-mid)]" role="status">
-            {voiceNote}
+            {composerNote}
           </p>
         )}
       </form>

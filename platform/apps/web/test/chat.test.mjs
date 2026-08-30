@@ -148,3 +148,41 @@ test("Chat exposes model setup, terminal lifecycle actions, and accessible statu
   assert.match(panelControl, /aria-valuetext=\{`\$\{Math\.round\(value\)\} pixels`\}/);
   assert.match(panel, /\{!mobile && \(\s*<ResizeHandle/);
 });
+
+// ---------------------------------------------------------------------------
+// TASK-082 — the composer's two dead controls
+// ---------------------------------------------------------------------------
+
+const companionAsk = read("../src/app/avatar/CompanionAsk.tsx");
+
+test("the paperclip uploads through the one Module File path (TASK-082)", () => {
+  // The dishonest disabled state is gone, and nothing replaced it with a
+  // second dishonest one: the control is present, and its title states the
+  // real reason only when the server says attachments cannot land (§3a).
+  assert.doesNotMatch(view, /Attachments aren't supported yet/);
+  assert.match(view, /type="file"/);
+  assert.match(view, /trpc\.modules\.addFile\.mutate/);
+  // Reuse, not a second storage path: no bespoke upload endpoint.
+  assert.doesNotMatch(view, /chat\.attachment\.upload/);
+  // The message carries the reference, so the attachment is findable from
+  // the turn it was sent with.
+  assert.match(view, /ATTACHMENT_MODULE/);
+  assert.match(view, /attachmentUnavailableReason/);
+});
+
+test("the mic runs on every surface, and still only fills the draft (TASK-082)", () => {
+  // No Tauri gate, and no desktop-only command left in the panel composer.
+  assert.doesNotMatch(view, /isDesktopShell/);
+  assert.doesNotMatch(view, /companion_transcribe/);
+  assert.doesNotMatch(view, /companion_capabilities/);
+  assert.match(view, /trpc\.chat\.voice\.transcribe\.mutate/);
+  // AP-168 does NOT approve auto-send from the panel: dictation fills the
+  // composer for human review, because a Chat turn can start governed Task
+  // proposals.
+  assert.match(view, /setDraft\(\(current\) => \(current \? `\$\{current\} \$\{transcript\}` : transcript\)\)/);
+  assert.doesNotMatch(view, /chat\.send\(transcript\)/);
+  // The Avatar shortcut's auto-send is correct and unchanged.
+  assert.match(companionAsk, /ask\(transcript\)/);
+  // Unavailability is stated on the control, never hidden (ADR-001/§3a).
+  assert.match(view, /voiceUnavailableReason/);
+});

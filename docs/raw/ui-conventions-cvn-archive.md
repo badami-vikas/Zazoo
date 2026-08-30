@@ -1,3 +1,20 @@
+---
+title: CV Naturals' UI conventions C-1..C-34 — provenance archive, NOT canon
+type: raw
+doc_kind: reference
+status: archived
+companions: [ui-rulebook.md]
+related_wiki: ../wiki/ui-rulebook.md
+updated: 2026-08-30
+tags: [ui, provenance, archive, cvn, superseded]
+---
+
+> **ARCHIVE — NOT CANON (ADR-260, 2026-08-30).** This preserves CV Naturals' original wording unedited,
+> as ADR-249 required. The canonical, reconciled form of these rules is **Part II of
+> [`ui-rulebook.md`](ui-rulebook.md)**. Where this archive and the rulebook differ, the rulebook is
+> canon — notably C-12, which the donor itself superseded on 2026-08-17, and C-22, narrowed 2026-08-30.
+> Do not cite this file as a rule source.
+
 # CV Naturals' UI conventions (C-1..C-34), imported verbatim
 
 Source: CV Naturals `docs/wiki/ui-conventions.md`, registered there 2026-08-14 (AP-008/AP-012,

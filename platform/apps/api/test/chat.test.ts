@@ -1306,3 +1306,113 @@ test("Chat cancellation aborts inference and persists a cancelled terminal turn"
     assert.equal((await sending).turns.at(-1)?.state, "cancelled");
   });
 });
+
+// ---------------------------------------------------------------------------
+// TASK-082 — the composer's two dead controls, server side
+// ---------------------------------------------------------------------------
+
+test("chat.voice.transcribe refuses honestly without a key, and reaches Groq with one", async () => {
+  const local = new ChatModel(
+    "local",
+    () => JSON.stringify({ kind: "answer", text: "local reply" }),
+  );
+  const audioBase64 = Buffer.from("fake-audio-bytes").toString("base64");
+
+  // No key saved: the procedure names the missing dependency and where to fix
+  // it, rather than failing opaquely or pretending it transcribed anything.
+  await withChatWiring([local], async (wiring) => {
+    const caller = makeCaller(wiring, 51);
+    await assert.rejects(
+      caller.chat.voice.transcribe({
+        organizationId: PILOT_ORGANIZATION,
+        audioBase64,
+        mime: "audio/webm",
+      }),
+      /API Keys/,
+    );
+  });
+
+  // With a key in the SAME governed vault Settings -> API Keys writes to, the
+  // audio goes to Groq Whisper and only the transcript comes back.
+  await withChatWiring([local], async (wiring) => {
+    await wiring.modelProviderKeys.save(PILOT_ORGANIZATION, "groq", "sk-test-stt-key");
+    const calls: { url: string; init: RequestInit }[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      calls.push({ url: String(input), init: init ?? {} });
+      return new Response(JSON.stringify({ text: "  transcribed words  " }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    try {
+      const caller = makeCaller(wiring, 52);
+      const result = await caller.chat.voice.transcribe({
+        organizationId: PILOT_ORGANIZATION,
+        audioBase64,
+        mime: "audio/webm",
+      });
+      assert.equal(result.text, "transcribed words");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    assert.equal(calls.length, 1);
+    assert.equal(
+      calls[0]!.url,
+      "https://api.groq.com/openai/v1/audio/transcriptions",
+    );
+    const headers = new Headers(calls[0]!.init.headers);
+    assert.equal(headers.get("authorization"), "Bearer sk-test-stt-key");
+    // The recording rides the request body, never a query string.
+    assert.equal(calls[0]!.url.includes("?"), false);
+  });
+
+  // A container Whisper cannot read is refused BEFORE any egress happens.
+  await withChatWiring([local], async (wiring) => {
+    await wiring.modelProviderKeys.save(PILOT_ORGANIZATION, "groq", "sk-test-stt-key");
+    const originalFetch = globalThis.fetch;
+    let reached = false;
+    globalThis.fetch = (async () => {
+      reached = true;
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    try {
+      const caller = makeCaller(wiring, 53);
+      await assert.rejects(
+        caller.chat.voice.transcribe({
+          organizationId: PILOT_ORGANIZATION,
+          audioBase64,
+          mime: "video/quicktime",
+        }),
+        /recording format/,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    assert.equal(reached, false);
+  });
+});
+
+test("chat.model.status states whether the composer can attach and dictate", async () => {
+  const local = new ChatModel(
+    "local",
+    () => JSON.stringify({ kind: "answer", text: "local reply" }),
+  );
+
+  // Local Plane, no STT key: attachments work, dictation does not — and the
+  // reason is carried to the control rather than hiding it (ADR-001).
+  await withChatWiring([local], async (wiring) => {
+    const caller = makeCaller(wiring, 54);
+    const status = await caller.chat.model.status({ organizationId: PILOT_ORGANIZATION });
+    assert.deepEqual(status.composer.attachments, { available: true, reason: null });
+    assert.equal(status.composer.voice.available, false);
+    assert.match(status.composer.voice.reason ?? "", /API Keys/);
+  });
+
+  await withChatWiring([local], async (wiring) => {
+    await wiring.modelProviderKeys.save(PILOT_ORGANIZATION, "groq", "sk-test-stt-key");
+    const caller = makeCaller(wiring, 55);
+    const status = await caller.chat.model.status({ organizationId: PILOT_ORGANIZATION });
+    assert.deepEqual(status.composer.voice, { available: true, reason: null });
+  });
+});

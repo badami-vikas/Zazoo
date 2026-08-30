@@ -105,6 +105,8 @@ import {
   type ParentCandidateTask,
   assertModuleGovernance,
   ModuleGovernanceDenied,
+  readModuleGovernanceOverlay,
+  resolveModuleGovernance,
 } from "@bridge/core";
 import { eq, desc } from "drizzle-orm";
 import { schema as accountingSchema } from "@bridge/accounting";
@@ -118,6 +120,7 @@ import type {
   EgressTier,
   ModelProvider,
   MemoryEntry,
+  ModuleGovernancePolicy,
   OnBehalfOf,
   PolicyResult,
   ResourceType,
@@ -436,6 +439,11 @@ import {
   resolveModuleAutomationRuntimeId,
 } from "./built-in-modules.js";
 import { assertCommonsEntryContentTrusted } from "./commons-client.js";
+import {
+  MAX_TRANSCRIPTION_AUDIO_BYTES,
+  transcribeAudio,
+  VoiceTranscriptionError,
+} from "./voice-transcription.js";
 import {
   listModuleFiles,
   MAX_MODULE_FILE_BYTES,
@@ -6291,6 +6299,133 @@ const D2C_NOTES_SPEC = {
   ],
 };
 
+// ── Module governance overlay (TASK-088, ADR-248/ADR-178) ────────────────────
+//
+// The Governance Section has been engine-READ since ADR-248, but nothing could
+// write it: manifests are immutable, so `module.governance.userEdited` was
+// parsed and rendered with no code path able to set it. The overlay is that
+// path — the user's own policy, keyed by Organization + Module, resolved over
+// the manifest's declared default by `resolveModuleGovernance` in @bridge/core.
+//
+// LOCAL PLANE by residency and by trust. It rides the same organization-scoped
+// atomic state store as the learning consent + WhatsApp automation policies
+// above, for the same two reasons: it is one Organization's private policy, and
+// writing it moves a trust boundary — which is exactly why `deployment-boundary`
+// closes the whole `moduleGovernance.` namespace to the public cloud shell.
+const MODULE_GOVERNANCE_NAMESPACE_PREFIX = "module:governance:";
+
+/** The manifest's DECLARED policy for a Module — the seeded default an overlay
+ * is resolved over. Never mutated; ADR-178 makes manifests immutable. */
+function declaredModuleGovernance(moduleName: string): ModuleGovernancePolicy | undefined {
+  return BUILT_IN_MODULES.find((entry) => entry.manifest.name === moduleName)?.manifest.governance;
+}
+
+/** Declared policy + stored overlay + the resolved policy the engine enforces. */
+async function readResolvedModuleGovernance(
+  wiring: Pick<Wiring, "localPlane">,
+  organizationId: string,
+  moduleName: string,
+): Promise<{
+  declared: ModuleGovernancePolicy | null;
+  resolved: ModuleGovernancePolicy | null;
+  userEdited: boolean;
+  updatedAt: string | null;
+}> {
+  const declared = declaredModuleGovernance(moduleName);
+  const overlay = readModuleGovernanceOverlay(
+    await wiring.localPlane.state.read(
+      organizationId,
+      `${MODULE_GOVERNANCE_NAMESPACE_PREFIX}${moduleName}`,
+    ),
+  );
+  return {
+    declared: declared ?? null,
+    resolved: resolveModuleGovernance(declared, overlay) ?? null,
+    userEdited: overlay !== null,
+    updatedAt: overlay?.updatedAt || null,
+  };
+}
+
+/** A typo'd Module name would store an overlay nothing ever reads, and the user
+ * would believe they had governed something. Say so instead. */
+function assertKnownModule(moduleName: string): void {
+  if (!BUILT_IN_MODULES.some((entry) => entry.manifest.name === moduleName)) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `No installed Module named ${moduleName}` });
+  }
+}
+
+/** One rule as the editor sends it. Same contract the manifest parser enforces:
+ * a rule that cannot explain itself is a rule the user cannot audit, and the
+ * refusal message quotes this text back to them verbatim. */
+const moduleGovernanceRuleInput = z.object({
+  action: z.string().trim().min(1).max(200),
+  reason: z.string().trim().min(1).max(500),
+});
+
+// ---------------------------------------------------------------------------
+// Chat composer capability (TASK-082)
+//
+// The paperclip and the mic both need something the process may not have: the
+// local Bridge File tree, and a Groq key. Canon says a control that cannot act
+// stays VISIBLE and disabled with a stated reason (ADR-001, rulebook §3a), so
+// the reason is computed HERE and carried to the control rather than being
+// discovered as a failed request after the user has already recorded or picked
+// a file.
+// ---------------------------------------------------------------------------
+
+/** The Module chat attachments land in — Chief of Staff's own Module, which is
+ * also the Module a Chat turn proposes Tasks into. Files land under
+ * `~/Documents/Bridge/<Organization>/TaskManager/` through `modules.addFile`,
+ * the one Module File path (ADR-125/178). */
+export const CHAT_ATTACHMENT_MODULE = "task-manager";
+
+interface ComposerCapability {
+  available: boolean;
+  reason: string | null;
+}
+
+function composerCapability(input: {
+  publicCloudOnly: boolean;
+  groqKeySaved: boolean;
+}): { attachments: ComposerCapability; voice: ComposerCapability } {
+  const attachments: ComposerCapability = input.publicCloudOnly
+    ? {
+        available: false,
+        // Not a missing feature — a residency boundary. Module Files live in
+        // the user's own Documents folder, which a shared cloud shell has no
+        // access to.
+        reason: "Attachments are saved to this device — use the Bridge desktop app",
+      }
+    : { available: true, reason: null };
+  const voice: ComposerCapability = input.publicCloudOnly
+    ? {
+        available: false,
+        reason: "Voice input runs on this device — use the Bridge desktop app",
+      }
+    : input.groqKeySaved
+      ? { available: true, reason: null }
+      : {
+          available: false,
+          reason: "Voice input needs a Groq key (Settings → API Keys)",
+        };
+  return { attachments, voice };
+}
+
+/**
+ * The transcription key: the environment wins, exactly as it does at boot
+ * (`wiring.ts`), otherwise the governed vault Settings → API Keys writes to.
+ * The value is used for one Authorization header and never returned.
+ */
+async function transcriptionApiKey(
+  wiring: Wiring,
+  organizationId: string,
+): Promise<string | null> {
+  const fromEnvironment = process.env.GROQ_API_KEY?.trim();
+  if (fromEnvironment) return fromEnvironment;
+  if (wiring.publicCloudOnly) return null;
+  return wiring.modelProviderKeys.read(organizationId, "groq");
+}
+
 export const appRouter = t.router({
   chat: t.router({
     model: t.router({
@@ -6318,6 +6453,12 @@ export const appRouter = t.router({
           const cloudKeySaved = Boolean(cloudKey?.configured || cloudKey?.fromEnvironment);
           return {
             local,
+            // TASK-082: the same key read, reused a third time, to say whether
+            // the composer's paperclip and mic can actually act here.
+            composer: composerCapability({
+              publicCloudOnly: ctx.wiring.publicCloudOnly,
+              groqKeySaved: cloudKeySaved,
+            }),
             cloud: cloud
               ? {
                   available: true as const,
@@ -7094,6 +7235,66 @@ export const appRouter = t.router({
             input.threadId,
             ctx.run,
           );
+        }),
+    }),
+
+    /**
+     * TASK-082 — dictation for every surface.
+     *
+     * The Chat mic used to call `companion_transcribe`, a Tauri command, so it
+     * only existed inside the desktop shell and honestly disabled itself in a
+     * browser. This is the same Groq Whisper call from the API process, which
+     * every surface already talks to, so web and mobile get the identical
+     * behaviour instead of a permanently-disabled control.
+     *
+     * LOCAL PLANE (see `deployment-boundary.ts`): the recording is raw capture.
+     * It is decoded, forwarded once, and never persisted. A public-cloud shell
+     * refuses — `chat.model.status.composer.voice` says so before the user
+     * records anything.
+     *
+     * The transcript is RETURNED, never sent. The caller puts it in the
+     * composer for the human to review, because a Chat turn can start governed
+     * Task proposals (AP-168 explicitly did not approve auto-send here).
+     */
+    voice: t.router({
+      transcribe: authenticatedProcedure
+        .input(
+          z.object({
+            organizationId: z.string().uuid(),
+            audioBase64: z.string().min(1).max(
+              Math.ceil(MAX_TRANSCRIPTION_AUDIO_BYTES * 4 / 3) + 4,
+            ),
+            mime: z.string().min(1).max(128),
+          }).strict(),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const apiKey = await transcriptionApiKey(ctx.wiring, input.organizationId);
+          if (!apiKey) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Voice input needs a Groq key (Settings → API Keys)",
+            });
+          }
+          try {
+            return {
+              text: await transcribeAudio({
+                apiKey,
+                audio: Buffer.from(input.audioBase64, "base64"),
+                mime: input.mime,
+              }),
+            };
+          } catch (error) {
+            if (error instanceof VoiceTranscriptionError) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+            }
+            throw error;
+          }
         }),
     }),
   }),
@@ -18500,6 +18701,76 @@ export const appRouter = t.router({
   }),
 
   /**
+   * Module governance overlay (TASK-088) — the write half of ADR-248.
+   *
+   * `get` returns what the manifest declared, what the user saved, and the
+   * resolved policy the engine actually enforces. `set` writes the overlay (and
+   * is the only thing in the repo that makes `userEdited` true). `reset` drops
+   * it so the declared default comes back — without that, a first edit would be
+   * a one-way door out of the Module author's own policy.
+   *
+   * There is no dummy path: with no overlay stored these return the declared
+   * policy, and `null` for a Module that declares none — which the Governance
+   * Section renders as an honest empty state. An empty policy is not a
+   * default-deny (`governanceVerdict`), and nothing here makes it one.
+   */
+  moduleGovernance: t.router({
+    get: procedure
+      .input(z.object({ organizationId: z.string().min(1), moduleName: z.string().trim().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        return readResolvedModuleGovernance(ctx.wiring, input.organizationId, input.moduleName);
+      }),
+
+    set: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          moduleName: z.string().trim().min(1),
+          allow: z.array(moduleGovernanceRuleInput).max(100),
+          deny: z.array(moduleGovernanceRuleInput).max(100),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        // A rule an Agent can rewrite is not a boundary. Editing what a Module
+        // is allowed to do is a Human decision, like every other authority
+        // change in this router.
+        assertHumanIdentity(ctx, "Editing a Module's governance policy");
+        assertKnownModule(input.moduleName);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const updatedAt = ctx.run.clock.nowISO();
+        await ctx.wiring.localPlane.state.update(
+          input.organizationId,
+          `${MODULE_GOVERNANCE_NAMESPACE_PREFIX}${input.moduleName}`,
+          null,
+          () => ({
+            state: { allow: input.allow, deny: input.deny, updatedAt },
+            result: null,
+          }),
+        );
+        // Re-read rather than echoing the input: the server has the last word on
+        // what changed (ADR-247), and the caller sees what enforcement will use.
+        return readResolvedModuleGovernance(ctx.wiring, input.organizationId, input.moduleName);
+      }),
+
+    reset: procedure
+      .input(z.object({ organizationId: z.string().min(1), moduleName: z.string().trim().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        assertHumanIdentity(ctx, "Resetting a Module's governance policy");
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        await ctx.wiring.localPlane.state.update(
+          input.organizationId,
+          `${MODULE_GOVERNANCE_NAMESPACE_PREFIX}${input.moduleName}`,
+          null,
+          () => ({ state: null, result: null }),
+        );
+        return readResolvedModuleGovernance(ctx.wiring, input.organizationId, input.moduleName);
+      }),
+  }),
+
+  /**
    * Accounting — wires the imported `@bridge/accounting` domain layer
    * (ADR-246) to its own sqlite (`accounting-store.ts`) for the
    * first time. TASK-074: minimum viable is a real Clients Page and a real
@@ -18569,10 +18840,18 @@ export const appRouter = t.router({
         )
         .mutation(async ({ input, ctx }) => {
           assertPilotOrganization(input.organizationId);
-          const accountingManifest = BUILT_IN_MODULES.find((entry) => entry.manifest.name === "accounting")?.manifest;
           const action = input.actor.type === "model" ? "books.write.model" : "books.write.human";
+          // TASK-088: enforce against the RESOLVED policy — the user's overlay
+          // if they wrote one, otherwise the manifest's seeded default. Reading
+          // the manifest directly here would make the Governance editor a
+          // display that changes nothing.
+          const { resolved } = await readResolvedModuleGovernance(
+            ctx.wiring,
+            input.organizationId,
+            "accounting",
+          );
           try {
-            assertModuleGovernance("accounting", accountingManifest?.governance, action);
+            assertModuleGovernance("accounting", resolved ?? undefined, action);
           } catch (error) {
             if (error instanceof ModuleGovernanceDenied) {
               throw new TRPCError({ code: "FORBIDDEN", message: error.message });

@@ -211,7 +211,10 @@ export {
   governanceRuleMatches,
   assertModuleGovernance,
   ModuleGovernanceDenied,
+  readModuleGovernanceOverlay,
+  resolveModuleGovernance,
   type GovernanceVerdict,
+  type ModuleGovernanceOverlay,
 } from "./module/governance.js";
 export { computeModuleRisk, moduleHasLethalTrifecta, type ModuleRiskResult } from "./module/risk.js";
 export {

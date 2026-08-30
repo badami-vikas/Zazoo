@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T18:50:43.084Z",
+  "generatedAt": "2026-08-30T14:30:53.374Z",
   "items": [
     {
       "id": "TASK-026",
@@ -1455,7 +1455,7 @@
       "status": "open",
       "priority": "P1",
       "horizon": "Prototype",
-      "outcome": "every Module carries a Governance Section directly below its Intelligence Section, showing the `allow`/`deny` policy declared in its `module.yaml`, editable by the user at runtime. Accounting is seeded with Avilo's AI posture. The policy is **read by the engine**, not merely displayed.",
+      "outcome": "every Module carries a Governance Section directly below its Intelligence Section, showing the `allow`/`deny` policy declared in its manifest, editable by the user at runtime. Accounting is seeded with Avilo's AI posture. The policy is **read by the engine**, not merely displayed.",
       "prototypeTest": "on Accounting, the Governance Section renders the seeded entries; the user adds a `deny` entry and an action that entry forbids is refused at runtime with the entry named as the reason — proven by attempting the action, not by reading the config back. On a Module with no entries the Section still renders with an honest empty state (present-not-absent). Both checked live in the running app.",
       "scope": [
         "Stage 3 of [`docs/raw/module-merge-accounting-d2c-2026-08-16.md`](raw/module-merge-accounting-d2c-2026-08-16.md) §6. New `ModuleGovernanceSection.tsx` in `ModuleSurfaceLayout`'s `below` slot after `ModuleIntelligenceSection`",
@@ -1516,7 +1516,7 @@
       "scope": [
         "Stage 2 of [`docs/raw/module-merge-accounting-d2c-2026-08-16.md`](raw/module-merge-accounting-d2c-2026-08-16.md) §9. Subtree merges with `--allow-unrelated-histories`",
         "module trees under `platform/modules/{accounting,d2c,d2c-orders,d2c-inventory,d2c-research,d2c-production}`",
-        "`module.yaml` per Module",
+        "a manifest entry per Module",
         "whatsapp dedupe",
         "the §8 id-renumbering map produced and landed as §8a of that doc."
       ],
@@ -2546,6 +2546,279 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1207,
       "rank": 77
+    },
+    {
+      "id": "TASK-080",
+      "title": "TASK-080 — UI canon repair — every rule states what to build, and Module Detail leaves the docs",
+      "status": "open",
+      "priority": "P1",
+      "horizon": "Prototype",
+      "outcome": "`docs/wiki/ui-architecture.md` contains no reference to Module Detail, no rule phrased as the negation of a past mistake, and no rule whose content is \"these examples are not the definition\". The data-shape tree is axed on the Database per ADR-259 (one Database → LIST whatever changes; Databases sharing Relations → TOGGLE; conceptually related Modules → sub-modules; unrelated → new Module), and `docs/wiki/ui-rulebook.md` exists as the single consolidated reading surface. Add-row, Form, Module and Agent each carry a positive definition; DealPilot, JobPilot and CoS appear only as illustrations after a definition, never in place of one. `CLAUDE.md` and this file say \"manifest\" where they said `module.yaml`.",
+      "prototypeTest": "no line in `docs/wiki/ui-architecture.md` directs a reader to Module Detail as a live surface — the only surviving mention states that it was deleted and that admin therefore has no home, which is the note that stops it being re-added. `CLAUDE.md` contains no `module.yaml`; the only occurrences left in this file are inside this task, describing the fix. A reader who has never seen the app can state what New does and what a Form view does from the doc alone, without inferring either from what the other is not.",
+      "scope": [
+        "`docs/wiki/ui-architecture.md`, `docs/wiki/ui-rulebook.md`, `CLAUDE.md`, `docs/TASKS.md` (TASK-074 scope line)."
+      ],
+      "evidence": [
+        "Module Detail deleted 2026-08-10 (`platform/apps/web/src/app/routes.tsx:167-175`, redirect only) yet referenced 4× in `ui-architecture.md`. `find . -name module.yaml` outside node_modules returns zero files",
+        "manifests are `platform/modules/manifests/src/index.ts`."
+      ],
+      "requests": [
+        "user directives 2026-08-29 (AP-168), verbatim: *\"I dont want any such rules, Ensure the underlying idea is strongly enforced through clear rules than sharing rules like this.\"*",
+        "*\"Can you ensure Module detail is deleted and not referred anywhere in rule book and take corrective measures?\"*"
+      ],
+      "approval": "AP-168 APPLIED (ADR-258)",
+      "dependencies": [],
+      "canonicalStatus": "done (2026-08-30)",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1239,
+      "rank": 78
+    },
+    {
+      "id": "TASK-081",
+      "title": "TASK-081 — Left-nav Modules become directly manageable — right-click menu and drag-reorder",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Hardening",
+      "outcome": "right-clicking a Module in the rail opens a context menu offering **Hide** and **Rename**, the same gesture that opens the column menu on a table header; hidden Modules are restored from a rail **View options** entry and are never lost; Modules are drag-reorderable and the order persists per Organization.",
+      "prototypeTest": "right-click a Module → menu opens with Hide and Rename; Hide removes it from the rail and it reappears in View options as unchecked; re-checking restores it in its previous position. Drag a Module above another, reload the app, and the new order survives. A renamed Module's local file folder follows the rename (ADR-178's carry-forward path), verified by listing `~/Documents/Bridge/<Org>/`.",
+      "scope": [
+        "`platform/apps/web/src/app/Layout.tsx` (`renderModuleLink`, `renderMobileModuleLink`). `ListPillRow.tsx`/`Pill.tsx`'s `onPillContextMenu` is the nearest existing nav-style right-click precedent",
+        "`StandardColumnMenu`'s hide/View-options pairing is the interaction to mirror rather than reinvent."
+      ],
+      "evidence": [
+        "`grep -n \"onContextMenu\" Layout.tsx` returns nothing",
+        "no `draggable`/`onDragStart`/`onDrop` anywhere in the file. Order is computed — `DEFAULT_MODULES`, then `modules.list` filtered to available, then `buildModuleNavTree` — with no ordering key persisted. Only `bridge.<org>.rail.expandedModules.v1` persists today."
+      ],
+      "requests": [
+        "user directive 2026-08-29 (AP-168), verbatim: *\"Right click a module to hide it and similar to view option for columns right clicking on left nav bar should should view options. Also I should be able to drag and rearrange modules. On right click of A module, also provide rename option.\"*"
+      ],
+      "approval": "AP-168 APPLIED (ADR-258)",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1253,
+      "rank": 79
+    },
+    {
+      "id": "TASK-082",
+      "title": "TASK-082 — Chat composer — the paperclip uploads, and the mic works everywhere",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Hardening",
+      "outcome": "the chat paperclip accepts a file and routes it through the same Module File path every other upload uses, landing under `~/Documents/Bridge/<Org>/<Module>/`; the chat mic records and transcribes on **every** Bridge surface — desktop, web and mobile — rather than only inside the Tauri shell.",
+      "prototypeTest": "attach a file in a web (non-Tauri) browser session, then find that exact file on disk under the Module's folder and see it referenced from the message. Press the mic in a web session and get a transcript in the composer, with no `__TAURI_INTERNALS__` present in that context.",
+      "scope": [
+        "`platform/apps/web/src/app/chat/ChatView.tsx` (`isDesktopShell`, the disabled paperclip button at ~L965, the `companion_transcribe` call at ~L566)",
+        "a server-side transcription procedure in `platform/apps/api/src/router.ts`",
+        "`modules.addFile` is the existing upload path and must be reused, not duplicated."
+      ],
+      "evidence": [
+        "the paperclip is hardcoded `disabled` with title \"Attachments aren't supported yet — this Chat doesn't have an upload pipeline\"",
+        "the mic is gated on `window.__TAURI_INTERNALS__?.invoke` because `companion_transcribe` is a desktop-only Rust command (`platform/apps/desktop/src-tauri/src/companion.rs`). `modules.addFile` already exists at `router.ts:19442`. No `whisper`/`stt` route exists server-side today."
+      ],
+      "requests": [
+        "user directive 2026-08-29 (AP-168), verbatim: *\"Instead of disabling paper clips enable uploads.\"*",
+        "*\"the mic in chatbot should be available in all bridge versions\"*"
+      ],
+      "approval": "AP-168 APPLIED (ADR-258)",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1267,
+      "rank": 80
+    },
+    {
+      "id": "TASK-083",
+      "title": "TASK-083 — Creation is one gesture — New opens an element page, and ⋮ gains per-element sections",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Prototype",
+      "outcome": "on every surface, the New affordance opens a new element page showing all of that Database's fields — identical to that element's page as it appears before any user input, with column defaults already applied; nothing is written until Save (C-34; defaults clarified ADR-259/AP-169 — pre-filling a default is not a write). The toolbar ⋮ gains an **Elements** entry offering **per-DATABASE** toggles for **Notes**, **Intelligence** and **Governance** (resolved ADR-261/AP-171): switching one on or off applies to every element of that Database. Per-element toggling is rejected — two Records of one Database with different Sections is the single-page divergence the gate exists to catch.",
+      "prototypeTest": "on a table with a `formula` column, a relation column and a column carrying a default, New opens an element page listing every field including those, with the default already shown and every other field empty; backing out without Save leaves no row and no partial record. Enable Notes from ⋮ → Elements, reopen ANY element page of that Database, and the Notes Section is there on all of them; disable it and it is gone from all of them, with existing notes preserved rather than deleted.",
+      "scope": [
+        "`platform/apps/web/src/app/dataviews/views/TableView.tsx` (the draft-row path), `DataViews.tsx` (the ⋮ at L416-532), the per-Module Record Detail pages. **The gated test `\"the add-row belongs to the table's shape, not to a per-page opt-in\"` (`ui-conformance.test.mjs:292`) must be REWRITTEN, not deleted** — it must still assert the New affordance is always present and states a reason when disabled, which is the defect it was written for (JobPilot and Signals silently lost a control DealPilot had)."
+      ],
+      "evidence": [
+        "the draft-row inline-create path is live in `TableView.tsx`",
+        "`DataViews.tsx`'s ⋮ currently offers only Add column, View options, Sort by, Reset view."
+      ],
+      "requests": [
+        "user directive 2026-08-29 (AP-168), verbatim: *\"Replace [the add-row rule] so that add row takes to a new elements page with all fields shown.\"*",
+        "*\"Under 3 dots, add elements option inside with provide option to enable notes, intelligence and governance per element.\"*"
+      ],
+      "approval": "AP-168 APPLIED (ADR-258)",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1281,
+      "rank": 81
+    },
+    {
+      "id": "TASK-084",
+      "title": "TASK-084 — A governed schema-mutation capability, so the column menu stops lying",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Hardening",
+      "outcome": "a governed schema-mutation capability exists, and `StandardColumnMenu`'s items enable against it. Commands the surface can run are **enabled and warn** — stating the consequence and proceeding on confirmation — rather than refusing; only genuinely impossible commands stay disabled with a reason. A `formula` cell's editor carries an **fx** affordance that toggles between editing the value and editing the expression, binding to Accounting's existing formula engine rather than growing a second one.",
+      "prototypeTest": "Rename a column and see the change persist and survive reload. Delete a column and get a dependency preview naming the Views, Automations, Skills, formulas and Relations that break, with a working undo. Open a formula cell, click fx, edit the expression, and see the validator reject a bad expression before it commits and every dependent cell recompute after a good one. No menu item is enabled that fails at the server.",
+      "scope": [
+        "`platform/apps/web/src/app/components/shared/StandardColumnMenu.tsx` (13 of 17 items permanently disabled today), the schema-mutation procedures in `platform/apps/api/src/router.ts`, `platform/packages/tables/src/types.ts` (`ColumnKind` already includes `\"formula\"`), and `platform/modules/accounting/src/formulas/{registry,engine}.ts` — `engine.ts:510` already validates a candidate expression before save and is the seam to reuse."
+      ],
+      "evidence": [
+        "13 of 17 column-menu items carry one of two disabled reasons — \"this surface has no governed schema-mutation capability\" or \"dependency preview and undo are required\". Live today: Filter, Sort ascending, Sort descending, Hide column. No fx glyph exists anywhere in the repository",
+        "no formula editor exists in the web app",
+        "`formula` columns are excluded from Form view as read-only (`FormView.tsx:44`)."
+      ],
+      "requests": [
+        "user directive 2026-08-29 (AP-168), verbatim: *\"Replace unsupported writes disabled with reason with enabled with warning\"*",
+        "and the fx/formula-toggle behaviour described in the same turn."
+      ],
+      "approval": "AP-168 APPLIED (ADR-258)",
+      "dependencies": [
+        "none — but the enabled-with-warning half of the outcome cannot land before the capability exists. Enabling the 13 items first would ship a menu that looks live and fails at the server, which ADR-247 (\"the server has the last word\"",
+        "never claim what isn't true) forbids. ADR-001 (present-not-absent) is unchanged: nothing is ever hidden, at any stage."
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1295,
+      "rank": 82
+    },
+    {
+      "id": "TASK-085",
+      "title": "TASK-085 — Triage the cross-repository UI rule intake — adopt, scope, or reject each candidate",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Hardening",
+      "outcome": "every candidate in [`docs/raw/ui-rule-intake-cross-repo-2026-08-30.md`](raw/ui-rule-intake-cross-repo-2026-08-30.md) has a recorded disposition — adopted as Bridge canon, scoped to one Module, or rejected with a reason — and the adopted set is in `docs/wiki/ui-rulebook.md` and `docs/wiki/ui-architecture.md`. Category 0 needs no approval and lands first: those rules are ALREADY canon in `docs/raw/ui-architecture-rules-2026-07.md` and were lost when the wiki compressed 486 lines to 113.",
+      "prototypeTest": "a reader of `docs/wiki/ui-rulebook.md` alone can state the Notes Section and Record Governance Section requirements, the canonical toolbar slot order, the Secret Fields rule and the keyboard-parity rule — none of which the rulebook carried before this task. No candidate sits undisposed; a rejected candidate names why.",
+      "scope": [
+        "`docs/wiki/ui-rulebook.md`, `docs/wiki/ui-architecture.md`, and an APPROVALS row per adopted group. ADR-247's selection test governs: *does this rule change what an agent does on a Module it did not come from?* — not *is this rule good*. ADR-247 explicitly rejected promoting everything, because always-loaded instruction budget is a governed recurring cost",
+        "a hundred adopted rules would repeat exactly the failure it prevented."
+      ],
+      "evidence": [
+        "three parallel repository scans 2026-08-30 (Avilo dashboard v9, CV Naturals, Repo/Avatar + clicky-avatar) plus a re-read of Bridge's own raw rules doc. Verified against Bridge's code the same day — ABSENT: toolbar density ladder, any print/`.paper` mode, sparklines, `isRouteErrorResponse`, table multi-select, long-press in `TableView`. PRESENT and not to be re-adopted: the 220ms double-click grace, server-speaks-first, \"already configured is not a refusal\"."
+      ],
+      "requests": [
+        "user directive 2026-08-30, verbatim: *\"Can you look for all UI rules across the projects and see if we are missing any rules. List them\"*"
+      ],
+      "approval": "none needed for Category 0 (already canon, only unindexed). Categories 1–3 need an APPROVALS row per adopted group — this task does not pre-approve them.",
+      "dependencies": [
+        "TASK-080 (canon repair) should land first so adopted rules are written in the positive-definition form ADR-258 requires."
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1308,
+      "rank": 83
+    },
+    {
+      "id": "TASK-086",
+      "title": "TASK-086 — Multi-select on every table, entered by long-press on touch",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Hardening",
+      "outcome": "every table supports multi-select — a checkbox column and a \"Delete N\" action bar — entered on touch by long-pressing a row and on pointer by the checkbox. While multi-select is active a tap toggles the row rather than opening it. The row context menu keeps its touch path through the row caret (§5f: right-click ≡ caret ≡ `StandardRowMenu`), so no new affordance is invented. Where an element has no context menu, long-press still stands in for hover-reveal.",
+      "prototypeTest": "on a touch device, long-press a row → checkboxes appear and that row is selected; tap two more rows → count reads 3 and none of them opened; the caret still opens the same menu right-click opens; Escape (or the bar's Cancel) clears selection. A bulk delete of 3 Records produces the same governance decisions as three single deletes — verified in the ledger, not by eye.",
+      "scope": [
+        "`platform/apps/web/src/app/dataviews/views/TableView.tsx` (no long-press or selection state exists today — `grep onTouchStart` and `grep selectedRows` both return nothing), `StandardRowMenu`, and the bulk path in `router.ts`. The action bar is shared chrome, not per-page."
+      ],
+      "evidence": [
+        "Bridge has zero multi-select and zero long-press handling. CV Naturals shipped this and narrowed C-12 for it on 2026-08-17 (their ADR-017/AP-023) — one day after Bridge imported the superseded text."
+      ],
+      "requests": [
+        "user directive 2026-08-30 (AP-171), verbatim: *\"Bridge needs multiselect, long press on touch screen\"*"
+      ],
+      "approval": "AP-171 APPLIED (ADR-261)",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1326,
+      "rank": 84
+    },
+    {
+      "id": "TASK-087",
+      "title": "TASK-087 — Grouping on every table, and Databases that link by column",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Hardening",
+      "outcome": "(a) `onGroup` is wired so C-9 holds — every table offers grouping from the ⋮, and a surface that genuinely cannot group says why rather than showing a permanently dead command. (b) A relation column names a target Database and the column it matches on, and **the target Database gains the reverse view of that link without anyone declaring it twice** — a link is declared once and read from either side.",
+      "prototypeTest": "group a table by a Dropdown column → collapsible groups with per-group counts, persisted in the View like any other overlay. Then link Database A to Database B by a column, open B, and find A's rows reachable there without having declared anything in B; unlink from B and the link is gone in A. C-32 (editable from both ends) is satisfied by construction rather than by a second declaration.",
+      "scope": [
+        "`StandardColumnMenu.tsx` (Group is `disabled={!onGroup}` and `TableView` passes `onGroup` from nobody, so it is disabled on every table in the app), `DataViews.tsx`, the View overlay shape in `platform/packages/tables`, and the relation column kind."
+      ],
+      "evidence": [
+        "`grep onGroup` finds the prop threaded but never supplied. `ColumnKind` already includes `relation`, so the column type exists",
+        "the reverse-side read does not."
+      ],
+      "requests": [
+        "user directive 2026-08-30 (AP-171), verbatim: *\"We need on group. Also similar to notion, we should be able to link databases by certain columns and access it from its related database\"*"
+      ],
+      "approval": "AP-171 APPLIED (ADR-261)",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1340,
+      "rank": 85
+    },
+    {
+      "id": "TASK-088",
+      "title": "TASK-088 — Governance becomes editable — an engine-held overlay, never a mutated manifest",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Prototype",
+      "outcome": "the effective governance policy for a Module is an **engine-held overlay keyed by Organization + Module**, resolved over the manifest's declared default. The engine enforces against the resolved policy; editing writes the overlay and sets `userEdited`; the manifest is never mutated. The Governance Section's edit affordance reaches a real editor instead of a link to a deleted page.",
+      "prototypeTest": "edit Accounting's deny list in one Organization → enforcement changes for that Organization only, the manifest file on disk is byte-identical, the Section shows the \"edited by you\" state, and a second Organization still sees the shipped default. Reset the overlay → the declared default returns. A Module shipping no policy still renders the honest empty state, and an empty policy is still not a default-deny.",
+      "scope": [
+        "a governance-overlay store (`platform/packages/core/src/module/governance.ts` holds `governanceVerdict`/`assertModuleGovernance` today",
+        "only one production caller exists, `router.ts:18575`, Accounting), the tRPC mutation, and `ModuleGovernanceSection.tsx`'s edit path. `module.governance.userEdited` is already parsed in `manifest.ts:529-537` and read by the UI — this task is what finally sets it."
+      ],
+      "evidence": [
+        "the field exists and nothing in the codebase can write it",
+        "the Section's \"Edit in Module Detail\" link resolves to a redirect back to the page the user was already on (BUGS 2026-08-29). Manifests are immutable (ADR-178), so an editable manifest field was never possible — the flag was written for an overlay nobody built."
+      ],
+      "requests": [
+        "user directive 2026-08-30 (AP-171), verbatim: *\"governance should be editable. It wasnt a module but an engine right?\"*"
+      ],
+      "approval": "AP-171 APPLIED (ADR-261)",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1354,
+      "rank": 86
+    },
+    {
+      "id": "TASK-089",
+      "title": "TASK-089 — Admin is Organization ownership and membership",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Hardening",
+      "outcome": "a user is admin of their own home Organization and a member of any number of others by invitation. The surface sits behind the **Organization control at the top of the rail** — the one slot ADR-180's closed left-nav scope already grants it. Module-scoped administration (mount/unmount, scopes, versions) lives inside it, scoped to the Organization, listing that Organization's installed Modules.",
+      "prototypeTest": "from the Organization control, invite a second user to an Organization, accept as that user, and see both Organizations in their switcher with the correct role in each; mount and unmount a Module in one Organization and confirm the other is unaffected. A non-member cannot reach either.",
+      "scope": [
+        "the rail's Organization control (`Layout.tsx`), an admin surface behind it, and the existing Organization-membership procedures in `router.ts` (SEC-6 scoped membership checks already exist",
+        "AP-014)."
+      ],
+      "evidence": [
+        "ADR-180 moved admin into Module Detail and ADR-224 deleted that page, leaving mount/unmount, scopes and versions with no surface at all — recorded as the open gap on TASK-080. The glossary already defines Organization as \"user or team security, membership, billing, and data boundary\" and Module Installation as an \"Organization-scoped record\", so the data shape this needs exists."
+      ],
+      "requests": [
+        "user directive 2026-08-30 (AP-171), verbatim: *\"Admin owns workspaces while a user is admin for his home workspace, he can be part of multiple workspaces based on where he's invited.\"*"
+      ],
+      "approval": "AP-171 APPLIED (ADR-261)",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1368,
+      "rank": 87
     }
   ]
 }

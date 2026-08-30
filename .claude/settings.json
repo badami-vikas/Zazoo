@@ -159,5 +159,19 @@
     "ui-to-vue": "off",
     "x-api": "off"
   },
-  "autoCompactWindow": 450000
+  "autoCompactWindow": 450000,
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *platform/apps/web/src/*.tsx|*platform/apps/web/src/*.ts) cd \"$CLAUDE_PROJECT_DIR/platform\" && node scripts/check-ui-rules.mjs >&2 || exit 2 ;; esac",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
 }

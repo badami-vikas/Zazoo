@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight } from "lucide-react";
+import { Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight, Building2 } from "lucide-react";
 import { moduleNavTarget, buildModuleNavTree } from "@bridge/module-manifests";
 import { trpc, PILOT_ORGANIZATION } from "./lib/trpc";
 import { useAppFocusCapture } from "./lib/app-focus-capture";
@@ -23,6 +23,20 @@ import {
 } from "./components/shared/PanelControl";
 import { MAC_TRAFFIC_LIGHT_GUTTER, useIsMacDesktop } from "./components/shared/DesktopWindowChrome";
 import { useAuthSession } from "./auth/AuthSession";
+// TASK-081: the rail borrows the table header's menu geometry rather than
+// inventing a second one — same viewport clamp, same fixed panel, same
+// right-click gesture that opens StandardColumnMenu on a column header.
+import { clampMenuPosition, type MenuPosition } from "./components/shared/StandardColumnMenu";
+import {
+  applyRailPresentation,
+  canHideModule,
+  EMPTY_RAIL_PRESENTATION,
+  loadRailPresentation,
+  moveModuleInOrder,
+  railPresentationKey,
+  saveRailPresentation,
+  type RailPresentation,
+} from "./rail-module-presentation";
 
 /**
  * Shell IA v3 — TASK-001 / VOCAB6 (2026-07-16): installed Modules are
@@ -81,6 +95,67 @@ function loadExpandedModules(): string[] {
     // is a valid nav state — never an error surface.
     return [];
   }
+}
+
+// TASK-081: hidden / renamed / reordered Modules, persisted per Organization
+// in the same `bridge.<org>.rail.*` family as EXPANDED_KEY above. Rail
+// PRESENTATION only — nothing here installs, uninstalls, re-scopes or
+// re-planes a Module, and nothing outside the rail reads it (ADR-178: a
+// re-arrangement is never a filter). See rail-module-presentation.ts.
+const PRESENTATION_KEY = railPresentationKey(PILOT_ORGANIZATION);
+
+/** Drag payload type for rail reordering. A private MIME type keeps a dragged
+ *  Module from being dropped into (or accepted from) anything else. */
+const RAIL_DRAG_TYPE = "application/x-bridge-rail-module";
+
+/** A rail Module carrying its presentation state. */
+type PresentedNavModule = NavModule & { hidden: boolean };
+
+/**
+ * The rail's context / View-options panel. Deliberately the SAME shape as
+ * `StandardColumnMenuPanel`: fixed, viewport-clamped, dismissed by Escape or an
+ * outside pointerdown. The gesture that opens a column menu on a table header
+ * is the gesture that opens this one on a rail Module.
+ */
+function RailMenuPanel({
+  position,
+  label,
+  onClose,
+  children,
+}: {
+  position: MenuPosition;
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("pointerdown", onClose);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onClose);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+  return (
+    <div
+      role="menu"
+      aria-label={label}
+      className="fixed z-[80] max-h-[min(70dvh,420px)] w-56 overflow-auto rounded-xl border py-1 text-left shadow-xl"
+      style={{
+        left: position.x,
+        top: position.y,
+        borderColor: "var(--color-border)",
+        background: "var(--popover)",
+        color: "var(--popover-foreground)",
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {children}
+    </div>
+  );
 }
 
 export default function Layout() {
@@ -158,6 +233,24 @@ export default function Layout() {
     { moduleName: string; displayName: string; parentModule?: string | undefined }[] | null
   >(null);
   const [expandedModules, setExpandedModules] = useState<string[]>(() => loadExpandedModules());
+
+  // TASK-081 rail presentation. Resolved synchronously so the rail paints in
+  // the user's own order/labels at first paint rather than reshuffling itself.
+  const [presentation, setPresentation] = useState<RailPresentation>(() =>
+    typeof window === "undefined"
+      ? EMPTY_RAIL_PRESENTATION
+      : loadRailPresentation(PRESENTATION_KEY, window.localStorage),
+  );
+  /** Open rail menu. `moduleName` undefined = opened on empty rail space, so
+   *  only the View-options list applies. */
+  const [railMenu, setRailMenu] = useState<{ position: MenuPosition; moduleName?: string } | null>(null);
+  /** The Module whose rail row is currently an inline rename input. */
+  const [renamingModule, setRenamingModule] = useState<string | null>(null);
+
+  function updatePresentation(next: RailPresentation) {
+    setPresentation(next);
+    if (typeof window !== "undefined") saveRailPresentation(PRESENTATION_KEY, next, window.localStorage);
+  }
 
   function toggleModuleExpanded(moduleName: string) {
     setExpandedModules((current) => {
@@ -331,8 +424,48 @@ export default function Layout() {
       (mod) => !DEFAULT_MODULES.some((def) => def.moduleName === mod.moduleName),
     ),
   ];
+  // TASK-081: the user's own order and labels are applied BEFORE the tree is
+  // built (buildModuleNavTree preserves input order), and hiding is carried as
+  // a flag rather than a filter — every Module is still here, and still in
+  // Intelligence, search, and the Organization admin surface.
+  const presentedModules: PresentedNavModule[] = applyRailPresentation(navModules, presentation);
+  const presentedOrder = presentedModules.map((mod) => mod.moduleName);
   // ADR-178: roots first, sub-modules nested one level under their parent.
-  const navTree = buildModuleNavTree(navModules);
+  const navTree = buildModuleNavTree(presentedModules).filter((node) => !node.module.hidden);
+
+  function reorderModule(moved: string, target: string) {
+    // Seeded from what is on screen, so the first drag records a complete
+    // order instead of a two-name fragment the rest of the rail sorts around.
+    updatePresentation({ ...presentation, order: moveModuleInOrder(presentedOrder, moved, target) });
+  }
+
+  function setModuleHidden(moduleName: string, hidden: boolean) {
+    if (hidden && !canHideModule(presentedModules, presentation.hidden, moduleName)) return;
+    updatePresentation({
+      ...presentation,
+      hidden: hidden
+        ? [...presentation.hidden, moduleName]
+        : presentation.hidden.filter((name) => name !== moduleName),
+    });
+  }
+
+  /** A blank label removes the override, restoring the Module's own name. */
+  function commitModuleRename(moduleName: string, label: string) {
+    const names = { ...presentation.names };
+    if (label.trim()) names[moduleName] = label.trim();
+    else delete names[moduleName];
+    updatePresentation({ ...presentation, names });
+    setRenamingModule(null);
+  }
+
+  function openRailMenu(event: { preventDefault: () => void; stopPropagation: () => void; clientX: number; clientY: number }, moduleName?: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    setRailMenu({
+      position: clampMenuPosition({ x: event.clientX, y: event.clientY }),
+      ...(moduleName ? { moduleName } : {}),
+    });
+  }
 
   // Rail nav item — TWO layouts sharing one active-state treatment.
   // Collapsed: icon + short label stacked/centered. Expanded: icon + full label in a row.
@@ -368,8 +501,52 @@ export default function Layout() {
     const Icon = mod.icon;
     const { active, nested, disclosure } = opts;
     const iconSize = nested ? "w-4 h-4" : "w-5 h-5";
+    if (renamingModule === mod.moduleName) {
+      // Rename happens in place, on the row itself — the same shape Notion and
+      // Finder use. Enter/blur commit, Escape abandons.
+      return (
+        <div key={mod.moduleName} className="relative flex items-center px-2.5 py-1">
+          <input
+            autoFocus
+            defaultValue={mod.displayName}
+            aria-label={`Rename ${mod.displayName}`}
+            className="w-full rounded-md border px-1.5 py-1 text-sm"
+            style={{ borderColor: "var(--color-steel)", backgroundColor: "var(--color-surface)", color: "var(--color-navy)" }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") commitModuleRename(mod.moduleName, event.currentTarget.value);
+              if (event.key === "Escape") setRenamingModule(null);
+            }}
+            onBlur={(event) => commitModuleRename(mod.moduleName, event.currentTarget.value)}
+          />
+        </div>
+      );
+    }
     return (
-      <div key={mod.moduleName} className="relative flex items-center">
+      <div
+        key={mod.moduleName}
+        className="relative flex items-center"
+        // Drag-reorder uses the browser's own drag-and-drop rather than a
+        // dependency: the rail is a short list of rows, which is exactly what
+        // the native API is for. Touch has no HTML5 drag, so the mobile drawer
+        // deliberately does not offer reordering.
+        draggable
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = "move";
+          // The dragged Module travels in the drag payload, NOT in React
+          // state: dragstart and drop can land in the same batch, and a
+          // useState written on dragstart is still null when drop reads it.
+          event.dataTransfer.setData(RAIL_DRAG_TYPE, mod.moduleName);
+        }}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes(RAIL_DRAG_TYPE)) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const moved = event.dataTransfer.getData(RAIL_DRAG_TYPE);
+          if (moved) reorderModule(moved, mod.moduleName);
+        }}
+        onContextMenu={(event) => openRailMenu(event, mod.moduleName)}
+      >
         <Link
           to={mod.to}
           // The chevron sits ON the row, so reserve its width — otherwise a
@@ -404,13 +581,15 @@ export default function Layout() {
     );
   }
 
-  /** Mobile drawer entry — same hierarchy, indentation instead of disclosure. */
+  /** Mobile drawer entry — same hierarchy, indentation instead of disclosure.
+   *  Same right-click menu as the rail; no drag (touch has no HTML5 drag). */
   function renderMobileModuleLink(mod: NavModule, nested: boolean) {
     const Icon = mod.icon;
     return (
       <Link
         key={mod.moduleName}
         to={mod.to}
+        onContextMenu={(event) => openRailMenu(event, mod.moduleName)}
         onClick={() => setMobileModulesOpen(false)}
         className={`flex items-center gap-3 rounded-lg py-3 text-sm font-medium ${nested ? "pl-9 pr-3" : "px-3"}`}
         style={{ color: "var(--color-navy)" }}
@@ -569,6 +748,27 @@ export default function Layout() {
                   })}
                 </div>
 
+                {/* TASK-089: the Organization admin surface. ADR-180's closed
+                    left-nav scope grants exactly one slot outside Modules /
+                    Intelligence / Settings — the Organization control at the
+                    top of the rail — so Module mount state, scopes, versions
+                    and membership hang off THIS menu, scoped to the
+                    Organization. It is one Organization surface, never a
+                    per-Module page: Module Detail stays deleted (ADR-224/261). */}
+                <div className="border-t" style={{ borderColor: "var(--color-border)" }} />
+                <div className="p-1.5">
+                  <Link
+                    to="/organization/admin"
+                    role="menuitem"
+                    onClick={() => setOrgMenuOpen(false)}
+                    className="flex w-full items-center gap-3 px-3 py-2 rounded-lg text-left no-underline transition-colors hover:bg-[color-mix(in_srgb,var(--color-navy)_8%,transparent)]"
+                    title="Modules, scopes, versions and members for this Organization"
+                  >
+                    <Building2 className="h-4 w-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
+                    <span className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>Manage Organization</span>
+                  </Link>
+                </div>
+
                 {/* Sign out lives at the bottom of the account menu (Notion
                     pattern), not as a standalone rail item. */}
                 {auth.configured && (
@@ -606,7 +806,12 @@ export default function Layout() {
             whole rail scroll — the user could scroll past Settings. With
             `min-h-0` the region takes exactly the leftover height, scrolls its
             own overflow, and the footer below stays fixed on screen (ADR-180). */}
-        <div className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3"
+          // Right-clicking empty rail space opens View options, so a hidden
+          // Module is reachable even with no row left to right-click.
+          onContextMenu={(event) => openRailMenu(event)}
+        >
           <Link to="/" className={navItemClass(homeActive)} title="Home">
             {homeActive && <ActiveBar />}
             <Home className="w-5 h-5 shrink-0" style={{ color: homeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
@@ -616,7 +821,10 @@ export default function Layout() {
           {/* Modules under Home — Task Manager (default) first, then installed
               Modules from modules.list. Always non-empty, so no "unavailable"
               or "no modules" state is ever rendered. */}
-          {navTree.map((node) => {
+          {navTree.map((rawNode) => {
+            // Hiding a parent hides the group it heads; a hidden child drops
+            // out on its own. Neither is removed from anywhere but the rail.
+            const node = { ...rawNode, children: rawNode.children.filter((child) => !child.hidden) };
             const parentActive = moduleActive(node.module);
             const anyChildActive = node.children.some(moduleActive);
             // An active sub-module forces its parent open — otherwise the rail
@@ -693,6 +901,76 @@ export default function Layout() {
           </Link>
         </div>
       </nav>
+
+      {/* TASK-081: one panel carries both halves of the pairing the table
+          header already uses — Hide on the row, and the View options list that
+          brings a hidden Module back. Hiding is rail presentation: it never
+          uninstalls a Module, never touches a permission or a plane, and never
+          removes the Module from Intelligence, search, or the Organization
+          admin surface. */}
+      {railMenu && (
+        <RailMenuPanel
+          position={railMenu.position}
+          label="Module rail actions"
+          onClose={() => setRailMenu(null)}
+        >
+          {railMenu.moduleName && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!canHideModule(presentedModules, presentation.hidden, railMenu.moduleName)}
+                title={
+                  canHideModule(presentedModules, presentation.hidden, railMenu.moduleName)
+                    ? "Hides this Module from the rail only — it stays installed"
+                    : "Unavailable: the rail always keeps at least one Module visible"
+                }
+                onClick={() => {
+                  setModuleHidden(railMenu.moduleName!, true);
+                  setRailMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-45"
+              >
+                Hide
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setRenamingModule(railMenu.moduleName ?? null);
+                  setRailMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Rename
+              </button>
+              <div className="my-1 border-t" style={{ borderColor: "var(--color-border)" }} />
+            </>
+          )}
+          <div className="flex items-center justify-between px-3 py-1.5 text-xs opacity-60">
+            <span>View options</span>
+            <span>{presentation.hidden.length} hidden</span>
+          </div>
+          {presentedModules.map((mod) => {
+            const blocked = !mod.hidden && !canHideModule(presentedModules, presentation.hidden, mod.moduleName);
+            return (
+              <label
+                key={mod.moduleName}
+                title={blocked ? "Unavailable: the rail always keeps at least one Module visible" : undefined}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 ${blocked ? "opacity-45" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={!mod.hidden}
+                  disabled={blocked}
+                  onChange={(event) => setModuleHidden(mod.moduleName, !event.target.checked)}
+                />
+                <span className="truncate">{mod.displayName}</span>
+              </label>
+            );
+          })}
+        </RailMenuPanel>
+      )}
 
       <div className="min-w-0 flex-1 overflow-auto pb-14 sm:pb-0 bg-background">
         <Outlet />

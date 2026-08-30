@@ -64,7 +64,11 @@ const REINVENTIONS = [
   },
   {
     // A bespoke toolbar row: the standard one is <StandardToolbar>.
-    pattern: /placeholder=["'`]Search\s/i,
+    // Anchored: `searchPlaceholder="Search jobs…"` is a page handing <DataViews>
+    // its placeholder — the compliant path — and the unanchored form matched it,
+    // which is why JobPilotPage sat in the ratchet for a divergence it never had.
+    // A gate that fires on correct code is a gate people learn to suppress.
+    pattern: /(?:^|[^a-zA-Z])placeholder=["'`]Search\s/i,
     rule: "§5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
   },
   {
@@ -90,7 +94,6 @@ const KNOWN_DIVERGENCES = [
   "RelationshipSubmodulePage.tsx: missing <ModuleSurfaceLayout> missing <DataViews>",
   "ResearchRunsPage.tsx: missing <ModuleSurfaceLayout> missing <DataViews>",
   "SecondBrainPage.tsx: missing <ModuleSurfaceLayout>",
-  "JobPilotPage.tsx: §5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
   "RelationshipHelpdeskPage.tsx: §5 — the search slot belongs to <StandardToolbar>/<DataViews>, not a page-local input",
   "SettingsPage.tsx: §5 — tabular data renders through <DataViews>, never a raw <table>",
 ];
@@ -341,4 +344,44 @@ test("the insights row is ONE component everywhere (§5, user directive 2026-08-
   }
   assert.deepEqual(offenders, [], `insights slots not using DashboardRow: ${offenders.join(", ")}`);
   assert.doesNotMatch(read("src/app/pages/DealPilotPage.tsx"), /function StatCard/);
+});
+
+test("every data-shape page carries a Governance Section, directly below Intelligence (ADR-248)", () => {
+  // ADR-248 put Governance in ModuleSurfaceLayout's `below` slot immediately after
+  // ModuleIntelligenceSection, on EVERY Module: Intelligence answers what a Module can
+  // do, Governance answers what it may do, and "a capability list a reader cannot see
+  // the limits of is half an answer". Shipped at 14 call sites and ungated until now —
+  // which is exactly how the Second Brain rail entry drifted back.
+  const missing = [];
+  const outOfOrder = [];
+  for (const file of readdirSync(PAGES).filter((name) => name.endsWith(".tsx"))) {
+    if (file in EXEMPT) continue;
+    const src = readFileSync(join(PAGES, file), "utf8");
+    if (!/<DataViews[\s/>]/.test(src)) continue;
+    if (!/<ModuleIntelligenceSection[\s/>]/.test(src)) continue;
+    if (!/<ModuleGovernanceSection[\s/>]/.test(src)) {
+      missing.push(file);
+      continue;
+    }
+    // Governance must FOLLOW Intelligence everywhere both appear.
+    const intelligence = [...src.matchAll(/<ModuleIntelligenceSection[\s/>]/g)].map((m) => m.index);
+    const governance = [...src.matchAll(/<ModuleGovernanceSection[\s/>]/g)].map((m) => m.index);
+    if (intelligence.length !== governance.length) {
+      outOfOrder.push(`${file}: ${intelligence.length} Intelligence vs ${governance.length} Governance`);
+      continue;
+    }
+    for (let i = 0; i < intelligence.length; i += 1) {
+      if (governance[i] < intelligence[i]) outOfOrder.push(`${file}: Governance renders before Intelligence`);
+    }
+  }
+  assert.deepEqual(missing, [], `pages with Intelligence but no Governance Section: ${missing.join(", ")}`);
+  assert.deepEqual(outOfOrder, [], outOfOrder.join("; "));
+});
+
+test("the Governance Section states that an empty policy is not a default-deny (ADR-248)", () => {
+  // Present-not-absent (ADR-001) governs the empty case: a Module declaring no policy
+  // renders the Section with an honest empty state and is never filtered out. The
+  // dangerous misreading is that silence means denial, so the copy has to say otherwise.
+  const src = read("src/app/components/shared/ModuleGovernanceSection.tsx");
+  assert.match(src, /not a default-deny/i, "the empty state must say an empty policy is not a default-deny");
 });
