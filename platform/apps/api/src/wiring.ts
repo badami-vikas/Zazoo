@@ -92,6 +92,9 @@ import {
   type SkillManifestRegistry,
   type ChildAgentRunStore,
   type ResearchRunStore,
+  createChatBackendRegistry,
+  type ChatBackend,
+  type ChatBackendRegistry,
   type ChatStore,
   type SkillManifest,
   type TaintAuditStore,
@@ -256,6 +259,8 @@ import {
 } from "@bridge/models";
 import { ManagedModelService } from "./chat/model-manager.js";
 import { ResidencyRoutingChatStore } from "./chat/residency-chat-store.js";
+import { ClaudeOAuthStore } from "./chat/claude-oauth.js";
+import { createClaudeCodeBackend } from "./chat/claude-code-backend.js";
 import {
   EgressExecutor,
   GoogleApiGatewayFactory,
@@ -676,6 +681,14 @@ export interface Wiring {
    * report existence only; the raw key is read exactly once, at boot, to
    * register the provider above. */
   modelProviderKeys: ModelProviderKeyStore;
+  /** Claude sign-in for the agentic chat backend — PKCE tokens in the same
+   * Local Plane vault the model-provider keys use (see claude-oauth.ts). */
+  claudeOAuth: ClaudeOAuthStore;
+  /** Swappable conversation backends (chat-backend.ts). "bridge" is always
+   * registered; agentic backends appear only when this deployment can run
+   * them, so an unavailable backend is absent rather than offered-and-failing. */
+  chatBackends: ChatBackendRegistry;
+
   /** TASK-023 public-web SearchProvider router. Phase 1 accepts only
    * rights-verified Tier-1 free-direct providers and has no paid escalation path. */
   searchProviders: SearchProviderRouter;
@@ -741,6 +754,10 @@ export interface BuildWiringOptions {
   /** Explicit provider set for composition tests or alternate deployments.
    * Omitted means the normal environment-bound providers for the selected mode. */
   modelProviders?: readonly ModelProvider[];
+  /** Explicit agentic chat backends. Omitted means the environment-bound set
+   * (Claude Code on a Local Plane deployment, none in public cloud). Supplying
+   * an empty array is meaningful: it registers no backend at all. */
+  chatBackends?: readonly ChatBackend[];
   /** Explicit SearchProvider router for composition tests or deployments. */
   searchProviders?: SearchProviderRouter;
   /** Explicit local ContentGuard for composition tests or alternate deployments. */
@@ -5845,6 +5862,18 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     state: localPlane.state,
     vault: dealPilotCredentialVault,
   });
+  const claudeOAuth = new ClaudeOAuthStore({
+    state: localPlane.state,
+    vault: dealPilotCredentialVault,
+  });
+  // The agentic backend is Local-Plane-only machinery: it spawns a subprocess
+  // that reads the user's files. A public-cloud deployment has neither those
+  // files nor the right to touch them, so it simply never registers — the
+  // model menu then shows no such option rather than an option that fails.
+  const chatBackends = createChatBackendRegistry(
+    options.chatBackends ??
+      (publicCloudOnly ? [] : [createClaudeCodeBackend({ oauth: claudeOAuth })]),
+  );
 
   // A model-provider key saved in Settings becomes a live provider exactly
   // once, HERE, at boot — which is why the Settings UI says "restart to
@@ -6987,6 +7016,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     devpilotEnabled,
     devpilot: { store: devpilotStore, gateways: githubGatewayFactory },
     modelProviderKeys,
+    claudeOAuth,
+    chatBackends,
     ...(semanticEmbedder ? { semanticEmbedder } : {}),
     skillRegistry,
     accountingDb,

@@ -18,6 +18,7 @@ import {
   type ChatTurnRef,
   type CreateChatCloudGrantInput,
   type CreateChatThreadInput,
+  type SetChatThreadBackendInput,
   type UpdateChatTurnInput,
 } from "@bridge/core";
 
@@ -153,6 +154,61 @@ export class ResidencyRoutingChatStore implements ChatStore {
   ): Promise<ChatThread | null> {
     const located = await this.locate(scope, threadId);
     return located.store.archiveThread(scope, threadId);
+  }
+
+  async setThreadBackendSession(
+    scope: ChatOwnerScope,
+    threadId: string,
+    backendSessionId: string,
+  ): Promise<ChatThread> {
+    const located = await this.locate(scope, threadId);
+    return located.store.setThreadBackendSession(scope, threadId, backendSessionId);
+  }
+
+  /**
+   * Switching engines keeps the conversation; switching PLANES would move its
+   * rows between two physically separate stores, and this router does not move
+   * rows. A same-plane switch passes through; a cross-plane one is refused
+   * loudly rather than relabelling a thread whose turns would stay behind in
+   * the other store. (The desktop deployment has one store, so a plane change
+   * is an ordinary column update there and this path is never hit.)
+   */
+  async setThreadBackend(
+    scope: ChatOwnerScope,
+    input: SetChatThreadBackendInput,
+  ): Promise<ChatThread> {
+    const located = await this.locate(scope, input.threadId);
+    if (located.thread.plane !== input.plane) {
+      throw new ChatStoreScopeError(
+        `chat-store: this deployment stores ${located.thread.plane} and ${input.plane} Chat separately, so a thread cannot move between them — start a new Chat on that model instead`,
+      );
+    }
+    return located.store.setThreadBackend(scope, input);
+  }
+
+  async liveModuleThread(
+    scope: ChatOwnerScope,
+    moduleName: string,
+  ): Promise<ChatThread | null> {
+    const [local, cloud] = await Promise.all([
+      this.local?.liveModuleThread(scope, moduleName) ?? Promise.resolve(null),
+      this.cloud.liveModuleThread(scope, moduleName),
+    ]);
+    if (local && cloud) {
+      // Both planes hold a live thread for this Module. Newest wins; the other
+      // stays reachable in the thread list rather than being hidden or merged.
+      return newestThreadFirst(local, cloud) <= 0 ? local : cloud;
+    }
+    return local ?? cloud;
+  }
+
+  async attachModule(
+    scope: ChatOwnerScope,
+    threadId: string,
+    moduleName: string,
+  ): Promise<ChatThread> {
+    const located = await this.locate(scope, threadId);
+    return located.store.attachModule(scope, threadId, moduleName);
   }
 
   async deleteThread(

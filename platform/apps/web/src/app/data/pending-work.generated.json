@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T14:30:53.374Z",
+  "generatedAt": "2026-09-02T23:23:30.153Z",
   "items": [
     {
       "id": "TASK-026",
@@ -2577,7 +2577,7 @@
     {
       "id": "TASK-081",
       "title": "TASK-081 — Left-nav Modules become directly manageable — right-click menu and drag-reorder",
-      "status": "pending",
+      "status": "open",
       "priority": "P2",
       "horizon": "Hardening",
       "outcome": "right-clicking a Module in the rail opens a context menu offering **Hide** and **Rename**, the same gesture that opens the column menu on a table header; hidden Modules are restored from a rail **View options** entry and are never lost; Modules are drag-reorderable and the order persists per Organization.",
@@ -2595,7 +2595,7 @@
       ],
       "approval": "AP-168 APPLIED (ADR-258)",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress (rail presentation LANDED 2026-08-30, ADR-262; the Files-folder half of the exit test is NOT met — see Landed/Not landed below)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1253,
@@ -2604,7 +2604,7 @@
     {
       "id": "TASK-082",
       "title": "TASK-082 — Chat composer — the paperclip uploads, and the mic works everywhere",
-      "status": "pending",
+      "status": "open",
       "priority": "P2",
       "horizon": "Hardening",
       "outcome": "the chat paperclip accepts a file and routes it through the same Module File path every other upload uses, landing under `~/Documents/Bridge/<Org>/<Module>/`; the chat mic records and transcribes on **every** Bridge surface — desktop, web and mobile — rather than only inside the Tauri shell.",
@@ -2624,10 +2624,10 @@
       ],
       "approval": "AP-168 APPLIED (ADR-258)",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress (uploads + cross-surface mic LANDED 2026-08-30, ADR-263; the Prototype test's live web-session runs are outstanding — see below)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1267,
+      "sourceLine": 1270,
       "rank": 80
     },
     {
@@ -2654,13 +2654,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1281,
+      "sourceLine": 1290,
       "rank": 81
     },
     {
       "id": "TASK-084",
       "title": "TASK-084 — A governed schema-mutation capability, so the column menu stops lying",
-      "status": "pending",
+      "status": "open",
       "priority": "P2",
       "horizon": "Hardening",
       "outcome": "a governed schema-mutation capability exists, and `StandardColumnMenu`'s items enable against it. Commands the surface can run are **enabled and warn** — stating the consequence and proceeding on confirmation — rather than refusing; only genuinely impossible commands stay disabled with a reason. A `formula` cell's editor carries an **fx** affordance that toggles between editing the value and editing the expression, binding to Accounting's existing formula engine rather than growing a second one.",
@@ -2682,10 +2682,10 @@
         "none — but the enabled-with-warning half of the outcome cannot land before the capability exists. Enabling the 13 items first would ship a menu that looks live and fails at the server, which ADR-247 (\"the server has the last word\"",
         "never claim what isn't true) forbids. ADR-001 (present-not-absent) is unchanged: nothing is ever hidden, at any stage."
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress (capability + 9 live menu items + fx LANDED 2026-08-30, ADR-264; add/duplicate column stay disabled with a stated reason, and the recompute clause is only half-runnable — see below)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1295,
+      "sourceLine": 1304,
       "rank": 82
     },
     {
@@ -2713,13 +2713,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1308,
+      "sourceLine": 1326,
       "rank": 83
     },
     {
       "id": "TASK-086",
       "title": "TASK-086 — Multi-select on every table, entered by long-press on touch",
-      "status": "pending",
+      "status": "open",
       "priority": "P2",
       "horizon": "Hardening",
       "outcome": "every table supports multi-select — a checkbox column and a \"Delete N\" action bar — entered on touch by long-pressing a row and on pointer by the checkbox. While multi-select is active a tap toggles the row rather than opening it. The row context menu keeps its touch path through the row caret (§5f: right-click ≡ caret ≡ `StandardRowMenu`), so no new affordance is invented. Where an element has no context menu, long-press still stands in for hover-reveal.",
@@ -2735,10 +2735,10 @@
       ],
       "approval": "AP-171 APPLIED (ADR-261)",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress (selection, bulk delete and the governance equivalence LANDED 2026-08-30, ADR-264; the touch clauses of the Prototype test need a real device — see below)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1326,
+      "sourceLine": 1344,
       "rank": 84
     },
     {
@@ -2764,13 +2764,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1340,
+      "sourceLine": 1365,
       "rank": 85
     },
     {
       "id": "TASK-088",
       "title": "TASK-088 — Governance becomes editable — an engine-held overlay, never a mutated manifest",
-      "status": "pending",
+      "status": "open",
       "priority": "P1",
       "horizon": "Prototype",
       "outcome": "the effective governance policy for a Module is an **engine-held overlay keyed by Organization + Module**, resolved over the manifest's declared default. The engine enforces against the resolved policy; editing writes the overlay and sets `userEdited`; the manifest is never mutated. The Governance Section's edit affordance reaches a real editor instead of a link to a deleted page.",
@@ -2788,16 +2788,16 @@
       ],
       "approval": "AP-171 APPLIED (ADR-261)",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress (engine overlay + in-place editor LANDED and ENFORCED 2026-08-30, ADR-263; live browser verification and the second-Organization half of the Prototype test are outstanding — see below)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1354,
+      "sourceLine": 1379,
       "rank": 86
     },
     {
       "id": "TASK-089",
       "title": "TASK-089 — Admin is Organization ownership and membership",
-      "status": "pending",
+      "status": "open",
       "priority": "P2",
       "horizon": "Hardening",
       "outcome": "a user is admin of their own home Organization and a member of any number of others by invitation. The surface sits behind the **Organization control at the top of the rail** — the one slot ADR-180's closed left-nav scope already grants it. Module-scoped administration (mount/unmount, scopes, versions) lives inside it, scoped to the Organization, listing that Organization's installed Modules.",
@@ -2814,11 +2814,110 @@
       ],
       "approval": "AP-171 APPLIED (ADR-261)",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress (admin surface LANDED 2026-08-30, ADR-262; the invite/accept and mount/unmount half of the exit test is NOT met — see below)",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1368,
+      "sourceLine": 1401,
       "rank": 87
+    },
+    {
+      "id": "TASK-090",
+      "title": "TASK-090 — Chat gets a swappable backend axis, and Claude Code answers turns in the panel and the Avatar",
+      "status": "open",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "a Chat thread names which ENGINE answers it as well as which plane its data may reach. The model menu in the Right Chat Panel and the Avatar composer offers Claude Code beside Local and Cloud; picking it starts a thread whose turns are answered by the Claude Agent SDK running headless in the API process — reading and editing files under `~/Documents/Bridge/<Organization>/`, with no terminal ever shown. Codex and Cursor become registry rows, not a second integration.",
+      "prototypeTest": "from the Chat panel, pick Claude Code, ask it to create a file in the Organization folder, and see the file on disk plus a prose reply in the thread; send a second message and confirm it continues the same Claude session after an API restart; confirm the thread reads `plane: cloud` even though no plane was requested.",
+      "scope": [
+        "`packages/core/src/chat-backend.ts`, `apps/api/src/chat/claude-code-backend.ts`, the `chat.thread.create`/`chat.turn.send`/`chat.model.status` procedures, `ChatView`'s model menu, `packages/db` migration `0044`."
+      ],
+      "evidence": [
+        "myzazoo (`Workspace/myzazoo/src/agents/claude.ts`, `src/serve.ts`) has run this exact shape in production for months",
+        "the user directed Bridge to match it."
+      ],
+      "requests": [
+        "user directive 2026-09-02, verbatim: *\"Refer myzazoo folder for builder agent reference and ensure we have the builder agent completely built and also similar to myzazoo, me having an option to choose claude as one of the model in the right hand chatbot or for avatar, while ensuring it runs terminal in backend\"*"
+      ],
+      "approval": "AP-172 APPLIED (ADR-265)",
+      "dependencies": [],
+      "canonicalStatus": "in_progress (landed 2026-09-02; the browser leg of the exit test is NOT met — see below)",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1420,
+      "rank": 88
+    },
+    {
+      "id": "TASK-091",
+      "title": "TASK-091 — The Builder Agent executes: primitive executor, loop, and the execution-first gate (BA0, first half)",
+      "status": "open",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "the Capability Builder stops being a text-drafting persona and gains the machinery to act — a gate that returns execute/approve/refuse, a executor that actually reads, writes, edits and runs commands inside one Module directory, and a loop that drives them through Bridge's own `ModelProvider`. Ordinary work runs without asking; only genuinely risky calls stop for a human; a short absolute list can never run at all.",
+      "prototypeTest": "give the Builder a task in a scratch Module, watch it write a file and run a command with no approval prompt, watch a `curl` escalate to a Proposal, and watch `git push` refuse with the branch-and-merge reason. Confirm every one of the three appears in the Run's audit trail.",
+      "scope": [
+        "`packages/core/src/capability/primitive-policy.ts`, `packages/core/src/capability/builder-loop.ts`, `apps/api/src/builder/primitive-executor.ts`, and their tests."
+      ],
+      "evidence": [
+        "`packages/core/src/capability/builder-primitives.ts` has carried the risk lookup, grant-scope check and SandboxProvider port since Track F2 with **no caller anywhere in `apps/api`** — classification without execution. myzazoo's `src/hook.ts` + `src/tools.ts` + `src/loop.ts` are the working reference for the executing half."
+      ],
+      "requests": [
+        "user directives 2026-09-02, verbatim: *\"ensure we have the builder agent completely built\"* and *\"I want governance but not at cost of execution. Seek approval only if high risk task, else lets have exectuion first approach.Bridge needs an agentic backend similar to my zazoo and I hope capabilities are designed as swappable elements\"*"
+      ],
+      "approval": "AP-172 APPLIED (ADR-266)",
+      "dependencies": [],
+      "canonicalStatus": "in_progress (landed 2026-09-02; BA0's containment and ledger criteria are NOT met — see TASK-092)",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1438,
+      "rank": 89
+    },
+    {
+      "id": "TASK-092",
+      "title": "TASK-092 — BA0 completion: governed Builder Runs, ledger receipts, and the container sandbox for untrusted bodies",
+      "status": "open",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "BA0's own exit criteria are met — every Builder action lands in the immutable ledger with model/prompt versions and token cost attached; a seeded containment suite runs as a permanent CI gate; and a real container/microVM `SandboxProvider` exists for UNTRUSTED capability bodies (Commons imports, foreign imports, Builder-generated executable code), which the host executor deliberately does not cover.",
+      "prototypeTest": "run a Builder task end to end from a user request and read its ledger — one row per action with cost. Then feed the containment suite a Commons capability that tries to reach the network and confirm the sandbox blocks it and the block is recorded. `NotImplementedContainerSandboxProvider` must no longer be the only container adapter.",
+      "scope": [
+        "`apps/api` wiring for a Builder Run, `packages/core/src/capability/sandbox-provider.ts`'s missing adapter, CI."
+      ],
+      "evidence": [
+        "`docs/raw/builder-agent-execution-plan-2026-09.md` §6 lists this as the largest unbuilt piece and BA2's hard dependency."
+      ],
+      "approval": "AP-172 APPLIED (ADR-266)",
+      "dependencies": [
+        "TASK-091"
+      ],
+      "canonicalStatus": "in_progress (the Run seam and its receipts landed 2026-09-02; the container adapter has NOT)",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1454,
+      "rank": 90
+    },
+    {
+      "id": "TASK-093",
+      "title": "TASK-093 — The conversation survives a model switch, and each Module reopens its own session",
+      "status": "open",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "switching the model in the Chat panel keeps the conversation — same thread, same turns, and the incoming engine is handed what was already said. Opening a Module reopens that Module's own live conversation with its history, and a session can attach further Modules so one conversation can span several.",
+      "prototypeTest": "send a message on the Local model, switch to Claude Code, and see the earlier turns still on screen; ask \"what did I just say?\" and get an answer that proves the context carried. Open a Module, talk, leave, reopen it, and land back in the same conversation. Attach a second Module and confirm both are listed on the thread.",
+      "scope": [
+        "`chat.thread.setBackend` / `forModule` / `attachModule`, `priorTurnsTranscript`, `chat_threads.module_name` + `attached_modules` (migration 0045), `useChat`'s `switchBackend`/`openModuleChat`/`attachModule`, the ChatView model menu."
+      ],
+      "evidence": [
+        "user-reported, 2026-09-02, verbatim: *\"When i change AI models in left hand chat, the chat should remain consistent since Bridge is managing context and should direct the chat to a given model and all models remain active in backend for quick swap. Currently the chat clears when I switch models. Also Each modules continues from previous session that is associated with given module just like claude code sessions are associated with projects but I can add multiple projects to a given session\"*"
+      ],
+      "approval": "AP-173 APPLIED (ADR-267)",
+      "dependencies": [
+        "TASK-090"
+      ],
+      "canonicalStatus": "in_progress (server half landed 2026-09-02; the Module surfaces do not call it yet)",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1470,
+      "rank": 91
     }
   ]
 }

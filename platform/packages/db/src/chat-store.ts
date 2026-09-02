@@ -14,7 +14,9 @@ import {
   ChatStoreConflictError,
   ChatStoreNotFoundError,
   ChatCloudGrantError,
+  assertBackendSessionAllowed,
   assertChatPlaneScope,
+  ChatStoreScopeError,
   assertChatRefIdempotentReplay,
   assertChatTurnForThread,
   assertChatTurnIdempotentReplay,
@@ -37,6 +39,7 @@ import {
   type ChatTurnQuery,
   type ChatTurnRef,
   type CreateChatThreadInput,
+  type SetChatThreadBackendInput,
   type CreateChatCloudGrantInput,
   type UpdateChatTurnInput,
 } from "@bridge/core";
@@ -59,6 +62,10 @@ function unpackThread(row: ChatThreadRow): ChatThread {
     dataScope: row.dataScope as ChatThread["dataScope"],
     status: row.status as ChatThreadStatus,
     ...(row.title !== null ? { title: row.title } : {}),
+    backend: row.backend as ChatThread["backend"],
+    ...(row.backendSessionId !== null ? { backendSessionId: row.backendSessionId } : {}),
+    ...(row.moduleName !== null ? { moduleName: row.moduleName } : {}),
+    attachedModules: row.attachedModules ?? [],
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -165,7 +172,9 @@ function sameThreadCreate(existing: ChatThread, input: CreateChatThreadInput): b
   return (
     existing.plane === input.plane &&
     existing.dataScope === input.dataScope &&
-    existing.title === normalizeOptionalText(input.title, "title")
+    existing.title === normalizeOptionalText(input.title, "title") &&
+    existing.backend === (input.backend ?? "bridge") &&
+    existing.moduleName === input.moduleName
   );
 }
 
@@ -203,6 +212,9 @@ export class DrizzleChatStore implements ChatStore {
           plane: input.plane,
           dataScope: input.dataScope,
           title,
+          backend: input.backend ?? "bridge",
+          moduleName: input.moduleName ?? null,
+          attachedModules: [...(input.attachedModules ?? [])],
         })
         .onConflictDoNothing()
         .returning();
@@ -272,6 +284,121 @@ export class DrizzleChatStore implements ChatStore {
           ? { nextCursor: { updatedAt: last.updatedAt, id: last.id } }
           : {}),
       };
+    });
+  }
+
+  async setThreadBackendSession(
+    scope: ChatOwnerScope,
+    threadId: string,
+    backendSessionId: string,
+  ): Promise<ChatThread> {
+    const id = parseDatabaseUuid(threadId, "threadId");
+    return this.scoped(scope, async (tx) => {
+      await lockChatThread(tx, id);
+      const [current] = await tx
+        .select()
+        .from(chatThreads)
+        .where(ownerThreadWhere(scope, id))
+        .limit(1);
+      if (!current) {
+        throw new ChatStoreNotFoundError(`chat-store: thread ${id} not found`);
+      }
+      assertBackendSessionAllowed(
+        current.backend as ChatThread["backend"],
+        backendSessionId,
+      );
+      const [saved] = await tx
+        .update(chatThreads)
+        .set({
+          backendSessionId,
+          updatedAt: sql`GREATEST(${chatThreads.updatedAt}, CURRENT_TIMESTAMP)`,
+        })
+        .where(ownerThreadWhere(scope, id))
+        .returning();
+      if (!saved) throw new ChatStoreNotFoundError(`chat-store: thread ${id} not found`);
+      return unpackThread(saved);
+    });
+  }
+
+  async setThreadBackend(
+    scope: ChatOwnerScope,
+    input: SetChatThreadBackendInput,
+  ): Promise<ChatThread> {
+    const id = parseDatabaseUuid(input.threadId, "threadId");
+    assertChatPlaneScope(input.plane, input.dataScope);
+    return this.scoped(scope, async (tx) => {
+      await lockChatThread(tx, id);
+      const [saved] = await tx
+        .update(chatThreads)
+        .set({
+          backend: input.backend,
+          plane: input.plane,
+          dataScope: input.dataScope,
+          // The handle belonged to the engine that just stopped answering.
+          backendSessionId: null,
+          updatedAt: sql`GREATEST(${chatThreads.updatedAt}, CURRENT_TIMESTAMP)`,
+        })
+        .where(ownerThreadWhere(scope, id))
+        .returning();
+      if (!saved) throw new ChatStoreNotFoundError(`chat-store: thread ${id} not found`);
+      return unpackThread(saved);
+    });
+  }
+
+  async liveModuleThread(
+    scope: ChatOwnerScope,
+    moduleName: string,
+  ): Promise<ChatThread | null> {
+    const name = moduleName.trim();
+    if (!name) throw new ChatStoreScopeError("chat-store: module name must be non-empty");
+    return this.scoped(scope, async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(chatThreads)
+        .where(
+          and(
+            eq(chatThreads.organizationId, scope.organizationId),
+            eq(chatThreads.ownerUserId, scope.ownerUserId),
+            eq(chatThreads.moduleName, name),
+            eq(chatThreads.status, "active"),
+          ),
+        )
+        .orderBy(desc(chatThreads.updatedAt), desc(chatThreads.id))
+        .limit(1);
+      return row ? unpackThread(row) : null;
+    });
+  }
+
+  async attachModule(
+    scope: ChatOwnerScope,
+    threadId: string,
+    moduleName: string,
+  ): Promise<ChatThread> {
+    const id = parseDatabaseUuid(threadId, "threadId");
+    const name = moduleName.trim();
+    if (!name) throw new ChatStoreScopeError("chat-store: module name must be non-empty");
+    return this.scoped(scope, async (tx) => {
+      await lockChatThread(tx, id);
+      const [current] = await tx
+        .select()
+        .from(chatThreads)
+        .where(ownerThreadWhere(scope, id))
+        .limit(1);
+      if (!current) throw new ChatStoreNotFoundError(`chat-store: thread ${id} not found`);
+      const attached = current.attachedModules ?? [];
+      if (current.moduleName === name || attached.includes(name)) {
+        return unpackThread(current);
+      }
+      const [saved] = await tx
+        .update(chatThreads)
+        .set({
+          attachedModules: [...attached, name],
+          updatedAt: sql`GREATEST(${chatThreads.updatedAt}, CURRENT_TIMESTAMP)`,
+        })
+        .where(ownerThreadWhere(scope, id))
+        .returning();
+      if (!saved) throw new ChatStoreNotFoundError(`chat-store: thread ${id} not found`);
+      return unpackThread(saved);
     });
   }
 

@@ -8,6 +8,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
@@ -262,6 +263,9 @@ import {
   ChatCloudGrantError,
   ChatStoreConflictError,
   ChatStoreNotFoundError,
+  ChatStoreScopeError,
+  CHAT_BACKEND_IDS,
+  type ChatBackendTurn,
   type ChatOwnerScope,
   type ChatThread,
   type ChatTurn,
@@ -470,7 +474,12 @@ import {
   saveModuleFile,
   OrganizationFilesConflictError,
   OrganizationFilesRecoveryError,
+  organizationFilesRoot,
+  moduleFilesRoot,
 } from "./module-files.js";
+import { runModuleBuilder } from "./builder/run.js";
+import { BUILDER_AGENT_RUNTIME_ID } from "@bridge/module-manifests";
+import { ClaudeSignInRequiredError } from "./chat/claude-code-backend.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
 // Syncs the groq key to companion.json so the Rust companion can use STT
@@ -4962,6 +4971,41 @@ function resolveChatModel(wiring: Wiring, plane: "local" | "cloud"): ModelProvid
   return candidates[0] ?? null;
 }
 
+/**
+ * The conversation so far, rendered for an engine that was not part of it.
+ *
+ * Deliberately bounded and deliberately plain: the most recent completed turns
+ * as `User:`/`Assistant:` lines, oldest first, capped so a long thread cannot
+ * blow the receiving agent's context on turn one. The user's OWN words are
+ * carried verbatim (a paraphrase would put words in their mouth); assistant
+ * turns are truncated, since what matters is what was decided, not every word
+ * of how it was said. Returns null when there is nothing to carry.
+ */
+async function priorTurnsTranscript(
+  wiring: Wiring,
+  scope: ChatOwnerScope,
+  threadId: string,
+): Promise<string | null> {
+  const CARRY_TURNS = 20;
+  const CARRY_CHARS = 12_000;
+  const recent = await wiring.chatStore.listRecentTurns(scope, threadId, CARRY_TURNS);
+  const lines: string[] = [];
+  for (const turn of recent) {
+    if (turn.state !== "completed" || turn.content.trim().length === 0) continue;
+    const speaker = turn.role === "user" ? "User" : "Assistant";
+    const body =
+      turn.role === "user" ? turn.content : turn.content.slice(0, 1_500);
+    lines.push(`${speaker}: ${body}`);
+  }
+  if (lines.length === 0) return null;
+  let transcript = lines.join("\n\n");
+  while (transcript.length > CARRY_CHARS && lines.length > 1) {
+    lines.shift();
+    transcript = lines.join("\n\n");
+  }
+  return `Earlier in this conversation:\n\n${transcript}`;
+}
+
 async function chatCanCreateTask(
   wiring: Wiring,
   organizationId: string,
@@ -5254,6 +5298,50 @@ async function addChatTurnRef(
     kind,
     refId,
   });
+}
+
+/**
+ * Records the files an agentic backend changed on this turn. The backend edits
+ * the user's Bridge folder directly, so without this the only evidence of a
+ * write is the model's own prose — and prose is not a receipt. One ledger row
+ * per turn, referenced from the turn, listing paths only (never contents).
+ */
+async function appendChatBackendChangedFiles(
+  ctx: Pick<ApiContext, "run" | "wiring">,
+  thread: ChatThread,
+  assistantTurnId: string,
+  changedPaths: readonly string[],
+): Promise<string> {
+  const id = idempotentUuid(`${assistantTurnId}:backend-changed-files`);
+  await ctx.wiring.ledger.append({
+    id,
+    organizationId: thread.organizationId,
+    actorType: "agent",
+    // The ledger's actor column is a uuid, and an agentic backend editing the
+    // user's folder IS the Builder acting — the engine that did it is named in
+    // `inputs.backend`.
+    actorId: BUILDER_AGENT_RUNTIME_ID,
+    action: "write",
+    resourceType: "record",
+    inputs: {
+      operation: "chat_backend_changed_files",
+      threadId: thread.id,
+      assistantTurnId,
+      backend: thread.backend,
+      fileCount: changedPaths.length,
+    },
+    proposedOutput: { changedPaths: [...changedPaths] },
+    userDecision: "auto",
+    policyResults: [],
+    dataScope: thread.dataScope,
+    taintLabel: chatHumanTaint(
+      thread,
+      `chat:${assistantTurnId}:backend-changed-files`,
+      { changedPaths: [...changedPaths] },
+    ),
+    createdAt: ctx.run.clock.nowISO(),
+  });
+  return id;
 }
 
 async function appendChatRoutingDecision(
@@ -6587,8 +6675,21 @@ export const appRouter = t.router({
           });
           const cloudKey = keyStatuses.find((status) => status.providerId === "groq");
           const cloudKeySaved = Boolean(cloudKey?.configured || cloudKey?.fromEnvironment);
+          // Agentic backends the composer may offer. Readiness is asked of the
+          // backend itself rather than inferred here, so "needs sign-in" comes
+          // from the thing that would actually fail.
+          const backends = await Promise.all(
+            ctx.wiring.chatBackends.list().map(async (backend) => ({
+              id: backend.id,
+              label: backend.label,
+              plane: backend.plane,
+              agentic: backend.agentic,
+              ...(await backend.readiness(input.organizationId)),
+            })),
+          );
           return {
             local,
+            backends,
             // TASK-082: the same key read, reused a third time, to say whether
             // the composer's paperclip and mic can actually act here.
             composer: composerCapability({
@@ -6628,6 +6729,66 @@ export const appRouter = t.router({
           );
           return ctx.wiring.managedModel.install();
         }),
+      /**
+       * Claude sign-in for the agentic backend — the browser does the
+       * authenticating and Bridge never sees a password. `begin` returns the
+       * URL to open; the Claude callback page shows a `code#state` string the
+       * user pastes into `complete`. Tokens land in the Local Plane vault, so
+       * these three procedures never return or accept a secret Bridge could
+       * leak: an authorization code is single-use and useless without the
+       * PKCE verifier held in this process.
+       */
+      claudeSignIn: t.router({
+        status: authenticatedProcedure
+          .input(z.object({ organizationId: z.string().uuid() }).strict())
+          .query(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(
+              ctx.wiring.organizationStore,
+              input.organizationId,
+              ctx.identity.id,
+            );
+            return ctx.wiring.claudeOAuth.status(input.organizationId);
+          }),
+        begin: authenticatedProcedure
+          .input(z.object({ organizationId: z.string().uuid() }).strict())
+          .mutation(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(
+              ctx.wiring.organizationStore,
+              input.organizationId,
+              ctx.identity.id,
+            );
+            return { url: ctx.wiring.claudeOAuth.beginLogin(input.organizationId) };
+          }),
+        complete: authenticatedProcedure
+          .input(z.object({
+            organizationId: z.string().uuid(),
+            code: z.string().trim().min(1).max(2_000),
+          }).strict())
+          .mutation(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(
+              ctx.wiring.organizationStore,
+              input.organizationId,
+              ctx.identity.id,
+            );
+            await ctx.wiring.claudeOAuth.finishLogin(input.organizationId, input.code);
+            return ctx.wiring.claudeOAuth.status(input.organizationId);
+          }),
+        signOut: authenticatedProcedure
+          .input(z.object({ organizationId: z.string().uuid() }).strict())
+          .mutation(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(
+              ctx.wiring.organizationStore,
+              input.organizationId,
+              ctx.identity.id,
+            );
+            await ctx.wiring.claudeOAuth.signOut(input.organizationId);
+            return ctx.wiring.claudeOAuth.status(input.organizationId);
+          }),
+      }),
       cancelInstall: authenticatedProcedure
         .input(z.object({ organizationId: z.string().uuid() }).strict())
         .mutation(async ({ input, ctx }) => {
@@ -6670,6 +6831,7 @@ export const appRouter = t.router({
         .input(z.object({
           organizationId: z.string().uuid(),
           plane: z.enum(["local", "cloud"]).optional(),
+          backend: z.enum(CHAT_BACKEND_IDS).optional(),
           title: z.string().trim().min(1).max(200).optional(),
           clientRequestId: z.string().trim().min(1).max(200).optional(),
         }).strict())
@@ -6686,19 +6848,167 @@ export const appRouter = t.router({
               message: "The hosted web deployment cannot create Local Plane Chat threads",
             });
           }
-          const plane = ctx.wiring.publicCloudOnly ? "cloud" : input.plane ?? "local";
+          const backend = input.backend ?? "bridge";
+          // An agentic backend declares its own residency (it ships file
+          // contents to a hosted model), so the thread's plane follows the
+          // BACKEND rather than the caller's plane hint. Getting this wrong in
+          // the permissive direction would file cloud egress under a Local
+          // Plane thread, which is the one mislabelling the residency model
+          // cannot absorb.
+          const registered = backend === "bridge" ? null : ctx.wiring.chatBackends.get(backend);
+          if (backend !== "bridge" && !registered) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `The ${backend} backend is not available in this deployment`,
+            });
+          }
+          const plane = registered
+            ? registered.plane
+            : ctx.wiring.publicCloudOnly
+              ? "cloud"
+              : input.plane ?? "local";
           const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
           const thread = await ctx.wiring.chatStore.createThread(scope, {
             id: input.clientRequestId
               ? idempotentUuid(
-                  `${input.organizationId}:${ctx.identity.id}:chat-thread:${plane}:${input.clientRequestId}`,
+                  `${input.organizationId}:${ctx.identity.id}:chat-thread:${plane}:${backend}:${input.clientRequestId}`,
                 )
               : ctx.run.ids.next(),
             plane,
             dataScope: plane === "local" ? "private" : "public",
+            backend,
             ...(input.title ? { title: input.title } : {}),
           });
           return loadChatThreadView(ctx.wiring, scope, thread.id, ctx.run);
+        }),
+      /**
+       * Change which engine answers a LIVE thread, keeping every turn. The
+       * conversation is Bridge's; the model is a setting on it, not a reason to
+       * start over (user directive, 2026-09-02: "the chat should remain
+       * consistent since Bridge is managing context and should direct the chat
+       * to a given model").
+       *
+       * The plane follows the backend, so switching a private Local thread onto
+       * a cloud backend relabels its stored turns — a declassification the
+       * store records. The user directed that this happen without a prompt;
+       * `chatBackendDeclassification` writes the ledger row regardless, so the
+       * export is auditable even though it is not interrupted.
+       */
+      setBackend: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          threadId: z.string().uuid(),
+          backend: z.enum(CHAT_BACKEND_IDS),
+          plane: z.enum(["local", "cloud"]).optional(),
+        }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+          const thread = await ctx.wiring.chatStore.getThread(scope, input.threadId);
+          if (!thread) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Chat thread not found" });
+          }
+          if (thread.backend === input.backend) {
+            return loadChatThreadView(ctx.wiring, scope, thread.id, ctx.run);
+          }
+          const registered =
+            input.backend === "bridge" ? null : ctx.wiring.chatBackends.get(input.backend);
+          if (input.backend !== "bridge" && !registered) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `The ${input.backend} backend is not available in this deployment`,
+            });
+          }
+          const plane = registered
+            ? registered.plane
+            : ctx.wiring.publicCloudOnly
+              ? "cloud"
+              : input.plane ?? thread.plane;
+          try {
+            await ctx.wiring.chatStore.setThreadBackend(scope, {
+              threadId: thread.id,
+              backend: input.backend,
+              plane,
+              dataScope: plane === "local" ? "private" : "public",
+            });
+          } catch (error) {
+            if (error instanceof ChatStoreScopeError) {
+              throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+            }
+            throw error;
+          }
+          return loadChatThreadView(ctx.wiring, scope, thread.id, ctx.run);
+        }),
+      /**
+       * The Module's live conversation — reopened, not restarted. Opening a
+       * Module resumes its most recent active thread with full history; the
+       * first visit creates it. A Module that has never been talked to gets a
+       * fresh thread bound to it, so the next visit resumes THAT.
+       */
+      forModule: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          moduleName: z.string().trim().min(1).max(120),
+          backend: z.enum(CHAT_BACKEND_IDS).optional(),
+        }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+          const existing = await ctx.wiring.chatStore.liveModuleThread(scope, input.moduleName);
+          if (existing) {
+            return loadChatThreadView(ctx.wiring, scope, existing.id, ctx.run);
+          }
+          const backend = input.backend ?? "bridge";
+          const registered =
+            backend === "bridge" ? null : ctx.wiring.chatBackends.get(backend);
+          if (backend !== "bridge" && !registered) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `The ${backend} backend is not available in this deployment`,
+            });
+          }
+          const plane = registered
+            ? registered.plane
+            : ctx.wiring.publicCloudOnly
+              ? "cloud"
+              : "local";
+          const created = await ctx.wiring.chatStore.createThread(scope, {
+            id: ctx.run.ids.next(),
+            plane,
+            dataScope: plane === "local" ? "private" : "public",
+            backend,
+            moduleName: input.moduleName,
+          });
+          return loadChatThreadView(ctx.wiring, scope, created.id, ctx.run);
+        }),
+      /** Pull a second Module into this same conversation — one session, several
+       * Modules, the way a coding session can hold more than one project. */
+      attachModule: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          threadId: z.string().uuid(),
+          moduleName: z.string().trim().min(1).max(120),
+        }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+          await ctx.wiring.chatStore.attachModule(scope, input.threadId, input.moduleName);
+          return loadChatThreadView(ctx.wiring, scope, input.threadId, ctx.run);
         }),
       list: authenticatedProcedure
         .input(z.object({
@@ -7025,6 +7335,117 @@ export const appRouter = t.router({
           const controller = new AbortController();
           chatTurnAbortControllers.set(assistantTurnId, controller);
           try {
+            // Agentic backend (Claude Code and, later, Codex/Cursor): the
+            // backend runs its OWN tool loop in a subprocess against the
+            // user's Bridge documents and returns prose. There is no prompt to
+            // assemble, no envelope to parse, and no cloud grant to consume —
+            // the backend never saw Bridge's response schema, and the exact
+            // context it sends is chosen by that agent rather than by this
+            // router, so recording an exact-context consent here would be a
+            // false disclosure. What this path DOES keep is the rest of the
+            // governed shape: the same turn lifecycle, the same
+            // routing-decision ledger row, the same taint label, the same
+            // cancellation path.
+            if (thread.backend !== "bridge") {
+              const backend = ctx.wiring.chatBackends.get(thread.backend);
+              if (!backend) {
+                throw new TRPCError({
+                  code: "PRECONDITION_FAILED",
+                  message: `The ${thread.backend} backend is not available in this deployment`,
+                });
+              }
+              const organizationName = await requireOrganizationNameForFiles(
+                ctx.wiring,
+                thread.organizationId,
+                ctx.identity.id,
+              );
+              const workingDirectory = organizationFilesRoot(
+                organizationName,
+                ctx.wiring.moduleFilesBridgeRoot,
+              );
+              await mkdir(workingDirectory, { recursive: true });
+
+              // Bridge owns the conversation; the backend only owns its own
+              // session. When an engine takes over a thread mid-conversation
+              // — a model switch, or its first turn after a restart that lost
+              // the handle — it has no session to resume, so Bridge hands it
+              // what was already said. Without this the user would watch a
+              // "continued" chat answer as if the previous turns never
+              // happened, which is worse than clearing the thread outright.
+              const carriedContext =
+                thread.backendSessionId
+                  ? null
+                  : await priorTurnsTranscript(ctx.wiring, scope, thread.id);
+              const backendPrompt = carriedContext
+                ? `${carriedContext}\n\n---\nContinue that conversation. The user now says:\n${input.message}`
+                : input.message;
+
+              let backendTurn: ChatBackendTurn;
+              try {
+                backendTurn = await backend.send({
+                  text: backendPrompt,
+                  backendSessionId: thread.backendSessionId ?? null,
+                  workingDirectory,
+                  organizationId: thread.organizationId,
+                  signal: controller.signal,
+                });
+              } catch (error) {
+                if (error instanceof ClaudeSignInRequiredError) {
+                  throw new TRPCError({
+                    code: "UNAUTHORIZED",
+                    message: "Claude needs sign-in — open Settings → Claude to sign in",
+                  });
+                }
+                throw error;
+              }
+
+              if (backendTurn.backendSessionId) {
+                await ctx.wiring.chatStore.setThreadBackendSession(
+                  scope,
+                  thread.id,
+                  backendTurn.backendSessionId,
+                );
+              }
+              const backendRoutingId = await appendChatRoutingDecision(
+                ctx,
+                thread,
+                assistantTurnId,
+                { kind: "direct_answer" },
+              );
+              await addChatTurnRef(
+                ctx.wiring,
+                scope,
+                thread.id,
+                assistantTurnId,
+                "routing_decision",
+                backendRoutingId,
+              );
+              if (backendTurn.changedPaths && backendTurn.changedPaths.length > 0) {
+                const changedFilesId = await appendChatBackendChangedFiles(
+                  ctx,
+                  thread,
+                  assistantTurnId,
+                  backendTurn.changedPaths,
+                );
+                await addChatTurnRef(
+                  ctx.wiring,
+                  scope,
+                  thread.id,
+                  assistantTurnId,
+                  "result",
+                  changedFilesId,
+                );
+              }
+              await ctx.wiring.chatStore.updateTurn(scope, {
+                threadId: thread.id,
+                turnId: assistantTurnId,
+                expectedState: "processing",
+                state: "completed",
+                content: backendTurn.reply.slice(0, 8_000),
+              });
+              return loadSendResponse();
+            }
+
             const provider = resolveChatModel(ctx.wiring, thread.plane);
             if (!provider) {
               throw new TRPCError({
@@ -18880,6 +19301,80 @@ export const appRouter = t.router({
    * Section renders as an honest empty state. An empty policy is not a
    * default-deny (`governanceVerdict`), and nothing here makes it one.
    */
+  // ── Builder Runs (TASK-092, BA0) ──────────────────────────────────────────
+  //
+  // The seam that makes `runBuilderLoop` + `HostPrimitiveExecutor` reachable.
+  // Local Plane by residency: the Run reads and writes the user's own Bridge
+  // folder, so `deployment-boundary` closes the whole `builder.` namespace to
+  // the public cloud shell.
+  builder: t.router({
+    run: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          moduleName: z.string().trim().min(1),
+          task: z.string().trim().min(1).max(4_000),
+          maxSteps: z.number().int().min(1).max(60).optional(),
+        }).strict(),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        // A Builder Run writes files and runs commands. Starting one is a
+        // Human decision, like every other authority change in this router.
+        assertHumanIdentity(ctx, "Starting a Builder Run");
+        assertKnownModule(input.moduleName);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+
+        const provider =
+          resolveChatModel(ctx.wiring, "local") ?? resolveChatModel(ctx.wiring, "cloud");
+        if (!provider) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "No model provider is configured for the Builder",
+          });
+        }
+
+        const organizationName = await requireOrganizationNameForFiles(
+          ctx.wiring,
+          input.organizationId,
+          ctx.identity.id,
+        );
+        const workingDirectory = moduleFilesRoot(
+          organizationName,
+          input.moduleName,
+          ctx.wiring.moduleFilesBridgeRoot,
+        );
+        await mkdir(workingDirectory, { recursive: true });
+
+        const governance = await readResolvedModuleGovernance(
+          ctx.wiring,
+          input.organizationId,
+          input.moduleName,
+        );
+
+        try {
+          return await runModuleBuilder({
+            wiring: ctx.wiring,
+            run: ctx.run,
+            organizationId: input.organizationId,
+            actorUserId: ctx.identity.id,
+            moduleName: input.moduleName,
+            governance: governance.resolved,
+            workingDirectory,
+            task: input.task,
+            provider,
+            ...(input.maxSteps === undefined ? {} : { maxSteps: input.maxSteps }),
+          });
+        } catch (error) {
+          // Quote the user's own stated reason rather than a generic refusal.
+          if (error instanceof ModuleGovernanceDenied) {
+            throw new TRPCError({ code: "FORBIDDEN", message: error.message });
+          }
+          throw error;
+        }
+      }),
+  }),
+
   moduleGovernance: t.router({
     get: procedure
       .input(z.object({ organizationId: z.string().min(1), moduleName: z.string().trim().min(1) }))

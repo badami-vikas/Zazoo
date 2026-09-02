@@ -430,6 +430,13 @@ export default function Layout() {
   // Intelligence, search, and the Organization admin surface.
   const presentedModules: PresentedNavModule[] = applyRailPresentation(navModules, presentation);
   const presentedOrder = presentedModules.map((mod) => mod.moduleName);
+  // The Module the user is actually looking at, if any. The right panel binds
+  // its conversation to this, so opening a Module reopens that Module's own
+  // chat instead of whatever thread happened to be last (ADR-267e). Longest
+  // base wins so a sub-module's page does not resolve to its parent.
+  const activeModuleName: string | undefined = navModules
+    .filter((mod) => isActive(mod.base))
+    .sort((left, right) => right.base.length - left.base.length)[0]?.moduleName;
   // ADR-178: roots first, sub-modules nested one level under their parent.
   const navTree = buildModuleNavTree(presentedModules).filter((node) => !node.module.hidden);
 
@@ -979,7 +986,7 @@ export default function Layout() {
       {/* Persistent AI chat — nav | content | AI chat (reference UI at bridge-ai-1ay.pages.dev).
           Hidden below sm: a 336px side panel doesn't fit alongside the mobile bottom tab bar. */}
       <div className="hidden sm:flex">
-        <AgentPanel />
+        <AgentPanel moduleName={activeModuleName} />
       </div>
       </div>
 
@@ -1054,7 +1061,7 @@ export default function Layout() {
             onClick={() => setMobileChatOpen(false)}
           />
           <div className="relative z-10 h-full">
-            <AgentPanel mobile onClose={() => setMobileChatOpen(false)} />
+            <AgentPanel mobile moduleName={activeModuleName} onClose={() => setMobileChatOpen(false)} />
           </div>
         </div>
       )}
