@@ -306,15 +306,36 @@
     {
       "idx": 44,
       "version": "7",
-      "when": 1788393600000,
-      "tag": "0044_jobpilot_job_deadline",
+      "when": 1788373479171,
+      "tag": "0044_task_chat_backend",
       "breakpoints": true
     },
     {
       "idx": 45,
       "version": "7",
+      "when": 1788384110094,
+      "tag": "0045_task_chat_module_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1788394656841,
+      "tag": "0046_merged_task_anchor_estimate_display_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1788393600000,
+      "tag": "0047_jobpilot_job_deadline",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
       "when": 1788480000000,
-      "tag": "0045_jobpilot_sources",
+      "tag": "0048_jobpilot_sources",
       "breakpoints": true
     }
   ]

@@ -369,7 +369,7 @@ export function NotchHome({
       data-dropping={dropping ? "true" : "false"}
       style={{
         width: "100vw",
-        height: "100vh",
+        height: "100dvh",
         background: "transparent",
         overflow: "hidden",
         position: "relative",

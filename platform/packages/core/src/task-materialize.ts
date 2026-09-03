@@ -31,7 +31,7 @@
 // `applyApprovedPlanningProposal` at runtime for its `decideProposal`, so
 // importing anything executable back from it would close a real ESM cycle —
 // the same reason `task-planning.ts` is type-only against it.
-import type { TaskIndicatorKind, TaskOutcome, TaskRecord } from "./task-manager.js";
+import type { TaskIndicatorKind, TaskOutcome, TaskRecord, TaskRecordStatus } from "./task-manager.js";
 
 /**
  * Append an outcome, forcing `northStar: false`.
@@ -539,5 +539,158 @@ export function applyApprovedRoutingProposal(input: {
     assignedTaskId: assigned.id,
     agentId,
     note: `Task ${assigned.path} assigned to Agent ${agentId}. Assignment grants authority to run it; it does not start it.`,
+  };
+}
+
+// =====================================================================
+// Canonical ledger import (ADR-271).
+//
+// `draftTaskCreate` forces every Task after the first to `status: "candidate"`
+// and stages an impact-fit proposal. That is correct for INTAKE — a new idea
+// arrives as an option nobody has committed to. It is wrong for an IMPORT: the
+// canonical ledger's 87 Tasks are already decided, already ordered, and 49 of
+// them are already done. Round-tripping them through intake would ask a human
+// to re-approve, one at a time, work they finished weeks ago.
+//
+// So this is a separate act with its own rule: an imported Task lands at the
+// status the ledger states. Everything else the intake path guarantees is kept
+// — dot-paths are recomputed here rather than trusted from the payload (same
+// reason as `applyApprovedPlanningProposal`), and the non-goal `in_progress`
+// exit-test invariant still holds.
+// =====================================================================
+
+export interface CanonicalLedgerEntry {
+  /** Stable ledger identity ("TASK-021", "HORIZON-prototype") — carried only
+   * so the note and any refusal can name the row a human recognizes. */
+  recordId: string;
+  /** The deterministic uuid the caller derived from `recordId`. Derived by the
+   * caller, not here, because "same ledger row = same Task" is an identity
+   * decision the persistence layer owns. */
+  taskId: string;
+  title: string;
+  isGoal: boolean;
+  /** Resolved uuid of the parent entry. Parents MUST appear before children. */
+  parentTaskId?: string;
+  status: TaskRecordStatus;
+  priority?: string;
+  /** Coarse effort estimate as the ledger states it. Absent stays absent. */
+  estimate?: string;
+  outcome?: string;
+  exitTest?: string;
+}
+
+export interface CanonicalLedgerImportPlan {
+  /** Tasks to insert, in order — later entries' paths depend on earlier ones. */
+  created: readonly TaskRecord[];
+  /** Existing Tasks whose ledger status has moved on since the last import. */
+  transitions: readonly { taskId: string; status: TaskRecordStatus }[];
+  /** Ledger rows already present at the stated status — reported, not silent,
+   * so a no-op import says so instead of looking like a failure. */
+  unchangedTaskIds: readonly string[];
+  /** Entries admitted at `pending` instead of the status they declare, because
+   * a non-goal Task may not enter `in_progress` without an exit test. Named
+   * individually: a downgrade nobody is told about is a lie about the queue. */
+  downgraded: readonly { recordId: string; declared: TaskRecordStatus }[];
+  note: string;
+}
+
+function importedPath(
+  queue: readonly { id: string; path: string; level: number; sortOrder: number; parentTaskId?: string }[],
+  parentTaskId: string | undefined,
+): { path: string; level: number; sortOrder: number } {
+  const siblings = queue.filter((task) => task.parentTaskId === parentTaskId);
+  const sortOrder = siblings.length + 1;
+  if (!parentTaskId) return { path: String(sortOrder), level: 0, sortOrder };
+  const parent = queue.find((task) => task.id === parentTaskId);
+  if (!parent) throw new Error(`task-manager: imported parent ${parentTaskId} precedes no entry`);
+  return { path: `${parent.path}.${sortOrder}`, level: parent.level + 1, sortOrder };
+}
+
+export function draftCanonicalLedgerImport(
+  entries: readonly CanonicalLedgerEntry[],
+  currentTasks: readonly TaskRecord[],
+  opts: { organizationId: string; ownerId: string; now: string },
+): CanonicalLedgerImportPlan {
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (seen.has(entry.taskId)) {
+      throw new Error(`task-manager: ledger entry ${entry.recordId} appears twice in one import`);
+    }
+    seen.add(entry.taskId);
+  }
+
+  const queue = [...currentTasks];
+  const created: TaskRecord[] = [];
+  const transitions: { taskId: string; status: TaskRecordStatus }[] = [];
+  const unchangedTaskIds: string[] = [];
+  const downgraded: { recordId: string; declared: TaskRecordStatus }[] = [];
+
+  for (const entry of entries) {
+    const existing = queue.find((task) => task.id === entry.taskId);
+    if (existing) {
+      // Re-import is an UPDATE of status only. Title, path and parent are left
+      // alone: moving a Task somebody has since re-parented in the app, back to
+      // where a text file thinks it belongs, is the drift the reconcile path
+      // exists to negotiate — not something an import may do unasked.
+      if (existing.status === entry.status) unchangedTaskIds.push(entry.taskId);
+      else transitions.push({ taskId: entry.taskId, status: entry.status });
+      continue;
+    }
+    const exitTest = entry.exitTest?.trim();
+    const needsExitTest = !entry.isGoal && entry.status === "in_progress" && !exitTest;
+    if (needsExitTest) downgraded.push({ recordId: entry.recordId, declared: entry.status });
+    const location = importedPath(queue, entry.parentTaskId);
+    const task: TaskRecord = {
+      id: entry.taskId,
+      organizationId: opts.organizationId,
+      ...location,
+      title: entry.title.trim(),
+      taskType: "task",
+      isGoal: entry.isGoal,
+      outcomes: entry.outcome?.trim()
+        ? [{
+            id: `${entry.taskId}:outcome`,
+            title: entry.outcome.trim(),
+            measure: "prototype test",
+            target: exitTest ?? entry.outcome.trim(),
+            indicatorKind: "lagging" as TaskIndicatorKind,
+          }]
+        : [],
+      anchor: false,
+      ...(exitTest ? { exitTest } : {}),
+      status: needsExitTest ? "pending" : entry.status,
+      priority: entry.priority ?? "P2",
+      ownerType: "human",
+      ownerId: opts.ownerId,
+      ...(entry.parentTaskId ? { parentTaskId: entry.parentTaskId } : {}),
+      ...(entry.estimate?.trim() ? { estimate: entry.estimate.trim() } : {}),
+      evidenceRefs: [],
+      visibility: "organization",
+      version: 1,
+      createdAt: opts.now,
+      updatedAt: opts.now,
+    };
+    queue.push(task);
+    created.push(task);
+  }
+
+  const parts = [
+    `${created.length} created`,
+    `${transitions.length} re-stated`,
+    `${unchangedTaskIds.length} already current`,
+  ];
+  if (downgraded.length > 0) {
+    parts.push(
+      `${downgraded.length} admitted as pending for want of an exit test (${downgraded
+        .map((entry) => entry.recordId)
+        .join(", ")})`,
+    );
+  }
+  return {
+    created,
+    transitions,
+    unchangedTaskIds,
+    downgraded,
+    note: `Canonical ledger import: ${parts.join(", ")}.`,
   };
 }

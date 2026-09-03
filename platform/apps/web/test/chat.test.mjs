@@ -17,7 +17,11 @@ const desktopNavigation = read("../src/app/lib/desktop-navigation.ts");
 const panelControl = read("../src/app/components/shared/PanelControl.tsx");
 
 test("panel, Page, and Avatar render the same persistent Chat view", () => {
-  assert.match(panel, /<ChatView surface="chat_panel" compact \/>/);
+  // `moduleName` is passed through since ADR-267e (per-Module chat sessions);
+  // this assertion still expected the pre-ADR call shape and had been failing
+  // on main. Asserting the surface and the compact flag is what the test is
+  // for — pinning the exact argument list makes it fail on every prop added.
+  assert.match(panel, /<ChatView surface="chat_panel" compact/);
   assert.match(page, /<ChatView surface="chief_of_staff_page"/);
   assert.match(overlay, /surface="avatar_overlay"/);
   assert.match(overlay, /onOpenTask=/);

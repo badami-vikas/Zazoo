@@ -873,6 +873,173 @@ type ModelProviderKeyList = Awaited<ReturnType<typeof trpc.modelProviderKey.list
  *  - When the API is the public cloud shell it cannot hold a key at all; the
  *    section says so instead of offering a control that will fail.
  */
+/**
+ * Claude sign-in for the agentic chat backend. Deliberately NOT an API-key
+ * field: the browser window does the authenticating, Bridge only exchanges the
+ * pasted authorization code, and the resulting tokens go to the same Local
+ * Plane vault as every other credential here. Nothing on this card is ever
+ * read back — `status` reports existence and age, never a token.
+ */
+function ClaudeSignInCard() {
+  const [status, setStatus] = useState<
+    Awaited<ReturnType<typeof trpc.chat.model.claudeSignIn.status.query>> | null
+  >(null);
+  const [unavailable, setUnavailable] = useState<string | null>(null);
+  const [pastedCode, setPastedCode] = useState("");
+  const [awaitingCode, setAwaitingCode] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  function refresh() {
+    trpc.chat.model.claudeSignIn.status
+      .query({ organizationId: PILOT_ORGANIZATION })
+      .then((next) => {
+        setStatus(next);
+        setUnavailable(null);
+      })
+      .catch(() =>
+        setUnavailable(
+          "This Bridge API cannot hold a Claude sign-in. The token lives in the Local Plane credential vault, which only the Bridge desktop app has.",
+        ),
+      );
+  }
+  useEffect(refresh, []);
+
+  async function begin() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const { url } = await trpc.chat.model.claudeSignIn.begin.mutate({
+        organizationId: PILOT_ORGANIZATION,
+      });
+      window.open(url, "_blank", "noopener,noreferrer");
+      setAwaitingCode(true);
+      setNote("Approve the request in the browser window, then paste the code it shows below.");
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : "Could not start Claude sign-in.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function complete() {
+    const code = pastedCode.trim();
+    if (!code) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const next = await trpc.chat.model.claudeSignIn.complete.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        code,
+      });
+      setStatus(next);
+      setPastedCode("");
+      setAwaitingCode(false);
+      setNote("Signed in. Pick Claude Code in the Chat model menu.");
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : "Sign-in could not be completed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signOut() {
+    setBusy(true);
+    setNote(null);
+    try {
+      setStatus(
+        await trpc.chat.model.claudeSignIn.signOut.mutate({
+          organizationId: PILOT_ORGANIZATION,
+        }),
+      );
+      setNote("Signed out. The stored token was deleted from the vault.");
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : "Could not sign out.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (unavailable) return null;
+
+  return (
+    <Card>
+      <div className="p-6 space-y-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="font-semibold text-sm text-[var(--color-navy)]">Claude Code</div>
+            <p className="text-xs text-[var(--color-navy-mid)] mt-0.5">
+              Sign in to use Claude Code as a Chat backend. It runs on this machine, reads and edits
+              files under your Bridge folder, and answers in the Chat panel — no terminal involved.
+            </p>
+          </div>
+          <span className="text-xs shrink-0 text-[var(--color-warm-gray)]">
+            {status?.fromEnvironment
+              ? "From environment"
+              : status?.signedIn
+                ? "Signed in"
+                : "Not signed in"}
+          </span>
+        </div>
+
+        <p className="text-xs text-[var(--color-warm-gray)]">
+          {status?.fromEnvironment
+            ? "This process was started with CLAUDE_CODE_OAUTH_TOKEN set, and that value is what runs. A sign-in saved here is used only when the variable is unset at the next start."
+            : status?.signedIn
+              ? `Token stored ${status.updatedAt ? new Date(status.updatedAt).toLocaleString() : ""} in this machine's credential vault, and refreshed automatically.`
+              : "No token stored. An existing Claude Code login on this machine is still used if there is one; signing in here makes Bridge hold its own."}
+        </p>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <button
+            type="button"
+            onClick={() => void begin()}
+            disabled={busy}
+            className="text-xs font-semibold px-3 py-2.5 rounded-lg bg-[var(--color-steel)] text-white disabled:opacity-50"
+          >
+            {status?.signedIn ? "Sign in again" : "Sign in with Claude"}
+          </button>
+          {status?.signedIn && (
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              disabled={busy}
+              className="text-xs font-semibold px-3 py-2.5 rounded-lg border text-red-600 disabled:opacity-50"
+            >
+              Sign out
+            </button>
+          )}
+        </div>
+
+        {awaitingCode && (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              value={pastedCode}
+              onChange={(event) => setPastedCode(event.target.value)}
+              placeholder="Paste the code shown on the Claude page"
+              aria-label="Claude authorization code"
+              className="flex-1 px-4 py-2.5 border border-[var(--color-border)] rounded-lg text-sm font-mono focus:border-[var(--color-steel)] focus:ring-2 focus:ring-[var(--color-steel)]/10 outline-none transition-all bg-[var(--color-surface)] focus:bg-white"
+            />
+            <button
+              type="button"
+              onClick={() => void complete()}
+              disabled={busy || !pastedCode.trim()}
+              className="text-xs font-semibold px-3 py-2.5 rounded-lg bg-[var(--color-steel)] text-white disabled:opacity-50"
+            >
+              {busy ? "Finishing…" : "Finish sign-in"}
+            </button>
+          </div>
+        )}
+
+        {note && <p className="text-xs text-[var(--color-steel)] break-words">{note}</p>}
+      </div>
+    </Card>
+  );
+}
+
 function ApiKeysSection() {
   const [state, setState] = useState<ModelProviderKeyList | null>(null);
   const [unavailable, setUnavailable] = useState<string | null>(null);
@@ -945,6 +1112,8 @@ function ApiKeysSection() {
   return (
     <div className="flex flex-col gap-6">
       <SectionHeader title="API Keys" desc="Model-provider credentials for this Organization." />
+
+      <ClaudeSignInCard />
 
       {unavailable && <NothingConfigured icon={Key} note={unavailable} />}
 
@@ -1128,11 +1297,14 @@ function AutomationDraftsCard() {
         organizationId: PILOT_ORGANIZATION,
         automationId,
       });
+      // TASK-094: the Run id is shown because the Builder acted as itself —
+      // the person should be able to point at what the Agent did.
       setMessage(
-        result.proposed
+        (result.proposed
           ? `Drafted ${result.steps.length} step${result.steps.length === 1 ? "" : "s"} from ${result.evidence.episodeCount} of your own decisions` +
               `${result.evidence.distinctShapes > 1 ? " (evidence was mixed — the most common shape won; review closely)" : ""}. Still a draft; activation is yours.`
-          : `The Builder declined: ${result.detail}`,
+          : `The Builder declined: ${result.detail}`) +
+          ` Capability Builder Run ${result.runId}.`,
       );
     } catch (error) {
       setMessage(String(error));

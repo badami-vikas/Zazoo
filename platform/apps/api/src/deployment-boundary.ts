@@ -39,6 +39,14 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
   "action.decide",
   "chat.model.status",
   "chat.thread.create",
+  // Repointing a thread at a different engine, resuming a Module's live
+  // thread, and attaching another Module all read and write the SAME
+  // owner-scoped chat_threads rows thread.create already serves, under the
+  // caller's identity and RLS. In public cloud no agentic backend is
+  // registered, so setBackend's only reachable value is the built-in one.
+  "chat.thread.setBackend",
+  "chat.thread.forModule",
+  "chat.thread.attachModule",
   "chat.thread.list",
   "chat.thread.get",
   "chat.thread.archive",
@@ -175,6 +183,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   // — Governance/authoring surfaces: writing capability or authority state from a public
   //   shell would move the trust boundary, not just serve data.
   ["capability.", "capability trust-state authoring is governed, desktop-only"],
+  ["builder.", "a Builder Run writes files and runs commands in the user's own Bridge folder"],
   ["agent.", "Agent authoring changes who may act"],
   ["automation.", "Automation authoring grants a trigger the right to start Runs"],
   ["commons.", "Commons publication is an External-band action"],
@@ -222,6 +231,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   // — Module/file surfaces + remaining reads that touch the Local Plane or non-public scope.
   ["modules.files", "Module Files live under ~/Documents/Bridge"],
   ["modules.addFile", "Module Files live under ~/Documents/Bridge"],
+  ["modules.rename", "renaming a Module MOVES its ~/Documents/Bridge folder"],
   ["modules.register", "Module registration is a governed install"],
   ["modules.install", "Module registration is a governed install"],
   ["modules.uninstall", "Module registration is a governed install"],

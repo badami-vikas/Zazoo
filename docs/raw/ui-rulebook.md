@@ -82,6 +82,12 @@ Every page, unless a spec explicitly says otherwise:
 
 Page scroll model: page-level vertical scroll containing sections; the landing section owns a bounded internal scroll area (virtualized table/card grid) so related sections stay reachable.
 
+**No `overscroll-behavior: contain` on that inner area** (written down 2026-09-02, ADR-269; the
+`overscroll-contain` ratchet in `check-ui-rules.mjs` has been enforcing this while citing a clause
+this book did not contain). `contain` severs exactly the handoff the paragraph above describes: the
+user reaches the bottom of the table and the page stops instead of continuing into Files and
+Intelligence, which reads as those sections not existing.
+
 ### 3b. Record Detail
 
 Every Database Record has a dedicated routable Record Detail surface. Record Detail is not a sibling Page and does not create a new toggle. It composes the Record’s Fields plus standard Sections for linked Records, Relations, Tasks, Files, Results, Integrations, Agent/Automation activity, and Event history according to installed Module bindings and permissions. A Module may add domain Sections, but it may not turn section-only content into default Pages.
@@ -586,6 +592,19 @@ Part and the archive differ, this Part is canon.
 - **C-13 / C-23 · Destructive controls are revealed and confirmed.** A delete control is never resident:
   hover (desktop), long-press (touch), or inside the ⋮. Record-level delete lives in the element page's
   ⋮, never as a red button on the page. Every delete asks first and says what cannot be undone.
+- **C-23a · One confirmation style, app-wide — never a native dialog** (written down 2026-09-02,
+  ADR-269; the gate predates the prose). `window.confirm`, `window.prompt` and `alert` are forbidden:
+  a native dialog is a second confirmation surface, it cannot carry C-23's "says what cannot be undone"
+  clause, and it is neither styleable nor testable. `check-ui-rules.mjs`'s `native-dialog` ratchet has
+  been enforcing this all along while citing a clause this book did not contain — its baseline records
+  the **17 remaining call sites** (`SettingsPage` 8, `RelationshipPage` 7, `DealPilotPage` 1,
+  `NewModuleDialog` 1). The ratchet is the plan: the count may fall, never rise. Retirement is
+  TASK-073's scope.
+- **C-14a · `dvh`, never `vh`** (written down 2026-09-02, ADR-269; likewise already gated). On
+  iOS/iPadOS the collapsing browser bars make `vh` the LARGEST viewport, so a `100vh` panel is taller
+  than the screen and its last row sits under the chrome. `100dvh` is the height that is actually
+  visible. Same story as C-23a: `check-ui-rules.mjs`'s `vh-not-dvh` ratchet enforced a rule this book
+  never stated.
 - **C-14 · Touch is first-class.** Every editable surface raises the keyboard on first tap; focus moves
   inside the gesture handler. Deferred or programmatic focus is silently ignored by iOS Safari and is a
   defect, not a platform limitation.

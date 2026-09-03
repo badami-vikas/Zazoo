@@ -311,6 +311,15 @@ function isAllowedTechnicalUse(family, relativePath, value, kind) {
     ) {
       return true;
     }
+    // The Claude Agent SDK's own message wire format. Bridge reads the block
+    // type it emits; renaming a value we do not own would simply stop matching.
+    if (
+      relativePath === "apps/api/src/chat/claude-code-backend.ts" &&
+      kind === "string" &&
+      value === "tool_use"
+    ) {
+      return true;
+    }
     if (
       relativePath === "packages/core/test/importer.test.ts" &&
       kind === "identifier" &&

@@ -92,6 +92,9 @@ import {
   type SkillManifestRegistry,
   type ChildAgentRunStore,
   type ResearchRunStore,
+  createChatBackendRegistry,
+  type ChatBackend,
+  type ChatBackendRegistry,
   type ChatStore,
   type SkillManifest,
   type TaintAuditStore,
@@ -232,6 +235,7 @@ import {
   ensureRelationshipUserGovernance,
   ensureDevpilotTrackerGovernance,
   ensureDevpilotReviewerGovernance,
+  ensureJobPilotApplicationGovernance,
   type CanonicalIdentityStore,
   DrizzleDevpilotStore,
 } from "@bridge/db";
@@ -256,6 +260,8 @@ import {
 } from "@bridge/models";
 import { ManagedModelService } from "./chat/model-manager.js";
 import { ResidencyRoutingChatStore } from "./chat/residency-chat-store.js";
+import { ClaudeOAuthStore } from "./chat/claude-oauth.js";
+import { createClaudeCodeBackend } from "./chat/claude-code-backend.js";
 import {
   EgressExecutor,
   GoogleApiGatewayFactory,
@@ -324,6 +330,7 @@ import {
   LEARNING_RECOMMENDATION_SKILL_ID,
   DEVPILOT_TRACKER_AGENT_ID,
   DEVPILOT_REVIEWER_AGENT_ID,
+  JOBPILOT_APPLICATION_AGENT_ID,
   resolveModuleAgentRuntimeId,
   resolveModuleAutomationRuntimeId,
 } from "./built-in-modules.js";
@@ -374,6 +381,10 @@ const DEVPILOT_TRACKER_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-000000000
 // sequence after the tracker's (…111).
 const DEVPILOT_REVIEWER_ROLE = "b0000000-0000-4000-a000-000000000112";
 const DEVPILOT_REVIEWER_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-000000000113";
+// JobPilot source sweep — the Agent the scheduled sweep Automation runs as.
+// …114 is the Automation itself (JOBPILOT_SOURCE_SWEEP_AUTOMATION_ID).
+const JOBPILOT_APPLICATION_ROLE = "b0000000-0000-4000-a000-000000000115";
+const JOBPILOT_APPLICATION_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-000000000116";
 // AGS0 (TASK-007) — Internal Strategist's physical governed-pipeline identity
 // (the id `AgentQuery`/the ledger key off of). Distinct from the chat-routing
 // `FoundationalAgentId` string "internal_strategist" (@bridge/core's agents.ts)
@@ -677,6 +688,14 @@ export interface Wiring {
    * report existence only; the raw key is read exactly once, at boot, to
    * register the provider above. */
   modelProviderKeys: ModelProviderKeyStore;
+  /** Claude sign-in for the agentic chat backend — PKCE tokens in the same
+   * Local Plane vault the model-provider keys use (see claude-oauth.ts). */
+  claudeOAuth: ClaudeOAuthStore;
+  /** Swappable conversation backends (chat-backend.ts). "bridge" is always
+   * registered; agentic backends appear only when this deployment can run
+   * them, so an unavailable backend is absent rather than offered-and-failing. */
+  chatBackends: ChatBackendRegistry;
+
   /** TASK-023 public-web SearchProvider router. Phase 1 accepts only
    * rights-verified Tier-1 free-direct providers and has no paid escalation path. */
   searchProviders: SearchProviderRouter;
@@ -742,6 +761,10 @@ export interface BuildWiringOptions {
   /** Explicit provider set for composition tests or alternate deployments.
    * Omitted means the normal environment-bound providers for the selected mode. */
   modelProviders?: readonly ModelProvider[];
+  /** Explicit agentic chat backends. Omitted means the environment-bound set
+   * (Claude Code on a Local Plane deployment, none in public cloud). Supplying
+   * an empty array is meaningful: it registers no backend at all. */
+  chatBackends?: readonly ChatBackend[];
   /** Explicit SearchProvider router for composition tests or deployments. */
   searchProviders?: SearchProviderRouter;
   /** Explicit local ContentGuard for composition tests or alternate deployments. */
@@ -4419,6 +4442,18 @@ function seedGovernance(
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
   ]);
 
+  // JobPilot application agent (local) — the identity the scheduled source
+  // sweep runs as. Same shape as the DevPilot tracker: read public boards,
+  // nothing else. Without this the Automation materializer refuses to save
+  // the sweep Automation, because its owning Agent would not exist.
+  agents.assumed.set(JOBPILOT_APPLICATION_AGENT_ID, "role-jobpilot-application");
+  agents.scope.set(JOBPILOT_APPLICATION_AGENT_ID, ["external:fetch:read"]);
+  agents.tiers.set(JOBPILOT_APPLICATION_AGENT_ID, "public");
+  agents.skills.set(JOBPILOT_APPLICATION_AGENT_ID, ["jobpilot.sources.run"]);
+  roles.roleGrants.set("role-jobpilot-application", [
+    { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
+  ]);
+
   // DevPilot reviewer agent (cloud) — DRAFTS engineering-assist proposals
   // (D2). Separate identity from the tracker: least-privilege split, since
   // this one additionally calls a model and writes a governed proposal.
@@ -4587,6 +4622,7 @@ export interface ModePorts {
   ensureEgressGovernance?: () => Promise<void>;
   ensureDevpilotTrackerGovernance?: () => Promise<void>;
   ensureDevpilotReviewerGovernance?: () => Promise<void>;
+  ensureJobPilotApplicationGovernance?: () => Promise<void>;
   ensureIntakeGovernance?: () => Promise<void>;
   ensureDealPilotPrincipalGovernance?: () => Promise<void>;
   /**
@@ -4713,6 +4749,14 @@ export function buildPersistentPorts(env: {
         agentId: DEVPILOT_REVIEWER_AGENT_ID,
         roleId: DEVPILOT_REVIEWER_ROLE,
         permissionId: DEVPILOT_REVIEWER_PRINCIPAL_PERMISSION,
+      }),
+    ensureJobPilotApplicationGovernance: () =>
+      ensureJobPilotApplicationGovernance(db, {
+        organizationId: PILOT_ORGANIZATION,
+        userId: pilotUserId,
+        agentId: JOBPILOT_APPLICATION_AGENT_ID,
+        roleId: JOBPILOT_APPLICATION_ROLE,
+        permissionId: JOBPILOT_APPLICATION_PRINCIPAL_PERMISSION,
       }),
     ensureIntakeGovernance: () =>
       ensureIntakeAgentGovernance(db, {
@@ -5048,6 +5092,14 @@ export async function buildInMemoryPorts(env: {
               agentId: DEVPILOT_REVIEWER_AGENT_ID,
               roleId: DEVPILOT_REVIEWER_ROLE,
               permissionId: DEVPILOT_REVIEWER_PRINCIPAL_PERMISSION,
+            }),
+          ensureJobPilotApplicationGovernance: () =>
+            ensureJobPilotApplicationGovernance(localDb, {
+              organizationId: PILOT_ORGANIZATION,
+              userId: pilotUserId,
+              agentId: JOBPILOT_APPLICATION_AGENT_ID,
+              roleId: JOBPILOT_APPLICATION_ROLE,
+              permissionId: JOBPILOT_APPLICATION_PRINCIPAL_PERMISSION,
             }),
           ensureIntakeGovernance: () =>
             ensureIntakeAgentGovernance(localDb, {
@@ -5846,6 +5898,18 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     state: localPlane.state,
     vault: dealPilotCredentialVault,
   });
+  const claudeOAuth = new ClaudeOAuthStore({
+    state: localPlane.state,
+    vault: dealPilotCredentialVault,
+  });
+  // The agentic backend is Local-Plane-only machinery: it spawns a subprocess
+  // that reads the user's files. A public-cloud deployment has neither those
+  // files nor the right to touch them, so it simply never registers — the
+  // model menu then shows no such option rather than an option that fails.
+  const chatBackends = createChatBackendRegistry(
+    options.chatBackends ??
+      (publicCloudOnly ? [] : [createClaudeCodeBackend({ oauth: claudeOAuth })]),
+  );
 
   // A model-provider key saved in Settings becomes a live provider exactly
   // once, HERE, at boot — which is why the Settings UI says "restart to
@@ -6589,6 +6653,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   await modePorts.ensureEgressGovernance?.();
   await modePorts.ensureDevpilotTrackerGovernance?.();
   await modePorts.ensureDevpilotReviewerGovernance?.();
+  await modePorts.ensureJobPilotApplicationGovernance?.();
   await modePorts.ensureIntakeGovernance?.();
   await modePorts.ensureDealPilotPrincipalGovernance?.();
   await modePorts.ensureCapabilityApprovalGovernance?.();
@@ -7008,6 +7073,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     devpilotEnabled,
     devpilot: { store: devpilotStore, gateways: githubGatewayFactory },
     modelProviderKeys,
+    claudeOAuth,
+    chatBackends,
     ...(semanticEmbedder ? { semanticEmbedder } : {}),
     skillRegistry,
     accountingDb,

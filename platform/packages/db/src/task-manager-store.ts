@@ -6,12 +6,15 @@ import {
   applyTaskRestructure,
   assertNoDependencyCycle,
   canonicalizeJson,
+  draftCanonicalLedgerImport,
   draftTaskCreate,
   emitTasksMarkdown,
   taskProjectionContentHash,
   withAppendedOutcome,
   withOutcomeTarget,
   withTaskStatus,
+  type CanonicalLedgerEntry,
+  type CanonicalLedgerImportPlan,
   type CreateTaskRecordInput,
   type RestructureOperation,
   type TaskChangeProposal,
@@ -54,6 +57,7 @@ function unpack(row: typeof tasks.$inferSelect): TaskRecord {
     ownerId: row.ownerId ?? "",
     ...(row.assignedAgentId ? { assignedAgentId: row.assignedAgentId } : {}),
     ...(row.requiredSkillId ? { requiredSkillId: row.requiredSkillId } : {}),
+    ...(row.estimate ? { estimate: row.estimate } : {}),
     ...(row.parentTaskId ? { parentTaskId: row.parentTaskId } : {}),
     ...(row.scheduledFor ? { scheduledFor: row.scheduledFor } : {}),
     evidenceRefs: parseArray<string>(row.evidenceRefs, "evidence_refs"),
@@ -102,6 +106,7 @@ function values(task: TaskRecord): typeof tasks.$inferInsert {
     ownerType: task.ownerType,
     ownerId: task.ownerId || undefined,
     requiredSkillId: task.requiredSkillId,
+    estimate: task.estimate,
     scheduledFor: task.scheduledFor,
     evidenceRefs: [...task.evidenceRefs],
     verification: task.verification,
@@ -270,6 +275,41 @@ export class DrizzleTaskManagerStore implements TaskManagerStore {
         });
       }
       return drafted;
+    });
+  }
+
+  async importCanonicalLedger(
+    organizationId: string,
+    entries: readonly CanonicalLedgerEntry[],
+    ownerId: string,
+    seam: TaskManagerIdClock,
+  ): Promise<CanonicalLedgerImportPlan> {
+    // ONE transaction for the whole ledger. A partial import is worse than no
+    // import: half a tree is a queue whose paths and parents disagree with the
+    // document it came from, and nothing downstream can tell which half is real.
+    return this.scoped(organizationId, async (tx) => {
+      const queue = (await tx.select().from(tasks)
+        .where(eq(tasks.organizationId, organizationId))).map(unpack).sort(comparePaths);
+      const now = seam.nowISO();
+      const plan = draftCanonicalLedgerImport(entries, queue, { organizationId, ownerId, now });
+      const all = [...queue, ...plan.created];
+      for (const task of plan.created) {
+        await tx.insert(tasks).values({
+          ...values(task),
+          anchorTaskId: resolvedAnchorId(task, all),
+        });
+      }
+      for (const change of plan.transitions) {
+        const current = queue.find((task) => task.id === change.taskId);
+        if (!current) throw new Error(`task-manager: unknown Task ${change.taskId}`);
+        const updated = withTaskStatus(current, change.status, now);
+        await tx.update(tasks).set({
+          status: updated.status,
+          version: updated.version,
+          updatedAt: new Date(updated.updatedAt),
+        }).where(and(eq(tasks.organizationId, organizationId), eq(tasks.id, change.taskId)));
+      }
+      return plan;
     });
   }
 

@@ -1,6 +1,12 @@
 import { TASK_PLAYBOOKS } from "./task-playbooks.js";
 import { analyzeTaskImpactFit } from "./task-planning.js";
-import { applyApprovedPlanningProposal, applyApprovedRoutingProposal } from "./task-materialize.js";
+import {
+  applyApprovedPlanningProposal,
+  applyApprovedRoutingProposal,
+  draftCanonicalLedgerImport,
+  type CanonicalLedgerEntry,
+  type CanonicalLedgerImportPlan,
+} from "./task-materialize.js";
 import { assertNoDependencyCycle, dependencySatisfied, type TaskDependency } from "./task-dependencies.js";
 
 export type TaskRecordStatus =
@@ -70,6 +76,9 @@ export interface TaskRecord {
   assignedAgentId?: string;
   requiredSkillId?: string;
   parentTaskId?: string;
+  /** Coarse effort estimate as the ledger states it ("2d"). Absent means
+   * nobody has estimated it — never rendered as zero. */
+  estimate?: string;
   scheduledFor?: string;
   evidenceRefs: readonly string[];
   verification?: TaskVerification;
@@ -96,6 +105,7 @@ export interface CreateTaskRecordInput {
   assignedAgentId?: string;
   requiredSkillId?: string;
   parentTaskId?: string;
+  estimate?: string;
   scheduledFor?: string;
   visibility?: "private" | "organization";
 }
@@ -185,6 +195,7 @@ export function draftTaskCreate(
     ...(input.assignedAgentId ? { assignedAgentId: input.assignedAgentId } : {}),
     ...(input.requiredSkillId ? { requiredSkillId: input.requiredSkillId } : {}),
     ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+    ...(input.estimate?.trim() ? { estimate: input.estimate.trim() } : {}),
     ...(input.scheduledFor ? { scheduledFor: input.scheduledFor } : {}),
     evidenceRefs: [],
     visibility: input.visibility ?? "organization",
@@ -910,6 +921,16 @@ export interface TaskManagerStore {
   removeDependency(organizationId: string, dependencyId: string): Promise<boolean>;
   get(organizationId: string, taskId: string): Promise<TaskRecord | null>;
   create(input: Omit<CreateTaskRecordInput, "id"> & { id?: string }, seam: TaskManagerIdClock): Promise<TaskCreateDraft>;
+  /** Import an already-decided ledger (ADR-271). NOT `create` in a loop: intake
+   * forces every Task after the first to `candidate` and stages an impact-fit
+   * proposal, which would ask a Human to re-approve work the ledger says is
+   * finished. One call so the whole import is one atomic act. */
+  importCanonicalLedger(
+    organizationId: string,
+    entries: readonly CanonicalLedgerEntry[],
+    ownerId: string,
+    seam: TaskManagerIdClock,
+  ): Promise<CanonicalLedgerImportPlan>;
   transition(
     organizationId: string,
     taskId: string,
@@ -1036,6 +1057,25 @@ export class InMemoryTaskManagerStore implements TaskManagerStore {
     this.tasks.set(drafted.task.id, drafted.task);
     if (drafted.impactFitProposal) this.proposals.set(drafted.impactFitProposal.id, drafted.impactFitProposal);
     return drafted;
+  }
+
+  async importCanonicalLedger(
+    organizationId: string,
+    entries: readonly CanonicalLedgerEntry[],
+    ownerId: string,
+    seam: TaskManagerIdClock,
+  ): Promise<CanonicalLedgerImportPlan> {
+    const now = seam.nowISO();
+    const plan = draftCanonicalLedgerImport(entries, await this.list(organizationId), {
+      organizationId,
+      ownerId,
+      now,
+    });
+    for (const task of plan.created) this.tasks.set(task.id, task);
+    for (const change of plan.transitions) {
+      await this.transition(organizationId, change.taskId, change.status, seam);
+    }
+    return plan;
   }
 
   async transition(

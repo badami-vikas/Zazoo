@@ -71,6 +71,8 @@ async function blobToBase64(blob: Blob): Promise<string> {
 
 interface ChatViewProps {
   surface: ChatSurfaceKind;
+  /** Binds this view to a Module's own conversation (ADR-267e). */
+  moduleName?: string;
   compact?: boolean;
   className?: string;
   onOpenTask?: (taskId: string) => void;
@@ -438,13 +440,14 @@ function ProposalCard({
 
 export function ChatView({
   surface,
+  moduleName,
   compact = false,
   className = "",
   onOpenTask,
   initialDraft,
   autoSend = false,
 }: ChatViewProps) {
-  const chat = useChat(surface);
+  const chat = useChat(surface, moduleName);
   const [draft, setDraft] = useState(initialDraft ?? "");
   // Past companion sessions listed alongside the Chat threads in the history
   // dropdown (user directive 2026-08-16). Selecting one shows a read-only
@@ -706,7 +709,10 @@ export function ChatView({
     ? askSessions.find((entry) => entry.id === openSession.id) ?? null
     : null;
   const openHistory = openRun ?? openAsk;
-  const localThread = chat.view?.thread.plane === "local";
+  // An agentic thread never touches the managed local model, so the local
+  // model's setup state must not gate its composer.
+  const agenticThread = Boolean(chat.view && chat.view.thread.backend !== "bridge");
+  const localThread = !agenticThread && chat.view?.thread.plane === "local";
   const modelReady = !localThread || chat.model?.local.state === "ready";
 
   return (
@@ -1022,13 +1028,28 @@ export function ChatView({
               </Button>
               <select
                 aria-label="Chat model"
-                className="min-w-0 max-w-[9.5rem] truncate rounded-full border bg-background px-2 py-1 text-xs disabled:opacity-50"
-                value={chat.view?.thread.plane ?? "local"}
+                className="min-w-0 max-w-[11rem] truncate rounded-full border bg-background px-2 py-1 text-xs disabled:opacity-50"
+                value={
+                  chat.view && chat.view.thread.backend !== "bridge"
+                    ? `backend:${chat.view.thread.backend}`
+                    : chat.view?.thread.plane ?? "local"
+                }
                 disabled={chat.sending}
                 onChange={(event) => {
-                  void chat.newChat(event.target.value === "cloud" ? "cloud" : "local");
+                  const selected = event.target.value;
+                  // Switching the model repoints THIS conversation — Bridge
+                  // holds the context, so the thread and its turns survive.
+                  // An agentic backend picks its own plane server-side, so the
+                  // two option families are exclusive rather than combinable.
+                  if (selected.startsWith("backend:")) {
+                    void chat.switchBackend(
+                      selected.slice("backend:".length) as "claude_code",
+                    );
+                    return;
+                  }
+                  void chat.switchBackend("bridge", selected === "cloud" ? "cloud" : "local");
                 }}
-                title="Starts a new Chat on the selected model"
+                title="Switches this Chat to the selected model — the conversation is kept"
               >
                 <option value="local">Local model</option>
                 {chat.model?.cloud.available ? (
@@ -1041,6 +1062,17 @@ export function ChatView({
                 ) : chat.model?.cloud.configured === false ? (
                   <option value="cloud" disabled>Cloud — add a key in Settings</option>
                 ) : null}
+                {/* Agentic backends — present only when this deployment
+                    actually wired one, so an offered option always runs. */}
+                {(chat.model?.backends ?? []).map((backend) => (
+                  <option
+                    key={backend.id}
+                    value={`backend:${backend.id}`}
+                    disabled={!backend.ready}
+                  >
+                    {backend.ready ? backend.label : `${backend.label} — sign in`}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="flex items-center gap-1">

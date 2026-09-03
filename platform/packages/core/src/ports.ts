@@ -594,13 +594,22 @@ export interface AutomationRunRecord {
   status: "running" | "completed" | "halted";
   startedAt: string;
   finishedAt?: string;
+  /** The Task this Run advanced, projected from the step `goalTaskRef` the
+   * governed pipeline already requires. Absent when no step carried one. */
+  taskId?: string;
   taintLabel?: TaintLabel;
   output?: unknown;
 }
 
 export interface AutomationRunRecorder {
   start(
-    run: { runId: string; automationId: string; organizationId: string; agentId: string },
+    run: {
+      runId: string;
+      automationId: string;
+      organizationId: string;
+      agentId: string;
+      taskId?: string;
+    },
     ctx: RunCtx,
   ): Promise<void>;
   finish(

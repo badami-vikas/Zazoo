@@ -1,6 +1,118 @@
 {
-  "generatedAt": "2026-08-30T14:30:53.374Z",
+  "generatedAt": "2026-09-03T00:26:40.002Z",
   "items": [
+    {
+      "id": "HORIZON-prototype",
+      "title": "Prototype",
+      "isGoal": true,
+      "path": "1",
+      "level": 0,
+      "parentId": null,
+      "horizon": "Prototype",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 0,
+      "status": "open",
+      "rank": 1
+    },
+    {
+      "id": "HORIZON-developer-experience",
+      "title": "Developer Experience",
+      "isGoal": true,
+      "path": "2",
+      "level": 0,
+      "parentId": null,
+      "horizon": "Developer Experience",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 0,
+      "status": "open",
+      "rank": 2
+    },
+    {
+      "id": "HORIZON-convergence",
+      "title": "Convergence",
+      "isGoal": true,
+      "path": "3",
+      "level": 0,
+      "parentId": null,
+      "horizon": "Convergence",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 0,
+      "status": "open",
+      "rank": 3
+    },
+    {
+      "id": "HORIZON-core-modules",
+      "title": "Core Modules",
+      "isGoal": true,
+      "path": "4",
+      "level": 0,
+      "parentId": null,
+      "horizon": "Core Modules",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 0,
+      "status": "open",
+      "rank": 4
+    },
+    {
+      "id": "HORIZON-hardening",
+      "title": "Hardening",
+      "isGoal": true,
+      "path": "5",
+      "level": 0,
+      "parentId": null,
+      "horizon": "Hardening",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 0,
+      "status": "open",
+      "rank": 5
+    },
+    {
+      "id": "HORIZON-later",
+      "title": "Later",
+      "isGoal": true,
+      "path": "6",
+      "level": 0,
+      "parentId": null,
+      "horizon": "Later",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 0,
+      "status": "open",
+      "rank": 6
+    },
+    {
+      "id": "HORIZON-public-brand",
+      "title": "Public Brand",
+      "isGoal": true,
+      "path": "7",
+      "level": 0,
+      "parentId": null,
+      "horizon": "Public Brand",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 0,
+      "status": "open",
+      "rank": 7
+    },
+    {
+      "id": "HORIZON-living-software",
+      "title": "Living Software",
+      "isGoal": true,
+      "path": "8",
+      "level": 0,
+      "parentId": null,
+      "horizon": "Living Software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 0,
+      "status": "open",
+      "rank": 8
+    },
     {
       "id": "TASK-026",
       "title": "TASK-026 — Governed persistent Chat Panel",
@@ -32,11 +144,15 @@
         "TASK-007 (done)",
         "TASK-015 (done)"
       ],
+      "isGoal": false,
+      "path": "1.1",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 58,
-      "rank": 1
+      "rank": 9
     },
     {
       "id": "TASK-025",
@@ -63,11 +179,15 @@
       ],
       "approval": "AP-076, AP-077, and AP-079 applied",
       "dependencies": [],
+      "isGoal": false,
+      "path": "2.1",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-developer-experience",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 73,
-      "rank": 2
+      "rank": 10
     },
     {
       "id": "TASK-001",
@@ -97,11 +217,15 @@
       ],
       "approval": "AP-020, AP-021, and AP-027 applied",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.2",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 87,
-      "rank": 3
+      "rank": 11
     },
     {
       "id": "TASK-003",
@@ -130,11 +254,15 @@
       ],
       "approval": "AP-020, AP-026, AP-040, and AP-041 applied",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.3",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 101,
-      "rank": 4
+      "rank": 12
     },
     {
       "id": "TASK-004",
@@ -161,11 +289,15 @@
       "dependencies": [
         "TASK-001"
       ],
+      "isGoal": false,
+      "path": "1.4",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 114,
-      "rank": 5
+      "rank": 13
     },
     {
       "id": "TASK-005",
@@ -194,11 +326,15 @@
         "TASK-003",
         "TASK-004"
       ],
+      "isGoal": false,
+      "path": "1.5",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 127,
-      "rank": 6
+      "rank": 14
     },
     {
       "id": "TASK-013",
@@ -230,11 +366,15 @@
         "TASK-005",
         "TASK-012"
       ],
+      "isGoal": false,
+      "path": "3.1",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 142,
-      "rank": 7
+      "rank": 15
     },
     {
       "id": "TASK-012",
@@ -273,11 +413,15 @@
       "dependencies": [
         "TASK-005"
       ],
+      "isGoal": false,
+      "path": "3.2",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 156,
-      "rank": 8
+      "rank": 16
     },
     {
       "id": "TASK-010",
@@ -327,11 +471,15 @@
         "TASK-001",
         "TASK-007"
       ],
+      "isGoal": false,
+      "path": "4.1",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 173,
-      "rank": 9
+      "rank": 17
     },
     {
       "id": "TASK-008",
@@ -368,11 +516,15 @@
       "dependencies": [
         "TASK-001"
       ],
+      "isGoal": false,
+      "path": "4.2",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 187,
-      "rank": 10
+      "rank": 18
     },
     {
       "id": "TASK-007",
@@ -406,11 +558,15 @@
       "dependencies": [
         "TASK-001"
       ],
+      "isGoal": false,
+      "path": "4.3",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 200,
-      "rank": 11
+      "rank": 19
     },
     {
       "id": "TASK-014",
@@ -442,11 +598,15 @@
         "TASK-006",
         "TASK-008"
       ],
+      "isGoal": false,
+      "path": "3.3",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 213,
-      "rank": 12
+      "rank": 20
     },
     {
       "id": "TASK-021",
@@ -479,11 +639,15 @@
         "TASK-004 line for TM6 only",
         "TASK-007 (ADR-104 SkillManifest/eligible-Agent resolution — reused by agent-task-routing)"
       ],
+      "isGoal": false,
+      "path": "4.4",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 227,
-      "rank": 13
+      "rank": 21
     },
     {
       "id": "TASK-015",
@@ -515,11 +679,15 @@
         "TASK-007 (done)",
         "TASK-012 (done)"
       ],
+      "isGoal": false,
+      "path": "5.1",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 268,
-      "rank": 14
+      "sourceLine": 272,
+      "rank": 22
     },
     {
       "id": "TASK-016",
@@ -546,11 +714,15 @@
       "dependencies": [
         "TASK-012"
       ],
+      "isGoal": false,
+      "path": "5.2",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 282,
-      "rank": 15
+      "sourceLine": 286,
+      "rank": 23
     },
     {
       "id": "TASK-017",
@@ -583,17 +755,22 @@
       "dependencies": [
         "TASK-012"
       ],
+      "isGoal": false,
+      "path": "5.3",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 296,
-      "rank": 16
+      "sourceLine": 300,
+      "rank": 24
     },
     {
       "id": "TASK-006",
       "title": "TASK-006 — DealPilot ETA core prototype",
       "status": "blocked",
       "priority": "P1",
+      "estimate": "13d",
       "horizon": "Core Modules",
       "outcome": "DealPilot supports ETA work through only Deals, Sources, and Theses as default Pages, with correct many-to-many relations, secure Source credential projection, Record Detail, rights/spend gates, and thesis→source→deal discovery.",
       "prototypeTest": "Add a Thesis and observe governed Source discovery; add a Source and observe Deal discovery; inspect each Record Detail; reveal/copy a vault-backed Source credential only after Human re-authentication; verify conditional Relationship and Task columns.",
@@ -614,11 +791,15 @@
       "dependencies": [
         "the TASK-030 PT-5 cold-start evidence. TASK-001 is `done` and was a stale blocker. (Deploys to the hosted pilot became automatic on push to `main` 2026-08-07 under AP-115/ADR-195 — the prior MANUAL-deploy dependency this row named no longer applies.)"
       ],
+      "isGoal": false,
+      "path": "4.5",
+      "level": 1,
       "canonicalStatus": "blocked",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 310,
-      "rank": 17
+      "sourceLine": 314,
+      "rank": 25
     },
     {
       "id": "TASK-011",
@@ -643,11 +824,15 @@
       "dependencies": [
         "TASK-007"
       ],
+      "isGoal": false,
+      "path": "4.6",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 329,
-      "rank": 18
+      "sourceLine": 334,
+      "rank": 26
     },
     {
       "id": "TASK-009",
@@ -678,11 +863,15 @@
         "TASK-008",
         "TASK-014 (Graph renderer with scope selector delivers this)"
       ],
+      "isGoal": false,
+      "path": "4.7",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 343,
-      "rank": 19
+      "sourceLine": 348,
+      "rank": 27
     },
     {
       "id": "TASK-002",
@@ -713,17 +902,22 @@
       ],
       "approval": "AP-020 and AP-028 applied",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.6",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 357,
-      "rank": 20
+      "sourceLine": 362,
+      "rank": 28
     },
     {
       "id": "TASK-020",
       "title": "TASK-020 — Browser companion and Avatar visual expansion",
       "status": "pending",
       "priority": "P4",
+      "estimate": "8d",
       "horizon": "Later",
       "outcome": "The deferred browser companion is a real permission-bounded extension, and expanded Avatar visuals use production assets without reviving retired lifecycle/personality vocabulary.",
       "prototypeTest": "Install the real extension, inspect and revoke its permissions, capture through the governed Memory path with Avatar blink feedback, and render the approved Avatar asset set consistently across supported surfaces without dummy integration claims.",
@@ -744,17 +938,22 @@
         "TASK-003",
         "TASK-015"
       ],
+      "isGoal": false,
+      "path": "6.1",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-later",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 370,
-      "rank": 21
+      "sourceLine": 375,
+      "rank": 29
     },
     {
       "id": "TASK-018",
       "title": "TASK-018 — Cross-platform release blockers",
       "status": "blocked",
       "priority": "P3",
+      "estimate": "5d",
       "horizon": "Hardening",
       "outcome": "Desktop signing/CI and the mobile client meet their real-device release criteria without fabricated scaffolding.",
       "prototypeTest": "Desktop checks pass on the named OS matrix with signing prerequisites, and a real on-branch Expo app runs against the shared kernel on a device/simulator.",
@@ -781,17 +980,22 @@
       "dependencies": [
         "remediation of the seven HIGH production-dependency advisories, plus the TASK-030 PT-6 OS-matrix and real-device checks. TASK-005 is `done` and was a stale blocker."
       ],
+      "isGoal": false,
+      "path": "5.4",
+      "level": 1,
       "canonicalStatus": "blocked",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 383,
-      "rank": 22
+      "sourceLine": 389,
+      "rank": 30
     },
     {
       "id": "TASK-019",
       "title": "TASK-019 — Approved long-term optimization rollout",
       "status": "blocked",
       "priority": "P4",
+      "estimate": "8d",
       "horizon": "Later",
       "outcome": "Observability, Memory lifecycle/security, retrieval-first context, stronger sandboxing, and optional remote execution are sequenced only after the user accepts the proposed phase mapping and prerequisite gates pass.",
       "prototypeTest": "Approval is applied, each optimization has a measurable baseline and safety boundary, and the first approved slice improves that measure without weakening privacy/authority.",
@@ -807,11 +1011,15 @@
       "dependencies": [
         "user acceptance of the proposed phase mapping (AP-007 still PROPOSED) and reconciliation of the AP-008 ledger/status inconsistency. TASK-005 and TASK-015 are both `done` and were stale blockers — the real gate is an approval, not engineering."
       ],
+      "isGoal": false,
+      "path": "6.2",
+      "level": 1,
       "canonicalStatus": "blocked",
+      "parentId": "HORIZON-later",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 396,
-      "rank": 23
+      "sourceLine": 403,
+      "rank": 31
     },
     {
       "id": "TASK-022",
@@ -842,11 +1050,15 @@
         "none — the live Anthropic cache-hit proof moved to TASK-030 PT-1",
         "tier routing, cache wire format, and receipts are already proven deterministically without a credential"
       ],
+      "isGoal": false,
+      "path": "4.8",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 409,
-      "rank": 24
+      "sourceLine": 417,
+      "rank": 32
     },
     {
       "id": "TASK-023",
@@ -873,11 +1085,15 @@
       "dependencies": [
         "TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)"
       ],
+      "isGoal": false,
+      "path": "3.4",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 423,
-      "rank": 25
+      "sourceLine": 431,
+      "rank": 33
     },
     {
       "id": "TASK-024",
@@ -905,11 +1121,15 @@
       ],
       "approval": "AP-048 applied; AP-052 applied; AP-053 applied",
       "dependencies": [],
+      "isGoal": false,
+      "path": "7.1",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-public-brand",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 436,
-      "rank": 26
+      "sourceLine": 444,
+      "rank": 34
     },
     {
       "id": "TASK-027",
@@ -934,17 +1154,22 @@
       ],
       "approval": "AP-149 and AP-150 applied",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.7",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 462,
-      "rank": 27
+      "sourceLine": 471,
+      "rank": 35
     },
     {
       "id": "TASK-028",
       "title": "TASK-028 — Autonomous background browser research agent",
       "status": "in-progress",
       "priority": "P2",
+      "estimate": "5d",
       "horizon": "Core Modules",
       "outcome": "Bridge runs a multi-step research objective on its own in the background — planning steps, searching, opening and reading real pages in a managed browser, and returning a cited brief — with every step an inspectable child Run, every irreversible browser action gated behind a Proposal, and fetched page text treated as hostile input that can never reach the planner's instruction channel.",
       "prototypeTest": "From a real Organization, start a Research Run for an explicit public objective; it plans and executes at least three steps, reads at least one page that search alone could not answer, records per-claim citations plus `untrusted_external` taint on Result/Memory/Event, stops honestly at its step/time bound, survives an app restart, refuses to click or type without an approved Proposal, and reports rather than obeys a page that contains instructions aimed at the agent.",
@@ -975,17 +1200,22 @@
         "TASK-026 (done)",
         "TASK-027 (pointing accuracy in progress, but BR0-BR1 do not depend on it)"
       ],
+      "isGoal": false,
+      "path": "4.9",
+      "level": 1,
       "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 480,
-      "rank": 28
+      "sourceLine": 489,
+      "rank": 36
     },
     {
       "id": "TASK-029",
       "title": "TASK-029 — WhatsApp Module with governed contact extraction",
       "status": "in-progress",
       "priority": "P2",
+      "estimate": "5d",
       "horizon": "Prototype",
       "outcome": "Clicking WhatsApp in the left nav opens the owner's own WhatsApp Web session inside the Bridge desktop shell, with a sibling Tools Page whose Contact Extractor turns individual contacts into a Local Plane person list and selected groups into Communities with policy-bounded participant membership. v1 is read-only, enforced by a fixed operation allowlist in the desktop shell rather than by convention; raw capture and phone numbers never leave the Local Plane.",
       "prototypeTest": "From a cold app launch, the WhatsApp nav entry opens a linked session without a new QR scan; the Contact Extractor stages at least one real contact into the local WhatsApp list; the staged Person carries a phone number that is present in the Local Plane and absent from cloud canonical; a `@lid` contact is staged with a name and NO fabricated number; and `whatsapp_extract_start(\"send_message\")` is refused by the shell.",
@@ -1007,17 +1237,22 @@
       ],
       "approval": "AP-090 applied",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.8",
+      "level": 1,
       "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 449,
-      "rank": 29
+      "sourceLine": 457,
+      "rank": 37
     },
     {
       "id": "TASK-030",
       "title": "TASK-030 — WhatsApp write-enabled messaging with a local searchable store",
       "status": "in-progress",
       "priority": "P2",
+      "estimate": "8d",
       "horizon": "Prototype",
       "outcome": "The already-linked WhatsApp session is Bridge's single engine and execution layer — no second authenticated client. Its messages are stored on the Local Plane and searchable from Bridge, rendered in a makeshift Bridge-native message view (not a WhatsApp visual replica). A context section above the session shows the Person or Community for the chat currently open, with tags and internal notes that are Bridge's own data. Outbound sending is enabled and governed: `decideSend` approves per recipient with the grant bound to the exact message body, and the rate ceiling is enforced in Rust so it cannot be bypassed from the renderer. Automations start Agent Runs and may only send into threads the recipient opened.",
       "prototypeTest": "From a cold app launch on a linked session, a full-text search in Bridge for a word the user remembers returns the matching message from the Local Plane store with its chat and timestamp, and opening the result shows it in Bridge's own message view; the context section above the session updates to the correct Person/Community when the open chat changes, and a note saved there persists across restart; a send to a recipient who has NOT messaged first is refused by the consent gate; a send to a recipient who has is approved once and then permitted for that exact body only, with a changed body requiring fresh approval; the daily cap is enforced when the renderer is bypassed (asserted against the Rust layer directly, not the UI); and a simulated WhatsApp-side warning halts all automation and does not auto-resume.",
@@ -1053,17 +1288,22 @@
         "TASK-029 (in_progress — its exit test is unwalked",
         "TASK-030 assumes the linked session and allowlist it built, and inherits its two filed defects as fixes in Track A)"
       ],
+      "isGoal": false,
+      "path": "1.9",
+      "level": 1,
       "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 495,
-      "rank": 30
+      "sourceLine": 505,
+      "rank": 38
     },
     {
       "id": "TASK-031",
       "title": "TASK-031 — Platform bloat cleanup and table-renderer standardization",
       "status": "in-progress",
       "priority": "P2",
+      "estimate": "3d",
       "horizon": "Convergence",
       "outcome": "The platform carries no verified-dead code or dependencies (prototype-port leftovers, superseded components, unused deps), duplicated logic is consolidated into shared seams (api `orgProcedure` guard middleware, db migration-test helper, graph-store person/community verb helpers, DealPilot record factories, `@bridge/credentials` extraction, single `scopePermits`), the three monolith files (`router.ts`, `wiring.ts`, `graph-store.ts`) are split by domain, and the table-renderer question is decided by ADR: either GlideTable revives as a registered DataViews renderer or it is deleted with TableView gaining virtualization and the Glide-era cell features, with STACK/wiki claims corrected either way. Roadmap-ahead substrate (core eval/registry/foreign-import, `@bridge/sensors`, doc-referenced schema tables) is explicitly quarantined/kept, not deleted.",
       "prototypeTest": "`knip`-style dead-export/dead-dep scan (or the audit's grep method re-run) returns clean on the swept areas; `turbo run typecheck test build` stays green after each deletion/consolidation commit; the pipeline taint-sink fix at `packages/core/src/pipeline.ts:104` lands with a red-then-green test proving tainted integration WRITES are gated; the tables ADR is recorded in `docs/raw/decisions-log.md` and `docs/wiki/stack.md`/`docs/raw/STACK.md` no longer claim glide-data-grid unless it is actually the renderer.",
@@ -1090,17 +1330,22 @@
         "none (must not disturb in-progress TASK-027/TASK-028 surfaces",
         "router/wiring splits rebase-heavy — coordinate with active branches)"
       ],
+      "isGoal": false,
+      "path": "3.5",
+      "level": 1,
       "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 508,
-      "rank": 31
+      "sourceLine": 519,
+      "rank": 39
     },
     {
       "id": "TASK-032",
       "title": "TASK-032 — Deal Copilot learning observation loop (generic Egg baseline v1)",
       "status": "in-progress",
       "priority": "P2",
+      "estimate": "3d",
       "horizon": "Core Modules",
       "outcome": "The generic learn-from-zero observation loop exists in the kernel — explicit user decisions become private Local-Plane signal Memories, repeated patterns become suggested preferences (batched, annoyance-capped), only an explicit Human acceptance mints a learned preference with full provenance, and accepted preferences demonstrably change agent output through the run-context memory slot — with DealPilot bound as the first consumer via a pure attribute mapping (no core dependency added).",
       "prototypeTest": "Record ≥3 same-pattern Deal dismissals; one digest run proposes exactly one suggestion and writes NO preference; accepting mints one preference whose statement reaches `projectToSystemPrompt` output; rejecting writes nothing and the pattern is never re-proposed even after more matching signals; a second user can neither read nor act on any of it; the owner can inspect and forget every stored row.",
@@ -1121,17 +1366,22 @@
         "none (builds on landed MemoryStore/TASK-002 substrate)",
         "unblocks retrieval (LA5) and promotion machinery follow-ups."
       ],
+      "isGoal": false,
+      "path": "4.10",
+      "level": 1,
       "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 525,
-      "rank": 32
+      "sourceLine": 537,
+      "rank": 40
     },
     {
       "id": "TASK-033",
       "title": "TASK-033 — Universal Commons capability archetypes (roadmap-v2 Phase 4)",
       "status": "in-progress",
       "priority": "P2",
+      "estimate": "5d",
       "horizon": "Core Modules",
       "outcome": "The Universal Commons carries capability archetypes (roadmap-v2 Phase 4) — a workspace's accepted learned preferences can be generalized into personal-data-free archetype candidates and, only on an explicit per-archetype Human action, published to the Commons; a brand-new workspace can seed those archetypes as PROPOSED learning suggestions on the ordinary suggested-then-accepted lineage machinery, so every new workspace starts smarter without any prior user's private data leaving its machine.",
       "prototypeTest": "Workspace A accepts a repeated-dismissal preference; preview derives one generalized candidate (no ids, no evidence refs, no user text — the organization-data gate finds nothing); contribute publishes exactly the Human-approved names; a FRESH workspace B with zero signals seeds the archetype as one proposed suggestion, mints nothing until the Human accepts, re-seed proposes nothing (same lineage), and a rejection permanently suppresses the pattern; a personal-shaped attribute value never leaves preview; the Commons server rejects an organization-shaped payload with offendingPaths; either flight off fails every archetypes procedure closed.",
@@ -1147,11 +1397,15 @@
         "TASK-032 (accepted preferences are the generalization source",
         "suggestion lineage machinery is the seed target)."
       ],
+      "isGoal": false,
+      "path": "4.11",
+      "level": 1,
       "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 547,
-      "rank": 33
+      "sourceLine": 560,
+      "rank": 41
     },
     {
       "id": "TASK-034",
@@ -1178,11 +1432,15 @@
       ],
       "approval": "none",
       "dependencies": [],
+      "isGoal": false,
+      "path": "4.12",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 575,
-      "rank": 34
+      "sourceLine": 589,
+      "rank": 42
     },
     {
       "id": "TASK-035",
@@ -1208,11 +1466,15 @@
       ],
       "approval": "none (deleting a whole tRPC surface is a canon change and needs its own row)",
       "dependencies": [],
+      "isGoal": false,
+      "path": "3.6",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 588,
-      "rank": 35
+      "sourceLine": 602,
+      "rank": 43
     },
     {
       "id": "TASK-036",
@@ -1235,38 +1497,54 @@
       ],
       "approval": "none (the vocabulary-gate resolution is a canon call and needs its own row)",
       "dependencies": [],
+      "isGoal": false,
+      "path": "4.13",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 601,
-      "rank": 36
+      "sourceLine": 615,
+      "rank": 44
     },
     {
       "id": "TASK-037",
       "title": "TASK-037 — Repository hygiene and unlanded work recovery",
       "status": "pending",
       "priority": "P3",
+      "estimate": "1d",
       "horizon": "Convergence",
-      "outcome": "Learning Agent's LA3 research lane gains a governed `web-research` Skill backed by a provider-agnostic `SearchProvider` port (same shape as `ModelProvider`/`MemoryStore`/`ContentGuard`), wired first to $0 Tier-1 direct-access sources (Parallel Search MCP, Jina AI keyless, DuckDuckGo Instant Answer API) with a pre-vetted Tier-2 (signup-gated free tier) and Tier-3 (paid/self-hosted-only) expansion path, and every fetched result tagged `untrusted_external` taint per PI-1/PI-2 before reaching a Memory or prompt.",
-      "prototypeTest": "From a real workspace, Learning Agent runs a `web-research` Skill call for a bounded research objective, returns cited results sourced from at least one Tier-1 provider with provenance/taint recorded on the resulting Memory/Result, degrades gracefully if a provider is unavailable, and never silently escalates to a paid Tier-3 provider without a prior `docs/APPROVALS.md` cost/ROI gate.",
+      "outcome": "No unlanded work exists only on one machine, dirty worktrees are either committed or discarded deliberately, and the branch list reflects real in-flight work.",
+      "prototypeTest": "Every branch carrying unique commits exists on the remote; `git stash list` is empty or its contents are landed on a branch; no worktree holds untracked source files; the stale local `main` is reset to `origin/main`.",
       "scope": [
-        "docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)"
+        "`outputs/2026-08-03-unfinished-work-audit.md` Tier 0.1-0.2. DONE 2026-08-03: `claude/whatsapp-module-contact-extractor-9cfff3` (52 commits, the strict superset of all 13 WhatsApp branches — verified `git rev-list --count contact-extractor..<each>` = 0) was pushed to origin on the user's explicit go-ahead",
+        "the WhatsApp Module is no longer single-disk. STILL OPEN: (a) `stash@{0}` on `claude/xenodochial-lamarr-9e9247` holds 51 files / +3351-516 of dealpilot/jobpilot connector work from 2026-07-04 — land or drop explicitly",
+        "(b) uncommitted `platform/packages/db/migrations/002_add_location_geo.sql` + `Tools/recon/lib/geocode.ts` in worktree `romantic-kowalevski-2a3e18` — an uncommitted migration is the single most dangerous loose file",
+        "(c) uncommitted `platform/apps/api/test/authentication.test.ts` in worktree `codex-roadmap-batch-1`",
+        "(d) uncommitted doc work in `kind-volhard-17651e`",
+        "(e) unpushed single-commit branch `worktree-agent-a1b0df5fd0a4fa8a8` (2026-07-07) carrying `feat(core): foreign-capability importer (Track F3)`",
+        "(f) 15 of 35 worktrees dirty and ~20 clean agent worktrees prunable",
+        "(g) the MAIN checkout is 299 commits behind `origin/main` — do not build or deploy from it",
+        "(h) the twelve subsumed WhatsApp checkpoint branches are deletable once the superset lands",
+        "(i) `origin` still points at `github.com/badami-vikas/relationship-os`, which now reports the repository has MOVED to `github.com/manishsbhoopalam8498/relationship-os` — the remote URL should be updated deliberately."
       ],
       "evidence": [
-        "outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning"
+        "`outputs/2026-08-03-unfinished-work-audit.md`"
       ],
       "requests": [
-        "user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)"
+        "user directive 2026-08-03"
       ],
-      "approval": "AP-039 applied",
-      "dependencies": [
-        "TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)"
-      ],
+      "approval": "none",
+      "dependencies": [],
+      "isGoal": false,
+      "path": "3.7",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 618,
-      "rank": 37
+      "sourceLine": 632,
+      "rank": 45
     },
     {
       "id": "TASK-038",
@@ -1287,11 +1565,15 @@
       ],
       "approval": "none (bug-fix work; any schema/migration change made here is Tier C and needs its own row)",
       "dependencies": [],
+      "isGoal": false,
+      "path": "4.14",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 561,
-      "rank": 38
+      "sourceLine": 575,
+      "rank": 46
     },
     {
       "id": "TASK-066",
@@ -1317,11 +1599,15 @@
       ],
       "approval": "none needed (defect repair; ADR-229 records the design decisions)",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.10",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1057,
-      "rank": 39
+      "sourceLine": 1088,
+      "rank": 47
     },
     {
       "id": "TASK-067",
@@ -1353,11 +1639,15 @@
       ],
       "approval": "AP-153 applied",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.11",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1097,
-      "rank": 40
+      "sourceLine": 1130,
+      "rank": 48
     },
     {
       "id": "TASK-068",
@@ -1391,17 +1681,22 @@
       "dependencies": [
         "TASK-067"
       ],
+      "isGoal": false,
+      "path": "1.12",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1110,
-      "rank": 41
+      "sourceLine": 1143,
+      "rank": 49
     },
     {
       "id": "TASK-069",
       "title": "TASK-069 — Academics Module — Subjects/Lecture Sessions/Assignments vault",
       "status": "pending",
       "priority": "P2",
+      "estimate": "3d",
       "horizon": "Prototype",
       "outcome": "a new `academics` Module (P1 of the plan) with three sibling toggles — Subjects, Lecture Sessions, Assignments — database-backed, using the shared `records`/`TableSpec` mechanism, no bespoke per-module data store. A Subject's Record Detail shows its own Lecture Sessions and Assignments as related Sections. Local Files land under `~/Documents/Bridge/<Organization>/Academics/`.",
       "prototypeTest": "install the Module, add a Subject, add a Lecture Session and an Assignment related to it, reload — all three toggles show real rows (never dummy), the Subject's Record Detail shows both related rows, and the Module row passes `manifests/test/catalog.test.ts`.",
@@ -1416,17 +1711,22 @@
       ],
       "approval": "AP-154 (2026-08-13) — recorded APPLIED",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.13",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1071,
-      "rank": 42
+      "sourceLine": 1102,
+      "rank": 50
     },
     {
       "id": "TASK-070",
       "title": "TASK-070 — Events sub-module (NetworkManager) — speaker extraction + LinkedIn outreach queue",
       "status": "pending",
       "priority": "P2",
+      "estimate": "5d",
       "horizon": "Prototype",
       "outcome": "an `events` sub-module (`parentModule: \"relationship\"`) under NetworkManager tracking conference/event links, plus a manual speaker-extraction Automation that fetches an Event URL, extracts speaker rows, resolves identity through OpenAlex/ORCID/Crossref under the existing 3-tier match gate (strong/moderate/flag), and drafts People + Event→Person edges for approval — reusing the WhatsApp Contact Extractor's draft-then-approve staging. A second, human-in-the-loop outreach queue drafts personalized LinkedIn connection notes from resolved speakers for the owner to send manually — there is no automated LinkedIn send capability (no LinkedIn API exposes invitations; their User Agreement prohibits automated access; `Tools/recon-salvage-2026-08-03/README.md:192` already codifies \"LinkedIn is never fetched directly\").",
       "prototypeTest": "add an Event URL, run extraction — draft People/edges appear in the approval queue with correct tier labeling (never an auto-merge on moderate/weak matches); approving one produces the outreach-queue row with a drafted note; there is no code path that sends a LinkedIn request without a human click.",
@@ -1443,16 +1743,21 @@
       ],
       "approval": "AP-154 (2026-08-13) — recorded APPLIED",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.14",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1084,
-      "rank": 43
+      "sourceLine": 1116,
+      "rank": 51
     },
     {
       "id": "TASK-072",
       "title": "TASK-072 — Every Module declares what it is allowed to do, and the engine enforces it",
-      "status": "open",
+      "status": "completed",
+      "statusNote": "2026-08-16, live-verified",
       "priority": "P1",
       "horizon": "Prototype",
       "outcome": "every Module carries a Governance Section directly below its Intelligence Section, showing the `allow`/`deny` policy declared in its manifest, editable by the user at runtime. Accounting is seeded with Avilo's AI posture. The policy is **read by the engine**, not merely displayed.",
@@ -1472,17 +1777,22 @@
       "dependencies": [
         "TASK-074"
       ],
-      "canonicalStatus": "done (2026-08-16, live-verified)",
+      "isGoal": false,
+      "path": "1.15",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1152,
-      "rank": 44
+      "sourceLine": 1186,
+      "rank": 52
     },
     {
       "id": "TASK-073",
       "title": "TASK-073 — Retrofit the newly-adopted UI conventions against every pre-existing Module",
       "status": "pending",
       "priority": "P2",
+      "estimate": "5d",
       "horizon": "Hardening",
       "outcome": "the eight UI rules adopted outright under ADR-249 (whole-row click target, double-click-edits-everywhere, revealed-not-resident destructive controls, gesture-handler focus, tooltip descriptions, Dropdown-not-Checkbox as default column type, the five ergonomics laws, no-dead-end pickers, bidirectional connections, write-on-Save) hold on Relationship, DealPilot, JobPilot, TaskManager, DevPilot, Academics and Events — the seven Modules that shipped before the rules were imported.",
       "prototypeTest": "for each of the seven Modules, one page is walked live against each of the eight rules with the specific defect named where one is found (e.g. \"Products table: delete icon is resident, not hover-revealed — C-13 violation\"); `ui-conformance.test.mjs`'s ratchet is extended to check the newly-adopted rules and fails on a genuine regression rather than only on the pre-2026-08-16 rule set.",
@@ -1499,16 +1809,21 @@
       ],
       "approval": "none needed (UI conformance work within already-approved canon)",
       "dependencies": [],
+      "isGoal": false,
+      "path": "5.5",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1122,
-      "rank": 45
+      "sourceLine": 1155,
+      "rank": 53
     },
     {
       "id": "TASK-074",
       "title": "TASK-074 — Accounting and D2C land as Modules, on the Local Plane, with donor history preserved",
-      "status": "open",
+      "status": "completed",
+      "statusNote": "2026-08-16, live-verified",
       "priority": "P1",
       "horizon": "Prototype",
       "outcome": "Avilo runs inside Bridge as the **Accounting** Module and CV Naturals as the **D2C** Module (with Orders/Inventory as D2C's own toggle Pages and Research/Notes as `parent: d2c` sub-modules), both on the Local Plane over better-sqlite3, both declaring a manifest, both reachable from Bridge's nav with manifest-driven detail. `@bridge/whatsapp` serves D2C; CVN's clone is not imported. Neither donor repository is modified.",
@@ -1531,11 +1846,15 @@
       ],
       "approval": "AP-162 APPLIED (ADR-246)",
       "dependencies": [],
-      "canonicalStatus": "done (2026-08-16, live-verified)",
+      "isGoal": false,
+      "path": "1.16",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1135,
-      "rank": 46
+      "sourceLine": 1169,
+      "rank": 54
     },
     {
       "id": "TASK-039",
@@ -1558,24 +1877,23 @@
         "current-code pattern elaboration directive 2026-07-18"
       ],
       "approval": "AP-040 and AP-041 applied",
-      "dependencies": [
-        "TASK-023 (done)",
-        "TASK-007 (done)",
-        "TASK-026 (done)",
-        "TASK-027 (done 2026-07-31 — pointing accuracy resolved to ~12px",
-        "its residual checks are TASK-030 PT-3)"
-      ],
+      "dependencies": [],
+      "isGoal": false,
+      "path": "3.8",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 639,
-      "rank": 47
+      "sourceLine": 654,
+      "rank": 55
     },
     {
       "id": "TASK-040",
       "title": "TASK-040 — LA3 Phase 2 — credentialed SearchProvider tier for the research lane",
       "status": "in-progress",
       "priority": "P2",
+      "estimate": "2d",
       "horizon": "Convergence",
       "outcome": "The Learning Agent's research lane survives loss of the single anonymous Tier-1 provider, because the `SearchProvider` router admits rights-verified Tier-2 `free_credentialed` providers under an explicit deployment-selected admission policy that can never widen to `paid` or `self_hosted` access, and the first such adapter (credentialed Parallel Search REST API) carries the same bounded provenance, taint, quarantine, and rights contract as Phase 1.",
       "prototypeTest": "With no `PARALLEL_API_KEY` configured, the deployment registers only the anonymous Tier-1 provider and refuses a Tier-2 provider at construction. With a key configured, the router admits both, tries the anonymous provider first, fails over to the credentialed provider when the anonymous tier returns `rate_limited`, records `providerTier: 2` / `providerAccess: free_credentialed` with a real `providerRequestId` in provenance, labels every citation `untrusted_external` with `trust: untrusted` / `source: web`, and the API key appears nowhere in the Result, provenance, warnings, taint label, or any Event.",
@@ -1599,17 +1917,22 @@
       "dependencies": [
         "TASK-023 (Phase 1 `SearchProvider` port + web-research Skill this extends)"
       ],
+      "isGoal": false,
+      "path": "3.9",
+      "level": 1,
       "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 654,
-      "rank": 48
+      "sourceLine": 669,
+      "rank": 56
     },
     {
       "id": "TASK-041",
       "title": "TASK-041 — Pending Tests — live verification backlog",
       "status": "pending",
       "priority": "P2",
+      "estimate": "2d",
       "horizon": "Convergence",
       "outcome": "Every verification that is blocked ONLY on a live machine, a real device, a paid credential, or a manual deploy is collected in one place with a named runner and an exact pass condition, so a finished build is never left labelled \"in progress\" merely because its proof has not been executed yet.",
       "prototypeTest": "Each item below is either executed with recorded evidence, or carries an explicit reason it cannot be run and who must run it. No item is closed by assertion.",
@@ -1626,11 +1949,15 @@
       "dependencies": [
         "none — every item is independently runnable by whoever holds the machine, device, credential, or deploy rights it names"
       ],
+      "isGoal": false,
+      "path": "3.10",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 668,
-      "rank": 49
+      "sourceLine": 684,
+      "rank": 57
     },
     {
       "id": "TASK-042",
@@ -1663,11 +1990,15 @@
         "none (methodology and draft constitution exist",
         "TASK-033 archetype work is adjacent, not blocking)"
       ],
+      "isGoal": false,
+      "path": "3.11",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 713,
-      "rank": 50
+      "sourceLine": 730,
+      "rank": 58
     },
     {
       "id": "TASK-043",
@@ -1695,11 +2026,15 @@
       "dependencies": [
         "E5 depends on the semantic embedder (learning-agent LA5 open item, shipped). E1-E4 have none."
       ],
+      "isGoal": false,
+      "path": "3.12",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 727,
-      "rank": 51
+      "sourceLine": 744,
+      "rank": 59
     },
     {
       "id": "TASK-044",
@@ -1730,11 +2065,15 @@
       ],
       "approval": "AP-131 APPLIED; AP-132 APPLIED (the slice itself)",
       "dependencies": [],
+      "isGoal": false,
+      "path": "4.15",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 747,
-      "rank": 52
+      "sourceLine": 764,
+      "rank": 60
     },
     {
       "id": "TASK-045",
@@ -1764,11 +2103,15 @@
       "dependencies": [
         "TASK-044"
       ],
+      "isGoal": false,
+      "path": "4.16",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 762,
-      "rank": 53
+      "sourceLine": 779,
+      "rank": 61
     },
     {
       "id": "TASK-046",
@@ -1799,16 +2142,21 @@
       "dependencies": [
         "TASK-044"
       ],
+      "isGoal": false,
+      "path": "4.17",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 777,
-      "rank": 54
+      "sourceLine": 794,
+      "rank": 62
     },
     {
       "id": "TASK-047",
       "title": "TASK-047 — K3 — Knowledge substrate: entities, claims, consolidation",
-      "status": "open",
+      "status": "completed",
+      "statusNote": "2026-08-09, minimal cut per AP-136/ADR-216; deferred loops are named follow-ups below",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "The graph that appends AND optimizes: typed Entities beyond people (deals, projects, orgs, topics — typed by Module vocabulary), Claims with per-claim evidence refs + sensitivity tiers + supersedence lineage, and a consolidation loop (dedupe via `@bridge/dedupe` with the ADR-177 calibrated refusal band, contradiction surfacing as suggestions — never silent overwrite, episodic→semantic distillation with provenance, decay/archive). Extends GraphStore with new `entities`/`claims` tables alongside — no big-bang migration; the relationship graph becomes one region of the whole.",
@@ -1834,16 +2182,21 @@
       "dependencies": [
         "TASK-044"
       ],
-      "canonicalStatus": "done (2026-08-09, minimal cut per AP-136/ADR-216; deferred loops are named follow-ups below)",
+      "isGoal": false,
+      "path": "4.18",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 791,
-      "rank": 55
+      "sourceLine": 808,
+      "rank": 63
     },
     {
       "id": "TASK-048",
       "title": "TASK-048 — K4 — Continuous context: fusion feeds every run",
-      "status": "open",
+      "status": "completed",
+      "statusNote": "2026-08-10, ADR-220/AP-140",
       "priority": "P2",
       "horizon": "Core Modules",
       "outcome": "Retrieval fusion fills the memory slot of EVERY agent run under an enforced context budget (ADR-177 Layer B), not just chat, and the semantic embedder (local Ollama) becomes the Local-Plane default with the hashing embedder as deterministic fallback.",
@@ -1869,16 +2222,21 @@
         "TASK-044, TASK-047 (skeleton only)",
         "unblocks TASK-043 E5"
       ],
-      "canonicalStatus": "done (2026-08-10, ADR-220/AP-140)",
+      "isGoal": false,
+      "path": "4.19",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 805,
-      "rank": 56
+      "sourceLine": 822,
+      "rank": 64
     },
     {
       "id": "TASK-049",
       "title": "TASK-049 — K5 — Capture: email + calendar signals, metadata-first",
-      "status": "open",
+      "status": "completed",
+      "statusNote": "2026-08-10",
       "priority": "P2",
       "horizon": "Core Modules",
       "outcome": "The Google integration emits learning signals metadata-first (sender/subject/time; calendar events + attendees) under a per-account toggle; content summarization is later and separately gated. This rung is what makes commitments and the brief genuinely good.",
@@ -1906,16 +2264,21 @@
       "dependencies": [
         "TASK-044"
       ],
-      "canonicalStatus": "done (2026-08-10)",
+      "isGoal": false,
+      "path": "4.20",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 818,
-      "rank": 57
+      "sourceLine": 835,
+      "rank": 65
     },
     {
       "id": "TASK-050",
       "title": "TASK-050 — K6 — Recommendation rhythm: morning brief + commitments",
-      "status": "open",
+      "status": "completed",
+      "statusNote": "2026-08-10",
       "priority": "P2",
       "horizon": "Core Modules",
       "outcome": "A morning brief (overdue/due/upcoming commitments, pending suggestions, recent activity) plus commitment detection mined from real prose, materializing into the K3 substrate on acceptance, plus approvals nudges and next-action suggestions — all suggested-then-accepted and annoyance-capped. The visible daily payoff that makes the loop legible.",
@@ -1948,16 +2311,21 @@
       "dependencies": [
         "TASK-047, TASK-049 (a chat/ledger-only brief may ship first)"
       ],
-      "canonicalStatus": "done (2026-08-10)",
+      "isGoal": false,
+      "path": "4.21",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 831,
-      "rank": 58
+      "sourceLine": 848,
+      "rank": 66
     },
     {
       "id": "TASK-051",
       "title": "TASK-051 — K7 — Capture: app-focus sensor",
-      "status": "open",
+      "status": "completed",
+      "statusNote": "2026-08-13, ADR-230, AP-148",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "The first ambient sensor: a real frontmost-app/window-title provider in the `@bridge/sensors` SensorHub (today: fake provider, unwired), the hub wired into the API, the Avatar blink-tell firing on capture, and a pause/kill switch.",
@@ -1983,16 +2351,21 @@
       "dependencies": [
         "TASK-044"
       ],
-      "canonicalStatus": "done (2026-08-13, ADR-230, AP-148)",
+      "isGoal": false,
+      "path": "5.6",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 844,
-      "rank": 59
+      "sourceLine": 861,
+      "rank": 67
     },
     {
       "id": "TASK-052",
       "title": "TASK-052 — K8 — Capture: browser extension, domain/title first",
-      "status": "open",
+      "status": "completed",
+      "statusNote": "2026-08-11, ADR-227, AP-146",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "A browser extension captures domain/title-level activity (page content later, separately gated) with an allowlist/denylist, and private windows are structurally excluded from capture.",
@@ -2019,17 +2392,23 @@
       "dependencies": [
         "TASK-044"
       ],
-      "canonicalStatus": "done (2026-08-11, ADR-227, AP-146)",
+      "isGoal": false,
+      "path": "5.7",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 857,
-      "rank": 60
+      "sourceLine": 874,
+      "rank": 68
     },
     {
       "id": "TASK-053",
       "title": "TASK-053 — K9 — Builder ladder: rung 3 steps, rung 4 structures",
-      "status": "open",
+      "status": "completed",
+      "statusNote": "rung 3 DONE 2026-08-13, ADR-231/AP-151; rung 4 DONE 2026-09-02, ADR-271/AP-177 — the north-star test now passes over real wiring. Rung 5 is explicitly out of this task's Outcome and stays behind the K10 gate",
       "priority": "P2",
+      "estimate": "5d",
       "horizon": "Core Modules",
       "outcome": "Rung 3 — the Capability Builder drafts automation STEPS from a promotion pattern + its ledger episodes, constrained to the existing skill registry + canonical step schema (constrained generation, not codegen; existing activation gates apply). Rung 4 — structure synthesis: the Builder proposes Databases/Views/Pages/blueprints from K3's entities and claims via the validated input-pack regeneration methodology (ADR-175/176/177; TASK-042 defines the per-class packs). Rung 5 (code-bearing skills via BA0 sandbox) is explicitly later, gated on rung 4 proving out.",
       "prototypeTest": "rung 3 — given a real promotion pattern, the Builder proposes steps that reference only registered skills and validate against the step schema, and an out-of-registry step is refused; rung 4 — the north-star test: given only observation data from ETA-style work, the Builder proposes a Deals/Sources/Theses-shaped module without being told about DealPilot. RUNG 3 PASSED — full path over real buildWiring (6 seeded ledger proposal+decision pairs → mined-shape signals → propose → accept → proposeSteps derives exactly the demonstrated step, validated by parseAutomationSteps, saved still-draft); out-of-registry skill refused with a structured reason, draft stays empty, empty draft cannot activate; live durable-boot walk 9/9 on real captured K7 focus data (rhythm pattern → structured pattern_not_skill_shaped refusal, stable across restart); real-browser drafts-card walk with the refusal rendered verbatim. Rung 4's north-star test remains unrun (blocked).",
@@ -2040,8 +2419,11 @@
         "ADR-175/176/177 regeneration methodology",
         "TASK-042 pack definitions. Rung 3: ADR-231 — core `learning/builder.ts` (episodesForSkill payload-free envelope",
         "draftStepsFromEpisodes modal-shape derivation, refusal-first), `learning.promotions.drafts.proposeSteps` lane, drafts-card \"Draft steps from my decisions\" control",
-        "core 6/6 + api 4/4, four mutations RED, verify 77/77. HONEST BLOCKER for rung 4: TASK-042 (per-class input packs) has never been executed — its Status is still ready",
-        "structure synthesis cannot honestly ship \"via the validated input-pack regeneration methodology\" until those packs exist and are validated."
+        "core 6/6 + api 4/4, four mutations RED, verify 77/77. ~~HONEST BLOCKER for rung 4: TASK-042 has never been executed~~ — STALE as written",
+        "TASK-042 went done 2026-08-14 (ADR-238/AP-156) and this line was never updated. Rung 4 (2026-09-02, ADR-271): core `draftStructureFromClaims` — discriminator-or-field-signature grouping over K3 entities and claims, refusal-first, every proposed column carrying the support count and the live claim ids it was counted from",
+        "`learning.claims.proposeStructure` (a QUERY: rung 4 proposes a structure, it never creates one)",
+        "a Second Brain \"Show the shape of what Bridge has observed\" control rendering the proposal or the refusal verbatim. **The north-star test PASSES**, twice: core 7/7 on an ETA fixture, and api 4/4 over real `buildWiring()` where all 27 claims are seeded through the governed propose→accept path first, so the Builder reads knowledge Bridge actually holds. Two mutations RED (red-tier filter disabled",
+        "STRUCTURE_MIN_ENTITIES 3→1). It is a DERIVATION, not a model call, and deliberately — a model could pass the north-star test by recognizing the domain rather than reading the data (ADR-271). The per-class input packs are NOT used: they govern generation, and rung 4 does not generate."
       ],
       "requests": [
         "user directive 2026-08-09 (\"start on AI harness\")",
@@ -2050,19 +2432,25 @@
       "approval": "AP-131 APPLIED; AP-151 APPLIED",
       "dependencies": [
         "TASK-045 (rung 3, done)",
-        "TASK-047 (done), TASK-042 (rung 4 — OPEN)"
+        "TASK-047 (done)",
+        "TASK-042 (done 2026-08-14 — the \"OPEN\" here was stale)"
       ],
-      "canonicalStatus": "ready (rung 3 DONE 2026-08-13, ADR-231/AP-151; rung 4 UNBLOCKED 2026-08-14 — TASK-042 done, ADR-238/AP-156: the per-class input packs now exist as validated canon in `docs/raw/capability-input-packs-2026-08.md`; rung 4 starts on its own explicit pull-forward per the K-ladder rhythm, not automatically)",
+      "isGoal": false,
+      "path": "4.22",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 871,
-      "rank": 61
+      "sourceLine": 888,
+      "rank": 69
     },
     {
       "id": "TASK-054",
       "title": "TASK-054 — K11 — EG4 sensor tier: input, screen, ambient voice",
       "status": "in-progress",
       "priority": "P3",
+      "estimate": "8d",
       "horizon": "Hardening",
       "outcome": "Three senses on T0–T2 local tiers: (a) continuous input capture — clicks + AX-tree targets + typing as ACTUAL CHARACTER CONTENT (user decision 2026-08-14, AP-157, superseding the original event-only framing), behind the full fail-closed input boundary (OS secure-input, field-role gate where secure/password/undeterminable ⇒ characters suppressed — unknown = sensitive, app/domain denylist with private windows structurally excluded, never-persist-raw with on-device distillation, pattern redaction on the distilled layer); (b) continuous screen (xcap; post-meeting action drafts); (c) system audio → ambient voice (cidre/wasapi/libpulse; EG5). Raw processed on-device; only distilled Memory persists; raw never leaves the Local Plane.",
       "prototypeTest": "a password-field keystroke fixture yields at most \"typed in an unknown field\" (never characters); a denylisted app yields nothing including clicks; raw stream bytes are absent from disk after distillation (asserted over the capture directory); every distilled event is inspectable, deletable Memory with the Avatar blink fired.",
@@ -2085,17 +2473,22 @@
       "dependencies": [
         "TASK-043 (K10 gate, done), TASK-051 (done). The keystroke content-vs-events decision is resolved (AP-157) — no open user gate remains before build."
       ],
+      "isGoal": false,
+      "path": "5.8",
+      "level": 1,
       "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 884,
-      "rank": 62
+      "sourceLine": 903,
+      "rank": 70
     },
     {
       "id": "TASK-055",
       "title": "TASK-055 — Companion trigger and capture parity — Fn hold, double-click listen, on-request recording",
       "status": "pending",
       "priority": "P3",
+      "estimate": "3d",
       "horizon": "Convergence",
       "outcome": "The companion ask panel can be summoned by holding Fn (in addition to the existing ⌘⇧Space) and by double-clicking the Avatar to toggle listening mode; a user-requested screen recording capability exists with an explicit start/stop control, defined local storage location, and retention policy — all three preserving the existing consent, taint, and no-silent-sensing invariants from TASK-027.",
       "prototypeTest": "(1) holding Fn from another app summons the ask panel and begins capturing audio for at least as long as Fn is held, released Fn stops capture, exactly as ⌘⇧Space does today; (2) double-clicking the Avatar toggles listening mode on, a second interaction (per the agreed stop condition) toggles it off, with no change to the existing hover-click ✨ or right-click menu paths; (3) an explicit \"record my screen\" request starts a visible, revocable recording with a clear on-screen indicator and an explicit stop control, the file lands under the Local Plane at a named path, is associated with the requesting Module/Record per the standard Files rules, and is governed by a stated retention/deletion policy — no recording starts without an explicit per-request consent tick, matching the existing screenshot consent copy pattern.",
@@ -2119,17 +2512,22 @@
         "TASK-027 (done) — reuses its consent/taint/blink-tell invariants and existing ask-panel/annotate surfaces",
         "must not regress its V-verification results"
       ],
+      "isGoal": false,
+      "path": "3.13",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 914,
-      "rank": 63
+      "sourceLine": 934,
+      "rank": 71
     },
     {
       "id": "TASK-056",
       "title": "TASK-056 — Multi-app automation for the background agent",
       "status": "pending",
       "priority": "P2",
+      "estimate": "8d",
       "horizon": "Core Modules",
       "outcome": "TASK-028's background research agent generalizes from browser-only to arbitrary installed macOS apps — planning steps, reading real app content via a governed Accessibility-API actuator, and acting only behind an approved Proposal — with every step an inspectable child Run and every read of external app content taint-tagged and quarantined from the planner's instruction channel exactly as TASK-028 already does for web pages.",
       "prototypeTest": "from a real Organization, start a Run for an objective spanning at least two non-browser apps; it reads app content via Accessibility APIs (not screenshots-only), refuses to click/type without an approved Proposal, records per-action citations plus `untrusted_external` taint on content read from other apps, survives an app restart, and reports rather than obeys instructions embedded in app content aimed at the agent.",
@@ -2149,17 +2547,22 @@
         "TASK-028 (in_progress) — reuses its Proposal-gating, taint, and child-Run patterns",
         "must not regress its live-validated V-results"
       ],
+      "isGoal": false,
+      "path": "4.23",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 927,
-      "rank": 64
+      "sourceLine": 948,
+      "rank": 72
     },
     {
       "id": "TASK-057",
       "title": "TASK-057 — Companion-triggered integrations",
       "status": "pending",
       "priority": "P2",
+      "estimate": "3d",
       "horizon": "Core Modules",
       "outcome": "the companion ask panel can invoke any companion-eligible Agent-owned Skill — starting with the existing Google and WhatsApp Integrations — through the same Proposal→Decision→Run→Result flow TASK-026's full Chat panel already uses, routed via a companion-eligibility flag per Skill rather than a hardcoded list.",
       "prototypeTest": "from the companion ask panel (not the full Chat panel), trigger one real Google or WhatsApp Skill; its Proposal renders inline in the overlay, approving it produces the identical terminal Run/Result the full Chat panel would show for the same Skill, and a Skill without the companion-eligibility flag set is not reachable from the panel.",
@@ -2178,17 +2581,22 @@
         "TASK-026 (done)",
         "TASK-027 (done)"
       ],
+      "isGoal": false,
+      "path": "4.24",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-core-modules",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 940,
-      "rank": 65
+      "sourceLine": 962,
+      "rank": 73
     },
     {
       "id": "TASK-058",
       "title": "TASK-058 — Companion as Bridge's universal expression surface (convergence)",
       "status": "pending",
       "priority": "P3",
+      "estimate": "2d",
       "horizon": "Convergence",
       "outcome": "the companion ask panel's reachable command surface converges with the full Chat panel's, so that \"ask the companion\" and \"open Chat\" differ only in available screen-context (what the companion can see right now), not in reachable capability — recorded as principle now in ADR-217 (grafted from the parallel branch's ADR-197), with the locked `docs/wiki/vision.md` edit itself deferred to a separate future approval once TASK-056/057 land enough to converge against.",
       "prototypeTest": "for a representative sample of governed actions reachable from the full Chat panel, the same Proposal is reachable and behaves identically when triggered from the companion overlay instead.",
@@ -2207,17 +2615,22 @@
         "TASK-056 (ready)",
         "TASK-057 (ready)"
       ],
+      "isGoal": false,
+      "path": "3.14",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 953,
-      "rank": 66
+      "sourceLine": 976,
+      "rank": 74
     },
     {
       "id": "TASK-059",
       "title": "TASK-059 — Avatar text replacement",
       "status": "pending",
       "priority": "P3",
+      "estimate": "2d",
       "horizon": "Convergence",
       "outcome": "given a focused, editable text field and a companion ask, the Avatar can replace the selected/focused text with its answer — always via a shown preview the user explicitly accepts before the field is written, never a silent overwrite — using macOS Accessibility read+write.",
       "prototypeTest": "select text in a real editable field, ask the companion to rewrite it; a preview renders alongside the original text; accepting writes back exactly the previewed text into the field; declining leaves the field byte-for-byte unchanged.",
@@ -2235,17 +2648,22 @@
       "dependencies": [
         "TASK-027 (done)"
       ],
+      "isGoal": false,
+      "path": "3.15",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 966,
-      "rank": 67
+      "sourceLine": 990,
+      "rank": 75
     },
     {
       "id": "TASK-060",
       "title": "TASK-060 — opensrc-backed code research for Builder Agent and Learning Agent",
       "status": "pending",
       "priority": "P3",
+      "estimate": "3d",
       "horizon": "Convergence",
       "outcome": "Bridge's in-app Builder Agent (BA0/BA1) and Learning Agent can fetch real dependency source (npm/PyPI/crates.io/GitHub) through an opensrc-backed capability during their own reuse-intake or research work, egress-tiered and taint-labeled the same way TASK-023's `SearchProvider` is — not a bare shell-exec handed to either Agent.",
       "prototypeTest": "a Builder Agent reuse-intake Run and a Learning Agent research Run each successfully resolve and read real package source through the capability; the fetch is recorded as taint-labeled evidence on the Run; neither Agent has any other path to direct shell/process execution introduced by this capability.",
@@ -2262,17 +2680,22 @@
       "dependencies": [
         "TASK-023 (done)"
       ],
+      "isGoal": false,
+      "path": "3.16",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-convergence",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 979,
-      "rank": 68
+      "sourceLine": 1004,
+      "rank": 76
     },
     {
       "id": "TASK-061",
       "title": "TASK-061 — UI standardization convergence — one toolbar, one shell, one dropdown",
       "status": "pending",
       "priority": "P1",
+      "estimate": "3d",
       "horizon": "Prototype",
       "outcome": "every page in `platform/apps/web` renders its data through ONE toolbar in §5's canonical slot order (List → View → Search → Filter → Custom actions → 3-dots → Insights chevron), so a user moving between Modules sees the same controls in the same places. Today two toolbars coexist — `StandardToolbar` (§5-conformant, ONE consumer: ApprovalsPage) and `<DataViews>`'s own inline row (the one the Module pages actually render, with no List dropdown, no Insights chevron, and Add-column outside the 3-dots) — which is the mechanical reason \"every page still looks different\".",
       "prototypeTest": "`KNOWN_DIVERGENCES` in `platform/apps/web/test/ui-conformance.test.mjs` is empty and the array is deleted; a live desktop pass over DealPilot, JobPilot, Relationship, Task Manager, Signals, Approvals and Artifacts shows identical toolbar slot order and identical dropdown behaviour (selected-first, search, pinned Add) on every one.",
@@ -2293,17 +2716,22 @@
       ],
       "approval": "user directive 2026-08-10 recorded as APPLIED for task creation, queue position, and the §0/§5e/§5f/§5g/§10 canon additions",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.17",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 992,
-      "rank": 69
+      "sourceLine": 1018,
+      "rank": 77
     },
     {
       "id": "TASK-062",
       "title": "TASK-062 — Persist ViewConfig — the unlock behind saved views, lists, sharing and linked views",
       "status": "pending",
       "priority": "P1",
+      "estimate": "3d",
       "horizon": "Prototype",
       "outcome": "a named View survives reload. `ViewConfig` is React state today, so every filter, sort, column-visibility choice and List selection is discarded on refresh — which is why Lists, view sharing, personal-vs-collaborative views and linked views are all absent despite the UI for several of them existing. One `view_config` table (id, database_id, name, owner, scope, kind, filters, sorts, groups, hidden_columns, widths) plus CRUD delivers five benchmark capabilities from one schema change.",
       "prototypeTest": "create a filtered+sorted View on DealPilot Deals, name it, reload the browser, and it returns exactly as configured; the same View appears in the List dropdown for a second session; a second Database shows its own Views and never the first's.",
@@ -2319,17 +2747,22 @@
       ],
       "approval": "user directive 2026-08-10 recorded as APPLIED for task creation and queue position",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.18",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1005,
-      "rank": 70
+      "sourceLine": 1032,
+      "rank": 78
     },
     {
       "id": "TASK-063",
       "title": "TASK-063 — Record metadata columns from the Event log",
       "status": "pending",
       "priority": "P2",
+      "estimate": "2d",
       "horizon": "Prototype",
       "outcome": "`created_time`, `created_by`, `last_edited_time`, `last_edited_by` exist as real ColumnKinds derived from the Event log rather than stored twice. Both Notion and Airtable treat these as built-ins, and activity feeds, staleness Automations and \"recently edited\" Views all depend on them.",
       "prototypeTest": "a Record written through the governed pipeline shows a correct created/last-edited actor and timestamp in a table View; sorting by last-edited orders rows correctly; the values are derived, not writable by a Form or inline edit.",
@@ -2345,17 +2778,22 @@
       ],
       "approval": "user directive 2026-08-10 recorded as APPLIED for task creation and queue position",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.19",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1018,
-      "rank": 71
+      "sourceLine": 1046,
+      "rank": 79
     },
     {
       "id": "TASK-064",
       "title": "TASK-064 — Scoped share grants — wire the built Share panel to Views and Forms",
       "status": "pending",
       "priority": "P1",
+      "estimate": "5d",
       "horizon": "Prototype",
       "outcome": "the Share panel recovered from `claude/bridge-ai-launch-e29e00` stops being honestly-disabled and actually shares. Bridge has exactly one sharing primitive today (`helpdeskTickets.accessToken`) and it is not connected to Views; generalize it into a scoped share grant (target, scope, access level, expiry, revocation) so a View or Form can be shared at view-only, edit, or co-owner level — which is what ui-architecture-rules §5 already declares as canon with no implementation behind it.",
       "prototypeTest": "share a filtered View at view-access with a second identity; that identity can edit visible cells, cannot read a hidden column or a filtered-out row, and gains both only when promoted to co-owner; revoking the grant closes access immediately; a published Form accepts a submission through the ordinary governed insert path.",
@@ -2373,17 +2811,22 @@
       "dependencies": [
         "TASK-062 (ready)"
       ],
+      "isGoal": false,
+      "path": "1.20",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1031,
-      "rank": 72
+      "sourceLine": 1060,
+      "rank": 80
     },
     {
       "id": "TASK-065",
       "title": "TASK-065 — Notes and Governance Sections on every Record",
       "status": "pending",
       "priority": "P2",
+      "estimate": "5d",
       "horizon": "Prototype",
       "outcome": "every Record Detail surface carries the two mandatory Sections canonized in ui-architecture-rules §3b. Notes gives a Record its own body — rich text, checkboxes/checklists, templates, revision history with restore, save-by-email routing, inline attachments. Governance gives per-field provenance, Proposal/approval history, open red flags and their learning state, per-field residency, the read/edit/comment/co-own model, and attributable Agent/Automation Runs.",
       "prototypeTest": "on a Record in two unrelated Modules, both Sections render; a checklist edit in Notes survives reload and appears in the Record's own revision history with a restore path; Governance shows the real provenance and approval trail for a value written by an Agent, and an open red flag with its learning state.",
@@ -2399,11 +2842,15 @@
       ],
       "approval": "user directive 2026-08-10 recorded as APPLIED for task creation, queue position, and the §3b canon addition",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.21",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1044,
-      "rank": 73
+      "sourceLine": 1074,
+      "rank": 81
     },
     {
       "id": "TASK-071",
@@ -2440,11 +2887,15 @@
       "dependencies": [
         "TASK-068"
       ],
+      "isGoal": false,
+      "path": "1.22",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1168,
-      "rank": 74
+      "sourceLine": 1202,
+      "rank": 82
     },
     {
       "id": "TASK-076",
@@ -2471,11 +2922,15 @@
         "user directive 2026-08-17 (R-045)"
       ],
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.23",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1181,
-      "rank": 75
+      "sourceLine": 1215,
+      "rank": 83
     },
     {
       "id": "TASK-077",
@@ -2500,11 +2955,15 @@
       ],
       "approval": "AP-165 applied",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.24",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1193,
-      "rank": 76
+      "sourceLine": 1227,
+      "rank": 84
     },
     {
       "id": "TASK-075",
@@ -2541,16 +3000,21 @@
       "dependencies": [
         "TASK-032"
       ],
+      "isGoal": false,
+      "path": "1.25",
+      "level": 1,
       "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1207,
-      "rank": 77
+      "sourceLine": 1241,
+      "rank": 85
     },
     {
       "id": "TASK-080",
       "title": "TASK-080 — UI canon repair — every rule states what to build, and Module Detail leaves the docs",
-      "status": "open",
+      "status": "completed",
+      "statusNote": "2026-08-30",
       "priority": "P1",
       "horizon": "Prototype",
       "outcome": "`docs/wiki/ui-architecture.md` contains no reference to Module Detail, no rule phrased as the negation of a past mistake, and no rule whose content is \"these examples are not the definition\". The data-shape tree is axed on the Database per ADR-259 (one Database → LIST whatever changes; Databases sharing Relations → TOGGLE; conceptually related Modules → sub-modules; unrelated → new Module), and `docs/wiki/ui-rulebook.md` exists as the single consolidated reading surface. Add-row, Form, Module and Agent each carry a positive definition; DealPilot, JobPilot and CoS appear only as illustrations after a definition, never in place of one. `CLAUDE.md` and this file say \"manifest\" where they said `module.yaml`.",
@@ -2568,17 +3032,23 @@
       ],
       "approval": "AP-168 APPLIED (ADR-258)",
       "dependencies": [],
-      "canonicalStatus": "done (2026-08-30)",
+      "isGoal": false,
+      "path": "1.26",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1239,
-      "rank": 78
+      "sourceLine": 1273,
+      "rank": 86
     },
     {
       "id": "TASK-081",
       "title": "TASK-081 — Left-nav Modules become directly manageable — right-click menu and drag-reorder",
-      "status": "pending",
+      "status": "completed",
+      "statusNote": "2026-09-02, AP-176/ADR-270 — the Files-folder half now lands too; see Landed below",
       "priority": "P2",
+      "estimate": "1d",
       "horizon": "Hardening",
       "outcome": "right-clicking a Module in the rail opens a context menu offering **Hide** and **Rename**, the same gesture that opens the column menu on a table header; hidden Modules are restored from a rail **View options** entry and are never lost; Modules are drag-reorderable and the order persists per Organization.",
       "prototypeTest": "right-click a Module → menu opens with Hide and Rename; Hide removes it from the rail and it reappears in View options as unchecked; re-checking restores it in its previous position. Drag a Module above another, reload the app, and the new order survives. A renamed Module's local file folder follows the rename (ADR-178's carry-forward path), verified by listing `~/Documents/Bridge/<Org>/`.",
@@ -2595,17 +3065,23 @@
       ],
       "approval": "AP-168 APPLIED (ADR-258)",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "isGoal": false,
+      "path": "5.9",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1253,
-      "rank": 79
+      "sourceLine": 1287,
+      "rank": 87
     },
     {
       "id": "TASK-082",
       "title": "TASK-082 — Chat composer — the paperclip uploads, and the mic works everywhere",
-      "status": "pending",
+      "status": "in-progress",
+      "statusNote": "uploads + cross-surface mic LANDED 2026-08-30, ADR-263; the Prototype test's live web-session runs are outstanding — see below",
       "priority": "P2",
+      "estimate": "0.5d",
       "horizon": "Hardening",
       "outcome": "the chat paperclip accepts a file and routes it through the same Module File path every other upload uses, landing under `~/Documents/Bridge/<Org>/<Module>/`; the chat mic records and transcribes on **every** Bridge surface — desktop, web and mobile — rather than only inside the Tauri shell.",
       "prototypeTest": "attach a file in a web (non-Tauri) browser session, then find that exact file on disk under the Module's folder and see it referenced from the message. Press the mic in a web session and get a transcript in the composer, with no `__TAURI_INTERNALS__` present in that context.",
@@ -2624,17 +3100,22 @@
       ],
       "approval": "AP-168 APPLIED (ADR-258)",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "isGoal": false,
+      "path": "5.10",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1267,
-      "rank": 80
+      "sourceLine": 1306,
+      "rank": 88
     },
     {
       "id": "TASK-083",
       "title": "TASK-083 — Creation is one gesture — New opens an element page, and ⋮ gains per-element sections",
       "status": "pending",
       "priority": "P1",
+      "estimate": "3d",
       "horizon": "Prototype",
       "outcome": "on every surface, the New affordance opens a new element page showing all of that Database's fields — identical to that element's page as it appears before any user input, with column defaults already applied; nothing is written until Save (C-34; defaults clarified ADR-259/AP-169 — pre-filling a default is not a write). The toolbar ⋮ gains an **Elements** entry offering **per-DATABASE** toggles for **Notes**, **Intelligence** and **Governance** (resolved ADR-261/AP-171): switching one on or off applies to every element of that Database. Per-element toggling is rejected — two Records of one Database with different Sections is the single-page divergence the gate exists to catch.",
       "prototypeTest": "on a table with a `formula` column, a relation column and a column carrying a default, New opens an element page listing every field including those, with the default already shown and every other field empty; backing out without Save leaves no row and no partial record. Enable Notes from ⋮ → Elements, reopen ANY element page of that Database, and the Notes Section is there on all of them; disable it and it is gone from all of them, with existing notes preserved rather than deleted.",
@@ -2651,17 +3132,23 @@
       ],
       "approval": "AP-168 APPLIED (ADR-258)",
       "dependencies": [],
+      "isGoal": false,
+      "path": "1.27",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1281,
-      "rank": 81
+      "sourceLine": 1327,
+      "rank": 89
     },
     {
       "id": "TASK-084",
       "title": "TASK-084 — A governed schema-mutation capability, so the column menu stops lying",
-      "status": "pending",
+      "status": "in-progress",
+      "statusNote": "capability + 9 live menu items + fx LANDED 2026-08-30, ADR-264; add/duplicate column stay disabled with a stated reason, and the recompute clause is only half-runnable — see below",
       "priority": "P2",
+      "estimate": "2d",
       "horizon": "Hardening",
       "outcome": "a governed schema-mutation capability exists, and `StandardColumnMenu`'s items enable against it. Commands the surface can run are **enabled and warn** — stating the consequence and proceeding on confirmation — rather than refusing; only genuinely impossible commands stay disabled with a reason. A `formula` cell's editor carries an **fx** affordance that toggles between editing the value and editing the expression, binding to Accounting's existing formula engine rather than growing a second one.",
       "prototypeTest": "Rename a column and see the change persist and survive reload. Delete a column and get a dependency preview naming the Views, Automations, Skills, formulas and Relations that break, with a working undo. Open a formula cell, click fx, edit the expression, and see the validator reject a bad expression before it commits and every dependent cell recompute after a good one. No menu item is enabled that fails at the server.",
@@ -2682,17 +3169,23 @@
         "none — but the enabled-with-warning half of the outcome cannot land before the capability exists. Enabling the 13 items first would ship a menu that looks live and fails at the server, which ADR-247 (\"the server has the last word\"",
         "never claim what isn't true) forbids. ADR-001 (present-not-absent) is unchanged: nothing is ever hidden, at any stage."
       ],
-      "canonicalStatus": "ready",
+      "isGoal": false,
+      "path": "5.11",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1295,
-      "rank": 82
+      "sourceLine": 1342,
+      "rank": 90
     },
     {
       "id": "TASK-085",
       "title": "TASK-085 — Triage the cross-repository UI rule intake — adopt, scope, or reject each candidate",
-      "status": "pending",
+      "status": "completed",
+      "statusNote": "2026-09-02, AP-175/ADR-269",
       "priority": "P2",
+      "estimate": "1d",
       "horizon": "Hardening",
       "outcome": "every candidate in [`docs/raw/ui-rule-intake-cross-repo-2026-08-30.md`](raw/ui-rule-intake-cross-repo-2026-08-30.md) has a recorded disposition — adopted as Bridge canon, scoped to one Module, or rejected with a reason — and the adopted set is in `docs/wiki/ui-rulebook.md` and `docs/wiki/ui-architecture.md`. Category 0 needs no approval and lands first: those rules are ALREADY canon in `docs/raw/ui-architecture-rules-2026-07.md` and were lost when the wiki compressed 486 lines to 113.",
       "prototypeTest": "a reader of `docs/wiki/ui-rulebook.md` alone can state the Notes Section and Record Governance Section requirements, the canonical toolbar slot order, the Secret Fields rule and the keyboard-parity rule — none of which the rulebook carried before this task. No candidate sits undisposed; a rejected candidate names why.",
@@ -2701,7 +3194,8 @@
         "a hundred adopted rules would repeat exactly the failure it prevented."
       ],
       "evidence": [
-        "three parallel repository scans 2026-08-30 (Avilo dashboard v9, CV Naturals, Repo/Avatar + clicky-avatar) plus a re-read of Bridge's own raw rules doc. Verified against Bridge's code the same day — ABSENT: toolbar density ladder, any print/`.paper` mode, sparklines, `isRouteErrorResponse`, table multi-select, long-press in `TableView`. PRESENT and not to be re-adopted: the 220ms double-click grace, server-speaks-first, \"already configured is not a refusal\"."
+        "2026-09-02 — disposed on the adopt-on-divergence test",
+        "13 of ~110 candidates outside Category 0 adopted, the rest COVERED/SCOPED/REJECTED with reasons in the intake doc, which moves to `status: triaged`. Exit test met: `docs/wiki/ui-rulebook.md` alone now states the Notes Section, the Record Governance Section, the canonical toolbar slot order, the Secret Fields rule and keyboard parity (`ui-architecture.md` is the ADR-260 stub, so the rulebook is the one place). Found while checking claims rather than asserting them: three of `check-ui-rules.mjs`'s eight counted gates enforced rules absent from canon — now written as C-23a (no native `confirm`/`prompt`/`alert`, 17 call sites held at baseline for TASK-073), C-14a (`dvh` never `vh`) and the Part I §3 overscroll clause. Green: `check-ui-rules.mjs` (3 doc gates, 388 baselined), its test 4/4, `ui-conformance.test.mjs` 15/15, `@bridge/web` build. Prior evidence: three parallel repository scans 2026-08-30 (Avilo dashboard v9, CV Naturals, Repo/Avatar + clicky-avatar) plus a re-read of Bridge's own raw rules doc. Verified against Bridge's code the same day — ABSENT: toolbar density ladder, any print/`.paper` mode, sparklines, `isRouteErrorResponse`, table multi-select, long-press in `TableView`. PRESENT and not to be re-adopted: the 220ms double-click grace, server-speaks-first, \"already configured is not a refusal\"."
       ],
       "requests": [
         "user directive 2026-08-30, verbatim: *\"Can you look for all UI rules across the projects and see if we are missing any rules. List them\"*"
@@ -2710,17 +3204,23 @@
       "dependencies": [
         "TASK-080 (canon repair) should land first so adopted rules are written in the positive-definition form ADR-258 requires."
       ],
-      "canonicalStatus": "ready",
+      "isGoal": false,
+      "path": "5.12",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1308,
-      "rank": 83
+      "sourceLine": 1365,
+      "rank": 91
     },
     {
       "id": "TASK-086",
       "title": "TASK-086 — Multi-select on every table, entered by long-press on touch",
-      "status": "pending",
+      "status": "in-progress",
+      "statusNote": "selection, bulk delete and the governance equivalence LANDED 2026-08-30, ADR-264; the touch clauses of the Prototype test need a real device — see below",
       "priority": "P2",
+      "estimate": "0.5d",
       "horizon": "Hardening",
       "outcome": "every table supports multi-select — a checkbox column and a \"Delete N\" action bar — entered on touch by long-pressing a row and on pointer by the checkbox. While multi-select is active a tap toggles the row rather than opening it. The row context menu keeps its touch path through the row caret (§5f: right-click ≡ caret ≡ `StandardRowMenu`), so no new affordance is invented. Where an element has no context menu, long-press still stands in for hover-reveal.",
       "prototypeTest": "on a touch device, long-press a row → checkboxes appear and that row is selected; tap two more rows → count reads 3 and none of them opened; the caret still opens the same menu right-click opens; Escape (or the bar's Cancel) clears selection. A bulk delete of 3 Records produces the same governance decisions as three single deletes — verified in the ledger, not by eye.",
@@ -2735,17 +3235,22 @@
       ],
       "approval": "AP-171 APPLIED (ADR-261)",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "isGoal": false,
+      "path": "5.13",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1326,
-      "rank": 84
+      "sourceLine": 1384,
+      "rank": 92
     },
     {
       "id": "TASK-087",
       "title": "TASK-087 — Grouping on every table, and Databases that link by column",
       "status": "pending",
       "priority": "P2",
+      "estimate": "3d",
       "horizon": "Hardening",
       "outcome": "(a) `onGroup` is wired so C-9 holds — every table offers grouping from the ⋮, and a surface that genuinely cannot group says why rather than showing a permanently dead command. (b) A relation column names a target Database and the column it matches on, and **the target Database gains the reverse view of that link without anyone declaring it twice** — a link is declared once and read from either side.",
       "prototypeTest": "group a table by a Dropdown column → collapsible groups with per-group counts, persisted in the View like any other overlay. Then link Database A to Database B by a column, open B, and find A's rows reachable there without having declared anything in B; unlink from B and the link is gone in A. C-32 (editable from both ends) is satisfied by construction rather than by a second declaration.",
@@ -2761,17 +3266,23 @@
       ],
       "approval": "AP-171 APPLIED (ADR-261)",
       "dependencies": [],
+      "isGoal": false,
+      "path": "5.14",
+      "level": 1,
       "canonicalStatus": "ready",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1340,
-      "rank": 85
+      "sourceLine": 1406,
+      "rank": 93
     },
     {
       "id": "TASK-088",
       "title": "TASK-088 — Governance becomes editable — an engine-held overlay, never a mutated manifest",
-      "status": "pending",
+      "status": "in-progress",
+      "statusNote": "engine overlay + in-place editor LANDED and ENFORCED 2026-08-30, ADR-263; live browser verification and the second-Organization half of the Prototype test are outstanding — see below",
       "priority": "P1",
+      "estimate": "1d",
       "horizon": "Prototype",
       "outcome": "the effective governance policy for a Module is an **engine-held overlay keyed by Organization + Module**, resolved over the manifest's declared default. The engine enforces against the resolved policy; editing writes the overlay and sets `userEdited`; the manifest is never mutated. The Governance Section's edit affordance reaches a real editor instead of a link to a deleted page.",
       "prototypeTest": "edit Accounting's deny list in one Organization → enforcement changes for that Organization only, the manifest file on disk is byte-identical, the Section shows the \"edited by you\" state, and a second Organization still sees the shipped default. Reset the overlay → the declared default returns. A Module shipping no policy still renders the honest empty state, and an empty policy is still not a default-deny.",
@@ -2788,17 +3299,23 @@
       ],
       "approval": "AP-171 APPLIED (ADR-261)",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "isGoal": false,
+      "path": "1.28",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-prototype",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1354,
-      "rank": 86
+      "sourceLine": 1421,
+      "rank": 94
     },
     {
       "id": "TASK-089",
       "title": "TASK-089 — Admin is Organization ownership and membership",
-      "status": "pending",
+      "status": "in-progress",
+      "statusNote": "admin surface LANDED 2026-08-30, ADR-262; the invite/accept and mount/unmount half of the exit test is NOT met — see below",
       "priority": "P2",
+      "estimate": "3d",
       "horizon": "Hardening",
       "outcome": "a user is admin of their own home Organization and a member of any number of others by invitation. The surface sits behind the **Organization control at the top of the rail** — the one slot ADR-180's closed left-nav scope already grants it. Module-scoped administration (mount/unmount, scopes, versions) lives inside it, scoped to the Organization, listing that Organization's installed Modules.",
       "prototypeTest": "from the Organization control, invite a second user to an Organization, accept as that user, and see both Organizations in their switcher with the correct role in each; mount and unmount a Module in one Organization and confirm the other is unaffected. A non-member cannot reach either.",
@@ -2814,11 +3331,169 @@
       ],
       "approval": "AP-171 APPLIED (ADR-261)",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "isGoal": false,
+      "path": "5.15",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1368,
-      "rank": 87
+      "sourceLine": 1444,
+      "rank": 95
+    },
+    {
+      "id": "TASK-090",
+      "title": "TASK-090 — Chat gets a swappable backend axis, and Claude Code answers turns in the panel and the Avatar",
+      "status": "in-progress",
+      "statusNote": "landed 2026-09-02; the browser leg of the exit test is NOT met — see below",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "a Chat thread names which ENGINE answers it as well as which plane its data may reach. The model menu in the Right Chat Panel and the Avatar composer offers Claude Code beside Local and Cloud; picking it starts a thread whose turns are answered by the Claude Agent SDK running headless in the API process — reading and editing files under `~/Documents/Bridge/<Organization>/`, with no terminal ever shown. Codex and Cursor become registry rows, not a second integration.",
+      "prototypeTest": "from the Chat panel, pick Claude Code, ask it to create a file in the Organization folder, and see the file on disk plus a prose reply in the thread; send a second message and confirm it continues the same Claude session after an API restart; confirm the thread reads `plane: cloud` even though no plane was requested.",
+      "scope": [
+        "`packages/core/src/chat-backend.ts`, `apps/api/src/chat/claude-code-backend.ts`, the `chat.thread.create`/`chat.turn.send`/`chat.model.status` procedures, `ChatView`'s model menu, `packages/db` migration `0044`."
+      ],
+      "evidence": [
+        "myzazoo (`Workspace/myzazoo/src/agents/claude.ts`, `src/serve.ts`) has run this exact shape in production for months",
+        "the user directed Bridge to match it."
+      ],
+      "requests": [
+        "user directive 2026-09-02, verbatim: *\"Refer myzazoo folder for builder agent reference and ensure we have the builder agent completely built and also similar to myzazoo, me having an option to choose claude as one of the model in the right hand chatbot or for avatar, while ensuring it runs terminal in backend\"*"
+      ],
+      "approval": "AP-172 APPLIED (ADR-265)",
+      "dependencies": [],
+      "isGoal": false,
+      "path": "8.1",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1464,
+      "rank": 96
+    },
+    {
+      "id": "TASK-091",
+      "title": "TASK-091 — The Builder Agent executes: primitive executor, loop, and the execution-first gate (BA0, first half)",
+      "status": "in-progress",
+      "statusNote": "landed 2026-09-02; BA0's containment and ledger criteria are NOT met — see TASK-092",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "the Capability Builder stops being a text-drafting persona and gains the machinery to act — a gate that returns execute/approve/refuse, a executor that actually reads, writes, edits and runs commands inside one Module directory, and a loop that drives them through Bridge's own `ModelProvider`. Ordinary work runs without asking; only genuinely risky calls stop for a human; a short absolute list can never run at all.",
+      "prototypeTest": "give the Builder a task in a scratch Module, watch it write a file and run a command with no approval prompt, watch a `curl` escalate to a Proposal, and watch `git push` refuse with the branch-and-merge reason. Confirm every one of the three appears in the Run's audit trail.",
+      "scope": [
+        "`packages/core/src/capability/primitive-policy.ts`, `packages/core/src/capability/builder-loop.ts`, `apps/api/src/builder/primitive-executor.ts`, and their tests."
+      ],
+      "evidence": [
+        "`packages/core/src/capability/builder-primitives.ts` has carried the risk lookup, grant-scope check and SandboxProvider port since Track F2 with **no caller anywhere in `apps/api`** — classification without execution. myzazoo's `src/hook.ts` + `src/tools.ts` + `src/loop.ts` are the working reference for the executing half."
+      ],
+      "requests": [
+        "user directives 2026-09-02, verbatim: *\"ensure we have the builder agent completely built\"* and *\"I want governance but not at cost of execution. Seek approval only if high risk task, else lets have exectuion first approach.Bridge needs an agentic backend similar to my zazoo and I hope capabilities are designed as swappable elements\"*"
+      ],
+      "approval": "AP-172 APPLIED (ADR-266)",
+      "dependencies": [],
+      "isGoal": false,
+      "path": "8.2",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1482,
+      "rank": 97
+    },
+    {
+      "id": "TASK-092",
+      "title": "TASK-092 — BA0 completion: governed Builder Runs, ledger receipts, and the container sandbox for untrusted bodies",
+      "status": "in-progress",
+      "statusNote": "the Run seam and its receipts landed 2026-09-02; the container adapter has NOT",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "BA0's own exit criteria are met — every Builder action lands in the immutable ledger with model/prompt versions and token cost attached; a seeded containment suite runs as a permanent CI gate; and a real container/microVM `SandboxProvider` exists for UNTRUSTED capability bodies (Commons imports, foreign imports, Builder-generated executable code), which the host executor deliberately does not cover.",
+      "prototypeTest": "run a Builder task end to end from a user request and read its ledger — one row per action with cost. Then feed the containment suite a Commons capability that tries to reach the network and confirm the sandbox blocks it and the block is recorded. `NotImplementedContainerSandboxProvider` must no longer be the only container adapter.",
+      "scope": [
+        "`apps/api` wiring for a Builder Run, `packages/core/src/capability/sandbox-provider.ts`'s missing adapter, CI."
+      ],
+      "evidence": [
+        "`docs/raw/builder-agent-execution-plan-2026-09.md` §6 lists this as the largest unbuilt piece and BA2's hard dependency."
+      ],
+      "approval": "AP-172 APPLIED (ADR-266)",
+      "dependencies": [
+        "TASK-091"
+      ],
+      "isGoal": false,
+      "path": "8.3",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1498,
+      "rank": 98
+    },
+    {
+      "id": "TASK-093",
+      "title": "TASK-093 — The conversation survives a model switch, and each Module reopens its own session",
+      "status": "in-progress",
+      "statusNote": "server half landed 2026-09-02; the Module surfaces do not call it yet",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "switching the model in the Chat panel keeps the conversation — same thread, same turns, and the incoming engine is handed what was already said. Opening a Module reopens that Module's own live conversation with its history, and a session can attach further Modules so one conversation can span several.",
+      "prototypeTest": "send a message on the Local model, switch to Claude Code, and see the earlier turns still on screen; ask \"what did I just say?\" and get an answer that proves the context carried. Open a Module, talk, leave, reopen it, and land back in the same conversation. Attach a second Module and confirm both are listed on the thread.",
+      "scope": [
+        "`chat.thread.setBackend` / `forModule` / `attachModule`, `priorTurnsTranscript`, `chat_threads.module_name` + `attached_modules` (migration 0045), `useChat`'s `switchBackend`/`openModuleChat`/`attachModule`, the ChatView model menu."
+      ],
+      "evidence": [
+        "user-reported, 2026-09-02, verbatim: *\"When i change AI models in left hand chat, the chat should remain consistent since Bridge is managing context and should direct the chat to a given model and all models remain active in backend for quick swap. Currently the chat clears when I switch models. Also Each modules continues from previous session that is associated with given module just like claude code sessions are associated with projects but I can add multiple projects to a given session\"*"
+      ],
+      "approval": "AP-173 APPLIED (ADR-267)",
+      "dependencies": [
+        "TASK-090"
+      ],
+      "isGoal": false,
+      "path": "8.4",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1514,
+      "rank": 99
+    },
+    {
+      "id": "TASK-094",
+      "title": "TASK-094 — The Builder Agent acts as itself — an attributable Run behind both Builder lanes",
+      "status": "completed",
+      "statusNote": "2026-09-02, AP-181/ADR-276",
+      "priority": "P2",
+      "estimate": "2d",
+      "horizon": "Hardening",
+      "outcome": "When the Capability Builder drafts steps (rung 3) or proposes a structure (rung 4), the work is attributed to `CAPABILITY_BUILDER_AGENT` as a real Agent Run under its own role and scope, rather than executing as whichever human pressed the button. The Run is inspectable afterwards and says what the Builder read and what it proposed.",
+      "prototypeTest": "press \"Draft steps from my decisions\" and \"Show the shape of what Bridge has observed\"; each leaves an Agent Run attributed to the Capability Builder, visible in the Runs surface, carrying the evidence ids the proposal was derived from. Narrowing the Builder's scope below what the lane reads makes the Run fail closed rather than silently succeeding as the human.",
+      "scope": [
+        "`apps/api/src/router.ts` (`learning.promotions.drafts.proposeSteps`, `learning.claims.proposeStructure`), `wiring.ts`'s `CAPABILITY_BUILDER_AGENT` role/scope, the Automation Run recorder. Do NOT change the derivations themselves — `builder.ts` stays pure."
+      ],
+      "evidence": [
+        "found 2026-09-02 while building rung 4 (ADR-275). `wiring.ts` seeds the agent identity, `role-capability-builder`, a `signal:write` scope and `ensureCapabilityBuilderGovernance` in both the hosted and local wirings",
+        "neither Builder lane references any of it. This is a real gap against CLAUDE.md's \"only an attributable allowed Agent invokes them\", and it predates rung 4 — rung 3 has had it since 2026-08-13."
+      ],
+      "requests": [
+        "user directive 2026-09-02, verbatim: *\"complete the wiring and associated pending tasks\"* — the wiring completed there was rung 4's",
+        "this is what that work uncovered and deliberately did not fold in."
+      ],
+      "approval": "AP-180 records the finding; the fix itself is unapproved work.",
+      "dependencies": [
+        "TASK-053 (done)"
+      ],
+      "isGoal": false,
+      "path": "5.16",
+      "level": 1,
+      "canonicalStatus": "done",
+      "parentId": "HORIZON-hardening",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1530,
+      "rank": 100
     }
   ]
 }

@@ -51,6 +51,7 @@ export {
   ensureEgressAgentGovernance,
   ensureDevpilotTrackerGovernance,
   ensureDevpilotReviewerGovernance,
+  ensureJobPilotApplicationGovernance,
   ensureIntakeAgentGovernance,
   ensureDealPilotPrincipalGovernance,
   ensureCapabilityApprovalPrincipalGovernance,

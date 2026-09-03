@@ -282,7 +282,12 @@ export default function Layout() {
           )
           .map((p) => ({
             moduleName: p.moduleName,
-            displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
+            // TASK-081: the Organization's own name for the Module wins. It is
+            // durable (module_installations.display_name_override) and moves the
+            // local Files folder with it, so it is the label on every machine —
+            // the localStorage copy below is only this browser's optimistic echo.
+            displayName: p.displayNameOverride
+              ?? p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
             parentModule: p.manifest?.module?.parentModule,
           }));
         setInstalledModules(available);
@@ -430,6 +435,13 @@ export default function Layout() {
   // Intelligence, search, and the Organization admin surface.
   const presentedModules: PresentedNavModule[] = applyRailPresentation(navModules, presentation);
   const presentedOrder = presentedModules.map((mod) => mod.moduleName);
+  // The Module the user is actually looking at, if any. The right panel binds
+  // its conversation to this, so opening a Module reopens that Module's own
+  // chat instead of whatever thread happened to be last (ADR-267e). Longest
+  // base wins so a sub-module's page does not resolve to its parent.
+  const activeModuleName: string | undefined = navModules
+    .filter((mod) => isActive(mod.base))
+    .sort((left, right) => right.base.length - left.base.length)[0]?.moduleName;
   // ADR-178: roots first, sub-modules nested one level under their parent.
   const navTree = buildModuleNavTree(presentedModules).filter((node) => !node.module.hidden);
 
@@ -449,13 +461,34 @@ export default function Layout() {
     });
   }
 
-  /** A blank label removes the override, restoring the Module's own name. */
+  /**
+   * A blank label removes the override, restoring the Module's own name.
+   *
+   * TASK-081: the rename is now durable AND moves the Module's local Files
+   * folder (`modules.rename`). The localStorage write stays as the optimistic
+   * echo so the rail relabels on the keystroke rather than on the round trip;
+   * the server's answer then becomes the label `modules.list` returns on every
+   * machine. A failed call is logged and the local echo left in place — the
+   * label is recoverable by renaming again, and dropping the user's typing to
+   * report a network error would lose more than it explains.
+   */
   function commitModuleRename(moduleName: string, label: string) {
+    const trimmed = label.trim();
     const names = { ...presentation.names };
-    if (label.trim()) names[moduleName] = label.trim();
+    if (trimmed) names[moduleName] = trimmed;
     else delete names[moduleName];
     updatePresentation({ ...presentation, names });
     setRenamingModule(null);
+    trpc.modules.rename
+      .mutate({ organizationId: PILOT_ORGANIZATION, moduleName, displayName: trimmed || null })
+      .then((result) => {
+        setInstalledModules((current) => current?.map((mod) => (
+          mod.moduleName === moduleName ? { ...mod, displayName: result.displayName } : mod
+        )) ?? current);
+      })
+      .catch((failure) => {
+        console.error("[nav] failed to persist Module rename", failure);
+      });
   }
 
   function openRailMenu(event: { preventDefault: () => void; stopPropagation: () => void; clientX: number; clientY: number }, moduleName?: string) {
@@ -979,7 +1012,7 @@ export default function Layout() {
       {/* Persistent AI chat — nav | content | AI chat (reference UI at bridge-ai-1ay.pages.dev).
           Hidden below sm: a 336px side panel doesn't fit alongside the mobile bottom tab bar. */}
       <div className="hidden sm:flex">
-        <AgentPanel />
+        <AgentPanel moduleName={activeModuleName} />
       </div>
       </div>
 
@@ -1054,7 +1087,7 @@ export default function Layout() {
             onClick={() => setMobileChatOpen(false)}
           />
           <div className="relative z-10 h-full">
-            <AgentPanel mobile onClose={() => setMobileChatOpen(false)} />
+            <AgentPanel mobile moduleName={activeModuleName} onClose={() => setMobileChatOpen(false)} />
           </div>
         </div>
       )}

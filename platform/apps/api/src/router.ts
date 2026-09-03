@@ -8,6 +8,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
@@ -53,6 +54,7 @@ import {
 } from "./relationship-intake-materializer.js";
 import { relationshipDateTimeSchema } from "./relationship-datetime.js";
 import {
+  CAPABILITY_BUILDER_AGENT,
   EGRESS_AGENT,
   LEARNING_AGENT,
   OUTREACH_AGENT,
@@ -262,6 +264,9 @@ import {
   ChatCloudGrantError,
   ChatStoreConflictError,
   ChatStoreNotFoundError,
+  ChatStoreScopeError,
+  CHAT_BACKEND_IDS,
+  type ChatBackendTurn,
   type ChatOwnerScope,
   type ChatThread,
   type ChatTurn,
@@ -305,8 +310,12 @@ import {
   type RejectionSuppressionVerdict,
   type TextEmbedder,
   recordRejectionFingerprint,
+  classifyClaimContent,
   draftStepsFromEpisodes,
+  draftStructureFromClaims,
   episodesForSkill,
+  type BuilderRefusalReason,
+  type BuilderStepsResult,
   rejectAutomationDraft,
   seedSuggestionsFromArchetypes,
   supportBandRank,
@@ -464,6 +473,7 @@ import {
 } from "./voice-transcription.js";
 import {
   listModuleFiles,
+  renameModuleFolder,
   MAX_MODULE_FILE_BYTES,
   ModuleFileContentConflictError,
   ModuleFilesPathError,
@@ -473,7 +483,12 @@ import {
   saveModuleFile,
   OrganizationFilesConflictError,
   OrganizationFilesRecoveryError,
+  organizationFilesRoot,
+  moduleFilesRoot,
 } from "./module-files.js";
+import { runModuleBuilder } from "./builder/run.js";
+import { BUILDER_AGENT_RUNTIME_ID } from "@bridge/module-manifests";
+import { ClaudeSignInRequiredError } from "./chat/claude-code-backend.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
 // Syncs the groq key to companion.json so the Rust companion can use STT
@@ -4858,6 +4873,25 @@ async function requireInstalledTaskManager(wiring: Wiring, organizationId: strin
   return installation;
 }
 
+/**
+ * The one place a Module's local-Files folder label is decided (TASK-081).
+ *
+ * `~/Documents/Bridge/<Organization>/<label>/` holds the owner's own documents,
+ * so this expression cannot be spelled out at each call site: two sites that
+ * disagree put a Module's Files in two directories, and the one the user is
+ * not looking at appears empty. The precedence is
+ * `displayNameOverride` (what this Organization renamed it to) -> the
+ * manifest's display name -> the canonical Module name.
+ *
+ * `modules.rename` is the only writer of the override, and it MOVES the folder
+ * in the same call — see `renameModuleFolder`.
+ */
+function moduleFolderLabel(installation: ModuleInstallationRow): string {
+  return installation.displayNameOverride
+    ?? installation.manifest.module?.displayName
+    ?? installation.moduleName;
+}
+
 async function requireOrganizationNameForFiles(
   wiring: Wiring,
   organizationId: string,
@@ -4963,6 +4997,41 @@ function resolveChatModel(wiring: Wiring, plane: "local" | "cloud"): ModelProvid
       return left.id.localeCompare(right.id);
     });
   return candidates[0] ?? null;
+}
+
+/**
+ * The conversation so far, rendered for an engine that was not part of it.
+ *
+ * Deliberately bounded and deliberately plain: the most recent completed turns
+ * as `User:`/`Assistant:` lines, oldest first, capped so a long thread cannot
+ * blow the receiving agent's context on turn one. The user's OWN words are
+ * carried verbatim (a paraphrase would put words in their mouth); assistant
+ * turns are truncated, since what matters is what was decided, not every word
+ * of how it was said. Returns null when there is nothing to carry.
+ */
+async function priorTurnsTranscript(
+  wiring: Wiring,
+  scope: ChatOwnerScope,
+  threadId: string,
+): Promise<string | null> {
+  const CARRY_TURNS = 20;
+  const CARRY_CHARS = 12_000;
+  const recent = await wiring.chatStore.listRecentTurns(scope, threadId, CARRY_TURNS);
+  const lines: string[] = [];
+  for (const turn of recent) {
+    if (turn.state !== "completed" || turn.content.trim().length === 0) continue;
+    const speaker = turn.role === "user" ? "User" : "Assistant";
+    const body =
+      turn.role === "user" ? turn.content : turn.content.slice(0, 1_500);
+    lines.push(`${speaker}: ${body}`);
+  }
+  if (lines.length === 0) return null;
+  let transcript = lines.join("\n\n");
+  while (transcript.length > CARRY_CHARS && lines.length > 1) {
+    lines.shift();
+    transcript = lines.join("\n\n");
+  }
+  return `Earlier in this conversation:\n\n${transcript}`;
 }
 
 async function chatCanCreateTask(
@@ -5141,7 +5210,7 @@ async function assembleChatCompletion(
       conversationHistory: history,
       outputContract: {
         description: canCreateTask
-         ? "Return one JSON object matching the supplied schema. All five keys are required. If the person is not explicitly asking to create a Task, kind MUST be answer or clarification, put the response in text, and set title, outcome, and exitTest to empty strings. If and only if the person explicitly asks to create a Task, kind MUST be create_task, text MUST explain that the Task proposal is ready for review, and the requested Task title, outcome, and exit test MUST be copied into title, outcome, and exitTest. Never put the Task title in text instead of title. Creating a Task is a proposal and must not be described as already completed."
+         ? "Return one JSON object matching the supplied schema. All five keys are required. kind MUST be create_task whenever the person gives you work to do — an instruction, a request to build, change, fix, find, arrange, follow up on, or remember something, whether or not they use the word Task. Wanting it done later, or delegated, still counts. kind MUST be answer when they are only asking a question, and clarification when you cannot tell what the work is and one question would settle it — never use clarification to avoid capturing work you already understand. For create_task, text MUST explain that the Task proposal is ready for review, and title, outcome, and exitTest MUST describe the work they asked for: title is the work in their own terms, outcome is what is true when it is done, exitTest is how anyone checks that. Never put the Task title in text instead of title. For answer and clarification, put the response in text and set title, outcome, and exitTest to empty strings. Creating a Task is a proposal and must not be described as already completed."
           : "Return one JSON object matching the supplied schema. Answer directly or ask one clarification. No mutation capability is available in this context.",
         schema: responseSchema,
       },
@@ -5257,6 +5326,50 @@ async function addChatTurnRef(
     kind,
     refId,
   });
+}
+
+/**
+ * Records the files an agentic backend changed on this turn. The backend edits
+ * the user's Bridge folder directly, so without this the only evidence of a
+ * write is the model's own prose — and prose is not a receipt. One ledger row
+ * per turn, referenced from the turn, listing paths only (never contents).
+ */
+async function appendChatBackendChangedFiles(
+  ctx: Pick<ApiContext, "run" | "wiring">,
+  thread: ChatThread,
+  assistantTurnId: string,
+  changedPaths: readonly string[],
+): Promise<string> {
+  const id = idempotentUuid(`${assistantTurnId}:backend-changed-files`);
+  await ctx.wiring.ledger.append({
+    id,
+    organizationId: thread.organizationId,
+    actorType: "agent",
+    // The ledger's actor column is a uuid, and an agentic backend editing the
+    // user's folder IS the Builder acting — the engine that did it is named in
+    // `inputs.backend`.
+    actorId: BUILDER_AGENT_RUNTIME_ID,
+    action: "write",
+    resourceType: "record",
+    inputs: {
+      operation: "chat_backend_changed_files",
+      threadId: thread.id,
+      assistantTurnId,
+      backend: thread.backend,
+      fileCount: changedPaths.length,
+    },
+    proposedOutput: { changedPaths: [...changedPaths] },
+    userDecision: "auto",
+    policyResults: [],
+    dataScope: thread.dataScope,
+    taintLabel: chatHumanTaint(
+      thread,
+      `chat:${assistantTurnId}:backend-changed-files`,
+      { changedPaths: [...changedPaths] },
+    ),
+    createdAt: ctx.run.clock.nowISO(),
+  });
+  return id;
 }
 
 async function appendChatRoutingDecision(
@@ -5495,6 +5608,7 @@ async function stageChatTaskProposal(
         automationId: CHAT_TASK_AUTOMATION_ID,
         organizationId: thread.organizationId,
         agentId: INTERNAL_STRATEGIST_AGENT,
+        taskId: goalTaskRef.taskId,
       },
       ctx.run,
     ),
@@ -6155,15 +6269,21 @@ async function ensureTaskManagerAutomation(
     action: Action;
   },
   run: RunCtx,
+  /** Which Goal the anchor Task hangs under. Defaults to the Task Manager's
+   *  own guard Goal; TASK-094's Capability Builder Runs pass their own, so a
+   *  Builder Run is not filed as a Task Manager guard. */
+  goalType = "task-manager",
 ): Promise<{ goalId: string; taskId: string }> {
   const seam = { nextId: () => run.ids.next(), nowISO: () => run.clock.nowISO() };
   const goals = await wiring.goalTasks.listGoals(organizationId);
   const goal =
-    goals.find((candidate) => candidate.type === "task-manager") ??
+    goals.find((candidate) => candidate.type === goalType) ??
     await wiring.goalTasks.createGoal({
       organizationId,
-      type: "task-manager",
-      title: "Task Manager guard Automations",
+      type: goalType,
+      title: goalType === "task-manager"
+        ? "Task Manager guard Automations"
+        : "Capability Builder Automations",
     }, seam);
   const existing = (await wiring.goalTasks.listTasksByGoal(organizationId, goal.id))
     .find((task) => task.type === "task" && task.assignedAgentId === input.agentId);
@@ -6189,6 +6309,123 @@ async function ensureTaskManagerAutomation(
     }],
   });
   return { goalId: goal.id, taskId: task.id };
+}
+
+/**
+ * TASK-094 — the Capability Builder acts as ITSELF.
+ *
+ * Both Builder lanes (rung 3's `proposeSteps`, rung 4's `proposeStructure`)
+ * used to execute as whichever human pressed the button. The agent identity
+ * existed — `CAPABILITY_BUILDER_AGENT` with `role-capability-builder`, a
+ * `signal:write` scope and seeded governance in both wirings — and nothing
+ * referenced it, so the Builder's own work left nothing attributable behind.
+ * That is a live gap against "only an attributable allowed Agent invokes
+ * them": you could not ask what the Builder had done, or stop it by narrowing
+ * its scope, because as far as the system was concerned it had never acted.
+ *
+ * This wrapper closes it in the two places it is true, with the same two
+ * mechanisms the rest of the codebase uses:
+ *
+ *  1. **Authority first.** `resolveAuthority` for the Builder as actor, on
+ *     behalf of the requesting human. Narrow the agent's scope and the lane
+ *     stops working — which is the point: an attribution you cannot revoke is
+ *     a label, not an authority.
+ *  2. **An Agent Run around the work.** Start before, finish after, `halted`
+ *     with the error when the derivation throws. `automation_runs` carries a
+ *     composite FK to `automations`, so the Run needs a real Automation row
+ *     for this Agent — hence the ensure call, exactly as the chat Task lane
+ *     does for the Internal Strategist.
+ *
+ * What it deliberately does NOT add: a propose/decide gate. Drafting is not
+ * the governed moment in either rung — activation is (rung 3) and
+ * materialization would be (rung 4). Inserting a human approval in front of
+ * "show me what you derived" would gate the explanation instead of the action.
+ */
+/** The rung-3 lane's own result union. Written out because inference across
+ *  the Run wrapper's callback collapses it to whichever branch it sees first,
+ *  and the refusal branch is half of this lane's contract. */
+type BuilderStepsLaneResult =
+  | { proposed: false; reason: BuilderRefusalReason; detail: string }
+  | {
+      proposed: true;
+      automationId: string;
+      steps: ReturnType<typeof parseAutomationSteps>;
+      evidence: Extract<BuilderStepsResult, { proposed: true }>["evidence"];
+      status: "draft";
+    };
+
+const CAPABILITY_BUILDER_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f8";
+const CAPABILITY_BUILDER_SKILL_ID = "capability-builder.draft";
+
+async function runAsCapabilityBuilder<T>(
+  ctx: { wiring: Wiring; run: RunCtx; identity: { type: string; id: string } },
+  organizationId: string,
+  lane: string,
+  work: () => Promise<{ result: T; output: Record<string, unknown> }>,
+): Promise<{ result: T; runId: string }> {
+  const authority = await resolveAuthority(
+    {
+      organizationId,
+      actor: { type: "agent", id: CAPABILITY_BUILDER_AGENT, plane: "local" },
+      onBehalfOf: { type: "user", id: ctx.identity.id },
+      action: "write",
+      resourceType: "signal",
+      requestedDataScope: "private",
+    },
+    {
+      roles: ctx.wiring.roles,
+      agents: ctx.wiring.agents,
+      ephemeral: ctx.wiring.ephemeral,
+      nowISO: ctx.run.clock.nowISO(),
+    },
+  );
+  if (!authority.allowed || authority.dataScope === "none") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `the Capability Builder is not authorized to act here: ${authority.reason}`,
+    });
+  }
+  const anchor = await ensureTaskManagerAutomation(
+    ctx.wiring,
+    organizationId,
+    {
+      automationId: CAPABILITY_BUILDER_AUTOMATION_ID,
+      name: "Capability Builder drafting",
+      agentId: CAPABILITY_BUILDER_AGENT,
+      skill: CAPABILITY_BUILDER_SKILL_ID,
+      action: "write",
+    },
+    ctx.run,
+    "capability-builder",
+  );
+  const runId = ctx.run.ids.next();
+  await ctx.wiring.automationRunRecorder.start(
+    {
+      runId,
+      automationId: CAPABILITY_BUILDER_AUTOMATION_ID,
+      organizationId,
+      agentId: CAPABILITY_BUILDER_AGENT,
+      taskId: anchor.taskId,
+    },
+    ctx.run,
+  );
+  try {
+    const { result, output } = await work();
+    await ctx.wiring.automationRunRecorder.finish(
+      { runId, organizationId, status: "completed", output: { lane, ...output } },
+      ctx.run,
+    );
+    return { result, runId };
+  } catch (error) {
+    // A halted Run is the honest record of a Builder that tried and failed.
+    // Swallowing the finish would leave a Run that never ends, which reads as
+    // "still working" forever.
+    await ctx.wiring.automationRunRecorder.finish(
+      { runId, organizationId, status: "halted", output: { lane, error: String(error) } },
+      ctx.run,
+    );
+    throw error;
+  }
 }
 
 /** TASK-032 flight gate — every `learning.*` procedure except `status` fails
@@ -6590,8 +6827,21 @@ export const appRouter = t.router({
           });
           const cloudKey = keyStatuses.find((status) => status.providerId === "groq");
           const cloudKeySaved = Boolean(cloudKey?.configured || cloudKey?.fromEnvironment);
+          // Agentic backends the composer may offer. Readiness is asked of the
+          // backend itself rather than inferred here, so "needs sign-in" comes
+          // from the thing that would actually fail.
+          const backends = await Promise.all(
+            ctx.wiring.chatBackends.list().map(async (backend) => ({
+              id: backend.id,
+              label: backend.label,
+              plane: backend.plane,
+              agentic: backend.agentic,
+              ...(await backend.readiness(input.organizationId)),
+            })),
+          );
           return {
             local,
+            backends,
             // TASK-082: the same key read, reused a third time, to say whether
             // the composer's paperclip and mic can actually act here.
             composer: composerCapability({
@@ -6631,6 +6881,66 @@ export const appRouter = t.router({
           );
           return ctx.wiring.managedModel.install();
         }),
+      /**
+       * Claude sign-in for the agentic backend — the browser does the
+       * authenticating and Bridge never sees a password. `begin` returns the
+       * URL to open; the Claude callback page shows a `code#state` string the
+       * user pastes into `complete`. Tokens land in the Local Plane vault, so
+       * these three procedures never return or accept a secret Bridge could
+       * leak: an authorization code is single-use and useless without the
+       * PKCE verifier held in this process.
+       */
+      claudeSignIn: t.router({
+        status: authenticatedProcedure
+          .input(z.object({ organizationId: z.string().uuid() }).strict())
+          .query(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(
+              ctx.wiring.organizationStore,
+              input.organizationId,
+              ctx.identity.id,
+            );
+            return ctx.wiring.claudeOAuth.status(input.organizationId);
+          }),
+        begin: authenticatedProcedure
+          .input(z.object({ organizationId: z.string().uuid() }).strict())
+          .mutation(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(
+              ctx.wiring.organizationStore,
+              input.organizationId,
+              ctx.identity.id,
+            );
+            return { url: ctx.wiring.claudeOAuth.beginLogin(input.organizationId) };
+          }),
+        complete: authenticatedProcedure
+          .input(z.object({
+            organizationId: z.string().uuid(),
+            code: z.string().trim().min(1).max(2_000),
+          }).strict())
+          .mutation(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(
+              ctx.wiring.organizationStore,
+              input.organizationId,
+              ctx.identity.id,
+            );
+            await ctx.wiring.claudeOAuth.finishLogin(input.organizationId, input.code);
+            return ctx.wiring.claudeOAuth.status(input.organizationId);
+          }),
+        signOut: authenticatedProcedure
+          .input(z.object({ organizationId: z.string().uuid() }).strict())
+          .mutation(async ({ input, ctx }) => {
+            assertPilotOrganization(input.organizationId);
+            await assertMembership(
+              ctx.wiring.organizationStore,
+              input.organizationId,
+              ctx.identity.id,
+            );
+            await ctx.wiring.claudeOAuth.signOut(input.organizationId);
+            return ctx.wiring.claudeOAuth.status(input.organizationId);
+          }),
+      }),
       cancelInstall: authenticatedProcedure
         .input(z.object({ organizationId: z.string().uuid() }).strict())
         .mutation(async ({ input, ctx }) => {
@@ -6673,6 +6983,7 @@ export const appRouter = t.router({
         .input(z.object({
           organizationId: z.string().uuid(),
           plane: z.enum(["local", "cloud"]).optional(),
+          backend: z.enum(CHAT_BACKEND_IDS).optional(),
           title: z.string().trim().min(1).max(200).optional(),
           clientRequestId: z.string().trim().min(1).max(200).optional(),
         }).strict())
@@ -6689,19 +7000,167 @@ export const appRouter = t.router({
               message: "The hosted web deployment cannot create Local Plane Chat threads",
             });
           }
-          const plane = ctx.wiring.publicCloudOnly ? "cloud" : input.plane ?? "local";
+          const backend = input.backend ?? "bridge";
+          // An agentic backend declares its own residency (it ships file
+          // contents to a hosted model), so the thread's plane follows the
+          // BACKEND rather than the caller's plane hint. Getting this wrong in
+          // the permissive direction would file cloud egress under a Local
+          // Plane thread, which is the one mislabelling the residency model
+          // cannot absorb.
+          const registered = backend === "bridge" ? null : ctx.wiring.chatBackends.get(backend);
+          if (backend !== "bridge" && !registered) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `The ${backend} backend is not available in this deployment`,
+            });
+          }
+          const plane = registered
+            ? registered.plane
+            : ctx.wiring.publicCloudOnly
+              ? "cloud"
+              : input.plane ?? "local";
           const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
           const thread = await ctx.wiring.chatStore.createThread(scope, {
             id: input.clientRequestId
               ? idempotentUuid(
-                  `${input.organizationId}:${ctx.identity.id}:chat-thread:${plane}:${input.clientRequestId}`,
+                  `${input.organizationId}:${ctx.identity.id}:chat-thread:${plane}:${backend}:${input.clientRequestId}`,
                 )
               : ctx.run.ids.next(),
             plane,
             dataScope: plane === "local" ? "private" : "public",
+            backend,
             ...(input.title ? { title: input.title } : {}),
           });
           return loadChatThreadView(ctx.wiring, scope, thread.id, ctx.run);
+        }),
+      /**
+       * Change which engine answers a LIVE thread, keeping every turn. The
+       * conversation is Bridge's; the model is a setting on it, not a reason to
+       * start over (user directive, 2026-09-02: "the chat should remain
+       * consistent since Bridge is managing context and should direct the chat
+       * to a given model").
+       *
+       * The plane follows the backend, so switching a private Local thread onto
+       * a cloud backend relabels its stored turns — a declassification the
+       * store records. The user directed that this happen without a prompt;
+       * `chatBackendDeclassification` writes the ledger row regardless, so the
+       * export is auditable even though it is not interrupted.
+       */
+      setBackend: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          threadId: z.string().uuid(),
+          backend: z.enum(CHAT_BACKEND_IDS),
+          plane: z.enum(["local", "cloud"]).optional(),
+        }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+          const thread = await ctx.wiring.chatStore.getThread(scope, input.threadId);
+          if (!thread) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Chat thread not found" });
+          }
+          if (thread.backend === input.backend) {
+            return loadChatThreadView(ctx.wiring, scope, thread.id, ctx.run);
+          }
+          const registered =
+            input.backend === "bridge" ? null : ctx.wiring.chatBackends.get(input.backend);
+          if (input.backend !== "bridge" && !registered) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `The ${input.backend} backend is not available in this deployment`,
+            });
+          }
+          const plane = registered
+            ? registered.plane
+            : ctx.wiring.publicCloudOnly
+              ? "cloud"
+              : input.plane ?? thread.plane;
+          try {
+            await ctx.wiring.chatStore.setThreadBackend(scope, {
+              threadId: thread.id,
+              backend: input.backend,
+              plane,
+              dataScope: plane === "local" ? "private" : "public",
+            });
+          } catch (error) {
+            if (error instanceof ChatStoreScopeError) {
+              throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+            }
+            throw error;
+          }
+          return loadChatThreadView(ctx.wiring, scope, thread.id, ctx.run);
+        }),
+      /**
+       * The Module's live conversation — reopened, not restarted. Opening a
+       * Module resumes its most recent active thread with full history; the
+       * first visit creates it. A Module that has never been talked to gets a
+       * fresh thread bound to it, so the next visit resumes THAT.
+       */
+      forModule: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          moduleName: z.string().trim().min(1).max(120),
+          backend: z.enum(CHAT_BACKEND_IDS).optional(),
+        }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+          const existing = await ctx.wiring.chatStore.liveModuleThread(scope, input.moduleName);
+          if (existing) {
+            return loadChatThreadView(ctx.wiring, scope, existing.id, ctx.run);
+          }
+          const backend = input.backend ?? "bridge";
+          const registered =
+            backend === "bridge" ? null : ctx.wiring.chatBackends.get(backend);
+          if (backend !== "bridge" && !registered) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `The ${backend} backend is not available in this deployment`,
+            });
+          }
+          const plane = registered
+            ? registered.plane
+            : ctx.wiring.publicCloudOnly
+              ? "cloud"
+              : "local";
+          const created = await ctx.wiring.chatStore.createThread(scope, {
+            id: ctx.run.ids.next(),
+            plane,
+            dataScope: plane === "local" ? "private" : "public",
+            backend,
+            moduleName: input.moduleName,
+          });
+          return loadChatThreadView(ctx.wiring, scope, created.id, ctx.run);
+        }),
+      /** Pull a second Module into this same conversation — one session, several
+       * Modules, the way a coding session can hold more than one project. */
+      attachModule: authenticatedProcedure
+        .input(z.object({
+          organizationId: z.string().uuid(),
+          threadId: z.string().uuid(),
+          moduleName: z.string().trim().min(1).max(120),
+        }).strict())
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(
+            ctx.wiring.organizationStore,
+            input.organizationId,
+            ctx.identity.id,
+          );
+          const scope = chatOwnerScope(input.organizationId, ctx.identity.id);
+          await ctx.wiring.chatStore.attachModule(scope, input.threadId, input.moduleName);
+          return loadChatThreadView(ctx.wiring, scope, input.threadId, ctx.run);
         }),
       list: authenticatedProcedure
         .input(z.object({
@@ -7028,6 +7487,117 @@ export const appRouter = t.router({
           const controller = new AbortController();
           chatTurnAbortControllers.set(assistantTurnId, controller);
           try {
+            // Agentic backend (Claude Code and, later, Codex/Cursor): the
+            // backend runs its OWN tool loop in a subprocess against the
+            // user's Bridge documents and returns prose. There is no prompt to
+            // assemble, no envelope to parse, and no cloud grant to consume —
+            // the backend never saw Bridge's response schema, and the exact
+            // context it sends is chosen by that agent rather than by this
+            // router, so recording an exact-context consent here would be a
+            // false disclosure. What this path DOES keep is the rest of the
+            // governed shape: the same turn lifecycle, the same
+            // routing-decision ledger row, the same taint label, the same
+            // cancellation path.
+            if (thread.backend !== "bridge") {
+              const backend = ctx.wiring.chatBackends.get(thread.backend);
+              if (!backend) {
+                throw new TRPCError({
+                  code: "PRECONDITION_FAILED",
+                  message: `The ${thread.backend} backend is not available in this deployment`,
+                });
+              }
+              const organizationName = await requireOrganizationNameForFiles(
+                ctx.wiring,
+                thread.organizationId,
+                ctx.identity.id,
+              );
+              const workingDirectory = organizationFilesRoot(
+                organizationName,
+                ctx.wiring.moduleFilesBridgeRoot,
+              );
+              await mkdir(workingDirectory, { recursive: true });
+
+              // Bridge owns the conversation; the backend only owns its own
+              // session. When an engine takes over a thread mid-conversation
+              // — a model switch, or its first turn after a restart that lost
+              // the handle — it has no session to resume, so Bridge hands it
+              // what was already said. Without this the user would watch a
+              // "continued" chat answer as if the previous turns never
+              // happened, which is worse than clearing the thread outright.
+              const carriedContext =
+                thread.backendSessionId
+                  ? null
+                  : await priorTurnsTranscript(ctx.wiring, scope, thread.id);
+              const backendPrompt = carriedContext
+                ? `${carriedContext}\n\n---\nContinue that conversation. The user now says:\n${input.message}`
+                : input.message;
+
+              let backendTurn: ChatBackendTurn;
+              try {
+                backendTurn = await backend.send({
+                  text: backendPrompt,
+                  backendSessionId: thread.backendSessionId ?? null,
+                  workingDirectory,
+                  organizationId: thread.organizationId,
+                  signal: controller.signal,
+                });
+              } catch (error) {
+                if (error instanceof ClaudeSignInRequiredError) {
+                  throw new TRPCError({
+                    code: "UNAUTHORIZED",
+                    message: "Claude needs sign-in — open Settings → Claude to sign in",
+                  });
+                }
+                throw error;
+              }
+
+              if (backendTurn.backendSessionId) {
+                await ctx.wiring.chatStore.setThreadBackendSession(
+                  scope,
+                  thread.id,
+                  backendTurn.backendSessionId,
+                );
+              }
+              const backendRoutingId = await appendChatRoutingDecision(
+                ctx,
+                thread,
+                assistantTurnId,
+                { kind: "direct_answer" },
+              );
+              await addChatTurnRef(
+                ctx.wiring,
+                scope,
+                thread.id,
+                assistantTurnId,
+                "routing_decision",
+                backendRoutingId,
+              );
+              if (backendTurn.changedPaths && backendTurn.changedPaths.length > 0) {
+                const changedFilesId = await appendChatBackendChangedFiles(
+                  ctx,
+                  thread,
+                  assistantTurnId,
+                  backendTurn.changedPaths,
+                );
+                await addChatTurnRef(
+                  ctx.wiring,
+                  scope,
+                  thread.id,
+                  assistantTurnId,
+                  "result",
+                  changedFilesId,
+                );
+              }
+              await ctx.wiring.chatStore.updateTurn(scope, {
+                threadId: thread.id,
+                turnId: assistantTurnId,
+                expectedState: "processing",
+                state: "completed",
+                content: backendTurn.reply.slice(0, 8_000),
+              });
+              return loadSendResponse();
+            }
+
             const provider = resolveChatModel(ctx.wiring, thread.plane);
             if (!provider) {
               throw new TRPCError({
@@ -7444,6 +8014,77 @@ export const appRouter = t.router({
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
       return ctx.wiring.taskManager.list(input.organizationId);
     }),
+    /**
+     * Import the repository's canonical ledger (ADR-271).
+     *
+     * The caller sends the PROJECTION, not the Markdown: `docs/TASKS.md` is a
+     * repository file the API has no path to in a packaged desktop build, and
+     * the projection is already generated, already committed, and already in
+     * the web bundle. Re-parsing the document server-side would put a second
+     * parser in the system that could disagree with the first.
+     *
+     * Not routed through the governed pipeline: it writes no Skill and invokes
+     * no Agent. It is a Human writing Task Records in their own Organization,
+     * which is exactly what `taskManager.create` already permits directly. The
+     * governance that matters here is idempotence — `recordId` maps to one
+     * deterministic uuid, so running it twice re-states statuses instead of
+     * minting a second copy of the queue.
+     */
+    importCanonicalLedger: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      entries: z.array(z.object({
+        recordId: z.string().trim().min(1).max(80),
+        title: z.string().trim().min(1).max(200),
+        isGoal: z.boolean(),
+        parentRecordId: z.string().trim().min(1).max(80).nullable().optional(),
+        status: taskRecordStatusInput,
+        priority: z.string().trim().min(1).max(8).optional(),
+        estimate: z.string().trim().min(1).max(16).optional(),
+        outcome: z.string().trim().min(1).max(4_000).optional(),
+        exitTest: z.string().trim().min(1).max(4_000).optional(),
+      }).strict()).min(1).max(500),
+    }).strict()).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      // Ledger identity -> Task identity, derived the same way every time so a
+      // re-import updates the rows it created rather than duplicating them.
+      const taskIdFor = (recordId: string) =>
+        idempotentUuid(`${input.organizationId}:canonical-ledger:${recordId}`);
+      const known = new Set(input.entries.map((entry) => entry.recordId));
+      const entries = input.entries.map((entry) => {
+        if (entry.parentRecordId && !known.has(entry.parentRecordId)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `ledger entry ${entry.recordId} names an absent parent ${entry.parentRecordId}`,
+          });
+        }
+        return {
+          recordId: entry.recordId,
+          taskId: taskIdFor(entry.recordId),
+          title: entry.title,
+          isGoal: entry.isGoal,
+          ...(entry.parentRecordId ? { parentTaskId: taskIdFor(entry.parentRecordId) } : {}),
+          status: entry.status,
+          ...(entry.priority ? { priority: entry.priority } : {}),
+          ...(entry.estimate ? { estimate: entry.estimate } : {}),
+          ...(entry.outcome ? { outcome: entry.outcome } : {}),
+          ...(entry.exitTest ? { exitTest: entry.exitTest } : {}),
+        };
+      });
+      try {
+        return await ctx.wiring.taskManager.importCanonicalLedger(
+          input.organizationId,
+          entries,
+          ctx.identity.id,
+          { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
+        );
+      } catch (cause) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: cause instanceof Error ? cause.message : String(cause),
+        });
+      }
+    }),
     get: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),
       taskId: z.string().uuid(),
@@ -7469,6 +8110,7 @@ export const appRouter = t.router({
       assignedAgentId: z.string().uuid().optional(),
       requiredSkillId: z.string().trim().min(1).optional(),
       parentTaskId: z.string().uuid().optional(),
+      estimate: z.string().trim().min(1).max(16).optional(),
       scheduledFor: z.string().date().optional(),
     })).mutation(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
@@ -7490,6 +8132,7 @@ export const appRouter = t.router({
         ...(input.assignedAgentId ? { assignedAgentId: input.assignedAgentId } : {}),
         ...(input.requiredSkillId ? { requiredSkillId: input.requiredSkillId } : {}),
         ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+        ...(input.estimate ? { estimate: input.estimate } : {}),
         ...(input.scheduledFor ? { scheduledFor: input.scheduledFor } : {}),
       };
       const populated = (await ctx.wiring.taskManager.list(input.organizationId)).length > 0;
@@ -7830,7 +8473,7 @@ export const appRouter = t.router({
             async () => {
               const file = await readModuleFileContent(
                 organizationName,
-                installation.manifest.module!.displayName,
+                moduleFolderLabel(installation),
                 TASK_MANAGER_PROJECTION_FILE,
                 ctx.wiring.moduleFilesBridgeRoot,
               );
@@ -7848,7 +8491,7 @@ export const appRouter = t.router({
               const written = await replaceTaskProjectionFile(
                 ctx.wiring,
                 organizationName,
-                installation.manifest.module!.displayName,
+                moduleFolderLabel(installation),
                 file.contentHash,
                 projection.content,
               );
@@ -7865,7 +8508,7 @@ export const appRouter = t.router({
                 () => replaceTaskProjectionFile(
                   ctx.wiring,
                   organizationName,
-                  installation.manifest.module!.displayName,
+                  moduleFolderLabel(installation),
                   fileEffect.written.contentHash,
                   fileEffect.originalContent,
                 ),
@@ -8022,7 +8665,7 @@ export const appRouter = t.router({
           replaceTaskProjectionFile(
             ctx.wiring,
             organizationName,
-            installation.manifest.module!.displayName,
+            moduleFolderLabel(installation),
             input.expectedFileHash ?? null,
             projection.content,
           ),
@@ -8050,7 +8693,7 @@ export const appRouter = t.router({
       // checked against a caller expectation: it is generated, never edited,
       // and a stale copy is simply replaced.
       const template = emitAgentLedgerTemplate({
-        moduleDisplayName: installation.manifest.module!.displayName,
+        moduleDisplayName: moduleFolderLabel(installation),
         organizationName,
         projectionFileName: TASK_MANAGER_PROJECTION_FILE,
         completedCap: TASK_PROJECTION_COMPLETED_CAP,
@@ -8067,13 +8710,13 @@ export const appRouter = t.router({
           // first time.
           const existing = await readModuleFileContent(
             organizationName,
-            installation.manifest.module!.displayName,
+            moduleFolderLabel(installation),
             AGENT_LEDGER_TEMPLATE_FILE,
             ctx.wiring.moduleFilesBridgeRoot,
           );
           return replaceModuleFileContent(
             organizationName,
-            installation.manifest.module!.displayName,
+            moduleFolderLabel(installation),
             AGENT_LEDGER_TEMPLATE_FILE,
             existing?.contentHash ?? null,
             Buffer.from(template, "utf8"),
@@ -8132,7 +8775,7 @@ export const appRouter = t.router({
         input.organizationId,
         () => readModuleFileContent(
             organizationName,
-            installation.manifest.module!.displayName,
+            moduleFolderLabel(installation),
             TASK_MANAGER_PROJECTION_FILE,
             ctx.wiring.moduleFilesBridgeRoot,
         ),
@@ -15622,6 +16265,49 @@ export const appRouter = t.router({
      * which traverses the governed pipeline before the store materializes
      * anything. Red claim classes are structurally unproposable — the zod
      * enum mirrors the core's closed union, which does not contain them. */
+    /**
+     * TASK-094 — what has the Capability Builder actually done? Both Builder
+     * lanes now leave an Agent Run behind, and this is where you read them.
+     * Without it the attribution would exist only in a table nobody queries,
+     * which is the same as not existing: "the Builder acted" has to be
+     * answerable from outside the Builder.
+     *
+     * Not a Module Runs list (`modules.recentRuns` is keyed by a Module's own
+     * manifest Automations, and the Builder is not a Module) — this is the
+     * one Automation the Capability Builder acts under.
+     */
+    builderRuns: procedure
+      .input(z.object({
+        organizationId: z.string().min(1),
+        limit: z.number().int().min(1).max(50).default(10),
+      }))
+      .query(async ({ input, ctx }) => {
+        // Readable whenever EITHER Builder lane can run: rung 3 sits behind
+        // the learning flight and rung 4 behind the claim substrate, and a
+        // deployment with one of them on has Builder Runs to account for.
+        if (!ctx.wiring.learningObservationEnabled && !ctx.wiring.claimSubstrateEnabled) {
+          assertLearningFlightEnabled(ctx);
+        }
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const runs = await ctx.wiring.automationRunRecorder.list(
+          input.organizationId,
+          [CAPABILITY_BUILDER_AUTOMATION_ID],
+          { limit: input.limit },
+        );
+        return {
+          agentId: CAPABILITY_BUILDER_AGENT,
+          runs: runs.map((run) => ({
+            runId: run.runId,
+            status: run.status,
+            startedAt: run.startedAt,
+            finishedAt: run.finishedAt ?? null,
+            taskId: run.taskId ?? null,
+            output: run.output,
+          })),
+        };
+      }),
+
     claims: t.router({
       /** Always answerable, like `learning.status`, so clients honestly hide
        * the surface instead of rendering dead controls. */
@@ -15857,6 +16543,69 @@ export const appRouter = t.router({
             }),
           );
           return { suggestion };
+        }),
+
+      /**
+       * Capability Builder rung 4 (K9, TASK-053): what shape is this person's
+       * work already in? Reads the owner's live entities and claims and
+       * derives Databases from them - the rung-3 posture applied to the
+       * knowledge substrate instead of the ledger.
+       *
+       * A QUERY, not a mutation, and deliberately: rung 4 proposes a
+       * structure, it does not create one. Materializing a proposed Database
+       * is a schema change and belongs to the governed pipeline with its own
+       * approval, not to the derivation that suggested it.
+       *
+       * Owner-scoped like every other claims lane - `ctx.identity.id` is the
+       * only owner whose claims are read, so one member cannot derive a
+       * structure out of another's observations.
+       */
+      proposeStructure: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertClaimFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const { result, runId } = await runAsCapabilityBuilder(
+            ctx,
+            input.organizationId,
+            "claims.proposeStructure",
+            async () => {
+              const [entities, claims] = await Promise.all([
+                ctx.wiring.claimStore.listEntities(input.organizationId, ctx.identity.id),
+                ctx.wiring.claimStore.liveClaims(input.organizationId, ctx.identity.id),
+              ]);
+              const derived = draftStructureFromClaims(
+                entities.map((entity) => ({ id: entity.id, kind: entity.kind, name: entity.name })),
+                claims.map((claim) => ({
+                  id: claim.id,
+                  entityId: claim.entityId,
+                  field: claim.field,
+                  value: claim.value,
+                })),
+                // The never-propose rule is enforced HERE as well as at
+                // proposal time: claims materialize through a gate, but a claim
+                // that predates a classifier change must not become a column
+                // because it once passed.
+                (field, value) => classifyClaimContent(field, value).tier === "red",
+              );
+              return {
+                result: derived,
+                // The Run says what the Builder READ and what it concluded —
+                // a refusal is as much a result as a proposal.
+                output: derived.proposed
+                  ? {
+                      proposed: true,
+                      databases: derived.databases.map((database) => database.name),
+                      evidenceClaimIds: derived.databases.flatMap((database) =>
+                        database.columns.flatMap((column) => column.sampleClaimIds)),
+                      ...derived.evidence,
+                    }
+                  : { proposed: false, reason: derived.reason },
+              };
+            },
+          );
+          return { ...result, runId };
         }),
 
       entities: procedure
@@ -16515,29 +17264,48 @@ export const appRouter = t.router({
               });
             }
 
-            const { items } = await ctx.wiring.ledger.listHistory(input.organizationId, {
-              limit: 200,
-              offset: 0,
-            });
-            const episodes = episodesForSkill(items, backing.pattern.attributeValue);
-            const result = draftStepsFromEpisodes(backing.pattern, episodes, (skillId) =>
-              Boolean(ctx.wiring.skillRegistry.get(skillId)),
+            const drafted = await runAsCapabilityBuilder(
+              ctx,
+              input.organizationId,
+              "promotions.drafts.proposeSteps",
+              async (): Promise<{ result: BuilderStepsLaneResult; output: Record<string, unknown> }> => {
+                const { items } = await ctx.wiring.ledger.listHistory(input.organizationId, {
+                  limit: 200,
+                  offset: 0,
+                });
+                const episodes = episodesForSkill(items, backing.pattern.attributeValue);
+                const result = draftStepsFromEpisodes(backing.pattern, episodes, (skillId) =>
+                  Boolean(ctx.wiring.skillRegistry.get(skillId)),
+                );
+                if (!result.proposed) {
+                  return {
+                    result: { proposed: false as const, reason: result.reason, detail: result.detail },
+                    output: { proposed: false, reason: result.reason },
+                  };
+                }
+                // The canonical write-boundary validation every registry write
+                // gets — the Builder does not bypass it just because it derived
+                // the steps itself.
+                const steps = parseAutomationSteps(result.steps);
+                await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
+                return {
+                  result: {
+                    proposed: true as const,
+                    automationId: draft.id,
+                    steps,
+                    evidence: result.evidence,
+                    status: "draft" as const,
+                  },
+                  output: {
+                    proposed: true,
+                    automationId: draft.id,
+                    evidenceLedgerIds: result.evidence.episodeLedgerIds,
+                    episodeCount: result.evidence.episodeCount,
+                  },
+                };
+              },
             );
-            if (!result.proposed) {
-              return { proposed: false as const, reason: result.reason, detail: result.detail };
-            }
-            // The canonical write-boundary validation every registry write
-            // gets — the Builder does not bypass it just because it derived
-            // the steps itself.
-            const steps = parseAutomationSteps(result.steps);
-            await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
-            return {
-              proposed: true as const,
-              automationId: draft.id,
-              steps,
-              evidence: result.evidence,
-              status: "draft" as const,
-            };
+            return { ...drafted.result, runId: drafted.runId };
           }),
 
         activate: procedure
@@ -18958,6 +19726,80 @@ export const appRouter = t.router({
    * Section renders as an honest empty state. An empty policy is not a
    * default-deny (`governanceVerdict`), and nothing here makes it one.
    */
+  // ── Builder Runs (TASK-092, BA0) ──────────────────────────────────────────
+  //
+  // The seam that makes `runBuilderLoop` + `HostPrimitiveExecutor` reachable.
+  // Local Plane by residency: the Run reads and writes the user's own Bridge
+  // folder, so `deployment-boundary` closes the whole `builder.` namespace to
+  // the public cloud shell.
+  builder: t.router({
+    run: procedure
+      .input(
+        z.object({
+          organizationId: z.string().min(1),
+          moduleName: z.string().trim().min(1),
+          task: z.string().trim().min(1).max(4_000),
+          maxSteps: z.number().int().min(1).max(60).optional(),
+        }).strict(),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        // A Builder Run writes files and runs commands. Starting one is a
+        // Human decision, like every other authority change in this router.
+        assertHumanIdentity(ctx, "Starting a Builder Run");
+        assertKnownModule(input.moduleName);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+
+        const provider =
+          resolveChatModel(ctx.wiring, "local") ?? resolveChatModel(ctx.wiring, "cloud");
+        if (!provider) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "No model provider is configured for the Builder",
+          });
+        }
+
+        const organizationName = await requireOrganizationNameForFiles(
+          ctx.wiring,
+          input.organizationId,
+          ctx.identity.id,
+        );
+        const workingDirectory = moduleFilesRoot(
+          organizationName,
+          input.moduleName,
+          ctx.wiring.moduleFilesBridgeRoot,
+        );
+        await mkdir(workingDirectory, { recursive: true });
+
+        const governance = await readResolvedModuleGovernance(
+          ctx.wiring,
+          input.organizationId,
+          input.moduleName,
+        );
+
+        try {
+          return await runModuleBuilder({
+            wiring: ctx.wiring,
+            run: ctx.run,
+            organizationId: input.organizationId,
+            actorUserId: ctx.identity.id,
+            moduleName: input.moduleName,
+            governance: governance.resolved,
+            workingDirectory,
+            task: input.task,
+            provider,
+            ...(input.maxSteps === undefined ? {} : { maxSteps: input.maxSteps }),
+          });
+        } catch (error) {
+          // Quote the user's own stated reason rather than a generic refusal.
+          if (error instanceof ModuleGovernanceDenied) {
+            throw new TRPCError({ code: "FORBIDDEN", message: error.message });
+          }
+          throw error;
+        }
+      }),
+  }),
+
   moduleGovernance: t.router({
     get: procedure
       .input(z.object({ organizationId: z.string().min(1), moduleName: z.string().trim().min(1) }))
@@ -20167,7 +21009,7 @@ export const appRouter = t.router({
             input.organizationId,
             (organization) => listModuleFiles(
               organization.name,
-              installation.manifest.module?.displayName ?? installation.moduleName,
+              moduleFolderLabel(installation),
               200,
               ctx.wiring.moduleFilesBridgeRoot,
             ),
@@ -20182,6 +21024,70 @@ export const appRouter = t.router({
             }),
           ));
           return inventory;
+        } catch (error) {
+          if (error instanceof ModuleFilesPathError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          }
+          throw error;
+        }
+      }),
+
+    /**
+     * Rename a Module for this Organization, and move its local Files folder
+     * with it (TASK-081, the half AP-168 left unmet).
+     *
+     * The rail already renamed Modules, but only in this browser's
+     * localStorage, so `~/Documents/Bridge/<Org>/<label>/` kept the old name
+     * and the label the user reads and the folder they open disagreed. The
+     * override is stored on EVERY version row of the Module, not on the
+     * `available` one, so promote/rollback cannot lose what someone called it.
+     *
+     * Not routed through propose/decide: this is presentation plus a move of
+     * the caller's own directory inside their own Organization, the same
+     * authority `addFile` already writes files under. Membership is the gate.
+     *
+     * `null`, or the manifest's own display name, CLEARS the override rather
+     * than storing a redundant copy — so "rename it back" leaves no trace, and
+     * the folder moves back to the name the Module shipped with.
+     */
+    rename: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().min(1),
+        moduleName: z.string().min(1),
+        displayName: z.string().trim().min(1).max(120).nullable(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const installation = await ctx.wiring.moduleStore.getAvailable(input.organizationId, input.moduleName);
+        if (!installation || installation.status !== "installed") {
+          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.moduleName}" not found` });
+        }
+        const previousLabel = moduleFolderLabel(installation);
+        const manifestLabel = installation.manifest.module?.displayName ?? installation.moduleName;
+        const nextOverride = input.displayName === null || input.displayName === manifestLabel
+          ? null
+          : input.displayName;
+        const nextLabel = nextOverride ?? manifestLabel;
+        try {
+          const folder = await ctx.wiring.organizationStore.withLockedOrganizationFiles(
+            input.organizationId,
+            (organization) => withOrganizationFileOperationLock(
+              input.organizationId,
+              () => renameModuleFolder(
+                organization.name,
+                previousLabel,
+                nextLabel,
+                ctx.wiring.moduleFilesBridgeRoot,
+              ),
+            ),
+          );
+          await ctx.wiring.moduleStore.setDisplayNameOverride(
+            input.organizationId,
+            input.moduleName,
+            nextOverride,
+          );
+          return { moduleName: input.moduleName, displayName: nextLabel, previousDisplayName: previousLabel, folder };
         } catch (error) {
           if (error instanceof ModuleFilesPathError) {
             throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -20219,7 +21125,7 @@ export const appRouter = t.router({
             input.organizationId,
             (organization) => saveModuleFile(
               organization.name,
-              installation.manifest.module?.displayName ?? installation.moduleName,
+              moduleFolderLabel(installation),
               input.fileName,
               content,
               ctx.wiring.moduleFilesBridgeRoot,

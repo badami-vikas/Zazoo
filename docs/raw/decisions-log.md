@@ -5933,25 +5933,578 @@ found already conformant and the ratchet is updated to say so.
 - **Every touch clause of TASK-086 is unverified and cannot be verified here.** The reducer is proven; what is not proven is that the DOM fires those events at the right moments — `onTouchStart` reaching `<tr>` through the cells, the 500ms hold, the 10px drift tolerance separating a scroll from a hold, and whether swallowing the React `onClick` suffices on iOS Safari. A human on a real device is required before the row can be signed off.
 - **A red test is evidence only when it was invoked the way the project invokes it.** A failure reported this session as a pre-existing `avatar-liveness` defect was my own bad command — the suite needs `--import ./test/ts-resolve.mjs`, and run correctly it is 232/232. The BUGS entry is withdrawn in place rather than deleted. "I ran the tests" is worth nothing without the command that ran them.
 
-## ADR-265 — JobPilot deadlines are curated data, not scraped; the column exists so the curation has somewhere to land
+## ADR-265 — Chat gains a swappable BACKEND axis beside its plane axis, and Claude Code is the first agentic one (2026-09-02; attach: TASK-090, TASK-091; AP-172)
 
-**Date**: 2026-09-02 · **Status**: accepted · **Approval**: AP-172
+**Decision.**
+
+(a) **A Chat thread now names a `backend` as well as a `plane`.** `plane` says where the data may go; `backend` says which engine answers. The two are independent questions that Bridge had collapsed into one, because until now there was exactly one engine: assemble a prompt, call `ModelProvider.complete()`, parse an envelope. `ChatBackend` (`packages/core/src/chat-backend.ts`) is the wider port; `"bridge"` is the built-in path every pre-existing thread reads as, and every new backend is a registry row plus an option in the model menu. Codex and Cursor need no router, store or UI change to appear.
+
+(b) **An agentic backend declares its own residency, and the thread follows the backend rather than the caller's plane hint.** Claude Code runs a subprocess on the user's machine but ships file contents to Anthropic's hosted models, so it is `plane: "cloud"`. `chat.thread.create` overrides the requested plane with the backend's. Getting this wrong in the permissive direction would file cloud egress under a Local Plane thread — the one residency mislabelling the model cannot absorb.
+
+(c) **The agentic path keeps the governed turn lifecycle and drops the parts that would be false.** Same turn states, same taint label, same routing-decision ledger row, same cancellation. No assistant envelope (the backend never saw the schema; the reply is wrapped as a plain answer) and **no cloud grant** — a grant records consent to an exact disclosed context, and the context an external agent chooses is not Bridge's to disclose. Recording one anyway would be a fabricated consent record, which is worse than none.
+
+(d) **Claude sign-in is the public OAuth PKCE flow, driven from Bridge's UI, with tokens in the Local Plane credential vault.** Ported from myzazoo's `src/oauth.ts` at the user's direction. The browser authenticates; Bridge exchanges the pasted `code#state`; `SourceCredentialVault` (the ADR-181 mechanism model-provider keys already use) holds the token set. `CLAUDE_CODE_OAUTH_TOKEN` in the environment still wins, and an existing `~/.claude` login on the machine remains a working fallback — reported as such rather than hidden.
+
+**Rejected alternatives.**
+
+- *Make Claude Code a `ModelProvider`.* It does not complete prompts; it runs a tool loop and edits files. Forcing it through `complete()` would have meant either lying about what a completion is or widening that port for every adapter to pay for.
+- *A third `plane` value.* Residency has exactly two values by design (CLAUDE.md: "Local Plane and Cloud Plane are the only residency boundaries"). The new axis is orthogonal; adding a plane would have corrupted the one boundary the whole architecture rests on.
+- *Store the backend session id in the existing thread title/metadata.* A resume handle is state, and hiding state in a display field is how the next reader gets it wrong. It cost two columns and one migration (`0044_task_chat_backend.sql`), with a CHECK that only a non-`bridge` backend may hold one.
+- *An API key instead of OAuth.* Offered and declined by the user: the key path bills per token while the OAuth path uses the existing Claude subscription.
+- *Require sign-in before offering the option.* `readiness()` reports `ready: true, needsSignIn: true` when Bridge holds no token, because the machine's own `~/.claude` login may still work. Refusing to offer it would have been a wrong "unavailable" for the common case.
+
+**Consequences.**
+
+- The SDK is a dynamic import, so a deployment that never selects the backend never loads it, and the public-cloud build registers no agentic backend at all (it has neither the user's files nor the right to touch them).
+- `chat.model.status` gained a `backends[]` array whose readiness comes from each backend rather than being inferred by the router — "needs sign-in" is reported by the thing that would actually fail.
+- The Avatar composer inherits the option for free: it renders the same `ChatView`.
+- **Not yet done:** the reply is capped at the 8k the turn column allows, and `changedPaths` from the backend is collected but not yet surfaced as turn refs. A long Claude Code session that edits twelve files reports prose, not a file list.
+
+## ADR-266 — The Builder Agent executes first and asks only on real risk, and the host executor is not a sandbox pretending to be one (2026-09-02; attach: TASK-092, TASK-093; AP-172)
+
+**Decision.**
+
+(a) **A Builder tool call resolves to one of three outcomes, not two: execute, approve, refuse.** `decideBuilderPrimitive` (`packages/core/src/capability/primitive-policy.ts`) is the gate. Reads, writes and edits inside the Module's declared paths, and commands inside its allow list, run immediately with no human in the loop. Anything that leaves the machine or touches credentials/system state escalates to one Proposal through the existing pipeline. A short absolute list — push, merge, rebase, `reset --hard`, checking out main, `rm -rf /`, `sudo` and friends — is refused and cannot be unlocked by any Module policy or any human approval. User directive, verbatim: *"I want governance but not at cost of execution. Seek approval only if high risk task, else lets have exectuion first approach."*
+
+(b) **The refuse list is scoped to reviewability, not to danger.** The question each entry answers is not "could this break something" but "would this end the user's ability to see and undo what the agent did". An agent that can `git push` has already shipped; an agent that can `rm -rf /` has already destroyed. Everything between those and the ordinary case is allow-list or ask — which is what makes execution-first safe rather than merely fast.
+
+(c) **`HostPrimitiveExecutor` (`apps/api/src/builder/primitive-executor.ts`) executes on the host and says so.** It declares `isolation: "host-process"`, is deliberately not assignable to `SandboxProvider`, and carries no `isolationTier` field, so code shopping for a sandbox cannot accidentally accept it. ADR-027's container/microVM requirement is untouched for what it was written about — untrusted capability bodies from Commons, imports, or Builder-generated code — and that adapter remains BA0's largest unbuilt piece.
+
+(d) **The Bridge-native loop drives tools through constrained JSON on the existing `ModelProvider` port.** One action per step, named stop reasons only, and a call that needs approval halts the loop rather than letting the model narrate work that never happened.
+
+**Rejected alternatives.**
+
+- *Propose everything (the roadmap's implicit posture).* Rejected by the user on cost-of-execution grounds, and independently by the roadmap's own `governance_fatigue` risk: interrupting every build trains reflexive approval, which is worse than no gate because it looks like one.
+- *Run the Builder's own shell inside a container to satisfy ADR-027 literally.* The Builder works in the user's own folder on the user's own machine at their explicit request; a container there isolates the agent from the files it was asked to edit. The sibling myzazoo implementation makes the same call and has run that way for months. What the container is genuinely for is untrusted bodies, and that requirement is preserved rather than diluted.
+- *Declare `HostPrimitiveExecutor` a `SandboxProvider` with a new `"host-process"` tier.* One added enum value and every existing isolation check silently starts accepting the host. The type must refuse it, not rank it.
+- *Native provider tool-calling for the loop.* Would have meant tool plumbing in every `ModelProvider` adapter, including local llama.cpp. Constrained JSON gets the same behaviour from every provider that honours `responseFormat`, with no port change.
+- *Retry an unparseable action.* A provider that cannot honour the schema will not honour it on the second ask, and proving that costs another call.
+
+**Consequences.**
+
+- Command segmentation splits on `&&`, `||`, `;` and `|`, so a denied command cannot ride behind an allowed one. A separator inside a quoted string over-segments and escalates a legitimate command — a false approval prompt, never a false execution, which is the safe direction. Marked `ponytail:`; upgrade path is a real shell-word parser.
+- The spawned shell gets a minimal env (PATH/HOME/LANG only), so a build cannot read the API process's secrets out of `process.env`. Tested.
+- Every call is audited — executed, escalated and refused alike — with the target and a size, never file content.
+- ~~**Not yet done:**~~ CLOSED the same day by ADR-268: `runModuleBuilder` wires the audit hook to the immutable ledger and adds the per-Run cost receipt.
+
+## ADR-267 — The conversation belongs to Bridge, not to the model: switching engines keeps the thread, and a Module reopens its own session (2026-09-02; attach: TASK-093; AP-173)
+
+**Decision.**
+
+(a) **Changing the model repoints the LIVE thread; it does not start a new one.** `chat.thread.setBackend` updates the thread's `backend` in place and every turn stays. This reverses the behaviour Chat has had since the plane selector shipped — where picking Local or Cloud called `newChat` and silently discarded the conversation. User directive, verbatim: *"the chat should remain consistent since Bridge is managing context and should direct the chat to a given model and all models remain active in backend for quick swap. Currently the chat clears when I switch models."*
+
+(b) **Bridge hands the incoming engine what was already said.** A backend that takes over mid-conversation has no session of its own to resume, so `priorTurnsTranscript` renders the recent completed turns and prefixes them to the first message. The user's own words are carried verbatim — a paraphrase would put words in their mouth — while assistant turns are truncated, because what matters is what was decided, not every word of how it was said. Bounded at 20 turns / 12k chars so a long thread cannot exhaust the receiving agent's context on turn one.
+
+(c) **Crossing planes relabels the thread's stored turns, and the user chose to do it without a prompt.** Switching a private Local thread onto Claude Code makes it `cloud`/`public`, which exports private content to Anthropic. Offered three handlings — consent once per thread, carry silently, or carry a summary — the user chose **carry silently** (2026-09-02). Recorded here rather than left implicit: this is a deliberate, user-directed removal of a visible privacy boundary in a single-user pre-launch product, and the reason it is defensible is ownership plus scale, neither of which survives a second user. **The store still records the switch**; what was removed is the prompt, not the audit trail. Revisit trigger: the first non-owner user of a Bridge instance.
+
+(d) **A deployment that stores the two planes separately refuses the move rather than faking it.** `ResidencyRoutingChatStore` throws when the plane would change, because relabelling a thread whose rows live in the other physical store would strand them. The desktop deployment has one store, so the switch is an ordinary column update there and this path never fires; the UI falls back to starting a fresh thread on the chosen model, and says so.
+
+(e) **Each Module reopens its own live conversation.** `chat_threads` gains `module_name` and `attached_modules`; `chat.thread.forModule` resumes the Module's most recent active thread and creates one only on first visit. A session can attach further Modules — one conversation, several Modules — which is the Claude-Code-project analogy the user drew: *"Each modules continues from previous session that is associated with given module just like claude code sessions are associated with projects but I can add multiple projects to a given session."*
+
+**Rejected alternatives.**
+
+- *Keep `newChat` and make the model menu clearer.* The complaint was not that the clearing was surprising; it was that it was wrong. Bridge holds the context — that is the whole premise of the product — so which model answers is a setting on a conversation, not an identity of one.
+- *Copy the thread's rows into the other plane's store on a cross-plane switch.* A per-switch data migration with a partial-failure mode, to serve a deployment shape (split stores) that the desktop app does not have. Refusing loudly costs one error message and no correctness risk.
+- *A join table for attached Modules.* Two Modules per conversation, read on every thread load, never queried independently. A `jsonb` array with a `jsonb_typeof` check is the whole feature; the table can come when something needs to query by attachment.
+- *One global session with Module-tagged turns.* Offered and declined by the user in favour of one live thread per Module.
+
+**Consequences.**
+
+- `backend_session_id` is cleared on every switch — the handle belongs to the engine that stopped answering. The next turn therefore carries the transcript again, which is correct and slightly more expensive.
+- Switching back and forth repeatedly re-sends the carried transcript each time. Acceptable at one user; a per-thread "context already delivered to backend X" marker is the fix if it starts costing real tokens.
+- The Module-session columns are additive with defaults, so every existing thread reads as a standalone Chat with no attached Modules.
+- **Not yet wired:** nothing in the UI calls `openModuleChat` or `attachModule` yet — the hook exposes both and the Module surfaces still open the standalone Chat. The server half is done and tested; the surface half is TASK-093.
+
+## ADR-268 — Built is not shipped: the Builder Run seam, and a standing rule that wiring lands in the same run as the build (2026-09-02; attach: TASK-090/091/092/093; AP-174)
+
+**Context.** The 2026-09-02 morning wave landed four capable pieces that nothing called: `runBuilderLoop` and `HostPrimitiveExecutor` (reachable from no procedure), `openModuleChat`/`attachModule` (exposed by the hook, called by no surface), and the Claude Code backend's `changedPaths` (collected and dropped). Each was honestly recorded as NOT LANDED in its TASK, which is the right disclosure and the wrong outcome. The user's directive, verbatim: *"fix everything that built but is pending connection. Ensure proper wiring of everything's that built. Also ensure in future things are wiring in the same run after breing built"*.
+
+**Decision.**
+
+(a) **`builder.run` is the Builder Run seam** (`apps/api/src/builder/run.ts`). It resolves the Module's governance (declared manifest policy + Organization overlay) and asks it about the dotted action `builder.run` first, so a Module can refuse the Builder in the user's own stated words. It then constructs one `HostPrimitiveExecutor` per Run whose `audit` hook appends to the immutable ledger — executed, escalated and refused calls alike — and closes with a single receipt row carrying stop reason, model, model calls and token counts. `runBuilderLoop` now accumulates usage per step and per run, so that receipt is measured rather than declared. BA0's third exit criterion (*"every action has a ledger row with cost"*) is met; the container adapter and the CI containment suite are not, and stay open on TASK-092.
+
+**Rejected:** mapping the Module's dotted governance rules onto the executor's shell-glob allow/deny. They are two vocabularies — `builder.run` is an action selector, `git push*` is a command pattern — and collapsing them would silently reinterpret rules the user wrote for something else. The Run therefore passes an EMPTY `ModulePrimitivePolicy`, which per ADR-263 is neither default-deny nor default-approve: `ABSOLUTE_DENY` and `ALWAYS_APPROVE` still apply inside `decideBuilderPrimitive`, and everything else executes. A per-Module command policy, when it is wanted, gets its own editor and its own field.
+
+**Rejected:** an approval round-trip inside the loop. A call needing approval stops the Run and is reported. Resuming a paused agent loop across a human decision is a durable-workflow problem (BA4 owns it), and a sixty-line version of it would be a state machine that loses work on restart.
+
+(b) **The Builder Agent gets a runtime identity** — `BUILDER_AGENT_RUNTIME_ID` (`b0000000-0000-4000-a000-0000000000d7`), beside the Learning, Strategist, Governance and Chief of Staff ids. Forced by the ledger, correctly: `actor_id` is a uuid column, so an actor called `builder:task-manager` is not an actor the ledger can hold, and an unattributable agent is exactly what canon forbids. The same identity is used for the agentic chat backend's changed-files rows: an external engine editing the user's folder IS a builder acting, and which engine did it is named in `inputs.backend`.
+
+(c) **An agentic turn's changed files are a REF, not prose.** `changedPaths` from the Claude Code SDK appends one `chat_backend_changed_files` ledger row (paths and a count, never contents) referenced from the assistant turn. The model saying it edited twelve files is a claim; the ref is the receipt.
+
+(d) **Standing rule, added to CLAUDE.md:** *"Build and wire in the same run. Nothing is shipped until a real caller reaches it from the surface that needs it; otherwise record the gap in the TASK as NOT LANDED."* CLAUDE.md is always-loaded, so the rule was paid for by tightening eleven existing bullets rather than growing the budget; `check:agent-context` is green.
+
+**Consequences.**
+- A Builder Run is now recorded in practice, not only in principle — the gap ADR-266 closed with "**Not yet done**" is closed.
+- `builder.` is Local-Plane-only in `deployment-boundary.ts`: a Run writes files and executes commands in the user's own Bridge folder, which is not a public-shell action.
+- `builder.run` is a Human-only procedure (`assertHumanIdentity`). An Agent cannot start a Builder Run at all yet; Automations that want one will need their own approval row.
+- Evidence: `apps/api/test/builder-run.test.ts` (3 tests) — a file really written to disk with a costed receipt, `git push` refused mid-run and still on the ledger, and a Module policy denying `builder.run` refusing in the user's own words. Still no browser evidence for any of the 2026-09-02 wave, for the reason AP-172 records.
+## ADR-269 — An Automation Run records the Task it advanced, and the Chat classifier captures directives, not only the phrase "create a Task" (2026-09-01; attach: TASK-021; AP-175)
+
+**Context:** The user asked two questions of the running system — is every Task given to the
+Avatar recorded in Task Manager, and is every agentic Run and Automation routed through it —
+and then directed that both be made true. The audit found three separate answers, not one:
+
+1. **Agent Runs: already routed.** `pipeline.propose` rejects any governed Skill without a
+   `goalTaskRef` naming a real Task assigned to that Agent (`pipeline.ts`), and both
+   `child_agent_runs` and `research_runs` carry `task_id` as a NOT NULL foreign key. An
+   Agent Run cannot exist without a Task node.
+2. **A claimed gap that is not one.** The unmanifested-Skill branch of the AGS1 gate looked
+   like an escape from `goalTaskRef`, but it is unreachable for an Agent actor: it opens only
+   when `isAgentFloorDenied(action, resourceType)` is true, and authority Layer 0 denies an
+   Agent that exact combination before the pipeline reaches the gate. The branch is
+   human-only by construction. **Nothing was changed for it**, and the "second gap" reported
+   mid-session was withdrawn rather than closed with code that would have protected nothing.
+3. **Automation Runs: a real gap.** `automation_runs` had no Task column. The anchor existed
+   only on the Automation STEP definition — one mutable row shared by every Run of that
+   Automation — so "which Task did this Run advance" was answerable only as "whatever the
+   step says today", not as what was true when the Run happened.
+
+**Decision:** (a) `automation_runs.task_id`, nullable, composite-FK'd to
+`tasks (organization_id, id)`, projected at Run start from the FIRST step carrying a
+`goalTaskRef` (migration 0046). (b) The Chat output contract's classification rule changes
+from *"if and only if the person explicitly asks to create a Task"* to *"whenever the person
+gives you work to do — an instruction, a request to build, change, fix, find, arrange, follow
+up on, or remember something, whether or not they use the word Task"*, with `clarification`
+explicitly barred from being used to avoid capturing work already understood.
+
+**Rationale:** The step-level anchor is a definition, not a record; an audit that can only
+read the current definition is not an audit of the Run. Nullable rather than NOT NULL because
+Runs recorded before the column existed have no Task to name and a backfilled guess would
+assert something the ledger never witnessed — "unknown" is first-class (AP-247). For the
+classifier, the gap between the user's ask ("all tasks given to Avatar") and the shipped
+behavior was never the plumbing: `stageChatTaskProposal`, thread anchoring, and the parent
+suggestion all worked. It was one sentence in the output contract that recognized only an
+explicit request to create a Task, so ordinary directives — the majority of what anyone tells
+an Avatar — produced an answer and no Record.
+
+**Alternatives rejected:**
+- *NOT NULL `task_id` with a backfill.* Would require inventing an anchor for every historical
+  Run. Rejected under AP-247.
+- *Cascade delete on the Task FK.* Deleting a Task would silently erase the Run history that
+  acted on it. `no action`.
+- *Auto-approving the Chat Task proposal so a directive mints a Record with no review.* This
+  is what "every directive mints a Task record" would literally require, and it is refused:
+  an in-platform Agent may never be the approver (`AGENT_FLOOR_MUTATIONS` includes `approve`
+  on `ledger`, and `pipeline.decide` enforces it). Widening WHAT is captured is a classifier
+  change; removing the human decision is a floor breach. The proposal card stays.
+- *Requiring a Task anchor on the unmanifested branch.* See (2) above — it would have added a
+  check to a path no Agent can take.
+
+**Consequences / follow-ups:** Automation Run rows written from now on carry their anchor;
+older rows read NULL and are honestly distinguishable from anchored ones. The Chat classifier
+will now propose Tasks far more often, which is the point; if it over-captures in practice the
+lever is the same sentence, not new machinery. `automationRunRecorder.start`'s no-op
+archive-sweep call deliberately passes no `taskId` — that Run advances nothing.
+
+## ADR-270 — The canonical Status line is a token plus a note, and the ledger's hierarchy is Horizon, not a guessed parent (2026-09-01; attach: TASK-021; AP-175)
+
+**Context:** Asked to see all pending Tasks in Task Manager, updated with past completed and
+current pending work and following the parent hierarchy, the audit found the projection was
+wrong in two ways and the surface was fed by neither.
+
+**The bug:** `parseCanonicalTasks` read the whole `- Status:` line as the status. Sixteen of
+87 tasks write a human-readable qualifier there — `in_progress (admin surface LANDED
+2026-08-30, ADR-262; the invite half is NOT met)`, `done (2026-08-16, live-verified)` — so
+those matched no known status. The pending-work projection called them `open`, and
+`renderActiveTaskIndex` dropped them from `docs/CODEMAPS/current-tasks.md` entirely. Seven
+active tasks, six of them in progress, were invisible to every agent that loads the always-
+loaded index — and they were invisible for exactly the reason that made them worth annotating.
+The 4_096-byte `activeTasksBytes` budget was the size of an index that was missing them.
+
+**Decision:** (a) The status line parses as a leading token plus a qualifier kept verbatim as
+`statusNote` — the only written record of "landed but the exit test is not met" is carried,
+not discarded. (b) `activeTasksBytes` raised 4_096 → 4_608 to fit the restored rows. (c) A new
+`assignHorizonHierarchy` builds the tree from `Horizon`, the one grouping each task actually
+declares: a Goal node per Horizon in first-appearance order, its tasks beneath it at level 1
+with dot paths, and a task with no Horizon left at the root. `projectCanonicalTasks` (whose
+`level: 0` / `path: <id-number>` was a flat placeholder) and `generate-pending-work.mjs` both
+use it, so the projection and the Database tree cannot disagree.
+
+**Rationale:** The parser fix is the root cause of all three of the user's complaints at once
+— completed tasks missing, current pending tasks missing, and the index disagreeing with
+TASKS.md. Raising the byte budget rather than trimming rows: hiding active work to stay under
+a ceiling is not a saving, and the ceiling was only ever met because the work was hidden.
+
+**Alternatives rejected:**
+- *Inventing task-to-task parentage.* docs/TASKS.md has no `Parent:` field and never had one;
+  it is 87 sibling `##` sections. Deriving a tree from titles would be a fabricated hierarchy.
+- *Treating `Dependencies` as parenthood.* A dependency is an edge between siblings. ADR-204
+  models it as one, and conflating the two would make the queue's blocker graph unreadable.
+- *Adding a `Parent:` field to all 87 records.* A canon edit whose content I would have to
+  invent for every row. `Horizon` is already declared, per task, by the author.
+
+**Consequences / follow-ups:** `pending-work.generated.json` now holds 94 records — 7 Horizon
+Goal nodes over 87 tasks, 49 completed / 14 in progress / 21 pending / 3 blocked, none unfiled.
+**Still open, and NOT delivered by this ADR:** `TaskManagerPage` reads the live
+`taskManager.list` API, not this projection, and nothing ingests docs/TASKS.md into the `tasks`
+table — `projectCanonicalTasks` has had no caller but its own test. So the Task Manager surface
+still shows an empty/whatever-the-DB-holds queue, and the 94 records above are a correct
+projection with no consumer. The ingest is the remaining work and is not started.
+
+## ADR-271 — Importing an already-decided ledger is a different act from intake, and gets its own path (2026-09-01; attach: TASK-021; AP-175)
+
+**Context:** ADR-270 left the Task Manager surface showing nothing: `TaskManagerPage` reads
+`taskManager.list`, and nothing put the repository's 87 canonical Tasks into the `tasks` table.
+Three existing paths looked like they should serve, and none does:
+
+- **`taskManager.create` in a loop.** `draftTaskCreate` forces `status: queue.length === 0 ?
+  desiredStatus : "candidate"` and stages an impact-fit proposal for every Task after the
+  first. Importing this way would produce 93 `candidate` rows and 93 proposals, asking a Human
+  to re-approve, one at a time, work the ledger records as finished weeks ago.
+- **`proposeProjectionReconcile`.** It requires the submitted content to byte-equal the Module
+  folder's own `tasks.md`, and `applyApprovedTaskProjectionReconciliation` throws on any id it
+  does not already hold (`external projection contains unknown Task`). It is a round-trip for
+  edits to an existing queue, not an importer.
+- **A CLI writing the Database directly.** Would need its own wiring, its own auth story, and a
+  second place that knows how a Task Record is shaped.
+
+**Decision:** a fourth path, at all three layers. Pure `draftCanonicalLedgerImport`
+(task-materialize.ts) plans the import; `TaskManagerStore.importCanonicalLedger` applies it in
+ONE transaction on both implementations; `taskManager.importCanonicalLedger` takes the
+projection and maps each `recordId` to a deterministic uuid. The rule that separates it from
+intake is one line: **an imported Task lands at the status the ledger states.** Everything else
+intake guarantees is kept — dot-paths recomputed rather than trusted from the payload, and the
+non-goal `in_progress` exit-test invariant still enforced (an entry that would breach it is
+admitted as `pending` and NAMED in the result, never silently downgraded).
+
+**Rationale:** Intake governance answers "should this be in the queue at all", and for these
+rows that question was answered when they were written. Re-asking it 93 times is not more
+governance, it is a review queue nobody can clear. What actually needs guarding for an import
+is IDEMPOTENCE — `idempotentUuid(org:canonical-ledger:<recordId>)` means pressing the button
+twice re-states statuses instead of minting a second copy of the queue, which is asserted by
+the api test and confirmed by mutation (removing the existing-row check fails it).
+
+The payload is the committed **projection**, not the Markdown: `docs/TASKS.md` is a repository
+file the API has no path to in a packaged desktop build, `pending-work.generated.json` already
+ships in the web bundle, and re-parsing the document server-side would put a second parser in
+the system that could disagree with the first. This also revives `pending-work.ts`, which had
+been dead code since `/pending-work` began redirecting to `/task-manager`.
+
+Not routed through the governed pipeline: the import invokes no Skill and no Agent. It is a
+Human writing Task Records in their own Organization — precisely what `taskManager.create`
+already permits directly, without a pipeline proposal.
+
+**Alternatives rejected:**
+- *Create-then-transition.* Would still stage 93 impact-fit proposals in the store, which then
+  have to be vetoed or expired. A path whose cleanup is larger than its work.
+- *Overwriting title/path/parent on re-import.* Re-import updates STATUS only. Moving a Task
+  somebody re-parented in the app back to where a text file thinks it belongs is exactly the
+  drift `proposeProjectionReconcile` exists to negotiate; an importer must not do it unasked.
+- *Guessing a status for an unmapped `canonicalStatus`.* Dropped instead. Importing a Task at a
+  status nobody wrote is a fabricated fact about the queue (AP-247).
+- *A `Horizon` Goal node inheriting a status from its children.* `pending` is stated flat: a
+  Horizon is a container, and "the Prototype Horizon is in progress" is a claim the ledger
+  never makes.
+
+**Consequences / follow-ups:** The Task Manager Page gains an **Import ledger** action, disabled
+with a stated reason when the API transport is not configured. Running it creates 7 Horizon Goal
+nodes over 87 Tasks at their canonical statuses. **Not done:** no automatic re-import — the
+ledger changes in git and the Database learns about it only when someone presses the button;
+and the import has NOT been run against a live API in a browser, only through the api-level
+caller in tests. Dependency edges are also not imported: `Dependencies` is canonical prose that
+often names non-task gates, and turning that into `depends_on` edges is its own decision.
+
+## ADR-272 — A filter that lives outside the Filter button is a second filter UI; and first-wins parsing makes a stray field block inert instead of authoritative (2026-09-01; attach: TASK-021, TASK-061; AP-177)
+
+**Context:** Three things, from one user report and one directive.
+
+1. *"Why do I see goals and candidates next to filter? I need only filter and filters to appear
+   inside it. Dont introduce any new UI elements."* The Task Manager Page put **Goals** and
+   **Candidates** in the toolbar's Custom-actions slot. Each applied exactly one row filter —
+   `isGoal` and `status`.
+2. While estimating tasks, the projection showed **TASK-037 wearing TASK-023's outcome**.
+3. *"add estimated time for each pending task."* No Task Record field carried effort.
+
+**Decision:** (1) Both buttons DELETED, not re-homed. `isGoal` and `status` are already columns
+in `TASK_SPEC`, and the kit's Filter popover already filters any column by `contains` — the
+capability did not move, it was already there. (2) `parseCanonicalTasks` keeps the FIRST value
+for a repeated field instead of the last, and a new `duplicateFieldIncidents` reports every
+duplicate with line numbers, which the generator prints as a warning. (3) `tasks.estimate`,
+TEXT and nullable (migration 0047), carried from the ledger's `- Estimate:` line through the
+parser, projection, import and a read-only Estimate column.
+
+**Rationale:** For (1), this kit answered the identical report on 2026-08-10 — *"Why are there 2
+filters, retain only the button"* — and the Page then reintroduced the same defect in a
+different shape. A scope toggle IS a filter; putting it outside the Filter control is a second
+filter UI whatever it is called. Deleting beat re-homing because there was nothing to re-home.
+
+For (2), the document defect is real: two orphaned runs of `- Field:` lines sit in TASKS.md with
+no `## ` heading and no `- ID:` of their own, so the scanner handed them to whichever task was
+open. Last-wins made a stray paste **authoritative** — one task's outcome, exit test, scope,
+evidence and approval displayed under another's title. First-wins makes it merely inert; the
+reporter makes it visible. The stray lines are NOT deleted: their intent cannot be recovered
+from the file (the line-656 block names TASK-027 pointing accuracy matching neither neighbour's
+stated dependencies), and deleting canon that cannot be attributed is the worse error. Filed in
+BUGS.md for a human.
+
+For (3), TEXT rather than numeric because the unit is part of the judgement a human wrote, and
+NULL because "nobody has estimated this" is not zero (AP-247). The 38 estimates are coarse
+sizing derived from each task's own stated Outcome and Prototype test — **judgement, not
+measurement**, and they say so here rather than pretending to a precision they do not have.
+
+**Alternatives rejected:**
+- *Moving Goals/Candidates into the Filter popover as preset chips.* That is a new UI element
+  inside Filter, which the report explicitly forbade, to duplicate a filter the popover already
+  expresses.
+- *Moving them into the 3-dots menu.* Same objection, plus it needs a new kit prop.
+- *Making the parser THROW on a duplicate field.* It would fail generation on the document as it
+  exists today, which turns a display defect into a blocked pipeline. Report, keep first, move on.
+- *Editing TASKS.md to delete the stray blocks.* See above — unattributable canon.
+- *A numeric estimate column with a unit column beside it.* Two fields to express one judgement,
+  and it invites a `0` where the honest answer is blank.
+
+**Consequences / follow-ups:** The Task Manager toolbar is now List → View → Search → Filter →
+Import ledger → 3-dots. **Import ledger stays in the Custom-actions slot** — it is a governed
+action, not a filter, which is what that slot's own contract describes; if it should move, that
+is a separate call. The smallest open work is now visible as data: TASK-082 and TASK-086 at
+0.5d, then TASK-037/081/085/088 at 1d. **Not done:** re-import does not re-state a CHANGED
+estimate (ADR-271 keeps re-import to status only), and the estimates have not been checked
+against any actual completion time — there is no calibration loop, and nothing claims one.
+
+## ADR-273 — Cross-repository UI rule intake is a triage with a budget, not a merge (2026-09-02)
+
+**Context:** TASK-085 held ~110 rule candidates harvested from three sibling repositories'
+UI conventions, staged in `docs/raw/ui-rule-intake-cross-repo-2026-08-30.md` with
+`status: proposed`. The exit test asks that no candidate sit undisposed and that a rejected
+candidate name why. The temptation is a merge: the candidates are mostly *sensible*, and a
+rulebook that contains every sensible rule feels stronger than one that does not.
+
+**Decision:** Adopt on evidence of live divergence, not on agreement. A candidate enters
+`docs/wiki/ui-rulebook.md` only when Bridge's own code diverges from it today, or when it names
+a decision Bridge has to make and has not written down. Everything else is disposed in the intake
+document with its reason and stays there. Thirteen of ~110 candidates outside Category 0 were
+adopted; the rest are COVERED (Bridge already states the rule), SCOPED (true of the sibling's
+product, not of Bridge), or REJECTED/DEFERRED with the reason named.
+
+**Why:** The rulebook is loaded on every UI task. Every rule in it is a recurring token cost and
+a thing a reader must hold; a hundred rules that describe what the code already does make the ten
+that describe a real constraint harder to find. That is precisely the failure the rulebook was
+written to end. A rule that costs attention and changes no behaviour is a net loss.
+
+**The finding the intake list did not predict: two gates enforcing unwritten rules.** Disposing CV
+Naturals' "one confirmation style, no native `confirm()`/`prompt()`", I first called it a rule against
+a defect Bridge does not have — reasoning from the repo's general strictness rather than from the
+repo. The grep says otherwise: `confirm`/`prompt`/`alert` appear **17 times across four files**
+(`SettingsPage.tsx` 8, `RelationshipPage.tsx` 7, `DealPilotPage.tsx` 1, `NewModuleDialog.tsx` 1). So I
+flipped it to ADOPTED as a new rule — also wrong. `check-ui-rules.mjs` already runs a `native-dialog`
+ratchet citing *"Part II C-23/C-30 — one confirmation style app-wide; no native confirm/prompt/alert"*,
+with all 17 sites in its baseline. The rule was live and ratcheting; **the clause the gate cites was
+not in the rulebook**. The same is true of `vh-not-dvh`. Both are now written as **C-23a** and
+**C-14a**, each naming its ratchet.
+
+A gate that enforces a rule the canon does not state is worse than an unenforced rule: it fails a
+build with a citation a reader cannot look up, so the argument in review is about the gate rather than
+about the interface. Three of the eight counted gates were in that state — `native-dialog`, `vh-not-dvh` and
+`overscroll-contain` — and only a candidate list from outside the repo surfaced them — which is the strongest argument for doing this intake at all.
+**An assumed grep is not evidence**, and neither is a rule name in an error string.
+
+**Alternatives rejected:**
+- *Merging the candidates wholesale.* Would roughly quintuple an always-loaded document to restate
+  what the code already does.
+- *Keeping the intake document as the second rulebook.* Two documents claiming UI canon is the
+  condition the UI Rulebook was created to end; `raw/` holds the disposition record, `wiki/` holds
+  the canon, and only one of them is canon.
+- *Fixing the 17 native-dialog call sites here.* Rewriting four files' confirmation flow is
+  TASK-073's retrofit scope. A triage that quietly grows into a refactor stops being a triage.
+- *Filing the 17 sites as a new BUG.* They are already tracked by a baseline that can only shrink.
+  A second ledger for the same debt is a second thing to keep in sync.
+
+**Consequences / follow-ups:** `docs/raw/ui-rulebook.md` gains C-23a and C-14a, each naming the
+ratchet that enforces it and, for C-23a, the 17 call sites that still break it. The rulebook records
+what is true — including that Bridge currently breaks a rule it holds — rather than a rule that
+pretends to be already satisfied. I then checked the other six counted gates for the same defect rather
+than leaving it as a known-unknown, and found a third: `overscroll-contain` also cited absent prose,
+now written into Part I §3. The remaining five (`hardcoded-hex`, `raw-tailwind-gray`, `sub-12px-type`,
+`bare-select`, `absolute-menu`) do have their clauses. **Not done:** nothing stops a fourth from
+appearing — the script's own `DOC_GATES` could assert that every `RULES` entry's citation resolves to
+text in the rulebook, turning this class of drift into a build failure. That is a gate change and
+belongs to whoever next touches the gate.
+
+## ADR-274 — A Module's name is an Organization's, and the Files folder follows it (2026-09-02)
+
+**Context:** AP-168 asked for rail Modules that can be hidden, reordered and renamed. ADR-262 landed
+all three, but the rename was localStorage only: `~/Documents/Bridge/<Org>/<label>/` is derived
+server-side, so after a rename the label the person read and the folder they opened disagreed. That
+is the unmet half of TASK-081's prototype test.
+
+**Decision:** `module_installations.display_name_override` (migration 0048, nullable TEXT) carries
+what one Organization calls a Module, and a new `modules.rename` mutation writes it **and moves the
+Files folder in the same call**. Three supporting calls:
+
+1. **The override lives on the installation row, not in the manifest.** `seedBuiltInModules` rewrites
+   a built-in Module's stored manifest on every boot whenever it differs from the shipped one, so a
+   rename written into the manifest is reverted at next start. `rail-module-presentation.ts` had
+   already written this down as the reason; this ADR only acts on it.
+2. **It is set on EVERY version row for that (Organization, Module), not on the `available` one.**
+   The name belongs to the Module in this Organization, not to whichever version is live today —
+   promote and rollback must not lose what someone called it.
+3. **One folder-label function, `moduleFolderLabel(installation)`.** The expression
+   `manifest.module.displayName ?? moduleName` was spelled out at ten call sites. Two sites that
+   disagree put a Module's Files in two directories and the one the user is not looking at reads as
+   empty — a silent loss shaped like success. The override could not be added safely until that was
+   one function, so it became one first.
+
+**Why a folder move and not a redirect:** the folder holds the owner's own documents and they open
+it in Finder. A Module labelled Pipeline whose documents sit in `DealManager/` is a lie told by the
+filesystem. `renameModuleFolder` reuses `adoptRenamedModuleFolder`'s conservative shape exactly —
+it acts only when the source is a real directory and the destination does not exist, so it can never
+merge or overwrite, and re-running is a no-op.
+
+**The judgement call, stated plainly:** when a folder already sits at the new name, the rename
+**still happens** and the move does not. Both directories are left intact and the mutation returns
+`destination-exists` rather than throwing. Refusing to rename a Module because a directory is in the
+way is the tail wagging the dog: a label is recoverable by renaming again, a merged directory is not.
+
+**Not governed through propose/decide:** this is presentation plus a move of the caller's own
+directory inside their own Organization — the same authority `modules.addFile` already writes files
+under. Membership is the gate. Routing a label change through the pipeline would put a human approval
+in front of an action the human just performed.
+
+**Alternatives rejected:**
+- *A per-Organization settings JSON blob.* No migration, but the label would then be invisible to
+  `modules.list` and to every server-side Files call, which is the whole problem.
+- *A symlink from the old folder name to the new.* Two paths to one directory, and Finder shows the
+  old name forever.
+- *Refusing the rename when the folder cannot move.* See above.
+- *Keeping the rename client-only and relabelling the folder lazily on next Files read.* That is
+  `adoptRenamedModuleFolder` generalized to user input — a rename carried by a table of guesses,
+  performed by whoever happens to open Files first.
+
+**Consequences / follow-ups:** the rail's localStorage `names` map is now an optimistic echo, not the
+source of truth — `modules.list` returns the durable label. A failed `modules.rename` leaves the local
+echo in place and logs; the two disagree until the next successful rename, which is the honest
+trade against discarding the person's typing to report a network error. **Not done:** renaming an
+Organization and a Module concurrently is serialized by `withLockedOrganizationFiles` but has no test;
+and the mobile drawer still has no rename affordance (desktop rail only), which ADR-262 already
+recorded.
+
+## ADR-275 — Rung 4 derives structure; it does not generate it (2026-09-02)
+
+**Context:** K9's rung 4 (TASK-053) asks the Capability Builder to propose Databases from K3's
+entities and claims, with a north-star test the task wrote for itself: *given only observation data
+from ETA-style work, propose a Deals/Sources/Theses-shaped module without being told about
+DealPilot.* Rung 3 was declared done in ADR-231 and is wired end to end
+(`learning.promotions.drafts.proposeSteps` → `builder.ts` → the Settings drafts card); rung 4 was
+the unbuilt half.
+
+**Decision:** rung 4 is a **deterministic derivation over the substrate**, `draftStructureFromClaims`
+in `packages/core/src/learning/builder.ts`, in exactly rung 3's posture: pure, refusal-first, evidence
+attached to every claim it makes. A field whose values repeat across enough entities is a type
+*discriminator*; grouping by its value gives the Databases, and the fields a group's members share
+give the columns, each carrying the support count and the claim ids it was counted from.
+
+**Why not a model call.** The north-star test is one a language model could pass without reading the
+data — "these look like deals" is domain recognition, and it would produce a confident Deals table
+from three rows of anything vaguely commercial. A derivation cannot cheat that way: every column it
+proposes is a field it counted, every name it gives is a value it read back. That is also what makes
+the proposal auditable — the test asserts that each column's `sampleClaimIds` are live claim ids, so
+the evidence *is* the proposal rather than a note attached to it.
+
+**Naming, and the refusal to invent one.** When no discriminator exists the shape is still proposed,
+grouped by field signature, with `name: null`. AP-247's "unknown is first-class" is load-bearing here:
+a group whose columns are `stage`, `ebitda`, `origin` looks like a Deals table to a reader, and
+writing "Deals" on it would be the model-shaped failure this ADR is avoiding, done by hand. The
+`basis` field says which of the two ways a proposal was reached, so a reader knows how sceptical to be.
+
+**Safety.** Red-tier claim content is classified and dropped BEFORE counting, so it cannot become a
+column, cannot become a discriminator, and cannot even move a support count — K3's never-propose
+invariant, enforced at the read as well as at proposal time, because a claim that predates a
+classifier change must not become a column on the strength of having once passed. The count of what
+was excluded is reported: a silently smaller proposal is worse than a smaller one that says why.
+Both halves are mutation-checked (disabling the filter turns two tests RED).
+
+**What it deliberately does not emit.** Views and Pages. ADR-180 settled that a Page is *derived*
+from a Database and that every landing section already offers the standard views — so listing them
+would propose things that already follow by construction and invite them to drift. Blueprints are
+rung 5. Nothing is materialized either: `learning.claims.proposeStructure` is a **query**. Creating a
+proposed Database is a schema change and belongs to the governed pipeline with its own approval.
+
+**Alternatives rejected:**
+- *Clustering by entity `kind`.* The kinds are `person | community | task | topic`; ETA deals,
+  sources and theses are all `topic`. Kind is the substrate's vocabulary, not the person's.
+- *A model call constrained by the per-class input packs (TASK-042).* The packs are real canon now,
+  but they define what a Builder is given when it *generates*; rung 4 does not generate. Reaching for
+  them here would have made the north-star test unfalsifiable.
+- *Refusing when an existing Module already covers the shape.* The north-star test requires the
+  Builder to reach a deal-shaped structure while DealPilot exists — checking installed Modules first
+  would make the test pass for the wrong reason, and "already configured is not a refusal".
+- *Emitting a `CREATE TABLE`-shaped payload.* A proposal that is one click from a migration invites
+  the click. The proposal names shapes and counts; someone still has to decide.
+
+**Consequences / follow-ups:** the Second Brain gains a "Show the shape of what Bridge has observed"
+control that renders the proposal or the refusal verbatim, beside the claims it was derived from.
+**Not done, and stated plainly: neither rung 3 nor rung 4 attributes its work to an Agent Run.**
+`CAPABILITY_BUILDER_AGENT` exists in `wiring.ts` with a role, a scope and its governance seeded, but
+both Builder lanes run as the requesting human, not as that Agent — so the Builder's own work leaves
+no attributable Run. That is a real gap against "only an attributable allowed Agent invokes Skills",
+it is the same in both rungs, and fixing it in rung 4 alone would make the ladder inconsistent. It
+wants its own task. Also not done: materialization of a proposed Database, and any use of the
+per-class input packs — both belong to rung 5's side of the K10 gate.
+
+## ADR-276 — Attribution has to be an authority, or it is a label (2026-09-02)
+
+**Context:** TASK-094, opened the same day out of ADR-275. `CAPABILITY_BUILDER_AGENT` had existed
+since the Builder ladder began: an agent identity, `role-capability-builder`, a `signal:write` scope,
+and `ensureCapabilityBuilderGovernance` seeded in both the hosted and local wirings. Nothing
+referenced any of it. Both Builder lanes — rung 3's `proposeSteps`, rung 4's `proposeStructure` —
+executed as whichever human pressed the button.
+
+**Decision:** wrap both lanes in `runAsCapabilityBuilder`, which does exactly two things before the
+derivation runs and one after: resolves authority for the Builder as actor on behalf of the
+requesting human, opens an Agent Run under the Builder's agent id, and finishes that Run with what
+was derived (or `halted` with the error). A new `learning.builderRuns` lane reads them back.
+
+**Why the authority check and not just the Run.** A Run alone would have satisfied the letter of
+"attributable" and none of its point. If narrowing the Builder's scope leaves the lane working, the
+agent identity is decoration: you could not stop the Builder, only rename what it had done. So the
+test that matters is the negative one — set the Builder's scope to `[]` and the lane must fail closed
+with the human's own authority untouched. It is mutation-checked: deleting the guard turns that test
+RED while the other three stay green, which is precisely the failure mode being guarded against.
+
+**Why no propose/decide gate.** Drafting is not the governed moment in either rung — activation is
+(rung 3) and materialization would be (rung 4). A human approval in front of "show me what you
+derived" would gate the explanation rather than the action, and would train people to approve without
+reading, which is the habit every governance surface here is built to avoid.
+
+**A refusal is a completed Run, not a halted one.** The Builder declining because the evidence does
+not support a proposal is the Builder working correctly; `halted` is reserved for a derivation that
+threw. Conflating them would make "the Builder refused" indistinguishable from "the Builder broke"
+in the one place someone looks to tell them apart.
+
+**Alternatives rejected:**
+- *Recording the Run but keeping the human as actor.* That is a log line, not attribution.
+- *Giving the Builder its own Module so its Runs appear in `modules.recentRuns`.* The Builder is an
+  Agent, not a Module; inventing a Module to borrow a list view would put a fiction in the installed
+  Modules list, which is clickable and real.
+- *Attributing rung 4 only.* The gap is identical in rung 3 and fixing one would leave the ladder
+  telling two stories about who acts.
+
+**Consequences / follow-ups:** both lanes now return their `runId`, and both surfaces show it, so a
+person can point at what the Agent did. `automation_runs` carries a composite FK to `automations`, so
+the Builder needed a real Automation row — `ensureTaskManagerAutomation` gained an optional Goal type
+rather than growing a near-duplicate. **Not done:** the Builder's Runs carry no taint label (the
+recorder supports one), and no surface lists them yet — `learning.builderRuns` exists and is tested,
+but nothing in the web app calls it. Naming that plainly: the data is queryable, the screen is not
+built.
+## ADR-277 — JobPilot deadlines are curated data, not scraped; the column exists so the curation has somewhere to land
+
+**Date**: 2026-09-02 · **Status**: accepted · **Approval**: AP-182
 
 **Context.** A request to "pull all latest MBA jobs with deadline in September" met two facts. First, `jobpilot_jobs` had no deadline column at all. Second — and this is the load-bearing one — the Greenhouse, Ashby and Lever JSON feeds `@bridge/jobpilot`'s connectors are built against carry no deadline field, and the employers that run structured full-time MBA hiring are not on those ATSs: Microsoft, Apple and Google all return 404 on both the Greenhouse and Lever board APIs (probed directly, 2026-09-02). The deadlines live on firm recruiting pages and in school systems (12Twenty, Symplicity, Handshake) that have no public API and whose terms forbid scraping.
 
-**Decision.** Add `deadline` as a nullable pg `date` on `jobpilot_jobs` (migration 0044) and make its ONLY producer a curated data module, `@bridge/jobpilot`'s `mba-targets.ts`. Unverified deadlines are `null` with a `deadlineNote` stating what is known; `targetsClosingIn` matches verified dates only.
+**Decision.** Add `deadline` as a nullable pg `date` on `jobpilot_jobs` (migration 0047) and make its ONLY producer a curated data module, `@bridge/jobpilot`'s `mba-targets.ts`. Unverified deadlines are `null` with a `deadlineNote` stating what is known; `targetsClosingIn` matches verified dates only.
 
 **Rejected alternatives.** (a) *A deadline scraper.* There is nothing to scrape — the field does not exist in the feeds, and the systems that do hold it are access-controlled. (b) *Infer a deadline from `updated_at` plus a typical window.* This manufactures a figure with a false provenance, exactly what ADR-247 forbids; a candidate who misses a real close date because of an inferred one is harmed by the guess. (c) *Store the deadline as a timestamp.* "Applications close September 11" has no defensible instant; `date` says what is actually known. (d) *Skip the column and keep the list in a document.* Then the tracker cannot sort or filter by the one attribute that orders the work.
 
 **Consequences.** The column is null for every ATS-sourced row, permanently — that is correct, not a gap to backfill. A deadline question answered against this table returns few rows, and `unverifiedTargets()` exists so the thin result is never read as a thin opportunity set. The curated list is a maintenance cost with no automated refresh: rows carry a `source` string with a retrieval date so staleness is auditable, and a stale row is a wrong answer of the most expensive kind. `kind: "date"` on the table spec makes a calendar view over jobs a config change.
 
-## ADR-266 — JobPilot sources: a catalog in code, toggles in rows, and one sweep both the button and the schedule call
+## ADR-278 — JobPilot sources: a catalog in code, toggles in rows, and one sweep both the button and the schedule call
 
-**Date**: 2026-09-02 · **Status**: accepted · **Approval**: AP-173
+**Date**: 2026-09-02 · **Status**: accepted · **Approval**: AP-183
 
 **Context.** JobPilot shipped as pure logic with no way to acquire a job. `connectors.ts` built Greenhouse/Ashby/Lever connectors around an injected `fetcher`, and nothing in the repository ever supplied one — a grep for `createGreenhouseConnector` outside `src/` and `test/` returned zero hits, so those connectors had only ever run against test doubles. The Module declared one page and one manual Automation.
 
-**Decision.** Four parts. (a) `fetchers.ts` supplies the real HTTP half on global `fetch` — no HTTP dependency for three GETs and a JSON parse. (b) The source CATALOG is code (`sources.ts`); only per-Organization toggle state and last-run results are rows (`jobpilot_sources`, migration 0045). (c) `selectPostings` filters a sweep through the SAME `scoreJobFit` the manual create path uses. (d) The sweep body lives in `apps/api/src/jobpilot-sweep.ts`, called by both the `jobpilot.sources.run` procedure and the registered Skill the scheduled Automation executes.
+**Decision.** Four parts. (a) `fetchers.ts` supplies the real HTTP half on global `fetch` — no HTTP dependency for three GETs and a JSON parse. (b) The source CATALOG is code (`sources.ts`); only per-Organization toggle state and last-run results are rows (`jobpilot_sources`, migration 0048). (c) `selectPostings` filters a sweep through the SAME `scoreJobFit` the manual create path uses. (d) The sweep body lives in `apps/api/src/jobpilot-sweep.ts`, called by both the `jobpilot.sources.run` procedure and the registered Skill the scheduled Automation executes.
 
 **Rejected alternatives.** (a) *Catalog as seeded rows.* Every added board would need a migration, and code and rows could disagree about what exists. (b) *Persist everything a board returns, filter in the UI.* A live probe returned 3,818 open postings across 15 boards; storing them all makes an unreadable tracker, and re-storing them every six hours makes it worse. (c) *A separate ingest filter.* A second scoring rule can silently disagree with the score the UI shows; reusing `scoreJobFit` means one rule. (d) *Let the manual button and the schedule keep their own copies of the sweep.* This is how a manual refresh drifts from what the schedule actually does — the shared function exists precisely to make that impossible. (e) *Leave the manifest's `trigger: "Every 6 hours"` as prose.* It would never have fired: JobPilot's Agent had no runtime id and no `plane`, so wiring.ts's materializer skipped the Automation. A declared schedule that silently never runs is the defect ADR-179 built the scheduler to end, so the Agent gained an identity and the cadence became `schedule: {everyMinutes: 360}` data.
 

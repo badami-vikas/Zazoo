@@ -23,6 +23,10 @@ export const DEALPILOT_SOURCE_AUTOMATION_KEY = "deal-pilot.source-intake";
 export const LEARNING_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d2";
 export const INTERNAL_STRATEGIST_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d3";
 export const GOVERNANCE_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d4";
+/** The Builder Agent's runtime identity (BA0). Every primitive call and every
+ * Run receipt is attributed to it, and the ledger's actor column is a uuid —
+ * an actor named "builder:<module>" is not an actor the ledger can hold. */
+export const BUILDER_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d7";
 /**
  * Chief of Staff's governed runtime identity (ADR-201).
  *
@@ -130,7 +134,7 @@ export const DEVPILOT_ANALYZE_ISSUE_AUTOMATION_KEY = "devpilot.analyze-issue";
  * declared schedule that silently never fires is the exact defect ADR-179
  * built the scheduler to end. Continuing the id sequence after DevPilot. */
 export const JOBPILOT_APPLICATION_AGENT_ID = "b0000000-0000-4000-a000-00000000010f";
-export const JOBPILOT_SOURCE_SWEEP_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000110";
+export const JOBPILOT_SOURCE_SWEEP_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000114";
 export const JOBPILOT_SOURCE_SWEEP_AUTOMATION_KEY = "job-pilot.source-sweep";
 
 export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAutomationId: string): string | undefined {
