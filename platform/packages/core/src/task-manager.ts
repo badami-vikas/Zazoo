@@ -921,7 +921,7 @@ export interface TaskManagerStore {
   removeDependency(organizationId: string, dependencyId: string): Promise<boolean>;
   get(organizationId: string, taskId: string): Promise<TaskRecord | null>;
   create(input: Omit<CreateTaskRecordInput, "id"> & { id?: string }, seam: TaskManagerIdClock): Promise<TaskCreateDraft>;
-  /** Import an already-decided ledger (ADR-267). NOT `create` in a loop: intake
+  /** Import an already-decided ledger (ADR-271). NOT `create` in a loop: intake
    * forces every Task after the first to `candidate` and stages an impact-fit
    * proposal, which would ask a Human to re-approve work the ledger says is
    * finished. One call so the whole import is one atomic act. */

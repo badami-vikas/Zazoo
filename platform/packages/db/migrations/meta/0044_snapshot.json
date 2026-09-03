@@ -1,5 +1,5 @@
 {
-  "id": "dff587d9-8758-4724-bfb6-15a5164d4a3c",
+  "id": "e50b8a97-f5e1-4826-9001-d725d97d5168",
   "prevId": "289dd98f-8464-4cea-a317-ceec1aae499d",
   "version": "7",
   "dialect": "postgresql",
@@ -571,12 +571,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "task_id": {
-          "name": "task_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "taint_label": {
           "name": "taint_label",
           "type": "jsonb",
@@ -585,29 +579,7 @@
           "default": "'{\"version\":1,\"trust\":\"unknown\",\"source\":\"unknown\",\"sensitivity\":\"unknown\",\"instructionRisk\":\"unknown\",\"originChain\":[{\"source\":\"unknown\",\"ref\":\"legacy-or-malformed\",\"hash\":\"sha256:eb8bf0d80db323992f6b634aab492b1e6d9e96a8e87a511c2a0db75ab929452c\",\"transform\":\"fail_closed\"}],\"originsTruncated\":false,\"provenanceHash\":\"sha256:185d587e26cad0f6d1e53466b52d19a13a36ddd3a7b8f6f979ac826acc0dca71\"}'::jsonb"
         }
       },
-      "indexes": {
-        "automation_runs_task_idx": {
-          "name": "automation_runs_task_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "task_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "automation_runs_organization_id_organizations_id_fk": {
           "name": "automation_runs_organization_id_organizations_id_fk",
@@ -1322,6 +1294,19 @@
           "primaryKey": false,
           "notNull": false
         },
+        "backend": {
+          "name": "backend",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'bridge'"
+        },
+        "backend_session_id": {
+          "name": "backend_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp (3) with time zone",
@@ -1431,6 +1416,14 @@
         "chat_threads_status_check": {
           "name": "chat_threads_status_check",
           "value": "\"chat_threads\".\"status\" IN ('active', 'archived')"
+        },
+        "chat_threads_backend_check": {
+          "name": "chat_threads_backend_check",
+          "value": "\"chat_threads\".\"backend\" IN ('bridge', 'claude_code')"
+        },
+        "chat_threads_backend_session_check": {
+          "name": "chat_threads_backend_session_check",
+          "value": "\"chat_threads\".\"backend_session_id\" IS NULL OR (\"chat_threads\".\"backend\" <> 'bridge' AND length(btrim(\"chat_threads\".\"backend_session_id\")) > 0)"
         },
         "chat_threads_plane_scope_check": {
           "name": "chat_threads_plane_scope_check",

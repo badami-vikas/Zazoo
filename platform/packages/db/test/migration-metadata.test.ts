@@ -30,8 +30,8 @@ test("Drizzle metadata is rebased through 0046 and generate is a deterministic n
     assert.deepEqual(last, {
       idx: 46,
       version: "7",
-      when: 1788384939899,
-      tag: "0046_module_display_name_override",
+      when: 1788394656841,
+      tag: "0046_merged_task_anchor_estimate_display_name",
       breakpoints: true,
     });
     assert.ok(
@@ -92,15 +92,15 @@ test("Drizzle metadata is rebased through 0046 and generate is a deterministic n
     );
     assert.ok(
       readdirSync(join(probeMigrations, "meta")).includes("0044_snapshot.json"),
-      "Automation Run Task-anchor snapshot must be tracked (ADR-265)",
+      "Chat backend snapshot must be tracked (TASK-090)",
     );
     assert.ok(
       readdirSync(join(probeMigrations, "meta")).includes("0045_snapshot.json"),
-      "Task estimate snapshot must be tracked (ADR-268)",
+      "Module-session snapshot must be tracked (TASK-093)",
     );
     assert.ok(
       readdirSync(join(probeMigrations, "meta")).includes("0046_snapshot.json"),
-      "Module display-name override snapshot must be tracked (TASK-081)",
+      "Run Task-anchor + Task estimate + Module display-name snapshot must be tracked (ADR-269/272, TASK-081)",
     );
 
     const generated = spawnSync(
@@ -136,13 +136,15 @@ test("Drizzle metadata is rebased through 0046 and generate is a deterministic n
       // schema shape is byte-identical either side of it. 0041 adds
       // `devpilot_repos`/`devpilot_pulls`/`devpilot_issues` (TASK-068); 0042
       // adds the Academics/Events tables (TASK-069/070); 0043 adds
-      // `jobpilot_candidate_profiles` (TASK-076); 0044 adds
-      // `automation_runs.task_id` (ADR-265); 0045 adds `tasks.estimate`
-      // (ADR-268); 0046 adds `module_installations.display_name_override`
-      // (TASK-081) — all real shape changes. 0044's
-      // composite FK to `tasks` is deliberately NOT in schema.ts (LAYER 4 is
-      // defined before LAYER 8, so naming `tasks` there is a TDZ crash) and so
-      // is absent from its snapshot too — which is why generate stays a no-op.
+      // `jobpilot_candidate_profiles` (TASK-076); 0044 adds `chat_threads`'
+      // backend columns (TASK-090); 0045 adds its
+      // Module-session columns (TASK-093); 0046 adds `automation_runs.task_id`
+      // (ADR-269), `tasks.estimate` (ADR-272) and
+      // `module_installations.display_name_override` (TASK-081) — all real
+      // shape changes. 0046's composite FK to `tasks` is deliberately NOT in
+      // schema.ts (LAYER 4 is defined before LAYER 8, so naming `tasks` there
+      // is a TDZ crash) and so is absent from its snapshot too — which is why
+      // generate stays a no-op.
       !readdirSync(probeMigrations).some((name) => /^0047_.*\.sql$/.test(name)),
       "no-op generation must not allocate another migration",
     );

@@ -447,6 +447,24 @@ export const chatThreads = pgTable(
     dataScope: text("data_scope").notNull(),
     status: text("status").notNull().default("active"),
     title: text("title"),
+    /** Which ChatBackend answers this thread's turns. "bridge" is the built-in
+     * ModelProvider path every pre-existing row carries by default; an agentic
+     * backend (Claude Code) runs its own tool loop instead. */
+    backend: text("backend").notNull().default("bridge"),
+    /** The backend's OWN resume handle, opaque to Bridge. Null for "bridge",
+     * null on an agentic thread until its first turn completes, and cleared
+     * whenever the thread's backend changes (the new engine has no session of
+     * the old one's to resume). */
+    backendSessionId: text("backend_session_id"),
+    /** The Module this conversation belongs to. A Module reopens its own live
+     * thread rather than a blank one, the way a coding agent resumes the
+     * session bound to a project. Null for a thread started outside any
+     * Module (the standalone Chat page). */
+    moduleName: text("module_name"),
+    /** Additional Modules pulled into this same conversation. `moduleName` is
+     * where the thread lives; these are the others it may also reason over —
+     * one session, several Modules, like attaching a second project. */
+    attachedModules: jsonb("attached_modules").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
       .notNull()
       .defaultNow(),
@@ -458,6 +476,23 @@ export const chatThreads = pgTable(
     check("chat_threads_plane_check", sql`${t.plane} IN ('local', 'cloud')`),
     check("chat_threads_data_scope_check", sql`${t.dataScope} IN ('private', 'public')`),
     check("chat_threads_status_check", sql`${t.status} IN ('active', 'archived')`),
+    check("chat_threads_backend_check", sql`${t.backend} IN ('bridge', 'claude_code')`),
+    check(
+      "chat_threads_module_name_check",
+      sql`${t.moduleName} IS NULL OR length(btrim(${t.moduleName})) > 0`,
+    ),
+    check("chat_threads_attached_modules_check", sql`jsonb_typeof(${t.attachedModules}) = 'array'`),
+    index("chat_threads_module_live_idx").on(
+      t.organizationId,
+      t.ownerUserId,
+      t.moduleName,
+      t.status,
+      t.updatedAt,
+    ),
+    check(
+      "chat_threads_backend_session_check",
+      sql`${t.backendSessionId} IS NULL OR (${t.backend} <> 'bridge' AND length(btrim(${t.backendSessionId})) > 0)`,
+    ),
     check(
       "chat_threads_plane_scope_check",
       sql`(${t.plane} = 'local' AND ${t.dataScope} = 'private')

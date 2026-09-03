@@ -543,7 +543,7 @@ export function applyApprovedRoutingProposal(input: {
 }
 
 // =====================================================================
-// Canonical ledger import (ADR-267).
+// Canonical ledger import (ADR-271).
 //
 // `draftTaskCreate` forces every Task after the first to `status: "candidate"`
 // and stages an impact-fit proposal. That is correct for INTAKE — a new idea

@@ -5933,7 +5933,112 @@ found already conformant and the ratchet is updated to say so.
 - **Every touch clause of TASK-086 is unverified and cannot be verified here.** The reducer is proven; what is not proven is that the DOM fires those events at the right moments — `onTouchStart` reaching `<tr>` through the cells, the 500ms hold, the 10px drift tolerance separating a scroll from a hold, and whether swallowing the React `onClick` suffices on iOS Safari. A human on a real device is required before the row can be signed off.
 - **A red test is evidence only when it was invoked the way the project invokes it.** A failure reported this session as a pre-existing `avatar-liveness` defect was my own bad command — the suite needs `--import ./test/ts-resolve.mjs`, and run correctly it is 232/232. The BUGS entry is withdrawn in place rather than deleted. "I ran the tests" is worth nothing without the command that ran them.
 
-## ADR-265 — An Automation Run records the Task it advanced, and the Chat classifier captures directives, not only the phrase "create a Task" (2026-09-01; attach: TASK-021; AP-172)
+## ADR-265 — Chat gains a swappable BACKEND axis beside its plane axis, and Claude Code is the first agentic one (2026-09-02; attach: TASK-090, TASK-091; AP-172)
+
+**Decision.**
+
+(a) **A Chat thread now names a `backend` as well as a `plane`.** `plane` says where the data may go; `backend` says which engine answers. The two are independent questions that Bridge had collapsed into one, because until now there was exactly one engine: assemble a prompt, call `ModelProvider.complete()`, parse an envelope. `ChatBackend` (`packages/core/src/chat-backend.ts`) is the wider port; `"bridge"` is the built-in path every pre-existing thread reads as, and every new backend is a registry row plus an option in the model menu. Codex and Cursor need no router, store or UI change to appear.
+
+(b) **An agentic backend declares its own residency, and the thread follows the backend rather than the caller's plane hint.** Claude Code runs a subprocess on the user's machine but ships file contents to Anthropic's hosted models, so it is `plane: "cloud"`. `chat.thread.create` overrides the requested plane with the backend's. Getting this wrong in the permissive direction would file cloud egress under a Local Plane thread — the one residency mislabelling the model cannot absorb.
+
+(c) **The agentic path keeps the governed turn lifecycle and drops the parts that would be false.** Same turn states, same taint label, same routing-decision ledger row, same cancellation. No assistant envelope (the backend never saw the schema; the reply is wrapped as a plain answer) and **no cloud grant** — a grant records consent to an exact disclosed context, and the context an external agent chooses is not Bridge's to disclose. Recording one anyway would be a fabricated consent record, which is worse than none.
+
+(d) **Claude sign-in is the public OAuth PKCE flow, driven from Bridge's UI, with tokens in the Local Plane credential vault.** Ported from myzazoo's `src/oauth.ts` at the user's direction. The browser authenticates; Bridge exchanges the pasted `code#state`; `SourceCredentialVault` (the ADR-181 mechanism model-provider keys already use) holds the token set. `CLAUDE_CODE_OAUTH_TOKEN` in the environment still wins, and an existing `~/.claude` login on the machine remains a working fallback — reported as such rather than hidden.
+
+**Rejected alternatives.**
+
+- *Make Claude Code a `ModelProvider`.* It does not complete prompts; it runs a tool loop and edits files. Forcing it through `complete()` would have meant either lying about what a completion is or widening that port for every adapter to pay for.
+- *A third `plane` value.* Residency has exactly two values by design (CLAUDE.md: "Local Plane and Cloud Plane are the only residency boundaries"). The new axis is orthogonal; adding a plane would have corrupted the one boundary the whole architecture rests on.
+- *Store the backend session id in the existing thread title/metadata.* A resume handle is state, and hiding state in a display field is how the next reader gets it wrong. It cost two columns and one migration (`0044_task_chat_backend.sql`), with a CHECK that only a non-`bridge` backend may hold one.
+- *An API key instead of OAuth.* Offered and declined by the user: the key path bills per token while the OAuth path uses the existing Claude subscription.
+- *Require sign-in before offering the option.* `readiness()` reports `ready: true, needsSignIn: true` when Bridge holds no token, because the machine's own `~/.claude` login may still work. Refusing to offer it would have been a wrong "unavailable" for the common case.
+
+**Consequences.**
+
+- The SDK is a dynamic import, so a deployment that never selects the backend never loads it, and the public-cloud build registers no agentic backend at all (it has neither the user's files nor the right to touch them).
+- `chat.model.status` gained a `backends[]` array whose readiness comes from each backend rather than being inferred by the router — "needs sign-in" is reported by the thing that would actually fail.
+- The Avatar composer inherits the option for free: it renders the same `ChatView`.
+- **Not yet done:** the reply is capped at the 8k the turn column allows, and `changedPaths` from the backend is collected but not yet surfaced as turn refs. A long Claude Code session that edits twelve files reports prose, not a file list.
+
+## ADR-266 — The Builder Agent executes first and asks only on real risk, and the host executor is not a sandbox pretending to be one (2026-09-02; attach: TASK-092, TASK-093; AP-172)
+
+**Decision.**
+
+(a) **A Builder tool call resolves to one of three outcomes, not two: execute, approve, refuse.** `decideBuilderPrimitive` (`packages/core/src/capability/primitive-policy.ts`) is the gate. Reads, writes and edits inside the Module's declared paths, and commands inside its allow list, run immediately with no human in the loop. Anything that leaves the machine or touches credentials/system state escalates to one Proposal through the existing pipeline. A short absolute list — push, merge, rebase, `reset --hard`, checking out main, `rm -rf /`, `sudo` and friends — is refused and cannot be unlocked by any Module policy or any human approval. User directive, verbatim: *"I want governance but not at cost of execution. Seek approval only if high risk task, else lets have exectuion first approach."*
+
+(b) **The refuse list is scoped to reviewability, not to danger.** The question each entry answers is not "could this break something" but "would this end the user's ability to see and undo what the agent did". An agent that can `git push` has already shipped; an agent that can `rm -rf /` has already destroyed. Everything between those and the ordinary case is allow-list or ask — which is what makes execution-first safe rather than merely fast.
+
+(c) **`HostPrimitiveExecutor` (`apps/api/src/builder/primitive-executor.ts`) executes on the host and says so.** It declares `isolation: "host-process"`, is deliberately not assignable to `SandboxProvider`, and carries no `isolationTier` field, so code shopping for a sandbox cannot accidentally accept it. ADR-027's container/microVM requirement is untouched for what it was written about — untrusted capability bodies from Commons, imports, or Builder-generated code — and that adapter remains BA0's largest unbuilt piece.
+
+(d) **The Bridge-native loop drives tools through constrained JSON on the existing `ModelProvider` port.** One action per step, named stop reasons only, and a call that needs approval halts the loop rather than letting the model narrate work that never happened.
+
+**Rejected alternatives.**
+
+- *Propose everything (the roadmap's implicit posture).* Rejected by the user on cost-of-execution grounds, and independently by the roadmap's own `governance_fatigue` risk: interrupting every build trains reflexive approval, which is worse than no gate because it looks like one.
+- *Run the Builder's own shell inside a container to satisfy ADR-027 literally.* The Builder works in the user's own folder on the user's own machine at their explicit request; a container there isolates the agent from the files it was asked to edit. The sibling myzazoo implementation makes the same call and has run that way for months. What the container is genuinely for is untrusted bodies, and that requirement is preserved rather than diluted.
+- *Declare `HostPrimitiveExecutor` a `SandboxProvider` with a new `"host-process"` tier.* One added enum value and every existing isolation check silently starts accepting the host. The type must refuse it, not rank it.
+- *Native provider tool-calling for the loop.* Would have meant tool plumbing in every `ModelProvider` adapter, including local llama.cpp. Constrained JSON gets the same behaviour from every provider that honours `responseFormat`, with no port change.
+- *Retry an unparseable action.* A provider that cannot honour the schema will not honour it on the second ask, and proving that costs another call.
+
+**Consequences.**
+
+- Command segmentation splits on `&&`, `||`, `;` and `|`, so a denied command cannot ride behind an allowed one. A separator inside a quoted string over-segments and escalates a legitimate command — a false approval prompt, never a false execution, which is the safe direction. Marked `ponytail:`; upgrade path is a real shell-word parser.
+- The spawned shell gets a minimal env (PATH/HOME/LANG only), so a build cannot read the API process's secrets out of `process.env`. Tested.
+- Every call is audited — executed, escalated and refused alike — with the target and a size, never file content.
+- ~~**Not yet done:**~~ CLOSED the same day by ADR-268: `runModuleBuilder` wires the audit hook to the immutable ledger and adds the per-Run cost receipt.
+
+## ADR-267 — The conversation belongs to Bridge, not to the model: switching engines keeps the thread, and a Module reopens its own session (2026-09-02; attach: TASK-093; AP-173)
+
+**Decision.**
+
+(a) **Changing the model repoints the LIVE thread; it does not start a new one.** `chat.thread.setBackend` updates the thread's `backend` in place and every turn stays. This reverses the behaviour Chat has had since the plane selector shipped — where picking Local or Cloud called `newChat` and silently discarded the conversation. User directive, verbatim: *"the chat should remain consistent since Bridge is managing context and should direct the chat to a given model and all models remain active in backend for quick swap. Currently the chat clears when I switch models."*
+
+(b) **Bridge hands the incoming engine what was already said.** A backend that takes over mid-conversation has no session of its own to resume, so `priorTurnsTranscript` renders the recent completed turns and prefixes them to the first message. The user's own words are carried verbatim — a paraphrase would put words in their mouth — while assistant turns are truncated, because what matters is what was decided, not every word of how it was said. Bounded at 20 turns / 12k chars so a long thread cannot exhaust the receiving agent's context on turn one.
+
+(c) **Crossing planes relabels the thread's stored turns, and the user chose to do it without a prompt.** Switching a private Local thread onto Claude Code makes it `cloud`/`public`, which exports private content to Anthropic. Offered three handlings — consent once per thread, carry silently, or carry a summary — the user chose **carry silently** (2026-09-02). Recorded here rather than left implicit: this is a deliberate, user-directed removal of a visible privacy boundary in a single-user pre-launch product, and the reason it is defensible is ownership plus scale, neither of which survives a second user. **The store still records the switch**; what was removed is the prompt, not the audit trail. Revisit trigger: the first non-owner user of a Bridge instance.
+
+(d) **A deployment that stores the two planes separately refuses the move rather than faking it.** `ResidencyRoutingChatStore` throws when the plane would change, because relabelling a thread whose rows live in the other physical store would strand them. The desktop deployment has one store, so the switch is an ordinary column update there and this path never fires; the UI falls back to starting a fresh thread on the chosen model, and says so.
+
+(e) **Each Module reopens its own live conversation.** `chat_threads` gains `module_name` and `attached_modules`; `chat.thread.forModule` resumes the Module's most recent active thread and creates one only on first visit. A session can attach further Modules — one conversation, several Modules — which is the Claude-Code-project analogy the user drew: *"Each modules continues from previous session that is associated with given module just like claude code sessions are associated with projects but I can add multiple projects to a given session."*
+
+**Rejected alternatives.**
+
+- *Keep `newChat` and make the model menu clearer.* The complaint was not that the clearing was surprising; it was that it was wrong. Bridge holds the context — that is the whole premise of the product — so which model answers is a setting on a conversation, not an identity of one.
+- *Copy the thread's rows into the other plane's store on a cross-plane switch.* A per-switch data migration with a partial-failure mode, to serve a deployment shape (split stores) that the desktop app does not have. Refusing loudly costs one error message and no correctness risk.
+- *A join table for attached Modules.* Two Modules per conversation, read on every thread load, never queried independently. A `jsonb` array with a `jsonb_typeof` check is the whole feature; the table can come when something needs to query by attachment.
+- *One global session with Module-tagged turns.* Offered and declined by the user in favour of one live thread per Module.
+
+**Consequences.**
+
+- `backend_session_id` is cleared on every switch — the handle belongs to the engine that stopped answering. The next turn therefore carries the transcript again, which is correct and slightly more expensive.
+- Switching back and forth repeatedly re-sends the carried transcript each time. Acceptable at one user; a per-thread "context already delivered to backend X" marker is the fix if it starts costing real tokens.
+- The Module-session columns are additive with defaults, so every existing thread reads as a standalone Chat with no attached Modules.
+- **Not yet wired:** nothing in the UI calls `openModuleChat` or `attachModule` yet — the hook exposes both and the Module surfaces still open the standalone Chat. The server half is done and tested; the surface half is TASK-093.
+
+## ADR-268 — Built is not shipped: the Builder Run seam, and a standing rule that wiring lands in the same run as the build (2026-09-02; attach: TASK-090/091/092/093; AP-174)
+
+**Context.** The 2026-09-02 morning wave landed four capable pieces that nothing called: `runBuilderLoop` and `HostPrimitiveExecutor` (reachable from no procedure), `openModuleChat`/`attachModule` (exposed by the hook, called by no surface), and the Claude Code backend's `changedPaths` (collected and dropped). Each was honestly recorded as NOT LANDED in its TASK, which is the right disclosure and the wrong outcome. The user's directive, verbatim: *"fix everything that built but is pending connection. Ensure proper wiring of everything's that built. Also ensure in future things are wiring in the same run after breing built"*.
+
+**Decision.**
+
+(a) **`builder.run` is the Builder Run seam** (`apps/api/src/builder/run.ts`). It resolves the Module's governance (declared manifest policy + Organization overlay) and asks it about the dotted action `builder.run` first, so a Module can refuse the Builder in the user's own stated words. It then constructs one `HostPrimitiveExecutor` per Run whose `audit` hook appends to the immutable ledger — executed, escalated and refused calls alike — and closes with a single receipt row carrying stop reason, model, model calls and token counts. `runBuilderLoop` now accumulates usage per step and per run, so that receipt is measured rather than declared. BA0's third exit criterion (*"every action has a ledger row with cost"*) is met; the container adapter and the CI containment suite are not, and stay open on TASK-092.
+
+**Rejected:** mapping the Module's dotted governance rules onto the executor's shell-glob allow/deny. They are two vocabularies — `builder.run` is an action selector, `git push*` is a command pattern — and collapsing them would silently reinterpret rules the user wrote for something else. The Run therefore passes an EMPTY `ModulePrimitivePolicy`, which per ADR-263 is neither default-deny nor default-approve: `ABSOLUTE_DENY` and `ALWAYS_APPROVE` still apply inside `decideBuilderPrimitive`, and everything else executes. A per-Module command policy, when it is wanted, gets its own editor and its own field.
+
+**Rejected:** an approval round-trip inside the loop. A call needing approval stops the Run and is reported. Resuming a paused agent loop across a human decision is a durable-workflow problem (BA4 owns it), and a sixty-line version of it would be a state machine that loses work on restart.
+
+(b) **The Builder Agent gets a runtime identity** — `BUILDER_AGENT_RUNTIME_ID` (`b0000000-0000-4000-a000-0000000000d7`), beside the Learning, Strategist, Governance and Chief of Staff ids. Forced by the ledger, correctly: `actor_id` is a uuid column, so an actor called `builder:task-manager` is not an actor the ledger can hold, and an unattributable agent is exactly what canon forbids. The same identity is used for the agentic chat backend's changed-files rows: an external engine editing the user's folder IS a builder acting, and which engine did it is named in `inputs.backend`.
+
+(c) **An agentic turn's changed files are a REF, not prose.** `changedPaths` from the Claude Code SDK appends one `chat_backend_changed_files` ledger row (paths and a count, never contents) referenced from the assistant turn. The model saying it edited twelve files is a claim; the ref is the receipt.
+
+(d) **Standing rule, added to CLAUDE.md:** *"Build and wire in the same run. Nothing is shipped until a real caller reaches it from the surface that needs it; otherwise record the gap in the TASK as NOT LANDED."* CLAUDE.md is always-loaded, so the rule was paid for by tightening eleven existing bullets rather than growing the budget; `check:agent-context` is green.
+
+**Consequences.**
+- A Builder Run is now recorded in practice, not only in principle — the gap ADR-266 closed with "**Not yet done**" is closed.
+- `builder.` is Local-Plane-only in `deployment-boundary.ts`: a Run writes files and executes commands in the user's own Bridge folder, which is not a public-shell action.
+- `builder.run` is a Human-only procedure (`assertHumanIdentity`). An Agent cannot start a Builder Run at all yet; Automations that want one will need their own approval row.
+- Evidence: `apps/api/test/builder-run.test.ts` (3 tests) — a file really written to disk with a costed receipt, `git push` refused mid-run and still on the ledger, and a Module policy denying `builder.run` refusing in the user's own words. Still no browser evidence for any of the 2026-09-02 wave, for the reason AP-172 records.
+## ADR-269 — An Automation Run records the Task it advanced, and the Chat classifier captures directives, not only the phrase "create a Task" (2026-09-01; attach: TASK-021; AP-175)
 
 **Context:** The user asked two questions of the running system — is every Task given to the
 Avatar recorded in Task Manager, and is every agentic Run and Automation routed through it —
@@ -5956,7 +6061,7 @@ and then directed that both be made true. The audit found three separate answers
 
 **Decision:** (a) `automation_runs.task_id`, nullable, composite-FK'd to
 `tasks (organization_id, id)`, projected at Run start from the FIRST step carrying a
-`goalTaskRef` (migration 0044). (b) The Chat output contract's classification rule changes
+`goalTaskRef` (migration 0046). (b) The Chat output contract's classification rule changes
 from *"if and only if the person explicitly asks to create a Task"* to *"whenever the person
 gives you work to do — an instruction, a request to build, change, fix, find, arrange, follow
 up on, or remember something, whether or not they use the word Task"*, with `clarification`
@@ -5991,7 +6096,7 @@ will now propose Tasks far more often, which is the point; if it over-captures i
 lever is the same sentence, not new machinery. `automationRunRecorder.start`'s no-op
 archive-sweep call deliberately passes no `taskId` — that Run advances nothing.
 
-## ADR-266 — The canonical Status line is a token plus a note, and the ledger's hierarchy is Horizon, not a guessed parent (2026-09-01; attach: TASK-021; AP-172)
+## ADR-270 — The canonical Status line is a token plus a note, and the ledger's hierarchy is Horizon, not a guessed parent (2026-09-01; attach: TASK-021; AP-175)
 
 **Context:** Asked to see all pending Tasks in Task Manager, updated with past completed and
 current pending work and following the parent hierarchy, the audit found the projection was
@@ -6036,9 +6141,9 @@ table — `projectCanonicalTasks` has had no caller but its own test. So the Tas
 still shows an empty/whatever-the-DB-holds queue, and the 94 records above are a correct
 projection with no consumer. The ingest is the remaining work and is not started.
 
-## ADR-267 — Importing an already-decided ledger is a different act from intake, and gets its own path (2026-09-01; attach: TASK-021; AP-172)
+## ADR-271 — Importing an already-decided ledger is a different act from intake, and gets its own path (2026-09-01; attach: TASK-021; AP-175)
 
-**Context:** ADR-266 left the Task Manager surface showing nothing: `TaskManagerPage` reads
+**Context:** ADR-270 left the Task Manager surface showing nothing: `TaskManagerPage` reads
 `taskManager.list`, and nothing put the repository's 87 canonical Tasks into the `tasks` table.
 Three existing paths looked like they should serve, and none does:
 
@@ -6099,7 +6204,7 @@ and the import has NOT been run against a live API in a browser, only through th
 caller in tests. Dependency edges are also not imported: `Dependencies` is canonical prose that
 often names non-task gates, and turning that into `depends_on` edges is its own decision.
 
-## ADR-268 — A filter that lives outside the Filter button is a second filter UI; and first-wins parsing makes a stray field block inert instead of authoritative (2026-09-01; attach: TASK-021, TASK-061; AP-174)
+## ADR-272 — A filter that lives outside the Filter button is a second filter UI; and first-wins parsing makes a stray field block inert instead of authoritative (2026-09-01; attach: TASK-021, TASK-061; AP-177)
 
 **Context:** Three things, from one user report and one directive.
 
@@ -6115,7 +6220,7 @@ in `TASK_SPEC`, and the kit's Filter popover already filters any column by `cont
 capability did not move, it was already there. (2) `parseCanonicalTasks` keeps the FIRST value
 for a repeated field instead of the last, and a new `duplicateFieldIncidents` reports every
 duplicate with line numbers, which the generator prints as a warning. (3) `tasks.estimate`,
-TEXT and nullable (migration 0045), carried from the ledger's `- Estimate:` line through the
+TEXT and nullable (migration 0047), carried from the ledger's `- Estimate:` line through the
 parser, projection, import and a read-only Estimate column.
 
 **Rationale:** For (1), this kit answered the identical report on 2026-08-10 — *"Why are there 2
@@ -6153,10 +6258,10 @@ Import ledger → 3-dots. **Import ledger stays in the Custom-actions slot** —
 action, not a filter, which is what that slot's own contract describes; if it should move, that
 is a separate call. The smallest open work is now visible as data: TASK-082 and TASK-086 at
 0.5d, then TASK-037/081/085/088 at 1d. **Not done:** re-import does not re-state a CHANGED
-estimate (ADR-267 keeps re-import to status only), and the estimates have not been checked
+estimate (ADR-271 keeps re-import to status only), and the estimates have not been checked
 against any actual completion time — there is no calibration loop, and nothing claims one.
 
-## ADR-269 — Cross-repository UI rule intake is a triage with a budget, not a merge (2026-09-02)
+## ADR-273 — Cross-repository UI rule intake is a triage with a budget, not a merge (2026-09-02)
 
 **Context:** TASK-085 held ~110 rule candidates harvested from three sibling repositories'
 UI conventions, staged in `docs/raw/ui-rule-intake-cross-repo-2026-08-30.md` with
@@ -6215,14 +6320,14 @@ appearing — the script's own `DOC_GATES` could assert that every `RULES` entry
 text in the rulebook, turning this class of drift into a build failure. That is a gate change and
 belongs to whoever next touches the gate.
 
-## ADR-270 — A Module's name is an Organization's, and the Files folder follows it (2026-09-02)
+## ADR-274 — A Module's name is an Organization's, and the Files folder follows it (2026-09-02)
 
 **Context:** AP-168 asked for rail Modules that can be hidden, reordered and renamed. ADR-262 landed
 all three, but the rename was localStorage only: `~/Documents/Bridge/<Org>/<label>/` is derived
 server-side, so after a rename the label the person read and the folder they opened disagreed. That
 is the unmet half of TASK-081's prototype test.
 
-**Decision:** `module_installations.display_name_override` (migration 0046, nullable TEXT) carries
+**Decision:** `module_installations.display_name_override` (migration 0048, nullable TEXT) carries
 what one Organization calls a Module, and a new `modules.rename` mutation writes it **and moves the
 Files folder in the same call**. Three supporting calls:
 
@@ -6273,7 +6378,7 @@ Organization and a Module concurrently is serialized by `withLockedOrganizationF
 and the mobile drawer still has no rename affordance (desktop rail only), which ADR-262 already
 recorded.
 
-## ADR-271 — Rung 4 derives structure; it does not generate it (2026-09-02)
+## ADR-275 — Rung 4 derives structure; it does not generate it (2026-09-02)
 
 **Context:** K9's rung 4 (TASK-053) asks the Capability Builder to propose Databases from K3's
 entities and claims, with a north-star test the task wrote for itself: *given only observation data
@@ -6336,9 +6441,9 @@ it is the same in both rungs, and fixing it in rung 4 alone would make the ladde
 wants its own task. Also not done: materialization of a proposed Database, and any use of the
 per-class input packs — both belong to rung 5's side of the K10 gate.
 
-## ADR-272 — Attribution has to be an authority, or it is a label (2026-09-02)
+## ADR-276 — Attribution has to be an authority, or it is a label (2026-09-02)
 
-**Context:** TASK-090, opened the same day out of ADR-271. `CAPABILITY_BUILDER_AGENT` had existed
+**Context:** TASK-094, opened the same day out of ADR-275. `CAPABILITY_BUILDER_AGENT` had existed
 since the Builder ladder began: an agent identity, `role-capability-builder`, a `signal:write` scope,
 and `ensureCapabilityBuilderGovernance` seeded in both the hosted and local wirings. Nothing
 referenced any of it. Both Builder lanes — rung 3's `proposeSteps`, rung 4's `proposeStructure` —

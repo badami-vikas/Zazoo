@@ -1,1 +1,0 @@
-ALTER TABLE "module_installations" ADD COLUMN "display_name_override" text;

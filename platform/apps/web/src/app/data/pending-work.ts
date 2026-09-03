@@ -118,7 +118,7 @@ export function addManualPendingWorkItem(current: PendingWorkEdits, title: strin
 }
 
 // =====================================================================
-// Canonical ledger -> Task Manager import payload (ADR-267).
+// Canonical ledger -> Task Manager import payload (ADR-271).
 //
 // The generated projection is the only thing the browser has: docs/TASKS.md is
 // a repository file, and the API has no path to it in a packaged desktop build.

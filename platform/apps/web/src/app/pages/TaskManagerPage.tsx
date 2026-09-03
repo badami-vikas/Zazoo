@@ -135,7 +135,7 @@ export function TaskManagerPage() {
     void load();
   }, []);
 
-  // ADR-267 — the repository's canonical ledger becomes real Task Records.
+  // ADR-271 — the repository's canonical ledger becomes real Task Records.
   // The payload is the committed projection that ships in this bundle; the
   // server derives one deterministic id per ledger row, so pressing this twice
   // re-states statuses instead of minting a second copy of the queue.

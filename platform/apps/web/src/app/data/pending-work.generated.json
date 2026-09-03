@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-02T23:57:45.121Z",
+  "generatedAt": "2026-09-03T00:20:09.012Z",
   "items": [
     {
       "id": "HORIZON-prototype",
@@ -100,6 +100,20 @@
       "rank": 7
     },
     {
+      "id": "HORIZON-living-software",
+      "title": "Living Software",
+      "isGoal": true,
+      "path": "8",
+      "level": 0,
+      "parentId": null,
+      "horizon": "Living Software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 0,
+      "status": "open",
+      "rank": 8
+    },
+    {
       "id": "TASK-026",
       "title": "TASK-026 — Governed persistent Chat Panel",
       "status": "completed",
@@ -138,7 +152,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 58,
-      "rank": 8
+      "rank": 9
     },
     {
       "id": "TASK-025",
@@ -173,7 +187,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 73,
-      "rank": 9
+      "rank": 10
     },
     {
       "id": "TASK-001",
@@ -211,7 +225,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 87,
-      "rank": 10
+      "rank": 11
     },
     {
       "id": "TASK-003",
@@ -248,7 +262,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 101,
-      "rank": 11
+      "rank": 12
     },
     {
       "id": "TASK-004",
@@ -283,7 +297,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 114,
-      "rank": 12
+      "rank": 13
     },
     {
       "id": "TASK-005",
@@ -320,7 +334,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 127,
-      "rank": 13
+      "rank": 14
     },
     {
       "id": "TASK-013",
@@ -360,7 +374,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 142,
-      "rank": 14
+      "rank": 15
     },
     {
       "id": "TASK-012",
@@ -407,7 +421,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 156,
-      "rank": 15
+      "rank": 16
     },
     {
       "id": "TASK-010",
@@ -465,7 +479,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 173,
-      "rank": 16
+      "rank": 17
     },
     {
       "id": "TASK-008",
@@ -510,7 +524,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 187,
-      "rank": 17
+      "rank": 18
     },
     {
       "id": "TASK-007",
@@ -552,7 +566,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 200,
-      "rank": 18
+      "rank": 19
     },
     {
       "id": "TASK-014",
@@ -592,7 +606,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 213,
-      "rank": 19
+      "rank": 20
     },
     {
       "id": "TASK-021",
@@ -633,7 +647,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 227,
-      "rank": 20
+      "rank": 21
     },
     {
       "id": "TASK-015",
@@ -673,7 +687,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 272,
-      "rank": 21
+      "rank": 22
     },
     {
       "id": "TASK-016",
@@ -708,7 +722,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 286,
-      "rank": 22
+      "rank": 23
     },
     {
       "id": "TASK-017",
@@ -749,7 +763,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 300,
-      "rank": 23
+      "rank": 24
     },
     {
       "id": "TASK-006",
@@ -785,7 +799,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 314,
-      "rank": 24
+      "rank": 25
     },
     {
       "id": "TASK-011",
@@ -818,7 +832,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 334,
-      "rank": 25
+      "rank": 26
     },
     {
       "id": "TASK-009",
@@ -857,7 +871,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 348,
-      "rank": 26
+      "rank": 27
     },
     {
       "id": "TASK-002",
@@ -896,7 +910,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 362,
-      "rank": 27
+      "rank": 28
     },
     {
       "id": "TASK-020",
@@ -932,7 +946,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 375,
-      "rank": 28
+      "rank": 29
     },
     {
       "id": "TASK-018",
@@ -974,7 +988,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 389,
-      "rank": 29
+      "rank": 30
     },
     {
       "id": "TASK-019",
@@ -1005,7 +1019,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 403,
-      "rank": 30
+      "rank": 31
     },
     {
       "id": "TASK-022",
@@ -1044,7 +1058,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 417,
-      "rank": 31
+      "rank": 32
     },
     {
       "id": "TASK-023",
@@ -1079,7 +1093,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 431,
-      "rank": 32
+      "rank": 33
     },
     {
       "id": "TASK-024",
@@ -1115,7 +1129,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 444,
-      "rank": 33
+      "rank": 34
     },
     {
       "id": "TASK-027",
@@ -1148,7 +1162,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 471,
-      "rank": 34
+      "rank": 35
     },
     {
       "id": "TASK-028",
@@ -1194,7 +1208,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 489,
-      "rank": 35
+      "rank": 36
     },
     {
       "id": "TASK-029",
@@ -1231,7 +1245,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 457,
-      "rank": 36
+      "rank": 37
     },
     {
       "id": "TASK-030",
@@ -1282,7 +1296,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 505,
-      "rank": 37
+      "rank": 38
     },
     {
       "id": "TASK-031",
@@ -1324,7 +1338,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 519,
-      "rank": 38
+      "rank": 39
     },
     {
       "id": "TASK-032",
@@ -1360,7 +1374,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 537,
-      "rank": 39
+      "rank": 40
     },
     {
       "id": "TASK-033",
@@ -1391,7 +1405,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 560,
-      "rank": 40
+      "rank": 41
     },
     {
       "id": "TASK-034",
@@ -1426,7 +1440,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 589,
-      "rank": 41
+      "rank": 42
     },
     {
       "id": "TASK-035",
@@ -1460,7 +1474,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 602,
-      "rank": 42
+      "rank": 43
     },
     {
       "id": "TASK-036",
@@ -1491,7 +1505,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 615,
-      "rank": 43
+      "rank": 44
     },
     {
       "id": "TASK-037",
@@ -1530,7 +1544,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 632,
-      "rank": 44
+      "rank": 45
     },
     {
       "id": "TASK-038",
@@ -1559,7 +1573,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 575,
-      "rank": 45
+      "rank": 46
     },
     {
       "id": "TASK-066",
@@ -1593,7 +1607,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1088,
-      "rank": 46
+      "rank": 47
     },
     {
       "id": "TASK-067",
@@ -1633,7 +1647,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1130,
-      "rank": 47
+      "rank": 48
     },
     {
       "id": "TASK-068",
@@ -1675,7 +1689,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1143,
-      "rank": 48
+      "rank": 49
     },
     {
       "id": "TASK-069",
@@ -1705,7 +1719,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1102,
-      "rank": 49
+      "rank": 50
     },
     {
       "id": "TASK-070",
@@ -1737,7 +1751,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1116,
-      "rank": 50
+      "rank": 51
     },
     {
       "id": "TASK-072",
@@ -1771,7 +1785,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1186,
-      "rank": 51
+      "rank": 52
     },
     {
       "id": "TASK-073",
@@ -1803,7 +1817,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1155,
-      "rank": 52
+      "rank": 53
     },
     {
       "id": "TASK-074",
@@ -1840,7 +1854,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1169,
-      "rank": 53
+      "rank": 54
     },
     {
       "id": "TASK-039",
@@ -1872,7 +1886,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 654,
-      "rank": 54
+      "rank": 55
     },
     {
       "id": "TASK-040",
@@ -1911,7 +1925,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 669,
-      "rank": 55
+      "rank": 56
     },
     {
       "id": "TASK-041",
@@ -1943,7 +1957,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 684,
-      "rank": 56
+      "rank": 57
     },
     {
       "id": "TASK-042",
@@ -1984,7 +1998,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 730,
-      "rank": 57
+      "rank": 58
     },
     {
       "id": "TASK-043",
@@ -2020,7 +2034,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 744,
-      "rank": 58
+      "rank": 59
     },
     {
       "id": "TASK-044",
@@ -2059,7 +2073,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 764,
-      "rank": 59
+      "rank": 60
     },
     {
       "id": "TASK-045",
@@ -2097,7 +2111,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 779,
-      "rank": 60
+      "rank": 61
     },
     {
       "id": "TASK-046",
@@ -2136,7 +2150,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 794,
-      "rank": 61
+      "rank": 62
     },
     {
       "id": "TASK-047",
@@ -2176,7 +2190,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 808,
-      "rank": 62
+      "rank": 63
     },
     {
       "id": "TASK-048",
@@ -2216,7 +2230,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 822,
-      "rank": 63
+      "rank": 64
     },
     {
       "id": "TASK-049",
@@ -2258,7 +2272,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 835,
-      "rank": 64
+      "rank": 65
     },
     {
       "id": "TASK-050",
@@ -2305,7 +2319,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 848,
-      "rank": 65
+      "rank": 66
     },
     {
       "id": "TASK-051",
@@ -2345,7 +2359,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 861,
-      "rank": 66
+      "rank": 67
     },
     {
       "id": "TASK-052",
@@ -2386,7 +2400,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 874,
-      "rank": 67
+      "rank": 68
     },
     {
       "id": "TASK-053",
@@ -2429,7 +2443,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 888,
-      "rank": 68
+      "rank": 69
     },
     {
       "id": "TASK-054",
@@ -2467,7 +2481,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 903,
-      "rank": 69
+      "rank": 70
     },
     {
       "id": "TASK-055",
@@ -2506,7 +2520,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 934,
-      "rank": 70
+      "rank": 71
     },
     {
       "id": "TASK-056",
@@ -2541,7 +2555,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 948,
-      "rank": 71
+      "rank": 72
     },
     {
       "id": "TASK-057",
@@ -2575,7 +2589,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 962,
-      "rank": 72
+      "rank": 73
     },
     {
       "id": "TASK-058",
@@ -2609,7 +2623,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 976,
-      "rank": 73
+      "rank": 74
     },
     {
       "id": "TASK-059",
@@ -2642,7 +2656,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 990,
-      "rank": 74
+      "rank": 75
     },
     {
       "id": "TASK-060",
@@ -2674,7 +2688,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1004,
-      "rank": 75
+      "rank": 76
     },
     {
       "id": "TASK-061",
@@ -2710,7 +2724,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1018,
-      "rank": 76
+      "rank": 77
     },
     {
       "id": "TASK-062",
@@ -2741,7 +2755,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1032,
-      "rank": 77
+      "rank": 78
     },
     {
       "id": "TASK-063",
@@ -2772,7 +2786,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1046,
-      "rank": 78
+      "rank": 79
     },
     {
       "id": "TASK-064",
@@ -2805,7 +2819,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1060,
-      "rank": 79
+      "rank": 80
     },
     {
       "id": "TASK-065",
@@ -2836,7 +2850,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1074,
-      "rank": 80
+      "rank": 81
     },
     {
       "id": "TASK-071",
@@ -2881,7 +2895,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1202,
-      "rank": 81
+      "rank": 82
     },
     {
       "id": "TASK-076",
@@ -2916,7 +2930,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1215,
-      "rank": 82
+      "rank": 83
     },
     {
       "id": "TASK-077",
@@ -2949,7 +2963,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1227,
-      "rank": 83
+      "rank": 84
     },
     {
       "id": "TASK-075",
@@ -2994,7 +3008,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1241,
-      "rank": 84
+      "rank": 85
     },
     {
       "id": "TASK-080",
@@ -3026,7 +3040,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1273,
-      "rank": 85
+      "rank": 86
     },
     {
       "id": "TASK-081",
@@ -3059,7 +3073,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1287,
-      "rank": 86
+      "rank": 87
     },
     {
       "id": "TASK-082",
@@ -3094,7 +3108,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1306,
-      "rank": 87
+      "rank": 88
     },
     {
       "id": "TASK-083",
@@ -3126,7 +3140,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1327,
-      "rank": 88
+      "rank": 89
     },
     {
       "id": "TASK-084",
@@ -3163,7 +3177,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1342,
-      "rank": 89
+      "rank": 90
     },
     {
       "id": "TASK-085",
@@ -3198,7 +3212,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1365,
-      "rank": 90
+      "rank": 91
     },
     {
       "id": "TASK-086",
@@ -3229,7 +3243,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1384,
-      "rank": 91
+      "rank": 92
     },
     {
       "id": "TASK-087",
@@ -3260,7 +3274,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1406,
-      "rank": 92
+      "rank": 93
     },
     {
       "id": "TASK-088",
@@ -3293,7 +3307,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1421,
-      "rank": 93
+      "rank": 94
     },
     {
       "id": "TASK-089",
@@ -3325,13 +3339,132 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1444,
-      "rank": 94
+      "rank": 95
     },
     {
       "id": "TASK-090",
-      "title": "TASK-090 — The Builder Agent acts as itself — an attributable Run behind both Builder lanes",
+      "title": "TASK-090 — Chat gets a swappable backend axis, and Claude Code answers turns in the panel and the Avatar",
+      "status": "in-progress",
+      "statusNote": "landed 2026-09-02; the browser leg of the exit test is NOT met — see below",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "a Chat thread names which ENGINE answers it as well as which plane its data may reach. The model menu in the Right Chat Panel and the Avatar composer offers Claude Code beside Local and Cloud; picking it starts a thread whose turns are answered by the Claude Agent SDK running headless in the API process — reading and editing files under `~/Documents/Bridge/<Organization>/`, with no terminal ever shown. Codex and Cursor become registry rows, not a second integration.",
+      "prototypeTest": "from the Chat panel, pick Claude Code, ask it to create a file in the Organization folder, and see the file on disk plus a prose reply in the thread; send a second message and confirm it continues the same Claude session after an API restart; confirm the thread reads `plane: cloud` even though no plane was requested.",
+      "scope": [
+        "`packages/core/src/chat-backend.ts`, `apps/api/src/chat/claude-code-backend.ts`, the `chat.thread.create`/`chat.turn.send`/`chat.model.status` procedures, `ChatView`'s model menu, `packages/db` migration `0044`."
+      ],
+      "evidence": [
+        "myzazoo (`Workspace/myzazoo/src/agents/claude.ts`, `src/serve.ts`) has run this exact shape in production for months",
+        "the user directed Bridge to match it."
+      ],
+      "requests": [
+        "user directive 2026-09-02, verbatim: *\"Refer myzazoo folder for builder agent reference and ensure we have the builder agent completely built and also similar to myzazoo, me having an option to choose claude as one of the model in the right hand chatbot or for avatar, while ensuring it runs terminal in backend\"*"
+      ],
+      "approval": "AP-172 APPLIED (ADR-265)",
+      "dependencies": [],
+      "isGoal": false,
+      "path": "8.1",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1464,
+      "rank": 96
+    },
+    {
+      "id": "TASK-091",
+      "title": "TASK-091 — The Builder Agent executes: primitive executor, loop, and the execution-first gate (BA0, first half)",
+      "status": "in-progress",
+      "statusNote": "landed 2026-09-02; BA0's containment and ledger criteria are NOT met — see TASK-092",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "the Capability Builder stops being a text-drafting persona and gains the machinery to act — a gate that returns execute/approve/refuse, a executor that actually reads, writes, edits and runs commands inside one Module directory, and a loop that drives them through Bridge's own `ModelProvider`. Ordinary work runs without asking; only genuinely risky calls stop for a human; a short absolute list can never run at all.",
+      "prototypeTest": "give the Builder a task in a scratch Module, watch it write a file and run a command with no approval prompt, watch a `curl` escalate to a Proposal, and watch `git push` refuse with the branch-and-merge reason. Confirm every one of the three appears in the Run's audit trail.",
+      "scope": [
+        "`packages/core/src/capability/primitive-policy.ts`, `packages/core/src/capability/builder-loop.ts`, `apps/api/src/builder/primitive-executor.ts`, and their tests."
+      ],
+      "evidence": [
+        "`packages/core/src/capability/builder-primitives.ts` has carried the risk lookup, grant-scope check and SandboxProvider port since Track F2 with **no caller anywhere in `apps/api`** — classification without execution. myzazoo's `src/hook.ts` + `src/tools.ts` + `src/loop.ts` are the working reference for the executing half."
+      ],
+      "requests": [
+        "user directives 2026-09-02, verbatim: *\"ensure we have the builder agent completely built\"* and *\"I want governance but not at cost of execution. Seek approval only if high risk task, else lets have exectuion first approach.Bridge needs an agentic backend similar to my zazoo and I hope capabilities are designed as swappable elements\"*"
+      ],
+      "approval": "AP-172 APPLIED (ADR-266)",
+      "dependencies": [],
+      "isGoal": false,
+      "path": "8.2",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1482,
+      "rank": 97
+    },
+    {
+      "id": "TASK-092",
+      "title": "TASK-092 — BA0 completion: governed Builder Runs, ledger receipts, and the container sandbox for untrusted bodies",
+      "status": "in-progress",
+      "statusNote": "the Run seam and its receipts landed 2026-09-02; the container adapter has NOT",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "BA0's own exit criteria are met — every Builder action lands in the immutable ledger with model/prompt versions and token cost attached; a seeded containment suite runs as a permanent CI gate; and a real container/microVM `SandboxProvider` exists for UNTRUSTED capability bodies (Commons imports, foreign imports, Builder-generated executable code), which the host executor deliberately does not cover.",
+      "prototypeTest": "run a Builder task end to end from a user request and read its ledger — one row per action with cost. Then feed the containment suite a Commons capability that tries to reach the network and confirm the sandbox blocks it and the block is recorded. `NotImplementedContainerSandboxProvider` must no longer be the only container adapter.",
+      "scope": [
+        "`apps/api` wiring for a Builder Run, `packages/core/src/capability/sandbox-provider.ts`'s missing adapter, CI."
+      ],
+      "evidence": [
+        "`docs/raw/builder-agent-execution-plan-2026-09.md` §6 lists this as the largest unbuilt piece and BA2's hard dependency."
+      ],
+      "approval": "AP-172 APPLIED (ADR-266)",
+      "dependencies": [
+        "TASK-091"
+      ],
+      "isGoal": false,
+      "path": "8.3",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1498,
+      "rank": 98
+    },
+    {
+      "id": "TASK-093",
+      "title": "TASK-093 — The conversation survives a model switch, and each Module reopens its own session",
+      "status": "in-progress",
+      "statusNote": "server half landed 2026-09-02; the Module surfaces do not call it yet",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "switching the model in the Chat panel keeps the conversation — same thread, same turns, and the incoming engine is handed what was already said. Opening a Module reopens that Module's own live conversation with its history, and a session can attach further Modules so one conversation can span several.",
+      "prototypeTest": "send a message on the Local model, switch to Claude Code, and see the earlier turns still on screen; ask \"what did I just say?\" and get an answer that proves the context carried. Open a Module, talk, leave, reopen it, and land back in the same conversation. Attach a second Module and confirm both are listed on the thread.",
+      "scope": [
+        "`chat.thread.setBackend` / `forModule` / `attachModule`, `priorTurnsTranscript`, `chat_threads.module_name` + `attached_modules` (migration 0045), `useChat`'s `switchBackend`/`openModuleChat`/`attachModule`, the ChatView model menu."
+      ],
+      "evidence": [
+        "user-reported, 2026-09-02, verbatim: *\"When i change AI models in left hand chat, the chat should remain consistent since Bridge is managing context and should direct the chat to a given model and all models remain active in backend for quick swap. Currently the chat clears when I switch models. Also Each modules continues from previous session that is associated with given module just like claude code sessions are associated with projects but I can add multiple projects to a given session\"*"
+      ],
+      "approval": "AP-173 APPLIED (ADR-267)",
+      "dependencies": [
+        "TASK-090"
+      ],
+      "isGoal": false,
+      "path": "8.4",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1514,
+      "rank": 99
+    },
+    {
+      "id": "TASK-094",
+      "title": "TASK-094 — The Builder Agent acts as itself — an attributable Run behind both Builder lanes",
       "status": "completed",
-      "statusNote": "2026-09-02, AP-178/ADR-272",
+      "statusNote": "2026-09-02, AP-181/ADR-276",
       "priority": "P2",
       "estimate": "2d",
       "horizon": "Hardening",
@@ -3341,14 +3474,14 @@
         "`apps/api/src/router.ts` (`learning.promotions.drafts.proposeSteps`, `learning.claims.proposeStructure`), `wiring.ts`'s `CAPABILITY_BUILDER_AGENT` role/scope, the Automation Run recorder. Do NOT change the derivations themselves — `builder.ts` stays pure."
       ],
       "evidence": [
-        "found 2026-09-02 while building rung 4 (ADR-271). `wiring.ts` seeds the agent identity, `role-capability-builder`, a `signal:write` scope and `ensureCapabilityBuilderGovernance` in both the hosted and local wirings",
+        "found 2026-09-02 while building rung 4 (ADR-275). `wiring.ts` seeds the agent identity, `role-capability-builder`, a `signal:write` scope and `ensureCapabilityBuilderGovernance` in both the hosted and local wirings",
         "neither Builder lane references any of it. This is a real gap against CLAUDE.md's \"only an attributable allowed Agent invokes them\", and it predates rung 4 — rung 3 has had it since 2026-08-13."
       ],
       "requests": [
         "user directive 2026-09-02, verbatim: *\"complete the wiring and associated pending tasks\"* — the wiring completed there was rung 4's",
         "this is what that work uncovered and deliberately did not fold in."
       ],
-      "approval": "AP-177 records the finding; the fix itself is unapproved work.",
+      "approval": "AP-180 records the finding; the fix itself is unapproved work.",
       "dependencies": [
         "TASK-053 (done)"
       ],
@@ -3359,8 +3492,8 @@
       "parentId": "HORIZON-hardening",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 1464,
-      "rank": 95
+      "sourceLine": 1530,
+      "rank": 100
     }
   ]
 }

@@ -76,6 +76,7 @@ export * from "./learning/acceptance-audit.js";
 export * from "./learning/rejection-fingerprints.js";
 export * from "./learning/claims.js";
 export * from "./learning/commitments.js";
+export * from "./chat-backend.js";
 export * from "./chat-store.js";
 export * from "./search-provider.js";
 export * from "./skills.js";
@@ -166,6 +167,36 @@ export {
   type BuilderPrimitiveRequest,
   type BuilderPrimitiveResult,
 } from "./capability/builder-primitives.js";
+// The execution-first gate every Builder Agent tool call passes through:
+// execute by default, approve when the blast radius leaves what the Module
+// declared, refuse only what would destroy reviewability.
+export {
+  decideBuilderPrimitive,
+  commandSegments,
+  pathEscapesWorkingDirectory,
+  ABSOLUTE_DENY,
+  ALWAYS_APPROVE,
+  type ModulePrimitivePolicy,
+  type PrimitivePolicyDecision,
+  type PrimitivePolicyOutcome,
+  type PrimitivePolicyRequest,
+} from "./capability/primitive-policy.js";
+// The Bridge-native Builder loop (BA0): one governed action per step, driven
+// through the existing ModelProvider port's constrained-JSON output.
+export {
+  runBuilderLoop,
+  compactTranscript,
+  BUILDER_ACTION_SCHEMA,
+  type BuilderAction,
+  type BuilderLoopOptions,
+  type BuilderLoopOutcome,
+  type BuilderLoopStep,
+  type BuilderLoopStopReason,
+  type BuilderStepResult,
+  type BuilderPrimitiveExecutor,
+  type BuilderRunUsage,
+  type BuilderStepUsage,
+} from "./capability/builder-loop.js";
 // InProcessJsSandboxProvider deliberately NOT re-exported here — it dynamically
 // imports Node's `node:vm` builtin, and this barrel is imported broadly by
 // browser-facing code (@bridge/web). It lives at "@bridge/core/server"

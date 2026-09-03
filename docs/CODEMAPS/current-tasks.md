@@ -40,3 +40,7 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-087 | ready | P2 | Grouping on every table, and Databases that link by column | none |
 | TASK-088 | in_progress | P1 | Governance becomes editable — an engine-held overlay, never a mutated manifest | none |
 | TASK-089 | in_progress | P2 | Admin is Organization ownership and membership | none |
+| TASK-090 | in_progress | P1 | Chat gets a swappable backend axis, and Claude Code answers turns in the panel and the Avatar | none |
+| TASK-091 | in_progress | P1 | The Builder Agent executes: primitive executor, loop, and the execution-first gate (BA0, first half) | none |
+| TASK-092 | in_progress | P1 | BA0 completion: governed Builder Runs, ledger receipts, and the container sandbox for untrusted bodies | TASK-091 |
+| TASK-093 | in_progress | P1 | The conversation survives a model switch, and each Module reopens its own session | TASK-090 |

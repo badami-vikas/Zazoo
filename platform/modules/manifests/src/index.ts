@@ -23,6 +23,10 @@ export const DEALPILOT_SOURCE_AUTOMATION_KEY = "deal-pilot.source-intake";
 export const LEARNING_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d2";
 export const INTERNAL_STRATEGIST_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d3";
 export const GOVERNANCE_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d4";
+/** The Builder Agent's runtime identity (BA0). Every primitive call and every
+ * Run receipt is attributed to it, and the ledger's actor column is a uuid —
+ * an actor named "builder:<module>" is not an actor the ledger can hold. */
+export const BUILDER_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d7";
 /**
  * Chief of Staff's governed runtime identity (ADR-201).
  *

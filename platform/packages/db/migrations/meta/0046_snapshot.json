@@ -1,6 +1,6 @@
 {
-  "id": "388455a5-7356-4e03-bc40-0e437d3fa3e1",
-  "prevId": "9772f112-4047-4741-99ac-5a5e40d0f3a7",
+  "id": "88bb98f3-33c4-490f-b881-23275c7bfe5d",
+  "prevId": "cd291ced-ca11-44b3-ac26-05ca18d648a0",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1322,6 +1322,32 @@
           "primaryKey": false,
           "notNull": false
         },
+        "backend": {
+          "name": "backend",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'bridge'"
+        },
+        "backend_session_id": {
+          "name": "backend_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "module_name": {
+          "name": "module_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attached_modules": {
+          "name": "attached_modules",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp (3) with time zone",
@@ -1338,6 +1364,45 @@
         }
       },
       "indexes": {
+        "chat_threads_module_live_idx": {
+          "name": "chat_threads_module_live_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "module_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "chat_threads_owner_updated_idx": {
           "name": "chat_threads_owner_updated_idx",
           "columns": [
@@ -1431,6 +1496,22 @@
         "chat_threads_status_check": {
           "name": "chat_threads_status_check",
           "value": "\"chat_threads\".\"status\" IN ('active', 'archived')"
+        },
+        "chat_threads_backend_check": {
+          "name": "chat_threads_backend_check",
+          "value": "\"chat_threads\".\"backend\" IN ('bridge', 'claude_code')"
+        },
+        "chat_threads_module_name_check": {
+          "name": "chat_threads_module_name_check",
+          "value": "\"chat_threads\".\"module_name\" IS NULL OR length(btrim(\"chat_threads\".\"module_name\")) > 0"
+        },
+        "chat_threads_attached_modules_check": {
+          "name": "chat_threads_attached_modules_check",
+          "value": "jsonb_typeof(\"chat_threads\".\"attached_modules\") = 'array'"
+        },
+        "chat_threads_backend_session_check": {
+          "name": "chat_threads_backend_session_check",
+          "value": "\"chat_threads\".\"backend_session_id\" IS NULL OR (\"chat_threads\".\"backend\" <> 'bridge' AND length(btrim(\"chat_threads\".\"backend_session_id\")) > 0)"
         },
         "chat_threads_plane_scope_check": {
           "name": "chat_threads_plane_scope_check",

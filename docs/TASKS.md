@@ -1459,19 +1459,85 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - NOT LANDED, and the reason: **unmount is explained, not offered**, and there is no invite/accept flow. Both write against Organization-scoped installation and membership records; shipping either from a read-mostly surface without the server-side authority checks in place would be a governed write behind an ungoverned button. The exit test above — invite a second user, accept as that user, mount/unmount in one Organization and confirm the other is unaffected — is therefore NOT met.
 - NOT VERIFIED: neither admin table has been seen with real rows. Honest empty states render; populated states are untested.
 
-## The Builder Agent acts as itself — an attributable Run behind both Builder lanes
+## Chat gets a swappable backend axis, and Claude Code answers turns in the panel and the Avatar
 
 - ID: TASK-090
-- Status: done (2026-09-02, AP-178/ADR-272)
+- Status: in_progress (landed 2026-09-02; the browser leg of the exit test is NOT met — see below)
+- Priority: P1
+- Horizon: Living Software
+- Outcome: a Chat thread names which ENGINE answers it as well as which plane its data may reach. The model menu in the Right Chat Panel and the Avatar composer offers Claude Code beside Local and Cloud; picking it starts a thread whose turns are answered by the Claude Agent SDK running headless in the API process — reading and editing files under `~/Documents/Bridge/<Organization>/`, with no terminal ever shown. Codex and Cursor become registry rows, not a second integration.
+- Prototype test: from the Chat panel, pick Claude Code, ask it to create a file in the Organization folder, and see the file on disk plus a prose reply in the thread; send a second message and confirm it continues the same Claude session after an API restart; confirm the thread reads `plane: cloud` even though no plane was requested.
+- Scope: `packages/core/src/chat-backend.ts`, `apps/api/src/chat/claude-code-backend.ts`, the `chat.thread.create`/`chat.turn.send`/`chat.model.status` procedures, `ChatView`'s model menu, `packages/db` migration `0044`.
+- Evidence: myzazoo (`Workspace/myzazoo/src/agents/claude.ts`, `src/serve.ts`) has run this exact shape in production for months; the user directed Bridge to match it.
+- Requests: user directive 2026-09-02, verbatim: *"Refer myzazoo folder for builder agent reference and ensure we have the builder agent completely built and also similar to myzazoo, me having an option to choose claude as one of the model in the right hand chatbot or for avatar, while ensuring it runs terminal in backend"*
+- Approval: AP-172 APPLIED (ADR-265)
+- Dependencies: none
+- LANDED 2026-09-02: the port, the Claude Code adapter, the OAuth PKCE sign-in (Settings → API Keys → Claude Code), the `backend` + `backend_session_id` columns, the model-menu option, and `apps/api/test/chat-agentic-backend.test.ts` (3 tests, green) proving the thread routes to the backend, follows the backend's residency, and resumes the backend's own session on the second turn.
+- NOT LANDED, and the reason: **no browser evidence**. The standalone API requires verified auth, and the desktop shell that supplies it renders in a Tauri window this session could not screenshot. Every assertion above is proven at the router, none in a running UI. Tier C wants the browser leg seen before this closes.
+- WIRED 2026-09-02 (same-run wiring pass): `changedPaths` is no longer dropped. A turn whose backend edited files appends one `chat_backend_changed_files` ledger row (paths only, never contents) and carries it as a `result` ref on the assistant turn, asserted in `chat-agentic-backend.test.ts`.
+- Also open: the reply is still truncated to the 8k the turn column allows.
+
+## The Builder Agent executes: primitive executor, loop, and the execution-first gate (BA0, first half)
+
+- ID: TASK-091
+- Status: in_progress (landed 2026-09-02; BA0's containment and ledger criteria are NOT met — see TASK-092)
+- Priority: P1
+- Horizon: Living Software
+- Outcome: the Capability Builder stops being a text-drafting persona and gains the machinery to act — a gate that returns execute/approve/refuse, a executor that actually reads, writes, edits and runs commands inside one Module directory, and a loop that drives them through Bridge's own `ModelProvider`. Ordinary work runs without asking; only genuinely risky calls stop for a human; a short absolute list can never run at all.
+- Prototype test: give the Builder a task in a scratch Module, watch it write a file and run a command with no approval prompt, watch a `curl` escalate to a Proposal, and watch `git push` refuse with the branch-and-merge reason. Confirm every one of the three appears in the Run's audit trail.
+- Scope: `packages/core/src/capability/primitive-policy.ts`, `packages/core/src/capability/builder-loop.ts`, `apps/api/src/builder/primitive-executor.ts`, and their tests.
+- Evidence: `packages/core/src/capability/builder-primitives.ts` has carried the risk lookup, grant-scope check and SandboxProvider port since Track F2 with **no caller anywhere in `apps/api`** — classification without execution. myzazoo's `src/hook.ts` + `src/tools.ts` + `src/loop.ts` are the working reference for the executing half.
+- Requests: user directives 2026-09-02, verbatim: *"ensure we have the builder agent completely built"* and *"I want governance but not at cost of execution. Seek approval only if high risk task, else lets have exectuion first approach.Bridge needs an agentic backend similar to my zazoo and I hope capabilities are designed as swappable elements"*
+- Approval: AP-172 APPLIED (ADR-266)
+- Dependencies: none
+- LANDED 2026-09-02: 31 tests green across the three modules (13 policy, 10 executor, 8 loop), including the seeded escapes that matter most — a denied command chained behind an allowed one, a path traversal out of the working directory, and an attempt to read the API process's env.
+- WIRED 2026-09-02: `builder.run` now calls them. See TASK-092.
+
+## BA0 completion: governed Builder Runs, ledger receipts, and the container sandbox for untrusted bodies
+
+- ID: TASK-092
+- Status: in_progress (the Run seam and its receipts landed 2026-09-02; the container adapter has NOT)
+- Priority: P1
+- Horizon: Living Software
+- Outcome: BA0's own exit criteria are met — every Builder action lands in the immutable ledger with model/prompt versions and token cost attached; a seeded containment suite runs as a permanent CI gate; and a real container/microVM `SandboxProvider` exists for UNTRUSTED capability bodies (Commons imports, foreign imports, Builder-generated executable code), which the host executor deliberately does not cover.
+- Prototype test: run a Builder task end to end from a user request and read its ledger — one row per action with cost. Then feed the containment suite a Commons capability that tries to reach the network and confirm the sandbox blocks it and the block is recorded. `NotImplementedContainerSandboxProvider` must no longer be the only container adapter.
+- Scope: `apps/api` wiring for a Builder Run, `packages/core/src/capability/sandbox-provider.ts`'s missing adapter, CI.
+- Evidence: `docs/raw/builder-agent-execution-plan-2026-09.md` §6 lists this as the largest unbuilt piece and BA2's hard dependency.
+- Approval: AP-172 APPLIED (ADR-266)
+- Dependencies: TASK-091
+- LANDED 2026-09-02: `apps/api/src/builder/run.ts` + the `builder.run` procedure — Module governance decides whether the Builder may run at all (`builder.run`, refusing with the user's own stated reason), every primitive call appends a ledger row whichever way it went, and the Run closes with one receipt row carrying stop reason, model, model calls and token counts. `runBuilderLoop` now accumulates per-step and per-run usage so that receipt is real rather than an empty field. `builder.` is Local-Plane-only in `deployment-boundary.ts`. `apps/api/test/builder-run.test.ts` (3 tests, green): a file really written to disk with a costed receipt, `git push` refused mid-run and still recorded, and a Module policy denying `builder.run` refusing in the user's own words.
+- NOT LANDED: the container/microVM `SandboxProvider` for UNTRUSTED bodies, and the permanent CI containment suite. Both remain BA2's hard dependency. Also no approval round-trip: a call needing approval stops the Run and is reported (BA4 owns the resume).
+- PromptAssembler v1 is specified by BOTH Builder BA0 and Learning LA1 and must be ONE implementation. Whichever slice lands first builds it; the other consumes it. Unassigned as of 2026-09-02 — do not build a second one.
+
+## The conversation survives a model switch, and each Module reopens its own session
+
+- ID: TASK-093
+- Status: in_progress (server half landed 2026-09-02; the Module surfaces do not call it yet)
+- Priority: P1
+- Horizon: Living Software
+- Outcome: switching the model in the Chat panel keeps the conversation — same thread, same turns, and the incoming engine is handed what was already said. Opening a Module reopens that Module's own live conversation with its history, and a session can attach further Modules so one conversation can span several.
+- Prototype test: send a message on the Local model, switch to Claude Code, and see the earlier turns still on screen; ask "what did I just say?" and get an answer that proves the context carried. Open a Module, talk, leave, reopen it, and land back in the same conversation. Attach a second Module and confirm both are listed on the thread.
+- Scope: `chat.thread.setBackend` / `forModule` / `attachModule`, `priorTurnsTranscript`, `chat_threads.module_name` + `attached_modules` (migration 0045), `useChat`'s `switchBackend`/`openModuleChat`/`attachModule`, the ChatView model menu.
+- Evidence: user-reported, 2026-09-02, verbatim: *"When i change AI models in left hand chat, the chat should remain consistent since Bridge is managing context and should direct the chat to a given model and all models remain active in backend for quick swap. Currently the chat clears when I switch models. Also Each modules continues from previous session that is associated with given module just like claude code sessions are associated with projects but I can add multiple projects to a given session"*
+- Approval: AP-173 APPLIED (ADR-267)
+- Dependencies: TASK-090
+- The clearing predates the agentic backend: the plane selector has called `newChat` since it shipped, so Local↔Cloud discarded the conversation too. Fixed for both.
+- LANDED 2026-09-02: the three procedures, the transcript carry, the migration, and `apps/api/test/chat-agentic-backend.test.ts` (5 tests) — including the decisive one, which asserts the carried prompt contains the earlier turn verbatim.
+- WIRED 2026-09-02: `Layout` computes the active Module from the nav route (longest matching base) and passes it through `AgentPanel` → `ChatView` → `useChat(surface, moduleName)`, whose init effect calls `openModuleChat`. The Right Chat Panel on a Module now opens that Module's own live thread.
+- NOT LANDED: `attachModule` still has no control in the UI — a thread can hold several Modules at the API and only one can be attached by clicking. And no browser evidence, same reason as TASK-090.
+## The Builder Agent acts as itself — an attributable Run behind both Builder lanes
+
+- ID: TASK-094
+- Status: done (2026-09-02, AP-181/ADR-276)
 - Priority: P2
 - Estimate: 2d
 - Horizon: Hardening
 - Outcome: When the Capability Builder drafts steps (rung 3) or proposes a structure (rung 4), the work is attributed to `CAPABILITY_BUILDER_AGENT` as a real Agent Run under its own role and scope, rather than executing as whichever human pressed the button. The Run is inspectable afterwards and says what the Builder read and what it proposed.
 - Prototype test: press "Draft steps from my decisions" and "Show the shape of what Bridge has observed"; each leaves an Agent Run attributed to the Capability Builder, visible in the Runs surface, carrying the evidence ids the proposal was derived from. Narrowing the Builder's scope below what the lane reads makes the Run fail closed rather than silently succeeding as the human.
 - Scope: `apps/api/src/router.ts` (`learning.promotions.drafts.proposeSteps`, `learning.claims.proposeStructure`), `wiring.ts`'s `CAPABILITY_BUILDER_AGENT` role/scope, the Automation Run recorder. Do NOT change the derivations themselves — `builder.ts` stays pure.
-- Evidence: found 2026-09-02 while building rung 4 (ADR-271). `wiring.ts` seeds the agent identity, `role-capability-builder`, a `signal:write` scope and `ensureCapabilityBuilderGovernance` in both the hosted and local wirings; neither Builder lane references any of it. This is a real gap against CLAUDE.md's "only an attributable allowed Agent invokes them", and it predates rung 4 — rung 3 has had it since 2026-08-13.
+- Evidence: found 2026-09-02 while building rung 4 (ADR-275). `wiring.ts` seeds the agent identity, `role-capability-builder`, a `signal:write` scope and `ensureCapabilityBuilderGovernance` in both the hosted and local wirings; neither Builder lane references any of it. This is a real gap against CLAUDE.md's "only an attributable allowed Agent invokes them", and it predates rung 4 — rung 3 has had it since 2026-08-13.
 - Requests: user directive 2026-09-02, verbatim: *"complete the wiring and associated pending tasks"* — the wiring completed there was rung 4's; this is what that work uncovered and deliberately did not fold in.
-- Approval: AP-177 records the finding; the fix itself is unapproved work.
+- Approval: AP-180 records the finding; the fix itself is unapproved work.
 - Dependencies: TASK-053 (done)
 - LANDED 2026-09-02: `runAsCapabilityBuilder` wraps both lanes — `resolveAuthority` for the Builder as actor on behalf of the requesting human, then an Agent Run under `CAPABILITY_BUILDER_AGENT` finished `completed` with the evidence ids derived (or `halted` with the error). `learning.builderRuns` reads them back; both lanes return their `runId` and both surfaces show it. `ensureTaskManagerAutomation` gained an optional Goal type instead of a near-duplicate, because `automation_runs` has a composite FK to `automations` and the Builder needed a real Automation row. Exit test met: api `builder-attribution` 4/4 — the Run exists, is attributed to the Builder and not the human, carries live claim ids, is listable, records a refusal as `completed` with its reason, and **setting the Builder's scope to `[]` fails the lane closed** while the human's own authority is untouched. That negative case is mutation-checked: deleting the authority guard turns it RED and leaves the other three green. Existing lanes unaffected: `builder-steps` 4/4, `builder-structure` 4/4, `procedure-classification` 5/5.
 - NOT DONE, and named rather than left implicit: the Builder's Runs carry no taint label (the recorder supports one), and no web surface lists them — `learning.builderRuns` exists and is tested, but nothing in the app calls it. The data is queryable; the screen is not built.

@@ -1,5 +1,5 @@
 /**
- * TASK-090 — the Capability Builder acts as itself.
+ * TASK-094 — the Capability Builder acts as itself.
  *
  * Before this, both Builder lanes executed as whichever human pressed the
  * button: `CAPABILITY_BUILDER_AGENT` had a role, a scope and seeded

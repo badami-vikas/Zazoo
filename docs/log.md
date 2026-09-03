@@ -1,5 +1,77 @@
 # Change Log
 
+- **2026-09-02 (later the same session) — the chat stops forgetting who it was talking to (user report)**:
+  *"When i change AI models in left hand chat, the chat should remain consistent since Bridge is
+  managing context and should direct the chat to a given model … Currently the chat clears when I
+  switch models. Also Each modules continues from previous session that is associated with given
+  module just like claude code sessions are associated with projects but I can add multiple projects
+  to a given session"*.
+  **The clearing predates the agentic backend**: the plane selector has called `newChat` since it
+  shipped, so Local↔Cloud discarded the conversation too — the new Claude Code option only made an
+  old behaviour obvious. Fixed for both: `chat.thread.setBackend` repoints the LIVE thread and every
+  turn stays.
+  **Bridge now hands the incoming engine what was already said.** A backend taking over
+  mid-conversation has no session to resume, so the recent completed turns are rendered and prefixed
+  to its first message — the user's own words verbatim, assistant turns truncated, bounded at 20
+  turns / 12k chars. The decisive test asserts the carried prompt contains the earlier turn, not
+  merely that the thread survived.
+  **One privacy call, made by the user and recorded rather than buried.** Switching a private Local
+  thread onto Claude Code relabels its stored turns public and exports them to Anthropic. Three
+  handlings were offered — consent once per thread, carry silently, carry a summary — and the user
+  chose **carry silently**. ADR-267(c) says plainly that this removes a visible boundary, that it
+  holds at one owner-operator and not past it, and names the revisit trigger: the first non-owner
+  user. The store still records the switch; what went away is the prompt, not the audit trail.
+  **Modules get sessions**: `module_name` + `attached_modules` on `chat_threads` (migration 0045),
+  `chat.thread.forModule` resumes a Module's live thread and creates one only on first visit, and
+  `attachModule` pulls a second Module into the same conversation. Server half tested (5 API tests
+  green); **the Module surfaces do not call it yet**, so the resume is real at the API and invisible
+  in the product. ADR-267, AP-173, TASK-093.
+
+- **2026-09-02 — the Builder Agent gets hands, and Chat gets a second kind of engine (user directive)**:
+  Two directives, one session. (1) *"Refer myzazoo folder for builder agent reference and ensure we
+  have the builder agent completely built and also similar to myzazoo, me having an option to choose
+  claude as one of the model in the right hand chatbot or for avatar, while ensuring it runs terminal
+  in backend"*; (2) *"I want governance but not at cost of execution. Seek approval only if high risk
+  task, else lets have exectuion first approach. Bridge needs an agentic backend similar to my zazoo
+  and I hope capabilities are designed as swappable elements"*.
+  **What was actually there before:** `capability/builder-primitives.ts` had carried the risk lookup,
+  the grant-scope check and the `SandboxProvider` port since Track F2 — with no caller anywhere in
+  `apps/api`. Classification without execution. `invokeAgent` returned the Capability Builder a text
+  draft and held no store or pipeline handle by design. The BA0–BA6 roadmap had been `status:
+  proposed` since July with zero code and no TASK rows. So the honest answer to "is it completely
+  built" was: it has an identity and a persona, and it cannot build anything.
+  **Shipped:** `primitive-policy.ts` (the execute/approve/refuse gate — the encoding of directive 2),
+  `builder-loop.ts` (one governed action per step over the existing `ModelProvider` port's
+  constrained-JSON output, so it runs on local llama.cpp too), `apps/api/src/builder/primitive-executor.ts`
+  (`HostPrimitiveExecutor` — the first code in Bridge that actually reads, writes, edits and runs commands),
+  and the `ChatBackend` port with Claude Code behind it: Agent SDK headless in the API process, OAuth
+  PKCE sign-in ported from myzazoo's `src/oauth.ts` into the Local Plane credential vault, a new
+  `backend` axis on `chat_threads` (migration 0044), and the option in the Chat model menu — which
+  the Avatar composer inherits for free because it renders the same `ChatView`. 45 tests green.
+  **Two design calls worth the ink.** The backend, not the caller, decides a thread's plane: Claude
+  Code runs locally but ships file contents to Anthropic, so the thread is Cloud Plane and
+  `thread.create` overrides the plane hint — filing cloud egress under a Local Plane thread is the
+  one residency mislabelling the model cannot absorb. And the agentic path takes **no cloud grant**:
+  a grant records consent to an exact disclosed context, and the context an external agent chooses is
+  not Bridge's to disclose, so recording one would be a fabricated consent record.
+  **ADR-027 was not weakened, it was scoped.** Container/microVM stays mandatory for untrusted
+  capability bodies (Commons, imports, generated code) and that adapter is still unbuilt. What
+  `HostPrimitiveExecutor` covers is the different case the roadmap never separated: the Builder working in the
+  user's own folder, at their request, on their machine — where the trust boundary is the allow/deny
+  gate plus branch-and-merge, exactly as in myzazoo. It declares `isolation: "host-process"` and is
+  deliberately not assignable to `SandboxProvider` so nothing shopping for a sandbox can accept it.
+  **What is NOT done, said plainly:** nothing yet calls the loop from a governed Builder Run, no
+  action reaches the ledger with a cost receipt, no container adapter exists, and there is no browser
+  evidence for any of the UI — the standalone API demands verified auth and the desktop shell renders
+  in a Tauri window this session could not screenshot. TASK-090 and TASK-091 stay `in_progress`;
+  TASK-092 carries the rest of BA0. ADR-265, ADR-266, AP-172,
+  `docs/raw/builder-agent-execution-plan-2026-09.md`.
+  **Re-confirmed in passing, not mine:** `packages/core/test/input-capture.test.ts:325` classifies a
+  fixed UTC timestamp through a LOCAL-timezone bucket, so "22:00 is night" fails anywhere west of
+  UTC. Green under `TZ=UTC`, red in CDT. Already filed — BUGS.md "OPEN 2026-08-30 … timezone-dependent
+  assertion", item (3), still open three days later and still the only thing standing between
+  `@bridge/core` and a green suite outside UTC.
+
 - **2026-08-17 — the companion chat stretches again, and Zazoo moves out from under the notch (user report)**:
   Two user reports, both about the desktop companion. (1) *"the zazoo avatar chat window is no longer
   stretchable or shrinkable"* — the chat panel had invisible edge-drag handles on
@@ -3845,11 +3917,26 @@ Two corrections of my own. **My previous commit broke `check:agent-context` on `
 
 Central verification after the merge: typecheck 57/57, web 232/232, api subset 62/62, tables 21/21, `check:ui-rules` OK at the 395 baseline, `check:agent-context` green, `check:vocabulary` OK. One conflict at merge, in the one file both agents were warned about, and it was two additive prop lists — resolved by keeping both.
 
-## 2026-09-01 — Two questions about Task Manager, three different answers (ADR-265/266, AP-172, TASK-021)
+## 2026-09-02 (evening) — the wiring pass: three built-but-unreachable pieces given callers, and a standing rule so it stops happening
+
+User directive, verbatim: *"fix everything that built but is pending connection. Ensure proper wiring of everything's that built. Also ensure in future things are wiring in the same run after breing built"*. Fair. The morning wave shipped a Builder loop nothing called, a Module-session API no surface opened, and a changed-files list the router collected and threw away — each honestly marked NOT LANDED in its TASK, which is the right disclosure of the wrong outcome.
+
+**`builder.run`** is now the seam (`apps/api/src/builder/run.ts` + the procedure). The Module's own governance answers `builder.run` before anything else, so a Module can refuse the Builder quoting the reason the user wrote. Then one `HostPrimitiveExecutor` per Run, its `audit` hook wired to the immutable ledger for every call — executed, escalated, refused — and one closing receipt with stop reason, model, model calls and token counts. `runBuilderLoop` accumulates usage per step and per run so that receipt is measured, not asserted. BA0's third exit criterion is met; the container adapter and the containment CI suite are still open (TASK-092), and I have not pretended otherwise.
+
+Two calls worth naming. The Run passes an **empty** `ModulePrimitivePolicy` rather than mapping the Module's dotted governance rules onto the executor's shell globs — `builder.run` is an action selector and `git push*` is a command pattern, and collapsing two vocabularies would silently reinterpret rules the user wrote for something else. And the ledger forced a good thing: `actor_id` is a uuid column, so `builder:task-manager` could not be an actor and the Builder finally has a runtime identity beside Learning, Strategist, Governance and Chief of Staff.
+
+**Module sessions reached the UI.** `Layout` derives the active Module from the nav route (longest matching base) and threads it through `AgentPanel` → `ChatView` → `useChat(surface, moduleName)`, whose init effect opens that Module's own live thread instead of a blank one. `attachModule` still has no control — a thread can hold several Modules at the API and only one can be attached by clicking; that stays NOT LANDED rather than being quietly counted as done.
+
+**`changedPaths` is a receipt now**, not prose: one `chat_backend_changed_files` ledger row (paths and a count, never contents) referenced from the assistant turn. A model saying it edited twelve files is a claim.
+
+**The standing rule** went into CLAUDE.md — *"Build and wire in the same run. Nothing is shipped until a real caller reaches it from the surface that needs it; otherwise record the gap in the TASK as NOT LANDED."* It is always-loaded, so it was paid for rather than added: eleven existing bullets tightened in place, no rule dropped, `check:agent-context` back under both the 1000-word and 8192-byte budgets. AP-174, ADR-268.
+
+Verification: the whole `apps/api` suite at its own concurrency — 2 failures, both in `jobpilot-culture-research` and both "timed out after 120s waiting for the server to observe the socket close"; that file run alone is 57/57, so they are load-induced socket timeouts under a 4-way concurrent run on this machine, not a regression from anything here. Everything else green. Specifically: `apps/api/test/builder-run.test.ts` 3/3 (a file really on disk with a costed receipt; `git push` refused mid-run and still ledgered; a Module policy denying `builder.run` refusing in the user's own words), `chat-agentic-backend.test.ts` 5/5 including the new changed-files ref, `public-cloud-boundary` 2/2 with `builder.` classified Local-only, `check:vocabulary` OK (it caught "project" in my own system prompt — fixed to "Module"), `check:ui-rules` OK at the 395 baseline, `check:agent-context` green, `@bridge/core` green apart from the known `input-capture` timezone failure already in BUGS. Still no browser evidence for any of the 2026-09-02 wave: the standalone API requires verified auth and the desktop shell renders in a Tauri window this session cannot screenshot.
+## 2026-09-01 — Two questions about Task Manager, three different answers (ADR-269/266, AP-175, TASK-021)
 
 Asked whether every Task given to the Avatar lands in Task Manager and whether every agentic Run and Automation routes through it, the honest answer was not one answer. **Agent Runs were already routed** and I said so: `pipeline.propose` refuses a governed Skill without a `goalTaskRef` naming a real assigned Task, and `child_agent_runs`/`research_runs` carry `task_id` as NOT NULL foreign keys. **A second gap I reported was wrong.** I claimed unmanifested Skills bypass the Task anchor; they cannot, for an Agent — that branch opens only for `(action, resourceType)` combinations `agentFloorDeny` already denies at authority Layer 0, before the pipeline reaches the gate. It is human-only by construction. Withdrawn rather than closed with a check that would have guarded a path no Agent can take.
 
-**The real gap was `automation_runs`**, which had no Task column: the anchor lived on the Automation STEP, a mutable row shared by every Run of it, so an audit could only learn what the step says today, not what was true when the Run happened. Migration 0044 adds `task_id` — nullable, composite-FK'd to `tasks (organization_id, id)`, projected at Run start from the first step that names one. No backfill: historical Runs have no anchor to name and inventing one would assert something the ledger never witnessed.
+**The real gap was `automation_runs`**, which had no Task column: the anchor lived on the Automation STEP, a mutable row shared by every Run of it, so an audit could only learn what the step says today, not what was true when the Run happened. Migration 0046 adds `task_id` — nullable, composite-FK'd to `tasks (organization_id, id)`, projected at Run start from the first step that names one. No backfill: historical Runs have no anchor to name and inventing one would assert something the ledger never witnessed.
 
 **For "every task given to Avatar":** the plumbing was never the problem. One sentence in the Chat output contract said `create_task` applies *"if and only if the person explicitly asks to create a Task"*, so ordinary directives — most of what anyone tells an Avatar — produced an answer and no Record. That sentence now captures any instruction, and bars `clarification` from being used to dodge work already understood. The human review card **stays**: minting a Record with no decision would put an Agent in the approver seat `AGENT_FLOOR_MUTATIONS` explicitly denies. I built the classifier change, not the floor breach, and said which was which.
 
@@ -3859,9 +3946,9 @@ Asked whether every Task given to the Avatar lands in Task Manager and whether e
 
 **What this does NOT do, and it is the thing that was asked for.** `TaskManagerPage` reads the live `taskManager.list` API. Nothing ingests docs/TASKS.md into the `tasks` table — `projectCanonicalTasks` has had no caller but its own test since it was written. So the 94 records above are a correct, correctly-hierarchical projection **with no consumer**, and the Task Manager surface still shows whatever the local Database holds. The ingest is the next step and is not started.
 
-Verified: `task-doc-parser` 9/9, with both new cases run against `git show HEAD:` first and seen failing. Full workspace build 34/34, no TS errors. `@bridge/core` green under `TZ=UTC`. `@bridge/db` 239/239 — the one failure was `migration-metadata`, a head-pin that must be advanced when a migration lands; advancing it 0043 → 0044 also ran its `drizzle-kit generate` no-op assertion, which is the actual proof that the by-hand 0044 snapshot matches `schema.ts` (the composite FK is deliberately in neither). api `task-manager` + `task-manager-automations` + `chat` 45/45. `check:agent-context` green at the new budget. Found on the way and filed, not fixed: `input-capture.test.ts` asserts `timeOfDay === "night"` for a hardcoded UTC instant while the value is computed in local time, so `pnpm verify` is red on any machine outside UTC — pre-existing, and the fix is a decision about what the facet means, not a test edit.
+Verified: `task-doc-parser` 9/9, with both new cases run against `git show HEAD:` first and seen failing. Full workspace build 34/34, no TS errors. `@bridge/core` green under `TZ=UTC`. `@bridge/db` 239/239 — the one failure was `migration-metadata`, a head-pin that must be advanced when a migration lands; advancing it 0043 → 0046 also ran its `drizzle-kit generate` no-op assertion, which is the actual proof that the by-hand 0046 snapshot matches `schema.ts` (the composite FK is deliberately in neither). api `task-manager` + `task-manager-automations` + `chat` 45/45. `check:agent-context` green at the new budget. Found on the way and filed, not fixed: `input-capture.test.ts` asserts `timeOfDay === "night"` for a hardcoded UTC instant while the value is computed in local time, so `pnpm verify` is red on any machine outside UTC — pre-existing, and the fix is a decision about what the facet means, not a test edit.
 
-## 2026-09-01 — The ledger becomes real Task Records (ADR-267, AP-173, TASK-021)
+## 2026-09-01 — The ledger becomes real Task Records (ADR-271, AP-176, TASK-021)
 
 The previous entry ended by saying the projection had no consumer and the ingest was not started. It is now started and done.
 
@@ -3879,7 +3966,7 @@ Verified: workspace build 34/34. api `task-manager` 4/4 — the new tree/status/
 
 **Still not seen working.** The import has never run against a live API in a browser. "The Page shows 94 records" is inferred from `taskManager.list` returning them in a test, not observed. There is also no automatic re-import: the ledger changes in git, and the Database learns about it when someone presses the button.
 
-## 2026-09-01 — One filter control, a stray block made inert, and effort becomes data (ADR-268, AP-174, TASK-021/TASK-061)
+## 2026-09-01 — One filter control, a stray block made inert, and effort becomes data (ADR-272, AP-177, TASK-021/TASK-061)
 
 *"Why do I see goals and candidates next to filter? I need only filter and filters to appear inside it."* Both buttons applied exactly one row filter each — `isGoal` and `status` — and both are already columns in `TASK_SPEC`, which the kit's Filter popover already filters by. So they were **deleted, not re-homed**: there was nothing to move, the capability was already in the Filter control. Worth naming that this kit answered the same report on 2026-08-10 — *"Why are there 2 filters, retain only the button"* — and the Page then reintroduced it in a different shape. A scope toggle IS a filter; putting it outside Filter is a second filter UI whatever it is called. **`Import ledger` I kept** in the Custom-actions slot: it is a governed action, not a filter, which is what that slot's contract describes. Flagged rather than assumed.
 
@@ -3887,11 +3974,11 @@ Verified: workspace build 34/34. api `task-manager` 4/4 — the new tree/status/
 
 My first test for this was worthless and I threw it away. "No two tasks share an Outcome verbatim" passed against the broken parser, because the stray block is an older *variant* of TASK-023's text rather than a byte copy. The replacement asserts the actual contract — for every duplicate the document contains, the value the parser kept is the one on the line it kept, never the one it reported as ignored — and it fails on `git show HEAD:` naming `TASK-037.outcome took the value from ignored line 634`.
 
-**Estimates are now data.** 38 open tasks carry an `- Estimate:` line, through the parser, the projection, the import, and a read-only Estimate column (`tasks.estimate`, migration 0045). TEXT not numeric, because the unit is part of the judgement; NULL not zero, because "nobody has estimated this" is not an estimate of none. And stated plainly here: these are **coarse sizings derived from each task's own Outcome and Prototype test — judgement, not measurement**, with no calibration against any actual completion time.
+**Estimates are now data.** 38 open tasks carry an `- Estimate:` line, through the parser, the projection, the import, and a read-only Estimate column (`tasks.estimate`, migration 0047). TEXT not numeric, because the unit is part of the judgement; NULL not zero, because "nobody has estimated this" is not an estimate of none. And stated plainly here: these are **coarse sizings derived from each task's own Outcome and Prototype test — judgement, not measurement**, with no calibration against any actual completion time.
 
 What that surfaces: the two smallest open items, TASK-082 and TASK-086 at 0.5d, are both blocked on things that are not code — *"live web-session runs"* and *"the touch clauses need a real device"*. The smallest item anyone can actually build is TASK-085 at 1d.
 
-Verified: workspace build 34/34. `@bridge/db` `migration-metadata` green through 0045, whose `drizzle-kit generate` no-op assertion is again what proves the hand-written snapshot matches `schema.ts`. api `task-manager` 4/4, including a new assertion that an un-estimated Task reads as absent rather than zero. web suite green. `task-doc-parser` 11/11, both new cases seen failing against `HEAD` first. `check:agent-context` green.
+Verified: workspace build 34/34. `@bridge/db` `migration-metadata` green through 0047, whose `drizzle-kit generate` no-op assertion is again what proves the hand-written snapshot matches `schema.ts`. api `task-manager` 4/4, including a new assertion that an un-estimated Task reads as absent rather than zero. web suite green. `task-doc-parser` 11/11, both new cases seen failing against `HEAD` first. `check:agent-context` green.
 
 ## 2026-09-02 — TASK-085: the intake found a defect the intake list did not contain
 
@@ -3933,7 +4020,7 @@ The rail could rename a Module since 2026-08-30, but only in one browser's local
 folder is derived server-side, so after a rename the label the person read and the folder they opened
 in Finder disagreed — the unmet clause of TASK-081's own prototype test.
 
-`module_installations.display_name_override` (migration 0046) now carries what an Organization calls a
+`module_installations.display_name_override` (migration 0048) now carries what an Organization calls a
 Module, and `modules.rename` writes it **and moves the folder in the same call**. Three things worth
 naming. The override lives on the installation row rather than the manifest because
 `seedBuiltInModules` rewrites a built-in Module's stored manifest on every boot — a rename written
@@ -3954,7 +4041,7 @@ Verified: `@bridge/api` `modules` 27/27, including the round trip (rename → th
 owner's file still inside → `modules.files` reads the new root without being told the new name →
 renaming back clears the override and moves it back) and the collision case. The round trip was seen
 failing first against a `moduleFolderLabel` that ignored the override — `actual .../DealManager,
-expected .../Pipeline`. `@bridge/core` green, `@bridge/db` `migration-metadata` green through 0046,
+expected .../Pipeline`. `@bridge/core` green, `@bridge/db` `migration-metadata` green through 0048,
 `@bridge/web` build green.
 
 **Two things `pnpm verify` caught that per-package builds had not.** `@bridge/web#typecheck` failed on
@@ -4013,7 +4100,7 @@ fail; `STRUCTURE_MIN_ENTITIES` 3→1 → the refusal test fails). api `builder-s
 `buildWiring()`, with all 27 claims seeded through the governed propose→accept path first, plus
 flight-off and non-member fail-closed cases. `@bridge/web` build green.
 
-**Found and deliberately not folded in — TASK-090.** Neither Builder rung attributes its work to an
+**Found and deliberately not folded in — TASK-094.** Neither Builder rung attributes its work to an
 Agent Run. `CAPABILITY_BUILDER_AGENT` has a role, a scope and seeded governance in both wirings, and
 both lanes still execute as the requesting human, so the Builder's own work leaves nothing
 attributable behind. That is a real gap against "only an attributable allowed Agent invokes them",
@@ -4037,9 +4124,9 @@ runtime varies by 65% is a flake generator, and a flake in a cancellation test g
 failure that is otherwise invisible. **So: the gate is green except for a documented load-sensitive
 flake, and I am not claiming a clean `pnpm verify`.**
 
-## 2026-09-02 — TASK-090: the Capability Builder acts as itself
+## 2026-09-02 — TASK-094: the Capability Builder acts as itself
 
-The leftover from ADR-271, closed rather than carried. `CAPABILITY_BUILDER_AGENT` had an identity, a
+The leftover from ADR-275, closed rather than carried. `CAPABILITY_BUILDER_AGENT` had an identity, a
 role, a `signal:write` scope and seeded governance in both wirings since the Builder ladder began, and
 nothing referenced any of it — both Builder lanes ran as whichever human pressed the button.
 
