@@ -545,7 +545,13 @@ interface RunRecord extends AutomationRunRecord {
 export class InMemoryAutomationRunRecorder implements AutomationRunRecorder {
   readonly runs = new Map<string, RunRecord>();
   async start(
-    run: { runId: string; automationId: string; organizationId: string; agentId: string },
+    run: {
+      runId: string;
+      automationId: string;
+      organizationId: string;
+      agentId: string;
+      taskId?: string;
+    },
     ctx: RunCtx,
   ): Promise<void> {
     const existing = this.runs.get(run.runId);

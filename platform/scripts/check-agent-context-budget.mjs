@@ -10,7 +10,15 @@ export const DEFAULT_CONTEXT_BUDGETS = Object.freeze({
   claudeBytes: 8_192,
   claudeWords: 1_000,
   agentsBytes: 1_024,
-  activeTasksBytes: 4_096,
+  // 4_608, not 4_096: the index under-counted for as long as it existed.
+  // `parseCanonicalTasks` read the whole `- Status:` line, so every task whose
+  // status carried a human-readable qualifier ("in_progress (LANDED ..., the
+  // exit test is NOT met)") matched no known status and was dropped from the
+  // index entirely — 7 active tasks, 6 of them in progress, invisible to every
+  // agent that loads this file. The old number was the size of an index that
+  // was missing them. Restoring them costs ~140 bytes over the prior ceiling;
+  // hiding active work to stay under a budget is not a saving.
+  activeTasksBytes: 4_608,
   pathInstructionBytes: 1_024,
   pathInstructionsTotalBytes: 2_048,
   pathInstructionBodyLines: 12,

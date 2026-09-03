@@ -17,6 +17,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, Check, Search } from 'lucide-react';
+import { clampMenuPosition, type MenuPosition } from './StandardColumnMenu';
 
 export interface DropdownOption {
   id: string;
@@ -89,6 +90,13 @@ export function StandardDropdown({
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  // TASK-085 correction 3 (ADR-261 resolved the decision; this builds it).
+  // The panel used `absolute top-full` inside the trigger's own stacking and
+  // scroll context, so on a short table everything below the first option was
+  // clipped away and unreachable — the exact defect CV Naturals fixed by
+  // moving menus to the viewport. `null` until first open: measuring the
+  // trigger before it is on screen would anchor the panel to a stale rect.
+  const [panelAt, setPanelAt] = useState<MenuPosition | null>(null);
   const reasonId = useId();
 
   const active = options.find((o) => o.id === activeId) ?? options[0];
@@ -126,6 +134,24 @@ export function StandardDropdown({
     return () => {
       document.removeEventListener('mousedown', onPointerDown);
       document.removeEventListener('touchstart', onPointerDown);
+    };
+  }, [open]);
+
+  // Re-anchor on open, and again on scroll/resize: a viewport-positioned panel
+  // does not travel with its trigger, so a panel left open while the page
+  // scrolls would sit over unrelated content.
+  useEffect(() => {
+    if (!open) return;
+    function anchor() {
+      const rect = rootRef.current?.getBoundingClientRect();
+      if (rect) setPanelAt(clampMenuPosition({ x: rect.left, y: rect.bottom + 4 }));
+    }
+    anchor();
+    window.addEventListener('scroll', anchor, true);
+    window.addEventListener('resize', anchor);
+    return () => {
+      window.removeEventListener('scroll', anchor, true);
+      window.removeEventListener('resize', anchor);
     };
   }, [open]);
 
@@ -210,8 +236,14 @@ export function StandardDropdown({
         <>
           <div
             role="listbox"
-            className="absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-lg z-50 overflow-hidden bg-white flex flex-col"
-            style={{ borderColor: 'var(--color-border)' }}
+            className="fixed w-56 border rounded-xl shadow-lg z-50 overflow-hidden bg-white flex flex-col"
+            style={{
+              borderColor: 'var(--color-border)',
+              // Off-screen until the first measurement lands, rather than
+              // flashing at 0,0 in the corner.
+              left: panelAt?.x ?? -9999,
+              top: panelAt?.y ?? -9999,
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Escape') close();
             }}

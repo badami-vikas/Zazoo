@@ -438,3 +438,130 @@ test("Task Manager API durably reconciles a real projection File and runs comple
     await rm(localDir, { recursive: true, force: true });
   }
 });
+
+test("the canonical ledger imports as a tree, at its stated statuses, and re-importing is not a second queue", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+  try {
+    const entries = [
+      { recordId: "HORIZON-prototype", title: "Prototype", isGoal: true, status: "pending" as const },
+      { recordId: "HORIZON-hardening", title: "Hardening", isGoal: true, status: "pending" as const },
+      {
+        recordId: "TASK-001",
+        title: "TASK-001 — Shipped work",
+        isGoal: false,
+        parentRecordId: "HORIZON-prototype",
+        status: "done" as const,
+        priority: "P0",
+        estimate: "0.5d",
+        outcome: "One coherent shell",
+        exitTest: "Modules open",
+      },
+      {
+        recordId: "TASK-002",
+        title: "TASK-002 — Live work",
+        isGoal: false,
+        parentRecordId: "HORIZON-prototype",
+        status: "in_progress" as const,
+        priority: "P1",
+        outcome: "The queue runs",
+        exitTest: "A Task completes",
+      },
+      {
+        recordId: "TASK-003",
+        title: "TASK-003 — Later work",
+        isGoal: false,
+        parentRecordId: "HORIZON-hardening",
+        status: "pending" as const,
+        priority: "P2",
+        outcome: "Hardened",
+        exitTest: "Gates pass",
+      },
+    ];
+
+    const plan = await api.taskManager.importCanonicalLedger({
+      organizationId: PILOT_ORGANIZATION,
+      entries,
+    });
+    assert.equal(plan.created.length, 5);
+    assert.equal(plan.transitions.length, 0);
+    assert.equal(plan.downgraded.length, 0);
+
+    const tasks = await api.taskManager.list({ organizationId: PILOT_ORGANIZATION });
+    assert.equal(tasks.length, 5);
+    const byTitle = new Map(tasks.map((task) => [task.title, task]));
+    const prototype = byTitle.get("Prototype")!;
+    const shipped = byTitle.get("TASK-001 — Shipped work")!;
+    const live = byTitle.get("TASK-002 — Live work")!;
+    const later = byTitle.get("TASK-003 — Later work")!;
+
+    // The whole point of a separate import path: `draftTaskCreate` would have
+    // forced every one of these but the first to `candidate`.
+    assert.equal(shipped.status, "done");
+    assert.equal(live.status, "in_progress");
+    assert.equal(later.status, "pending");
+
+    // The tree, not a flat list.
+    assert.equal(prototype.isGoal, true);
+    assert.equal(prototype.level, 0);
+    assert.equal(prototype.path, "1");
+    assert.equal(shipped.parentTaskId, prototype.id);
+    assert.equal(shipped.path, "1.1");
+    assert.equal(live.path, "1.2");
+    assert.equal(later.path, "2.1");
+    assert.equal(shipped.level, 1);
+    assert.equal(shipped.priority, "P0");
+    assert.equal(shipped.estimate, "0.5d");
+    // Un-estimated work reads as absent, never as zero (AP-247).
+    assert.equal(live.estimate, undefined);
+    assert.equal(shipped.exitTest, "Modules open");
+    assert.equal(shipped.outcomes[0]?.title, "One coherent shell");
+
+    // Re-import: same ids, so a moved status is re-stated and nothing is minted.
+    const second = await api.taskManager.importCanonicalLedger({
+      organizationId: PILOT_ORGANIZATION,
+      entries: entries.map((entry) =>
+        entry.recordId === "TASK-003" ? { ...entry, status: "blocked" as const } : entry,
+      ),
+    });
+    assert.equal(second.created.length, 0);
+    assert.deepEqual(second.transitions, [{ taskId: later.id, status: "blocked" }]);
+    assert.equal(second.unchangedTaskIds.length, 4);
+
+    const after = await api.taskManager.list({ organizationId: PILOT_ORGANIZATION });
+    assert.equal(after.length, 5, "re-importing must not mint a second copy of the queue");
+    assert.equal(after.find((task) => task.id === later.id)?.status, "blocked");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("an import naming an absent parent is refused whole, not written half", async () => {
+  const wiring = await buildWiring({ allowEphemeralLocalPlane: true });
+  const api = caller(wiring);
+  try {
+    await assert.rejects(
+      api.taskManager.importCanonicalLedger({
+        organizationId: PILOT_ORGANIZATION,
+        entries: [
+          { recordId: "HORIZON-prototype", title: "Prototype", isGoal: true, status: "pending" as const },
+          {
+            recordId: "TASK-001",
+            title: "TASK-001 — Orphan",
+            isGoal: false,
+            parentRecordId: "HORIZON-missing",
+            status: "pending" as const,
+          },
+        ],
+      }),
+      /absent parent HORIZON-missing/,
+    );
+    assert.deepEqual(
+      await api.taskManager.list({ organizationId: PILOT_ORGANIZATION }),
+      [],
+      "a refused import leaves no rows behind",
+    );
+  } finally {
+    await wiring.close();
+  }
+});

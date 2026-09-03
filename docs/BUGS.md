@@ -3021,3 +3021,62 @@ What each answer means:
 - **(3) `packages/core/test/input-capture.test.ts:325`** — asserts `timeOfDay === "night"` for `22:00Z`, which is `"evening"` in US Central. The test passes only in UTC-ish zones, so it fails on this machine and would fail for any contributor outside them. The fix is to pin the zone in the test, not to change the classifier.
 - **Also recorded, not a bug**: the full `pnpm test` for `@bridge/api` does not complete on a fresh worktree — eight files (`chat`, `wiring`, `modules`, `pagination`, `organization-membership`, `graph-people-communities`, `input-capture-lane`, `jobpilot-culture-research`) hang past 30 minutes, almost certainly on absent `DATABASE_URL` / model-provider keys. Targeted subsets run fine. This is an environment shape, but it means "I ran the api suite" is not something any session can currently claim.
 - **Exit**: each of the three green on a clean checkout in a non-UTC timezone, with the api-suite hang either fixed or documented as a required-env precondition in the verify path.
+
+### 2026-09-01 — `input-capture` timeOfDay test is timezone-dependent (OPEN, pre-existing)
+
+`packages/core/test/input-capture.test.ts` "suppressed bursts signal the reason and never the
+text" asserts `timeOfDay === "night"` for the hardcoded instant `2026-08-16T22:00:00.000Z`,
+but `timeOfDay` is derived in the machine's LOCAL timezone. On America/Chicago that instant is
+17:00, so the attribute is `evening` and the test fails. Verified this session:
+`pnpm -F @bridge/core test` fails on this one case, `TZ=UTC pnpm -F @bridge/core test` passes.
+
+Pre-existing and unrelated to the work in this branch (ADR-265/266 touch none of the capture
+path). Not fixed here: the right fix is a decision about whether `timeOfDay` should be a local
+or UTC facet, which changes what the Signal MEANS, not just what the test asserts. Any machine
+outside UTC currently has a red `pnpm verify`.
+
+### 2026-09-01 — Two stray field blocks in docs/TASKS.md belong to no task (OPEN, canon defect)
+
+`docs/TASKS.md` contains two orphaned runs of `- Field:` lines with no `## ` heading and no
+`- ID:` line of their own:
+
+- **Lines 634-640**, after TASK-037's record: a complete copy of TASK-023's field block
+  (`Outcome`, `Prototype test`, `Scope`, `Evidence`, `Requests`, `Approval`, `Dependencies`).
+  It is an older variant of TASK-023's text, not a byte copy of the canonical section.
+- **Line 656**, after TASK-039's record and before TASK-040's heading:
+  `- Dependencies: TASK-023 (done); TASK-007 (done); TASK-026 (done); TASK-027 (done …)`.
+  TASK-040 already states its own `Dependencies`, so this line's owner is unclear.
+
+**Impact, now fixed at the parser:** `parseCanonicalTasks` took the LAST value for a repeated
+field, so TASK-037's projected record wore all seven of TASK-023's fields — the Task Manager
+and `current-tasks.md` showed one task's outcome, exit test, scope, evidence and approval under
+another task's title — and TASK-039's `Dependencies: none` was replaced by the stray line.
+The parser now keeps the FIRST value and `duplicateFieldIncidents` reports every duplicate with
+line numbers, which `generate-pending-work.mjs` prints as a warning.
+
+**Not fixed here, and deliberately:** the stray lines are still in the document. They are canon
+text whose intent cannot be recovered from the file — the line 656 block names TASK-027 pointing
+accuracy that matches neither TASK-039 nor TASK-040's stated dependencies. Deleting canon I
+cannot attribute is a worse error than leaving it inert. A human decides what these were for.
+
+### 2026-09-02 — Two culture-fetch cancellation tests time out under a loaded `pnpm verify` (OPEN, flake)
+
+`apps/api/test/jobpilot-culture-research.test.ts`:
+
+- *"cancelCultureSourceFetch aborts a real in-flight fetch and leaves the final record cancelled"*
+- *"agentOrchestration.childRun.cancel ... routes a culture-research child Run through its OWN durable
+  cancellation mechanism instead of racing it"*
+
+Both failed in one `pnpm verify` run with `timed out after 120s waiting for the server to observe the
+socket close`. **Not a regression, and the evidence says so**: the same two tests passed in the
+immediately preceding verify run of the same tree (5.9s for the first), the only intervening changes
+were a `?.` in `Layout.tsx` and a row in `deployment-boundary.ts`, and the whole file passes 57/57
+when run on its own. The failing run took **43m31s** against the previous run's **26m31s** on the same
+machine — the tests wait on a real socket close with a fixed 120s budget, and under that much load
+120s of wall-clock stopped being enough.
+
+**Why it is filed rather than shrugged off:** a fixed wall-clock budget in a suite whose own runtime
+varies by 65% is a flake generator, and a flake in a CANCELLATION test is the worst kind — the thing
+it guards (a Run marked cancelled while the underlying fetch keeps running) is exactly the failure
+that would otherwise be invisible. The fix is a budget that scales with observed load, or a
+deterministic close signal instead of a timeout, not a bigger number.

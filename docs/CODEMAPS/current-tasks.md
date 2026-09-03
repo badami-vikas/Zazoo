@@ -15,7 +15,7 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-031 | in_progress | P2 | Platform bloat cleanup and table-renderer standardization | TASK-027, TASK-028 |
 | TASK-032 | in_progress | P2 | Deal Copilot learning observation loop (generic Egg baseline v1) | TASK-002 |
 | TASK-033 | in_progress | P2 | Universal Commons capability archetypes (roadmap-v2 Phase 4) | TASK-032 |
-| TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | TASK-007 |
+| TASK-037 | ready | P3 | Repository hygiene and unlanded work recovery | none |
 | TASK-069 | ready | P2 | Academics Module — Subjects/Lecture Sessions/Assignments vault | none |
 | TASK-070 | ready | P2 | Events sub-module (NetworkManager) — speaker extraction + LinkedIn outreach queue | none |
 | TASK-073 | ready | P2 | Retrofit the newly-adopted UI conventions against every pre-existing Module | none |
@@ -33,12 +33,10 @@ Non-canonical navigation only. `docs/TASKS.md` remains the sole execution queue.
 | TASK-063 | ready | P2 | Record metadata columns from the Event log | none |
 | TASK-064 | ready | P1 | Scoped share grants — wire the built Share panel to Views and Forms | TASK-062 |
 | TASK-065 | ready | P2 | Notes and Governance Sections on every Record | none |
-| TASK-081 | ready | P2 | Left-nav Modules become directly manageable — right-click menu and drag-reorder | none |
-| TASK-082 | ready | P2 | Chat composer — the paperclip uploads, and the mic works everywhere | none |
+| TASK-082 | in_progress | P2 | Chat composer — the paperclip uploads, and the mic works everywhere | none |
 | TASK-083 | ready | P1 | Creation is one gesture — New opens an element page, and ⋮ gains per-element sections | none |
-| TASK-084 | ready | P2 | A governed schema-mutation capability, so the column menu stops lying | non-task gate (see TASKS.md) |
-| TASK-085 | ready | P2 | Triage the cross-repository UI rule intake — adopt, scope, or reject each candidate | TASK-080 |
-| TASK-086 | ready | P2 | Multi-select on every table, entered by long-press on touch | none |
+| TASK-084 | in_progress | P2 | A governed schema-mutation capability, so the column menu stops lying | non-task gate (see TASKS.md) |
+| TASK-086 | in_progress | P2 | Multi-select on every table, entered by long-press on touch | none |
 | TASK-087 | ready | P2 | Grouping on every table, and Databases that link by column | none |
-| TASK-088 | ready | P1 | Governance becomes editable — an engine-held overlay, never a mutated manifest | none |
-| TASK-089 | ready | P2 | Admin is Organization ownership and membership | none |
+| TASK-088 | in_progress | P1 | Governance becomes editable — an engine-held overlay, never a mutated manifest | none |
+| TASK-089 | in_progress | P2 | Admin is Organization ownership and membership | none |
