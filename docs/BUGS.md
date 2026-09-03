@@ -3080,3 +3080,22 @@ varies by 65% is a flake generator, and a flake in a CANCELLATION test is the wo
 it guards (a Run marked cancelled while the underlying fetch keeps running) is exactly the failure
 that would otherwise be invisible. The fix is a budget that scales with observed load, or a
 deterministic close signal instead of a timeout, not a bigger number.
+
+### 2026-09-02 — `origin/main` was red: a chat.test.mjs assertion outlived the code it pinned (FIXED)
+
+`platform/apps/web/test/chat.test.mjs` asserted `/<ChatView surface="chat_panel" compact \/>/` —
+the *self-closing* call shape. ADR-267e (per-Module chat sessions, on main) added
+`moduleName={moduleName}` to that call, so the regex stopped matching and `@bridge/web#test:coverage`
+failed. **Not caused by this branch**: both `AgentPanel.tsx` and `chat.test.mjs` are byte-identical
+between `origin/main` and this branch, and neither was touched here — the failure came in with the
+merge, which is how it was found.
+
+**Fixed by loosening the assertion to `/<ChatView surface="chat_panel" compact/`**, not by reverting
+the code: the code is the shipped feature and the assertion was stale. Worth naming the smell —
+pinning an exact JSX argument list makes a test fail every time a prop is added, which trains people
+to edit the assertion without reading it. What the test is actually for is that all three surfaces
+render the same `ChatView` with the right `surface`; that is what it now checks.
+
+**The open question this leaves for a human:** main was pushed red. Either the gate was not run
+before that push, or it was run and the failure was accepted without a record. Neither is visible
+from the commit.
