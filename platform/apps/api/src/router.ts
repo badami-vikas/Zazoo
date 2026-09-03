@@ -362,11 +362,14 @@ import {
   classifyCultureSource,
   MAX_CULTURE_SOURCES_PER_RUN,
   JOB_FUNCTIONS,
+  SOURCE_CATALOG,
+  findSource,
   type ApplicationStage,
   type CandidateProfile,
   type JobProfile,
   type GroundedClaimInput,
 } from "@bridge/jobpilot";
+import { runJobPilotSweep } from "./jobpilot-sweep.js";
 import {
   mapExtraction as mapWhatsAppExtraction,
   personIndexFrom as whatsAppPersonIndexFrom,
@@ -18074,6 +18077,9 @@ export const appRouter = t.router({
           salaryMax: z.number().int().positive().optional(),
           url: z.string().url().optional(),
           source: z.string().optional(),
+          // Calendar day, not an instant — ATS feeds never supply it; curated
+          // program data (mbaTargets) and manual entry do.
+          deadline: z.string().date().optional(),
           isRemote: z.boolean().optional(),
           descriptionKeywords: z.array(z.string()).optional(),
           candidate: z.object({
@@ -18109,21 +18115,93 @@ export const appRouter = t.router({
           ...(input.salaryMax != null ? { salaryMax: input.salaryMax } : {}),
           ...(input.url ? { url: input.url } : {}),
           ...(input.source ? { source: input.source } : {}),
+          ...(input.deadline ? { deadline: input.deadline } : {}),
         });
         const scored = await ctx.wiring.jobpilotStore.updateApplication(application.id, { fitScore: fit.score, flag: fit.flag });
         return { job: jobRow, application: scored ?? application, fit };
       }),
 
     list: procedure
-      .input(paginatedInput)
+      .input(
+        paginatedInput.extend({
+          // Inclusive deadline window, soonest-first. Rows without a deadline are
+          // excluded when either bound is set — see DrizzleJobPilotStore.listJobs.
+          deadlineFrom: z.string().date().optional(),
+          deadlineTo: z.string().date().optional(),
+        }),
+      )
       .query(async ({ input, ctx }) => {
         assertPilotOrganization(input.organizationId);
         const { items, total } = await ctx.wiring.jobpilotStore.listJobs(input.organizationId, {
           limit: input.limit,
           offset: input.offset,
+          ...(input.deadlineFrom ? { deadlineFrom: input.deadlineFrom } : {}),
+          ...(input.deadlineTo ? { deadlineTo: input.deadlineTo } : {}),
         });
         return { items, total, hasMore: input.offset + items.length < total };
       }),
+
+    /** Source toggle page (ADR-266). Catalog is code, state is rows — a source
+     * the user has never touched has no row and reads as OFF. Defaulting to ON
+     * would fire thousands of unrequested HTTP calls for every new
+     * Organization. */
+    sources: t.router({
+      list: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          const states = await ctx.wiring.jobpilotStore.listSourceStates(input.organizationId);
+          const byId = new Map(states.map((row) => [row.sourceId, row]));
+          return {
+            sources: SOURCE_CATALOG.map((source) => {
+              const state = byId.get(source.id);
+              return {
+                id: source.id,
+                label: source.label,
+                kind: source.kind,
+                note: source.note ?? null,
+                enabled: state?.enabled ?? false,
+                lastCheckedAt: state?.lastCheckedAt ?? null,
+                lastFetched: state?.lastFetched ?? null,
+                lastKept: state?.lastKept ?? null,
+                lastError: state?.lastError ?? null,
+              };
+            }),
+          };
+        }),
+
+      toggle: procedure
+        .input(
+          z.object({
+            organizationId: z.string().min(1),
+            sourceId: z.string().min(1),
+            enabled: z.boolean(),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          // Validated against the catalog HERE — the store has no idea what a
+          // valid source id is, so an unchecked id would persist a toggle for a
+          // source that can never run.
+          if (!findSource(input.sourceId)) throw new Error(`Unknown JobPilot source: ${input.sourceId}`);
+          const row = await ctx.wiring.jobpilotStore.setSourceEnabled(
+            input.organizationId,
+            input.sourceId,
+            input.enabled,
+          );
+          return { sourceId: row.sourceId, enabled: row.enabled };
+        }),
+
+      /** Sweeps every enabled source. The body lives in `runJobPilotSweep` so
+       * this button and the scheduled Automation are the same code, not two
+       * copies that can drift (DealPilot's source-intake precedent). */
+      run: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertPilotOrganization(input.organizationId);
+          return runJobPilotSweep(ctx.wiring.jobpilotStore, input.organizationId);
+        }),
+    }),
 
     /** Moves an application's stage — rejects invalid jumps via @bridge/jobpilot's
      * own transition() BEFORE writing (queued->tailoring->evaluating->... only). */

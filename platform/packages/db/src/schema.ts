@@ -1159,10 +1159,27 @@ export const jobpilotJobs = pgTable(
     salaryMax: integer("salary_max"),
     url: text("url"),
     source: text("source"), // greenhouse | ashby | lever | manual
+    // Application deadline. NOT sourced from ATS feeds — Greenhouse/Ashby/Lever
+    // JSON carries no deadline field — so this is null for scraped rows and set
+    // only from curated program data (`@bridge/jobpilot`'s mbaTargets) or by hand.
+    // `date` (not timestamp): a deadline is a calendar day, and storing it as an
+    // instant would force a timezone answer nobody has for "applications close
+    // September 11".
+    deadline: date("deadline"),
     createdAt: now(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
-  (t) => [index("jobpilot_jobs_org_idx").on(t.organizationId, t.createdAt)],
+  (t) => [
+    index("jobpilot_jobs_org_idx").on(t.organizationId, t.createdAt),
+    // Deadline-window queries ("what closes this month") are the reason the
+    // column exists, so they get an index rather than a full-table scan.
+    index("jobpilot_jobs_org_deadline_idx").on(t.organizationId, t.deadline),
+    // Repeat-sweep guard. A scheduled source re-reads the same board every few
+    // hours and would otherwise insert a fresh row for every posting each time.
+    // Postgres treats NULLs as distinct, so manually-added jobs without a url
+    // are unaffected.
+    unique("jobpilot_jobs_org_url_uq").on(t.organizationId, t.url),
+  ],
 );
 
 /** One row per job the candidate is tracking; `stage` mirrors
@@ -1191,6 +1208,34 @@ export const jobpilotApplications = pgTable(
     index("jobpilot_applications_org_idx").on(t.organizationId, t.stage),
     check("jobpilot_applications_flag_valid_ck", sql`${t.flag} IS NULL OR ${t.flag} IN ('pursue', 'review', 'pass')`),
   ],
+);
+
+/** Per-Organization on/off state and last-run result for a source in
+ * `@bridge/jobpilot`'s SOURCE_CATALOG. Only STATE lives here — the catalog
+ * itself is code, because it is identical for every Organization and would
+ * otherwise need a seed migration every time an engineer adds a board.
+ * `sourceId` is the catalog's stable string id, not a foreign key. */
+export const jobpilotSources = pgTable(
+  "jobpilot_sources",
+  {
+    id: uuidPk(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+    sourceId: text("source_id").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    /** Postings returned by the last sweep, and how many were kept after
+     * scoring. Both are needed to tell "source is dead" from "source is
+     * healthy but irrelevant to this candidate" — very different fixes. */
+    lastFetched: integer("last_fetched"),
+    lastKept: integer("last_kept"),
+    /** Null when the last sweep succeeded. A 404 here is expected drift, not a
+     * defect: ATS slugs cannot be enumerated and go stale when companies
+     * rename or migrate. */
+    lastError: text("last_error"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: now(),
+  },
+  (t) => [unique("jobpilot_sources_org_source_uq").on(t.organizationId, t.sourceId)],
 );
 
 /** JobPilot onboarding (TASK-076) — one row per Organization, capturing the

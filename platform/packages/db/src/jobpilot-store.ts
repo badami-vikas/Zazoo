@@ -11,10 +11,10 @@
  * mirroring how `dealpilot.list` scores fit on read rather than on write.
  */
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, count } from "drizzle-orm";
+import { and, desc, eq, count, gte, lte, sql } from "drizzle-orm";
 import { normalizeLegacyFitFlag } from "@bridge/jobpilot";
 import type { Database } from "./client.js";
-import { jobpilotJobs, jobpilotApplications, jobpilotCandidateProfiles } from "./schema.js";
+import { jobpilotJobs, jobpilotApplications, jobpilotCandidateProfiles, jobpilotSources } from "./schema.js";
 import {
   withDefaultOrganization,
   withOrganizationOnly,
@@ -32,6 +32,7 @@ export interface Page<T> {
 export type JobRow = typeof jobpilotJobs.$inferSelect;
 export type ApplicationRow = typeof jobpilotApplications.$inferSelect;
 export type CandidateProfileRow = typeof jobpilotCandidateProfiles.$inferSelect;
+export type SourceStateRow = typeof jobpilotSources.$inferSelect;
 
 export interface CreateJobInput {
   organizationId: string;
@@ -41,6 +42,9 @@ export interface CreateJobInput {
   salaryMax?: number;
   url?: string;
   source?: string;
+  /** ISO calendar day ("2026-09-11"). Null for ATS-scraped rows — those feeds
+   * carry no deadline; only curated program data supplies one. */
+  deadline?: string;
 }
 
 /**
@@ -84,6 +88,7 @@ export class DrizzleJobPilotStore {
         ...(input.salaryMax != null ? { salaryMax: input.salaryMax } : {}),
         ...(input.url ? { url: input.url } : {}),
         ...(input.source ? { source: input.source } : {}),
+        ...(input.deadline ? { deadline: input.deadline } : {}),
       })
       .returning();
     const [application] = await tx
@@ -94,16 +99,107 @@ export class DrizzleJobPilotStore {
     });
   }
 
-  async listJobs(organizationId: string, opts: PageOpts): Promise<Page<JobRow & { application: ApplicationRow | null }>> {
+  /** Per-Organization toggle state. Returns ONLY rows that exist — a catalog
+   * source the user has never touched has no row, and the router treats a
+   * missing row as "off". Defaulting to off matters: enabling every board for
+   * every new Organization would fire thousands of unrequested HTTP calls. */
+  async listSourceStates(organizationId: string): Promise<SourceStateRow[]> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) =>
+      tx.select().from(jobpilotSources).where(eq(jobpilotSources.organizationId, organizationId)),
+    );
+  }
+
+  /** Upserts the toggle. `sourceId` is validated against the catalog by the
+   * router BEFORE this is called — the store does not know the catalog. */
+  async setSourceEnabled(organizationId: string, sourceId: string, enabled: boolean): Promise<SourceStateRow> {
     return withOrganizationOnly(this.#db, organizationId, async (tx) => {
-    const where = eq(jobpilotJobs.organizationId, organizationId);
+      const [row] = await tx
+        .insert(jobpilotSources)
+        .values({ id: randomUUID(), organizationId, sourceId, enabled })
+        .onConflictDoUpdate({
+          target: [jobpilotSources.organizationId, jobpilotSources.sourceId],
+          set: { enabled, updatedAt: new Date() },
+        })
+        .returning();
+      return row!;
+    });
+  }
+
+  /** Records what a sweep of one source actually did. `error` is stored rather
+   * than thrown away because a dead slug and an irrelevant board look identical
+   * from the job count alone. */
+  async recordSourceRun(
+    organizationId: string,
+    sourceId: string,
+    result: { fetched: number; kept: number; error?: string | null },
+  ): Promise<void> {
+    await withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const values = {
+        id: randomUUID(),
+        organizationId,
+        sourceId,
+        enabled: true,
+        lastCheckedAt: new Date(),
+        lastFetched: result.fetched,
+        lastKept: result.kept,
+        lastError: result.error ?? null,
+      };
+      await tx
+        .insert(jobpilotSources)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [jobpilotSources.organizationId, jobpilotSources.sourceId],
+          set: {
+            lastCheckedAt: values.lastCheckedAt,
+            lastFetched: values.lastFetched,
+            lastKept: values.lastKept,
+            lastError: values.lastError,
+            updatedAt: new Date(),
+          },
+        });
+    });
+  }
+
+  /** URLs already stored, so a repeat sweep can skip them before attempting an
+   * insert. The unique constraint is the real guarantee; this just avoids
+   * generating thousands of doomed inserts every few hours. */
+  async existingJobUrls(organizationId: string): Promise<Set<string>> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const rows = await tx
+        .select({ url: jobpilotJobs.url })
+        .from(jobpilotJobs)
+        .where(eq(jobpilotJobs.organizationId, organizationId));
+      return new Set(rows.flatMap((r) => (r.url ? [r.url] : [])));
+    });
+  }
+
+  async listJobs(
+    organizationId: string,
+    opts: PageOpts & { deadlineFrom?: string; deadlineTo?: string },
+  ): Promise<Page<JobRow & { application: ApplicationRow | null }>> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+    // Deadline window is inclusive on both ends and DROPS null-deadline rows —
+    // asking "what closes in September" is asking for dated rows only, and a
+    // scraped row with no deadline is not an answer to that question.
+    const where = and(
+      eq(jobpilotJobs.organizationId, organizationId),
+      ...(opts.deadlineFrom ? [gte(jobpilotJobs.deadline, opts.deadlineFrom)] : []),
+      ...(opts.deadlineTo ? [lte(jobpilotJobs.deadline, opts.deadlineTo)] : []),
+    )!;
     const [rows, totalRows] = await Promise.all([
       tx
         .select({ job: jobpilotJobs, application: jobpilotApplications })
         .from(jobpilotJobs)
         .leftJoin(jobpilotApplications, eq(jobpilotApplications.jobId, jobpilotJobs.id))
         .where(where)
-        .orderBy(desc(jobpilotJobs.createdAt))
+        // Soonest deadline first when the caller asked for a window — the whole
+        // point of that query is "what closes next". Null deadlines sort last
+        // (they are excluded entirely when a window is set).
+        .orderBy(
+          opts.deadlineFrom || opts.deadlineTo
+            ? sql`${jobpilotJobs.deadline} ASC NULLS LAST`
+            : desc(jobpilotJobs.createdAt),
+        )
         .limit(opts.limit)
         .offset(opts.offset),
       tx.select({ value: count() }).from(jobpilotJobs).where(where),

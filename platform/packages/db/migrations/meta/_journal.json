@@ -302,6 +302,20 @@
       "when": 1786986662650,
       "tag": "0043_task075_jobpilot_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1788393600000,
+      "tag": "0044_jobpilot_job_deadline",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1788480000000,
+      "tag": "0045_jobpilot_sources",
+      "breakpoints": true
     }
   ]
 }

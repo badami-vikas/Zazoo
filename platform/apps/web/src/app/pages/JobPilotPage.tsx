@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { Briefcase, ChevronDown, ChevronUp, Upload } from "lucide-react";
+import { Briefcase, ChevronDown, ChevronUp, Database, Upload } from "lucide-react";
 import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
@@ -208,6 +208,7 @@ function JobPilotOnboarding({ onComplete }: { onComplete: () => void }) {
   );
 }
 
+type JobPilotSources = Awaited<ReturnType<typeof trpc.jobpilot.sources.list.query>>;
 type JobPilotList = Awaited<ReturnType<typeof trpc.jobpilot.list.query>>;
 type JobPilotDefinition = Awaited<ReturnType<typeof trpc.jobpilot.definition.query>>;
 
@@ -256,12 +257,135 @@ function FitSignalBullets({ applicationId, stage, flag, fitScore }: { applicatio
   );
 }
 
+/**
+ * Source toggle page (ADR-266). Every source JobPilot can read, on or off, with
+ * what the last sweep actually returned.
+ *
+ * The last-run numbers are two figures, not one, on purpose: `fetched` is what
+ * the board returned and `kept` is what survived scoring against the candidate
+ * profile. A source showing 860 fetched / 0 kept is healthy but irrelevant; one
+ * showing an error is a stale slug. Those need opposite fixes, and a single
+ * "results" number would hide the difference.
+ */
+function JobPilotSourcesPanel() {
+  const [sources, setSources] = useState<JobPilotSources["sources"] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [sweeping, setSweeping] = useState(false);
+  const [lastSweep, setLastSweep] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const next = await trpc.jobpilot.sources.list.query({ organizationId: PILOT_ORGANIZATION });
+      setSources(next.sources);
+    } catch (cause) {
+      setError(String(cause));
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function toggle(sourceId: string, enabled: boolean) {
+    setBusy(sourceId);
+    try {
+      await trpc.jobpilot.sources.toggle.mutate({ organizationId: PILOT_ORGANIZATION, sourceId, enabled });
+      await load();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function sweep() {
+    setSweeping(true);
+    setError(null);
+    try {
+      const result = await trpc.jobpilot.sources.run.mutate({ organizationId: PILOT_ORGANIZATION });
+      setLastSweep(`Added ${result.created} job${result.created === 1 ? "" : "s"} from ${result.sources.length} source${result.sources.length === 1 ? "" : "s"}.`);
+      await load();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setSweeping(false);
+    }
+  }
+
+  if (error) return <div className="p-6 text-sm text-red-600">{error}</div>;
+  if (!sources) return <div className="p-6 text-sm text-muted-foreground">Loading sources…</div>;
+
+  const enabledCount = sources.filter((source) => source.enabled).length;
+
+  return (
+    <section aria-label="Job sources" className="flex flex-col gap-4 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
+            Sources
+          </h2>
+          <p className="text-xs" style={{ color: "var(--color-navy-mid)" }}>
+            {enabledCount} of {sources.length} on. The sweep runs every 6 hours and on demand.
+          </p>
+        </div>
+        <Button onClick={() => void sweep()} disabled={sweeping || enabledCount === 0}>
+          {sweeping ? "Sweeping…" : "Run sweep now"}
+        </Button>
+      </div>
+
+      {lastSweep && (
+        <p className="text-xs" style={{ color: "var(--color-navy-mid)" }}>
+          {lastSweep}
+        </p>
+      )}
+
+      <ul className="flex flex-col gap-2">
+        {sources.map((source) => (
+          <li
+            key={source.id}
+            className="flex flex-wrap items-center gap-3 rounded-md border p-3"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <input
+              id={`jobpilot-source-${source.id}`}
+              type="checkbox"
+              checked={source.enabled}
+              disabled={busy === source.id}
+              onChange={(event) => void toggle(source.id, event.currentTarget.checked)}
+            />
+            <label htmlFor={`jobpilot-source-${source.id}`} className="flex-1 text-sm">
+              <span className="font-medium">{source.label}</span>
+              <span className="ml-2 text-xs uppercase" style={{ color: "var(--color-steel)" }}>
+                {source.kind}
+              </span>
+              {source.note && (
+                <span className="block text-xs" style={{ color: "var(--color-navy-mid)" }}>
+                  {source.note}
+                </span>
+              )}
+            </label>
+            <span className="text-xs tabular-nums" style={{ color: "var(--color-navy-mid)" }}>
+              {source.lastError
+                ? source.lastError
+                : source.lastCheckedAt
+                  ? `${source.lastFetched ?? 0} found · ${source.lastKept ?? 0} kept`
+                  : "Never run"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function JobPilotPage() {
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [page, setPage] = useState<JobPilotList | null>(null);
   const [definition, setDefinition] = useState<JobPilotDefinition | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewConfig>(() => defaultViewConfig(`${JOBPILOT_DATABASE_ID}:table`));
+  const [tab, setTab] = useState<"JobPilot" | "Sources">("JobPilot");
 
   useEffect(() => {
     void trpc.jobpilot.onboarding.get
@@ -334,7 +458,17 @@ export function JobPilotPage() {
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
-      <Header tabs={[{ id: "JobPilot", icon: Briefcase }]} activeTab="JobPilot" onTabChange={() => {}} />
+      <Header
+        tabs={[{ id: "JobPilot", icon: Briefcase }, { id: "Sources", icon: Database }]}
+        activeTab={tab}
+        onTabChange={(next) => setTab(next === "Sources" ? "Sources" : "JobPilot")}
+      />
+      {tab === "Sources" ? (
+        <div className="flex-1 overflow-auto">
+          <JobPilotSourcesPanel />
+        </div>
+      ) : (
+        <>
       {/* The "All Jobs" bar is gone for the same reason as Signals': the tab
           strip already names the surface, and the row existed only to carry a
           labelled insights toggle that now sits inside the section.
@@ -397,6 +531,8 @@ export function JobPilotPage() {
           </>
         }
       />
+        </>
+      )}
     </div>
   );
 }

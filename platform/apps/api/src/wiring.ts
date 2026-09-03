@@ -327,6 +327,7 @@ import {
   resolveModuleAgentRuntimeId,
   resolveModuleAutomationRuntimeId,
 } from "./built-in-modules.js";
+import { runJobPilotSweep } from "./jobpilot-sweep.js";
 import { deterministicUuid } from "./deterministic-uuid.js";
 import {
   InMemoryCaptureLedger,
@@ -6060,6 +6061,26 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     }
     return { source, estimate };
   };
+  // JobPilot source sweep (ADR-266). Registered as a Skill so the scheduled
+  // Automation has something to execute — the manifest's 6-hour cadence reaches
+  // the scheduler through the generic Module-Automation materializer below, and
+  // an Automation whose `procedure` names no registered Skill would be a
+  // schedule that fires into nothing.
+  skillRegistry.register({
+    name: "jobpilot.sources.run",
+    async run(inputs): Promise<SkillOutput> {
+      const request = inputs as { organizationId?: unknown };
+      const organizationId =
+        typeof request.organizationId === "string" ? request.organizationId : PILOT_ORGANIZATION;
+      const report = await runJobPilotSweep(modePorts.jobpilotStore, organizationId);
+      // `untrusted_external`: every posting in this report came off a public ATS
+      // board. It is third-party text arriving over the network, so it carries
+      // the external origin into the pipeline rather than inheriting trust from
+      // the schedule that started the Run.
+      return { proposedOutput: report, trustOrigin: "untrusted_external" };
+    },
+  });
+
   skillRegistry.register({
     name: "dealpilot.source",
     async run(inputs, ctx) {
