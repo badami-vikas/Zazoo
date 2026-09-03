@@ -54,6 +54,7 @@ import {
 } from "./relationship-intake-materializer.js";
 import { relationshipDateTimeSchema } from "./relationship-datetime.js";
 import {
+  CAPABILITY_BUILDER_AGENT,
   EGRESS_AGENT,
   LEARNING_AGENT,
   OUTREACH_AGENT,
@@ -309,8 +310,12 @@ import {
   type RejectionSuppressionVerdict,
   type TextEmbedder,
   recordRejectionFingerprint,
+  classifyClaimContent,
   draftStepsFromEpisodes,
+  draftStructureFromClaims,
   episodesForSkill,
+  type BuilderRefusalReason,
+  type BuilderStepsResult,
   rejectAutomationDraft,
   seedSuggestionsFromArchetypes,
   supportBandRank,
@@ -465,6 +470,7 @@ import {
 } from "./voice-transcription.js";
 import {
   listModuleFiles,
+  renameModuleFolder,
   MAX_MODULE_FILE_BYTES,
   ModuleFileContentConflictError,
   ModuleFilesPathError,
@@ -4864,6 +4870,25 @@ async function requireInstalledTaskManager(wiring: Wiring, organizationId: strin
   return installation;
 }
 
+/**
+ * The one place a Module's local-Files folder label is decided (TASK-081).
+ *
+ * `~/Documents/Bridge/<Organization>/<label>/` holds the owner's own documents,
+ * so this expression cannot be spelled out at each call site: two sites that
+ * disagree put a Module's Files in two directories, and the one the user is
+ * not looking at appears empty. The precedence is
+ * `displayNameOverride` (what this Organization renamed it to) -> the
+ * manifest's display name -> the canonical Module name.
+ *
+ * `modules.rename` is the only writer of the override, and it MOVES the folder
+ * in the same call — see `renameModuleFolder`.
+ */
+function moduleFolderLabel(installation: ModuleInstallationRow): string {
+  return installation.displayNameOverride
+    ?? installation.manifest.module?.displayName
+    ?? installation.moduleName;
+}
+
 async function requireOrganizationNameForFiles(
   wiring: Wiring,
   organizationId: string,
@@ -5182,7 +5207,7 @@ async function assembleChatCompletion(
       conversationHistory: history,
       outputContract: {
         description: canCreateTask
-         ? "Return one JSON object matching the supplied schema. All five keys are required. If the person is not explicitly asking to create a Task, kind MUST be answer or clarification, put the response in text, and set title, outcome, and exitTest to empty strings. If and only if the person explicitly asks to create a Task, kind MUST be create_task, text MUST explain that the Task proposal is ready for review, and the requested Task title, outcome, and exit test MUST be copied into title, outcome, and exitTest. Never put the Task title in text instead of title. Creating a Task is a proposal and must not be described as already completed."
+         ? "Return one JSON object matching the supplied schema. All five keys are required. kind MUST be create_task whenever the person gives you work to do — an instruction, a request to build, change, fix, find, arrange, follow up on, or remember something, whether or not they use the word Task. Wanting it done later, or delegated, still counts. kind MUST be answer when they are only asking a question, and clarification when you cannot tell what the work is and one question would settle it — never use clarification to avoid capturing work you already understand. For create_task, text MUST explain that the Task proposal is ready for review, and title, outcome, and exitTest MUST describe the work they asked for: title is the work in their own terms, outcome is what is true when it is done, exitTest is how anyone checks that. Never put the Task title in text instead of title. For answer and clarification, put the response in text and set title, outcome, and exitTest to empty strings. Creating a Task is a proposal and must not be described as already completed."
           : "Return one JSON object matching the supplied schema. Answer directly or ask one clarification. No mutation capability is available in this context.",
         schema: responseSchema,
       },
@@ -5580,6 +5605,7 @@ async function stageChatTaskProposal(
         automationId: CHAT_TASK_AUTOMATION_ID,
         organizationId: thread.organizationId,
         agentId: INTERNAL_STRATEGIST_AGENT,
+        taskId: goalTaskRef.taskId,
       },
       ctx.run,
     ),
@@ -6240,15 +6266,21 @@ async function ensureTaskManagerAutomation(
     action: Action;
   },
   run: RunCtx,
+  /** Which Goal the anchor Task hangs under. Defaults to the Task Manager's
+   *  own guard Goal; TASK-094's Capability Builder Runs pass their own, so a
+   *  Builder Run is not filed as a Task Manager guard. */
+  goalType = "task-manager",
 ): Promise<{ goalId: string; taskId: string }> {
   const seam = { nextId: () => run.ids.next(), nowISO: () => run.clock.nowISO() };
   const goals = await wiring.goalTasks.listGoals(organizationId);
   const goal =
-    goals.find((candidate) => candidate.type === "task-manager") ??
+    goals.find((candidate) => candidate.type === goalType) ??
     await wiring.goalTasks.createGoal({
       organizationId,
-      type: "task-manager",
-      title: "Task Manager guard Automations",
+      type: goalType,
+      title: goalType === "task-manager"
+        ? "Task Manager guard Automations"
+        : "Capability Builder Automations",
     }, seam);
   const existing = (await wiring.goalTasks.listTasksByGoal(organizationId, goal.id))
     .find((task) => task.type === "task" && task.assignedAgentId === input.agentId);
@@ -6274,6 +6306,123 @@ async function ensureTaskManagerAutomation(
     }],
   });
   return { goalId: goal.id, taskId: task.id };
+}
+
+/**
+ * TASK-094 — the Capability Builder acts as ITSELF.
+ *
+ * Both Builder lanes (rung 3's `proposeSteps`, rung 4's `proposeStructure`)
+ * used to execute as whichever human pressed the button. The agent identity
+ * existed — `CAPABILITY_BUILDER_AGENT` with `role-capability-builder`, a
+ * `signal:write` scope and seeded governance in both wirings — and nothing
+ * referenced it, so the Builder's own work left nothing attributable behind.
+ * That is a live gap against "only an attributable allowed Agent invokes
+ * them": you could not ask what the Builder had done, or stop it by narrowing
+ * its scope, because as far as the system was concerned it had never acted.
+ *
+ * This wrapper closes it in the two places it is true, with the same two
+ * mechanisms the rest of the codebase uses:
+ *
+ *  1. **Authority first.** `resolveAuthority` for the Builder as actor, on
+ *     behalf of the requesting human. Narrow the agent's scope and the lane
+ *     stops working — which is the point: an attribution you cannot revoke is
+ *     a label, not an authority.
+ *  2. **An Agent Run around the work.** Start before, finish after, `halted`
+ *     with the error when the derivation throws. `automation_runs` carries a
+ *     composite FK to `automations`, so the Run needs a real Automation row
+ *     for this Agent — hence the ensure call, exactly as the chat Task lane
+ *     does for the Internal Strategist.
+ *
+ * What it deliberately does NOT add: a propose/decide gate. Drafting is not
+ * the governed moment in either rung — activation is (rung 3) and
+ * materialization would be (rung 4). Inserting a human approval in front of
+ * "show me what you derived" would gate the explanation instead of the action.
+ */
+/** The rung-3 lane's own result union. Written out because inference across
+ *  the Run wrapper's callback collapses it to whichever branch it sees first,
+ *  and the refusal branch is half of this lane's contract. */
+type BuilderStepsLaneResult =
+  | { proposed: false; reason: BuilderRefusalReason; detail: string }
+  | {
+      proposed: true;
+      automationId: string;
+      steps: ReturnType<typeof parseAutomationSteps>;
+      evidence: Extract<BuilderStepsResult, { proposed: true }>["evidence"];
+      status: "draft";
+    };
+
+const CAPABILITY_BUILDER_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f8";
+const CAPABILITY_BUILDER_SKILL_ID = "capability-builder.draft";
+
+async function runAsCapabilityBuilder<T>(
+  ctx: { wiring: Wiring; run: RunCtx; identity: { type: string; id: string } },
+  organizationId: string,
+  lane: string,
+  work: () => Promise<{ result: T; output: Record<string, unknown> }>,
+): Promise<{ result: T; runId: string }> {
+  const authority = await resolveAuthority(
+    {
+      organizationId,
+      actor: { type: "agent", id: CAPABILITY_BUILDER_AGENT, plane: "local" },
+      onBehalfOf: { type: "user", id: ctx.identity.id },
+      action: "write",
+      resourceType: "signal",
+      requestedDataScope: "private",
+    },
+    {
+      roles: ctx.wiring.roles,
+      agents: ctx.wiring.agents,
+      ephemeral: ctx.wiring.ephemeral,
+      nowISO: ctx.run.clock.nowISO(),
+    },
+  );
+  if (!authority.allowed || authority.dataScope === "none") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `the Capability Builder is not authorized to act here: ${authority.reason}`,
+    });
+  }
+  const anchor = await ensureTaskManagerAutomation(
+    ctx.wiring,
+    organizationId,
+    {
+      automationId: CAPABILITY_BUILDER_AUTOMATION_ID,
+      name: "Capability Builder drafting",
+      agentId: CAPABILITY_BUILDER_AGENT,
+      skill: CAPABILITY_BUILDER_SKILL_ID,
+      action: "write",
+    },
+    ctx.run,
+    "capability-builder",
+  );
+  const runId = ctx.run.ids.next();
+  await ctx.wiring.automationRunRecorder.start(
+    {
+      runId,
+      automationId: CAPABILITY_BUILDER_AUTOMATION_ID,
+      organizationId,
+      agentId: CAPABILITY_BUILDER_AGENT,
+      taskId: anchor.taskId,
+    },
+    ctx.run,
+  );
+  try {
+    const { result, output } = await work();
+    await ctx.wiring.automationRunRecorder.finish(
+      { runId, organizationId, status: "completed", output: { lane, ...output } },
+      ctx.run,
+    );
+    return { result, runId };
+  } catch (error) {
+    // A halted Run is the honest record of a Builder that tried and failed.
+    // Swallowing the finish would leave a Run that never ends, which reads as
+    // "still working" forever.
+    await ctx.wiring.automationRunRecorder.finish(
+      { runId, organizationId, status: "halted", output: { lane, error: String(error) } },
+      ctx.run,
+    );
+    throw error;
+  }
 }
 
 /** TASK-032 flight gate — every `learning.*` procedure except `status` fails
@@ -7862,6 +8011,77 @@ export const appRouter = t.router({
       await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
       return ctx.wiring.taskManager.list(input.organizationId);
     }),
+    /**
+     * Import the repository's canonical ledger (ADR-271).
+     *
+     * The caller sends the PROJECTION, not the Markdown: `docs/TASKS.md` is a
+     * repository file the API has no path to in a packaged desktop build, and
+     * the projection is already generated, already committed, and already in
+     * the web bundle. Re-parsing the document server-side would put a second
+     * parser in the system that could disagree with the first.
+     *
+     * Not routed through the governed pipeline: it writes no Skill and invokes
+     * no Agent. It is a Human writing Task Records in their own Organization,
+     * which is exactly what `taskManager.create` already permits directly. The
+     * governance that matters here is idempotence — `recordId` maps to one
+     * deterministic uuid, so running it twice re-states statuses instead of
+     * minting a second copy of the queue.
+     */
+    importCanonicalLedger: authenticatedProcedure.input(z.object({
+      organizationId: z.string().uuid(),
+      entries: z.array(z.object({
+        recordId: z.string().trim().min(1).max(80),
+        title: z.string().trim().min(1).max(200),
+        isGoal: z.boolean(),
+        parentRecordId: z.string().trim().min(1).max(80).nullable().optional(),
+        status: taskRecordStatusInput,
+        priority: z.string().trim().min(1).max(8).optional(),
+        estimate: z.string().trim().min(1).max(16).optional(),
+        outcome: z.string().trim().min(1).max(4_000).optional(),
+        exitTest: z.string().trim().min(1).max(4_000).optional(),
+      }).strict()).min(1).max(500),
+    }).strict()).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      // Ledger identity -> Task identity, derived the same way every time so a
+      // re-import updates the rows it created rather than duplicating them.
+      const taskIdFor = (recordId: string) =>
+        idempotentUuid(`${input.organizationId}:canonical-ledger:${recordId}`);
+      const known = new Set(input.entries.map((entry) => entry.recordId));
+      const entries = input.entries.map((entry) => {
+        if (entry.parentRecordId && !known.has(entry.parentRecordId)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `ledger entry ${entry.recordId} names an absent parent ${entry.parentRecordId}`,
+          });
+        }
+        return {
+          recordId: entry.recordId,
+          taskId: taskIdFor(entry.recordId),
+          title: entry.title,
+          isGoal: entry.isGoal,
+          ...(entry.parentRecordId ? { parentTaskId: taskIdFor(entry.parentRecordId) } : {}),
+          status: entry.status,
+          ...(entry.priority ? { priority: entry.priority } : {}),
+          ...(entry.estimate ? { estimate: entry.estimate } : {}),
+          ...(entry.outcome ? { outcome: entry.outcome } : {}),
+          ...(entry.exitTest ? { exitTest: entry.exitTest } : {}),
+        };
+      });
+      try {
+        return await ctx.wiring.taskManager.importCanonicalLedger(
+          input.organizationId,
+          entries,
+          ctx.identity.id,
+          { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
+        );
+      } catch (cause) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: cause instanceof Error ? cause.message : String(cause),
+        });
+      }
+    }),
     get: authenticatedProcedure.input(z.object({
       organizationId: z.string().uuid(),
       taskId: z.string().uuid(),
@@ -7887,6 +8107,7 @@ export const appRouter = t.router({
       assignedAgentId: z.string().uuid().optional(),
       requiredSkillId: z.string().trim().min(1).optional(),
       parentTaskId: z.string().uuid().optional(),
+      estimate: z.string().trim().min(1).max(16).optional(),
       scheduledFor: z.string().date().optional(),
     })).mutation(async ({ input, ctx }) => {
       assertPilotOrganization(input.organizationId);
@@ -7908,6 +8129,7 @@ export const appRouter = t.router({
         ...(input.assignedAgentId ? { assignedAgentId: input.assignedAgentId } : {}),
         ...(input.requiredSkillId ? { requiredSkillId: input.requiredSkillId } : {}),
         ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+        ...(input.estimate ? { estimate: input.estimate } : {}),
         ...(input.scheduledFor ? { scheduledFor: input.scheduledFor } : {}),
       };
       const populated = (await ctx.wiring.taskManager.list(input.organizationId)).length > 0;
@@ -8248,7 +8470,7 @@ export const appRouter = t.router({
             async () => {
               const file = await readModuleFileContent(
                 organizationName,
-                installation.manifest.module!.displayName,
+                moduleFolderLabel(installation),
                 TASK_MANAGER_PROJECTION_FILE,
                 ctx.wiring.moduleFilesBridgeRoot,
               );
@@ -8266,7 +8488,7 @@ export const appRouter = t.router({
               const written = await replaceTaskProjectionFile(
                 ctx.wiring,
                 organizationName,
-                installation.manifest.module!.displayName,
+                moduleFolderLabel(installation),
                 file.contentHash,
                 projection.content,
               );
@@ -8283,7 +8505,7 @@ export const appRouter = t.router({
                 () => replaceTaskProjectionFile(
                   ctx.wiring,
                   organizationName,
-                  installation.manifest.module!.displayName,
+                  moduleFolderLabel(installation),
                   fileEffect.written.contentHash,
                   fileEffect.originalContent,
                 ),
@@ -8440,7 +8662,7 @@ export const appRouter = t.router({
           replaceTaskProjectionFile(
             ctx.wiring,
             organizationName,
-            installation.manifest.module!.displayName,
+            moduleFolderLabel(installation),
             input.expectedFileHash ?? null,
             projection.content,
           ),
@@ -8468,7 +8690,7 @@ export const appRouter = t.router({
       // checked against a caller expectation: it is generated, never edited,
       // and a stale copy is simply replaced.
       const template = emitAgentLedgerTemplate({
-        moduleDisplayName: installation.manifest.module!.displayName,
+        moduleDisplayName: moduleFolderLabel(installation),
         organizationName,
         projectionFileName: TASK_MANAGER_PROJECTION_FILE,
         completedCap: TASK_PROJECTION_COMPLETED_CAP,
@@ -8485,13 +8707,13 @@ export const appRouter = t.router({
           // first time.
           const existing = await readModuleFileContent(
             organizationName,
-            installation.manifest.module!.displayName,
+            moduleFolderLabel(installation),
             AGENT_LEDGER_TEMPLATE_FILE,
             ctx.wiring.moduleFilesBridgeRoot,
           );
           return replaceModuleFileContent(
             organizationName,
-            installation.manifest.module!.displayName,
+            moduleFolderLabel(installation),
             AGENT_LEDGER_TEMPLATE_FILE,
             existing?.contentHash ?? null,
             Buffer.from(template, "utf8"),
@@ -8550,7 +8772,7 @@ export const appRouter = t.router({
         input.organizationId,
         () => readModuleFileContent(
             organizationName,
-            installation.manifest.module!.displayName,
+            moduleFolderLabel(installation),
             TASK_MANAGER_PROJECTION_FILE,
             ctx.wiring.moduleFilesBridgeRoot,
         ),
@@ -16040,6 +16262,49 @@ export const appRouter = t.router({
      * which traverses the governed pipeline before the store materializes
      * anything. Red claim classes are structurally unproposable — the zod
      * enum mirrors the core's closed union, which does not contain them. */
+    /**
+     * TASK-094 — what has the Capability Builder actually done? Both Builder
+     * lanes now leave an Agent Run behind, and this is where you read them.
+     * Without it the attribution would exist only in a table nobody queries,
+     * which is the same as not existing: "the Builder acted" has to be
+     * answerable from outside the Builder.
+     *
+     * Not a Module Runs list (`modules.recentRuns` is keyed by a Module's own
+     * manifest Automations, and the Builder is not a Module) — this is the
+     * one Automation the Capability Builder acts under.
+     */
+    builderRuns: procedure
+      .input(z.object({
+        organizationId: z.string().min(1),
+        limit: z.number().int().min(1).max(50).default(10),
+      }))
+      .query(async ({ input, ctx }) => {
+        // Readable whenever EITHER Builder lane can run: rung 3 sits behind
+        // the learning flight and rung 4 behind the claim substrate, and a
+        // deployment with one of them on has Builder Runs to account for.
+        if (!ctx.wiring.learningObservationEnabled && !ctx.wiring.claimSubstrateEnabled) {
+          assertLearningFlightEnabled(ctx);
+        }
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const runs = await ctx.wiring.automationRunRecorder.list(
+          input.organizationId,
+          [CAPABILITY_BUILDER_AUTOMATION_ID],
+          { limit: input.limit },
+        );
+        return {
+          agentId: CAPABILITY_BUILDER_AGENT,
+          runs: runs.map((run) => ({
+            runId: run.runId,
+            status: run.status,
+            startedAt: run.startedAt,
+            finishedAt: run.finishedAt ?? null,
+            taskId: run.taskId ?? null,
+            output: run.output,
+          })),
+        };
+      }),
+
     claims: t.router({
       /** Always answerable, like `learning.status`, so clients honestly hide
        * the surface instead of rendering dead controls. */
@@ -16275,6 +16540,69 @@ export const appRouter = t.router({
             }),
           );
           return { suggestion };
+        }),
+
+      /**
+       * Capability Builder rung 4 (K9, TASK-053): what shape is this person's
+       * work already in? Reads the owner's live entities and claims and
+       * derives Databases from them - the rung-3 posture applied to the
+       * knowledge substrate instead of the ledger.
+       *
+       * A QUERY, not a mutation, and deliberately: rung 4 proposes a
+       * structure, it does not create one. Materializing a proposed Database
+       * is a schema change and belongs to the governed pipeline with its own
+       * approval, not to the derivation that suggested it.
+       *
+       * Owner-scoped like every other claims lane - `ctx.identity.id` is the
+       * only owner whose claims are read, so one member cannot derive a
+       * structure out of another's observations.
+       */
+      proposeStructure: procedure
+        .input(z.object({ organizationId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertClaimFlightEnabled(ctx);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const { result, runId } = await runAsCapabilityBuilder(
+            ctx,
+            input.organizationId,
+            "claims.proposeStructure",
+            async () => {
+              const [entities, claims] = await Promise.all([
+                ctx.wiring.claimStore.listEntities(input.organizationId, ctx.identity.id),
+                ctx.wiring.claimStore.liveClaims(input.organizationId, ctx.identity.id),
+              ]);
+              const derived = draftStructureFromClaims(
+                entities.map((entity) => ({ id: entity.id, kind: entity.kind, name: entity.name })),
+                claims.map((claim) => ({
+                  id: claim.id,
+                  entityId: claim.entityId,
+                  field: claim.field,
+                  value: claim.value,
+                })),
+                // The never-propose rule is enforced HERE as well as at
+                // proposal time: claims materialize through a gate, but a claim
+                // that predates a classifier change must not become a column
+                // because it once passed.
+                (field, value) => classifyClaimContent(field, value).tier === "red",
+              );
+              return {
+                result: derived,
+                // The Run says what the Builder READ and what it concluded —
+                // a refusal is as much a result as a proposal.
+                output: derived.proposed
+                  ? {
+                      proposed: true,
+                      databases: derived.databases.map((database) => database.name),
+                      evidenceClaimIds: derived.databases.flatMap((database) =>
+                        database.columns.flatMap((column) => column.sampleClaimIds)),
+                      ...derived.evidence,
+                    }
+                  : { proposed: false, reason: derived.reason },
+              };
+            },
+          );
+          return { ...result, runId };
         }),
 
       entities: procedure
@@ -16933,29 +17261,48 @@ export const appRouter = t.router({
               });
             }
 
-            const { items } = await ctx.wiring.ledger.listHistory(input.organizationId, {
-              limit: 200,
-              offset: 0,
-            });
-            const episodes = episodesForSkill(items, backing.pattern.attributeValue);
-            const result = draftStepsFromEpisodes(backing.pattern, episodes, (skillId) =>
-              Boolean(ctx.wiring.skillRegistry.get(skillId)),
+            const drafted = await runAsCapabilityBuilder(
+              ctx,
+              input.organizationId,
+              "promotions.drafts.proposeSteps",
+              async (): Promise<{ result: BuilderStepsLaneResult; output: Record<string, unknown> }> => {
+                const { items } = await ctx.wiring.ledger.listHistory(input.organizationId, {
+                  limit: 200,
+                  offset: 0,
+                });
+                const episodes = episodesForSkill(items, backing.pattern.attributeValue);
+                const result = draftStepsFromEpisodes(backing.pattern, episodes, (skillId) =>
+                  Boolean(ctx.wiring.skillRegistry.get(skillId)),
+                );
+                if (!result.proposed) {
+                  return {
+                    result: { proposed: false as const, reason: result.reason, detail: result.detail },
+                    output: { proposed: false, reason: result.reason },
+                  };
+                }
+                // The canonical write-boundary validation every registry write
+                // gets — the Builder does not bypass it just because it derived
+                // the steps itself.
+                const steps = parseAutomationSteps(result.steps);
+                await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
+                return {
+                  result: {
+                    proposed: true as const,
+                    automationId: draft.id,
+                    steps,
+                    evidence: result.evidence,
+                    status: "draft" as const,
+                  },
+                  output: {
+                    proposed: true,
+                    automationId: draft.id,
+                    evidenceLedgerIds: result.evidence.episodeLedgerIds,
+                    episodeCount: result.evidence.episodeCount,
+                  },
+                };
+              },
             );
-            if (!result.proposed) {
-              return { proposed: false as const, reason: result.reason, detail: result.detail };
-            }
-            // The canonical write-boundary validation every registry write
-            // gets — the Builder does not bypass it just because it derived
-            // the steps itself.
-            const steps = parseAutomationSteps(result.steps);
-            await ctx.wiring.automationRegistry.save({ ...draft, steps, status: "draft" });
-            return {
-              proposed: true as const,
-              automationId: draft.id,
-              steps,
-              evidence: result.evidence,
-              status: "draft" as const,
-            };
+            return { ...drafted.result, runId: drafted.runId };
           }),
 
         activate: procedure
@@ -20584,7 +20931,7 @@ export const appRouter = t.router({
             input.organizationId,
             (organization) => listModuleFiles(
               organization.name,
-              installation.manifest.module?.displayName ?? installation.moduleName,
+              moduleFolderLabel(installation),
               200,
               ctx.wiring.moduleFilesBridgeRoot,
             ),
@@ -20599,6 +20946,70 @@ export const appRouter = t.router({
             }),
           ));
           return inventory;
+        } catch (error) {
+          if (error instanceof ModuleFilesPathError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          }
+          throw error;
+        }
+      }),
+
+    /**
+     * Rename a Module for this Organization, and move its local Files folder
+     * with it (TASK-081, the half AP-168 left unmet).
+     *
+     * The rail already renamed Modules, but only in this browser's
+     * localStorage, so `~/Documents/Bridge/<Org>/<label>/` kept the old name
+     * and the label the user reads and the folder they open disagreed. The
+     * override is stored on EVERY version row of the Module, not on the
+     * `available` one, so promote/rollback cannot lose what someone called it.
+     *
+     * Not routed through propose/decide: this is presentation plus a move of
+     * the caller's own directory inside their own Organization, the same
+     * authority `addFile` already writes files under. Membership is the gate.
+     *
+     * `null`, or the manifest's own display name, CLEARS the override rather
+     * than storing a redundant copy — so "rename it back" leaves no trace, and
+     * the folder moves back to the name the Module shipped with.
+     */
+    rename: authenticatedProcedure
+      .input(z.object({
+        organizationId: z.string().min(1),
+        moduleName: z.string().min(1),
+        displayName: z.string().trim().min(1).max(120).nullable(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const installation = await ctx.wiring.moduleStore.getAvailable(input.organizationId, input.moduleName);
+        if (!installation || installation.status !== "installed") {
+          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.moduleName}" not found` });
+        }
+        const previousLabel = moduleFolderLabel(installation);
+        const manifestLabel = installation.manifest.module?.displayName ?? installation.moduleName;
+        const nextOverride = input.displayName === null || input.displayName === manifestLabel
+          ? null
+          : input.displayName;
+        const nextLabel = nextOverride ?? manifestLabel;
+        try {
+          const folder = await ctx.wiring.organizationStore.withLockedOrganizationFiles(
+            input.organizationId,
+            (organization) => withOrganizationFileOperationLock(
+              input.organizationId,
+              () => renameModuleFolder(
+                organization.name,
+                previousLabel,
+                nextLabel,
+                ctx.wiring.moduleFilesBridgeRoot,
+              ),
+            ),
+          );
+          await ctx.wiring.moduleStore.setDisplayNameOverride(
+            input.organizationId,
+            input.moduleName,
+            nextOverride,
+          );
+          return { moduleName: input.moduleName, displayName: nextLabel, previousDisplayName: previousLabel, folder };
         } catch (error) {
           if (error instanceof ModuleFilesPathError) {
             throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -20636,7 +21047,7 @@ export const appRouter = t.router({
             input.organizationId,
             (organization) => saveModuleFile(
               organization.name,
-              installation.manifest.module?.displayName ?? installation.moduleName,
+              moduleFolderLabel(installation),
               input.fileName,
               content,
               ctx.wiring.moduleFilesBridgeRoot,

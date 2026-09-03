@@ -316,6 +316,13 @@
       "when": 1788384110094,
       "tag": "0045_task_chat_module_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1788394656841,
+      "tag": "0046_merged_task_anchor_estimate_display_name",
+      "breakpoints": true
     }
   ]
 }

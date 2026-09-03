@@ -271,7 +271,7 @@ export function ZazooWorld() {
   const pickRoom = (r: Room) => { setRoom(r); setPose(ROOMS[r].poses[0]); };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, background: "#EFE7DA", fontFamily: "'Avenir Next', 'Segoe UI', system-ui, sans-serif" }}>
+    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, background: "#EFE7DA", fontFamily: "'Avenir Next', 'Segoe UI', system-ui, sans-serif" }}>
       <ZazooRoom pose={pose} species={species} />
 
       <div style={{ display: "flex", gap: 8 }}>

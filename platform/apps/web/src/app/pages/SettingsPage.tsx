@@ -1297,11 +1297,14 @@ function AutomationDraftsCard() {
         organizationId: PILOT_ORGANIZATION,
         automationId,
       });
+      // TASK-094: the Run id is shown because the Builder acted as itself —
+      // the person should be able to point at what the Agent did.
       setMessage(
-        result.proposed
+        (result.proposed
           ? `Drafted ${result.steps.length} step${result.steps.length === 1 ? "" : "s"} from ${result.evidence.episodeCount} of your own decisions` +
               `${result.evidence.distinctShapes > 1 ? " (evidence was mixed — the most common shape won; review closely)" : ""}. Still a draft; activation is yours.`
-          : `The Builder declined: ${result.detail}`,
+          : `The Builder declined: ${result.detail}`) +
+          ` Capability Builder Run ${result.runId}.`,
       );
     } catch (error) {
       setMessage(String(error));

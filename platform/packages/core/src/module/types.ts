@@ -275,6 +275,10 @@ export interface ModuleInstallationRow {
   state: ModuleVersionState;
   status: "pending_review" | "installed" | "rejected";
   lineageManifestId: string | null;
+  /** What this Organization calls the Module (TASK-081). `null` = never renamed;
+   *  the manifest's display name stands. See `moduleInstallations` in the db
+   *  schema for why this is not written into the manifest. */
+  displayNameOverride?: string | null;
   /** Installation-local ownership. The signed Commons artifact stays immutable. */
   moduleAttachment?: ModuleAttachment;
   /** Verified source envelope for a root Module installed/reconciled from Commons. */

@@ -231,6 +231,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   // — Module/file surfaces + remaining reads that touch the Local Plane or non-public scope.
   ["modules.files", "Module Files live under ~/Documents/Bridge"],
   ["modules.addFile", "Module Files live under ~/Documents/Bridge"],
+  ["modules.rename", "renaming a Module MOVES its ~/Documents/Bridge folder"],
   ["modules.register", "Module registration is a governed install"],
   ["modules.install", "Module registration is a governed install"],
   ["modules.uninstall", "Module registration is a governed install"],

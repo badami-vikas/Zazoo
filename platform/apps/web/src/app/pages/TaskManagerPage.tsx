@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ListChecks, Target } from "lucide-react";
+import { Download, ListChecks } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 import { normalizeViewKind, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { Header } from "../components/shared/Header";
@@ -12,6 +12,7 @@ import { ModuleSurfaceLayout } from "../components/shared/ModuleSurfaceLayout";
 import { DataViews } from "../dataviews/DataViews";
 import { computeEligibleKinds, viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow } from "../dataviews/types";
+import { canonicalLedgerImportPayload, PENDING_WORK_SOURCE } from "../data/pending-work";
 import { API_TRANSPORT_CONFIGURED, PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
 const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
@@ -30,6 +31,9 @@ const TASK_SPEC: TableSpec = {
       options: ["candidate", "committed", "pending", "in_progress", "blocked", "done", "parked", "abandoned", "archived"],
     },
     { id: "priority", label: "Priority", kind: "select", editable: true, options: ["P0", "P1", "P2", "P3", "P4"] },
+    // Read-only text, not a number: the unit is part of the judgement, and an
+    // un-estimated Task must render blank rather than 0 (AP-247).
+    { id: "estimate", label: "Estimate", kind: "text", editable: false },
     { id: "outcomeTitle", label: "Outcome", kind: "text", editable: true },
     { id: "outcomeMeasure", label: "Measure", kind: "text", editable: true },
     { id: "outcomeTarget", label: "Target", kind: "text", editable: true },
@@ -74,6 +78,7 @@ function toDataRow(task: TaskRow, dependsOn: readonly string[] = []): DataRow {
     isGoal: task.isGoal,
     status: task.status,
     priority: task.priority,
+    estimate: task.estimate ?? null,
     outcomeTitle: outcome?.title ?? null,
     outcomeMeasure: outcome?.measure ?? null,
     outcomeTarget: outcome?.target ?? null,
@@ -90,9 +95,9 @@ export function TaskManagerPage() {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [goalsOnly, setGoalsOnly] = useState(false);
-  const [candidatesOnly, setCandidatesOnly] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<TaskProposal | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importNote, setImportNote] = useState<string | null>(null);
   const [dependenciesByTask, setDependenciesByTask] = useState<Record<string, string[]>>({});
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedView = normalizeViewKind(searchParams.get("view"));
@@ -130,13 +135,40 @@ export function TaskManagerPage() {
     void load();
   }, []);
 
-  const visibleTasks = useMemo(
-    () => tasks.filter((task) => (!goalsOnly || task.isGoal) && (!candidatesOnly || task.status === "candidate")),
-    [candidatesOnly, goalsOnly, tasks],
-  );
+  // ADR-271 — the repository's canonical ledger becomes real Task Records.
+  // The payload is the committed projection that ships in this bundle; the
+  // server derives one deterministic id per ledger row, so pressing this twice
+  // re-states statuses instead of minting a second copy of the queue.
+  async function importCanonicalLedger() {
+    setImporting(true);
+    setImportNote(null);
+    setError(null);
+    try {
+      const plan = await trpc.taskManager.importCanonicalLedger.mutate({
+        organizationId: PILOT_ORGANIZATION,
+        entries: canonicalLedgerImportPayload(PENDING_WORK_SOURCE),
+      });
+      setImportNote(plan.note);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  // No page-local scope toggles. "Goals" and "Candidates" were two buttons in
+  // the toolbar's actions slot that each applied one row filter — `isGoal` and
+  // `status`, both already columns in TASK_SPEC and both already reachable
+  // through the kit's Filter control (user report 2026-09-01: "Why do I see
+  // goals and candidates next to filter? I need only filter and filters to
+  // appear inside it"). A filter that lives outside the Filter button is a
+  // second filter UI, which is the same report this kit already answered once
+  // on 2026-08-10. Deleted rather than re-homed: the capability did not move,
+  // it was already there.
   const rows = useMemo(
-    () => visibleTasks.map((task) => toDataRow(task, dependenciesByTask[task.id] ?? [])),
-    [visibleTasks, dependenciesByTask],
+    () => tasks.map((task) => toDataRow(task, dependenciesByTask[task.id] ?? [])),
+    [tasks, dependenciesByTask],
   );
 
   function changeView(next: ViewConfig) {
@@ -233,6 +265,10 @@ export function TaskManagerPage() {
           ) : error ? (
             <p role="alert" className="p-6 text-sm text-red-600">Task Manager could not load: {error}</p>
           ) : (
+            <>
+            {importNote ? (
+              <p role="status" className="px-3 pt-3 text-xs text-muted-foreground sm:px-4">{importNote}</p>
+            ) : null}
             <DataViews
               spec={TASK_SPEC}
               view={view}
@@ -253,26 +289,23 @@ export function TaskManagerPage() {
                 />
               }
               actions={
-                <>
-                  <Button
+                <Button
                     size="sm"
-                    variant={goalsOnly ? "default" : "outline"}
-                    aria-pressed={goalsOnly}
-                    onClick={() => setGoalsOnly((value) => !value)}
+                    variant="outline"
+                    disabled={!API_TRANSPORT_CONFIGURED || importing}
+                    title={
+                      API_TRANSPORT_CONFIGURED
+                        ? "Create Task Records from docs/TASKS.md — Horizon Goal nodes over their Tasks. Safe to repeat."
+                        : "The API transport is not configured in this build, so the ledger cannot be imported here."
+                    }
+                    onClick={() => void importCanonicalLedger()}
                   >
-                    <Target className="size-3.5" /> Goals
+                    <Download className="size-3.5" />
+                    {importing ? "Importing…" : "Import ledger"}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant={candidatesOnly ? "default" : "outline"}
-                    aria-pressed={candidatesOnly}
-                    onClick={() => setCandidatesOnly((value) => !value)}
-                  >
-                    Candidates
-                  </Button>
-                </>
               }
             />
+            </>
           )
         }
         below={

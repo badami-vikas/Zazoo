@@ -47,20 +47,16 @@
     "apps/web/src/app/pages/whatsapp/ScheduledActionsPanel.tsx": 2,
     "apps/web/src/app/pages/whatsapp/ThreadComposer.tsx": 3
   },
-  "vh-not-dvh": {
-    "apps/web/src/app/avatar/NotchHome.tsx": 1,
-    "apps/web/src/app/avatar/OverlayApp.tsx": 3,
-    "apps/web/src/app/avatar/zazoo/ZazooLab.tsx": 2,
-    "apps/web/src/app/avatar/zazoo/ZazooWorld.tsx": 1,
-    "apps/web/src/app/components/shared/StandardColumnMenu.tsx": 1,
-    "apps/web/src/app/dataviews/views/BoardView.tsx": 1,
-    "apps/web/src/app/dataviews/views/GraphView.tsx": 1
-  },
   "native-dialog": {
     "apps/web/src/app/components/NewModuleDialog.tsx": 1,
     "apps/web/src/app/pages/DealPilotPage.tsx": 1,
     "apps/web/src/app/pages/RelationshipPage.tsx": 7,
     "apps/web/src/app/pages/SettingsPage.tsx": 8
+  },
+  "vh-not-dvh": {
+    "apps/web/src/app/components/shared/StandardColumnMenu.tsx": 1,
+    "apps/web/src/app/dataviews/views/BoardView.tsx": 1,
+    "apps/web/src/app/dataviews/views/GraphView.tsx": 1
   },
   "overscroll-contain": {
     "apps/web/src/app/onboarding/OnboardingDialog.tsx": 1

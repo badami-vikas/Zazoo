@@ -850,14 +850,28 @@ export const automationRuns = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     output: jsonb("output"),
     ledgerId: uuid("ledger_id"),
+    /** The Task this Run advanced — projected from the Automation step's
+     * `goalTaskRef` at Run start, so "which Task did this Automation move"
+     * is answerable from the Run row instead of only from the step
+     * definition (which is mutable and shared across every Run of it).
+     * Nullable: Automations predating the anchor, and steps whose Skill is
+     * agent-floor-exempt, have no Task to name — an honest NULL beats a
+     * fabricated anchor. */
+    taskId: uuid("task_id"),
     taintLabel: jsonb("taint_label").notNull().default(UNKNOWN_LABEL),
   },
   (t) => [
+    index("automation_runs_task_idx").on(t.organizationId, t.taskId),
     foreignKey({
       columns: [t.organizationId, t.automationId, t.agentId],
       foreignColumns: [automations.organizationId, automations.id, automations.agentId],
       name: "automation_runs_organization_automation_owner_fk",
     }),
+    // The composite FK to `tasks` (organization_id, task_id) is declared in
+    // the migration, not here: `tasks` is defined further down this file
+    // (LAYER 8) and drizzle evaluates this extras callback at module init, so
+    // naming it from LAYER 4 is a temporal-dead-zone crash. Same
+    // "beyond what drizzle-kit generates" split as task_dependencies (0039).
   ],
 );
 
@@ -1638,6 +1652,15 @@ export const moduleInstallations = pgTable(
      * separate flag from capability_states.state). */
     status: text("status").notNull().default("pending_review"),
     lineageManifestId: uuid("lineage_manifest_id"),
+    /** What THIS Organization calls the Module, when its people renamed it in
+     * the rail (TASK-081). It lives here rather than in `manifest` because
+     * `seedBuiltInModules` rewrites a built-in Module's stored manifest on every
+     * boot whenever it differs from the shipped one — a rename written there is
+     * reverted at next start. NULL means "nobody renamed it", which is not the
+     * same as the empty string, and the manifest display name stands.
+     * The local Files folder is derived from this (`moduleFolderLabel`), so
+     * changing it MOVES a directory of the owner's own documents. */
+    displayNameOverride: text("display_name_override"),
     /** Installation-local ownership for a signed Commons capability. */
     moduleAttachment: jsonb("module_attachment"),
     /** Exact verified generalized Commons envelope for a root Module install. */
@@ -1690,6 +1713,11 @@ export const tasks = pgTable(
     ownerType: text("owner_type").notNull().default("human"),
     ownerId: uuid("owner_id"),
     requiredSkillId: text("required_skill_id"),
+    /** Coarse effort estimate as written in the ledger ("2d", "0.5d").
+     * TEXT, not a number: the unit is part of the judgement, and a NULL says
+     * "nobody has estimated this" rather than "zero" (AP-247 — unknown is
+     * first-class, and a fabricated 0 is worse than an absent value). */
+    estimate: text("estimate"),
     scheduledFor: date("scheduled_for"),
     evidenceRefs: jsonb("evidence_refs").notNull().default([]),
     verification: jsonb("verification"),

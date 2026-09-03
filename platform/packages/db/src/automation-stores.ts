@@ -271,7 +271,13 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
   }
 
   async start(
-    run: { runId: string; automationId: string; organizationId: string; agentId: string },
+    run: {
+      runId: string;
+      automationId: string;
+      organizationId: string;
+      agentId: string;
+      taskId?: string;
+    },
     ctx: RunCtx,
   ): Promise<void> {
     await withOrganizationOnly(this.#db, run.organizationId, async (tx) => {
@@ -281,6 +287,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
       automationId: run.automationId,
       agentId: run.agentId,
       runId: run.runId,
+      ...(run.taskId ? { taskId: run.taskId } : {}),
       status: "running",
       taintLabel:
         ctx.taintLabel ??
@@ -391,6 +398,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
           status: automationRuns.status,
           startedAt: automationRuns.startedAt,
           finishedAt: automationRuns.finishedAt,
+          taskId: automationRuns.taskId,
           taintLabel: automationRuns.taintLabel,
           output: automationRuns.output,
         })
@@ -413,6 +421,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
           status: row.status,
           startedAt: row.startedAt.toISOString(),
           ...(row.finishedAt ? { finishedAt: row.finishedAt.toISOString() } : {}),
+          ...(row.taskId ? { taskId: row.taskId } : {}),
           taintLabel: storedTaintLabelOrUnknown(row.taintLabel).label,
           output: row.output,
         };
@@ -435,6 +444,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
          status: automationRuns.status,
          startedAt: automationRuns.startedAt,
          finishedAt: automationRuns.finishedAt,
+         taskId: automationRuns.taskId,
          taintLabel: automationRuns.taintLabel,
          output: automationRuns.output,
        })
@@ -462,6 +472,7 @@ export class DrizzleAutomationRunRecorder implements AutomationRunRecorder {
        status: row.status,
        startedAt: row.startedAt.toISOString(),
        ...(row.finishedAt ? { finishedAt: row.finishedAt.toISOString() } : {}),
+       ...(row.taskId ? { taskId: row.taskId } : {}),
        taintLabel: storedTaintLabelOrUnknown(row.taintLabel).label,
        output: row.output,
      };
