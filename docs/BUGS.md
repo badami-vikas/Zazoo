@@ -3215,3 +3215,17 @@ Second cut opens in-process on the main thread via `NSWorkspace.openURL` (objc2,
 with the CLI only as a fallback when NSWorkspace returns false. App relaunched 14:05; the user's
 retry is the confirmation.
 
+
+### 2026-09-04 — the Builder acted under an id no Agent registry knew (FIXED, TASK-096)
+
+**Evidence:** `egg-boot.test.ts` asserted the five foundational Agents active in a bare Egg and
+the Capability Builder was not: `wiring.agents.isActive(BUILDER_AGENT_RUNTIME_ID)` was false.
+`BUILDER_AGENT_RUNTIME_ID` (`@bridge/module-manifests`, …d7) is what `builder/run.ts` attributes
+every primitive call and Run receipt to, while `runAsCapabilityBuilder` resolves authority for
+`CAPABILITY_BUILDER_AGENT` (`wiring.ts`, …d5), the id `seedGovernance` registers and a user can
+narrow. Two ids for one Agent since PR #73 "the Capability Builder acts as itself": the ledger rows
+named an actor nobody could look up or stop.
+
+**Fix (2026-09-04):** `BUILDER_AGENT_RUNTIME_ID` is …d5, and `resolveModuleAgentRuntimeId` maps
+Task Manager's `capability-builder` (and `learning-agent`) to their runtime ids. No test pinned …d7.
+Resolved in ADR 2026-09-04 "The Egg ships the kernel; Modules live in Commons", addendum item 2.

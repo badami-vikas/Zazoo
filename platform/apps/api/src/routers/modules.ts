@@ -3,8 +3,9 @@ import { z } from "zod";
 import { resolveActivationApproval, canonicalizeJson, parseModuleManifest, ModuleManifestValidationError, computeModuleRisk, maxRisk, evaluateSandboxRequirement, isUntrustedOrigin, trustGrantsForOrigin, advanceModuleState, promoteToAvailable, rollbackFromHistory, InvalidModuleTransitionError, type CapabilityManifest, type CapabilityManifestRow, type CapabilityOrigin, type TrustGrantView, type Proposal, type ModuleInstallationRow, type ModuleManifest } from "@bridge/core";
 import { LEARNING_RECOMMENDATION_SKILL_ID, resolveModuleAgentRuntimeId, resolveModuleAutomationRuntimeId } from "@bridge/module-manifests";
 import { assertCommonsEntryContentTrusted } from "../commons-client.js";
+import { MODULE_MANIFEST_FILE, readModuleManifestFile, registerModuleManifest } from "../module-register.js";
 import { listModuleFiles, renameModuleFolder, MAX_MODULE_FILE_BYTES, ModuleFilesPathError, withOrganizationFileOperationLock, saveModuleFile } from "../module-files.js";
-import { activateApprovedModuleInstallation, assertCurrentCommonsAttachment, assertMembership, assertPilotOrganization, authenticatedProcedure, currentSupportedRelationshipOwner, findPendingProposalById, isSupportedCitedRoleModelInstallation, isSupportedCitedRoleModelManifest, moduleFolderLabel, moduleIdInput, moduleInstallIdFromProposal, moduleInstallInput, moduleInstallationLedgerResourceId, modulePromoteInput, moduleRegisterInput, moduleRollbackInput, organizationGuard, paginatedInput, procedure, stableModuleInstallProposalId, t, verifiedCommonsDependencyInstallations } from "../router-shared.js";
+import { activateApprovedModuleInstallation, assertCurrentCommonsAttachment, assertMembership, assertPilotOrganization, authenticatedProcedure, currentSupportedRelationshipOwner, findPendingProposalById, isSupportedCitedRoleModelInstallation, isSupportedCitedRoleModelManifest, moduleFolderLabel, moduleIdInput, moduleInstallIdFromProposal, moduleInstallInput, moduleInstallationLedgerResourceId, modulePromoteInput, moduleRegisterInput, moduleRollbackInput, organizationGuard, paginatedInput, procedure, requireOrganizationNameForFiles, stableModuleInstallProposalId, t, verifiedCommonsDependencyInstallations } from "../router-shared.js";
 
 /**
  * P2 Capability modules (docs/raw/capability-module-format.md, ADR-018) —
@@ -171,27 +172,34 @@ export const modulesRouter = t.router({
   /** Register a module manifest. Always creates state=private, status=
    * pending_review — no risk computed yet (that happens at `install`). */
   register: procedure.input(moduleRegisterInput).use(organizationGuard).mutation(async ({ input, ctx }) => {
-    let manifest: ModuleManifest;
-    try {
-      manifest = parseModuleManifest(input.manifest);
-    } catch (err) {
-      if (err instanceof ModuleManifestValidationError) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
-      }
-      throw err;
-    }
-    const created = await ctx.wiring.moduleStore.create({
-      organizationId: input.organizationId,
-      moduleName: manifest.name,
-      moduleVersion: manifest.version,
-      manifest,
-      computedRisk: "informational", // not yet computed — install() computes it
-      state: "private",
-      status: "pending_review",
-      lineageManifestId: manifest.lineageManifestId,
-    });
+    const created = await registerModuleManifest(ctx.wiring, input.organizationId, input.manifest);
     return { installation: created };
   }),
+
+  /**
+   * Register the `module.yaml` sitting in a Module's own folder (ADR
+   * 2026-09-04) — how a Module the Builder wrote enters the governed
+   * lifecycle. Same private/pending-review row as `register`; `install` is
+   * still the proposal that decides whether it may run.
+   */
+  registerFromFiles: authenticatedProcedure
+    .input(z.object({ organizationId: z.string().min(1), moduleName: z.string().trim().min(1).max(200) }).strict())
+    .use(organizationGuard).mutation(async ({ input, ctx }) => {
+      const organizationName = await requireOrganizationNameForFiles(
+        ctx.wiring,
+        input.organizationId,
+        ctx.identity.id,
+      );
+      const raw = await readModuleManifestFile(ctx.wiring, organizationName, input.moduleName);
+      if (raw === null) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `${input.moduleName} has no ${MODULE_MANIFEST_FILE} yet — the Builder writes it as step 1`,
+        });
+      }
+      const created = await registerModuleManifest(ctx.wiring, input.organizationId, raw);
+      return { installation: created };
+    }),
 
   /**
    * Install = a governed proposal through the EXISTING pipeline, exactly

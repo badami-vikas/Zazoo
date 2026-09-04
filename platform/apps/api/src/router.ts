@@ -2,6 +2,13 @@
  * Composition root of the API. Every namespace lives in ./routers/<name>.ts and
  * shares the prelude in ./router-shared.ts (context, guards, schemas, helpers).
  * Split from a single 23k-line file on 2026-09-03; behaviour unchanged.
+ *
+ * Two compositions (ADR 2026-09-04 "The Egg ships the kernel; Modules live in
+ * Commons"): `appRouter` is everything and stays the client's type; `eggRouter`
+ * is the kernel alone — what `BRIDGE_PROFILE=egg` mounts. A Commons Module's
+ * namespace is simply absent from the Egg until the Module is installed from
+ * the registry; the web shell already hides what `modules.list` does not
+ * return, so nothing on the surface points at a procedure that is not there.
  */
 import { chatRouter } from "./routers/chat.js";
 import { taskManagerRouter } from "./routers/taskManager.js";
@@ -40,24 +47,22 @@ import { commonsRouter } from "./routers/commons.js";
 import { chiefOfStaffRouter } from "./routers/chiefOfStaff.js";
 import { agentOrchestrationRouter } from "./routers/agentOrchestration.js";
 import { recordsRouter } from "./routers/records.js";
+import { moduleRecordsRouter } from "./routers/moduleRecords.js";
 import { procedure, t } from "./router-shared.js";
 
 export * from "./router-shared.js";
 
-export const appRouter = t.router({
+/** The Egg: kernel, Builder, Research/Learning Agent, and the primitives
+ * every Module is built from. Nothing here belongs to one Module. */
+const kernelNamespaces = {
   chat: chatRouter,
   taskManager: taskManagerRouter,
   health: procedure.query(() => ({ ok: true, service: "bridge-api" })),
   view: viewRouter,
   action: actionRouter,
   capture: captureRouter,
-  whatsapp: whatsappRouter,
-  google: googleRouter,
   agent: agentRouter,
   automation: automationRouter,
-  relationship: relationshipRouter,
-  devpilot: devpilotRouter,
-  dealpilot: dealpilotRouter,
   modelProviderKey: modelProviderKeyRouter,
   integration: integrationRouter,
   brief: briefRouter,
@@ -66,11 +71,27 @@ export const appRouter = t.router({
   redFlag: redFlagRouter,
   organization: organizationRouter,
   graph: graphRouter,
-  jobpilot: jobpilotRouter,
   builder: builderRouter,
   moduleGovernance: moduleGovernanceRouter,
   tableSchema: tableSchemaRouter,
   records: recordsRouter,
+  moduleRecords: moduleRecordsRouter,
+  capability: capabilityRouter,
+  modules: modulesRouter,
+  commons: commonsRouter,
+  chiefOfStaff: chiefOfStaffRouter,
+  agentOrchestration: agentOrchestrationRouter,
+};
+
+/** Commons Modules — code under `platform/commons/`, manifests published to
+ * the registry by `commons.publishBuiltins`. Mounted only in the full profile. */
+const commonsModuleNamespaces = {
+  whatsapp: whatsappRouter,
+  google: googleRouter,
+  relationship: relationshipRouter,
+  devpilot: devpilotRouter,
+  dealpilot: dealpilotRouter,
+  jobpilot: jobpilotRouter,
   accounting: accountingRouter,
   d2c: d2cRouter,
   d2cResearch: d2cResearchRouter,
@@ -78,11 +99,16 @@ export const appRouter = t.router({
   resources: resourcesRouter,
   academics: academicsRouter,
   events: eventsRouter,
-  capability: capabilityRouter,
-  modules: modulesRouter,
-  commons: commonsRouter,
-  chiefOfStaff: chiefOfStaffRouter,
-  agentOrchestration: agentOrchestrationRouter,
-});
+};
+
+export const COMMONS_MODULE_NAMESPACES = Object.freeze(
+  Object.keys(commonsModuleNamespaces),
+) as readonly string[];
+
+export const appRouter = t.router({ ...kernelNamespaces, ...commonsModuleNamespaces });
+
+/** What `BRIDGE_PROFILE=egg` serves. Typed as its own router so a test can
+ * prove which namespaces the Egg does and does not expose. */
+export const eggRouter = t.router(kernelNamespaces);
 
 export type AppRouter = typeof appRouter;

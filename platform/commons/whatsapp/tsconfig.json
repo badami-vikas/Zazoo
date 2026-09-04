@@ -8,7 +8,7 @@
   },
   "references": [
     { "path": "../../packages/core" },
-    { "path": "../manifests" }
+    { "path": "../../packages/module-manifests" }
   ],
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

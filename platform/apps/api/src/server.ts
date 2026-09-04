@@ -9,7 +9,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from "@trpc/server/adapters/fastify";
-import { appRouter, type AppRouter } from "./router.js";
+import { appRouter, eggRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
 import { isVerifierConfigured, missingVerifierNotice } from "./identity.js";
 import { buildWiring, PILOT_ORGANIZATION } from "./wiring.js";
@@ -530,7 +530,12 @@ export async function buildServer() {
   await app.register(fastifyTRPCPlugin, {
     prefix: "/trpc",
     trpcOptions: {
-      router: appRouter,
+      // The Egg mounts the kernel alone; Commons Module namespaces are absent
+      // until installed from the registry (ADR 2026-09-04). The client type
+      // stays AppRouter — a missing namespace is a NOT_FOUND, not a type gap.
+      // `eggRouter` is a structural subset of `appRouter`; the cast keeps the
+      // plugin typed against the full contract the client compiles against.
+      router: (wiring.profile === "egg" ? eggRouter : appRouter) as AppRouter,
       createContext,
       allowMethodOverride: true,
       onError({ path, error }) {

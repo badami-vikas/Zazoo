@@ -458,22 +458,24 @@ test("web-research rejects unsafe quarantine verdicts before Result or Memory pe
   }
 });
 
-test("web-research fails before provider access when the installed Relationship Module binding is unavailable", async () => {
+test("web-research fails before provider access when no installed Module binds it to the Learning Agent", async () => {
   const fixture = researchFixture();
   const wiring = await buildWiring({
     searchProviders: fixture.router,
     webResearchContentGuard: fixture.contentGuard,
   });
   try {
-    const versions = await wiring.moduleStore.listVersions(
-      PILOT_ORGANIZATION,
-      "relationship",
-    );
-    const installed = versions.find(
-      (row) => row.status === "installed" && row.state === "available",
-    );
-    assert.ok(installed);
-    await wiring.moduleStore.setState(installed.id, "legacy");
+    // Two owners can bind the Skill (ADR 2026-09-04): Relationship in the full
+    // profile, Task Manager in the Egg. Only when neither is installed is the
+    // Skill unowned — retiring one alone must NOT trip the gate.
+    for (const moduleName of ["relationship", "task-manager"]) {
+      const versions = await wiring.moduleStore.listVersions(PILOT_ORGANIZATION, moduleName);
+      const installed = versions.find(
+        (row) => row.status === "installed" && row.state === "available",
+      );
+      assert.ok(installed, ` is installed in the full profile`);
+      await wiring.moduleStore.setState(installed.id, "legacy");
+    }
     const caller = await makeCaller(wiring);
     await assert.rejects(
       () =>
@@ -489,7 +491,7 @@ test("web-research fails before provider access when the installed Relationship 
             timeoutMs: 5_000,
           },
         }),
-      /does not bind web-research to the Learning Agent/,
+      /No installed Module binds web-research to the Learning Agent/,
     );
     assert.equal(fixture.calls.length, 0);
   } finally {

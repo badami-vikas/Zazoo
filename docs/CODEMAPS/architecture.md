@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-21 | Files scanned: platform/apps/{api,web,desktop}, platform/modules, platform/packages/{core,db,local}, platform/tools | Token estimate: ~800 -->
+<!-- Updated: 2026-09-04 | Files scanned: platform/apps/{api,web,desktop}, platform/commons, platform/packages/{core,db,local}, platform/tools | Token estimate: ~800 -->
 
 # Architecture Codemap
 
@@ -51,9 +51,9 @@ see `docs/BUGS.md` for stores that remain process-local.
 
 ## Module and Engine boundaries
 
-`platform/modules/manifests/src/index.ts` is the one built-in Module catalog. API installation,
+`platform/packages/module-manifests/src/index.ts` is the one built-in Module catalog. API installation,
 Commons publication, executable DealPilot/JobPilot manifests, and web routes derive from it.
-DealPilot and JobPilot implementation packages live in `platform/modules/{dealpilot,jobpilot}`.
+Module implementation packages live in `platform/commons/*` (Commons content; ADR 2026-09-04). `BRIDGE_PROFILE=egg` mounts the kernel router only and seeds `EGG_MODULES`.
 People/company sourcing and recording remain internal Engine packages under the existing
 `platform/tools/` workspace path; no standalone legacy application is a production entrypoint.
 `@bridge/capability-kit` remains the gated intake seam used by DealPilot.

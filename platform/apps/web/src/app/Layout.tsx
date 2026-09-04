@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { Suspense } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { Home, Boxes, Plus, Settings, Check, LogOut, MessageSquare, ListChecks, Sparkles, ChevronRight, Building2 } from "lucide-react";
 import { moduleNavTarget, buildModuleNavTree } from "@bridge/module-manifests";
@@ -221,7 +222,7 @@ export default function Layout() {
   // TASK-001 VOCAB6: installed modules from modules.list (real API, not
   // hardcoded). Only `available` state modules appear in the nav.
   const [installedModules, setInstalledModules] = useState<
-    { moduleName: string; displayName: string; parentModule?: string | undefined }[] | null
+    { moduleName: string; displayName: string; parentModule?: string | undefined; landing?: string | undefined; base?: string | undefined }[] | null
   >(null);
   const [expandedModules, setExpandedModules] = useState<string[]>(() => loadExpandedModules());
 
@@ -280,6 +281,12 @@ export default function Layout() {
             displayName: p.displayNameOverride
               ?? p.manifest?.module?.displayName ?? p.manifest?.name ?? p.moduleName,
             parentModule: p.manifest?.module?.parentModule,
+            // ADR 2026-09-04: a Module outside the built-in catalog lands on the
+            // first Page its installed manifest declares, in the standard shell.
+            landing: p.manifest?.module?.pages[0]
+              ? `/module/${p.moduleName}/${p.manifest.module.pages[0].id}`
+              : undefined,
+            base: p.manifest?.module?.pages[0] ? `/module/${p.moduleName}` : undefined,
           }));
         setInstalledModules(available);
       })
@@ -408,8 +415,8 @@ export default function Layout() {
     return {
       moduleName: mod.moduleName,
       displayName: mod.displayName,
-      to: nav?.landing ?? "/home",
-      base: nav?.base ?? "/home",
+      to: nav?.landing ?? mod.landing ?? "/home",
+      base: nav?.base ?? mod.base ?? "/home",
       icon: Boxes,
       parentModule: mod.parentModule,
     };
@@ -997,7 +1004,11 @@ export default function Layout() {
       )}
 
       <div className="min-w-0 flex-1 overflow-auto pb-14 sm:pb-0 bg-background">
-        <Outlet />
+        {/* Module Pages are lazy chunks (Egg profile, ADR 2026-09-04): the shell
+            paints while a Page's chunk loads, so nothing here blocks on it. */}
+        <Suspense fallback={null}>
+          <Outlet />
+        </Suspense>
       </div>
 
       {/* Persistent AI chat — nav | content | AI chat (reference UI at bridge-ai-1ay.pages.dev).

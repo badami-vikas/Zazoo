@@ -202,6 +202,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["commons.", "Commons publication is an External-band action"],
   ["moduleGovernance.", "the per-Module governance overlay (TASK-088) is Local-Plane state, and editing what a Module is allowed to do moves the trust boundary"],
   ["tableSchema.", "the column overlay (TASK-084) is Local-Plane state, and reshaping a Database — or editing a formula that every client's dashboard reads — is a governed, desktop-only authoring action"],
+  ["moduleRecords.", "a Builder-built Module's Records live in the Local-Plane state store (ADR 2026-09-04); the public cloud shell has no store to serve them from"],
   ["records.", "which Sections a Database's Records show (TASK-083) is Local-Plane state, and a Record note is user content the Local Plane holds — neither has a Cloud-Plane store to serve from"],
   ["organization.create", "Organization lifecycle is not a public-shell action"],
   ["organization.rename", "Organization lifecycle is not a public-shell action"],

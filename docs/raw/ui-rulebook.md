@@ -128,6 +128,20 @@ Helpdesk is an application of the generic rules, not an exception to them (§0):
 - **Custom Helpdesk is an associated Database**, so by §2 rule 1 it is a **sibling toggle Page** — not a sub-module, not a bespoke surface.
 - **"Public" is a property-level feature, not a database type.** It marks which of a Helpdesk Record's properties are publicly exposed, and surfaces two standard ways: a checkbox inside Record Detail, and a command on the cell/row right-click menu (§5f). It never creates a second Database; a Record's public projection is a filtered view of the same row.
 
+### 3d. The standard Module Page for Builder-built Modules (added 2026-09-04)
+
+A Module the Builder creates ships **no React**. Its `module.yaml` declares Databases
+(`module.databases[]`, each with `columns` in the Blueprint column kinds) and Pages that point at
+them (`database_id`); the shell renders every declared Page itself at
+`/module/<module name>/<page id>` (`apps/web/src/app/pages/ModulePage.tsx`). The Page is this book's
+anatomy with nothing removed: Header with the Module's Pages as tabs, the standard views over the
+declared columns (§4), Intelligence and the Governance Section below (ADR-263), the same empty
+surface when there are no Records (§6b). Rows come from `moduleRecords.*` — Local Plane, Human-only
+writes, undeclared columns refused; the Organization's column overlay (§5a) applies to a declared
+Database exactly as it does to a built-in one. The left rail lands an installed Module on its first
+declared Page. A Module that needs a bespoke surface is a Commons Module with its own Page code;
+that is the exception this section exists to make rare.
+
 ### 3a. Actionability contract
 
 Every affordance does something useful. A card, row, node, badge, count, status, recommendation, Module name, or graph edge that looks interactive must open detail, edit, filter, provenance/explanation, or a governed Action. Read-only information uses plain non-interactive styling. Disabled Actions show the missing permission/dependency and next step. Keyboard, pointer, and touch paths reach the same Actions. Tests fail for clickable-looking elements without a route or handler and for handlers that only dismiss without an outcome.

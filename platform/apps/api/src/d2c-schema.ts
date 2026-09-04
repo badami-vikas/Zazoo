@@ -1,7 +1,7 @@
 /**
  * SQLite persistence for the D2C Module's domain shape (imported from CV
  * Naturals, ADR-246). Column-for-column with
- * platform/modules/d2c/src/schema.ts — this file owns storage concerns only
+ * platform/commons/d2c/src/schema.ts — this file owns storage concerns only
  * (ids, timestamps-as-text, JSON columns for the invoice snapshot); the
  * domain package owns meaning. Copied rather than subtree-merged (it lived
  * inside CVN's apps/api, not a standalone package) — documented, not hidden.
