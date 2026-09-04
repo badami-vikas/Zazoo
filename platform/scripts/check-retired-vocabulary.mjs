@@ -251,16 +251,16 @@ function isAllowedTechnicalUse(family, relativePath, value, kind) {
     return (
       ["Project", "ProjectSchema", "projects"].includes(value) &&
       [
-        "modules/jobpilot/src/index.ts",
-        "modules/jobpilot/src/master-profile.ts",
-        "modules/jobpilot/src/resume-schema.ts",
-        "modules/jobpilot/test/resume-schema.test.ts",
+        "commons/jobpilot/src/index.ts",
+        "commons/jobpilot/src/master-profile.ts",
+        "commons/jobpilot/src/resume-schema.ts",
+        "commons/jobpilot/test/resume-schema.test.ts",
       ].includes(relativePath)
     );
   }
   if (family === "project" && kind === "string") {
     if (
-      relativePath === "modules/dealpilot/test/projections.test.ts" &&
+      relativePath === "commons/dealpilot/test/projections.test.ts" &&
       /^project(?:Summary|Profile|Documents|Activity):/.test(value)
     ) {
       return true;
@@ -276,7 +276,7 @@ function isAllowedTechnicalUse(family, relativePath, value, kind) {
       return true;
     }
     return (
-      relativePath === "modules/jobpilot/test/resume-schema.test.ts" &&
+      relativePath === "commons/jobpilot/test/resume-schema.test.ts" &&
       value === "Project X"
     );
   }

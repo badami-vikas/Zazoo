@@ -15,7 +15,7 @@ One production codebase: `platform/` (pnpm + Turbo monorepo). Pre-cleanup legacy
 | Skill registry | `platform/packages/core` | `src/skills.ts` |
 | Ports (registries, recorder, stores) | `platform/packages/core` | `src/ports.ts` |
 | tRPC API (sole API surface) | `platform/apps/api` | `src/router.ts`, `src/server.ts` |
-| Built-in Module manifests | `platform/modules/manifests` | `src/index.ts` |
+| Built-in Module manifests | `platform/packages/module-manifests` | `src/index.ts` |
 | Composition root / DI wiring | `platform/apps/api` | `src/wiring.ts` (PILOT_* constants = single-tenant) |
 | Identity / auth context | `platform/apps/api` | `src/identity.ts` |
 | Drizzle schema (56 tables) | `platform/packages/db` | `src/schema.ts` · canonical DDL: `docs/raw/SCHEMA.sql` |
@@ -26,9 +26,9 @@ One production codebase: `platform/` (pnpm + Turbo monorepo). Pre-cleanup legacy
 | Chat Panel / Chief of Staff | `platform/apps/web`, `platform/apps/api` | `components/shared/AgentPanel.tsx`, `router.ts` (`chiefOfStaff`) |
 | Gated intake seam (manifest→quarantine→commit) | `platform/packages/capability-kit` | only DealPilot wired |
 | Sourcing/dedupe/facts/tables shared engines | `platform/packages/{sourcing,dedupe,facts,tables}` | |
-| DealPilot / JobPilot Modules | `platform/modules/{dealpilot,jobpilot}` | `src/index.ts`, `src/manifest.ts` |
-| Accounting / D2C Modules (donor apps ported via subtree merge) | `platform/modules/{accounting,d2c}` | `accounting/src/schema.ts`, `d2c/src/{orders,inventory}.ts` |
-| DevPilot Module (GitHub tracker + review/triage Skills, behind `BRIDGE_DEVPILOT`) | `platform/modules/devpilot` | `src/index.ts`, `src/domain.ts` |
+| DealPilot / JobPilot Modules | `platform/commons/{dealpilot,jobpilot}` | `src/index.ts`, `src/manifest.ts` |
+| Accounting / D2C Modules (donor apps ported via subtree merge) | `platform/commons/{accounting,d2c}` | `accounting/src/schema.ts`, `d2c/src/{orders,inventory}.ts` |
+| DevPilot Module (GitHub tracker + review/triage Skills, behind `BRIDGE_DEVPILOT`) | `platform/commons/devpilot` | `src/index.ts`, `src/domain.ts` |
 | Sourcing/recording Engine packages | `platform/tools/*` | internal workspace packages pending physical vocabulary convergence |
 | Web client (three-client Notion model) | `platform/apps/web` | `src/Layout.tsx` (ADR-023 shell) |
 | Tauri desktop shell + capture core | `platform/apps/desktop` (Rust `sensor_bridge`) | CSP + capture stubs → BUGS.md |

@@ -100,7 +100,7 @@ const DOC_GATES = [
     check() {
       const p = path.join(REPO, "CLAUDE.md");
       return readFileSync(p, "utf8").includes("module.yaml")
-        ? "CLAUDE.md names module.yaml, a file that does not exist. Manifests are platform/modules/manifests."
+        ? "CLAUDE.md names module.yaml, a file that does not exist. Manifests are platform/packages/module-manifests."
         : null;
     },
   },

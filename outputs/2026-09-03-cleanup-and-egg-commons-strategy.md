@@ -133,6 +133,23 @@ Ranked by LOC recovered / risk:
    `console.*`, one shared `organizationId` zod fragment for 200 declarations.
 
 ### Phase 3 — physical Egg/Commons split (2–3 weeks, needs APPROVALS)
+**Status 2026-09-04 (AP-183, TASK-096): the ORDER changed — profile first, dynamic runtime after.**
+Landed: `platform/modules/*` → `platform/commons/*` (manifests → `packages/module-manifests`, names
+unchanged); `BRIDGE_PROFILE=egg` mounts `eggRouter` and seeds `EGG_MODULES` only; `VITE_BRIDGE_PROFILE=egg`
+builds the shell without Module Pages (2616→2308 KB, 16→0 Module chunks); the Builder accepts new
+Modules and prompts the standard build process with Commons prior art. NOT landed: every precondition
+below (dynamic routes/routers via `module-host`, per-Module migrations, Commons code bundles, the
+ESLint boundary) — the api still compiles every Module in. The move order below still applies to
+the RUNTIME split; the directory part of it is done.
+Second half, same day (ADR 2026-09-04 addendum): the Egg's five foundational Agents are active in a
+bare boot and its Research Agent has an owner (Task Manager 1.10.0 binds `web-research` to the
+Learning Agent; the gate accepts that binding when Relationship is absent); the Builder has one
+runtime id; manifests declare `module.databases[]`, `moduleRecords.*` serves them, and the shell
+renders every declared Page at `/module/<name>/<page>` (UI Rulebook §3d) — a Builder-built Module
+ships no React. The desktop Egg installer (`build:tauri:egg`, profile baked into the sidecar) is
+wired but NOT built: `prepare:bundle` needs several GB (Rust release target, the pinned llama.cpp
+b9000 runtime, a node sidecar copy) and the build machine had 365 MB free.
+
 Target layout:
 ```
 platform/

@@ -3544,6 +3544,41 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 1580,
       "rank": 101
+    },
+    {
+      "id": "TASK-096",
+      "title": "TASK-096 — The installable Egg: kernel-only profile, Commons directory, and the Builder's standard build process",
+      "status": "in-progress",
+      "statusNote": "2026-09-04; profile, directory move, and Builder prior art landed — the dynamic Module runtime has NOT",
+      "priority": "P1",
+      "horizon": "Living Software",
+      "outcome": "A bare Egg installs and boots with the kernel, Builder, Research Agent and primitives only; every Module lives in Commons and is installed from the registry; asking the Builder for a Module runs the standard build process with Commons as one source of inspiration.",
+      "prototypeTest": "`BRIDGE_PROFILE=egg` boot lists only Task Manager in the rail and serves no `dealpilot.*`/`whatsapp.*` procedure; `pnpm --filter @bridge/web build:egg` emits no Module Page chunk; `builder.run` with a name that has no manifest starts at \"create module.yaml\" and its prompt names related Commons entries; an unreachable registry does not stop the Run.",
+      "scope": [
+        "`platform/commons/*`, `packages/module-manifests` (`EGG_MODULES`, `bridgeProfileFromEnv`, `builtInModulesForProfile`), `apps/api/src/{router,server,wiring}.ts`, `apps/api/src/builder/run.ts`, `apps/web/src/app/routes.tsx`, `outputs/2026-09-03-cleanup-and-egg-commons-strategy.md` §Phase 3."
+      ],
+      "evidence": [
+        "`apps/api/test/egg-profile.test.ts` (4 tests)",
+        "web build full 2616 KB / 43 assets / 16 Module chunks vs Egg 2308 KB / 20 assets / 0 Module chunks (2026-09-04)."
+      ],
+      "requests": [
+        "user directive 2026-09-03/04 verbatim in ADR 2026-09-04 \"The Egg ships the kernel",
+        "Modules live in Commons\"."
+      ],
+      "approval": "AP-183 APPLIED (in-session directive).",
+      "dependencies": [
+        "TASK-092 (Builder sandbox, open)",
+        "TASK-031 (cleanup, in_progress)"
+      ],
+      "isGoal": false,
+      "path": "8.5",
+      "level": 1,
+      "canonicalStatus": "in_progress",
+      "parentId": "HORIZON-living-software",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 1597,
+      "rank": 102
     }
   ]
 }

@@ -1,7 +1,7 @@
 packages:
   - 'apps/*'
   - 'packages/*'
-  - 'modules/*'
+  - 'commons/*'
   # Internal development and reusable engine packages.
   - 'tools/*'
   # Standalone services — Universal Commons registry (local-first, lifts to Bridge Cloud).

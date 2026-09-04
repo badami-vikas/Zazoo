@@ -90,7 +90,7 @@ test("VOCAB5 upgrades the immutable Relationship manifest", async () => {
   // NetworkManager and made this Module a nav PARENT for the WhatsApp
   // sub-module) merged with 0.2.4's Learning Agent `runRoute` (ADR-180) as
   // 0.3.1 — a genuine, immutable manifest content change, never a
-  // stale-test-vs-code drift. See modules/manifests/src/index.ts's built-in
+  // stale-test-vs-code drift. See packages/module-manifests/src/index.ts's built-in
   // NetworkManager manifest for the current version.
   assert.equal(current.manifest.version, "0.3.1");
 
