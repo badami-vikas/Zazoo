@@ -89,6 +89,13 @@ const PUBLIC_CLOUD_PROCEDURES = new Set([
   "jobpilot.onboarding.get",
   "jobpilot.onboarding.saveResume",
   "jobpilot.onboarding.complete",
+  // ADR-278 source toggles: `list` and `toggle` only read/write per-Organization
+  // rows in the same Cloud-Plane jobpilot store (jobpilot_sources, migration
+  // 0048). The source CATALOG they render is a constant in code, not data, and
+  // neither procedure touches the network. `run` is the one that does, and it is
+  // closed below.
+  "jobpilot.sources.list",
+  "jobpilot.sources.toggle",
 
   // DealPilot — Cloud-Plane RECORD half (DrizzleDealPilotStore via the
   // cloudRecordsDealPilotStore composite). Record read/create/update only;
@@ -245,6 +252,7 @@ const LOCAL_ONLY_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["relationship.", "the remaining relationship.* surface reads private scope or Local Plane"],
   ["taskManager.", "the remaining taskManager.* surface writes governed structure"],
   ["jobpilot.cultureResearch", "runs governed web research from the device"],
+  ["jobpilot.sources.", "the sweep fetches public job boards from the device"],
   ["graph.listRecords", "unscoped record enumeration"],
   ["graph.getRecord", "unscoped record read"],
   ["view.", "local geocoder + location resolution stay on the device"],
