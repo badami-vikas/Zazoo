@@ -52,6 +52,8 @@ export interface ReconInput {
    * Used to boost matching candidates and anchor enricher output.
    */
   linkedin?: string;
+  /** Research depth. 'basic' = fast zero-key REST (default). 'advanced' = specialist registries (some keyed). 'deep' = bulk/browser. */
+  depth?: 'basic' | 'advanced' | 'deep';
 }
 
 export interface IdentityIdentifiers {
@@ -2346,10 +2348,574 @@ function applyHints(cands: Identity[], input: ReconInput): Identity[] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BASIC ENRICHERS — zero/free-key REST, run at all depth levels
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function propublicaEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'ProPublica Nonprofit Explorer', personFields: [], companyFields: [], signals: [], steps: [] };
+  const company = ctx.kind !== 'person' ? (ctx.company ?? ctx.name) : ctx.company;
+  if (!company) { out.steps.push({ step: 'ProPublica Nonprofit', input: '(none)', output: 'Skipped — no company', durationMs: 0, ok: false }); return out; }
+  const url = `https://projects.propublica.org/nonprofits/api/v2/organizations.json?q=${encodeURIComponent(company)}`;
+  const r = await fetchJSON<{ organizations?: Array<{ name: string; ein: string; city?: string; state?: string; ntee_code?: string; income_amount?: number }> }>(url, { timeoutMs: 10000 });
+  out.steps.push(step('ProPublica Nonprofit', company, r, r.data?.organizations?.length ? `${r.data.organizations.length} org(s)` : 'no results'));
+  if (!r.ok || !r.data?.organizations?.length) return out;
+  const best = r.data.organizations[0];
+  out.companyFields.push({ label: 'Nonprofit status (ProPublica)', value: `EIN ${best.ein}${best.ntee_code ? ` · NTEE ${best.ntee_code}` : ''}${best.income_amount ? ` · income $${best.income_amount.toLocaleString()}` : ''}`, tier: 'A', source: 'ProPublica Nonprofit Explorer', url: `https://projects.propublica.org/nonprofits/organizations/${best.ein}` });
+  if (best.city || best.state) out.companyFields.push({ label: 'Nonprofit HQ', value: [best.city, best.state].filter(Boolean).join(', '), tier: 'B', source: 'ProPublica Nonprofit Explorer' });
+  return out;
+}
+
+async function nihReporterEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'NIH RePORTER', personFields: [], companyFields: [], signals: [], steps: [] };
+  const isPerson = ctx.kind === 'person';
+  const criteria = isPerson && ctx.name ? { pi_names: [{ any_name: ctx.name }] } : ctx.company ? { org_names: [ctx.company] } : null;
+  if (!criteria) { out.steps.push({ step: 'NIH RePORTER', input: '(none)', output: 'Skipped', durationMs: 0, ok: false }); return out; }
+  const r = await fetchJSON<{ results?: Array<{ project_title?: string; org_name?: string }> }>(
+    'https://api.reporter.nih.gov/v2/projects/search',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ criteria, limit: 5, offset: 0 }), timeoutMs: 12000 }
+  );
+  const hits = r.data?.results ?? [];
+  out.steps.push(step('NIH RePORTER', JSON.stringify(criteria).slice(0, 60), r, hits.length ? `${hits.length} grant(s)` : 'no grants'));
+  if (!r.ok || !hits.length) return out;
+  const titles = hits.slice(0, 3).map((h) => h.project_title ?? '').filter(Boolean).join('; ');
+  if (isPerson) {
+    out.personFields.push({ label: 'NIH grants (PI)', value: `${hits.length} project(s): ${titles}`, tier: 'B', source: 'NIH RePORTER', url: `https://reporter.nih.gov/search/${encodeURIComponent(ctx.name ?? '')}` });
+    if (hits[0]?.org_name) out.personFields.push({ label: 'NIH affiliated institution', value: hits[0].org_name, tier: 'B', source: 'NIH RePORTER' });
+  } else {
+    out.companyFields.push({ label: 'NIH funded research', value: `${hits.length} project(s): ${titles}`, tier: 'B', source: 'NIH RePORTER', url: 'https://reporter.nih.gov/' });
+  }
+  return out;
+}
+
+async function nsfAwardEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'NSF Award Search', personFields: [], companyFields: [], signals: [], steps: [] };
+  const isPerson = ctx.kind === 'person';
+  const q = isPerson ? ctx.name : ctx.company;
+  if (!q) { out.steps.push({ step: 'NSF Awards', input: '(none)', output: 'Skipped', durationMs: 0, ok: false }); return out; }
+  const param = isPerson ? `pdPIName=${encodeURIComponent(q)}` : `awardeeName=${encodeURIComponent(q)}`;
+  const url = `https://api.nsf.gov/services/v1/awards.json?${param}&printFields=id,title,pdPIName,awardeeName,fundsObligatedAmt&dateStart=01/01/2015&rows=5`;
+  const r = await fetchJSON<{ response?: { award?: Array<{ title?: string; pdPIName?: string; awardeeName?: string }> } }>(url, { timeoutMs: 10000 });
+  const awards = r.data?.response?.award ?? [];
+  out.steps.push(step('NSF Awards', q, r, awards.length ? `${awards.length} award(s)` : 'no awards'));
+  if (!r.ok || !awards.length) return out;
+  const titles = awards.slice(0, 3).map((a) => a.title ?? '').filter(Boolean).join('; ');
+  const searchUrl = `https://www.nsf.gov/awardsearch/simpleSearchResult?queryText=${encodeURIComponent(q)}`;
+  if (isPerson) out.personFields.push({ label: 'NSF awards (PI)', value: `${awards.length} award(s): ${titles}`, tier: 'B', source: 'NSF Award Search', url: searchUrl });
+  else out.companyFields.push({ label: 'NSF funded research', value: `${awards.length} award(s): ${titles}`, tier: 'B', source: 'NSF Award Search', url: searchUrl });
+  return out;
+}
+
+async function senateLobbingEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'Senate LDA', personFields: [], companyFields: [], signals: [], steps: [] };
+  const isPerson = ctx.kind === 'person';
+  const q = isPerson ? ctx.name : (ctx.company ?? ctx.name);
+  if (!q) { out.steps.push({ step: 'Senate LDA', input: '(none)', output: 'Skipped', durationMs: 0, ok: false }); return out; }
+  const endpoint = isPerson
+    ? `https://lda.senate.gov/api/v1/lobbyists/?search=${encodeURIComponent(q)}&format=json&page_size=5`
+    : `https://lda.senate.gov/api/v1/registrants/?name=${encodeURIComponent(q)}&format=json&page_size=5`;
+  const r = await fetchJSON<{ count?: number; results?: Array<{ id?: number }> }>(endpoint, { timeoutMs: 10000 });
+  const count = r.data?.count ?? 0;
+  out.steps.push(step('Senate LDA', q, r, count ? `${count} filing(s)` : 'no filings'));
+  if (!r.ok || !count) return out;
+  if (isPerson) {
+    out.personFields.push({ label: 'Lobbying registration (LDA)', value: `${count} filing(s)`, tier: 'B', source: 'Senate LDA', url: `https://lda.senate.gov/filings/public/filing/search/?lobbyist_name=${encodeURIComponent(q)}` });
+    out.signals.push({ label: 'Registered lobbyist — verify conflict of interest', value: q, tier: 'B', source: 'Senate LDA', kind: 'signal' });
+  } else {
+    out.companyFields.push({ label: 'Lobbying activity (LDA)', value: `${count} filing(s)`, tier: 'B', source: 'Senate LDA', url: `https://lda.senate.gov/filings/public/filing/search/?registrant_name=${encodeURIComponent(q)}` });
+  }
+  return out;
+}
+
+async function arxivEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'arXiv', personFields: [], companyFields: [], signals: [], steps: [] };
+  if (ctx.kind !== 'person' || !ctx.name) { out.steps.push({ step: 'arXiv', input: '(none)', output: 'Skipped — person only', durationMs: 0, ok: false }); return out; }
+  const url = `https://export.arxiv.org/api/query?search_query=au:${encodeURIComponent(ctx.name.replace(/\s+/g, '_'))}&max_results=5`;
+  const r = await fetchText(url, { timeoutMs: 12000 });
+  const total = parseInt(r.data?.match(/<opensearch:totalResults[^>]*>(\d+)<\/opensearch:totalResults>/)?.[1] ?? '0', 10);
+  const titles = r.data ? [...r.data.matchAll(/<title>(?!arXiv)([^<]{5,120})<\/title>/g)].slice(0, 3).map((m) => m[1].trim()) : [];
+  out.steps.push(step('arXiv author', ctx.name, r, total ? `${total} preprint(s)` : 'no preprints'));
+  if (total > 0) out.personFields.push({ label: 'arXiv preprints', value: `${total} paper(s)${titles.length ? `: ${titles.join('; ')}` : ''}`, tier: 'B', source: 'arXiv', url: `https://arxiv.org/search/?searchtype=author&query=${encodeURIComponent(ctx.name)}` });
+  return out;
+}
+
+async function crossrefEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'CrossRef', personFields: [], companyFields: [], signals: [], steps: [] };
+  if (ctx.kind !== 'person' || !ctx.name) { out.steps.push({ step: 'CrossRef', input: '(none)', output: 'Skipped — person only', durationMs: 0, ok: false }); return out; }
+  const url = `https://api.crossref.org/works?query.author=${encodeURIComponent(ctx.name)}&rows=5&select=title,author,DOI&mailto=dev.bridge.ai@gmail.com`;
+  const r = await fetchJSON<{ message?: { total_results?: number; items?: Array<{ title?: string[] }> } }>(url, { timeoutMs: 10000 });
+  const total = r.data?.message?.total_results ?? 0;
+  out.steps.push(step('CrossRef author', ctx.name, r, total ? `${total} DOI(s)` : 'no results'));
+  if (!r.ok || !total) return out;
+  const titles = (r.data?.message?.items ?? []).slice(0, 3).flatMap((i) => i.title ?? []).join('; ');
+  out.personFields.push({ label: 'Academic publications (CrossRef)', value: `${total} work(s)${titles ? `: ${titles}` : ''}`, tier: 'B', source: 'CrossRef', url: `https://search.crossref.org/?q=${encodeURIComponent(ctx.name)}` });
+  return out;
+}
+
+async function openFecEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'OpenFEC', personFields: [], companyFields: [], signals: [], steps: [] };
+  const apiKey = process.env.OPENFEC_API_KEY || 'DEMO_KEY';
+  const isPerson = ctx.kind === 'person';
+  const q = isPerson ? ctx.name : (ctx.company ?? ctx.name);
+  if (!q) { out.steps.push({ step: 'OpenFEC', input: '(none)', output: 'Skipped', durationMs: 0, ok: false }); return out; }
+  const url = isPerson
+    ? `https://api.open.fec.gov/v1/schedules/schedule_a/?contributor_name=${encodeURIComponent(q)}&api_key=${apiKey}&per_page=5`
+    : `https://api.open.fec.gov/v1/committees/?q=${encodeURIComponent(q)}&api_key=${apiKey}&per_page=5`;
+  const r = await fetchJSON<{ pagination?: { count?: number }; results?: Array<{ contribution_receipt_amount?: number; committee_type_full?: string }> }>(url, { timeoutMs: 12000 });
+  const count = r.data?.pagination?.count ?? 0;
+  out.steps.push(step('OpenFEC', q, r, count ? `${count} FEC record(s)` : 'no records'));
+  if (!r.ok || !count) return out;
+  if (isPerson) {
+    const total = r.data?.results?.reduce((s, x) => s + (x.contribution_receipt_amount ?? 0), 0) ?? 0;
+    out.personFields.push({ label: 'Political donations (FEC)', value: `${count} contribution(s)${total ? ` · $${total.toLocaleString()}` : ''}`, tier: 'B', source: 'OpenFEC', url: `https://www.fec.gov/data/receipts/?contributor_name=${encodeURIComponent(q)}` });
+  } else {
+    const types = [...new Set(r.data?.results?.map((x) => x.committee_type_full).filter(Boolean) ?? [])].join(', ');
+    out.companyFields.push({ label: 'FEC political committee', value: `${count} committee(s)${types ? ` · ${types}` : ''}`, tier: 'B', source: 'OpenFEC', url: `https://www.fec.gov/data/committees/?q=${encodeURIComponent(q)}` });
+  }
+  return out;
+}
+
+async function cfpbEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'CFPB Complaints', personFields: [], companyFields: [], signals: [], steps: [] };
+  const company = ctx.kind !== 'person' ? (ctx.company ?? ctx.name) : ctx.company;
+  if (!company) { out.steps.push({ step: 'CFPB', input: '(none)', output: 'Skipped — no company', durationMs: 0, ok: false }); return out; }
+  const url = `https://api.consumerfinance.gov/data-research/consumer-complaints/search.json?company=${encodeURIComponent(company)}&size=1&date_received_min=2020-01-01`;
+  const r = await fetchJSON<{ hits?: { total?: { value?: number }; hits?: Array<{ _source?: { product?: string } }> } }>(url, { timeoutMs: 10000 });
+  const count = r.data?.hits?.total?.value ?? 0;
+  out.steps.push(step('CFPB complaints', company, r, count ? `${count} complaint(s)` : 'no complaints'));
+  if (!r.ok || !count) return out;
+  const product = r.data?.hits?.hits?.[0]?._source?.product ?? '';
+  out.companyFields.push({ label: 'CFPB consumer complaints', value: `${count} complaint(s)${product ? ` · top product: ${product}` : ''}`, tier: 'B', source: 'CFPB Complaints', url: `https://www.consumerfinance.gov/data-research/consumer-complaints/search/?company=${encodeURIComponent(company)}` });
+  if (count > 100) out.signals.push({ label: 'High CFPB complaint volume — review', value: `${count} complaints`, tier: 'B', source: 'CFPB Complaints', kind: 'signal' });
+  return out;
+}
+
+async function npiEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'CMS NPPES NPI', personFields: [], companyFields: [], signals: [], steps: [] };
+  const isPerson = ctx.kind === 'person';
+  const name = isPerson ? ctx.name : (ctx.company ?? ctx.name);
+  if (!name) { out.steps.push({ step: 'NPI Registry', input: '(none)', output: 'Skipped', durationMs: 0, ok: false }); return out; }
+  const parts = name.trim().split(/\s+/);
+  const url = isPerson
+    ? `https://npiregistry.cms.hhs.gov/api/?version=2.1&first_name=${encodeURIComponent(parts[0])}&last_name=${encodeURIComponent(parts[parts.length - 1])}&enumeration_type=NPI-1&limit=5`
+    : `https://npiregistry.cms.hhs.gov/api/?version=2.1&organization_name=${encodeURIComponent(name)}&enumeration_type=NPI-2&limit=5`;
+  const r = await fetchJSON<{ result_count?: number; results?: Array<{ number?: string; basic?: { credential?: string }; taxonomies?: Array<{ desc?: string; primary?: boolean }> }> }>(url, { timeoutMs: 10000 });
+  const count = r.data?.result_count ?? 0;
+  out.steps.push(step('NPI Registry', name, r, count ? `${count} NPI provider(s)` : 'no NPI record'));
+  if (!r.ok || !count) return out;
+  const best = r.data?.results?.[0];
+  const specialty = best?.taxonomies?.find((t) => t.primary)?.desc ?? best?.taxonomies?.[0]?.desc ?? '';
+  const value = `NPI ${best?.number ?? ''}${specialty ? ` · ${specialty}` : ''}${best?.basic?.credential ? ` · ${best.basic.credential}` : ''}`;
+  if (isPerson) out.personFields.push({ label: 'Healthcare provider NPI', value, tier: 'A', source: 'CMS NPPES NPI', url: `https://npiregistry.cms.hhs.gov/` });
+  else out.companyFields.push({ label: 'Healthcare org NPI', value, tier: 'B', source: 'CMS NPPES NPI', url: `https://npiregistry.cms.hhs.gov/` });
+  return out;
+}
+
+async function faraEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'DOJ FARA', personFields: [], companyFields: [], signals: [], steps: [] };
+  const q = ctx.name ?? (ctx.kind !== 'person' ? ctx.company : undefined);
+  if (!q) { out.steps.push({ step: 'FARA', input: '(none)', output: 'Skipped', durationMs: 0, ok: false }); return out; }
+  const url = `https://efts.fara.gov/quick-search/?searchTerm=${encodeURIComponent(q)}&korStatusType=ALL&format=json`;
+  const r = await fetchJSON<{ hits?: { total?: { value?: number }; hits?: Array<{ _source?: { foreignPrincipalName?: string; countryOfForeignPrincipal?: string } }> } }>(url, { timeoutMs: 10000 });
+  const count = r.data?.hits?.total?.value ?? 0;
+  out.steps.push(step('FARA search', q, r, count ? `${count} FARA filing(s)` : 'no FARA filings'));
+  if (!r.ok || !count) return out;
+  const hit = r.data?.hits?.hits?.[0]?._source;
+  const value = `${count} FARA filing(s)${hit?.foreignPrincipalName ? ` · principal: ${hit.foreignPrincipalName}` : ''}${hit?.countryOfForeignPrincipal ? ` (${hit.countryOfForeignPrincipal})` : ''}`;
+  const field: Field = { label: 'Foreign agent registration (FARA)', value, tier: 'A', source: 'DOJ FARA', url: `https://www.fara.gov/quick-search.html?searchTerm=${encodeURIComponent(q)}` };
+  if (ctx.kind === 'person') out.personFields.push(field); else out.companyFields.push(field);
+  out.signals.push({ ...field, label: 'FARA — foreign agent, review relationship', kind: 'signal' });
+  return out;
+}
+
+async function patentsviewEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'USPTO PatentsView', personFields: [], companyFields: [], signals: [], steps: [] };
+  const isPerson = ctx.kind === 'person';
+  const q = isPerson ? ctx.name : (ctx.company ?? ctx.name);
+  if (!q) { out.steps.push({ step: 'PatentsView', input: '(none)', output: 'Skipped', durationMs: 0, ok: false }); return out; }
+  const nameParts = q.trim().split(/\s+/);
+  const lastName = nameParts[nameParts.length - 1];
+  const firstName = nameParts[0];
+  const url = isPerson
+    ? `https://search.patentsview.org/api/v1/inventor/?q={"_and":[{"_text_any":{"inventor_last_name":"${lastName}"}},{"_text_any":{"inventor_first_name":"${firstName}"}}]}&f=["patent_number","patent_title"]&o={"size":5}`
+    : `https://search.patentsview.org/api/v1/assignee/?q={"_text_phrase":{"assignee_organization":"${q.replace(/"/g, '')}"}}&f=["patent_count","assignee_organization"]&o={"size":3}`;
+  const r = await fetchJSON<{ inventors?: Array<{ patents?: Array<{ patent_number?: string; patent_title?: string }> }>; assignees?: Array<{ assignee_organization?: string; patent_count?: number }> }>(url, { timeoutMs: 12000 });
+  out.steps.push(step('PatentsView', q, r, ''));
+  if (!r.ok) return out;
+  if (isPerson && r.data?.inventors?.length) {
+    const patents = r.data.inventors[0]?.patents ?? [];
+    const titles = patents.slice(0, 2).map((p) => p.patent_title ?? p.patent_number ?? '').filter(Boolean).join('; ');
+    out.personFields.push({ label: 'Patents (inventor)', value: `${patents.length} patent(s)${titles ? `: ${titles}` : ''}`, tier: 'B', source: 'USPTO PatentsView', url: `https://search.patentsview.org/search/?entity=patents&q={"inventor_last_name":"${encodeURIComponent(lastName)}"}` });
+    out.steps[out.steps.length - 1] = { ...out.steps[out.steps.length - 1], output: `${patents.length} patent(s)`, ok: true };
+  } else if (!isPerson && r.data?.assignees?.length) {
+    const asgn = r.data.assignees[0];
+    out.companyFields.push({ label: 'Patents (assignee)', value: `${asgn?.patent_count ?? 0} patent(s) assigned to "${asgn?.assignee_organization}"`, tier: 'B', source: 'USPTO PatentsView', url: `https://search.patentsview.org/search/?entity=patents&q={"assignee_organization":"${encodeURIComponent(q)}"}` });
+    out.steps[out.steps.length - 1] = { ...out.steps[out.steps.length - 1], output: `${asgn?.patent_count ?? 0} patent(s)`, ok: true };
+  } else {
+    out.steps[out.steps.length - 1] = { ...out.steps[out.steps.length - 1], output: 'no patents found', ok: true };
+  }
+  return out;
+}
+
+async function icijEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'ICIJ Offshore Leaks', personFields: [], companyFields: [], signals: [], steps: [] };
+  const q = ctx.name ?? (ctx.kind !== 'person' ? ctx.company : undefined);
+  if (!q) { out.steps.push({ step: 'ICIJ Offshore Leaks', input: '(none)', output: 'Skipped', durationMs: 0, ok: false }); return out; }
+  const url = `https://offshoreleaks.icij.org/api/v1/search?q=${encodeURIComponent(q)}&c=&j=&d=`;
+  const r = await fetchJSON<{ nodes?: Array<{ name?: string; jurisdiction?: string; data_from?: string }> }>(url, { timeoutMs: 12000 });
+  const nodes = r.data?.nodes ?? [];
+  out.steps.push(step('ICIJ Offshore Leaks', q, r, nodes.length ? `${nodes.length} entity match(es)` : 'no matches'));
+  if (!r.ok || !nodes.length) return out;
+  const datasets = [...new Set(nodes.map((n) => n.data_from).filter(Boolean))].join(', ');
+  const jurisdictions = [...new Set(nodes.map((n) => n.jurisdiction).filter(Boolean))].slice(0, 3).join(', ');
+  const value = `${nodes.length} match(es) in ${datasets}${jurisdictions ? ` · jurisdictions: ${jurisdictions}` : ''}`;
+  const signal: Field = { label: 'ICIJ Offshore Leaks — entity found, verify', value, tier: 'A', source: 'ICIJ Offshore Leaks', url: `https://offshoreleaks.icij.org/search?q=${encodeURIComponent(q)}`, kind: 'signal' };
+  if (ctx.kind === 'person') out.personFields.push({ ...signal, kind: undefined }); else out.companyFields.push({ ...signal, kind: undefined });
+  out.signals.push(signal);
+  return out;
+}
+
+async function congressEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'Congress.gov', personFields: [], companyFields: [], signals: [], steps: [] };
+  if (ctx.kind !== 'person' || !ctx.name) { out.steps.push({ step: 'Congress.gov', input: '(none)', output: 'Skipped — person only', durationMs: 0, ok: false }); return out; }
+  const key = process.env.CONGRESS_API_KEY;
+  if (!key) { out.steps.push({ step: 'Congress.gov', input: ctx.name, output: 'Skipped — no CONGRESS_API_KEY', durationMs: 0, ok: false }); return out; }
+  const url = `https://api.congress.gov/v3/member?name=${encodeURIComponent(ctx.name)}&api_key=${key}&format=json&limit=5`;
+  const r = await fetchJSON<{ members?: Array<{ name?: string; state?: string; party?: string; district?: string; officialWebsiteUrl?: string; terms?: { item?: Array<{ chamber?: string }> } }> }>(url, { timeoutMs: 10000 });
+  const members = r.data?.members ?? [];
+  out.steps.push(step('Congress.gov member', ctx.name, r, members.length ? `${members.length} member match(es)` : 'no match'));
+  if (!r.ok || !members.length) return out;
+  const m = members[0];
+  const chamber = m.terms?.item?.[0]?.chamber ?? '';
+  out.personFields.push({ label: 'US Congress member', value: `${m.name}${m.party ? ` (${m.party})` : ''}${m.state ? ` · ${m.state}` : ''}${m.district ? ` dist. ${m.district}` : ''}${chamber ? ` · ${chamber}` : ''}`, tier: 'A', source: 'Congress.gov', url: m.officialWebsiteUrl ?? `https://www.congress.gov/search?q={"source":"members","search":"${encodeURIComponent(ctx.name)}"}` });
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADVANCED ENRICHERS — keyed/specialist, run at depth≥advanced
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function openFdaEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'OpenFDA', personFields: [], companyFields: [], signals: [], steps: [] };
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!company) { out.steps.push({ step: 'OpenFDA', input: '(none)', output: 'Skipped — no company', durationMs: 0, ok: false }); return out; }
+  const enc = encodeURIComponent(`"${company}"`);
+  const endpoints = [
+    { label: 'drug', url: `https://api.fda.gov/drug/enforcement.json?search=openfda.manufacturer_name:${enc}&limit=1` },
+    { label: 'device', url: `https://api.fda.gov/device/enforcement.json?search=firm_name:${enc}&limit=1` },
+    { label: 'food', url: `https://api.fda.gov/food/enforcement.json?search=recalling_firm_name:${enc}&limit=1` },
+  ];
+  const counts: string[] = [];
+  for (const ep of endpoints) {
+    const r = await fetchJSON<{ meta?: { results?: { total?: number } } }>(ep.url, { timeoutMs: 8000 });
+    out.steps.push(step(`OpenFDA ${ep.label}`, company, r, `total=${r.data?.meta?.results?.total ?? 0}`));
+    const total = r.data?.meta?.results?.total ?? 0;
+    if (total > 0) counts.push(`${total} ${ep.label} recall(s)`);
+  }
+  if (counts.length > 0) {
+    out.companyFields.push({ label: 'FDA enforcement actions', value: counts.join(' · '), tier: 'A', source: 'OpenFDA', url: `https://www.accessdata.fda.gov/scripts/ires/?action=Recall&recallingFirm=${encodeURIComponent(company)}` });
+    out.signals.push({ label: 'FDA enforcement / recalls — review', value: counts.join(' · '), tier: 'A', source: 'OpenFDA', kind: 'signal' });
+  }
+  return out;
+}
+
+async function cmsOpenPaymentsEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'CMS Open Payments', personFields: [], companyFields: [], signals: [], steps: [] };
+  if (ctx.kind !== 'person' || !ctx.name) { out.steps.push({ step: 'CMS Open Payments', input: '(none)', output: 'Skipped — person only', durationMs: 0, ok: false }); return out; }
+  const parts = ctx.name.trim().split(/\s+/);
+  const last = encodeURIComponent(parts[parts.length - 1].toUpperCase());
+  const first = encodeURIComponent(parts[0].toUpperCase());
+  const url = `https://openpaymentsdata.cms.gov/resource/ruf7-bfwh.json?$limit=5&covered_recipient_last_name=${last}&covered_recipient_first_name=${first}`;
+  const r = await fetchJSON<Array<{ total_amount_of_payment_usdollars?: string; nature_of_payment_or_transfer_of_value?: string }>>(url, { timeoutMs: 12000 });
+  const items = Array.isArray(r.data) ? r.data : [];
+  out.steps.push(step('CMS Open Payments', ctx.name, r, items.length ? `${items.length} payment(s)` : 'no payments'));
+  if (!r.ok || !items.length) return out;
+  const total = items.reduce((s, x) => s + parseFloat(x.total_amount_of_payment_usdollars ?? '0'), 0);
+  const types = [...new Set(items.map((x) => x.nature_of_payment_or_transfer_of_value).filter(Boolean))].join(', ');
+  out.personFields.push({ label: 'Pharma/device payments (Sunshine Act)', value: `$${total.toLocaleString(undefined, { maximumFractionDigits: 0 })} from ${items.length} payment(s)${types ? ` · ${types}` : ''}`, tier: 'B', source: 'CMS Open Payments', url: `https://openpaymentsdata.cms.gov/search#physician` });
+  return out;
+}
+
+async function samEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'SAM.gov', personFields: [], companyFields: [], signals: [], steps: [] };
+  const key = process.env.SAM_API_KEY;
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!key || !company) { out.steps.push({ step: 'SAM.gov', input: company ?? '(none)', output: key ? 'Skipped — no company' : 'Skipped — no SAM_API_KEY', durationMs: 0, ok: false }); return out; }
+  const url = `https://api.sam.gov/entity-information/v3/entities?api_key=${key}&legalBusinessName=${encodeURIComponent(company)}&includeSections=coreData&format=JSON`;
+  const r = await fetchJSON<{ entityData?: Array<{ coreData?: { entityInformation?: { entityStartDate?: string }; businessTypes?: { businessTypeList?: Array<{ businessTypeDesc?: string }> } } }> }>(url, { timeoutMs: 12000 });
+  const entities = r.data?.entityData ?? [];
+  out.steps.push(step('SAM.gov entity', company, r, entities.length ? `${entities.length} entity match(es)` : 'no SAM registration'));
+  if (!r.ok || !entities.length) return out;
+  const types = entities[0].coreData?.businessTypes?.businessTypeList?.map((b) => b.businessTypeDesc).filter(Boolean).slice(0, 3).join(', ') ?? '';
+  out.companyFields.push({ label: 'SAM.gov federal contractor', value: `Registered${types ? ` · ${types}` : ''}`, tier: 'A', source: 'SAM.gov', url: `https://sam.gov/search/?keywords=${encodeURIComponent(company)}&index=ei` });
+  return out;
+}
+
+async function usaJobsEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'USAJOBS', personFields: [], companyFields: [], signals: [], steps: [] };
+  const key = process.env.USAJOBS_API_KEY;
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!key || !company) { out.steps.push({ step: 'USAJOBS', input: company ?? '(none)', output: key ? 'Skipped — no company' : 'Skipped — no USAJOBS_API_KEY', durationMs: 0, ok: false }); return out; }
+  const url = `https://data.usajobs.gov/api/search?Organization=${encodeURIComponent(company)}&ResultsPerPage=5`;
+  const r = await fetchJSON<{ SearchResult?: { SearchResultCount?: number } }>(url, { timeoutMs: 10000, headers: { 'Host': 'data.usajobs.gov', 'Authorization-Key': key } });
+  const count = r.data?.SearchResult?.SearchResultCount ?? 0;
+  out.steps.push(step('USAJOBS', company, r, count ? `${count} federal posting(s)` : 'no postings'));
+  if (!r.ok || !count) return out;
+  out.companyFields.push({ label: 'Federal job postings (USAJOBS)', value: `${count} active posting(s)`, tier: 'B', source: 'USAJOBS', url: `https://www.usajobs.gov/Search/Results?a=${encodeURIComponent(company)}` });
+  return out;
+}
+
+const SBIC_CACHE = path.join(process.cwd(), 'data', 'sbic.json');
+const SBIC_CSV = 'https://www.sba.gov/sites/default/files/sbic_license_list.csv';
+const SBIC_TTL_MS = 7 * 24 * 3600 * 1000;
+interface SbicEntry { name: string; state: string; strategy: string }
+let SBIC_MEM: SbicEntry[] | null = null;
+
+async function loadSbic(): Promise<SbicEntry[]> {
+  if (SBIC_MEM) return SBIC_MEM;
+  try {
+    const raw = await fs.readFile(SBIC_CACHE, 'utf8');
+    const c = JSON.parse(raw) as { fetchedAt: string; entries: SbicEntry[] };
+    if (c.entries?.length && Date.now() - new Date(c.fetchedAt).getTime() < SBIC_TTL_MS) { SBIC_MEM = c.entries; return SBIC_MEM; }
+  } catch { /* stale */ }
+  const r = await fetchText(SBIC_CSV, { timeoutMs: 20000 });
+  if (!r.data) return SBIC_MEM ?? [];
+  const entries: SbicEntry[] = r.data.split(/\r?\n/).filter(Boolean).slice(1).map((l) => {
+    const f = parseCsvLine(l);
+    return { name: (f[0] ?? '').trim(), state: (f[1] ?? '').trim(), strategy: (f[3] ?? '').trim() };
+  }).filter((e) => e.name && e.name !== '-0-');
+  SBIC_MEM = entries;
+  try { await fs.mkdir(path.dirname(SBIC_CACHE), { recursive: true }); await fs.writeFile(SBIC_CACHE, JSON.stringify({ fetchedAt: new Date().toISOString(), entries })); } catch { /* best-effort */ }
+  return entries;
+}
+
+async function sbicEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'SBA SBIC Directory', personFields: [], companyFields: [], signals: [], steps: [] };
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!company) { out.steps.push({ step: 'SBIC', input: '(none)', output: 'Skipped — no company', durationMs: 0, ok: false }); return out; }
+  const t0 = Date.now();
+  const sbic = await loadSbic();
+  if (!sbic.length) { out.steps.push({ step: 'SBIC screen', input: company, output: 'SBIC list unavailable', durationMs: Date.now() - t0, ok: false }); return out; }
+  const qn = norm(company);
+  const match = sbic.find((e) => { const en = norm(e.name); return en === qn || (qn.length > 8 && en.includes(qn.slice(0, 12))); });
+  out.steps.push({ step: 'SBIC screen', input: company, output: match ? `SBIC match: ${match.name}` : `screened vs ${sbic.length} SBICs, no match`, durationMs: Date.now() - t0, ok: true });
+  if (match) out.companyFields.push({ label: 'SBA SBIC license', value: `${match.name}${match.state ? ` · ${match.state}` : ''}${match.strategy ? ` · ${match.strategy}` : ''}`, tier: 'A', source: 'SBA SBIC Directory', url: 'https://www.sba.gov/funding-programs/investment-capital/sbic-directory' });
+  return out;
+}
+
+async function nlrbEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'NLRB', personFields: [], companyFields: [], signals: [], steps: [] };
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!company) { out.steps.push({ step: 'NLRB', input: '(none)', output: 'Skipped — no company', durationMs: 0, ok: false }); return out; }
+  const url = `https://elections.nlrb.gov/api/elections?employer=${encodeURIComponent(company)}&limit=5`;
+  const r = await fetchJSON<{ count?: number; results?: Array<{ outcome?: string; election_date?: string }> }>(url, { timeoutMs: 10000 });
+  const count = r.data?.count ?? r.data?.results?.length ?? 0;
+  out.steps.push(step('NLRB elections', company, r, count ? `${count} election case(s)` : 'no election cases'));
+  if (!r.ok || !count) return out;
+  const result = r.data?.results?.[0];
+  out.companyFields.push({ label: 'NLRB labor election', value: `${count} case(s)${result?.outcome ? ` · latest: ${result.outcome}` : ''}${result?.election_date ? ` (${result.election_date.slice(0, 10)})` : ''}`, tier: 'B', source: 'NLRB', url: `https://elections.nlrb.gov/elections?employer=${encodeURIComponent(company)}` });
+  return out;
+}
+
+async function pcaobEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'PCAOB', personFields: [], companyFields: [], signals: [], steps: [] };
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!company) { out.steps.push({ step: 'PCAOB', input: '(none)', output: 'Skipped — no company', durationMs: 0, ok: false }); return out; }
+  out.steps.push({ step: 'PCAOB AuditorSearch', input: company, output: 'deep-link pointer (no public API)', durationMs: 0, ok: true });
+  out.companyFields.push({ label: 'PCAOB audit firm registration', value: `Search PCAOB → "${company}"`, tier: 'C', source: 'PCAOB', url: `https://pcaobus.org/Registration/Firms?q=${encodeURIComponent(company)}` });
+  return out;
+}
+
+async function nmlsEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'NMLS Consumer Access', personFields: [], companyFields: [], signals: [], steps: [] };
+  if (!ctx.name) { out.steps.push({ step: 'NMLS', input: '(none)', output: 'Skipped', durationMs: 0, ok: false }); return out; }
+  out.steps.push({ step: 'NMLS Consumer Access', input: ctx.name, output: 'deep-link pointer (no public API)', durationMs: 0, ok: true });
+  const field: Field = { label: 'NMLS licensing (mortgage)', value: `Search NMLS → "${ctx.name}"`, tier: 'C', source: 'NMLS Consumer Access', url: 'https://www.nmlsconsumeraccess.org/' };
+  if (ctx.kind === 'person') out.personFields.push(field); else out.companyFields.push(field);
+  return out;
+}
+
+async function nfaEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'NFA BASIC', personFields: [], companyFields: [], signals: [], steps: [] };
+  const q = ctx.name ?? (ctx.kind !== 'person' ? ctx.company : undefined);
+  if (!q) { out.steps.push({ step: 'NFA BASIC', input: '(none)', output: 'Skipped', durationMs: 0, ok: false }); return out; }
+  out.steps.push({ step: 'NFA BASIC', input: q, output: 'deep-link pointer (form-based search)', durationMs: 0, ok: true });
+  const field: Field = { label: 'NFA futures registration', value: `Search NFA BASIC → "${q}"`, tier: 'C', source: 'NFA BASIC', url: 'https://www.nfa.futures.org/BasicNet/' };
+  if (ctx.kind === 'person') out.personFields.push(field); else out.companyFields.push(field);
+  return out;
+}
+
+async function eiaEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'EIA Open Data', personFields: [], companyFields: [], signals: [], steps: [] };
+  const key = process.env.EIA_API_KEY;
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!key || !company) { out.steps.push({ step: 'EIA', input: company ?? '(none)', output: key ? 'Skipped — no company' : 'Skipped — no EIA_API_KEY', durationMs: 0, ok: false }); return out; }
+  const url = `https://api.eia.gov/v2/electricity/facility-fuel/data/?api_key=${key}&facets[operator_name][]=${encodeURIComponent(company)}&data[]=net_generation&frequency=annual&sort[0][column]=period&sort[0][direction]=desc&length=3&offset=0`;
+  const r = await fetchJSON<{ response?: { total?: number; data?: Array<{ plantName?: string; fueltype?: string }> } }>(url, { timeoutMs: 10000 });
+  const total = r.data?.response?.total ?? 0;
+  out.steps.push(step('EIA facility', company, r, total ? `${total} plant/fuel record(s)` : 'no EIA plants'));
+  if (!r.ok || !total) return out;
+  const rows = r.data?.response?.data ?? [];
+  const plants = [...new Set(rows.map((d) => d.plantName).filter(Boolean))];
+  const fuels = [...new Set(rows.map((d) => d.fueltype).filter(Boolean))];
+  out.companyFields.push({ label: 'Energy plants (EIA)', value: `${total} facility/fuel record(s) · plants: ${plants.slice(0, 3).join(', ')}${fuels.length ? ` · fuels: ${fuels.join(', ')}` : ''}`, tier: 'B', source: 'EIA Open Data', url: 'https://www.eia.gov/electricity/data/browser/' });
+  return out;
+}
+
+async function dolEnforcementEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'DOL Enforcement', personFields: [], companyFields: [], signals: [], steps: [] };
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!company) { out.steps.push({ step: 'DOL Enforcement', input: '(none)', output: 'Skipped — no company', durationMs: 0, ok: false }); return out; }
+  const url = `https://data.dol.gov/get/whd_whisard/rows=5?filters={"lgl_nm":"${encodeURIComponent(company)}"}`;
+  const r = await fetchJSON<{ whd_whisard?: Array<{ lgl_nm?: string; bw_atp_amt?: string }> }>(url, { timeoutMs: 10000 });
+  const rows = r.data?.whd_whisard ?? [];
+  out.steps.push(step('DOL WHD enforcement', company, r, rows.length ? `${rows.length} enforcement record(s)` : 'no WHD records'));
+  if (!r.ok || !rows.length) return out;
+  const backwages = rows.reduce((s, x) => s + parseFloat(x.bw_atp_amt ?? '0'), 0);
+  out.companyFields.push({ label: 'DOL wage/hour enforcement', value: `${rows.length} case(s)${backwages ? ` · $${backwages.toLocaleString(undefined, { maximumFractionDigits: 0 })} back wages` : ''}`, tier: 'A', source: 'DOL Enforcement', url: 'https://www.dol.gov/agencies/whd/data/wh-compliance-data' });
+  if (backwages > 0) out.signals.push({ label: 'DOL wage violations — review', value: `$${backwages.toLocaleString(undefined, { maximumFractionDigits: 0 })} back wages`, tier: 'A', source: 'DOL Enforcement', kind: 'signal' });
+  return out;
+}
+
+async function epaEchoEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'EPA ECHO', personFields: [], companyFields: [], signals: [], steps: [] };
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!company) { out.steps.push({ step: 'EPA ECHO', input: '(none)', output: 'Skipped — no company', durationMs: 0, ok: false }); return out; }
+  const url = `https://echo.epa.gov/rest/services/CWA_Systems/Search/v1/GetFacilities?output=JSON&p_fn=${encodeURIComponent(company)}&responseset=1&rows=5`;
+  const r = await fetchJSON<{ Results?: { Facilities?: Array<{ FacName?: string; CWPState?: string; CWPViolStatus?: string }> } }>(url, { timeoutMs: 10000 });
+  const facilities = r.data?.Results?.Facilities ?? [];
+  out.steps.push(step('EPA ECHO', company, r, facilities.length ? `${facilities.length} facility(s)` : 'no EPA facilities'));
+  if (!r.ok || !facilities.length) return out;
+  const violations = facilities.filter((f) => f.CWPViolStatus === 'Y').length;
+  const states = [...new Set(facilities.map((f) => f.CWPState).filter(Boolean))].join(', ');
+  out.companyFields.push({ label: 'EPA environmental facilities', value: `${facilities.length} facility(s) in ${states}${violations ? ` · ${violations} with active violations` : ''}`, tier: violations > 0 ? 'A' : 'B', source: 'EPA ECHO', url: `https://echo.epa.gov/facilities/facility-search/results?p_fn=${encodeURIComponent(company)}` });
+  if (violations > 0) out.signals.push({ label: 'EPA environmental violations — review', value: `${violations} facility(s) with active violations`, tier: 'A', source: 'EPA ECHO', kind: 'signal' });
+  return out;
+}
+
+async function oshaEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'OSHA', personFields: [], companyFields: [], signals: [], steps: [] };
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!company) { out.steps.push({ step: 'OSHA', input: '(none)', output: 'Skipped — no company', durationMs: 0, ok: false }); return out; }
+  const url = `https://data.dol.gov/get/osha_inspection/rows=5?filters={"estab_name":"${encodeURIComponent(company)}"}`;
+  const r = await fetchJSON<{ osha_inspection?: Array<{ estab_name?: string; violator_name?: string }> }>(url, { timeoutMs: 10000 });
+  const rows = (r.data?.osha_inspection ?? (Array.isArray(r.data) ? r.data as Array<{ estab_name?: string }> : []));
+  out.steps.push(step('OSHA inspections', company, r, rows.length ? `${rows.length} inspection(s)` : 'no inspections'));
+  if (!r.ok || !rows.length) return out;
+  out.companyFields.push({ label: 'OSHA workplace inspections', value: `${rows.length} inspection(s) on record`, tier: 'B', source: 'OSHA', url: `https://www.osha.gov/ords/imis/establishment.html?establishment=${encodeURIComponent(company)}` });
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEEP ENRICHERS — browser/bulk/heavy, run only at depth=deep
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function waybackEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'Wayback Machine', personFields: [], companyFields: [], signals: [], steps: [] };
+  const domain = ctx.domain;
+  if (!domain) { out.steps.push({ step: 'Wayback CDX', input: '(none)', output: 'Skipped — no domain', durationMs: 0, ok: false }); return out; }
+  const url = `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(domain)}&output=json&limit=5&fl=timestamp,statuscode&collapse=timestamp:6&from=20100101`;
+  const r = await fetchJSON<Array<Array<string>>>(url, { timeoutMs: 20000 });
+  const rows = Array.isArray(r.data) ? r.data.slice(1) : [];
+  out.steps.push(step('Wayback CDX', domain, r, rows.length ? `${rows.length} snapshot(s)` : 'no snapshots'));
+  if (!r.ok || !rows.length) return out;
+  const earliest = rows[0]?.[0]?.slice(0, 8);
+  const fmtDate = (s?: string) => s ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : '';
+  out.companyFields.push({ label: 'Domain history (Wayback)', value: `First snapshot: ${fmtDate(earliest)} · ${rows.length} sampled`, tier: 'C', source: 'Wayback Machine', url: `https://web.archive.org/web/*/${domain}` });
+  return out;
+}
+
+async function faaAircraftEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'FAA Aircraft Registry', personFields: [], companyFields: [], signals: [], steps: [] };
+  const q = ctx.kind === 'person' ? ctx.name : (ctx.company ?? ctx.name);
+  if (!q) { out.steps.push({ step: 'FAA Aircraft', input: '(none)', output: 'Skipped', durationMs: 0, ok: false }); return out; }
+  const parts = q.trim().split(/\s+/);
+  const url = `https://registry.faa.gov/AircraftInquiry/Search/OwnerNameSearch?nNumberTxt=&lastName=${encodeURIComponent(parts[parts.length - 1])}&firstName=${encodeURIComponent(parts[0])}`;
+  out.steps.push({ step: 'FAA Aircraft Registry', input: q, output: 'deep-link pointer (no JSON API)', durationMs: 0, ok: true });
+  const field: Field = { label: 'FAA aircraft ownership', value: `Check FAA registry → "${q}" (aircraft = wealth signal)`, tier: 'C', source: 'FAA Aircraft Registry', url };
+  if (ctx.kind === 'person') out.personFields.push(field); else out.companyFields.push(field);
+  return out;
+}
+
+async function faaAirmenEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'FAA Airmen Certification', personFields: [], companyFields: [], signals: [], steps: [] };
+  if (ctx.kind !== 'person' || !ctx.name) { out.steps.push({ step: 'FAA Airmen', input: '(none)', output: 'Skipped — person only', durationMs: 0, ok: false }); return out; }
+  const parts = ctx.name.trim().split(/\s+/);
+  out.steps.push({ step: 'FAA Airmen Certification', input: ctx.name, output: 'deep-link pointer', durationMs: 0, ok: true });
+  out.personFields.push({ label: 'FAA pilot/mechanic certification', value: `Check FAA Airmen → "${ctx.name}"`, tier: 'C', source: 'FAA Airmen Certification', url: `https://amsrvs.registry.faa.gov/airmeninquiry/Main.aspx?lastName=${encodeURIComponent(parts[parts.length - 1])}&firstName=${encodeURIComponent(parts[0])}&state=&certType=ALL` });
+  return out;
+}
+
+async function irs990DeepEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'IRS Form 990 (ProPublica)', personFields: [], companyFields: [], signals: [], steps: [] };
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!company) { out.steps.push({ step: 'IRS 990', input: '(none)', output: 'Skipped — no company', durationMs: 0, ok: false }); return out; }
+  const searchR = await fetchJSON<{ organizations?: Array<{ ein: string; name: string }> }>(
+    `https://projects.propublica.org/nonprofits/api/v2/organizations.json?q=${encodeURIComponent(company)}`, { timeoutMs: 10000 }
+  );
+  const orgs = searchR.data?.organizations ?? [];
+  out.steps.push(step('ProPublica 990 search', company, searchR, orgs.length ? `${orgs.length} org(s)` : 'not found'));
+  if (!orgs.length) return out;
+  const ein = orgs[0].ein;
+  const fullR = await fetchJSON<{ filings_with_data?: Array<{ tax_prd_yr?: string; totrevenue?: number; totfuncexpns?: number; employees?: number }> }>(
+    `https://projects.propublica.org/nonprofits/api/v2/organizations/${ein}.json`, { timeoutMs: 12000 }
+  );
+  out.steps.push(step('ProPublica 990 detail', ein, fullR, fullR.data?.filings_with_data?.length ? 'filing(s) found' : 'no filings'));
+  const filing = fullR.data?.filings_with_data?.[0];
+  if (!filing) return out;
+  out.companyFields.push({ label: 'Nonprofit 990 financials', value: `FY${filing.tax_prd_yr ?? '?'} · revenue $${(filing.totrevenue ?? 0).toLocaleString()} · expenses $${(filing.totfuncexpns ?? 0).toLocaleString()}${filing.employees ? ` · ${filing.employees} employees` : ''}`, tier: 'A', source: 'IRS Form 990 (ProPublica)', url: `https://projects.propublica.org/nonprofits/organizations/${ein}` });
+  return out;
+}
+
+async function dolLcaEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'DOL H-1B LCA', personFields: [], companyFields: [], signals: [], steps: [] };
+  const company = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!company) { out.steps.push({ step: 'DOL LCA', input: '(none)', output: 'Skipped — no company', durationMs: 0, ok: false }); return out; }
+  out.steps.push({ step: 'DOL H-1B LCA', input: company, output: 'deep-link pointer (quarterly bulk not fetched)', durationMs: 0, ok: true });
+  out.companyFields.push({ label: 'H-1B LCA filings (DOL)', value: `Search DOL LCA data → "${company}"`, tier: 'C', source: 'DOL H-1B LCA', url: 'https://www.dol.gov/agencies/eta/foreign-labor/performance' });
+  return out;
+}
+
+async function npmEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'npm Registry', personFields: [], companyFields: [], signals: [], steps: [] };
+  if (ctx.kind !== 'person') { out.steps.push({ step: 'npm', input: '(none)', output: 'Skipped — person only', durationMs: 0, ok: false }); return out; }
+  const queries = [...(ctx.handles ?? []), ...(ctx.name ? [ctx.name.toLowerCase().replace(/\s+/g, '')] : [])].slice(0, 2);
+  for (const q of queries) {
+    const r = await fetchJSON<{ total?: number; objects?: Array<{ package?: { name?: string } }> }>(`https://registry.npmjs.org/-/v1/search?text=maintainer:${encodeURIComponent(q)}&size=5`, { timeoutMs: 8000 });
+    out.steps.push(step('npm maintainer', q, r, r.data?.total ? `${r.data.total} package(s)` : 'no packages'));
+    if (r.ok && r.data?.total) {
+      const pkgs = r.data.objects?.slice(0, 3).map((o) => o.package?.name).filter(Boolean).join(', ');
+      out.personFields.push({ label: 'npm packages (maintainer)', value: `${r.data.total} package(s): ${pkgs}`, tier: 'B', source: 'npm Registry', url: `https://www.npmjs.com/~${encodeURIComponent(q)}` });
+      return out;
+    }
+  }
+  return out;
+}
+
+async function huggingfaceEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'HuggingFace Hub', personFields: [], companyFields: [], signals: [], steps: [] };
+  if (ctx.kind !== 'person') { out.steps.push({ step: 'HuggingFace', input: '(none)', output: 'Skipped — person only', durationMs: 0, ok: false }); return out; }
+  const token = process.env.HF_TOKEN;
+  const extraHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const queries = [...(ctx.handles ?? []), ...(ctx.name ? [ctx.name.toLowerCase().replace(/\s+/g, '-'), ctx.name.toLowerCase().replace(/\s+/g, '')] : [])].slice(0, 3);
+  for (const q of queries) {
+    const r = await fetchJSON<{ fullname?: string; numModels?: number; numDatasets?: number }>(
+      `https://huggingface.co/api/users/${encodeURIComponent(q)}`, { timeoutMs: 8000, headers: extraHeaders }
+    );
+    out.steps.push(step('HuggingFace user', q, r, r.data?.fullname ? `found: ${r.data.fullname}` : 'not found'));
+    if (r.ok && r.data?.fullname) {
+      out.personFields.push({ label: 'HuggingFace profile', value: `${r.data.fullname}${r.data.numModels ? ` · ${r.data.numModels} model(s)` : ''}${r.data.numDatasets ? ` · ${r.data.numDatasets} dataset(s)` : ''}`, tier: 'B', source: 'HuggingFace Hub', url: `https://huggingface.co/${q}` });
+      return out;
+    }
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Phase 2 — Build the detailed report from a verified identity
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function buildReport(identity: Identity, input: ReconInput = {}): Promise<ReconReport> {
+  const depth = input.depth ?? 'basic';
   const ctx: ReportCtx = {
     kind: identity.kind,
     name: identity.identifiers.name || identity.displayName,
@@ -2413,14 +2979,14 @@ export async function buildReport(identity: Identity, input: ReconInput = {}): P
   const isCompany = !isPerson;
 
   const rest = await Promise.all([
-    // Common — relevant to every kind
+    // Common — all depths
     wikidataEnrich(ctx),
     newsEnrich(ctx),
     alephEnrich(ctx),
     interpolEnrich(ctx),
     ofacEnrich(ctx),
     courtlistenerEnrich(ctx),
-    // Person-only
+    // Person — Basic
     ...(isPerson ? [
       githubEnrich(ctx),
       finraEnrich(ctx),
@@ -2433,8 +2999,20 @@ export async function buildReport(identity: Identity, input: ReconInput = {}): P
       emailInferEnrich(ctx),
       socialMentionsEnrich(ctx),
       companyTeamEnrich(ctx),
+      propublicaEnrich(ctx),
+      nihReporterEnrich(ctx),
+      nsfAwardEnrich(ctx),
+      senateLobbingEnrich(ctx),
+      arxivEnrich(ctx),
+      crossrefEnrich(ctx),
+      openFecEnrich(ctx),
+      npiEnrich(ctx),
+      faraEnrich(ctx),
+      patentsviewEnrich(ctx),
+      icijEnrich(ctx),
+      congressEnrich(ctx),
     ] : []),
-    // Company/fund-only
+    // Company/fund — Basic
     ...(isCompany ? [
       secAdvEnrich(ctx),
       gleifEnrich(ctx),
@@ -2442,7 +3020,49 @@ export async function buildReport(identity: Identity, input: ReconInput = {}): P
       hiringEnrich(ctx),
       Promise.resolve(stateSosEnrich(ctx)),
       Promise.resolve(uccEnrich(ctx)),
+      propublicaEnrich(ctx),
+      cfpbEnrich(ctx),
+      faraEnrich(ctx),
+      senateLobbingEnrich(ctx),
+      openFecEnrich(ctx),
+      patentsviewEnrich(ctx),
+      icijEnrich(ctx),
     ] : []),
+    // Person — Advanced
+    ...(isPerson && depth !== 'basic' ? [
+      cmsOpenPaymentsEnrich(ctx),
+      nmlsEnrich(ctx),
+      nfaEnrich(ctx),
+    ] : []),
+    // Company — Advanced
+    ...(isCompany && depth !== 'basic' ? [
+      openFdaEnrich(ctx),
+      samEnrich(ctx),
+      usaJobsEnrich(ctx),
+      sbicEnrich(ctx),
+      nlrbEnrich(ctx),
+      pcaobEnrich(ctx),
+      nfaEnrich(ctx),
+      eiaEnrich(ctx),
+      dolEnforcementEnrich(ctx),
+      epaEchoEnrich(ctx),
+      oshaEnrich(ctx),
+    ] : []),
+    // Person — Deep
+    ...(isPerson && depth === 'deep' ? [
+      npmEnrich(ctx),
+      huggingfaceEnrich(ctx),
+      faaAirmenEnrich(ctx),
+    ] : []),
+    // Company — Deep
+    ...(isCompany && depth === 'deep' ? [
+      waybackEnrich(ctx),
+      faaAircraftEnrich(ctx),
+      dolLcaEnrich(ctx),
+      irs990DeepEnrich(ctx),
+    ] : []),
+    // Common — Deep (domain history)
+    ...(isPerson && depth === 'deep' && ctx.domain ? [waybackEnrich(ctx)] : []),
   ]);
 
   const discContrib: SourceContribution = { source: 'Web search (SearXNG)', personFields: [], companyFields: [], signals: [], steps: disc.steps };
@@ -2565,6 +3185,42 @@ export const ENRICHER_SOURCE_MAP: Record<string, string[]> = {
   socialSearcher:  ['Social Searcher'],
   hiring:          ['Lever', 'Greenhouse'],
   companyTeam:     ['Company site'],
+  // Basic (new)
+  propublica:      ['ProPublica Nonprofit Explorer'],
+  nihReporter:     ['NIH RePORTER'],
+  nsfAward:        ['NSF Award Search'],
+  senateLobbing:   ['Senate LDA'],
+  arxiv:           ['arXiv'],
+  crossref:        ['CrossRef'],
+  openFec:         ['OpenFEC'],
+  cfpb:            ['CFPB Complaints'],
+  npi:             ['CMS NPPES NPI'],
+  fara:            ['DOJ FARA'],
+  patentsview:     ['USPTO PatentsView'],
+  icij:            ['ICIJ Offshore Leaks'],
+  congress:        ['Congress.gov'],
+  // Advanced (new)
+  openFda:         ['OpenFDA'],
+  cmsOpenPayments: ['CMS Open Payments'],
+  sam:             ['SAM.gov'],
+  usaJobs:         ['USAJOBS'],
+  sbic:            ['SBA SBIC Directory'],
+  nlrb:            ['NLRB'],
+  pcaob:           ['PCAOB'],
+  nmls:            ['NMLS Consumer Access'],
+  nfa:             ['NFA BASIC'],
+  eia:             ['EIA Open Data'],
+  dolEnforcement:  ['DOL Enforcement'],
+  epaEcho:         ['EPA ECHO'],
+  osha:            ['OSHA'],
+  // Deep (new)
+  wayback:         ['Wayback Machine'],
+  faaAircraft:     ['FAA Aircraft Registry'],
+  faaAirmen:       ['FAA Airmen Certification'],
+  irs990Deep:      ['IRS Form 990 (ProPublica)'],
+  dolLca:          ['DOL H-1B LCA'],
+  npm:             ['npm Registry'],
+  huggingface:     ['HuggingFace Hub'],
 };
 
 /** Keys whose source labels are completely absent from coveredSources. */
@@ -2633,6 +3289,42 @@ export async function runEnrichersForKeys(keys: string[], ctx: ReportCtx): Promi
     stateSos:        stateSosEnrich,
     ucc:             uccEnrich,
     companyTeam:     companyTeamEnrich,
+    // Basic (new)
+    propublica:      propublicaEnrich,
+    nihReporter:     nihReporterEnrich,
+    nsfAward:        nsfAwardEnrich,
+    senateLobbing:   senateLobbingEnrich,
+    arxiv:           arxivEnrich,
+    crossref:        crossrefEnrich,
+    openFec:         openFecEnrich,
+    cfpb:            cfpbEnrich,
+    npi:             npiEnrich,
+    fara:            faraEnrich,
+    patentsview:     patentsviewEnrich,
+    icij:            icijEnrich,
+    congress:        congressEnrich,
+    // Advanced (new)
+    openFda:         openFdaEnrich,
+    cmsOpenPayments: cmsOpenPaymentsEnrich,
+    sam:             samEnrich,
+    usaJobs:         usaJobsEnrich,
+    sbic:            sbicEnrich,
+    nlrb:            nlrbEnrich,
+    pcaob:           pcaobEnrich,
+    nmls:            nmlsEnrich,
+    nfa:             nfaEnrich,
+    eia:             eiaEnrich,
+    dolEnforcement:  dolEnforcementEnrich,
+    epaEcho:         epaEchoEnrich,
+    osha:            oshaEnrich,
+    // Deep (new)
+    wayback:         waybackEnrich,
+    faaAircraft:     faaAircraftEnrich,
+    faaAirmen:       faaAirmenEnrich,
+    irs990Deep:      irs990DeepEnrich,
+    dolLca:          dolLcaEnrich,
+    npm:             npmEnrich,
+    huggingface:     huggingfaceEnrich,
   };
   return Promise.all(keys.filter((k) => dispatch[k]).map((k) => Promise.resolve(dispatch[k](ctx))));
 }

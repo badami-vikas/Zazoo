@@ -365,6 +365,7 @@ export default function Page() {
   const [manualOpen, setManualOpen] = useState(false);
   const [manual, setManual] = useState<ManualForm>(EMPTY_MANUAL);
   const [companySuggestion, setCompanySuggestion] = useState<{ name: string } | null>(null);
+  const [target, setTarget] = useState<'person' | 'company' | 'both'>('person');
 
   useEffect(() => {
     fetch('/api/store/status').then((r) => r.json()).then(setStore).catch(() => {});
@@ -386,7 +387,7 @@ export default function Page() {
     setError('');
     setBusy(true);
     try {
-      const r = await fetch('/api/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+      const r = await fetch('/api/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(getTargetedInput()) });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? 'resolve failed');
       const cands: Identity[] = data.candidates ?? [];
@@ -417,7 +418,7 @@ export default function Page() {
     setError('');
     setBusy(true);
     try {
-      const r = await fetch('/api/background-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identity, input }) });
+      const r = await fetch('/api/background-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identity, input: getTargetedInput() }) });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? 'background-check failed');
       setReport(data as ReconReport);
@@ -490,6 +491,14 @@ export default function Page() {
     setIntakeMsg('');
   }
 
+  function getTargetedInput(): ReconInput {
+    const { name, email, github, linkedin, handle, location, usernameScan, depth } = input;
+    const { company, domain, state, depth: _d } = input;
+    if (target === 'person') return { name, email, github, linkedin, handle, location, usernameScan, depth };
+    if (target === 'company') return { company, domain, state, depth };
+    return input;
+  }
+
   const selectedCount = selectedIds.size;
 
   return (
@@ -503,23 +512,72 @@ export default function Page() {
 
       {phase === 'input' && (
         <div className="panel">
-          <div className="grid">
-            <div className="field"><label>Name (person)</label><input value={input.name ?? ''} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Jane Founder" /></div>
-            <div className="field"><label>Company / fund</label><input value={input.company ?? ''} onChange={(e) => set('company', e.target.value)} placeholder="e.g. Acme Capital" /></div>
-            <div className="field"><label>Email (optional — sharpens match)</label><input value={input.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="jane@acme.com" /></div>
-            <div className="field"><label>Domain (optional)</label><input value={input.domain ?? ''} onChange={(e) => set('domain', e.target.value)} placeholder="acme.com" /></div>
-            <div className="field"><label>GitHub (optional)</label><input value={input.github ?? ''} onChange={(e) => set('github', e.target.value)} placeholder="janedev" /></div>
-            <div className="field"><label>Username / handle (optional — cross-platform scan)</label><input value={input.handle ?? ''} onChange={(e) => set('handle', e.target.value)} placeholder="janedoe" /></div>
-            <div className="field"><label>City / region (optional — sharpens web search)</label><input value={input.location ?? ''} onChange={(e) => set('location', e.target.value)} placeholder="San Francisco" /></div>
-            <div className="field"><label>US state (optional — SoS/UCC)</label><input value={input.state ?? ''} onChange={(e) => set('state', e.target.value)} placeholder="DE" maxLength={2} /></div>
-            <div className="field" style={{ gridColumn: '1 / -1' }}><label>LinkedIn URL <span className="muted">(ground truth — boosts match accuracy)</span></label><input value={input.linkedin ?? ''} onChange={(e) => set('linkedin', e.target.value)} placeholder="https://linkedin.com/in/janefoo" /></div>
+          {/* Target toggle */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 18 }}>
+            <span className="muted small" style={{ marginRight: 4 }}>Researching:</span>
+            {(['person', 'company', 'both'] as const).map((t) => (
+              <label key={t} className="muted small" style={{ cursor: 'pointer', padding: '3px 12px', borderRadius: 4, background: target === t ? 'var(--accent)' : 'var(--surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <input type="radio" name="target" value={t} checked={target === t} onChange={() => setTarget(t)} style={{ display: 'none' }} />
+                {t === 'person' ? 'Person' : t === 'company' ? 'Company' : 'Person + Company'}
+              </label>
+            ))}
           </div>
-          <label className="muted small" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
-            <input type="checkbox" checked={input.usernameScan === 'full'} onChange={(e) => setInput((p) => ({ ...p, usernameScan: e.target.checked ? 'full' : 'curated' }))} />
-            Deep username scan — probe the full 700+ platform list (slower; default is ~40 high-signal sites)
-          </label>
+
+          {/* Person fields */}
+          {target !== 'company' && (
+            <>
+              {target === 'both' && <div className="muted small" style={{ marginBottom: 8, fontWeight: 600 }}>Person</div>}
+              <div className="grid">
+                <div className="field"><label>Name</label><input value={input.name ?? ''} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Jane Founder" /></div>
+                <div className="field"><label>Email <span className="muted">(optional)</span></label><input value={input.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="jane@acme.com" /></div>
+                <div className="field"><label>GitHub <span className="muted">(optional)</span></label><input value={input.github ?? ''} onChange={(e) => set('github', e.target.value)} placeholder="janedev" /></div>
+                <div className="field"><label>Username / handle <span className="muted">(optional)</span></label><input value={input.handle ?? ''} onChange={(e) => set('handle', e.target.value)} placeholder="janedoe" /></div>
+                <div className="field"><label>City / region <span className="muted">(optional)</span></label><input value={input.location ?? ''} onChange={(e) => set('location', e.target.value)} placeholder="San Francisco" /></div>
+                <div className="field" style={{ gridColumn: '1 / -1' }}><label>LinkedIn URL <span className="muted">(optional — boosts accuracy)</span></label><input value={input.linkedin ?? ''} onChange={(e) => set('linkedin', e.target.value)} placeholder="https://linkedin.com/in/janefoo" /></div>
+              </div>
+              <label className="muted small" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
+                <input type="checkbox" checked={input.usernameScan === 'full'} onChange={(e) => setInput((p) => ({ ...p, usernameScan: e.target.checked ? 'full' : 'curated' }))} />
+                Deep username scan — probe the full 700+ platform list (slower; default is ~40 high-signal sites)
+              </label>
+            </>
+          )}
+
+          {/* Divider in "both" mode */}
+          {target === 'both' && <div style={{ borderTop: '1px solid var(--line)', margin: '18px 0' }} />}
+
+          {/* Company fields */}
+          {target !== 'person' && (
+            <>
+              {target === 'both' && <div className="muted small" style={{ marginBottom: 8, fontWeight: 600 }}>Company / fund</div>}
+              <div className="grid">
+                <div className="field"><label>Company / fund</label><input value={input.company ?? ''} onChange={(e) => set('company', e.target.value)} placeholder="e.g. Acme Capital" /></div>
+                <div className="field"><label>Domain <span className="muted">(optional)</span></label><input value={input.domain ?? ''} onChange={(e) => set('domain', e.target.value)} placeholder="acme.com" /></div>
+                <div className="field"><label>US state <span className="muted">(optional — SoS/UCC)</span></label><input value={input.state ?? ''} onChange={(e) => set('state', e.target.value)} placeholder="DE" maxLength={2} /></div>
+              </div>
+            </>
+          )}
+
+          {/* Depth selector */}
+          <div style={{ marginTop: 18, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="muted small" style={{ marginRight: 4 }}>Research depth:</span>
+            {(['basic', 'advanced', 'deep'] as const).map((d) => (
+              <label key={d} className="muted small" style={{ display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer', padding: '3px 10px', borderRadius: 4, background: (input.depth ?? 'basic') === d ? 'var(--accent)' : 'var(--surface)', border: '1px solid var(--border)' }}>
+                <input type="radio" name="depth" value={d} checked={(input.depth ?? 'basic') === d} onChange={() => setInput((p) => ({ ...p, depth: d }))} style={{ display: 'none' }} />
+                {d === 'basic' ? '⚡ Basic' : d === 'advanced' ? '🔍 Advanced' : '🕵️ Deep'}
+              </label>
+            ))}
+            <span className="muted small" style={{ marginLeft: 4 }}>
+              {(input.depth ?? 'basic') === 'basic' ? '~30s · zero-key REST' : (input.depth ?? 'basic') === 'advanced' ? '~90s · specialist registries' : '~3min · bulk + browser'}
+            </span>
+          </div>
+
           <div style={{ marginTop: 14 }}>
-            <button disabled={busy || (!input.name && !input.company)} onClick={runResolve}>{busy ? 'Resolving…' : 'Find identities →'}</button>
+            <button
+              disabled={busy || (target === 'person' && !input.name) || (target === 'company' && !input.company) || (target === 'both' && !input.name && !input.company)}
+              onClick={runResolve}
+            >
+              {busy ? 'Resolving…' : 'Find identities →'}
+            </button>
           </div>
         </div>
       )}
