@@ -23,6 +23,16 @@ export type { JobPipelineResult } from "./pipeline.js";
 export { processJobCandidate } from "./pipeline.js";
 export { jobsTableSpec, jobsCardFeedView, jobsTrackerView } from "./table.js";
 export { createGreenhouseConnector, createAshbyConnector, createLeverConnector } from "./connectors.js";
+// Real HTTP fetchers — the supplier connectors.ts always expected and never had.
+export type { FetchedPosting } from "./fetchers.js";
+export { BoardFetchError, greenhouseFetcher, leverFetcher, ashbyFetcher } from "./fetchers.js";
+export type { SourceKind, JobSource } from "./sources.js";
+export { SOURCE_CATALOG, findSource, fetcherFor } from "./sources.js";
+export type { SweepResult, SweepCandidateResult } from "./sweep.js";
+export { selectPostings, postingToJobProfile } from "./sweep.js";
+// Curated full-time MBA recruiting targets — deadlines no ATS feed carries.
+export type { SponsorshipTier, MbaTarget } from "./mba-targets.js";
+export { MBA_FULL_TIME_TARGETS, targetsClosingIn, unverifiedTargets, sponsoringTargets } from "./mba-targets.js";
 export type { StageActor, StageEvent } from "./state-machine.js";
 export { InvalidTransitionError, transition } from "./state-machine.js";
 export type { AnswerSource, AnswerRecord, AnswerBank } from "./answer-bank.js";

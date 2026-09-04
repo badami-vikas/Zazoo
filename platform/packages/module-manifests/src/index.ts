@@ -132,6 +132,14 @@ export const DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID = "b0000000-0000-4000-a000-
 export const DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_KEY = "devpilot.suggest-practice";
 export const DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID = "b0000000-0000-4000-a000-00000000010e";
 export const DEVPILOT_ANALYZE_ISSUE_AUTOMATION_KEY = "devpilot.analyze-issue";
+/** JobPilot source sweep (ADR-266). The Application tracking Agent gains a
+ * runtime identity here for the first time: without one the generic Module
+ * Automation materializer in wiring.ts skips the Automation entirely, and a
+ * declared schedule that silently never fires is the exact defect ADR-179
+ * built the scheduler to end. Continuing the id sequence after DevPilot. */
+export const JOBPILOT_APPLICATION_AGENT_ID = "b0000000-0000-4000-a000-00000000010f";
+export const JOBPILOT_SOURCE_SWEEP_AUTOMATION_ID = "b0000000-0000-4000-a000-000000000114";
+export const JOBPILOT_SOURCE_SWEEP_AUTOMATION_KEY = "job-pilot.source-sweep";
 
 export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAutomationId: string): string | undefined {
   if (moduleName === "deal-pilot" && manifestAutomationId === DEALPILOT_SOURCE_AUTOMATION_KEY) {
@@ -194,6 +202,9 @@ export function resolveModuleAutomationRuntimeId(moduleName: string, manifestAut
   if (moduleName === "devpilot" && manifestAutomationId === DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_KEY) {
     return DEVPILOT_SUGGEST_PRACTICE_AUTOMATION_ID;
   }
+  if (moduleName === "job-pilot" && manifestAutomationId === JOBPILOT_SOURCE_SWEEP_AUTOMATION_KEY) {
+    return JOBPILOT_SOURCE_SWEEP_AUTOMATION_ID;
+  }
   if (moduleName === "devpilot" && manifestAutomationId === DEVPILOT_ANALYZE_ISSUE_AUTOMATION_KEY) {
     return DEVPILOT_ANALYZE_ISSUE_AUTOMATION_ID;
   }
@@ -255,6 +266,9 @@ export function resolveModuleAgentRuntimeId(moduleName: string, manifestAgentId:
   }
   if (moduleName === "devpilot" && manifestAgentId === "reviewer-agent") {
     return DEVPILOT_REVIEWER_AGENT_ID;
+  }
+  if (moduleName === "job-pilot" && manifestAgentId === "application-agent") {
+    return JOBPILOT_APPLICATION_AGENT_ID;
   }
   return undefined;
 }
@@ -404,6 +418,21 @@ const jobPilotCapabilities = [
     [
       { manifestId: "job-pilot.score-fit", versionRange: "0.2.0" },
       { manifestId: "job-pilot.transition-application", versionRange: "0.2.0" },
+    ],
+  ),
+  // The sweep is the ONLY JobPilot capability that leaves the machine, so it
+  // gets its own capability id rather than widening the tracking Automation's
+  // record-only authority. `readPublic("external:fetch")` — public ATS board
+  // JSON, no credentials, nothing personal sent outbound.
+  capability(
+    "job-pilot.source-sweep",
+    "Job source sweep",
+    "automation",
+    [readPublic("external:fetch"), writeAll("record")],
+    [],
+    [
+      { manifestId: "job-pilot.application-agent", versionRange: "0.2.0" },
+      { manifestId: "job-pilot.score-fit", versionRange: "0.2.0" },
     ],
   ),
   capability(
@@ -965,12 +994,25 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
           route: "/jobpilot",
           databaseId: "jobpilot.jobs",
           capabilityId: "job-pilot.jobs",
+        }, {
+          // Source toggle page (ADR-266) — mirrors DealPilot's /dealpilot/sources
+          // rather than inventing a second shape for the same job. Binds the same
+          // Database as the Jobs page: sources have no Database of their own,
+          // because the catalog is code and only toggle STATE is persisted.
+          id: "sources",
+          name: "Sources",
+          route: "/jobpilot/sources",
+          databaseId: "jobpilot.jobs",
+          capabilityId: "job-pilot.jobs",
         }],
         agents: [{
           id: "application-agent",
           name: "Application tracking Agent",
           capabilityId: "job-pilot.application-agent",
           skillIds: ["job-pilot.score-fit", "job-pilot.transition-application"],
+          // Local: the sweep reads public board JSON and writes Job records on
+          // this machine. Nothing personal leaves the Local Plane.
+          plane: "local",
         }],
         automations: [{
           id: "track-application",
@@ -979,6 +1021,22 @@ export const BUILT_IN_MODULES: readonly BuiltInModule[] = [
           agentId: "application-agent",
           trigger: "Job saved",
           procedure: "jobpilot.create",
+        }, {
+          // The "regularly fetches" half. Declared with a runRoute so the manual
+          // and scheduled paths are the same Automation, as DealPilot's source
+          // intake established — a manual refresh must not be a second code path
+          // that can drift from what the schedule actually does.
+          id: "source-sweep",
+          name: "Job source sweep",
+          capabilityId: "job-pilot.source-sweep",
+          agentId: "application-agent",
+          trigger: "Scheduled",
+          // The cadence is DATA the scheduler reads (ADR-179) — the English
+          // `trigger` above is display text and starts nothing on its own.
+          schedule: { kind: "schedule", everyMinutes: 360 },
+          procedure: "jobpilot.sources.run",
+          automationId: JOBPILOT_SOURCE_SWEEP_AUTOMATION_KEY,
+          runRoute: "/jobpilot/sources",
         }],
         commonsNeeds: [{
           id: "interview-calendar-availability",

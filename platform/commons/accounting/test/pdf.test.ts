@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { ScannedPdfError, readPdf } from "../src/import/pdf.js";
 import { classifyGrid } from "../src/import/classify.js";
@@ -91,6 +91,23 @@ function profitAndLossPdf(): Uint8Array {
   ];
   return makePdf(rows);
 }
+
+/**
+ * `readPdf` loads pdfjs lazily on first use (see src/import/pdf.ts — a static import
+ * once made a missing native canvas fatal to application start). That load is a
+ * one-time ~1.4s here and several seconds on a loaded CI runner, and without this hook
+ * the whole of it is billed to whichever test calls `readPdf` first, against vitest's
+ * 5s per-test budget: measured 1415ms for the first call versus 11ms for the second,
+ * and a CI timeout at 5285ms that failed the entire platform job.
+ *
+ * Paying it here moves the cost to the hook budget, which is separate and larger, and
+ * leaves every test in this file measuring what it is actually about. Deliberately not
+ * a raised testTimeout: the tests are genuinely fast, and a wider global budget would
+ * hide real hangs elsewhere.
+ */
+beforeAll(async () => {
+  await readPdf(makePdf([{ y: 700, cells: [{ text: "warm", x: 60 }] }]), "warm.pdf");
+});
 
 describe("readPdf — geometry reconstruction", () => {
   it("recovers a label column and two right-aligned value columns", async () => {

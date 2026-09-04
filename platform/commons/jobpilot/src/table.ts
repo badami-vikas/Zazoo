@@ -12,6 +12,9 @@ export const jobsTableSpec: TableSpec = {
     { id: "company", label: "Company", kind: "text" },
     { id: "location", label: "Location", kind: "location" },
     { id: "salaryMax", label: "Salary (max)", kind: "number" },
+    // kind "date" (not text) so the deadline window is sortable and a calendar
+    // view over this table is a config change, not new code.
+    { id: "deadline", label: "Deadline", kind: "date" },
     { id: "flag", label: "Recommendation", kind: "select", options: ["pursue", "review", "pass"] },
     { id: "stage", label: "Stage", kind: "select", options: ["queued", "tailoring", "evaluating", "approved", "awaiting_review", "applying", "parked", "submitted", "confirmed", "rejected_by_user", "failed", "expired"] },
     { id: "fitScore", label: "Fit Score", kind: "number", editable: false },

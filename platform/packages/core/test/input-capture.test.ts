@@ -36,6 +36,15 @@ import {
   type FieldRole,
 } from "../src/index.js";
 
+/** An ISO instant whose LOCAL hour is exactly `hour`, so timeOfDay assertions
+ * hold in every timezone. `timeOfDayBucket` buckets the local hour on purpose
+ * — a user's "night" is their own night, not UTC's — so a hardcoded `...Z`
+ * literal silently asserts the runner's offset instead of the behaviour. */
+function isoAtLocalHour(hour: number): string {
+  const d = new Date(2026, 7, 16, hour, 0, 0, 0);
+  return d.toISOString();
+}
+
 const DENYLIST = defaultInputCaptureDenylist();
 
 function burst(over: Partial<RawInputBurst>): RawInputBurst {
@@ -298,7 +307,7 @@ test("a suppressed burst has NO content field at all — not an empty string", (
       disposition: "suppressed",
       suppressionReason: "secure_field",
       redactionCount: 0,
-      typedAt: "2026-08-16T22:00:00.000Z",
+      typedAt: isoAtLocalHour(22),
     },
     { organizationId: "org", userId: "user" },
     "sig-4",
@@ -318,7 +327,7 @@ test("suppressed bursts signal the reason and never the text", () => {
       disposition: "suppressed",
       suppressionReason: "secure_field",
       redactionCount: 0,
-      typedAt: "2026-08-16T22:00:00.000Z",
+      typedAt: isoAtLocalHour(22),
     },
     { organizationId: "org", userId: "user" },
     "sig-2",

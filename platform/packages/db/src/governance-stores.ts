@@ -688,6 +688,26 @@ export async function ensureDevpilotTrackerGovernance(
   });
 }
 
+/** JobPilot source sweep — the Agent the scheduled sweep Automation runs as.
+ * Reads public ATS job boards only (no credentials, no egress), and writes
+ * what it finds into JobPilot's own Databases as untrusted external content. */
+export async function ensureJobPilotApplicationGovernance(
+  db: Database,
+  config: RuntimeAgentGovernanceConfig,
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    name: "Job application Agent",
+    description: "May read public job-board postings and record the matching ones in JobPilot; never applies on the owner's behalf.",
+    goal: "Sweep enabled job sources and record full-time postings that match the owner's profile.",
+    resourceType: "external:fetch",
+    action: "read",
+    capabilityToken: "external:fetch:read",
+    allowedSkills: ["jobpilot.sources.run"],
+    dataScope: "public",
+  });
+}
+
 /** DevPilot D2 (TASK-071) — a separate Agent identity from the tracker: the
  * tracker only ever reads GitHub metadata, but the reviewer additionally
  * writes governed proposals (a Human must still approve each one), so it

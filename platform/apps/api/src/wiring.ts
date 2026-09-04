@@ -245,6 +245,7 @@ import {
   ensureRelationshipUserGovernance,
   ensureDevpilotTrackerGovernance,
   ensureDevpilotReviewerGovernance,
+  ensureJobPilotApplicationGovernance,
   type CanonicalIdentityStore,
   DrizzleDevpilotStore,
 } from "@bridge/db";
@@ -342,9 +343,11 @@ import {
   LEARNING_RECOMMENDATION_SKILL_ID,
   DEVPILOT_TRACKER_AGENT_ID,
   DEVPILOT_REVIEWER_AGENT_ID,
+  JOBPILOT_APPLICATION_AGENT_ID,
   resolveModuleAgentRuntimeId,
   resolveModuleAutomationRuntimeId,
 } from "@bridge/module-manifests";
+import { runJobPilotSweep } from "./jobpilot-sweep.js";
 import { deterministicUuid } from "./deterministic-uuid.js";
 import {
   InMemoryCaptureLedger,
@@ -391,6 +394,10 @@ const DEVPILOT_TRACKER_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-000000000
 // sequence after the tracker's (…111).
 const DEVPILOT_REVIEWER_ROLE = "b0000000-0000-4000-a000-000000000112";
 const DEVPILOT_REVIEWER_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-000000000113";
+// JobPilot source sweep — the Agent the scheduled sweep Automation runs as.
+// …114 is the Automation itself (JOBPILOT_SOURCE_SWEEP_AUTOMATION_ID).
+const JOBPILOT_APPLICATION_ROLE = "b0000000-0000-4000-a000-000000000115";
+const JOBPILOT_APPLICATION_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-000000000116";
 // AGS0 (TASK-007) — Internal Strategist's physical governed-pipeline identity
 // (the id `AgentQuery`/the ledger key off of). Distinct from the chat-routing
 // `FoundationalAgentId` string "internal_strategist" (@bridge/core's agents.ts)
@@ -4462,6 +4469,18 @@ function seedGovernance(
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
   ]);
 
+  // JobPilot application agent (local) — the identity the scheduled source
+  // sweep runs as. Same shape as the DevPilot tracker: read public boards,
+  // nothing else. Without this the Automation materializer refuses to save
+  // the sweep Automation, because its owning Agent would not exist.
+  agents.assumed.set(JOBPILOT_APPLICATION_AGENT_ID, "role-jobpilot-application");
+  agents.scope.set(JOBPILOT_APPLICATION_AGENT_ID, ["external:fetch:read"]);
+  agents.tiers.set(JOBPILOT_APPLICATION_AGENT_ID, "public");
+  agents.skills.set(JOBPILOT_APPLICATION_AGENT_ID, ["jobpilot.sources.run"]);
+  roles.roleGrants.set("role-jobpilot-application", [
+    { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
+  ]);
+
   // DevPilot reviewer agent (cloud) — DRAFTS engineering-assist proposals
   // (D2). Separate identity from the tracker: least-privilege split, since
   // this one additionally calls a model and writes a governed proposal.
@@ -4638,6 +4657,7 @@ export interface ModePorts {
   ensureEgressGovernance?: () => Promise<void>;
   ensureDevpilotTrackerGovernance?: () => Promise<void>;
   ensureDevpilotReviewerGovernance?: () => Promise<void>;
+  ensureJobPilotApplicationGovernance?: () => Promise<void>;
   ensureIntakeGovernance?: () => Promise<void>;
   ensureDealPilotPrincipalGovernance?: () => Promise<void>;
   /**
@@ -4768,6 +4788,14 @@ export function buildPersistentPorts(env: {
         agentId: DEVPILOT_REVIEWER_AGENT_ID,
         roleId: DEVPILOT_REVIEWER_ROLE,
         permissionId: DEVPILOT_REVIEWER_PRINCIPAL_PERMISSION,
+      }),
+    ensureJobPilotApplicationGovernance: () =>
+      ensureJobPilotApplicationGovernance(db, {
+        organizationId: PILOT_ORGANIZATION,
+        userId: pilotUserId,
+        agentId: JOBPILOT_APPLICATION_AGENT_ID,
+        roleId: JOBPILOT_APPLICATION_ROLE,
+        permissionId: JOBPILOT_APPLICATION_PRINCIPAL_PERMISSION,
       }),
     ensureIntakeGovernance: () =>
       ensureIntakeAgentGovernance(db, {
@@ -5121,6 +5149,14 @@ export async function buildInMemoryPorts(env: {
               agentId: DEVPILOT_REVIEWER_AGENT_ID,
               roleId: DEVPILOT_REVIEWER_ROLE,
               permissionId: DEVPILOT_REVIEWER_PRINCIPAL_PERMISSION,
+            }),
+          ensureJobPilotApplicationGovernance: () =>
+            ensureJobPilotApplicationGovernance(localDb, {
+              organizationId: PILOT_ORGANIZATION,
+              userId: pilotUserId,
+              agentId: JOBPILOT_APPLICATION_AGENT_ID,
+              roleId: JOBPILOT_APPLICATION_ROLE,
+              permissionId: JOBPILOT_APPLICATION_PRINCIPAL_PERMISSION,
             }),
           ensureIntakeGovernance: () =>
             ensureIntakeAgentGovernance(localDb, {
@@ -6165,6 +6201,26 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     }
     return { source, estimate };
   };
+  // JobPilot source sweep (ADR-266). Registered as a Skill so the scheduled
+  // Automation has something to execute — the manifest's 6-hour cadence reaches
+  // the scheduler through the generic Module-Automation materializer below, and
+  // an Automation whose `procedure` names no registered Skill would be a
+  // schedule that fires into nothing.
+  skillRegistry.register({
+    name: "jobpilot.sources.run",
+    async run(inputs): Promise<SkillOutput> {
+      const request = inputs as { organizationId?: unknown };
+      const organizationId =
+        typeof request.organizationId === "string" ? request.organizationId : PILOT_ORGANIZATION;
+      const report = await runJobPilotSweep(modePorts.jobpilotStore, organizationId);
+      // `untrusted_external`: every posting in this report came off a public ATS
+      // board. It is third-party text arriving over the network, so it carries
+      // the external origin into the pipeline rather than inheriting trust from
+      // the schedule that started the Run.
+      return { proposedOutput: report, trustOrigin: "untrusted_external" };
+    },
+  });
+
   skillRegistry.register({
     name: "dealpilot.source",
     async run(inputs, ctx) {
@@ -6673,6 +6729,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   await modePorts.ensureEgressGovernance?.();
   await modePorts.ensureDevpilotTrackerGovernance?.();
   await modePorts.ensureDevpilotReviewerGovernance?.();
+  await modePorts.ensureJobPilotApplicationGovernance?.();
   await modePorts.ensureIntakeGovernance?.();
   await modePorts.ensureDealPilotPrincipalGovernance?.();
   await modePorts.ensureCapabilityApprovalGovernance?.();
