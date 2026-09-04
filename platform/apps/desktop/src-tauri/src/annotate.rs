@@ -379,6 +379,87 @@ pub fn annotate_clear(app: AppHandle) -> Result<(), AnnotateError> {
         })
 }
 
+// ---------------------------------------------------------------------------
+// Scribble: the user circles an area of the screen to focus an ask
+// ---------------------------------------------------------------------------
+//
+// The annotate window is click-through from creation. For exactly the span of
+// one drag it becomes interactive (`set_ignore_cursor_events(false)`) so the
+// user can draw a rectangle over the screen; the webview reports the rect and
+// click-through is restored immediately — begin and done are paired, and a
+// cancel (Escape, or the panel closing) restores it too. Nothing else about
+// the window changes: it never becomes key, never activates the app.
+
+pub const SCRIBBLE_EVENT: &str = "annotate:scribble";
+pub const SCRIBBLE_REGION_EVENT: &str = "bridge:scribble-region";
+
+#[derive(Serialize, Clone)]
+struct ScribblePayload {
+    monitor: usize,
+    active: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ScribbleRegion {
+    pub monitor: usize,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+fn set_scribble(app: &AppHandle, monitor: usize, active: bool) -> Result<(), AnnotateError> {
+    let label = label_for_monitor(monitor);
+    let Some(win) = app.get_webview_window(&label) else {
+        return Err(AnnotateError { code: "ANNOTATE_NO_WINDOW", message: format!("no annotate window for monitor {monitor}") });
+    };
+    if active {
+        let _ = win.show();
+    }
+    win.set_ignore_cursor_events(!active).map_err(|e| AnnotateError { code: "ANNOTATE_CURSOR_EVENTS", message: e.to_string() })?;
+    app.emit(SCRIBBLE_EVENT, ScribblePayload { monitor, active })
+        .map_err(|e| AnnotateError { code: "ANNOTATE_EMIT_FAILED", message: e.to_string() })
+}
+
+/// From the overlay panel: let the user draw on the monitor this overlay sits on.
+#[tauri::command]
+pub fn annotate_scribble_begin(app: AppHandle, window: tauri::WebviewWindow) -> Result<usize, AnnotateError> {
+    let monitor = crate::overlay::monitor_index_for_label(window.label());
+    set_scribble(&app, monitor, true)?;
+    Ok(monitor)
+}
+
+/// From the overlay panel: cancel without a region.
+#[tauri::command]
+pub fn annotate_scribble_cancel(app: AppHandle, window: tauri::WebviewWindow) -> Result<(), AnnotateError> {
+    let monitor = crate::overlay::monitor_index_for_label(window.label());
+    set_scribble(&app, monitor, false)?;
+    let _ = annotate_clear(app);
+    Ok(())
+}
+
+/// From the annotate webview: the drag finished. Restores click-through
+/// FIRST, then validates and forwards the region to whoever is asking.
+#[tauri::command]
+pub fn annotate_scribble_done(app: AppHandle, window: tauri::WebviewWindow, region: ScribbleRegion) -> Result<(), AnnotateError> {
+    let monitor = window
+        .label()
+        .strip_prefix(ANNOTATE_LABEL)
+        .and_then(|rest| rest.strip_prefix('-'))
+        .and_then(|n| n.parse::<usize>().ok())
+        .unwrap_or(0);
+    set_scribble(&app, monitor, false)?;
+    let region = ScribbleRegion { monitor, ..region };
+    if !(region.x.is_finite() && region.y.is_finite() && region.width.is_finite() && region.height.is_finite())
+        || region.width < 8.0
+        || region.height < 8.0
+    {
+        return Err(AnnotateError { code: "ANNOTATE_SCRIBBLE_TOO_SMALL", message: "draw a larger area".into() });
+    }
+    app.emit(SCRIBBLE_REGION_EVENT, region)
+        .map_err(|e| AnnotateError { code: "ANNOTATE_EMIT_FAILED", message: e.to_string() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

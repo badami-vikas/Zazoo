@@ -25,6 +25,26 @@ versus Avatar Groq Llama-4 Scout vision.
 Repair gates pass; second-owner live retry remains external confirmation. No screenshot was sent to
 Groq during repair verification.
 
+**Hands shipped (TASK-095, 2026-09-03, Hey Clicky parity)**: Do mode in the companion panel (Ask ·
+Research · Do; "do/click/type/open…" typed asks route there). `act.rs` loop: consented capture →
+gridded planner call (ONE JSON action: click/double/right/type/key/scroll/open_app/done/fail) →
+two-stage locator refine → typed spotlight → `actuator.rs` glides the REAL pointer (CGEvent
+`mouseMoved` stream, smoothstep Bézier, 0.35–1.1 s) → click/type/press/scroll → settle → look again.
+Bounds 15 steps / 150 s. Gates: `allowControl` per request (panel switch, default OFF), macOS
+Accessibility (fail closed + prompt), Privacy Guard every step, key allowlist (no ⌘Q/⌘W/chords),
+typed text ≤500, sanitised app names, Stop button, and TAKEOVER — real cursor >28 px off the glide
+path halts the run. Every step emits `bridge:act-step`; panel narrates, Zazoo speaks the `say`.
+Pointer glyph is now an ARROW (`AgentPointer.tsx`, own polygon, avatar colour + white outline) that
+FLIES on jumps (clicky-style arc, leans into travel, puffs mid-flight, reduced-motion → snap) and
+snaps on actuator samples; click flashes a ring. Hey Clicky itself drives a per-window background
+driver and never moves the real cursor — Bridge moves the real one on purpose (visible = honest).
+Same day: **Show me how** (guide mode: point + narrate + wait for the user's own click,
+`CGEventSourceButtonState` poll, no control consent), **Circle an area** (annotate window interactive
+for one drag → red outline in the sent image + prompt note), **Dictate into my app** (Fn-held speech →
+`act_type_text`, same gates), **Only act in these apps** allowlist (empty = any). Still open: background
+per-window driver (refused — invisible), Skills from the panel (Chat panel in the overlay already
+reaches them), always-on wake word (refused).
+
 **Annotation output exists**: one display-sized `annotate.rs` window per monitor; click-through from
 creation (`set_ignore_cursor_events(true)`). Typed highlight/arrow/callout/spotlight marks only.
 Rust validates finite geometry, positive size, ≤12 marks, and ≤120-char labels before emit. Frontend

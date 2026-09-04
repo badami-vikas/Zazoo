@@ -6644,3 +6644,36 @@ the spec declares one of the kinds. A page joins by adding the columns and its o
 in-memory mode has no durable Event log, so `EmptyRecordMetadataSource` returns nothing and the
 columns render blank there — deliberate. Extending to a second Database is a spec edit plus its
 `recordEntityType`; nothing else.
+
+## ADR-277 — The Avatar moves the real cursor, and the model's vocabulary is the authority boundary (2026-09-03)
+
+**Context:** TASK-095, from the user's directive for Hey Clicky parity. Research of Clicky (to
+v1.0.48) and its open-source family showed a split: every visible "companion cursor" is a drawn
+overlay flying a smoothstep Bézier arc, while real input goes through a hidden path — an instant
+warp+click in the clones, a per-window SkyLight driver in Clicky itself that never touches the real
+pointer. No project with a visible cursor moves the real pointer smoothly.
+
+**Decision:** Bridge moves the REAL pointer, visibly, with CGEvent `mouseMoved` streams along the
+same arc the glyph draws. The reasons: (1) the blink is the tell for capture, and a moving real cursor
+is the equivalent tell for action — a background driver that clicks invisibly is exactly the silent
+actuation this codebase refuses; (2) takeover is free: the user's hand on the mouse is detected as a
+>28 px deviation from the last posted point and halts the run — a per-window driver has no such
+natural interrupt; (3) no new crate: eleven `extern "C"` CoreGraphics symbols, the pattern
+`sensor_bridge.rs` and `accessibility.rs` already use. Rejected: `CGWarpMouseCursorPosition`
+(no motion events, hover never updates, local input suppression); `enigo` (fine crate, but adds a
+dependency for what is ten FFI lines and would still need our own easing); the cua-driver route
+(per-PID SkyLight private API — unsupported surface, and invisible by design).
+
+Second decision: the planner replies with ONE JSON action from a closed enum, and the parser is the
+gate. `click/double_click/right_click` need a printed grid cell (refined by the existing two-stage
+locator); `key` is `actuator::Key::parse`'s allowlist (no ⌘Q/⌘W/chords); `type` is capped;
+`open_app` is sanitised; anything else is `fail`. The model cannot express "delete", "pay", or
+"quit" — not "is asked not to", cannot. Same instinct as ADR-239: the strongest guarantee is the one
+the types make unsayable. Consent is per request (`allow_control`, default false, panel switch),
+Accessibility fails closed with the OS prompt, the Privacy Guard runs before every capture, and the
+run is bounded (15 steps / 150 s) and stoppable.
+
+**Consequences:** TASK-056's per-app allowlist remains a separate approval — this slice acts on
+whatever is frontmost, guarded by the credential-window check only, and says so. Multi-monitor:
+the run acts on the monitor its overlay window sits on; global coordinates derive from
+`monitor_logical_rect`, the same origin the annotate window is positioned in. Verification: Rust 195 passed + 1 ignored (11 new; clippy clean on the new files); two guards mutation-checked RED-then-green (⌘Q refusal, click-without-cell refusal); web typecheck 0 errors, 117/117 tests, production build, ui-rules and vocabulary gates pass; browser lab (`annotate.html?lab=1`) proves the arrow renders, the click ring centres on its tip, and a throttled flight still lands on target. No live desktop run — no cloud call and no real input event was posted this session; the at-keyboard walk is the user's step.
