@@ -14,6 +14,8 @@ full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-202
 
 **3 menus, one definition each (§5f).** Column right-click ≡ header caret ≡ `StandardColumnMenu`; cell right-click ≡ row caret ≡ `StandardRowMenu`; toolbar 3-dots = Add column · View options · Sort · Export · Admin. Right-click MUST open the same menu the visible button opens.
 
+**Toggles live in the HEADER (§5h, 2026-08-30).** Generic: every segmented switch that swaps what a surface shows — Module Page toggles, the Intelligence Section's Agents·Automations·Integrations tabs, `/intelligence`'s tabs, Second Brain's tabs, anything the compiler generates — renders inside that surface's `h-14` header row, never floating in the body and never as a second row (doesn't fit → icon-only, same row). Toolbar stays the row BELOW: View/List dropdowns switch render mode / row subset of ONE dataset, so they are toolbar slots, not toggles. One item → plain centered name, still in the header. **Not enforced yet** — `ui-conformance.test.mjs` has no toggle-placement assertion; that lands with TASK-061.
+
 **Shell invariants (§5g).** Both panels always collapsible/expandable, affordance revealed on hover/focus. Headers always aligned — one `h-14` constant. **Zazoo companion present on every launch, every route,** ungated by onboarding (only what it may *do* is gated).
 
 **Data shape decide surface:**
